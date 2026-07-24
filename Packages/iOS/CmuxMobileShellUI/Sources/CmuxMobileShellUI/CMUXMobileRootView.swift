@@ -227,8 +227,8 @@ struct CMUXMobileRootView: View {
 
     @ViewBuilder
     private var rootContent: some View {
-        if shouldShowDeleteComputersVerifier {
-            deleteComputersVerifier
+        if shouldShowHideComputersVerifier {
+            hideComputersVerifier
         } else if shouldShowAgentChatDemoPreview {
             agentChatDemoPreview
         } else if shouldShowTerminalLayoutPreview {
@@ -243,38 +243,45 @@ struct CMUXMobileRootView: View {
             onboardingFlow
         } else if !isAuthenticated {
             SignInView()
-        } else if store.connectionState != .connected && shouldShowRestoringStoredMac {
-            RestoringStoredMacWorkspaceShell(
-                store: store,
-                signOut: signOut,
-                showAddDevice: showAddDevice,
-                showPairingScanner: showPairingScanner,
-                reconnectStoredMac: reconnectStoredMacIfNeeded
-            )
-        } else if store.connectionState != .connected && !store.hasKnownPairedMac {
-            // ONLY when there are no saved Macs at all: the add-device flow (it
-            // auto-presents the pairing sheet since there is nothing to list).
-            DisconnectedWorkspaceShellView(
-                hasKnownPairedMac: store.hasKnownPairedMac,
-                showAddDevice: showAddDevice,
-                showPairingScanner: showPairingScanner,
-                signOut: signOut,
-                setupHelpHighlight: disconnectedSetupHelpHighlight,
-                store: store
-            )
         } else {
-            // Connected, OR we have saved Macs and are auto-connecting in the
-            // background: always show the integrated cross-Mac workspace list, so
-            // the user never sees a "Your Macs" picker screen. The list renders
-            // whatever workspaces have aggregated (foreground + live secondary
-            // subscriptions); the foreground connection is established without any
-            // tap. Opening a workspace attaches its Mac on demand.
-            WorkspaceShellView(
-                store: store,
-                signOut: signOut,
-                showAddDevice: showAddDevice,
-                showPairingScanner: showPairingScanner
-            )
+            switch MobileRootAuthGate.shellSurface(
+                connectionState: store.connectionState,
+                showRestoringStoredMac: shouldShowRestoringStoredMac,
+                showDisconnectedNoPairedMacShell: MobileAuthenticatedShellPresentation.resolve(
+                    connectionState: store.connectionState,
+                    hasKnownPairedMac: store.hasKnownPairedMac,
+                    hasHiddenComputers: store.hasHiddenComputers
+                ) == .disconnected
+            ) {
+            case .disconnectedNoKnownPairedMac:
+                // ONLY when there are no saved Macs at all: the add-device flow (it
+                // auto-presents the pairing sheet since there is nothing to list).
+                DisconnectedWorkspaceShellView(
+                    hasKnownPairedMac: store.hasKnownPairedMac,
+                    showAddDevice: showAddDevice,
+                    showPairingScanner: showPairingScanner,
+                    signOut: signOut,
+                    setupHelpHighlight: disconnectedSetupHelpHighlight,
+                    store: store
+                )
+            case .workspaceShell(let isRestoringStoredMac):
+                // Restoring, connected, and offline-with-saved-Macs are ONE
+                // mounted view whose inputs vary, so shell presentation state
+                // (an open Settings sheet, navigation) survives the reconnect
+                // window resolving. The integrated cross-Mac workspace list
+                // renders whatever workspaces have aggregated (foreground +
+                // live secondary subscriptions); the foreground connection is
+                // established without any tap, and opening a workspace attaches
+                // its Mac on demand.
+                WorkspaceShellHost(
+                    store: store,
+                    isRestoringStoredMac: isRestoringStoredMac,
+                    signOut: signOut,
+                    showAddDevice: showAddDevice,
+                    showPairingScanner: showPairingScanner,
+                    reconnectStoredMac: reconnectStoredMacIfNeeded
+                )
+            }
         }
     }
 

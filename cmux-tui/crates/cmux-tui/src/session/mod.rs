@@ -13,6 +13,7 @@ pub(crate) mod tree;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
+use cmux_tui_core::server::PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY;
 use cmux_tui_core::{
     BrowserFrame, BrowserStatus, DefaultColors, Mux, MuxEventReceiver, PaneId, ScreenId,
     SidebarPluginStatus, SplitDir, SplitId, Surface, SurfaceId, SurfaceKind, SurfaceRenderFrame,
@@ -22,7 +23,9 @@ use ghostty_vt::{MouseInput, RenderState, Terminal};
 use serde::Deserialize;
 use serde_json::json;
 
-pub use remote::{RemoteSession, RemoteSurface};
+pub use remote::{
+    RemoteMessageReader, RemoteMessageWriter, RemoteSession, RemoteSurface, RemoteTransport,
+};
 pub use tree::{TabNotificationView, TreeView, WorkspaceView};
 
 #[derive(Clone)]
@@ -205,6 +208,13 @@ impl Session {
     pub fn begin_shutdown(&self) {
         if let Session::Remote(remote) = self {
             remote.begin_shutdown();
+        }
+    }
+
+    pub fn daemon_shutdown_requested(&self) -> bool {
+        match self {
+            Session::Local(mux) => mux.daemon_shutdown_requested(),
+            Session::Remote(_) => false,
         }
     }
     pub fn invalidate_remote_tree(&self) {
@@ -640,8 +650,11 @@ impl Session {
     pub fn close_screen(&self, screen: ScreenId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.close_screen(screen);
-                Ok(())
+                if mux.close_screen(screen)? {
+                    Ok(())
+                } else {
+                    anyhow::bail!("unknown screen {screen}")
+                }
             }
             Session::Remote(remote) => {
                 remote.request(json!({"cmd": "close-screen", "screen": screen})).map(|_| ())
@@ -731,8 +744,11 @@ impl Session {
     pub fn close_surface(&self, surface: SurfaceId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.close_surface(surface);
-                Ok(())
+                if mux.close_surface(surface)? {
+                    Ok(())
+                } else {
+                    anyhow::bail!("unknown surface {surface}")
+                }
             }
             Session::Remote(remote) => {
                 remote.request(json!({"cmd": "close-surface", "surface": surface})).map(|_| ())
@@ -743,8 +759,11 @@ impl Session {
     pub fn close_pane(&self, pane: PaneId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.close_pane(pane);
-                Ok(())
+                if mux.close_pane(pane)? {
+                    Ok(())
+                } else {
+                    anyhow::bail!("unknown pane {pane}")
+                }
             }
             Session::Remote(remote) => {
                 remote.request(json!({"cmd": "close-pane", "pane": pane})).map(|_| ())
@@ -766,13 +785,72 @@ impl Session {
 
     pub fn close_workspace(&self, workspace: WorkspaceId) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => {
-                mux.close_workspace(workspace);
-                Ok(())
-            }
+            Session::Local(mux) => mux
+                .close_workspace_at_revision(workspace, None)?
+                .map(|_| ())
+                .ok_or_else(|| anyhow::anyhow!("unknown workspace {workspace}")),
             Session::Remote(remote) => remote
                 .request(json!({"cmd": "close-workspace", "workspace": workspace}))
                 .map(|_| ()),
+        }
+    }
+
+    pub fn mark_workspaces_provider_managed(&self) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => {
+                mux.mark_workspaces_provider_managed_internal();
+                Ok(())
+            }
+            Session::Remote(remote) => {
+                if !remote.supports_capability(PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY) {
+                    anyhow::bail!(
+                        "remote cmux server cannot guard provider-managed workspaces; upgrade the server before attaching"
+                    );
+                }
+                let authority = remote.provider_workspace_authority().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "machine provider did not supply workspace mirror authority; upgrade the provider before attaching"
+                    )
+                })?;
+                remote.request(json!({
+                    "cmd": "mark-workspaces-provider-managed",
+                    "authority": authority.expose(),
+                }))?;
+                remote.confirm_provider_workspace_guard()
+            }
+        }
+    }
+
+    pub fn workspaces_are_provider_managed(&self) -> bool {
+        match self {
+            Session::Local(mux) => mux.workspaces_are_provider_managed(),
+            Session::Remote(remote) => remote.provider_workspaces_are_guarded(),
+        }
+    }
+
+    pub fn close_provider_managed_workspace(
+        &self,
+        workspace: WorkspaceId,
+        key: String,
+    ) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => mux
+                .close_provider_managed_workspace(workspace, &key)?
+                .map(|_| ())
+                .ok_or_else(|| anyhow::anyhow!("unknown provider-managed workspace {key}")),
+            Session::Remote(remote) => {
+                let authority = remote.provider_workspace_authority().ok_or_else(|| {
+                    anyhow::anyhow!("machine provider did not supply workspace mirror authority")
+                })?;
+                remote
+                    .request(json!({
+                        "cmd": "close-provider-managed-workspace",
+                        "workspace": workspace,
+                        "key": key,
+                        "authority": authority.expose(),
+                    }))
+                    .map(|_| ())
+            }
         }
     }
 
@@ -790,10 +868,10 @@ impl Session {
 
     pub fn rename_workspace(&self, workspace: WorkspaceId, name: String) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => {
-                mux.rename_workspace(workspace, name);
-                Ok(())
-            }
+            Session::Local(mux) => mux
+                .rename_workspace_at_revision(workspace, name, None)?
+                .map(|_| ())
+                .ok_or_else(|| anyhow::anyhow!("unknown workspace {workspace}")),
             Session::Remote(remote) => remote
                 .request(json!({
                     "cmd": "rename-workspace",
@@ -801,6 +879,34 @@ impl Session {
                     "name": name
                 }))
                 .map(|_| ()),
+        }
+    }
+
+    pub fn rename_provider_managed_workspace(
+        &self,
+        workspace: WorkspaceId,
+        key: String,
+        name: String,
+    ) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => mux
+                .rename_provider_managed_workspace(workspace, &key, name)?
+                .map(|_| ())
+                .ok_or_else(|| anyhow::anyhow!("unknown provider-managed workspace {key}")),
+            Session::Remote(remote) => {
+                let authority = remote.provider_workspace_authority().ok_or_else(|| {
+                    anyhow::anyhow!("machine provider did not supply workspace mirror authority")
+                })?;
+                remote
+                    .request(json!({
+                        "cmd": "rename-provider-managed-workspace",
+                        "workspace": workspace,
+                        "key": key,
+                        "name": name,
+                        "authority": authority.expose(),
+                    }))
+                    .map(|_| ())
+            }
         }
     }
 
@@ -882,7 +988,7 @@ impl Session {
     pub fn move_workspace(&self, workspace: WorkspaceId, index: usize) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.move_workspace(workspace, index);
+                mux.move_workspace_at_revision(workspace, index, None)?;
                 Ok(())
             }
             Session::Remote(remote) => remote
@@ -1358,6 +1464,16 @@ impl SurfaceHandle {
 }
 
 #[cfg(test)]
+pub(crate) fn test_remote_session_without_provider_authority() -> Session {
+    Session::Remote(remote::test_session_without_provider_authority())
+}
+
+#[cfg(test)]
+pub(crate) fn test_remote_session_with_provider_authority_without_guard() -> Session {
+    Session::Remote(remote::test_session_with_provider_authority_without_guard())
+}
+
+#[cfg(test)]
 mod tests {
     use cmux_tui_core::{Mux, SurfaceOptions};
 
@@ -1394,5 +1510,36 @@ mod tests {
 
         let error = session.set_split_ratio(999_999, 0.5).unwrap_err();
         assert_eq!(error.to_string(), "unknown split 999999");
+    }
+
+    #[test]
+    fn local_provider_guard_surfaces_actionable_ordinary_mutation_errors() {
+        let mux = Mux::new("local-provider-guard-test", SurfaceOptions::default());
+        let workspace = mux
+            .create_empty_workspace(
+                Some("managed".into()),
+                Some("018f6e21-7b70-7e70-8000-00000000aa06".into()),
+                None,
+            )
+            .unwrap();
+        let session = Session::Local(mux.clone());
+        session.mark_workspaces_provider_managed().unwrap();
+
+        let rename_error =
+            session.rename_workspace(workspace.workspace, "raw rename".into()).unwrap_err();
+        let close_error = session.close_workspace(workspace.workspace).unwrap_err();
+
+        assert_eq!(
+            rename_error.to_string(),
+            "cannot rename a provider-managed workspace directly; use the managed workspace lifecycle controls"
+        );
+        assert_eq!(
+            close_error.to_string(),
+            "cannot close a provider-managed workspace directly; use the managed workspace lifecycle controls"
+        );
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces.len(), 1);
+            assert_eq!(state.workspaces[0].name, "managed");
+        });
     }
 }

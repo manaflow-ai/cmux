@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -17,8 +17,13 @@ use cmux_tui_core::{
     MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge, Rgb, SurfaceId,
     SurfaceKind, platform::transport,
 };
-use ghostty_vt::{Callbacks, MouseEncoders, MouseInput, RenderState, Terminal};
+use cmux_tui_machine_protocol::BearerToken;
+use ghostty_vt::{
+    Callbacks, CursorShape, MouseEncoders, MouseInput, RenderState, Terminal,
+    TerminalColorOverrides, parse_color,
+};
 use serde_json::{Value, json};
+use zeroize::Zeroize;
 
 use super::tree::{TreeView, parse_tree};
 
@@ -30,6 +35,12 @@ const SURFACE_OVERFLOW_STABLE: Duration = Duration::from_secs(5);
 const REMOTE_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 #[cfg(test)]
 const REMOTE_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
+
+fn zeroize_string(value: &mut str) {
+    // NUL is valid UTF-8, so the serialized request can be cleared in place
+    // immediately after the synchronous transport write finishes.
+    value.zeroize();
+}
 
 fn validate_remote_identity(ident: &Value) -> anyhow::Result<()> {
     if ident.get("app").and_then(Value::as_str) != Some("cmux-tui") {
@@ -54,7 +65,7 @@ pub(crate) struct RemoteCellPixelUpdate {
 #[derive(Debug)]
 pub(crate) enum RemoteRequestError {
     Encode(serde_json::Error),
-    Transport(std::io::Error),
+    Transport(io::Error),
     Timeout,
     Rejected(String),
     Shutdown,
@@ -215,6 +226,16 @@ pub struct RemoteSurface {
     browser: Mutex<RemoteBrowserState>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RemoteTerminalColors {
+    fg: Option<Rgb>,
+    bg: Option<Rgb>,
+    cursor: Option<Rgb>,
+    cursor_style: Option<CursorShape>,
+    cursor_blink: Option<bool>,
+    palette: [Option<Rgb>; 256],
+}
+
 impl RemoteSurface {
     pub(super) fn sync_mouse_encoders(&self, terminal: &Terminal) {
         self.mouse_encoders.lock().unwrap().sync_from_terminal(terminal);
@@ -271,17 +292,35 @@ impl RemoteSurface {
     }
     /// Apply an ordered attach-stream resize marker to the mirror terminal.
     pub(super) fn apply_stream_resize(&self, cols: u16, rows: u16, replay: Option<&[u8]>) {
+        self.apply_stream_resize_with_colors(cols, rows, replay, None);
+    }
+
+    /// Apply one authoritative replay and its coupled color state before the
+    /// mirror can be observed at the new size.
+    fn apply_stream_resize_with_colors(
+        &self,
+        cols: u16,
+        rows: u16,
+        replay: Option<&[u8]>,
+        colors: Option<&RemoteTerminalColors>,
+    ) {
         let (cols, rows) = (cols.max(1), rows.max(1));
         let mut term = self.term.lock().unwrap();
         if let Some(replay) = replay
             && let Ok(mut fresh) = Terminal::new(cols, rows, 10_000, Callbacks::default())
         {
             fresh.vt_write(replay);
+            if let Some(colors) = colors {
+                apply_terminal_colors(&mut fresh, colors);
+            }
             *term = fresh;
             self.sync_mouse_encoders(&term);
             return;
         }
         let _ = term.resize(cols, rows, 8, 16);
+        if let Some(colors) = colors {
+            apply_terminal_colors(&mut term, colors);
+        }
         self.sync_mouse_encoders(&term);
     }
 
@@ -384,7 +423,7 @@ struct SubscriptionRecoveryState {
 }
 
 pub struct RemoteSession {
-    writer: Mutex<Box<dyn transport::Stream>>,
+    writer: Mutex<Box<dyn RemoteMessageWriter>>,
     pending: Mutex<HashMap<u64, Sender<Value>>>,
     next_id: AtomicU64,
     shutdown: AtomicBool,
@@ -397,6 +436,82 @@ pub struct RemoteSession {
     subscribers: MuxEventBroadcaster,
     frame_logs: Mutex<HashMap<SurfaceId, Vec<String>>>,
     surface_overflow_recovery: Mutex<HashMap<SurfaceId, SurfaceOverflowRecovery>>,
+    capabilities: Mutex<HashSet<String>>,
+    provider_workspace_authority: Option<BearerToken>,
+    provider_workspaces_guarded: AtomicBool,
+}
+
+/// Receive complete JSON protocol messages from one transport.
+///
+/// Message framing belongs to the transport adapter: Unix sockets and SSH
+/// relays use JSON lines, while WebSocket and future Iroh adapters can use
+/// their native message boundaries.
+pub trait RemoteMessageReader: Send {
+    fn receive(&mut self) -> io::Result<Option<String>>;
+}
+
+/// Send complete JSON protocol messages over one transport.
+pub trait RemoteMessageWriter: Send {
+    fn send(&mut self, message: &str) -> io::Result<()>;
+    fn close(&mut self) -> io::Result<()>;
+}
+
+/// The independently-owned read and write halves of a remote connection.
+/// Split halves support process stdio and async transport pumps without
+/// requiring the underlying stream to be cloneable.
+pub struct RemoteTransport {
+    reader: Box<dyn RemoteMessageReader>,
+    writer: Box<dyn RemoteMessageWriter>,
+}
+
+impl RemoteTransport {
+    pub fn new(reader: Box<dyn RemoteMessageReader>, writer: Box<dyn RemoteMessageWriter>) -> Self {
+        Self { reader, writer }
+    }
+
+    pub fn json_lines(stream: Box<dyn transport::Stream>) -> io::Result<Self> {
+        stream.set_write_timeout(Some(REMOTE_WRITE_TIMEOUT))?;
+        let read_half = stream.try_clone_box()?;
+        Ok(Self {
+            reader: Box::new(JsonLineReader { inner: BufReader::new(read_half) }),
+            writer: Box::new(JsonLineWriter { inner: stream }),
+        })
+    }
+}
+
+struct JsonLineReader {
+    inner: BufReader<Box<dyn transport::Stream>>,
+}
+
+impl RemoteMessageReader for JsonLineReader {
+    fn receive(&mut self) -> io::Result<Option<String>> {
+        let mut message = String::new();
+        if self.inner.read_line(&mut message)? == 0 {
+            return Ok(None);
+        }
+        if message.ends_with('\n') {
+            message.pop();
+            if message.ends_with('\r') {
+                message.pop();
+            }
+        }
+        Ok(Some(message))
+    }
+}
+
+struct JsonLineWriter {
+    inner: Box<dyn transport::Stream>,
+}
+
+impl RemoteMessageWriter for JsonLineWriter {
+    fn send(&mut self, message: &str) -> io::Result<()> {
+        self.inner.write_all(message.as_bytes())?;
+        self.inner.write_all(b"\n")
+    }
+
+    fn close(&mut self) -> io::Result<()> {
+        self.inner.shutdown(Shutdown::Both)
+    }
 }
 
 impl RemoteSession {
@@ -412,12 +527,40 @@ impl RemoteSession {
         let stream = transport::connect(path).map_err(|e| {
             anyhow::anyhow!("cannot connect to session socket {}: {e}", path.display())
         })?;
-        stream.set_write_timeout(Some(REMOTE_WRITE_TIMEOUT)).map_err(|error| {
-            anyhow::anyhow!("cannot configure session socket write timeout: {error}")
+        Self::connect_stream(stream)
+    }
+
+    /// Connect over an already-established full-duplex byte stream.
+    ///
+    /// The cmux protocol is transport-independent JSONL. Keeping stream
+    /// establishment outside `RemoteSession` lets clients use a local socket,
+    /// an SSH relay, or another authenticated tunnel without teaching the
+    /// session and rendering layers about those transports.
+    pub fn connect_stream(stream: Box<dyn transport::Stream>) -> anyhow::Result<Arc<Self>> {
+        let transport = RemoteTransport::json_lines(stream).map_err(|error| {
+            anyhow::anyhow!("cannot configure JSON-lines session transport: {error}")
         })?;
-        let read_half = stream.try_clone_box()?;
+        Self::connect_transport(transport)
+    }
+
+    pub fn connect_transport(transport: RemoteTransport) -> anyhow::Result<Arc<Self>> {
+        Self::connect_transport_with_provider_authority(transport, None)
+    }
+
+    pub fn connect_provider_transport(
+        transport: RemoteTransport,
+        authority: BearerToken,
+    ) -> anyhow::Result<Arc<Self>> {
+        Self::connect_transport_with_provider_authority(transport, Some(authority))
+    }
+
+    fn connect_transport_with_provider_authority(
+        transport: RemoteTransport,
+        provider_workspace_authority: Option<BearerToken>,
+    ) -> anyhow::Result<Arc<Self>> {
+        let RemoteTransport { mut reader, writer } = transport;
         let session = Arc::new(RemoteSession {
-            writer: Mutex::new(stream),
+            writer: Mutex::new(writer),
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
             shutdown: AtomicBool::new(false),
@@ -430,33 +573,75 @@ impl RemoteSession {
             subscribers: MuxEventBroadcaster::default(),
             frame_logs: Mutex::new(HashMap::new()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
+            capabilities: Mutex::new(HashSet::new()),
+            provider_workspace_authority,
+            provider_workspaces_guarded: AtomicBool::new(false),
         });
 
         let reader_session = Arc::downgrade(&session);
         std::thread::Builder::new().name("remote-reader".into()).spawn(move || {
-            let reader = BufReader::new(read_half);
-            for line in reader.lines() {
-                let Ok(line) = line else { break };
-                let Ok(value) = serde_json::from_str::<Value>(&line) else { continue };
+            while let Ok(Some(message)) = reader.receive() {
+                let Ok(value) = serde_json::from_str::<Value>(&message) else { continue };
                 let Some(session) = reader_session.upgrade() else { break };
                 session.handle_line(value);
             }
             // Connection lost: tell the app to quit.
             if let Some(session) = reader_session.upgrade() {
+                session.disconnect_transport();
                 session.emit(MuxEvent::Empty);
             }
         })?;
 
+        if let Err(error) = session.initialize() {
+            session.disconnect_transport();
+            return Err(error);
+        }
+        Ok(session)
+    }
+
+    fn initialize(&self) -> anyhow::Result<()> {
         // Identify (validates the endpoint) and subscribe to events.
-        let ident = session.request(json!({"cmd": "identify"}))?;
+        let ident = self.request(json!({"cmd": "identify"}))?;
         validate_remote_identity(&ident)?;
+        *self.capabilities.lock().unwrap() = ident
+            .get("capabilities")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect();
         let mut client_info = json!({"cmd": "set-client-info", "kind": "tui"});
         if let Some(hostname) = local_hostname() {
             client_info["name"] = json!(hostname);
         }
-        session.request(client_info)?;
-        session.request(json!({"cmd": "subscribe"}))?;
-        Ok(session)
+        self.request(client_info)?;
+        self.request(json!({"cmd": "subscribe"}))?;
+        Ok(())
+    }
+
+    pub(super) fn supports_capability(&self, capability: &str) -> bool {
+        self.capabilities.lock().unwrap().contains(capability)
+    }
+
+    pub(super) fn provider_workspace_authority(&self) -> Option<&BearerToken> {
+        self.provider_workspace_authority.as_ref()
+    }
+
+    pub(super) fn confirm_provider_workspace_guard(&self) -> anyhow::Result<()> {
+        if self.shutdown.load(Ordering::Acquire) {
+            return Err(RemoteRequestError::Shutdown.into());
+        }
+        self.provider_workspaces_guarded.store(true, Ordering::Release);
+        if self.shutdown.load(Ordering::Acquire) {
+            self.provider_workspaces_guarded.store(false, Ordering::Release);
+            return Err(RemoteRequestError::Shutdown.into());
+        }
+        Ok(())
+    }
+
+    pub(super) fn provider_workspaces_are_guarded(&self) -> bool {
+        self.provider_workspaces_guarded.load(Ordering::Acquire)
     }
 
     fn emit(&self, event: MuxEvent) {
@@ -489,16 +674,18 @@ impl RemoteSession {
                 let Ok(replay) = base64::engine::general_purpose::STANDARD.decode(data) else {
                     return;
                 };
+                let colors = value.get("colors").and_then(parse_terminal_colors);
                 self.log_frame(
                     id,
                     format!("vt-state cols={cols} rows={rows} bytes={}", replay.len()),
                 );
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
-                    surface.apply_stream_resize(cols, rows, None);
-                    let mut term = surface.term.lock().unwrap();
-                    term.vt_write(&replay);
-                    surface.sync_mouse_encoders(&term);
-                    drop(term);
+                    surface.apply_stream_resize_with_colors(
+                        cols,
+                        rows,
+                        Some(&replay),
+                        colors.as_ref(),
+                    );
                     surface.dirty.store(true, Ordering::Release);
                 }
                 self.emit(MuxEvent::SurfaceOutput(id));
@@ -540,10 +727,14 @@ impl RemoteSession {
                 let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(data) else {
                     return;
                 };
+                let colors = value.get("colors").and_then(parse_terminal_colors);
                 self.log_frame(id, format!("output bytes={}", bytes.len()));
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
                     let mut term = surface.term.lock().unwrap();
                     term.vt_write(&bytes);
+                    if let Some(colors) = colors.as_ref() {
+                        apply_terminal_colors(&mut term, colors);
+                    }
                     surface.sync_mouse_encoders(&term);
                     drop(term);
                     if !surface.dirty.swap(true, Ordering::AcqRel) {
@@ -560,6 +751,7 @@ impl RemoteSession {
                     .or_else(|| value.get("data"))
                     .and_then(|v| v.as_str())
                     .and_then(|data| base64::engine::general_purpose::STANDARD.decode(data).ok());
+                let colors = value.get("colors").and_then(parse_terminal_colors);
                 self.log_frame(
                     id,
                     format!(
@@ -568,7 +760,12 @@ impl RemoteSession {
                     ),
                 );
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
-                    surface.apply_stream_resize(cols, rows, replay.as_deref());
+                    surface.apply_stream_resize_with_colors(
+                        cols,
+                        rows,
+                        replay.as_deref(),
+                        colors.as_ref(),
+                    );
                     surface.dirty.store(true, Ordering::Release);
                     self.emit(MuxEvent::SurfaceResized {
                         surface: id,
@@ -577,6 +774,19 @@ impl RemoteSession {
                         reservation_id: None,
                     });
                     self.emit(MuxEvent::SurfaceOutput(id));
+                }
+            }
+            Some("colors-changed") => {
+                let Some(id) = surface_id() else { return };
+                let Some(colors) = parse_terminal_colors(&value) else { return };
+                if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
+                    let mut term = surface.term.lock().unwrap();
+                    apply_terminal_colors(&mut term, &colors);
+                    surface.sync_mouse_encoders(&term);
+                    drop(term);
+                    if !surface.dirty.swap(true, Ordering::AcqRel) {
+                        self.emit(MuxEvent::SurfaceOutput(id));
+                    }
                 }
             }
             Some("browser-state") => {
@@ -840,16 +1050,20 @@ impl RemoteSession {
     pub fn request(&self, mut cmd: Value) -> anyhow::Result<Value> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         cmd["id"] = json!(id);
-        let mut line = serde_json::to_vec(&cmd)
+        let mut message = serde_json::to_string(&cmd)
             .map_err(RemoteRequestError::Encode)
             .map_err(anyhow::Error::new)?;
-        line.push(b'\n');
+        if let Some(Value::String(authority)) = cmd.get_mut("authority") {
+            zeroize_string(authority);
+        }
 
         let (tx, rx) = channel();
         self.pending.lock().unwrap().insert(id, tx);
         let mut writer = self.writer.lock().unwrap();
-        if let Err(err) = writer.write_all(&line) {
-            let _ = writer.shutdown(Shutdown::Both);
+        let send_result = writer.send(&message);
+        zeroize_string(&mut message);
+        if let Err(err) = send_result {
+            let _ = writer.close();
             drop(writer);
             self.pending.lock().unwrap().remove(&id);
             return Err(RemoteRequestError::Transport(err).into());
@@ -889,9 +1103,17 @@ impl RemoteSession {
 
     pub fn begin_shutdown(&self) {
         self.shutdown.store(true, Ordering::Release);
+        self.provider_workspaces_guarded.store(false, Ordering::Release);
         let pending = std::mem::take(&mut *self.pending.lock().unwrap());
         for (_, sender) in pending {
             let _ = sender.send(json!({"shutdown": true}));
+        }
+    }
+
+    fn disconnect_transport(&self) {
+        self.begin_shutdown();
+        if let Ok(mut writer) = self.writer.lock() {
+            let _ = writer.close();
         }
     }
 
@@ -937,15 +1159,43 @@ impl RemoteSession {
     }
 
     pub fn set_default_colors(&self, colors: DefaultColors) -> anyhow::Result<()> {
-        if colors.fg.is_none() && colors.bg.is_none() {
-            return Ok(());
-        }
-        let mut cmd = json!({"cmd": "set-default-colors"});
+        let palette = colors
+            .palette
+            .into_iter()
+            .enumerate()
+            .filter_map(|(index, color)| {
+                color.map(|color| (index.to_string(), Value::String(hex_color(color))))
+            })
+            .collect::<serde_json::Map<String, Value>>();
+        let mut cmd = json!({
+            "cmd": "set-default-colors",
+            "complete": true,
+            "palette": palette,
+        });
         if let Some(fg) = colors.fg {
             cmd["fg"] = json!(hex_color(fg));
         }
         if let Some(bg) = colors.bg {
             cmd["bg"] = json!(hex_color(bg));
+        }
+        if let Some(cursor) = colors.cursor {
+            cmd["cursor"] = json!(hex_color(cursor));
+        }
+        if let Some(selection_bg) = colors.selection_bg {
+            cmd["selection_bg"] = json!(hex_color(selection_bg));
+        }
+        if let Some(selection_fg) = colors.selection_fg {
+            cmd["selection_fg"] = json!(hex_color(selection_fg));
+        }
+        if let Some(cursor_style) = colors.cursor_style {
+            cmd["cursor_style"] = json!(match cursor_style {
+                CursorShape::Block | CursorShape::BlockHollow => "block",
+                CursorShape::Underline => "underline",
+                CursorShape::Bar => "bar",
+            });
+        }
+        if let Some(cursor_blink) = colors.cursor_blink {
+            cmd["cursor_blink"] = json!(cursor_blink);
         }
         self.request(cmd).map(|_| ())
     }
@@ -1220,6 +1470,88 @@ fn browser_source_from_tree(tree: &TreeView, id: SurfaceId) -> Option<BrowserSou
         .and_then(|tab| tab.browser_source)
 }
 
+fn parse_terminal_colors(value: &Value) -> Option<RemoteTerminalColors> {
+    value.as_object()?;
+    let color = |key: &str| value.get(key).and_then(Value::as_str).and_then(parse_color);
+    let cursor_style = match value.get("cursor_style").and_then(Value::as_str) {
+        Some("bar") => Some(CursorShape::Bar),
+        Some("underline") => Some(CursorShape::Underline),
+        Some("block") => Some(CursorShape::Block),
+        _ => None,
+    };
+    let mut palette = [None; 256];
+    if let Some(entries) = value.get("palette").and_then(Value::as_object) {
+        for (index, color) in entries {
+            let Some(index) = index.parse::<u8>().ok() else { continue };
+            let Some(color) = color.as_str().and_then(parse_color) else { continue };
+            palette[index as usize] = Some(color);
+        }
+    }
+    Some(RemoteTerminalColors {
+        fg: color("fg"),
+        bg: color("bg"),
+        cursor: color("cursor"),
+        cursor_style,
+        cursor_blink: value.get("cursor_blink").and_then(Value::as_bool),
+        palette,
+    })
+}
+
+fn apply_terminal_colors(terminal: &mut Terminal, colors: &RemoteTerminalColors) {
+    // Colors and vt-state carry the complete resolved special-color tuple.
+    // Replace (rather than sparsely merge) it so a later null clears an
+    // earlier frontend default just as it does on the authoritative surface.
+    terminal.replace_default_colors(colors.fg, colors.bg, colors.cursor);
+    terminal.set_default_cursor(colors.cursor_style, colors.cursor_blink);
+    if let (Some(style), Some(blink)) = (colors.cursor_style, colors.cursor_blink) {
+        // Resolved v2 cursor metadata is authoritative for the active screen.
+        // Reset an application-authored DECSCUSR first, then apply the exact
+        // source pair. Legacy v1 events omit the pair and leave raw VT cursor
+        // state untouched.
+        let value = match (style, blink) {
+            (CursorShape::Block | CursorShape::BlockHollow, true) => 1,
+            (CursorShape::Block | CursorShape::BlockHollow, false) => 2,
+            (CursorShape::Underline, true) => 3,
+            (CursorShape::Underline, false) => 4,
+            (CursorShape::Bar, true) => 5,
+            (CursorShape::Bar, false) => 6,
+        };
+        terminal.vt_write(format!("\x1b[0 q\x1b[{value} q").as_bytes());
+    }
+
+    // Replay intentionally omits application-authored palette OSCs so each
+    // frontend can retain its own defaults. Reapply only the sparse OSC 4
+    // state carried beside the replay. Keeping these as authored overrides
+    // (rather than host defaults) makes RenderState resolve indexed cells to
+    // the source surface's RGB while unmentioned indices still inherit the
+    // receiving terminal's palette.
+    let previous = terminal.color_overrides();
+    let mut next = previous.clone();
+    next.palette = colors.palette;
+    let delta = terminal_palette_override_delta(&previous, &next);
+    terminal.vt_write(&delta);
+}
+
+fn terminal_palette_override_delta(
+    previous: &TerminalColorOverrides,
+    next: &TerminalColorOverrides,
+) -> Vec<u8> {
+    let mut output = Vec::new();
+    for index in 0..256 {
+        if previous.palette[index] == next.palette[index] {
+            continue;
+        }
+        match next.palette[index] {
+            Some(color) => output.extend_from_slice(
+                format!("\x1b]4;{index};rgb:{:02x}/{:02x}/{:02x}\x1b\\", color.r, color.g, color.b)
+                    .as_bytes(),
+            ),
+            None => output.extend_from_slice(format!("\x1b]104;{index}\x1b\\").as_bytes()),
+        }
+    }
+    output
+}
+
 fn hex_color(color: Rgb) -> String {
     format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
 }
@@ -1241,14 +1573,71 @@ fn parse_browser_frame(value: &Value) -> Option<RemoteBrowserFrame> {
 }
 
 #[cfg(test)]
+fn test_session_with_provider_context(
+    provider_workspace_authority: Option<BearerToken>,
+    capabilities: HashSet<String>,
+) -> Arc<RemoteSession> {
+    struct NoopWriter;
+
+    impl RemoteMessageWriter for NoopWriter {
+        fn send(&mut self, _message: &str) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    Arc::new(RemoteSession {
+        writer: Mutex::new(Box::new(NoopWriter)),
+        pending: Mutex::new(HashMap::new()),
+        next_id: AtomicU64::new(1),
+        shutdown: AtomicBool::new(false),
+        surfaces: Mutex::new(HashMap::new()),
+        exited_surfaces: Mutex::new(HashSet::new()),
+        tree: Mutex::new(RemoteTreeCache::default()),
+        tree_refresh: Mutex::new(()),
+        tree_stale: AtomicBool::new(true),
+        subscription_recovery: Mutex::new(SubscriptionRecoveryState::default()),
+        subscribers: MuxEventBroadcaster::default(),
+        frame_logs: Mutex::new(HashMap::new()),
+        surface_overflow_recovery: Mutex::new(HashMap::new()),
+        capabilities: Mutex::new(capabilities),
+        provider_workspace_authority,
+        provider_workspaces_guarded: AtomicBool::new(false),
+    })
+}
+
+#[cfg(test)]
+pub(super) fn test_session_without_provider_authority() -> Arc<RemoteSession> {
+    test_session_with_provider_context(
+        None,
+        HashSet::from([
+            cmux_tui_core::server::PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY.to_string()
+        ]),
+    )
+}
+
+#[cfg(test)]
+pub(super) fn test_session_with_provider_authority_without_guard() -> Arc<RemoteSession> {
+    test_session_with_provider_context(
+        Some(BearerToken::new("test-provider-workspace-authority").unwrap()),
+        HashSet::new(),
+    )
+}
+
+#[cfg(test)]
 mod tests {
-    use std::io::BufRead;
+    #[cfg(unix)]
+    use std::io::{BufRead, Read, Write};
     #[cfg(unix)]
     use std::os::unix::net::UnixStream;
-    use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, AtomicU64};
+    use std::sync::mpsc::{Receiver, Sender};
+    use std::sync::{Mutex, Weak};
 
-    use ghostty_vt::{Callbacks, Terminal};
+    use ghostty_vt::{Callbacks, ColorSpec, RenderState, Terminal};
     use serde_json::json;
 
     use super::*;
@@ -1273,11 +1662,254 @@ mod tests {
         validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 9})).unwrap();
     }
 
+    #[test]
+    fn resolved_cursor_colors_force_the_active_screen_across_alt_screen_modes() {
+        for mode in [47, 1047, 1049] {
+            let mut terminal = Terminal::new(12, 3, 100, Callbacks::default()).unwrap();
+            terminal.vt_write(b"\x1b[5 q");
+            terminal.vt_write(format!("\x1b[?{mode}h\x1b[4 q").as_bytes());
+            assert_eq!(
+                terminal.effective_cursor_visual().unwrap(),
+                (CursorShape::Underline, false)
+            );
+
+            let colors = RemoteTerminalColors {
+                fg: None,
+                bg: None,
+                cursor: None,
+                cursor_style: Some(CursorShape::Bar),
+                cursor_blink: Some(false),
+                palette: [None; 256],
+            };
+            apply_terminal_colors(&mut terminal, &colors);
+            assert_eq!(
+                terminal.effective_cursor_visual().unwrap(),
+                (CursorShape::Bar, false),
+                "resolved cursor did not replace the active screen for mode {mode}"
+            );
+
+            terminal.vt_write(format!("\x1b[?{mode}l").as_bytes());
+            let primary_colors = RemoteTerminalColors {
+                cursor_style: Some(CursorShape::Underline),
+                cursor_blink: Some(true),
+                ..colors
+            };
+            apply_terminal_colors(&mut terminal, &primary_colors);
+            assert_eq!(
+                terminal.effective_cursor_visual().unwrap(),
+                (CursorShape::Underline, true),
+                "resolved cursor did not replace the restored primary screen for mode {mode}"
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_cursor_absence_preserves_raw_decscusr_and_mode_12() {
+        let mut terminal = Terminal::new(12, 3, 100, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b[3 q\x1b[?12l");
+        let legacy = RemoteTerminalColors {
+            fg: None,
+            bg: None,
+            cursor: None,
+            cursor_style: None,
+            cursor_blink: None,
+            palette: [None; 256],
+        };
+
+        apply_terminal_colors(&mut terminal, &legacy);
+        assert_eq!(terminal.effective_cursor_visual().unwrap(), (CursorShape::Underline, false));
+    }
+
     #[cfg(unix)]
-    fn socket_test_session(stream: UnixStream) -> Arc<RemoteSession> {
-        stream.set_write_timeout(Some(REMOTE_WRITE_TIMEOUT)).unwrap();
+    #[test]
+    fn json_line_reader_returns_complete_messages_without_delimiters() {
+        let (client, mut server) = UnixStream::pair().unwrap();
+        server.write_all(b"{\"fragmented\":").unwrap();
+        server.write_all(b"true}\n{\"crlf\":true}\r\n{\"final\":true}").unwrap();
+        server.shutdown(Shutdown::Write).unwrap();
+
+        let mut reader = JsonLineReader { inner: BufReader::new(Box::new(client)) };
+        assert_eq!(reader.receive().unwrap().as_deref(), Some("{\"fragmented\":true}"));
+        assert_eq!(reader.receive().unwrap().as_deref(), Some("{\"crlf\":true}"));
+        assert_eq!(reader.receive().unwrap().as_deref(), Some("{\"final\":true}"));
+        assert_eq!(reader.receive().unwrap(), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn json_line_writer_appends_exactly_one_delimiter_per_message() {
+        let (client, mut server) = UnixStream::pair().unwrap();
+        let mut writer = JsonLineWriter { inner: Box::new(client) };
+
+        writer.send("{\"first\":1}").unwrap();
+        writer.send("{\"second\":2}").unwrap();
+        writer.close().unwrap();
+
+        let mut bytes = String::new();
+        server.read_to_string(&mut bytes).unwrap();
+        assert_eq!(bytes, "{\"first\":1}\n{\"second\":2}\n");
+    }
+
+    struct CloseTrackingWriter {
+        closed: Arc<AtomicBool>,
+    }
+
+    impl RemoteMessageWriter for CloseTrackingWriter {
+        fn send(&mut self, _message: &str) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            self.closed.store(true, Ordering::Release);
+            Ok(())
+        }
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    enum InitializationFailure {
+        IdentifyRejected,
+        WrongApp,
+        WrongProtocol,
+        ClientInfoRejected,
+        SubscribeRejected,
+    }
+
+    struct ScriptedInitializationReader {
+        responses: Receiver<String>,
+    }
+
+    impl RemoteMessageReader for ScriptedInitializationReader {
+        fn receive(&mut self) -> io::Result<Option<String>> {
+            Ok(self.responses.recv().ok())
+        }
+    }
+
+    struct ScriptedInitializationWriter {
+        responses: Sender<String>,
+        failure: InitializationFailure,
+        closed: Arc<AtomicBool>,
+    }
+
+    impl RemoteMessageWriter for ScriptedInitializationWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+            let id = request
+                .get("id")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| io::Error::other("remote request omitted its id"))?;
+            let command = request
+                .get("cmd")
+                .and_then(Value::as_str)
+                .ok_or_else(|| io::Error::other("remote request omitted its command"))?;
+            let response = match (self.failure, command) {
+                (InitializationFailure::IdentifyRejected, "identify") => {
+                    json!({"id": id, "ok": false, "error": "identify rejected"})
+                }
+                (InitializationFailure::WrongApp, "identify") => json!({
+                    "id": id,
+                    "ok": true,
+                    "data": {"app": "not-cmux-tui", "protocol": SUPPORTED_PROTOCOL_VERSION},
+                }),
+                (InitializationFailure::WrongProtocol, "identify") => json!({
+                    "id": id,
+                    "ok": true,
+                    "data": {"app": "cmux-tui", "protocol": SUPPORTED_PROTOCOL_VERSION - 1},
+                }),
+                (InitializationFailure::ClientInfoRejected, "set-client-info") => {
+                    json!({"id": id, "ok": false, "error": "client info rejected"})
+                }
+                (InitializationFailure::SubscribeRejected, "subscribe") => {
+                    json!({"id": id, "ok": false, "error": "subscribe rejected"})
+                }
+                (_, "identify") => json!({
+                    "id": id,
+                    "ok": true,
+                    "data": {"app": "cmux-tui", "protocol": SUPPORTED_PROTOCOL_VERSION},
+                }),
+                (_, "set-client-info" | "subscribe") => {
+                    json!({"id": id, "ok": true, "data": null})
+                }
+                (_, command) => {
+                    return Err(io::Error::other(format!(
+                        "unexpected initialization command: {command}"
+                    )));
+                }
+            };
+            self.responses
+                .send(response.to_string())
+                .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "reader exited"))
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            self.closed.store(true, Ordering::Release);
+            Ok(())
+        }
+    }
+
+    fn scripted_initialization_transport(
+        failure: InitializationFailure,
+        closed: Arc<AtomicBool>,
+    ) -> RemoteTransport {
+        let (responses, received_responses) = channel();
+        RemoteTransport::new(
+            Box::new(ScriptedInitializationReader { responses: received_responses }),
+            Box::new(ScriptedInitializationWriter { responses, failure, closed }),
+        )
+    }
+
+    struct UnexpectedWriteWriter;
+
+    impl RemoteMessageWriter for UnexpectedWriteWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            panic!("unexpected remote write: {message}")
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    struct AcknowledgingWriter {
+        session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
+    }
+
+    impl RemoteMessageWriter for AcknowledgingWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+            let id = request
+                .get("id")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| io::Error::other("remote request omitted its id"))?;
+            let session = self
+                .session
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(Weak::upgrade)
+                .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+            let response = session
+                .pending
+                .lock()
+                .unwrap()
+                .remove(&id)
+                .ok_or_else(|| io::Error::other("remote request was not pending"))?;
+            response
+                .send(json!({"id": id, "ok": true, "data": null}))
+                .map_err(|_| io::Error::other("remote response receiver was dropped"))
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn test_session_with_provider_context(
+        writer: Box<dyn RemoteMessageWriter>,
+        capabilities: HashSet<String>,
+        provider_workspace_authority: Option<BearerToken>,
+    ) -> Arc<RemoteSession> {
         Arc::new(RemoteSession {
-            writer: Mutex::new(Box::new(stream)),
+            writer: Mutex::new(writer),
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
             shutdown: AtomicBool::new(false),
@@ -1290,7 +1922,149 @@ mod tests {
             subscribers: MuxEventBroadcaster::default(),
             frame_logs: Mutex::new(HashMap::new()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
+            capabilities: Mutex::new(capabilities),
+            provider_workspace_authority,
+            provider_workspaces_guarded: AtomicBool::new(false),
         })
+    }
+
+    fn test_session(writer: Box<dyn RemoteMessageWriter>) -> Arc<RemoteSession> {
+        test_session_with_provider_context(writer, HashSet::new(), None)
+    }
+
+    fn acknowledging_provider_session() -> Arc<RemoteSession> {
+        let session_slot = Arc::new(Mutex::new(None));
+        let session = test_session_with_provider_context(
+            Box::new(AcknowledgingWriter { session: session_slot.clone() }),
+            HashSet::from([
+                cmux_tui_core::server::PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY.to_string()
+            ]),
+            Some(BearerToken::new("acknowledged-provider-workspace-authority").unwrap()),
+        );
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
+        session
+    }
+
+    #[test]
+    fn provider_guard_fails_before_writing_to_an_older_remote_server() {
+        let session =
+            crate::session::Session::Remote(test_session(Box::new(UnexpectedWriteWriter)));
+
+        let error = session.mark_workspaces_provider_managed().unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "remote cmux server cannot guard provider-managed workspaces; upgrade the server before attaching"
+        );
+    }
+
+    #[test]
+    fn provider_guard_state_changes_only_after_the_remote_acknowledges() {
+        let session = crate::session::Session::Remote(acknowledging_provider_session());
+
+        assert!(!session.workspaces_are_provider_managed());
+        session.mark_workspaces_provider_managed().unwrap();
+        assert!(session.workspaces_are_provider_managed());
+    }
+
+    #[test]
+    fn transport_disconnect_closes_the_transport_writer() {
+        let closed = Arc::new(AtomicBool::new(false));
+        let session = test_session(Box::new(CloseTrackingWriter { closed: closed.clone() }));
+
+        session.disconnect_transport();
+
+        assert!(session.shutdown.load(Ordering::Acquire));
+        assert!(closed.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn initialization_failures_after_reader_spawn_close_the_transport() {
+        for (failure, expected_error) in [
+            (InitializationFailure::IdentifyRejected, "identify rejected"),
+            (InitializationFailure::WrongApp, "socket endpoint is not a cmux-tui session"),
+            (InitializationFailure::WrongProtocol, "unsupported cmux-tui protocol"),
+            (InitializationFailure::ClientInfoRejected, "client info rejected"),
+            (InitializationFailure::SubscribeRejected, "subscribe rejected"),
+        ] {
+            let closed = Arc::new(AtomicBool::new(false));
+            let result = RemoteSession::connect_transport(scripted_initialization_transport(
+                failure,
+                closed.clone(),
+            ));
+
+            let error = result.err().expect("scripted initialization should fail");
+            assert!(
+                error.to_string().contains(expected_error),
+                "{failure:?} returned unexpected error: {error}"
+            );
+            assert!(closed.load(Ordering::Acquire), "{failure:?} did not close its transport");
+        }
+    }
+
+    #[cfg(unix)]
+    fn socket_test_session(stream: UnixStream) -> Arc<RemoteSession> {
+        stream.set_write_timeout(Some(REMOTE_WRITE_TIMEOUT)).unwrap();
+        test_session(Box::new(JsonLineWriter { inner: Box::new(stream) }))
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn eof_cancels_a_pending_request_without_waiting_for_the_request_timeout() {
+        let (client, server) = UnixStream::pair().unwrap();
+        let peer = std::thread::spawn(move || {
+            let mut peer = BufReader::new(server);
+            for expected_command in ["identify", "set-client-info", "subscribe"] {
+                let mut line = String::new();
+                peer.read_line(&mut line).unwrap();
+                let request: Value = serde_json::from_str(&line).unwrap();
+                assert_eq!(request["cmd"], expected_command);
+                let data = if expected_command == "identify" {
+                    json!({"app": "cmux-tui", "protocol": SUPPORTED_PROTOCOL_VERSION})
+                } else {
+                    Value::Null
+                };
+                writeln!(
+                    peer.get_mut(),
+                    "{}",
+                    json!({"id": request["id"], "ok": true, "data": data})
+                )
+                .unwrap();
+            }
+
+            let mut line = String::new();
+            peer.read_line(&mut line).unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["cmd"], "wait-for-eof");
+            // Dropping the peer produces EOF while this request is pending.
+        });
+        let session = RemoteSession::connect_stream(Box::new(client)).unwrap();
+        let request_session = session.clone();
+        let (done_tx, done_rx) = channel();
+        let started = Instant::now();
+        let request = std::thread::spawn(move || {
+            done_tx.send(request_session.request(json!({"cmd": "wait-for-eof"}))).unwrap();
+        });
+
+        let result = match done_rx.recv_timeout(Duration::from_secs(2)) {
+            Ok(result) => result,
+            Err(error) => {
+                session.begin_shutdown();
+                request.join().unwrap();
+                panic!("EOF did not cancel the request promptly: {error}");
+            }
+        };
+        request.join().unwrap();
+        peer.join().unwrap();
+
+        let error = result.unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<RemoteRequestError>(),
+            Some(RemoteRequestError::Shutdown)
+        ));
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(session.shutdown.load(Ordering::Acquire));
+        assert!(session.pending.lock().unwrap().is_empty());
     }
 
     #[cfg(unix)]
@@ -1335,7 +2109,7 @@ mod tests {
         assert!(error.downcast_ref::<RemoteRequestError>().is_some_and(|error| {
             matches!(error, RemoteRequestError::Transport(io_error) if matches!(
                 io_error.kind(),
-                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
             ))
         }));
         assert!(session.pending.lock().unwrap().is_empty());
@@ -1593,6 +2367,194 @@ mod tests {
         assert_eq!(frame.seq, 9);
         assert_eq!(frame.data_b64, "Zmlyc3Q=");
         assert_eq!(surface.browser_url().as_deref(), Some("https://next.test"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn initial_attach_resolves_sparse_source_palette_before_rendering() {
+        let (client, _server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let surface = Arc::new(RemoteSurface {
+            id: 7,
+            kind: SurfaceKind::Pty,
+            term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
+            mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            dirty: AtomicBool::new(false),
+            reported_size: Mutex::new(None),
+            browser: Mutex::new(RemoteBrowserState::default()),
+        });
+        session.surfaces.lock().unwrap().insert(7, surface.clone());
+
+        session.handle_line(json!({
+            "event": "vt-state",
+            "surface": 7,
+            "cols": 12,
+            "rows": 4,
+            "data": base64::engine::general_purpose::STANDARD.encode(b"\x1b[31mX"),
+            "colors": {
+                "fg": "#eeeeee",
+                "bg": "#101010",
+                "cursor": "#eeeeee",
+                "cursor_style": "block",
+                "cursor_blink": true,
+                "palette": {"1": "#ff3562"},
+            },
+        }));
+
+        let mut terminal = surface.term.lock().unwrap();
+        assert_eq!(terminal.color_overrides().palette[1], Some(Rgb { r: 0xff, g: 0x35, b: 0x62 }));
+        let mut render = RenderState::new().unwrap();
+        render.update(&mut terminal).unwrap();
+        assert!(render.palette_overridden(1));
+        assert_eq!(render.palette_color(1), Rgb { r: 0xff, g: 0x35, b: 0x62 });
+        let frame = render.build_frame().unwrap();
+        let cell = &frame.styled_row(0).unwrap()[0];
+        assert_eq!(cell.fg, ColorSpec::Palette(1));
+        assert_eq!(cell.resolved_fg, Some(Rgb { r: 0xff, g: 0x35, b: 0x62 }));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn colors_changed_replaces_complete_sparse_palette_state() {
+        let (client, _server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let surface = Arc::new(RemoteSurface {
+            id: 7,
+            kind: SurfaceKind::Pty,
+            term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
+            mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            dirty: AtomicBool::new(false),
+            reported_size: Mutex::new(None),
+            browser: Mutex::new(RemoteBrowserState::default()),
+        });
+        {
+            let mut terminal = surface.term.lock().unwrap();
+            terminal.replace_default_colors(
+                Some(Rgb { r: 0xaa, g: 0xbb, b: 0xcc }),
+                Some(Rgb { r: 0x11, g: 0x22, b: 0x33 }),
+                Some(Rgb { r: 0xdd, g: 0xee, b: 0xff }),
+            );
+            terminal.vt_write(b"\x1b]4;1;rgb:ff/35/62\x1b\\");
+        }
+        session.surfaces.lock().unwrap().insert(7, surface.clone());
+
+        session.handle_line(json!({
+            "event": "colors-changed",
+            "surface": 7,
+            "palette": {"196": "#010203"},
+        }));
+
+        let terminal = surface.term.lock().unwrap();
+        assert_eq!(terminal.effective_colors(), (None, None, None));
+        let palette = terminal.color_overrides().palette;
+        assert_eq!(palette[1], None);
+        assert_eq!(palette[196], Some(Rgb { r: 1, g: 2, b: 3 }));
+        assert!(surface.dirty.load(Ordering::Acquire));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reused_render_state_observes_complete_special_color_reset() {
+        let (client, _server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let surface = Arc::new(RemoteSurface {
+            id: 7,
+            kind: SurfaceKind::Pty,
+            term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
+            mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            dirty: AtomicBool::new(false),
+            reported_size: Mutex::new(None),
+            browser: Mutex::new(RemoteBrowserState::default()),
+        });
+        session.surfaces.lock().unwrap().insert(7, surface.clone());
+
+        session.handle_line(json!({
+            "event": "vt-state",
+            "surface": 7,
+            "cols": 12,
+            "rows": 4,
+            "data": base64::engine::general_purpose::STANDARD.encode(b"prompt"),
+            "colors": {
+                "fg": "#fdfff1",
+                "bg": "#272822",
+                "cursor": "#c0c1b5",
+                "cursor_style": "bar",
+                "cursor_blink": true,
+                "palette": {},
+            },
+        }));
+
+        let mut render = RenderState::new().unwrap();
+        {
+            let mut terminal = surface.term.lock().unwrap();
+            render.update(&mut terminal).unwrap();
+            let frame = render.build_frame().unwrap();
+            assert_eq!(frame.default_colors.0, Rgb { r: 0x27, g: 0x28, b: 0x22 });
+        }
+
+        session.handle_line(json!({
+            "event": "output",
+            "surface": 7,
+            "data": base64::engine::general_purpose::STANDARD
+                .encode(
+                    b"\x1b]4;1;#112233\x1b\\\x1b]10;#eeeeee\x1b\\\x1b]11;#171b2e\x1b\\\x1b]12;#ffee00\x1b\\"
+                ),
+            "colors": {
+                "fg": "#eeeeee",
+                "bg": "#171b2e",
+                "cursor": "#ffee00",
+                "cursor_style": "bar",
+                "cursor_blink": true,
+                "palette": {"1": "#112233"},
+            },
+        }));
+        {
+            let mut terminal = surface.term.lock().unwrap();
+            render.update(&mut terminal).unwrap();
+            let frame = render.build_frame().unwrap();
+            assert_eq!(frame.default_colors.0, Rgb { r: 0x17, g: 0x1b, b: 0x2e });
+        }
+
+        session.handle_line(json!({
+            "event": "output",
+            "surface": 7,
+            "data": base64::engine::general_purpose::STANDARD
+                .encode(b"\x1b]104\x1b\\\x1b]110\x1b\\\x1b]111\x1b\\\x1b]112\x1b\\"),
+            "colors": {
+                "fg": "#fdfff1",
+                "bg": "#272822",
+                "cursor": "#c0c1b5",
+                "cursor_style": "bar",
+                "cursor_blink": true,
+                "palette": {},
+            },
+        }));
+        {
+            let mut terminal = surface.term.lock().unwrap();
+            assert_eq!(
+                terminal.effective_colors(),
+                (
+                    Some(Rgb { r: 0xfd, g: 0xff, b: 0xf1 }),
+                    Some(Rgb { r: 0x27, g: 0x28, b: 0x22 }),
+                    Some(Rgb { r: 0xc0, g: 0xc1, b: 0xb5 }),
+                )
+            );
+            let overrides = terminal.color_overrides();
+            assert_eq!(overrides.foreground, None);
+            assert_eq!(overrides.background, None);
+            assert_eq!(overrides.cursor, None);
+            assert_eq!(overrides.palette[1], None);
+            render.update(&mut terminal).unwrap();
+            let frame = render.build_frame().unwrap();
+            assert_eq!(
+                frame.default_colors,
+                (Rgb { r: 0x27, g: 0x28, b: 0x22 }, Rgb { r: 0xfd, g: 0xff, b: 0xf1 },)
+            );
+            assert_eq!(frame.cursor_color, Some(Rgb { r: 0xc0, g: 0xc1, b: 0xb5 }));
+            let cell = &frame.styled_row(0).unwrap()[0];
+            assert_eq!(cell.fg, ColorSpec::Default);
+            assert_eq!(cell.bg, ColorSpec::Default);
+        }
     }
 
     #[test]

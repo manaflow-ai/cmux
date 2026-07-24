@@ -38,12 +38,16 @@ final class DockSplitStore: BonsplitDelegate {
     var surfaceIdToPanelId: [TabID: UUID] = [:]
     var panelCancellables: [UUID: AnyCancellable] = [:]
     @ObservationIgnored var detachedSurfaceTransfersByPanelId: [UUID: Workspace.DetachedSurfaceTransfer] = [:]
-    private var hasLoadedConfiguration = false
-    private var configurationLoadTask: Task<Void, Never>?
-    private var configurationIdentityTask: Task<Void, Never>?
-    private var configurationLoadGeneration = 0
-    private var configurationIdentityGeneration = 0
-    private var configurationLoadRootDirectory: String?
+    @ObservationIgnored var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
+    @ObservationIgnored let restoredAgentLifecycle = RestoredAgentLifecycleCoordinator()
+    @ObservationIgnored var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    @ObservationIgnored var restoredResumeSessionWorkingDirectoriesByPanelId: [UUID: String] = [:]
+    var hasLoadedConfiguration = false
+    var configurationLoadTask: Task<Void, Never>?
+    var configurationIdentityTask: Task<Void, Never>?
+    var configurationLoadGeneration = 0
+    var configurationIdentityGeneration = 0
+    var configurationLoadRootDirectory: String?
     private var configurationSeedSuppressionGeneration: Int?
     private var activeConfigURL: URL?
     private var rootDirectoryOverride: String?
@@ -62,8 +66,10 @@ final class DockSplitStore: BonsplitDelegate {
     @ObservationIgnored var terminalViewReattachCoalescingDepth = 0
     @ObservationIgnored var pendingTerminalViewReattachPanelIds: Set<UUID> = []
     @ObservationIgnored let focusHistoryNavigation: any FocusHistoryNavigating
+    @ObservationIgnored let terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver
     private let settings: any SettingsReading
     private let settingsCatalog = SettingCatalog()
+    let agentSessionAutoResumeDefaults: UserDefaults
 
     /// Weak registry of every live Dock store. Lets control-surface routing
     /// resolve a Dock surface/pane by querying only the workspaces that actually
@@ -80,7 +86,9 @@ final class DockSplitStore: BonsplitDelegate {
         baseDirectoryProvider: @escaping () -> String?,
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings = { .local },
         browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() },
-        settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard)
+        settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard),
+        agentSessionAutoResumeDefaults: UserDefaults = .standard,
+        terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver = TerminalWorkingDirectoryResolver()
     ) {
         self.workspaceId = workspaceId
         self.scope = scope
@@ -88,6 +96,8 @@ final class DockSplitStore: BonsplitDelegate {
         self.remoteBrowserSettingsProvider = remoteBrowserSettingsProvider
         self.browserAvailabilityProvider = browserAvailabilityProvider
         self.settings = settings
+        self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
+        self.terminalWorkingDirectoryResolver = terminalWorkingDirectoryResolver
         let focusHistoryScopeKey = SettingCatalog().app.focusHistoryIncludesPanesAndTabs
         self.focusHistoryNavigation = FocusHistoryModel(navigationScope: {
             settings.value(for: focusHistoryScopeKey) ? .panesAndTabs : .workspacesOnly
@@ -135,6 +145,7 @@ final class DockSplitStore: BonsplitDelegate {
     // MARK: - Lookups
 
     func currentRemoteBrowserSettings() -> DockRemoteBrowserSettings { remoteBrowserSettingsProvider() }
+    func isBrowserAvailable() -> Bool { browserAvailabilityProvider() }
 
     func panel(for tabId: TabID) -> (any Panel)? {
         guard let panelId = surfaceIdToPanelId[tabId] else { return nil }
@@ -160,12 +171,6 @@ final class DockSplitStore: BonsplitDelegate {
             return paneId
         }
         return nil
-    }
-
-    var focusedPanelId: UUID? {
-        guard let paneId = bonsplitController.focusedPaneId,
-              let tabId = bonsplitController.selectedTab(inPane: paneId)?.id else { return nil }
-        return surfaceIdToPanelId[tabId]
     }
 
     // MARK: - Lifecycle
@@ -243,16 +248,6 @@ final class DockSplitStore: BonsplitDelegate {
         startConfigurationLoad(replacingPanels: false)
     }
 
-    func focusFirstControl() -> Bool {
-        guard let paneId = bonsplitController.allPaneIds.first else { return false }
-        bonsplitController.focusPane(paneId)
-        guard let tabId = bonsplitController.selectedTab(inPane: paneId)?.id,
-              let panelId = surfaceIdToPanelId[tabId],
-              let panel = panels[panelId] else { return false }
-        panel.focus()
-        return true
-    }
-
     // MARK: - In-app creation
 
     /// Creates a new surface (tab) in an existing Dock pane. Used by the tab-bar
@@ -265,6 +260,7 @@ final class DockSplitStore: BonsplitDelegate {
         initialRequest: URLRequest? = nil,
         command: String? = nil,
         workingDirectory: String? = nil,
+        sourcePanelId: UUID? = nil,
         environment: [String: String] = [:],
         tmuxStartCommand: String? = nil,
         focus: Bool = true,
@@ -272,13 +268,18 @@ final class DockSplitStore: BonsplitDelegate {
         bypassInsecureHTTPHostOnce: String? = nil
     ) -> UUID? {
         ensureLoaded()
+        let source = resolveSourcePanelId(sourcePanelId, preferredPaneId: paneId)
         guard let panel = makePanel(
             kind: kind,
             command: command,
             url: url,
             initialRequest: initialRequest,
             environment: environment,
-            workingDirectory: workingDirectory ?? currentBaseDirectory(),
+            workingDirectory: resolvedTerminalStartupWorkingDirectory(
+                kind: kind,
+                requestedWorkingDirectory: workingDirectory,
+                sourcePanelId: source
+            ),
             tmuxStartCommand: tmuxStartCommand,
             preferredProfileID: preferredProfileID,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
@@ -316,16 +317,21 @@ final class DockSplitStore: BonsplitDelegate {
         focus: Bool = true
     ) -> UUID? {
         ensureLoaded()
+        let source = resolveSourcePanelId(sourcePanelId)
         guard let panel = makePanel(
             kind: kind,
             command: command,
             url: url,
             environment: environment,
-            workingDirectory: workingDirectory ?? currentBaseDirectory(),
+            workingDirectory: resolvedTerminalStartupWorkingDirectory(
+                kind: kind,
+                requestedWorkingDirectory: workingDirectory,
+                sourcePanelId: source
+            ),
             tmuxStartCommand: tmuxStartCommand
         ) else { return nil }
 
-        guard let source = resolveSourcePanelId(sourcePanelId), let sourcePaneId = paneId(forPanelId: source) else {
+        guard let source, let sourcePaneId = paneId(forPanelId: source) else {
             // Empty tree: place into the root pane rather than splitting.
             let previousFocus = focus ? nil : focusedDockPaneSelection()
             guard let rootPane = bonsplitController.allPaneIds.first,
@@ -379,42 +385,6 @@ final class DockSplitStore: BonsplitDelegate {
         return panel.id
     }
 
-    /// Resolves a Dock pane for `surface.create --placement dock`. An explicit
-    /// `requestedPaneID` must match a Dock pane (else `nil` → the caller reports
-    /// not-found, like the workspace path); with no explicit id, returns the
-    /// focused/first Dock pane. Ensures config is loaded so the Dock always has
-    /// at least its root pane.
-    func resolvePane(requestedPaneID: UUID?) -> PaneID? {
-        ensureLoaded()
-        if let requestedPaneID {
-            return bonsplitController.allPaneIds.first(where: { $0.id == requestedPaneID })
-        }
-        return bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first
-    }
-
-    /// Whether a panel id is present in the Dock tree.
-    func containsPanel(_ panelId: UUID) -> Bool {
-        return panels[panelId] != nil
-    }
-    func containsPane(_ paneId: UUID) -> Bool { bonsplitController.allPaneIds.contains(where: { $0.id == paneId }) }
-
-    func focusPanel(_ panelId: UUID) {
-        guard let paneId = paneId(forPanelId: panelId), let tabId = surfaceId(forPanelId: panelId) else { return }
-        bonsplitController.focusPane(paneId)
-        bonsplitController.selectTab(tabId)
-        applyDockSelection(tabId: tabId, inPane: paneId)
-    }
-
-    func triggerFocusFlash(panelId: UUID) {
-        panels[panelId]?.triggerFlash(reason: .navigation)
-    }
-
-    private func resolveSourcePanelId(_ requested: UUID?) -> UUID? {
-        if let requested, panels[requested] != nil { return requested }
-        if let focused = focusedPanelId { return focused }
-        return panels.keys.first
-    }
-
     func recordExplicitPanelCreation() {
         hasAppliedConfigurationSeed = true
         if configurationLoadTask != nil { configurationSeedSuppressionGeneration = configurationLoadGeneration }
@@ -437,6 +407,11 @@ final class DockSplitStore: BonsplitDelegate {
         hasLoadedConfiguration = true; configurationLoadGeneration += 1
         configurationLoadRootDirectory = rootDirectory; configurationLoadTask = Task {}
         return configurationLoadGeneration
+    }
+
+    func applyConfigurationIdentityForTesting(_ identity: DockConfigIdentity) {
+        configurationIdentityGeneration += 1
+        applyConfigurationIdentity(identity, generation: configurationIdentityGeneration)
     }
 #endif
 
@@ -566,6 +541,10 @@ final class DockSplitStore: BonsplitDelegate {
     // MARK: - Tab metadata subscriptions
 
     func installSubscription(for panel: any Panel, tracksTerminalTitle: Bool) {
+        if let terminal = panel as? TerminalPanel {
+            configureAgentHibernationResume(for: terminal)
+        }
+        installAttentionFlashRouting(for: panel)
         if let browser = panel as? BrowserPanel {
             let cancellable = Publishers.CombineLatest4(
                 browser.$pageTitle.removeDuplicates(),
@@ -630,6 +609,7 @@ final class DockSplitStore: BonsplitDelegate {
             panelCancellables.removeValue(forKey: panelId)
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspaceId, surfaceId: panelId)
             detachedSurfaceTransfersByPanelId.removeValue(forKey: panelId)
+            clearSessionRestoreState(panelId: panelId)
             if let panel = panels.removeValue(forKey: panelId) { panel.close() }
         }
     }
@@ -646,6 +626,23 @@ final class DockSplitStore: BonsplitDelegate {
         return resolvedBaseDirectory
     }
 
+    private func resolvedTerminalStartupWorkingDirectory(
+        kind: DockSurfaceKind,
+        requestedWorkingDirectory: String?,
+        sourcePanelId: UUID?
+    ) -> String {
+        guard kind == .terminal else { return currentBaseDirectory() }
+        let baseDirectory = currentBaseDirectory()
+        let inheritedDirectory = settings.value(for: settingsCatalog.app.workspaceInheritWorkingDirectory)
+            ? sourcePanelId.flatMap { inheritedLocalTerminalWorkingDirectory(for: $0) }
+            : nil
+        return TerminalWorkingDirectoryResolver.firstAvailable([
+            requestedWorkingDirectory,
+            inheritedDirectory,
+            baseDirectory,
+        ]) ?? baseDirectory
+    }
+
     // MARK: - Config loading
 
     func reload() {
@@ -660,29 +657,6 @@ final class DockSplitStore: BonsplitDelegate {
             CmuxActionTrust.shared.trust(trustRequest.descriptor)
         }
         reload()
-    }
-
-    private func removeAllPanels() {
-        let tabIds = Set(bonsplitController.allTabIds)
-        pendingCloseConfirmDockTabIds.removeAll(); tabCloseButtonCloseDockTabIds.removeAll()
-        forceCloseDockTabIds.formUnion(tabIds)
-        defer { forceCloseDockTabIds.subtract(tabIds) }
-        for tabId in tabIds { _ = bonsplitController.closeTab(tabId) }
-        collapseToSingleEmptyPane()
-        reconcilePanels()
-        for panel in panels.values { panel.close() }
-        panels.removeAll(); surfaceIdToPanelId.removeAll()
-        detachedSurfaceTransfersByPanelId.removeAll()
-        panelCancellables.values.forEach { $0.cancel() }
-        panelCancellables.removeAll()
-    }
-
-    private func cancelConfigurationTasks() {
-        configurationLoadGeneration += 1
-        configurationIdentityGeneration += 1
-        configurationLoadTask?.cancel()
-        configurationIdentityTask?.cancel()
-        configurationLoadTask = nil; configurationIdentityTask = nil; configurationLoadRootDirectory = nil
     }
 
     private func startConfigurationLoad(replacingPanels: Bool) {
@@ -707,6 +681,11 @@ final class DockSplitStore: BonsplitDelegate {
     private func applyConfigurationIdentity(_ current: DockConfigIdentity, generation: Int) {
         guard generation == configurationIdentityGeneration else { return }
         configurationIdentityTask = nil
+        if lastLoadedConfigIdentity == nil, hasAppliedConfigurationSeed {
+            lastLoadedConfigIdentity = current
+            resolvedBaseDirectory = current.baseDirectory
+            return
+        }
         guard current.requiresPanelReload(comparedTo: lastLoadedConfigIdentity) else {
             lastLoadedConfigIdentity = current
             resolvedBaseDirectory = current.baseDirectory
