@@ -15,4 +15,16 @@ describe("checkout loading content", () => {
     );
     expect(html).toContain("Get Teams");
   });
+
+  test("shows the label without a spinner when idle", () => {
+    const html = renderToStaticMarkup(
+      <CheckoutPendingContent pending={false}>
+        Get Teams
+      </CheckoutPendingContent>,
+    );
+
+    expect(html).not.toContain('class="invisible"');
+    expect(html).not.toContain("absolute inset-0");
+    expect(html).toContain("Get Teams");
+  });
 });
