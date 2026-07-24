@@ -58,6 +58,26 @@ import Testing
         #expect(Self.workspaceID(from: retry) == created.id)
     }
 
+    @Test func initialAgentCommandLaunchesThroughLoginShellWithShimPath() throws {
+        let manager = TabManager()
+        let initialWorkspaceIDs = Set(manager.tabs.map(\.id))
+        let initialCommand = "claude -- \"$CMUX_TASK_PROMPT\""
+
+        _ = TerminalController.shared.v2WorkspaceCreate(params: [
+            "initial_command": initialCommand,
+            "initial_env": ["CMUX_TASK_PROMPT": "Fix the composer"],
+        ], tabManager: manager)
+
+        let created = try #require(manager.tabs.first { !initialWorkspaceIDs.contains($0.id) })
+        let panel = try #require(created.panels.values.compactMap { $0 as? TerminalPanel }.first)
+        let launchedCommand = try #require(panel.surface.debugInitialCommand())
+
+        #expect(launchedCommand != initialCommand)
+        #expect(launchedCommand.contains("-lc"))
+        #expect(launchedCommand.contains(initialCommand))
+        #expect(launchedCommand.contains("CMUX_CLAUDE_WRAPPER_SHIM_ROOT"))
+    }
+
     @Test func initialAgentCommandPreservesSurroundingWhitespaceThroughTerminalStartup() throws {
         let manager = TabManager()
         let initialWorkspaceIDs = Set(manager.tabs.map(\.id))
