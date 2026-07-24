@@ -40,6 +40,95 @@ struct TerminalArtifactChipCountStateTests {
         #expect(zeroCompletion.outcome == .reported(.init(count: 6, surfaceGeneration: 3)))
     }
 
+    @Test("a failed scan holds the last session total instead of regressing to the local count")
+    func failedScanHoldsLastSessionTotal() throws {
+        var state = TerminalArtifactChipCountState()
+        let first = try request(from: state.trigger(
+            localCount: 3,
+            surfaceGeneration: 7,
+            supportsSessionCount: true
+        ))
+        #expect(state.complete(
+            first,
+            sessionTotal: 12,
+            currentSurfaceGeneration: 7,
+            freshestLocalCount: 3
+        ).outcome == .reported(.init(count: 12, surfaceGeneration: 7)))
+
+        let second = try request(from: state.trigger(
+            localCount: 1,
+            surfaceGeneration: 7,
+            supportsSessionCount: true
+        ))
+        #expect(state.complete(
+            second,
+            sessionTotal: nil,
+            currentSurfaceGeneration: 7,
+            freshestLocalCount: 1
+        ).outcome == .reported(.init(count: 12, surfaceGeneration: 7)))
+    }
+
+    @Test("session-count triggers report the local count immediately and refine async")
+    func sessionTriggersReportProvisionally() throws {
+        var state = TerminalArtifactChipCountState()
+        guard case .reportAndRequest(let provisional, let request) = state.trigger(
+            localCount: 3,
+            surfaceGeneration: 5,
+            supportsSessionCount: true
+        ) else {
+            Issue.record("Expected a provisional report plus a session request")
+            throw UnexpectedAction()
+        }
+        #expect(provisional == .init(count: 3, surfaceGeneration: 5))
+        #expect(state.complete(
+            request,
+            sessionTotal: 12,
+            currentSurfaceGeneration: 5,
+            freshestLocalCount: 3
+        ).outcome == .reported(.init(count: 12, surfaceGeneration: 5)))
+
+        // Once a session total is known, provisional reports hold it instead
+        // of regressing to the smaller viewport-only count.
+        guard case .reportAndRequest(let upgraded, _) = state.trigger(
+            localCount: 1,
+            surfaceGeneration: 5,
+            supportsSessionCount: true
+        ) else {
+            Issue.record("Expected a provisional report plus a session request")
+            throw UnexpectedAction()
+        }
+        #expect(upgraded == .init(count: 12, surfaceGeneration: 5))
+    }
+
+    @Test("reset forgets the remembered session total")
+    func resetForgetsSessionTotal() throws {
+        var state = TerminalArtifactChipCountState()
+        let seeded = try request(from: state.trigger(
+            localCount: 3,
+            surfaceGeneration: 7,
+            supportsSessionCount: true
+        ))
+        _ = state.complete(
+            seeded,
+            sessionTotal: 12,
+            currentSurfaceGeneration: 7,
+            freshestLocalCount: 3
+        )
+        state.reset()
+
+        let fresh = try request(from: state.trigger(
+            localCount: 2,
+            surfaceGeneration: 8,
+            supportsSessionCount: true
+        ))
+        #expect(state.complete(
+            fresh,
+            sessionTotal: nil,
+            currentSurfaceGeneration: 8,
+            freshestLocalCount: 2
+        ).outcome == .reported(.init(count: 2, surfaceGeneration: 8)))
+    }
+
     @Test("responses from an old state or surface generation are dropped")
     func staleResponses() throws {
         var resetState = TerminalArtifactChipCountState()
@@ -171,12 +260,12 @@ struct TerminalArtifactChipCountStateTests {
             localCount: 2,
             surfaceGeneration: 21,
             supportsSessionCount: true
-        ) == .none)
+        ) == .report(.init(count: 2, surfaceGeneration: 21)))
         #expect(state.trigger(
             localCount: 3,
             surfaceGeneration: 22,
             supportsSessionCount: true
-        ) == .none)
+        ) == .report(.init(count: 3, surfaceGeneration: 22)))
 
         let completion = state.complete(
             first,
@@ -192,11 +281,13 @@ struct TerminalArtifactChipCountStateTests {
     private func request(
         from action: TerminalArtifactChipCountState.TriggerAction
     ) throws -> TerminalArtifactChipCountState.Request {
-        guard case .request(let request) = action else {
+        switch action {
+        case .request(let request), .reportAndRequest(_, let request):
+            return request
+        case .none, .report:
             Issue.record("Expected a session-count request")
             throw UnexpectedAction()
         }
-        return request
     }
 
     private struct UnexpectedAction: Error {}
