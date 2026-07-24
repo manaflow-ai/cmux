@@ -3,6 +3,45 @@ import Testing
 @testable import CmuxBrowser
 
 @Suite struct BrowserDesignModePromptFormatterTests {
+    @Test func formatsReadablePromptInsteadOfBase64Envelope() {
+        let selection = BrowserDesignModeSelection(
+            selector: #"main > button[data-testid="save"]"#,
+            selectors: [#"main > button[data-testid="save"]"#],
+            tagName: "button",
+            domSnippet: #"<button data-testid="save">Save</button>"#,
+            textContent: "Save",
+            textEditable: true,
+            bounds: BrowserDesignModeRect(x: 20, y: 30, width: 120, height: 40),
+            viewport: BrowserDesignModeViewport(width: 1280, height: 720),
+            computedStyles: [:]
+        )
+
+        let result = BrowserDesignModePromptFormatter().format(
+            BrowserDesignModePromptContext(
+                pageURL: "https://example.com",
+                snapshot: BrowserDesignModeSnapshot(
+                    revision: 1,
+                    enabled: true,
+                    selection: selection,
+                    edits: [],
+                    cssDiff: ""
+                ),
+                screenshotPath: "/tmp/cmux-browser-design-mode/save.png",
+                requestedChange: "Make the primary action easier to scan.",
+                pageScreenshotPath: "/tmp/cmux-browser-design-mode/page.png"
+            )
+        )
+
+        #expect(result.hasPrefix("Make the primary action easier to scan."))
+        #expect(result.contains("Page URL: https://example.com"))
+        #expect(result.contains("Full-page screenshot: /tmp/cmux-browser-design-mode/page.png"))
+        #expect(result.contains(#"tag: button, selector: main > button[data-testid="save"]"#))
+        #expect(result.contains("/tmp/cmux-browser-design-mode/save.png"))
+        #expect(result.contains("untrusted data"))
+        #expect(!result.contains("base64"))
+        #expect(!result.contains("<cmux_design_mode>"))
+    }
+
     @Test func formatsCompleteContextDeterministically() throws {
         let snapshot = BrowserDesignModeSnapshot(
             revision: 4,
