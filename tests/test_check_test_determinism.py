@@ -27,6 +27,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
         *,
         strict: bool = True,
         allowlist: str = "",
+        timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as temporary:
             repo_root = pathlib.Path(temporary)
@@ -54,6 +55,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 check=False,
                 capture_output=True,
                 text=True,
+                timeout=timeout,
             )
 
     def test_explicit_real_sleep_apis_are_reported(self) -> None:
@@ -153,6 +155,11 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "}`\n"
                 "expect(actual).toBeTruthy()\n"
             ),
+            "js-comment-close.ts": (
+                "/* mention /* */\n"
+                "await Bun.sleep(1)\n"
+                "expect(finished).toBe(true)\n"
+            ),
         }
 
         result = self.run_checker(fixtures)
@@ -165,6 +172,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 in (
                     "shell-shebang.sh",
                     "template-multiline-interpolation.ts",
+                    "js-comment-close.ts",
                 )
                 else 1
             )
@@ -563,11 +571,20 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             negative.stdout,
         )
 
-    def test_python_same_line_sleep_assert_order_is_preserved(self) -> None:
+    def test_same_line_sleep_assert_order_is_preserved(self) -> None:
         positive = self.run_checker(
             {
                 "sleep-before-assert.py": (
                     "time.sleep(0.01); assert finished\n"
+                ),
+                "sleep-before-assert-and.sh": (
+                    'sleep 1 && assert "$ready"\n'
+                ),
+                "sleep-before-assert-or.sh": (
+                    'sleep 1 || assert "$ready"\n'
+                ),
+                "sleep-before-assert-pipe.sh": (
+                    'sleep 1 | assert "$ready"\n'
                 ),
             }
         )
@@ -581,11 +598,26 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             "fixtures/sleep-before-assert.py:1: sleep-then-assert:",
             positive.stdout,
         )
+        for operator in ("and", "or", "pipe"):
+            self.assertIn(
+                f"fixtures/sleep-before-assert-{operator}.sh:1: "
+                "sleep-then-assert:",
+                positive.stdout,
+            )
 
         negative = self.run_checker(
             {
                 "assert-before-sleep.py": (
                     "assert finished; time.sleep(0.01)\n"
+                ),
+                "assert-before-sleep-and.sh": (
+                    'assert "$ready" && sleep 1\n'
+                ),
+                "assert-before-sleep-or.sh": (
+                    'assert "$ready" || sleep 1\n'
+                ),
+                "assert-before-sleep-pipe.sh": (
+                    'assert "$ready" | sleep 1\n'
                 ),
             }
         )
@@ -728,7 +760,8 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             negative.stdout,
         )
 
-    def test_shell_heredoc_bodies_remain_silent(self) -> None:
+    def test_shell_lexing_and_heredoc_bodies_remain_silent(self) -> None:
+        long_case_pattern = "|".join(f"choice{index}" for index in range(25))
         result = self.run_checker(
             {
                 "quoted-heredoc.sh": (
@@ -749,7 +782,24 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "EOF\n"
                     'assert "$actual" "$expected"\n'
                 ),
-            }
+                "numeric-heredoc.sh": (
+                    "cat <<123\n"
+                    "sleep 1\n"
+                    "123\n"
+                    'assert "$actual" "$expected"\n'
+                ),
+                "punctuated-heredoc.sh": (
+                    "cat <<END-OF\n"
+                    "sleep 1\n"
+                    "END-OF\n"
+                    'assert "$actual" "$expected"\n'
+                ),
+                "long-case-pattern.sh": (
+                    f"case \"$state\" in {long_case_pattern}) sleepX 1 ;; esac\n"
+                    'assert "$actual" "$expected"\n'
+                ),
+            },
+            timeout=2,
         )
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -773,18 +823,45 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "EOF\n"
                     'assert "$actual" "$expected"\n'
                 ),
+                "heredoc-multiline-substitution.sh": (
+                    "cat <<EOF\n"
+                    "$(\n"
+                    "sleep 1\n"
+                    ")\n"
+                    "EOF\n"
+                    'assert "$actual" "$expected"\n'
+                ),
+                "heredoc-multiline-backtick.sh": (
+                    "cat <<EOF\n"
+                    "`\n"
+                    "sleep 1\n"
+                    "`\n"
+                    "EOF\n"
+                    'assert "$actual" "$expected"\n'
+                ),
+                "punctuated-heredoc-then-sleep.sh": (
+                    "cat <<END-OF\n"
+                    "fixture data\n"
+                    "END-OF\n"
+                    "sleep 1\n"
+                    'assert "$actual" "$expected"\n'
+                ),
             }
         )
 
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        for relative_path in (
-            "heredoc-substitution.sh",
-            "heredoc-backtick.sh",
-        ):
+        expected_lines = {
+            "heredoc-substitution.sh": 2,
+            "heredoc-backtick.sh": 2,
+            "heredoc-multiline-substitution.sh": 3,
+            "heredoc-multiline-backtick.sh": 3,
+            "punctuated-heredoc-then-sleep.sh": 4,
+        }
+        for relative_path, line in expected_lines.items():
             self.assertIn(
-                f"fixtures/{relative_path}:2: sleep-then-assert:",
-            result.stdout,
-        )
+                f"fixtures/{relative_path}:{line}: sleep-then-assert:",
+                result.stdout,
+            )
 
     def test_multiline_javascript_sleep_calls_are_reported(self) -> None:
         result = self.run_checker(
@@ -799,11 +876,24 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "(resolve, 1)\n"
                     "expect(finished).toBe(true)\n"
                 ),
+                "continued-timeout.ts": (
+                    "setTimeout(\n"
+                    "    () => {\n"
+                    "        resolve()\n"
+                    "    },\n"
+                    "    1\n"
+                    ")\n"
+                    "expect(finished).toBe(true)\n"
+                ),
             }
         )
 
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        for relative_path in ("multiline-bun.ts", "multiline-timeout.ts"):
+        for relative_path in (
+            "multiline-bun.ts",
+            "multiline-timeout.ts",
+            "continued-timeout.ts",
+        ):
             self.assertIn(
                 f"fixtures/{relative_path}:1: sleep-then-assert:",
                 result.stdout,
@@ -819,6 +909,14 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     ">.sleep(nanoseconds: 1)\n"
                     "#expect(finished)\n"
                 ),
+                "continued-task.swift": (
+                    "try await Task.sleep(\n"
+                    "    nanoseconds: UInt64(\n"
+                    "        1\n"
+                    "    )\n"
+                    ")\n"
+                    "#expect(finished)\n"
+                ),
             }
         )
 
@@ -826,6 +924,10 @@ class DeterminismCheckerCLITests(unittest.TestCase):
         self.assertIn(
             "fixtures/multiline-specialized-task.swift:4: "
             "sleep-then-assert:",
+            result.stdout,
+        )
+        self.assertIn(
+            "fixtures/continued-task.swift:1: sleep-then-assert:",
             result.stdout,
         )
 
@@ -847,6 +949,12 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "try await Task.sleep(nanoseconds: 1)\n"
                     "/* #expect(finished) */\n"
                     "let finished = true\n"
+                ),
+                "nested-block-comment.swift": (
+                    "/* outer /* inner */\n"
+                    "try await Task.sleep(nanoseconds: 1)\n"
+                    "#expect(finished)\n"
+                    "*/\n"
                 ),
                 "strings.py": (
                     'command = "time.sleep(1)"\n'
