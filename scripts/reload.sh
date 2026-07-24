@@ -1215,14 +1215,30 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     TAG_LAUNCH_PLIST="$CMUX_TAG_LAUNCH_LOG_DIRECTORY/$TAG_LAUNCHD_LABEL.plist"
     /usr/bin/plutil -create xml1 "$TAG_LAUNCH_PLIST"
     /usr/bin/plutil -insert Label -string "$TAG_LAUNCHD_LABEL" "$TAG_LAUNCH_PLIST"
+    # A launchd job inherits the GUI domain environment even when the plist has
+    # its own EnvironmentVariables dictionary. That domain can contain stale
+    # test/socket overrides from another dev session. Run through `env -i` so
+    # the app receives only the ordinary user context and this tag's explicit
+    # values; `env` execs the app in place, so launchd still tracks its lifetime.
+    TAG_LAUNCH_PROGRAM_ARGUMENTS=(
+      /usr/bin/env
+      -i
+      HOME="${HOME:-/Users/$(id -un)}"
+      USER="$(id -un)"
+      LOGNAME="$(id -un)"
+      SHELL="${SHELL:-/bin/zsh}"
+      PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+      TMPDIR="${TMPDIR:-/tmp}"
+    )
+    if [[ -n "${SSH_AUTH_SOCK:-}" ]]; then
+      TAG_LAUNCH_PROGRAM_ARGUMENTS+=(SSH_AUTH_SOCK="$SSH_AUTH_SOCK")
+    fi
+    TAG_LAUNCH_PROGRAM_ARGUMENTS+=("${TAG_LAUNCH_ENV[@]}" "$APP_EXECUTABLE")
     /usr/bin/plutil -insert ProgramArguments -array "$TAG_LAUNCH_PLIST"
-    /usr/bin/plutil -insert ProgramArguments.0 -string "$APP_EXECUTABLE" "$TAG_LAUNCH_PLIST"
-    /usr/bin/plutil -insert EnvironmentVariables -dictionary "$TAG_LAUNCH_PLIST"
-    for TAG_LAUNCH_ENV_ENTRY in "${TAG_LAUNCH_ENV[@]}"; do
-      TAG_LAUNCH_ENV_KEY="${TAG_LAUNCH_ENV_ENTRY%%=*}"
-      TAG_LAUNCH_ENV_VALUE="${TAG_LAUNCH_ENV_ENTRY#*=}"
-      /usr/bin/plutil -insert "EnvironmentVariables.$TAG_LAUNCH_ENV_KEY" \
-        -string "$TAG_LAUNCH_ENV_VALUE" "$TAG_LAUNCH_PLIST"
+    for TAG_LAUNCH_ARGUMENT_INDEX in "${!TAG_LAUNCH_PROGRAM_ARGUMENTS[@]}"; do
+      /usr/bin/plutil -insert "ProgramArguments.$TAG_LAUNCH_ARGUMENT_INDEX" \
+        -string "${TAG_LAUNCH_PROGRAM_ARGUMENTS[$TAG_LAUNCH_ARGUMENT_INDEX]}" \
+        "$TAG_LAUNCH_PLIST"
     done
     /usr/bin/plutil -insert RunAtLoad -bool true "$TAG_LAUNCH_PLIST"
     /usr/bin/plutil -insert KeepAlive -bool false "$TAG_LAUNCH_PLIST"
