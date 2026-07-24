@@ -110,6 +110,49 @@ struct FilePreviewNativeRefreshStateTests {
         #expect(player.rate == 0.5)
     }
 
+    @Test("Media refresh does not resume after an explicit pause")
+    func mediaRefreshPreservesExplicitPause() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-file-preview-media-pause-\(UUID().uuidString).wav")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try writeSilentAudio(to: fileURL)
+
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: fileURL.path,
+            startFileWatcher: false
+        )
+        defer { panel.close() }
+        #expect(panel.previewMode == .media)
+
+        let session = panel.nativeViewSessions.media
+        let view = session.view(
+            panel: panel,
+            revision: panel.previewRevision,
+            isVisibleInUI: true,
+            backgroundColor: .textBackgroundColor,
+            drawsBackground: true
+        )
+        let player = try #require(view.player)
+        player.playImmediately(atRate: 1.25)
+
+        session.update(
+            view,
+            panel: panel,
+            revision: panel.previewRevision + 1,
+            isVisibleInUI: true,
+            backgroundColor: .textBackgroundColor,
+            drawsBackground: true
+        )
+        let restoreTask = try #require(session.playbackRestoreTask)
+        #expect(player.rate == 0)
+        player.pause()
+        await restoreTask.value
+
+        #expect(player.rate == 0)
+        #expect(player.timeControlStatus == .paused)
+    }
+
     @Test("Quick Look refresh keeps its preview item")
     func quickLookRefreshKeepsPreviewItem() throws {
         let fileURL = FileManager.default.temporaryDirectory
