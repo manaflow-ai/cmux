@@ -877,7 +877,7 @@ struct ContentView: View {
     @State private var titlebarThemeGeneration: UInt64 = 0
     @State private var sidebarDraggedTabId: UUID?
     @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
-    @State private var sidebarResizerCursorReleaseWorkItem: DispatchWorkItem?
+    @State private var sidebarResizerCursorReleaseScheduler = SidebarResizerCursorReleaseScheduler()
     @State private var sidebarResizerPointerMonitor: Any?
     @State private var isResizerBandActive = false
     @State private var isSidebarResizerCursorActive = false
@@ -907,8 +907,7 @@ struct ContentView: View {
     @State private var cachedCommandPaletteScope: CommandPaletteListScope?
     @State private var cachedCommandPaletteFingerprint: Int?
     @State private var cachedDefaultTerminalIsDefault = DefaultTerminalRegistration.currentStatus().isDefault
-    @State private var commandPalettePendingDismissFocusTarget: CommandPaletteRestoreFocusTarget?
-    @State private var commandPaletteRestoreTimeoutWorkItem: DispatchWorkItem?
+    @State private var commandPaletteFocusRestoreCoordinator = CommandPaletteFocusRestoreCoordinator()
     @State private var commandPalettePendingTextSelectionBehavior: CommandPaletteTextSelectionBehavior?
     @State private var commandPaletteSearchTask: Task<Void, Never>?
     @State private var commandPaletteSearchRequestID: UInt64 = 0
@@ -945,12 +944,6 @@ struct ContentView: View {
     @FocusState private var isCommandPaletteRenameFocused: Bool
     private let windowChrome = AppWindowChromeComposition()
     private let sidebarResizerOcclusionResolver = SidebarResizerOcclusionResolver()
-    private struct CommandPaletteRestoreFocusTarget {
-        let workspaceId: UUID
-        let panelId: UUID
-        let intent: PanelFocusIntent
-    }
-
     static func tmuxWorkspacePaneExactRect(
         for panel: any Panel,
         in contentView: NSView
@@ -1359,8 +1352,7 @@ struct ContentView: View {
     }
 
     private func activateSidebarResizerCursor() {
-        sidebarResizerCursorReleaseWorkItem?.cancel()
-        sidebarResizerCursorReleaseWorkItem = nil
+        sidebarResizerCursorReleaseScheduler.cancelPendingRelease()
         isSidebarResizerCursorActive = true
         Self.fixedSidebarResizeCursor.set()
     }
@@ -1375,17 +1367,9 @@ struct ContentView: View {
         NSCursor.arrow.set()
     }
 
-    private func scheduleSidebarResizerCursorRelease(force: Bool = false, delay: TimeInterval = 0) {
-        sidebarResizerCursorReleaseWorkItem?.cancel()
-        let workItem = DispatchWorkItem {
-            sidebarResizerCursorReleaseWorkItem = nil
-            releaseSidebarResizerCursorIfNeeded(force: force)
-        }
-        sidebarResizerCursorReleaseWorkItem = workItem
-        if delay > 0 {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
-        } else {
-            DispatchQueue.main.async(execute: workItem)
+    private func scheduleSidebarResizerCursorRelease(force: Bool = false, delay: Duration = .zero) {
+        sidebarResizerCursorReleaseScheduler.schedule(force: force, delay: delay) { releaseForce in
+            releaseSidebarResizerCursorIfNeeded(force: releaseForce)
         }
     }
 
@@ -1613,7 +1597,7 @@ struct ContentView: View {
                     } else {
                         // Give mouse-down + drag-start callbacks time to establish state
                         // before any cursor pop is attempted.
-                        scheduleSidebarResizerCursorRelease(delay: 0.05)
+                        scheduleSidebarResizerCursorRelease(delay: .milliseconds(50))
                     }
                 }
                 updateSidebarResizerBandState()
@@ -9287,6 +9271,7 @@ struct ContentView: View {
 
     private func presentCommandPalette(initialQuery: String) {
         refreshCachedDefaultTerminalStatus(refreshSearchCorpusIfPresented: false)
+        commandPaletteFocusRestoreCoordinator.clear()
         if let panelContext = focusedPanelContext {
             commandPaletteRestoreFocusTarget = CommandPaletteRestoreFocusTarget(
                 workspaceId: panelContext.workspace.id,
@@ -9459,26 +9444,24 @@ struct ContentView: View {
     }
 
     private func requestCommandPaletteFocusRestore(target: CommandPaletteRestoreFocusTarget) {
-        commandPalettePendingDismissFocusTarget = target
-        commandPaletteRestoreTimeoutWorkItem?.cancel()
-        let timeoutWork = DispatchWorkItem {
-            commandPalettePendingDismissFocusTarget = nil
-            commandPaletteRestoreTimeoutWorkItem = nil
-        }
-        commandPaletteRestoreTimeoutWorkItem = timeoutWork
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: timeoutWork)
+        commandPaletteFocusRestoreCoordinator.request(target: target)
         attemptCommandPaletteFocusRestoreIfNeeded()
     }
 
     private func attemptCommandPaletteFocusRestoreIfNeeded() {
         guard !isCommandPalettePresented else { return }
-        guard let target = commandPalettePendingDismissFocusTarget else { return }
-        guard tabManager.tabs.contains(where: { $0.id == target.workspaceId }) else {
-            commandPalettePendingDismissFocusTarget = nil
-            commandPaletteRestoreTimeoutWorkItem?.cancel()
-            commandPaletteRestoreTimeoutWorkItem = nil
+        guard let target = commandPaletteFocusRestoreCoordinator.pendingTarget else { return }
+        guard let targetWorkspace = tabManager.tabs.first(where: { $0.id == target.workspaceId }) else {
+            commandPaletteFocusRestoreCoordinator.clear()
             return
         }
+        guard !commandPaletteFocusRestoreCoordinator.clearIfTargetNoLongerMatchesCurrentFocus(
+            selectedWorkspaceId: tabManager.selectedTabId,
+            focusedPanelId: targetWorkspace.focusedPanelId,
+            targetPanelExists: targetWorkspace.panels[target.panelId] != nil
+        ) else { return }
+        guard commandPaletteFocusRestoreCoordinator.claimRestoreAttempt() else { return }
+        defer { commandPaletteFocusRestoreCoordinator.finishRestoreAttempt() }
 
         if let window = observedWindow, !window.isKeyWindow {
             window.makeKeyAndOrderFront(nil)
@@ -9496,9 +9479,7 @@ struct ContentView: View {
             return
         }
         guard context.panel.restoreFocusIntent(target.intent) else { return }
-        commandPalettePendingDismissFocusTarget = nil
-        commandPaletteRestoreTimeoutWorkItem?.cancel()
-        commandPaletteRestoreTimeoutWorkItem = nil
+        commandPaletteFocusRestoreCoordinator.clear()
     }
 
 #if DEBUG
@@ -11477,11 +11458,28 @@ struct VerticalTabsSidebar: View, Equatable {
             isValidWorkspaceDrag: {
                 activateSidebarWorkspaceDragIfNeeded()
             },
-            updateWorkspaceDrag: { point, targets in
-                updateWorkspaceReorderDrop(point: point, targets: targets, renderContext: renderContext)
+            updateWorkspaceDrag: { point, targets, pasteboardWorkspaceId in
+                updateWorkspaceReorderDropForTable(
+                    point: point,
+                    targets: targets,
+                    pasteboardWorkspaceId: pasteboardWorkspaceId,
+                    renderContext: renderContext
+                )
             },
-            performWorkspaceDrop: { point, targets in
-                performWorkspaceReorderDrop(point: point, targets: targets, renderContext: renderContext)
+            performWorkspaceDrop: { point, targets, pasteboardWorkspaceId in
+                performWorkspaceReorderDrop(
+                    point: point,
+                    targets: targets,
+                    pasteboardWorkspaceId: pasteboardWorkspaceId,
+                    renderContext: renderContext
+                )
+            },
+            commitWorkspaceDropPlan: { plan in
+                defer {
+                    dragState.clearDrag()
+                    dragAutoScrollController.stop()
+                }
+                return performWorkspaceReorderPlan(plan)
             },
             clearWorkspaceDropIndicator: {
                 dragState.clearDropIndicator()
@@ -11492,10 +11490,6 @@ struct VerticalTabsSidebar: View, Equatable {
             },
             currentDropIndicatorScope: {
                 dragState.dropIndicatorScope
-            },
-            setWorkspaceDropTargetCollectionActive: { isActive in
-                guard isWorkspaceReorderDropTargetCollectionActive != isActive else { return }
-                isWorkspaceReorderDropTargetCollectionActive = isActive
             },
             canPerformBonsplitAction: { action, transfer in
                 guard let app = AppDelegate.shared else { return false }
@@ -13185,18 +13179,37 @@ struct VerticalTabsSidebar: View, Equatable {
         )
     }
 
-    private func activateSidebarWorkspaceDragIfNeeded() -> Bool {
+    private func activateSidebarWorkspaceDragIfNeeded(pasteboardWorkspaceId: UUID? = nil) -> Bool {
         if dragState.draggedTabId != nil {
             return true
         }
-        guard let foreignId = dragState.currentWorkspaceDragId,
-              !tabManager.tabs.contains(where: { $0.id == foreignId }),
-              let sourceManager = AppDelegate.shared?.tabManagerFor(tabId: foreignId),
-              !sourceManager.workspaceGroups.contains(where: { $0.anchorWorkspaceId == foreignId }) else {
+        // The registry entry dies with clearDrag(), so a drag whose state was
+        // torn down mid-flight (app_resign_active failsafe) is only
+        // recoverable through the session's pasteboard id.
+        guard let dragId = dragState.currentWorkspaceDragId ?? pasteboardWorkspaceId else {
+#if DEBUG
+            cmuxDebugLog("sidebar.drag.activate rejected reason=noDragId")
+#endif
             return false
         }
-        dragState.foreignDraggedIsPinned = sourceManager.tabs.first { $0.id == foreignId }?.isPinned ?? false
-        dragState.draggedTabId = foreignId
+        if tabManager.tabs.contains(where: { $0.id == dragId }) {
+            // Local drag whose state was cleared while the native session
+            // kept running: the still-delivering drop callbacks prove the
+            // drag is alive, so re-arm instead of rejecting every update
+            // (which left the rest of the drag indicator-less and made the
+            // final drop a silent no-op).
+            guard !tabManager.workspaceGroups.contains(where: { $0.anchorWorkspaceId == dragId }) else {
+                return false
+            }
+            dragState.beginDragging(tabId: dragId)
+            return true
+        }
+        guard let sourceManager = AppDelegate.shared?.tabManagerFor(tabId: dragId),
+              !sourceManager.workspaceGroups.contains(where: { $0.anchorWorkspaceId == dragId }) else {
+            return false
+        }
+        dragState.foreignDraggedIsPinned = sourceManager.tabs.first { $0.id == dragId }?.isPinned ?? false
+        dragState.draggedTabId = dragId
         return true
     }
 
@@ -13219,16 +13232,48 @@ struct VerticalTabsSidebar: View, Equatable {
         return true
     }
 
+    /// AppKit-table variant of `updateWorkspaceReorderDrop` that never writes
+    /// the indicator into `dragState`: the table controller paints the two
+    /// affected cells directly, so a dragState write here would only rebuild
+    /// every sidebar row per gap change (the indicator-lags-pointer report).
+    private func updateWorkspaceReorderDropForTable(
+        point: CGPoint,
+        targets: [SidebarWorkspaceReorderDropOverlay.Target],
+        pasteboardWorkspaceId: UUID?,
+        renderContext: WorkspaceListRenderContext
+    ) -> SidebarWorkspaceTableReorderDropUpdate? {
+        guard activateSidebarWorkspaceDragIfNeeded(pasteboardWorkspaceId: pasteboardWorkspaceId),
+              let draggedWorkspaceId = dragState.draggedTabId,
+              let plan = workspaceReorderPlan(point: point, targets: targets, renderContext: renderContext) else {
+            return nil
+        }
+        dragAutoScrollController.updateFromDragLocation()
+        return SidebarWorkspaceTableReorderDropUpdate(
+            indicator: plan.indicator,
+            scope: plan.indicatorScope,
+            draggedWorkspaceId: draggedWorkspaceId,
+            indicatorRowIds: sidebarDropIndicatorRowIds(
+                draggedWorkspaceId: draggedWorkspaceId,
+                scope: plan.indicatorScope,
+                tabs: renderContext.tabs,
+                workspaceGroups: renderContext.workspaceGroups,
+                visibleWorkspaceRowIds: renderContext.visibleWorkspaceRowIds
+            ),
+            plan: plan
+        )
+    }
+
     private func performWorkspaceReorderDrop(
         point: CGPoint,
         targets: [SidebarWorkspaceReorderDropOverlay.Target],
+        pasteboardWorkspaceId: UUID? = nil,
         renderContext: WorkspaceListRenderContext
     ) -> Bool {
         defer {
             dragState.clearDrag()
             dragAutoScrollController.stop()
         }
-        guard activateSidebarWorkspaceDragIfNeeded(),
+        guard activateSidebarWorkspaceDragIfNeeded(pasteboardWorkspaceId: pasteboardWorkspaceId),
               let plan = workspaceReorderPlan(point: point, targets: targets, renderContext: renderContext) else {
             return false
         }

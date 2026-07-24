@@ -13,14 +13,16 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The submodule pinned by this branch is
-`d6f611a3077aa12510761ca10e2a5e0a93979536`. It is the head of
-https://github.com/manaflow-ai/ghostty/pull/128, stacked through
+`c55514dd52d806e9aa661ee20381aa19c91c1c09`, the current
+`manaflow-ai/ghostty` `main`. The cumulative integration landed through
+https://github.com/manaflow-ai/ghostty/pull/128; the earlier stacked PRs
 https://github.com/manaflow-ai/ghostty/pull/127,
 https://github.com/manaflow-ai/ghostty/pull/123, and
-https://github.com/manaflow-ai/ghostty/pull/122. This stack supplies the
-external-frontend renderer contract used by cmux Browser, exact cursor state
-for process-separated terminal mirrors, and mutable-default color reset
-semantics.
+https://github.com/manaflow-ai/ghostty/pull/122 are now merged or superseded.
+The resulting main line supplies the external-frontend renderer contract used
+by cmux Browser, exact cursor state for process-separated terminal mirrors,
+mutable-default color reset semantics, and the product-main renderer/link
+fixes described below.
 
 ### External frontend rendering and recovery
 
@@ -93,17 +95,22 @@ semantics.
   - Conflict note: reset must continue to mean "no override"; snapshotting the
     current default recreates stale colors after a later frontend theme update.
 
-## Divergent product-main archive line
+## Reconciled product-main line
 
-The product-main line advanced independently to `b211341be`. That commit and
-this branch's `d6f611a30` pin share `bb30526cd` as their merge base, but neither
-is an ancestor of the other; `b211341be` is therefore not the submodule pin for
-this branch. It combines indented hard-newline link continuations with the
-presentation-token runtime from `24284c3ba` and is published through
-https://github.com/manaflow-ai/ghostty/pull/124.
-The corresponding universal ReleaseFast GhosttyKit archive is published at
+The product-main line had advanced independently to `b211341be` while the
+external-frontend line advanced to `d6f611a30`. Integration commit
+`7c3ddd6f3cd4935f1b6bd10530b1e8e8ec4c9ef9` reconciled both histories, and
+merge commit `c55514dd52d806e9aa661ee20381aa19c91c1c09` landed that cumulative
+result on `manaflow-ai/ghostty` `main` through
+https://github.com/manaflow-ai/ghostty/pull/128. The current submodule pin
+therefore includes the indented hard-newline link continuations, tokened
+presentation lifetime fixes, leased external frames, recovery snapshots,
+cursor continuity state, and mutable-default color resets together.
+
+The older `b211341be` universal ReleaseFast archive remains published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b211341be1ba902e772f57fc67c3e65d35205676-crashsubdir-cmux-crash-v1
-and pinned in `scripts/ghosttykit-checksums.txt`.
+and pinned in `scripts/ghosttykit-checksums.txt` for reproducibility of older
+cmux revisions.
 
 ### Indented hard-newline link continuations
 

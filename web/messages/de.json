@@ -1,4 +1,27 @@
 {
+  "cloudBillingReturn": {
+    "eyebrow": "cmux Cloud",
+    "returnTitle": "Im Terminal fortfahren",
+    "returnBody": "Kehre zu dem Terminal zurück, in dem du ssh cmux.cloud ausgeführt hast.",
+    "statuses": {
+      "checkoutSuccess": {
+        "title": "Bezahlung abgeschlossen",
+        "body": "Dein Abonnement wurde bestätigt. Es kann einen Moment dauern, bis die neuen Limits angezeigt werden."
+      },
+      "checkoutCanceled": {
+        "title": "Bezahlung abgebrochen",
+        "body": "Die Bezahlung wurde geschlossen, ohne deinen Tarif zu ändern."
+      },
+      "portalReturn": {
+        "title": "Zurück vom Abrechnungsportal",
+        "body": "Änderungen im Abrechnungsportal können einen Moment benötigen, bis sie angezeigt werden."
+      },
+      "default": {
+        "title": "Abrechnung abgeschlossen",
+        "body": "Der Abrechnungsvorgang ist abgeschlossen."
+      }
+    }
+  },
   "meta": {
     "title": "cmux — Das Terminal für Multitasking",
     "description": "Kostenloser, quelloffener nativer macOS-Terminal auf Basis von Ghostty. Funktioniert mit Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider und jedem CLI-Tool. Vertikale Tabs, Benachrichtigungsringe, geteilte Bereiche und eine socket API.",

@@ -2,6 +2,8 @@
 
 As of protocol v9, every server speaks JSON Lines over a Unix domain socket. Send one JSON object per line. Every request receives one response line. `subscribe` and `attach-surface` also push event lines on the same connection.
 
+Remote clients can carry the same JSON-lines stream through `cmux-tui relay --session <name>`. The relay copies stdio to an existing local session socket and is commonly launched with `ssh -T`; it performs no authentication or command decoding itself. Client internals consume complete JSON messages, so WebSocket text frames and future framed transports can reuse the same remote-session implementation. See the [transport contract](../spec/transports.md#relay-stdio).
+
 For shell use, prefer `cmux-tui <verb>`; it wraps the same socket commands and preserves JSON output with `--json`.
 
 Default socket path:
@@ -14,7 +16,7 @@ $TMPDIR/cmux-tui-<uid>/<session>.sock
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":9,"capabilities":["attach-initial-size","workspace-registry-v1"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":9,"capabilities":["attach-initial-size","workspace-registry-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
 ```
 
 Responses have this shape:
@@ -33,6 +35,8 @@ The complete command schemas live in
 [`spec/events.md`](../spec/events.md), and framing, state-path, and security
 rules in [`spec/transports.md`](../spec/transports.md). This guide illustrates
 common flows rather than duplicating the exhaustive command list.
+
+`provider-managed-workspace-authority-v2` means the mux was provider-locked before its first control client and accepts private mirror commits only with its pre-provisioned authority. `mark-workspaces-provider-managed` validates that authority without changing ownership. Ordinary `close-workspace` and `rename-workspace` requests always fail on that mux. The provider-aware TUI sends an authorized `close-provider-managed-workspace` or `rename-provider-managed-workspace` only after the external provider accepts the corresponding lifecycle request. Provider-aware clients must refuse provider-owned mode when the server does not advertise this capability.
 
 `move-tab` moves a surface to a target pane and insertion index. It supports same-pane reorder and cross-pane moves.
 
@@ -129,6 +133,8 @@ local viewport changes, then sends `release-surface-size` when the surface is
 hidden. Input and mux-driven redraws do not claim sizing ownership or cause a
 passive client to reassert its viewport. See the canonical
 [`Sizing`](../spec/commands.md#sizing) contract.
+
+Provider-aware clients require `provider-managed-workspace-authority-v2` before exposing provider-owned workspace lifecycle controls. The server starts with provider ownership fixed for that mux generation, including during temporary provider descriptor gaps, so an older or stale client cannot reopen ordinary rename or close paths.
 
 ## Browser Limitations
 

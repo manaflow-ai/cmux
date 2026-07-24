@@ -243,8 +243,7 @@ extension Workspace {
         pruneSurfaceMetadata(validSurfaceIds: Set(panels.keys))
         applySessionDividerPositions(snapshotNode: snapshot.layout, liveNode: bonsplitController.treeSnapshot())
 
-        applyProcessTitle(snapshot.processTitle)
-        setCustomTitle(snapshot.customTitle, source: snapshot.customTitleSource ?? .user)
+        restoreTitleState(from: snapshot, restoredPanelIds: oldToNewPanelIds)
         setCustomDescription(snapshot.customDescription)
         setCustomColor(snapshot.customColor)
         isPinned = snapshot.isPinned
@@ -2181,6 +2180,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var surfaceTabBarDirectory: String?
     private(set) var preferredBrowserProfileID: UUID?
     let closeTabWarningDefaults, agentSessionAutoResumeDefaults: UserDefaults
+    private let settings: any SettingsReading
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
     var portOrdinal: Int = 0
@@ -2210,7 +2210,8 @@ final class Workspace: Identifiable, ObservableObject {
                     remoteWebsiteDataStoreIdentifier: self.isRemoteWorkspace ? self.id : nil,
                     remoteStatus: self.browserRemoteWorkspaceStatusSnapshot()
                 )
-            }
+            },
+            settings: settings
         )
         _dockSplit = store
         return store
@@ -3048,6 +3049,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     init(
+        id: UUID? = nil,
         title: String = "Terminal",
         workingDirectory: String? = nil,
         portOrdinal: Int = 0,
@@ -3061,6 +3063,7 @@ final class Workspace: Identifiable, ObservableObject {
         initialBrowserTransparentBackground: Bool = false,
         workspaceEnvironment: [String: String] = [:],
         allowTextBoxFocusDefault: Bool = true,
+        settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard),
         closeTabWarningDefaults: UserDefaults = .standard,
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
@@ -3068,10 +3071,11 @@ final class Workspace: Identifiable, ObservableObject {
         sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil,
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker()
     ) {
-        self.id = UUID()
+        self.id = id ?? UUID()
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
+        self.settings = settings
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         let sanitizedWorkspaceEnvironment = Self.sanitizedWorkspaceEnvironment(workspaceEnvironment)
@@ -3141,7 +3145,7 @@ final class Workspace: Identifiable, ObservableObject {
             // Mirrors the minimal terminal branch below plus the browser panel
             // wiring `attachDetachedSurface` performs for reattached panels.
             let browserPanel = BrowserPanel(
-                workspaceId: id,
+                workspaceId: self.id,
                 profileID: resolvedNewBrowserProfileID(),
                 initialURL: initialBrowserURL,
                 omnibarVisible: initialBrowserOmnibarVisible,
@@ -3172,7 +3176,7 @@ final class Workspace: Identifiable, ObservableObject {
             }
             installBrowserPanelSubscription(browserPanel)
         } else if initialSurface == .cloudVMLoading {
-            let loadingPanel = CloudVMLoadingPanel(workspaceId: id)
+            let loadingPanel = CloudVMLoadingPanel(workspaceId: self.id)
             panels[loadingPanel.id] = loadingPanel
             panelTitles[loadingPanel.id] = loadingPanel.displayTitle
 
@@ -3190,7 +3194,7 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             // Create initial terminal panel
             let terminalPanel = TerminalPanel(
-                workspaceId: id,
+                workspaceId: self.id,
                 context: GHOSTTY_SURFACE_CONTEXT_TAB,
                 configTemplate: resolvedConfigTemplate,
                 workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil,
@@ -4231,6 +4235,12 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     func setPanelCustomTitle(panelId: UUID, title: String?, source: CustomTitleSource = .user) -> Bool {
         guard panels[panelId] != nil else { return false }
+        let previousWorkspaceTitle = self.title
+        defer {
+            if self.title != previousWorkspaceTitle {
+                owningTabManager?.panelCustomTitleDidReconcileWorkspaceTitle(self)
+            }
+        }
         let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let previous = panelCustomTitles[panelId]
         if source == .auto {
@@ -4246,11 +4256,14 @@ final class Workspace: Identifiable, ObservableObject {
                 // Same text: a user write still claims ownership so a later
                 // auto write cannot replace a title the user re-confirmed.
                 if source == .user { panelCustomTitleSources[panelId] = .user }
+                applyFocusedPanelTitle(panelId: panelId)
                 return true
             }
             panelCustomTitles[panelId] = trimmed
             panelCustomTitleSources[panelId] = source
         }
+
+        applyFocusedPanelTitle(panelId: panelId)
 
         guard let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) else { return true }
         let baseTitle = panelTitles[panelId] ?? panel.displayTitle
@@ -6567,27 +6580,22 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    nonisolated private static func normalizedTerminalWorkingDirectory(_ workingDirectory: String?) -> String? {
-        let trimmed = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
     private func resolvedTerminalStartupWorkingDirectory(
         requestedWorkingDirectory: String?,
         sourcePanelId: UUID?
     ) -> String? {
-        if let requested = Self.normalizedTerminalWorkingDirectory(requestedWorkingDirectory) {
+        if let requested = TerminalWorkingDirectoryResolver.normalized(requestedWorkingDirectory) {
             return requested
         }
         if let sourcePanelId,
            let rescued = resumedAgentPaneWorkingDirectoryRescue(panelId: sourcePanelId) {
             return rescued
         }
-        return [
+        return TerminalWorkingDirectoryResolver.firstAvailable([
             sourcePanelId.flatMap { panelDirectories[$0] },
             sourcePanelId.flatMap { terminalPanel(for: $0)?.requestedWorkingDirectory },
             currentDirectory,
-        ].lazy.compactMap(Self.normalizedTerminalWorkingDirectory).first
+        ])
     }
 
     /// The foreground-process cwd read consulted by
@@ -6618,13 +6626,13 @@ final class Workspace: Identifiable, ObservableObject {
         // policy, whose resume command never cds) — the tracked cwd is
         // genuine, so there is nothing to rescue and the live foreground
         // process must not be consulted either.
-        guard let sessionDirectory = Self.normalizedTerminalWorkingDirectory(
+        guard let sessionDirectory = TerminalWorkingDirectoryResolver.normalized(
             restoredResumeSessionWorkingDirectoriesByPanelId[panelId]
         ) else { return nil }
-        let trackedDirectory = Self.normalizedTerminalWorkingDirectory(panelDirectories[panelId])
+        let trackedDirectory = TerminalWorkingDirectoryResolver.normalized(panelDirectories[panelId])
         if trackedDirectory == sessionDirectory { return nil }
         for candidate in [liveForegroundProcessWorkingDirectory(panelId: panelId), sessionDirectory] {
-            guard let candidate = Self.normalizedTerminalWorkingDirectory(candidate) else { continue }
+            guard let candidate = TerminalWorkingDirectoryResolver.normalized(candidate) else { continue }
             if candidate == trackedDirectory {
                 continue
             }
@@ -6656,17 +6664,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// `proc_pidinfo(PROC_PIDVNODEPATHINFO)`, or nil when the process is gone
     /// or unreadable.
     nonisolated static func processCurrentWorkingDirectory(pid: pid_t) -> String? {
-        guard pid > 0 else { return nil }
-        var info = proc_vnodepathinfo()
-        let expectedSize = MemoryLayout<proc_vnodepathinfo>.size
-        let size = proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &info, Int32(expectedSize))
-        guard size == expectedSize else { return nil }
-        let path = withUnsafeBytes(of: info.pvi_cdir.vip_path) { rawBuffer -> String in
-            let endIndex = rawBuffer.firstIndex(of: 0) ?? rawBuffer.endIndex
-            return String(decoding: rawBuffer[..<endIndex], as: UTF8.self)
-        }
-        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        TerminalWorkingDirectoryResolver.processCurrentWorkingDirectory(pid: pid)
     }
 
     /// The directory a new tab (`new-window`) should inherit in a remote-tmux

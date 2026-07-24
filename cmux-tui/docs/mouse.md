@@ -6,6 +6,8 @@ The files sidebar view (`sidebar.view = "files"`) shows the focused pane's cwd, 
 
 The workspaces view shows a `workspaces` header, two rows per workspace, and `+ new workspace`. Click either row of a workspace to select it. Click `+ new workspace` to create one. Drag the sidebar's right border in either built-in view to set a session-local width override. Configured `sidebar.max_width` limits the drag width when it is greater than zero, and the TUI still leaves at least 40 columns for panes.
 
+When configured, the machine rail appears to the left of the workspace or files rail with the same header, two-line entry, active marker, and selected-row treatment as the built-in workspace list. Press and release on the same non-active machine entry to connect to it. Click `+ Connect machine` to open the shared text-input dialog for a `host` or `user@host`. A provider that advertises create capability also shows `+ New VM`; the built-in static Unix/SSH catalog does not advertise that capability. Drag the machine rail's right divider to resize that rail, or the second rail's right divider to resize the workspace/files rail. The two session-local width overrides are independent.
+
 Each pane has a border box. Click inside a pane to focus it. The top border is the tab bar: click a tab chip to select it, click `+` to create a PTY tab, click `‹` or `›` to scroll overflowing tabs, or wheel over the bar to scroll tab chips while keeping the active tab visible.
 
 The status bar lists screens for the active workspace. Click a screen segment to select it. Click the trailing `+` to create a screen.
@@ -35,7 +37,7 @@ Wheel over a PTY pane focuses that pane first. When the inner app enables termin
 
 Drag pane borders to resize the matching split. Dragging a corner adjusts both intersecting split axes. The ratio is clamped from 0.05 to 0.95. Outer edges that do not correspond to a split do not change layout.
 
-Drag the sidebar border to resize the sidebar for the current TUI session. The configured base width still comes from `sidebar.width`.
+Drag a rail border to resize that rail for the current TUI session. The configured base widths come from `machine_sidebar.width` and `sidebar.width`, and each rail honors its own `max_width`. With both rails visible, resizing one preserves the other rail's width while leaving at least 40 columns for pane content.
 
 ## Context Menus
 
@@ -57,9 +59,9 @@ Browser panes receive left press, drag, and release as CDP mouse events instead 
 
 The TUI emits OSC 22 `pointer` over clickable UI and OSC 22 `default` elsewhere. Terminals without pointer-shape support ignore it.
 
-## Rename and URL Dialogs
+## Text Input Dialogs
 
-Rename and browser URL prompts are centered bordered dialogs using the same `TextInput` editor. Buttons are labeled with shortcuts: `[ Clear ^C ]`, `[ Cancel esc ]`, and `[ OK ⏎ ]`.
+Rename, connect-machine, and browser URL prompts are centered bordered dialogs using the same `TextInput` editor. Buttons are labeled with shortcuts: `[ Clear ^C ]`, `[ Cancel esc ]`, and `[ OK ⏎ ]`.
 
 Enter commits. Esc cancels. Ctrl-C clears. Home and Ctrl-A move to the start. End and Ctrl-E move to the end. Alt-Left and Alt-B move one word left. Alt-Right and Alt-F move one word right. Backspace deletes left, Delete and Ctrl-D delete right, Ctrl-W and Alt-Backspace delete a word left, Alt-D deletes a word right, Ctrl-K deletes to the end, and Ctrl-U deletes to the start.
 

@@ -241,6 +241,13 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        pumpCancellables.removeAll()
+        model = nil
+        hintPill.resetForReuse()
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         // Detachment without a configure pass must not leave the status
@@ -507,8 +514,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         // Hint pill + indicators + dim/drag
         hintPill.configure(
             text: model.shortcutHintText,
-            fontSize: model.scaled(10),
-            emphasis: model.isActive ? 1.0 : 0.9
+            fontSize: model.scaled(9),
+            emphasis: model.isActive ? 1.0 : 0.9,
+            representedIdentity: model.workspaceId
         )
         topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
         bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
@@ -525,6 +533,23 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             defaultValue: "\(snapshot.title), workspace \(model.index + 1) of \(model.accessibilityWorkspaceCount)"
         ))
     }
+
+    /// Live drop-line painting during native reorder drags. The controller
+    /// owns the indicator for the drag's lifetime (the model's flags stay
+    /// false, so no SwiftUI rows rebuild runs per gap change) and moves it
+    /// with two direct view mutations instead of a full-list apply.
+    func paintControllerDropIndicator(top: Bool, bottom: Bool) {
+        topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
+        bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
+        topDropIndicator.isHidden = !top
+        bottomDropIndicator.isHidden = !bottom
+    }
+
+#if DEBUG
+    var dropIndicatorPaintForTesting: (top: Bool, bottom: Bool) {
+        (!topDropIndicator.isHidden, !bottomDropIndicator.isHidden)
+    }
+#endif
 
     private func configureStatusSlot(
         model: SidebarWorkspaceRowModel,

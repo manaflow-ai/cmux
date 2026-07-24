@@ -61,6 +61,12 @@ public enum DiagnosticFailureKind: Int, Sendable, Codable, CaseIterable {
     case connectionClosed = 18
     case superseded = 19
     case cancelled = 20
+    /// The established transport exceeded its negotiated inactivity window.
+    case transportIdleTimedOut = 21
+    /// Online admission closed the session because its signed lease expired.
+    case admissionLeaseExpired = 22
+    /// Online admission closed the session after broker revalidation failed.
+    case admissionRevalidationFailed = 23
     case unknown = 255
 
     /// Reduces a typed or system error to the bounded diagnostic vocabulary.

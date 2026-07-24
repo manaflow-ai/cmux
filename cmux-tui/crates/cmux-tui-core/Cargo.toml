@@ -25,6 +25,7 @@ getrandom.workspace = true
 rusqlite.workspace = true
 fs4.workspace = true
 sha2.workspace = true
+zeroize.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 uds_windows.workspace = true
