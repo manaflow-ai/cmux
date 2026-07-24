@@ -2930,7 +2930,21 @@ impl Mux {
     ) {
         let mut sizing = self.client_sizing.lock().unwrap();
         let attached_clients = self.control_clients.attached_client_ids_by_surface();
-        let mut affected = attached_surfaces.into_iter().collect::<HashSet<_>>();
+        // The registry snapshot no longer contains this client. Reconstruct
+        // whether each old attachment suppressed excluded-report fallback so
+        // an unsized disconnect only reapplies geometry when that changed.
+        let detached_fallbacks = attached_surfaces
+            .into_iter()
+            .map(|surface| {
+                let used_fallback = if sizing.client_participates(surface, client) {
+                    false
+                } else {
+                    sizing.uses_excluded_fallback(surface, attached_clients.get(&surface))
+                };
+                (surface, used_fallback)
+            })
+            .collect::<HashMap<_, _>>();
+        let mut affected = HashSet::new();
         for (surface, viewers) in &mut sizing.surfaces {
             if viewers.remove(&client).is_some() {
                 affected.insert(*surface);
@@ -2961,6 +2975,13 @@ impl Mux {
         sizing.policies.retain(|_, policy| {
             policy.exclusive_client.is_some() || !policy.excluded_clients.is_empty()
         });
+        for (surface, fallback_before) in detached_fallbacks {
+            let fallback_after =
+                sizing.uses_excluded_fallback(surface, attached_clients.get(&surface));
+            if fallback_before != fallback_after {
+                affected.insert(surface);
+            }
+        }
         let mut changed_clients = HashSet::new();
         for surface in restored_surfaces {
             if let Some(clients) = attached_clients.get(&surface) {
