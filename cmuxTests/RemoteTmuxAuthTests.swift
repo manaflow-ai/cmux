@@ -177,6 +177,76 @@ import Testing
         #expect(consecutive(args, "-i", "/keys/id"))
     }
 
+    /// The close path knows only which workspace closed, so an offer has to be findable by its
+    /// workspace. Without this the dismissal edge cannot resolve a host and a closed login tab
+    /// goes unnoticed — which is what the removed poll had been quietly covering.
+    @Test func anOpenLoginIsFindableByItsWorkspace() {
+        var offers = RemoteTmuxLoginOffers()
+        let workspace = UUID()
+        guard case .present(let generation) = offers.claim(host: "h1", isOpen: { _ in false }) else {
+            Issue.record("expected a fresh claim to be presentable")
+            return
+        }
+        offers.recordOpened(host: "h1", workspace: workspace, generation: generation)
+
+        #expect(offers.host(forOpenedWorkspace: workspace) == "h1")
+        #expect(offers.host(forOpenedWorkspace: UUID()) == nil, "an unrelated workspace matches nothing")
+    }
+
+    /// A claimed-but-not-yet-opened offer has no workspace, so it must not be matched by one. The
+    /// lookup runs on every workspace close, and a false match would decline the wrong host's login.
+    @Test func aClaimedOfferWithNoWorkspaceMatchesNothing() {
+        var offers = RemoteTmuxLoginOffers()
+        _ = offers.claim(host: "h1", isOpen: { _ in false })
+        #expect(offers.host(forOpenedWorkspace: UUID()) == nil)
+    }
+
+    /// Declining is per host and per generation: a closed tab must not silence a *newer* offer that
+    /// replaced it, or one flap would stop the host ever offering a login again.
+    @Test func decliningAnOldGenerationDoesNotSilenceANewerOffer() {
+        var offers = RemoteTmuxLoginOffers()
+        let first = UUID()
+        guard case .present(let g1) = offers.claim(host: "h1", isOpen: { _ in false }) else { return }
+        offers.recordOpened(host: "h1", workspace: first, generation: g1)
+        offers.noteConnected(host: "h1")
+
+        guard case .present(let g2) = offers.claim(host: "h1", isOpen: { _ in false }) else {
+            Issue.record("a reconnected host must be able to offer again")
+            return
+        }
+        let second = UUID()
+        offers.recordOpened(host: "h1", workspace: second, generation: g2)
+        // The stale close arrives late, naming the first generation.
+        offers.noteDeclined(host: "h1", generation: g1)
+        #expect(offers.host(forOpenedWorkspace: second) == "h1", "the newer offer must survive a stale decline")
+        #expect(!offers.isDeclined(host: "h1"))
+    }
+
+    /// A login exists to unfreeze mirrors, so when the last mirror for the host is gone the offer,
+    /// its waiter and the pane are all orphaned. Modelled on the offer bookkeeping the controller
+    /// drives, which is the part that decides whether a stale login can be replaced later.
+    @Test func abandoningAnOfferLetsTheHostOfferAgainLater() {
+        var offers = RemoteTmuxLoginOffers()
+        let workspace = UUID()
+        guard case .present(let generation) = offers.claim(host: "h1", isOpen: { _ in false }) else {
+            Issue.record("expected a fresh claim to be presentable")
+            return
+        }
+        offers.recordOpened(host: "h1", workspace: workspace, generation: generation)
+        #expect(offers.hasOffer(host: "h1"))
+
+        // What the controller does once the host has no mirrors left.
+        offers.abandon(host: "h1", generation: generation)
+        #expect(!offers.hasOffer(host: "h1"), "an abandoned offer must not linger")
+        #expect(offers.host(forOpenedWorkspace: workspace) == nil)
+
+        // And the host is not poisoned: a later outage can offer a login again.
+        guard case .present = offers.claim(host: "h1", isOpen: { _ in false }) else {
+            Issue.record("abandoning must not stop a later login from being offered")
+            return
+        }
+    }
+
     @Test func connectionHashVariesByPortAndIdentity() {
         // The controller keys transports / connections / windows / persistence by
         // connectionHash, so distinct endpoints must produce distinct hashes (and
@@ -473,5 +543,419 @@ import Testing
             String(decoding: stdoutData, as: UTF8.self),
             String(decoding: stderrData, as: UTF8.self)
         )
+    }
+
+    // MARK: - Reconnect disposition (the wedge fix)
+
+    /// A reconnect that fails BECAUSE the host wants interactive authentication must be
+    /// classified `.authRequired`, not `.transient`. This is the whole bug: the reconnect
+    /// runs `BatchMode=yes` on pipes with no tty, so retrying can never satisfy a
+    /// password / MFA / security-key touch. Classified as transient it retries forever
+    /// and the mirror freezes with nothing on screen to explain why.
+    @Test(arguments: [
+        "user@host: Permission denied (publickey,keyboard-interactive).",
+        "Permission denied (publickey,password).",
+        "Host key verification failed.",
+        "Authentication failed.",
+        "Too many authentication failures",
+    ])
+    func reconnectNeedingAuthIsNotTransient(_ stderr: String) {
+        #expect(
+            RemoteTmuxReconnectDisposition.classify(stderr: stderr, preControlOutput: "")
+                == .authRequired
+        )
+    }
+
+    /// A gone session still ends the connection, and wins over an auth failure when a
+    /// host reports both — ending is correct and not recoverable, so it must not be
+    /// downgraded to "ask the user to log in".
+    @Test func goneSessionOutranksAuthFailure() {
+        #expect(
+            RemoteTmuxReconnectDisposition.classify(
+                stderr: "no server running on /tmp/tmux-501/default", preControlOutput: "")
+                == .sessionGone
+        )
+        #expect(
+            RemoteTmuxReconnectDisposition.classify(
+                stderr: "no server running on /tmp/tmux-501/default\nPermission denied (publickey).",
+                preControlOutput: "") == .sessionGone
+        )
+    }
+
+    /// Everything else keeps retrying with backoff — an unreachable or refused host is
+    /// exactly what the retry loop is for, and must NOT pop a login the user cannot use.
+    @Test(arguments: [
+        "ssh: connect to host h port 22: Connection refused",
+        "ssh: connect to host h port 22: Operation timed out",
+        "kex_exchange_identification: read: Connection reset by peer",
+        "",
+    ])
+    func unreachableStaysTransient(_ stderr: String) {
+        #expect(
+            RemoteTmuxReconnectDisposition.classify(stderr: stderr, preControlOutput: "")
+                == .transient
+        )
+    }
+
+    /// A `ProxyCommand` that closes the transport silently under BatchMode is the same
+    /// situation as an explicit auth failure without the error string, so it must also
+    /// stop retrying and offer a login. The reconnect classifier therefore has to use the
+    /// composed predicate the initial-connect sites use; matching only "permission
+    /// denied" leaves a corporate-broker host retrying forever — the original bug,
+    /// surviving for exactly the hosts this feature exists to serve.
+    @Test(arguments: [
+        "ssh_dispatch_run_fatal: Connection to UNKNOWN port 65535: Broken pipe",
+        "Connection closed by UNKNOWN port 65535",
+    ])
+    func silentProxyCloseOnReconnectOffersLogin(_ stderr: String) {
+        #expect(!RemoteTmuxSSHTransport.indicatesAuthRequired(stderr))
+        #expect(
+            RemoteTmuxReconnectDisposition.classify(stderr: stderr, preControlOutput: "")
+                == .authRequired
+        )
+    }
+
+    /// A non-recoverable proxy failure keeps retrying rather than asking for a login the
+    /// user cannot act on: no amount of authenticating fixes a missing proxy binary.
+    @Test func nonRecoverableProxyFailureStaysTransient() {
+        #expect(
+            RemoteTmuxReconnectDisposition.classify(
+                stderr: "zsh:1: command not found: corp-proxy\nConnection closed by UNKNOWN port 65535",
+                preControlOutput: "") == .transient
+        )
+    }
+
+    // MARK: - One login per host
+
+    /// Several sessions on one host drop together, and each reports auth-required in the
+    /// same turn. Reserving the slot only *after* the workspace exists lets every one of
+    /// them pass the "already offered?" check, and the user gets a tab per session.
+    ///
+    /// Observed for real: six login tabs for one host inside 76ms after a session restore
+    /// re-attached six mirrors to a host that needs 2FA.
+    @Test func simultaneousDropsOnOneHostOfferOneLogin() {
+        var offers = RemoteTmuxLoginOffers()
+        let host = "hash-a"
+        let neverOpen: (UUID) -> Bool = { _ in false }
+
+        // First mirror wins the slot; the create has not finished yet.
+        guard case .present(let generation) = offers.claim(host: host, isOpen: neverOpen) else {
+            Issue.record("the first claim must win the slot"); return
+        }
+        // Every other mirror in the same turn must be refused, workspace or no workspace.
+        #expect(offers.claim(host: host, isOpen: neverOpen) == .alreadyOffered)
+        #expect(offers.claim(host: host, isOpen: neverOpen) == .alreadyOffered)
+
+        offers.recordOpened(host: host, workspace: UUID(), generation: generation)
+        #expect(offers.claim(host: host, isOpen: { _ in true }) == .alreadyOffered)
+    }
+
+    /// A resume attempt is not proof of success: the reconnect can fail authentication
+    /// again. Releasing the slot on the attempt turned every repeat failure into another
+    /// tab — observed as one new tab every ~3.8s, matching the reconnect backoff.
+    @Test func repeatedAuthFailuresReuseTheOpenLogin() {
+        var offers = RemoteTmuxLoginOffers()
+        let host = "hash-a"
+        let workspace = UUID()
+        guard case .present(let generation) = offers.claim(host: host, isOpen: { _ in false }) else {
+            Issue.record("expected to win the slot"); return
+        }
+        offers.recordOpened(host: host, workspace: workspace, generation: generation)
+
+        // Whatever happens between failures, while that workspace is on screen the answer
+        // stays "already offered". There is deliberately no API to release it on a resume.
+        for _ in 0..<5 {
+            #expect(offers.claim(host: host, isOpen: { $0 == workspace }) == .alreadyOffered)
+        }
+        #expect(offers.openedWorkspace(host: host)?.workspace == workspace)
+    }
+
+    /// Connecting is what ends the offer, so the next outage starts clean.
+    @Test func connectingReleasesTheOffer() {
+        var offers = RemoteTmuxLoginOffers()
+        let host = "hash-a"
+        guard case .present(let generation) = offers.claim(host: host, isOpen: { _ in false }) else {
+            Issue.record("expected to win the slot"); return
+        }
+        offers.recordOpened(host: host, workspace: UUID(), generation: generation)
+        offers.noteConnected(host: host)
+        #expect(!offers.hasOffer(host: host))
+        if case .alreadyOffered = offers.claim(host: host, isOpen: { _ in true }) {
+            Issue.record("connecting must let the next outage offer a login")
+        }
+    }
+
+    /// Closing the login means "no", and it has to stick for this outage.
+    ///
+    /// The retry that follows fails the same way, so re-offering immediately reopened the tab
+    /// and the close button appeared to do nothing. A reconnect clears the refusal, so the
+    /// next real outage offers again.
+    @Test func dismissingTheLoginStopsTheOfferingUntilTheHostReconnects() {
+        var offers = RemoteTmuxLoginOffers()
+        let host = "hash-a"
+        guard case .present(let generation) = offers.claim(host: host, isOpen: { _ in false }) else {
+            Issue.record("expected to win the slot"); return
+        }
+        offers.recordOpened(host: host, workspace: UUID(), generation: generation)
+
+        offers.noteDeclined(host: host, generation: generation)
+        #expect(offers.isDeclined(host: host))
+        // Every later failure in this outage must be silent, however many arrive.
+        for _ in 0..<5 {
+            #expect(offers.claim(host: host, isOpen: { _ in false }) == .declined)
+        }
+
+        // A reconnect ends the outage, so the next one may ask again.
+        offers.noteConnected(host: host)
+        #expect(!offers.isDeclined(host: host))
+        if case .present = offers.claim(host: host, isOpen: { _ in false }) {} else {
+            Issue.record("after reconnecting, a new outage must be allowed to offer a login")
+        }
+    }
+
+    /// A stale owner cannot mark a newer offer as dismissed.
+    @Test func aStaleOwnerCannotDeclineANewerOffer() {
+        var offers = RemoteTmuxLoginOffers()
+        let host = "hash-a"
+        guard case .present(let first) = offers.claim(host: host, isOpen: { _ in false }) else {
+            Issue.record("expected to win the slot"); return
+        }
+        offers.recordOpened(host: host, workspace: UUID(), generation: first)
+        guard case .present(let second) = offers.claim(host: host, isOpen: { _ in false }) else {
+            Issue.record("a dismissed-workspace claim should win"); return
+        }
+        offers.noteDeclined(host: host, generation: first)
+        #expect(!offers.isDeclined(host: host))
+        offers.noteDeclined(host: host, generation: second)
+        #expect(offers.isDeclined(host: host))
+    }
+
+    /// A failed create does not wedge the host behind a login that never appeared.
+    @Test func aFailedOfferDoesNotSuppressTheNextOne() {
+        var offers = RemoteTmuxLoginOffers()
+        let host = "hash-a"
+        guard case .present(let generation) = offers.claim(host: host, isOpen: { _ in false }) else {
+            Issue.record("expected to win the slot"); return
+        }
+        offers.abandon(host: host, generation: generation)
+        #expect(!offers.hasOffer(host: host))
+        if case .alreadyOffered = offers.claim(host: host, isOpen: { _ in false }) {
+            Issue.record("a failed create must not suppress the next offer")
+        }
+    }
+
+    /// Hosts are independent: one host's outstanding login must not mute another's.
+    @Test func offersAreScopedPerHost() {
+        var offers = RemoteTmuxLoginOffers()
+        if case .alreadyOffered = offers.claim(host: "hash-a", isOpen: { _ in false }) {
+            Issue.record("first host should win")
+        }
+        if case .alreadyOffered = offers.claim(host: "hash-b", isOpen: { _ in false }) {
+            Issue.record("a second host must not be muted by the first")
+        }
+        #expect(offers.claim(host: "hash-a", isOpen: { _ in false }) == .alreadyOffered)
+    }
+
+    /// A login workspace must not come back on relaunch.
+    ///
+    /// A restored terminal is a fresh shell, so a restored login cannot authenticate
+    /// anything, and it is invisible to the per-host rule (which tracks the workspace it
+    /// created) — so each relaunch would let the next outage add another. This is the
+    /// mechanism behind login tabs accumulating across restarts.
+    @MainActor @Test func aLoginWorkspaceIsNotRestored() {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(title: "Sign in to example-host", select: false)
+        #expect(workspace.isRestorableInSessionSnapshot)
+        #expect(manager.sessionSnapshotWorkspaceIds().contains(workspace.id))
+
+        workspace.isRemoteTmuxAuthLogin = true
+        #expect(!workspace.isRestorableInSessionSnapshot)
+        #expect(!manager.sessionSnapshotWorkspaceIds().contains(workspace.id))
+    }
+
+    // MARK: - Cause A: a live connection must not be asked to authenticate
+
+    /// The straggler case, reduced to its rule. Several sessions park, the user signs in, the
+    /// first to reconnect releases the offer, and a sibling still finishing its pre-login
+    /// attempt reports auth-required into an empty slot — a second login moments after a
+    /// successful sign-in. A host with any live connection has proven authentication is not
+    /// the blocker.
+    @MainActor @Test func aHostWithALiveConnectionIsNotAskedToAuthenticate() {
+        #expect(RemoteTmuxController.hasLiveConnection(states: [.connected]))
+        #expect(RemoteTmuxController.hasLiveConnection(states: [.reconnecting, .connected]))
+        // Parked is exactly what a login exists for, and connecting has proven nothing yet;
+        // counting either as live would suppress the offer the user needs.
+        #expect(!RemoteTmuxController.hasLiveConnection(states: [.reconnecting]))
+        #expect(!RemoteTmuxController.hasLiveConnection(states: [.connecting]))
+        #expect(!RemoteTmuxController.hasLiveConnection(states: [.reconnecting, .connecting, .ended]))
+        #expect(!RemoteTmuxController.hasLiveConnection(states: []))
+    }
+
+    // MARK: - Cause B: "handled" must mean a login was presented
+
+    /// `notifyAuthRequired` reporting handled merely because an observer is *subscribed* is
+    /// what stranded a host after a dismissal: the connection's retry fallback was skipped, so
+    /// it sat parked with no retry and no waiter until cmux restarted.
+    @MainActor @Test func authRequiredIsHandledOnlyWhenAConsumerPresentsALogin() {
+        let observers = RemoteTmuxConnectionObservers()
+
+        // Subscribed but declining (the dismissed-host case) is NOT handled.
+        _ = observers.add(
+            onPaneOutput: nil, onPaneCwd: nil, onPaneReflow: nil, onActivePaneChanged: nil,
+            onSessionChanged: nil, onTopologyChanged: nil, onReconnectReady: nil, onExit: nil,
+            onConnectionStateChanged: nil,
+            onAuthRequired: { _ in false }
+        )
+        #expect(!observers.notifyAuthRequired(sshArgv: ["/usr/bin/ssh", "host"]))
+
+        // A consumer that actually presents one flips it, and every observer still runs —
+        // an `||` would short-circuit and skip the rest.
+        var secondRan = false
+        _ = observers.add(
+            onPaneOutput: nil, onPaneCwd: nil, onPaneReflow: nil, onActivePaneChanged: nil,
+            onSessionChanged: nil, onTopologyChanged: nil, onReconnectReady: nil, onExit: nil,
+            onConnectionStateChanged: nil,
+            onAuthRequired: { _ in secondRan = true; return true }
+        )
+        #expect(observers.notifyAuthRequired(sshArgv: ["/usr/bin/ssh", "host"]))
+        #expect(secondRan)
+    }
+
+    /// With no consumer at all there is nothing to present, so the caller must retry.
+    @MainActor @Test func noConsumerMeansNotHandled() {
+        let observers = RemoteTmuxConnectionObservers()
+        #expect(!observers.notifyAuthRequired(sshArgv: ["/usr/bin/ssh", "host"]))
+    }
+
+    // MARK: - Cause D: the pane shows the command it ran
+
+    /// The failure message tells the user to run the command again, which is unfollowable if
+    /// the command was never shown — `ssh` prints its prompts, not its argv.
+    @MainActor @Test func theLoginPaneEchoesTheCommandItRuns() {
+        let command = RemoteTmuxController.interactiveAuthShellCommand(
+            sshArgv: ["/usr/bin/ssh", "example-host", "true"]
+        )
+        #expect(command.contains("+ "))
+        // The echo must precede the ssh invocation, or "the command above" is below.
+        if let bannerAt = command.range(of: "printf")?.lowerBound,
+           let sshAt = command.range(of: "/usr/bin/ssh")?.lowerBound {
+            #expect(bannerAt < sshAt)
+        } else {
+            Issue.record("expected both an echo and the ssh invocation in the command")
+        }
+    }
+
+    // MARK: - Login workspace focus
+
+    /// The login workspace must actually surface, which means earning a focus allowance.
+    ///
+    /// `focus` is honored only for methods in `explicitFocusParamV2Methods` and only while
+    /// a matching allowance is on the calling thread's stack. Both halves are load-bearing
+    /// and neither is visible at the call site, so this pins them: dropping the `focus`
+    /// param, renaming it, or removing `workspace.create` from the eligible set all yield
+    /// a login terminal created somewhere the user never sees.
+    @MainActor @Test func loginWorkspaceParamsEarnFocus() {
+        let host = RemoteTmuxHost(destination: "example-host")
+        let params = RemoteTmuxController.reconnectAuthWorkspaceParams(
+            host: host, sshArgv: ["/usr/bin/ssh", "example-host", "true"]
+        )
+        #expect(params["focus"] as? Bool == true)
+        #expect(
+            TerminalController.explicitFocusParamAllowsFocus(
+                commandKey: "workspace.create", params: params
+            )
+        )
+
+        // Inside a `workspace.create` policy these params focus; outside one they do not,
+        // because the allowance lives on the calling thread's stack. That is exactly why
+        // the caller wraps the create instead of calling straight through.
+        let snapshot = TerminalController.debugSocketCommandPolicySnapshot(
+            commandKey: "workspace.create", isV2: true, params: params
+        )
+        #expect(snapshot.insideAllowsFocus)
+        #expect(!snapshot.outsideAllowsFocus)
+    }
+
+    /// The login pane must outlive the `ssh` it runs.
+    ///
+    /// A terminal command is executed as `bash --noprofile --norc -c "exec -l <command>"`.
+    /// That `exec -l` replaces the shell with the command's FIRST program, so anything
+    /// written after it at the top level never runs. With the ssh invocation leading, the
+    /// result message and the interactive shell that holds the pane open are both
+    /// unreachable, and cmux closes a workspace whose child exited — the login tab appears
+    /// and vanishes in well under a second. Wrapping the payload in an explicit shell is
+    /// what makes the tail reachable, so that is what this pins.
+    @MainActor @Test func loginCommandSurvivesTheSshItRuns() {
+        let command = RemoteTmuxController.interactiveAuthShellCommand(
+            sshArgv: ["/usr/bin/ssh", "-o", "BatchMode=no", "example-host", "true"]
+        )
+        // The first program must be a shell, not ssh: `exec -l` applies to whatever leads.
+        #expect(command.hasPrefix("/bin/sh -c "))
+        #expect(!command.hasPrefix("'/usr/bin/ssh'"))
+        // The ssh invocation and the keep-alive tail both live inside the shell's argument.
+        #expect(command.contains("/usr/bin/ssh"))
+        #expect(command.contains("exec "))
+        #expect(command.contains(" -i"))
+    }
+
+    /// Runs the login command the way a terminal command is actually run, and checks both
+    /// properties that matter: the tail is reachable, and a hostile destination cannot
+    /// inject anything.
+    ///
+    /// This is executed rather than pattern-matched on purpose. Asserting that the hostile
+    /// text is absent from the command string is not a safety check — the text is *supposed*
+    /// to appear there, quoted, as data. Only running it distinguishes quoted data from
+    /// executable code. Running it is also the only way to see that the tail executes at
+    /// all, which is exactly what the `exec -l` wrapper broke.
+    @MainActor @Test func loginCommandRunsItsTailAndResistsInjection() throws {
+        let tmp = FileManager.default.temporaryDirectory
+        let injected = tmp.appendingPathComponent("cmux-auth-injected-\(UUID().uuidString)")
+        let tailRan = tmp.appendingPathComponent("cmux-auth-tail-\(UUID().uuidString)")
+
+        // Stand in for the user's shell with a script that records that it ran and exits,
+        // so the command terminates instead of waiting at an interactive prompt.
+        let fakeShell = tmp.appendingPathComponent("cmux-auth-shell-\(UUID().uuidString).sh")
+        try "#!/bin/sh\ntouch \(tailRan.path)\n".write(to: fakeShell, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: fakeShell.path)
+        setenv("SHELL", fakeShell.path, 1)
+        defer {
+            unsetenv("SHELL")
+            for url in [injected, tailRan, fakeShell] { try? FileManager.default.removeItem(at: url) }
+        }
+
+        // `/bin/echo` stands in for ssh so the success branch runs without touching a network.
+        let command = RemoteTmuxController.interactiveAuthShellCommand(
+            sshArgv: ["/bin/echo", "host'; touch \(injected.path); '"]
+        )
+        // The command is now echoed as a banner too, so the hostile text appears twice —
+        // both occurrences must be inert.
+
+        // The exact shape a terminal command is executed with.
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["--noprofile", "--norc", "-c", "exec -l \(command)"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+
+        #expect(
+            FileManager.default.fileExists(atPath: tailRan.path),
+            "the command's tail never ran, so the login pane would exit as soon as ssh does"
+        )
+        #expect(
+            !FileManager.default.fileExists(atPath: injected.path),
+            "a hostile destination executed as a command"
+        )
+    }
+
+    /// The login workspace title names the host, so a user with several mirrored hosts
+    /// knows which one is asking.
+    @MainActor @Test func loginWorkspaceTitleNamesTheHost() {
+        let params = RemoteTmuxController.reconnectAuthWorkspaceParams(
+            host: RemoteTmuxHost(destination: "build-box"), sshArgv: ["/usr/bin/ssh", "build-box", "true"]
+        )
+        #expect((params["title"] as? String)?.contains("build-box") == true)
     }
 }

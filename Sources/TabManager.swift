@@ -2067,6 +2067,12 @@ class TabManager: ObservableObject {
         if workspace.isRemoteTmuxMirror {
             AppDelegate.shared?.remoteTmuxController.detachMirrorWorkspaceKeptOpenLocally(workspaceId: workspace.id)
         }
+        // Closing the login cmux opened for a reconnect is the user declining it, and that is the
+        // only signal for it — a closed tab is not a filesystem or protocol event, so the waiter
+        // watching for the shared master would never hear about it.
+        if workspace.isRemoteTmuxAuthLogin {
+            AppDelegate.shared?.remoteTmuxController.noteLoginWorkspaceClosed(workspaceId: workspace.id)
+        }
         if recordHistory,
            workspace.isRestorableInSessionSnapshot,
            let index = tabs.firstIndex(where: { $0.id == workspace.id }) {

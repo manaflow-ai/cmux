@@ -259,6 +259,17 @@ actor RemoteTmuxSSHTransport {
         }
     }
 
+    /// Whether the shared ControlMaster is live, WITHOUT trying to open one.
+    ///
+    /// `ssh -O check` hits the local control socket only, so it returns in
+    /// milliseconds and can never prompt for credentials. That makes it the safe
+    /// probe for "has the user finished authenticating in the login terminal yet?" —
+    /// unlike ``ensureMasterReady()``, which would attempt a `BatchMode` open and
+    /// burn a failed authentication attempt while the user is still typing.
+    func isMasterLive() async -> Bool {
+        (try? await masterIsRunning()) ?? false
+    }
+
     /// Tears down the shared SSH master (e.g. when the user removes a host).
     func shutdownMaster() async {
         _ = try? await Self.runProcess(
