@@ -12552,7 +12552,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 var shortcutMs: Double = 0
                 CmuxTypingTiming.logEventDelay(path: "appMonitor", event: event)
                 let shortcutMonitorTraceEnabled =
-                    ProcessInfo.processInfo.environment["CMUX_SHORTCUT_MONITOR_TRACE"] == "1"
+                    Self.shortcutMonitorTraceEnvironmentEnabled
                     || UserDefaults.standard.bool(forKey: "cmuxShortcutMonitorTrace")
                 if shortcutMonitorTraceEnabled {
                     let frType = shortcutRoutingKeyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
@@ -12900,6 +12900,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
+    /// Localized close-confirmation alert titles, resolved once. This list is
+    /// consulted on every keyDown in `handleCustomShortcut`; re-localizing six
+    /// strings per keystroke was a measurable slice of typing latency, and the
+    /// app relaunches on language change so a static resolve is safe.
+    private static let closeConfirmationDialogTitles = [
+        String(localized: "dialog.closeWorkspace.title", defaultValue: "Close workspace?"),
+        String(localized: "dialog.closeWorkspaces.title", defaultValue: "Close workspaces?"),
+        String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
+        String(localized: "dialog.closeOtherTabs.title", defaultValue: "Close other tabs?"),
+        String(localized: "dialog.closePane.title", defaultValue: "Close pane?"),
+        String(localized: "dialog.closeWindow.title", defaultValue: "Close window?"),
+    ]
+
+#if DEBUG
+    /// `ProcessInfo.environment` rebuilds the full environment dictionary on
+    /// every access; resolving the trace opt-in once keeps it off the
+    /// per-keystroke monitor path. The UserDefaults half of the check stays
+    /// live so the toggle keeps working at runtime.
+    static let shortcutMonitorTraceEnvironmentEnabled =
+        ProcessInfo.processInfo.environment["CMUX_SHORTCUT_MONITOR_TRACE"] == "1"
+#endif
+
     private func handleCustomShortcut(event: NSEvent) -> Bool {
         guard event.type == .keyDown else {
             clearConfiguredShortcutChordState()
@@ -12932,15 +12954,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let isControlOnly = hasControl && !hasCommand && !hasOption
         let controlDChar = chars == "d" || event.characters == "\u{04}"
         let isControlD = isControlOnly && (controlDChar || event.keyCode == 2)
-        let configuredShortcutEventWindowNumber = configuredShortcutChordWindowNumber(for: event)
-        if let pendingConfiguredShortcutChord,
-           pendingConfiguredShortcutChord.windowNumber == configuredShortcutEventWindowNumber {
-            activeConfiguredShortcutChordPrefixForCurrentEvent = pendingConfiguredShortcutChord.firstStroke
+        if let pendingConfiguredShortcutChord {
+            let configuredShortcutEventWindowNumber = configuredShortcutChordWindowNumber(for: event)
+            if pendingConfiguredShortcutChord.windowNumber == configuredShortcutEventWindowNumber {
+                activeConfiguredShortcutChordPrefixForCurrentEvent = pendingConfiguredShortcutChord.firstStroke
+            } else {
+                activeConfiguredShortcutChordPrefixForCurrentEvent = nil
+            }
         } else {
             activeConfiguredShortcutChordPrefixForCurrentEvent = nil
         }
         pendingConfiguredShortcutChord = nil
         defer { activeConfiguredShortcutChordPrefixForCurrentEvent = nil; clearShortcutEventFocusContextCache(for: event) }
+
+        if shouldBypassTerminalTextShortcutRoutingBeforeContextResolution(
+            event: event,
+            normalizedFlags: flags.subtracting([.numericPad, .function, .capsLock])
+        ) {
+            return false
+        }
 #if DEBUG
         if isControlD {
             writeChildExitKeyboardProbe(
@@ -12957,14 +12989,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Don't steal shortcuts from close-confirmation alerts. Keep standard alert key
         // equivalents working and avoid surprising actions while the confirmation is up.
-        let closeConfirmationTitles = [
-            String(localized: "dialog.closeWorkspace.title", defaultValue: "Close workspace?"),
-            String(localized: "dialog.closeWorkspaces.title", defaultValue: "Close workspaces?"),
-            String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
-            String(localized: "dialog.closeOtherTabs.title", defaultValue: "Close other tabs?"),
-            String(localized: "dialog.closePane.title", defaultValue: "Close pane?"),
-            String(localized: "dialog.closeWindow.title", defaultValue: "Close window?"),
-        ]
+        let closeConfirmationTitles = Self.closeConfirmationDialogTitles
         let closeConfirmationPanel = NSApp.windows
             .compactMap { $0 as? NSPanel }
             .first { panel in

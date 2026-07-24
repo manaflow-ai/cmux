@@ -69,6 +69,34 @@ func bareShortcutFastPathKey(for event: NSEvent) -> String? {
 }
 
 extension AppDelegate {
+    /// Plain terminal text cannot trigger an app-wide shortcut unless it is an
+    /// explicitly configured bare start (currently Space and named special
+    /// keys). Reject that common case before resolving browser, palette, or
+    /// workspace focus context.
+    func shouldBypassTerminalTextShortcutRoutingBeforeContextResolution(
+        event: NSEvent,
+        normalizedFlags: NSEvent.ModifierFlags
+    ) -> Bool {
+        guard normalizedFlags.isEmpty,
+              activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+              event.cmuxIsPrintableTextInput,
+              let window = event.window,
+              window.firstResponder is GhosttyNSView,
+              NSApp.modalWindow == nil,
+              window.attachedSheet == nil,
+              let windowId = mainWindowId(from: window),
+              !commandPaletteWindowStore.isVisible(windowId),
+              !commandPaletteWindowStore.isPendingOpenRaw(windowId),
+              !NotificationsPopoverVisibilityState.shared.isShown(in: window.windowNumber) else {
+            return false
+        }
+
+        return shouldBypassPlainKeyShortcutRouting(
+            event: event,
+            normalizedFlags: normalizedFlags
+        )
+    }
+
     func shouldBypassPlainKeyShortcutRouting(
         event: NSEvent,
         normalizedFlags: NSEvent.ModifierFlags
@@ -89,6 +117,16 @@ extension AppDelegate {
         let configuredCmuxShortcutContext = preferredMainWindowContextForShortcutRouting(event: event)
         return !configuredCmuxShortcutActions(for: configuredCmuxShortcutContext).contains {
             $0.shortcut?.bareShortcutStartKey == bareShortcutKey
+        }
+    }
+}
+
+private extension NSEvent {
+    var cmuxIsPrintableTextInput: Bool {
+        guard let characters, !characters.isEmpty else { return false }
+        return characters.unicodeScalars.allSatisfy { scalar in
+            !CharacterSet.controlCharacters.contains(scalar)
+                && (scalar.value < 0xF700 || scalar.value > 0xF8FF)
         }
     }
 }

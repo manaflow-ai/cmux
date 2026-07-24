@@ -1,5 +1,5 @@
 #if DEBUG
-public import Foundation
+import Foundation
 
 /// UI-test scaffolding that journals child-exit keyboard handling to a probe
 /// file.
@@ -14,13 +14,19 @@ public import Foundation
 /// real dependency, the process environment: production call sites read the
 /// live environment, tests inject their own dictionary.
 public struct TerminalChildExitProbe: Sendable {
+    /// `ProcessInfo.environment` rebuilds the full dictionary on every access,
+    /// and production call sites construct a probe per keystroke. The process
+    /// environment is fixed at launch for the UI-test opt-in this probe reads,
+    /// so snapshot it once.
+    public static let liveEnvironment = ProcessInfo.processInfo.environment
+
     private let environment: [String: String]
 
     /// Creates a probe that reads opt-in state from `environment`.
     ///
     /// - Parameter environment: The environment to consult; defaults to the
     ///   live process environment.
-    public init(environment: [String: String] = ProcessInfo.processInfo.environment) {
+    public init(environment: [String: String] = TerminalChildExitProbe.liveEnvironment) {
         self.environment = environment
     }
 
