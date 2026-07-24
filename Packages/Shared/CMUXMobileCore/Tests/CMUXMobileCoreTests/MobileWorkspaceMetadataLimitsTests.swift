@@ -68,6 +68,22 @@ import Testing
         #expect(budget == 0)
     }
 
+    @Test func descriptionProjectionSkipsWhenAggregateJSONEscapedBudgetIsExhausted() {
+        var budget = 0
+
+        let projected = MobileWorkspaceMetadataLimits.projection(
+            MobileWorkspaceDescriptionProjection(
+                value: String(repeating: "expensive\\n", count: 512),
+                isTruncated: false
+            ),
+            constrainedToJSONEscapedUTF8Budget: &budget
+        )
+
+        #expect(projected.value == nil)
+        #expect(projected.isTruncated)
+        #expect(budget == 0)
+    }
+
     @Test func descriptionProjectionTruncatesByAggregateJSONEscapedBudget() {
         let value = "a\"b"
         var budget = MobileWorkspaceMetadataLimits.jsonEscapedUTF8ByteCount("a\"")

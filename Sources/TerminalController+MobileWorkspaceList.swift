@@ -195,6 +195,25 @@ extension TerminalController {
         windowID: UUID? = nil,
         isSelected: Bool,
         requestedTerminalID: UUID?,
+        notificationStore: TerminalNotificationStore? = nil
+    ) -> [String: Any] {
+        var descriptionBudget = MobileWorkspaceMetadataLimits
+            .customDescriptionsAggregateMaxJSONEscapedUTF8Bytes
+        return mobileWorkspacePayload(
+            workspace: workspace,
+            windowID: windowID,
+            isSelected: isSelected,
+            requestedTerminalID: requestedTerminalID,
+            descriptionBudget: &descriptionBudget,
+            notificationStore: notificationStore
+        )
+    }
+
+    func mobileWorkspacePayload(
+        workspace: Workspace,
+        windowID: UUID? = nil,
+        isSelected: Bool,
+        requestedTerminalID: UUID?,
         descriptionBudget: inout Int,
         notificationStore: TerminalNotificationStore? = nil
     ) -> [String: Any] {

@@ -57,13 +57,13 @@ public enum MobileWorkspaceMetadataLimits {
         guard let value = projection.value else {
             return projection
         }
-        let byteCount = jsonEscapedUTF8ByteCount(value)
+        guard remainingBudget > 0 else {
+            return MobileWorkspaceDescriptionProjection(value: nil, isTruncated: true)
+        }
+        let byteCount = jsonEscapedUTF8ByteCount(value, stoppingAfter: remainingBudget)
         if byteCount <= remainingBudget {
             remainingBudget -= byteCount
             return projection
-        }
-        guard remainingBudget > 0 else {
-            return MobileWorkspaceDescriptionProjection(value: nil, isTruncated: true)
         }
 
         var result = ""
@@ -103,6 +103,27 @@ public enum MobileWorkspaceMetadataLimits {
                 byteCount += 6
             default:
                 byteCount += scalar.utf8.count
+            }
+        }
+        return byteCount
+    }
+
+    private static func jsonEscapedUTF8ByteCount(
+        _ value: String,
+        stoppingAfter limit: Int
+    ) -> Int {
+        var byteCount = 0
+        for scalar in value.unicodeScalars {
+            switch scalar.value {
+            case 0x22, 0x5c:
+                byteCount += 2
+            case 0x00..<0x20:
+                byteCount += 6
+            default:
+                byteCount += scalar.utf8.count
+            }
+            if byteCount > limit {
+                return byteCount
             }
         }
         return byteCount
