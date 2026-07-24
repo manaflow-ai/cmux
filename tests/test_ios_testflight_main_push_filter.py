@@ -19,6 +19,14 @@ IOS_PATHS = (
     "scripts/validate-xcframework-archive.py",
     ".github/workflows/ios-testflight.yml",
 )
+DEMO_VARIANT_GUARD = (
+    "github.event_name == 'workflow_dispatch' "
+    "&& github.event.inputs.variant == 'demo'"
+)
+
+
+def variant_choice(demo: str, internal: str) -> str:
+    return f"${{{{ {DEMO_VARIANT_GUARD} && '{demo}' || '{internal}' }}}}"
 
 
 def workflow_text() -> str:
@@ -131,10 +139,24 @@ def test_main_push_runs_are_preserved_and_uploaded_in_order() -> None:
 
 def test_automatic_lane_stays_on_cmux_internal_identity() -> None:
     text = workflow_text()
+    upload = mapping_block(text, "upload", indent=2)
+    assignment = mapping_block(text, "assign-internal-group", indent=2)
 
-    assert "IOS_BETA_BUNDLE_ID: dev.cmux.app.internal" in text
-    assert "IOS_BETA_DISPLAY_NAME: cmux INTERNAL" in text
-    assert "--bundle-id dev.cmux.app.internal" in text
+    bundle_choice = variant_choice("dev.cmux.app.demo", "dev.cmux.app.internal")
+    display_name_choice = variant_choice("cmux DEMO", "cmux INTERNAL")
+    group_choice = (
+        "${{ "
+        f"{DEMO_VARIANT_GUARD} "
+        "&& 'dd5c5cde-05a6-44e5-bd71-c2ec08a3ebfe' "
+        "|| vars.IOS_TESTFLIGHT_INTERNAL_GROUP_ID }}"
+    )
+
+    assert upload.count(f"IOS_BETA_BUNDLE_ID: {bundle_choice}") == 2
+    assert upload.count(f"IOS_BETA_DISPLAY_NAME: {display_name_choice}") == 2
+    assert f"UPLOAD_BUNDLE_ID: {bundle_choice}" in upload
+    assert f"if: {DEMO_VARIANT_GUARD}" in upload
+    assert f"ASSIGN_BUNDLE_ID: {bundle_choice}" in assignment
+    assert f"CMUX_TESTFLIGHT_INTERNAL_GROUP_ID: {group_choice}" in assignment
 
 
 if __name__ == "__main__":
