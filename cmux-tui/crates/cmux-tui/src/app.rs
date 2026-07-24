@@ -14682,6 +14682,93 @@ mod tests {
     }
 
     #[test]
+    fn event_loop_replays_retained_batches_before_new_channel_input() {
+        let mux = Mux::new("event-loop-replay-order-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.prompt = Some(Prompt::new("Rename", String::new(), PromptTarget::Surface(77)));
+        for _ in 0..257 {
+            app.defer_input(Event::Key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)));
+        }
+        let (events, receiver) = std::sync::mpsc::channel();
+        events
+            .send(AppEvent::Input(Event::Key(KeyEvent::new(
+                KeyCode::Char('z'),
+                KeyModifiers::NONE,
+            ))))
+            .unwrap();
+        drop(events);
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+
+        app.event_loop(&mut terminal, receiver).unwrap();
+
+        assert_eq!(
+            app.prompt.as_ref().unwrap().input.as_str(),
+            format!("{}z", "a".repeat(257)),
+            "older retained input must finish replaying before newer channel input"
+        );
+    }
+
+    #[test]
+    fn event_loop_renders_paint_before_following_pointer_input() {
+        let mux = Mux::new("event-loop-paint-pointer-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let (events, receiver) = std::sync::mpsc::channel();
+        events.send(AppEvent::Mux(MuxEvent::SurfaceOutput(999))).unwrap();
+        events
+            .send(AppEvent::Input(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::ScrollDown,
+                column: 14,
+                row: 6,
+                modifiers: KeyModifiers::NONE,
+            })))
+            .unwrap();
+        drop(events);
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+
+        app.event_loop(&mut terminal, receiver).unwrap();
+
+        assert_ne!(
+            app.status_message.as_deref(),
+            Some("Pointer input was discarded while the layout changed"),
+            "routine paints must render before later pointer input is dispatched"
+        );
+    }
+
+    #[test]
+    fn older_replayed_pointer_does_not_erase_newer_retained_motion() {
+        let mux = Mux::new("replayed-pointer-motion-order-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.deferred_input.push_back(DeferredInput {
+            event: Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: 9,
+                row: 3,
+                modifiers: KeyModifiers::NONE,
+            }),
+            destination: None,
+            destination_intent: None,
+            sidebar_focus_intent: false,
+            sequence: 1,
+        });
+        let newer_motion = MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 14,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.pending_pointer_motion =
+            Some(super::PendingPointerMotion { event: newer_motion, sequence: 2 });
+
+        app.replay_deferred_input().unwrap();
+
+        assert_eq!(
+            app.pending_pointer_motion.map(|pending| pending.event),
+            Some(newer_motion),
+            "an older replayed click must not erase newer retained motion"
+        );
+    }
+
+    #[test]
     fn browser_drag_release_bypasses_a_pending_focus_mutation() {
         let mux = Mux::new("browser-release-barrier-test", SurfaceOptions::default());
         let (mut app, _events) = test_app_with_events(Session::Local(mux));
