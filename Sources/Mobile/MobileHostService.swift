@@ -2222,6 +2222,8 @@ actor MobileHostConnection {
         do {
             frame = try MobileSyncFrameCodec.encodeFrame(data)
         } catch {
+            // MobileSyncFrameCodec.encodeFrame only throws frameTooLarge: a
+            // local wire-limit violation, so protocolViolation is honest here.
             await close(
                 reason: "event frame encode failed",
                 exit: CmxIrohAdmittedConnectionExit(
@@ -2233,11 +2235,16 @@ actor MobileHostConnection {
         }
         guard queuedEvents.count < Self.maximumQueuedEventCount,
               frame.count <= Self.maximumQueuedEventByteCount - queuedEventByteCount else {
+            // The bounded queue fills when the control stream stops draining
+            // (e.g. the peer's network path died mid-write) while terminal
+            // events keep arriving. The peer violated nothing; field host
+            // rings (2026-07-23 WiFi path flap) showed this close mislabeled
+            // protocolViolation seconds after admission.
             await close(
                 reason: "event queue exceeded bounded capacity",
                 exit: CmxIrohAdmittedConnectionExit(
                     lifecycle: .controlWriteFailed,
-                    failure: .protocolViolation
+                    failure: .sendQueueOverflow
                 )
             )
             return false
@@ -2349,6 +2356,8 @@ actor MobileHostConnection {
         do {
             frame = try MobileSyncFrameCodec.encodeFrame(response)
         } catch {
+            // MobileSyncFrameCodec.encodeFrame only throws frameTooLarge: a
+            // local wire-limit violation, so protocolViolation is honest here.
             await close(
                 reason: "response frame encode failed",
                 exit: CmxIrohAdmittedConnectionExit(
