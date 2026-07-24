@@ -19,6 +19,7 @@ actor WorkspaceChangesAuthorizedPathCache {
         let snapshot: Snapshot
         let relativePath: String
         let baseBlobSize: Int64?
+        let baseBlobOID: String?
     }
 
     private struct Entry: Sendable {

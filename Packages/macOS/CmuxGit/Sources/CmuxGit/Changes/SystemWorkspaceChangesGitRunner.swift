@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Runs `/usr/bin/git` with optional locking disabled.
@@ -33,49 +34,20 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         in directory: URL,
         maximumOutputByteCount: Int
     ) throws -> WorkspaceChangesGitResult {
-        let process = configuredProcess(arguments: arguments, directory: directory)
-        let outputPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = FileHandle.nullDevice
-        try process.run()
-
-        let outputHandle = outputPipe.fileHandleForReading
-        let deadlineTimer = deadlineTimer(for: process)
-        defer { deadlineTimer.cancel() }
-        let limit = max(0, maximumOutputByteCount)
+        let limit = Int64(max(0, maximumOutputByteCount))
         var output = Data()
-        output.reserveCapacity(min(limit, Self.readChunkByteCount))
-        var wasTruncated = limit == 0
-        while output.count < limit {
-            if Task.isCancelled {
-                wasTruncated = true
-                break
-            }
-            let remaining = limit - output.count
-            let chunk = try outputHandle.read(
-                upToCount: min(Self.readChunkByteCount, remaining)
-            ) ?? Data()
-            guard !chunk.isEmpty else { break }
+        output.reserveCapacity(min(max(0, maximumOutputByteCount), Self.readChunkByteCount))
+        let result = try execute(
+            arguments: arguments,
+            directory: directory,
+            maximumOutputByteCount: limit
+        ) { chunk in
             output.append(chunk)
-            if Task.isCancelled {
-                wasTruncated = true
-                break
-            }
-            if output.count == limit {
-                wasTruncated = true
-                break
-            }
         }
-        if wasTruncated, process.isRunning {
-            process.terminate()
-        }
-        process.waitUntilExit()
-        try? outputHandle.close()
-        wasTruncated = wasTruncated || process.terminationReason == .uncaughtSignal
         return WorkspaceChangesGitResult(
             output: output,
-            exitCode: process.terminationStatus,
-            standardOutputWasTruncated: wasTruncated
+            exitCode: result.exitCode,
+            standardOutputWasTruncated: result.wasTruncated
         )
     }
 
@@ -90,75 +62,55 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         }
         let destinationHandle = try FileHandle(forWritingTo: destination)
         defer { try? destinationHandle.close() }
-
-        let process = configuredProcess(arguments: arguments, directory: directory)
-        let outputPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = FileHandle.nullDevice
-        try process.run()
-
-        let outputHandle = outputPipe.fileHandleForReading
-        let deadlineTimer = deadlineTimer(for: process)
-        defer { deadlineTimer.cancel() }
-        let limit = max(0, maximumOutputByteCount)
-        var writtenByteCount: Int64 = 0
-        var wasTruncated = false
-        while true {
-            if Task.isCancelled {
-                wasTruncated = true
-                break
-            }
-            let chunk = try outputHandle.read(upToCount: Self.readChunkByteCount) ?? Data()
-            guard !chunk.isEmpty else { break }
-            if Task.isCancelled {
-                wasTruncated = true
-                break
-            }
-            let remaining = limit - writtenByteCount
-            guard remaining > 0 else {
-                wasTruncated = true
-                break
-            }
-            let acceptedCount = min(chunk.count, Int(min(remaining, Int64(Int.max))))
-            try destinationHandle.write(contentsOf: chunk.prefix(acceptedCount))
-            writtenByteCount += Int64(acceptedCount)
-            if acceptedCount < chunk.count {
-                wasTruncated = true
-                break
-            }
+        let result = try execute(
+            arguments: arguments,
+            directory: directory,
+            maximumOutputByteCount: max(0, maximumOutputByteCount)
+        ) { chunk in
+            try destinationHandle.write(contentsOf: chunk)
         }
-        if wasTruncated, process.isRunning {
-            process.terminate()
-        }
-        process.waitUntilExit()
-        try? outputHandle.close()
-        wasTruncated = wasTruncated || process.terminationReason == .uncaughtSignal
         return WorkspaceChangesGitResult(
             output: Data(),
-            exitCode: process.terminationStatus,
-            standardOutputWasTruncated: wasTruncated
+            exitCode: result.exitCode,
+            standardOutputWasTruncated: result.wasTruncated
         )
     }
 
-    private func configuredProcess(arguments: [String], directory: URL) -> Process {
-        let process = Process()
-        process.executableURL = executableURL
-        process.arguments = arguments
-        process.currentDirectoryURL = directory
-        process.environment = environment
-        return process
-    }
-
-    private func deadlineTimer(for process: Process) -> any DispatchSourceTimer {
-        // A one-shot source is required because a synchronous pipe read needs an out-of-band deadline.
-        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
-        timer.schedule(deadline: .now() + boundedCommandWallTimeLimit)
-        timer.setEventHandler {
-            if process.isRunning {
-                process.terminate()
-            }
+    private func execute(
+        arguments: [String],
+        directory: URL,
+        maximumOutputByteCount: Int64,
+        consume: (Data) throws -> Void
+    ) throws -> (exitCode: Int32, wasTruncated: Bool) {
+        let process = try WorkspaceChangesGitProcess.spawn(
+            executableURL: executableURL,
+            arguments: arguments,
+            environment: environment,
+            directory: directory,
+            wallTimeLimit: boundedCommandWallTimeLimit
+        )
+        let readResult: WorkspaceChangesGitProcess.ReadResult
+        do {
+            readResult = try process.readOutput(
+                maximumByteCount: maximumOutputByteCount,
+                chunkByteCount: Self.readChunkByteCount,
+                consume: consume
+            )
+        } catch {
+            process.terminateForBoundedRead()
+            _ = process.finish()
+            throw error
         }
-        timer.resume()
-        return timer
+        if readResult.wasTruncated || Task.isCancelled {
+            process.terminateForBoundedRead()
+        }
+        let exit = process.finish()
+        return (
+            exitCode: exit.exitCode,
+            wasTruncated: readResult.wasTruncated
+                || Task.isCancelled
+                || exit.timedOut
+                || exit.wasSignaled
+        )
     }
 }

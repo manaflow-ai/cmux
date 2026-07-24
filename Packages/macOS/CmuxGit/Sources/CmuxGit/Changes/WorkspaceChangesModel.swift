@@ -85,6 +85,8 @@ public struct WorkspaceChangedFile: Sendable, Equatable {
     public let deletions: Int
     /// Whether Git identified the file as binary.
     public let isBinary: Bool
+    /// Whether a resource cap stopped line counting before end of file.
+    public let isApproximate: Bool
 
     /// Creates per-file workspace-change metadata.
     ///
@@ -95,13 +97,15 @@ public struct WorkspaceChangedFile: Sendable, Equatable {
     ///   - additions: The number of added lines.
     ///   - deletions: The number of deleted lines.
     ///   - isBinary: Whether Git identified the file as binary.
+    ///   - isApproximate: Whether the additions count is partial.
     public init(
         path: String,
         oldPath: String?,
         status: WorkspaceChangeStatus,
         additions: Int,
         deletions: Int,
-        isBinary: Bool
+        isBinary: Bool,
+        isApproximate: Bool = false
     ) {
         self.path = path
         self.oldPath = oldPath
@@ -109,6 +113,7 @@ public struct WorkspaceChangedFile: Sendable, Equatable {
         self.additions = additions
         self.deletions = deletions
         self.isBinary = isBinary
+        self.isApproximate = isApproximate
     }
 }
 
@@ -130,7 +135,7 @@ public struct WorkspaceChangedFiles: Sendable, Equatable {
     public let additions: Int
     /// The number of deleted lines before the file-list cap.
     public let deletions: Int
-    /// Whether files were omitted by the list cap or a bounded snapshot command.
+    /// Whether files or line counts were limited by a bounded snapshot operation.
     public let truncated: Bool
 
     /// Creates a changed-file listing.
@@ -144,7 +149,7 @@ public struct WorkspaceChangedFiles: Sendable, Equatable {
     ///   - filesChanged: The uncapped number of changed files.
     ///   - additions: The uncapped number of added lines.
     ///   - deletions: The uncapped number of deleted lines.
-    ///   - truncated: Whether a list or snapshot-command cap omitted entries.
+    ///   - truncated: Whether a list, command, or line-count cap limited the result.
     public init(
         isRepository: Bool,
         repoRoot: String?,

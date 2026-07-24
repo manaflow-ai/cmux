@@ -12,6 +12,8 @@ public struct ChangedFileItem: Sendable, Equatable, Identifiable {
     public let deletions: Int
     /// Whether Git identified the file as binary.
     public let isBinary: Bool
+    /// Whether the additions count is partial because the host reached a read cap.
+    public let isApproximate: Bool?
     /// Raw file size when the mounting layer has already loaded it.
     public let byteSize: Int64?
 
@@ -26,6 +28,7 @@ public struct ChangedFileItem: Sendable, Equatable, Identifiable {
     ///   - additions: Number of added lines.
     ///   - deletions: Number of deleted lines.
     ///   - isBinary: Whether the content is binary.
+    ///   - isApproximate: Whether the additions count is partial.
     ///   - byteSize: Raw file size when known.
     public init(
         path: String,
@@ -34,6 +37,7 @@ public struct ChangedFileItem: Sendable, Equatable, Identifiable {
         additions: Int,
         deletions: Int,
         isBinary: Bool,
+        isApproximate: Bool? = nil,
         byteSize: Int64? = nil
     ) {
         self.path = path
@@ -42,6 +46,7 @@ public struct ChangedFileItem: Sendable, Equatable, Identifiable {
         self.additions = additions
         self.deletions = deletions
         self.isBinary = isBinary
+        self.isApproximate = isApproximate
         self.byteSize = byteSize
     }
 }

@@ -20,4 +20,13 @@ import Testing
         #expect(!generations.isCurrent(showMore))
         #expect(generations.isCurrent(expansion))
     }
+
+    @Test func pageScopeCancellationInvalidatesTheActiveGeneration() {
+        var generations = FileDiffRequestGeneration()
+        let active = generations.begin()
+
+        generations.invalidate()
+
+        #expect(!generations.isCurrent(active))
+    }
 }

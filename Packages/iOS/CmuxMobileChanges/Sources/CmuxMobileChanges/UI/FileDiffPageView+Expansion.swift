@@ -20,6 +20,7 @@ extension FileDiffPageView {
         direction: DiffExpansionDirection
     ) {
         guard !expansionContentTooLarge else { return }
+        cancelContinuationTask()
         continuationLoadState = .idle
         failedExpansionGapID = nil
         failedExpansionDirection = nil
@@ -169,6 +170,22 @@ extension FileDiffPageView {
         expansionTask?.cancel()
         expansionTask = nil
         clearPendingExpansion()
+    }
+
+    @MainActor
+    func cancelContinuationTask() {
+        continuationTask?.cancel()
+        continuationTask = nil
+        if continuationLoadState == .loading {
+            continuationLoadState = .idle
+        }
+    }
+
+    @MainActor
+    func cancelPageTasks() {
+        cancelExpansionTask()
+        cancelContinuationTask()
+        requestGeneration.invalidate()
     }
 
     @MainActor

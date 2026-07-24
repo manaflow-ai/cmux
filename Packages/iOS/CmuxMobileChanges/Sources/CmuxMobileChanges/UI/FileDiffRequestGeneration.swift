@@ -7,6 +7,10 @@ struct FileDiffRequestGeneration: Sendable {
         return current
     }
 
+    mutating func invalidate() {
+        current &+= 1
+    }
+
     func isCurrent(_ generation: UInt64) -> Bool {
         generation == current
     }

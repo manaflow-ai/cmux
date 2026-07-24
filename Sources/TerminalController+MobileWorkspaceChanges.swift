@@ -288,6 +288,9 @@ extension TerminalController {
         if let oldPath = file.oldPath {
             payload["old_path"] = oldPath
         }
+        if file.isApproximate {
+            payload["is_approximate"] = true
+        }
         return payload
     }
     private func mobileWorkspaceChangesErrorResult(

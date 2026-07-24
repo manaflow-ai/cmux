@@ -23,6 +23,7 @@ public struct FileDiffPageView: View {
     @State var failedExpansionDirection: DiffExpansionDirection?
     @State var expansionContentTooLarge = false
     @State var expansionTask: Task<Void, Never>?
+    @State var continuationTask: Task<Void, Never>?
     @State private var lineBudget = FileDiffContinuation.defaultLineBudget
     @State var continuationLoadState = FileDiffContinuationLoadState.idle
     @State private var reachedTransportCeiling = false
@@ -36,7 +37,7 @@ public struct FileDiffPageView: View {
                 await load(forceRefresh: false)
             }
             .onDisappear {
-                cancelExpansionTask()
+                cancelPageTasks()
             }
     }
     @ViewBuilder
@@ -170,6 +171,7 @@ public struct FileDiffPageView: View {
 
     @MainActor
     func load(forceRefresh: Bool) async {
+        cancelContinuationTask()
         let generation = requestGeneration.begin()
         resetExpansion()
         loadState = .loading
@@ -208,10 +210,11 @@ public struct FileDiffPageView: View {
         )
         guard continuation.canShowMore else { return }
         let nextLineBudget = continuation.nextLineBudget
+        cancelContinuationTask()
         let generation = requestGeneration.begin()
         resetExpansion()
         continuationLoadState = .loading
-        Task {
+        continuationTask = Task { @MainActor in
             do {
                 let expandedPresentation = try await onLoad(file.path, false, nextLineBudget)
                 guard !Task.isCancelled,
@@ -223,16 +226,19 @@ public struct FileDiffPageView: View {
                 lineBudget = nextLineBudget
                 continuationLoadState = .idle
                 loadState = .loaded(expandedPresentation)
+                continuationTask = nil
             } catch is CancellationError {
                 guard requestGeneration.isCurrent(generation),
                       RecoverableCancellationErrorPolicy().shouldPublishFailure(
                           taskIsCancelled: Task.isCancelled
                       ) else { return }
                 continuationLoadState = .failed
+                continuationTask = nil
             } catch {
                 guard !Task.isCancelled,
                       requestGeneration.isCurrent(generation) else { return }
                 continuationLoadState = .failed
+                continuationTask = nil
             }
         }
     }

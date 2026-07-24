@@ -8,10 +8,14 @@ struct WorkspaceChangesSnapshotLoader: Sendable {
 
     private let runner: any WorkspaceChangesGitRunning
     private let parser = WorkspaceChangesParser()
-    private let untrackedInspector = WorkspaceUntrackedFileInspector()
+    private let untrackedInspector: WorkspaceUntrackedFileInspector
 
-    init(runner: any WorkspaceChangesGitRunning) {
+    init(
+        runner: any WorkspaceChangesGitRunning,
+        untrackedInspector: WorkspaceUntrackedFileInspector = WorkspaceUntrackedFileInspector()
+    ) {
         self.runner = runner
+        self.untrackedInspector = untrackedInspector
     }
 
     func resolveScope(
@@ -196,6 +200,7 @@ struct WorkspaceChangesSnapshotLoader: Sendable {
                 || statusResult.standardOutputWasTruncated
                 || numstatResult.standardOutputWasTruncated
                 || untrackedResult.standardOutputWasTruncated
+                || files.contains(where: \.isApproximate)
         )
     }
 

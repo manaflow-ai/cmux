@@ -239,7 +239,7 @@ import Testing
         #expect(!WorkspaceChangesListState.loading.showsTruncatedFilesFooter)
     }
 
-    @Test func expansionRevisionPolicyReloadsOnlyForKnownMismatches() {
+    @Test func expansionRevisionPolicyFailsClosedForMissingOrMismatchedFingerprints() {
         let policy = DiffExpansionRevisionPolicy()
 
         #expect(policy.decision(
@@ -257,7 +257,11 @@ import Testing
         #expect(policy.decision(
             diffContentFingerprint: nil,
             fetchedContentFingerprints: [nil, nil]
-        ) == .accept)
+        ) == .reloadDiff)
+        #expect(policy.decision(
+            diffContentFingerprint: nil,
+            fetchedContentFingerprints: ["stat:10:1:2:3:4"]
+        ) == .reloadDiff)
         #expect(policy.decision(
             diffContentFingerprint: "10:1:2",
             fetchedContentFingerprints: []

@@ -136,7 +136,8 @@ import Testing
         let authorizedFile = WorkspaceChangesAuthorizedPathCache.AuthorizedFile(
             snapshot: snapshot,
             relativePath: "file.txt",
-            baseBlobSize: nil
+            baseBlobSize: nil,
+            baseBlobOID: nil
         )
         return (key, authorizedFile)
     }

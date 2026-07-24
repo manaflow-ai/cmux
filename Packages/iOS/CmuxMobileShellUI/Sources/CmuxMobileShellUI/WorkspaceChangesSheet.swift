@@ -155,7 +155,8 @@ public struct WorkspaceChangesSheet: View {
                     kind: file.status.fileChangeKind,
                     additions: file.additions,
                     deletions: file.deletions,
-                    isBinary: file.isBinary
+                    isBinary: file.isBinary,
+                    isApproximate: file.isApproximate
                 )
             }
             listState = files.isEmpty

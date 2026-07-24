@@ -17,9 +17,9 @@ public struct WorkspaceChangesService: Sendable {
     let snapshotLoader: WorkspaceChangesSnapshotLoader
     private let summaryCache: WorkspaceChangesSummaryCache
     private let authorizedPathCache: WorkspaceChangesAuthorizedPathCache
-    private let baseContentCache: WorkspaceChangesBaseContentCache
+    let baseContentCache: WorkspaceChangesBaseContentCache
     let pathValidator = WorkspaceChangesPathValidator()
-    private let contentReader = WorkspaceChangesContentReader()
+    let contentReader = WorkspaceChangesContentReader()
     let fingerprintReader: any WorkspaceChangesContentFingerprintReading
 
     /// Creates a production workspace-changes service.
@@ -130,11 +130,16 @@ public struct WorkspaceChangesService: Sendable {
             revision: revision,
             fetchOffset: nil
         )
-        let location = try await materializedLocation(for: authorizedFile)
         do {
+            if let blobSize = authorizedFile.baseBlobSize {
+                return try await statBaseFile(
+                    authorizedFile,
+                    projectedSize: blobSize
+                )
+            }
             return try contentReader.stat(
-                repoRoot: location.repoRoot,
-                relativePath: location.relativePath
+                repoRoot: authorizedFile.snapshot.scope.repoRoot,
+                relativePath: authorizedFile.relativePath
             )
         } catch ArtifactByteReader.Error.fileNotFound {
             throw WorkspaceChangesServiceError.fileNotFound
@@ -226,12 +231,22 @@ public struct WorkspaceChangesService: Sendable {
         }
 
         let baseBlobSize: Int64?
+        let baseBlobOID: String?
         if revision == .base {
             let runner = self.runner
             let object = "\(scope.diffBaseCommitOID):\(normalizedPath)"
             let repoURL = URL(fileURLWithPath: authorization.scope.repoRoot, isDirectory: true)
+            let oidResult = try runner.run(
+                arguments: ["--literal-pathspecs", "rev-parse", object],
+                in: repoURL
+            )
+            let oid = String(decoding: oidResult.output, as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard oidResult.exitCode == 0, !oid.isEmpty else {
+                throw WorkspaceChangesServiceError.gitFailure
+            }
             let sizeResult = try runner.run(
-                arguments: ["--literal-pathspecs", "cat-file", "-s", object],
+                arguments: ["--literal-pathspecs", "cat-file", "-s", oid],
                 in: repoURL
             )
             let sizeText = String(decoding: sizeResult.output, as: UTF8.self)
@@ -242,13 +257,16 @@ public struct WorkspaceChangesService: Sendable {
                 throw WorkspaceChangesServiceError.gitFailure
             }
             baseBlobSize = blobSize
+            baseBlobOID = oid
         } else {
             baseBlobSize = nil
+            baseBlobOID = nil
         }
         let authorizedFile = WorkspaceChangesAuthorizedPathCache.AuthorizedFile(
             snapshot: authorization,
             relativePath: normalizedPath,
-            baseBlobSize: baseBlobSize
+            baseBlobSize: baseBlobSize,
+            baseBlobOID: baseBlobOID
         )
         await authorizedPathCache.store(
             authorizedFile,
@@ -282,76 +300,6 @@ public struct WorkspaceChangesService: Sendable {
             basePaths: basePaths
         )
         return authorization
-    }
-
-    private nonisolated func materializedLocation(
-        for authorizedFile: WorkspaceChangesAuthorizedPathCache.AuthorizedFile
-    ) async throws -> (repoRoot: String, relativePath: String) {
-        let scope = authorizedFile.snapshot.scope
-        guard authorizedFile.baseBlobSize != nil else {
-            return (scope.repoRoot, authorizedFile.relativePath)
-        }
-        let key = baseContentKey(for: authorizedFile)
-        let fileURL = try await baseContentCache.fileURL(for: key) { destination in
-            try materializeBaseContent(authorizedFile, to: destination)
-        }
-        return (fileURL.deletingLastPathComponent().path, fileURL.lastPathComponent)
-    }
-
-    private nonisolated func fetchBaseFile(
-        _ authorizedFile: WorkspaceChangesAuthorizedPathCache.AuthorizedFile,
-        offset: Int64,
-        length: Int
-    ) async throws -> WorkspaceChangesFileChunk {
-        let key = baseContentKey(for: authorizedFile)
-        let reader = contentReader
-        return try await baseContentCache.withLeasedFileURL(
-            for: key,
-            materialize: { destination in
-                try materializeBaseContent(authorizedFile, to: destination)
-            },
-            operation: { fileURL in
-                try reader.fetch(
-                    repoRoot: fileURL.deletingLastPathComponent().path,
-                    relativePath: fileURL.lastPathComponent,
-                    offset: offset,
-                    length: length
-                )
-            }
-        )
-    }
-
-    private nonisolated func baseContentKey(
-        for authorizedFile: WorkspaceChangesAuthorizedPathCache.AuthorizedFile
-    ) -> WorkspaceChangesBaseContentCache.Key {
-        let scope = authorizedFile.snapshot.scope
-        return WorkspaceChangesBaseContentCache.Key(
-            repoRoot: scope.repoRoot,
-            baseCommitOID: scope.diffBaseCommitOID,
-            path: authorizedFile.relativePath
-        )
-    }
-
-    private nonisolated func materializeBaseContent(
-        _ authorizedFile: WorkspaceChangesAuthorizedPathCache.AuthorizedFile,
-        to destination: URL
-    ) throws -> Int64 {
-        guard let blobSize = authorizedFile.baseBlobSize else {
-            throw WorkspaceChangesServiceError.fileNotFound
-        }
-        let scope = authorizedFile.snapshot.scope
-        let object = "\(scope.diffBaseCommitOID):\(authorizedFile.relativePath)"
-        let result = try runner.run(
-            arguments: ["--literal-pathspecs", "show", object],
-            in: URL(fileURLWithPath: scope.repoRoot, isDirectory: true),
-            writingOutputTo: destination,
-            maximumOutputByteCount: blobSize
-        )
-        guard result.exitCode == 0,
-              !result.standardOutputWasTruncated else {
-            throw WorkspaceChangesServiceError.fileNotFound
-        }
-        return blobSize
     }
 
 }

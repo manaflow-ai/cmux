@@ -14,6 +14,7 @@ import Testing
         let fileSize = 64 * 1_024 * 1_024
         let payload = Data(repeating: 0xA5, count: fileSize)
         let baseOID = "base-oid"
+        let blobOID = "blob-oid"
         let results: [[String]: WorkspaceChangesGitResult] = [
             ["rev-parse", "--show-toplevel"]: FakeWorkspaceChangesGitRunner.result("\(root.path)\n"),
             ["symbolic-ref", "--quiet", "--short", "HEAD"]:
@@ -34,15 +35,18 @@ import Testing
                 FakeWorkspaceChangesGitRunner.result("-\t-\tlarge.bin\0"),
             ["ls-files", "--others", "--exclude-standard", "-z"]:
                 FakeWorkspaceChangesGitRunner.result(),
-            ["--literal-pathspecs", "cat-file", "-s", "\(baseOID):large.bin"]:
+            ["--literal-pathspecs", "rev-parse", "\(baseOID):large.bin"]:
+                FakeWorkspaceChangesGitRunner.result("\(blobOID)\n"),
+            ["--literal-pathspecs", "cat-file", "-s", blobOID]:
                 FakeWorkspaceChangesGitRunner.result("\(fileSize)\n"),
-            ["--literal-pathspecs", "show", "\(baseOID):large.bin"]:
+            ["--literal-pathspecs", "show", blobOID]:
                 WorkspaceChangesGitResult(output: payload, exitCode: 0),
         ]
         let runner = FakeWorkspaceChangesGitRunner(
             results: results,
             beforeRun: { arguments, _ in
                 guard arguments.first == "rev-parse"
+                    || arguments.dropFirst().first == "rev-parse"
                     || arguments.dropFirst().first == "cat-file" else {
                     return
                 }
@@ -85,11 +89,14 @@ import Testing
         #expect(Set(revParseCommands).count == revParseCommands.count)
         #expect(invocationCount(["rev-parse", "--show-toplevel"]) == 1)
         #expect(invocationCount([
-            "--literal-pathspecs", "cat-file", "-s", "\(baseOID):large.bin",
+            "--literal-pathspecs", "rev-parse", "\(baseOID):large.bin",
+        ]) == 1)
+        #expect(invocationCount([
+            "--literal-pathspecs", "cat-file", "-s", blobOID,
         ]) == 1)
     }
 
-    @Test func baseCacheSkipsLeasedEntriesAndEvictsAfterRelease() async throws {
+    @Test func leasedStatPathRejectsPressureAndSurvivesUntilUseCompletes() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-base-cache-leases-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -109,32 +116,49 @@ import Testing
             baseCommitOID: "abc",
             path: "second"
         )
+        let rejectedMaterialization = root.appendingPathComponent("rejected")
 
         let survivingURL = try await cache.withLeasedFileURL(
             for: firstKey,
+            projectedSize: 3,
             materialize: { destination in
                 try Data("111".utf8).write(to: destination)
-                return 3
             },
             operation: { firstURL in
-                let releasedURL = try await cache.withLeasedFileURL(
-                    for: secondKey,
-                    materialize: { destination in
-                        try Data("222".utf8).write(to: destination)
-                        return 3
-                    },
-                    operation: { secondURL in
-                        #expect(FileManager.default.fileExists(atPath: firstURL.path))
-                        #expect(FileManager.default.fileExists(atPath: secondURL.path))
-                        return secondURL
-                    }
-                )
+                await #expect(
+                    throws: WorkspaceChangesBaseContentCache.Error.entryExceedsByteBudget
+                ) {
+                    try await cache.withLeasedFileURL(
+                        for: secondKey,
+                        projectedSize: 3,
+                        materialize: { _ in
+                            try Data("should-not-run".utf8).write(
+                                to: rejectedMaterialization
+                            )
+                        },
+                        operation: { $0 }
+                    )
+                }
+                #expect(!FileManager.default.fileExists(
+                    atPath: rejectedMaterialization.path
+                ))
                 #expect(FileManager.default.fileExists(atPath: firstURL.path))
-                #expect(!FileManager.default.fileExists(atPath: releasedURL.path))
+                let contents = try Data(contentsOf: firstURL)
+                #expect(contents == Data("111".utf8))
                 return firstURL
             }
         )
 
         #expect(FileManager.default.fileExists(atPath: survivingURL.path))
+        let admittedURL = try await cache.withLeasedFileURL(
+            for: secondKey,
+            projectedSize: 3,
+            materialize: { destination in
+                try Data("222".utf8).write(to: destination)
+            },
+            operation: { $0 }
+        )
+        #expect(!FileManager.default.fileExists(atPath: survivingURL.path))
+        #expect(FileManager.default.fileExists(atPath: admittedURL.path))
     }
 }

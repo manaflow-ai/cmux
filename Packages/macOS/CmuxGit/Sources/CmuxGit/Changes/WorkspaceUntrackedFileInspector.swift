@@ -45,7 +45,11 @@ struct WorkspaceUntrackedFileInspector: Sendable {
 
         for path in paths {
             guard !Task.isCancelled else {
-                files.append(zeroAdditionFile(path: path, isBinary: true))
+                files.append(zeroAdditionFile(
+                    path: path,
+                    isBinary: true,
+                    isApproximate: true
+                ))
                 continue
             }
             if remainingByteCount > 0 {
@@ -54,7 +58,11 @@ struct WorkspaceUntrackedFileInspector: Sendable {
                     repoRoot: repoRoot,
                     maximumReadByteCount: min(perFileReadByteCount, remainingByteCount)
                 ) else {
-                    files.append(zeroAdditionFile(path: path, isBinary: true))
+                    files.append(zeroAdditionFile(
+                        path: path,
+                        isBinary: true,
+                        isApproximate: true
+                    ))
                     continue
                 }
                 files.append(inspection.file)
@@ -72,13 +80,18 @@ struct WorkspaceUntrackedFileInspector: Sendable {
                       repoRoot: repoRoot,
                       maximumReadByteCount: probeByteCount
                   ) else {
-                files.append(zeroAdditionFile(path: path, isBinary: true))
+                files.append(zeroAdditionFile(
+                    path: path,
+                    isBinary: true,
+                    isApproximate: true
+                ))
                 continue
             }
             remainingClassificationByteCount -= classification.readByteCount
             files.append(zeroAdditionFile(
                 path: path,
-                isBinary: classification.file.isBinary
+                isBinary: classification.file.isBinary,
+                isApproximate: !classification.file.isBinary
             ))
         }
         return files
@@ -154,20 +167,26 @@ struct WorkspaceUntrackedFileInspector: Sendable {
                 status: .untracked,
                 additions: additions,
                 deletions: 0,
-                isBinary: isBinary
+                isBinary: isBinary,
+                isApproximate: !isBinary && !reachedEOF
             ),
             readByteCount: readByteCount
         )
     }
 
-    private func zeroAdditionFile(path: String, isBinary: Bool) -> WorkspaceChangedFile {
+    private func zeroAdditionFile(
+        path: String,
+        isBinary: Bool,
+        isApproximate: Bool
+    ) -> WorkspaceChangedFile {
         WorkspaceChangedFile(
             path: path,
             oldPath: nil,
             status: .untracked,
             additions: 0,
             deletions: 0,
-            isBinary: isBinary
+            isBinary: isBinary,
+            isApproximate: isApproximate
         )
     }
 }

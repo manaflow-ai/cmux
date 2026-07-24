@@ -1,14 +1,14 @@
 internal import Foundation
 
-/// Pure compatibility policy for current-line expansion revision checks.
+/// Pure policy for current-line expansion revision checks.
 public struct DiffExpansionRevisionPolicy: Sendable {
     /// Creates the standard expansion revision policy.
     public init() {}
 
     /// Compares a diff revision with fingerprints observed while fetching current lines.
     ///
-    /// An all-missing legacy workflow remains compatible. Once the diff has a
-    /// fingerprint, every stat and content response must carry the same token.
+    /// The workspace-changes capability always carries fingerprints, so every
+    /// diff, stat, and content response must carry the same identity token.
     ///
     /// - Parameters:
     ///   - diffContentFingerprint: Fingerprint attached to the loaded diff.
@@ -18,10 +18,8 @@ public struct DiffExpansionRevisionPolicy: Sendable {
         diffContentFingerprint: String?,
         fetchedContentFingerprints: [String?]
     ) -> DiffExpansionRevisionDecision {
-        guard let expected = diffContentFingerprint else {
-            return .accept
-        }
-        guard isIdentityBearing(expected),
+        guard let expected = diffContentFingerprint,
+              isIdentityBearing(expected),
               !fetchedContentFingerprints.isEmpty,
               fetchedContentFingerprints.allSatisfy({
                   guard let observed = $0 else { return false }

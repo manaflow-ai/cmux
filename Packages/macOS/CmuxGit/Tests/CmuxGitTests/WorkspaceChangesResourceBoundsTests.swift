@@ -53,7 +53,7 @@ import Testing
         )
 
         #expect(result.standardOutputWasTruncated)
-        #expect(clock.now - start < .seconds(2))
+        #expect(clock.now - start < .seconds(4))
     }
 
     @Test func plainSystemRunnerTerminatesAtWallDeadline() throws {
@@ -70,7 +70,28 @@ import Testing
         )
 
         #expect(result.standardOutputWasTruncated)
-        #expect(clock.now - start < .seconds(2))
+        #expect(clock.now - start < .seconds(4))
+    }
+
+    @Test func hardDeadlineKillsTermIgnoringProcessGroupWithinGrace() throws {
+        let runner = SystemWorkspaceChangesGitRunner(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            boundedCommandWallTimeLimit: 0.05
+        )
+        let clock = ContinuousClock()
+        let start = clock.now
+
+        let result = try runner.run(
+            arguments: [
+                "-c",
+                "(trap '' TERM; while :; do :; done) & wait",
+            ],
+            in: FileManager.default.temporaryDirectory,
+            maximumOutputByteCount: 1_024
+        )
+
+        #expect(result.standardOutputWasTruncated)
+        #expect(clock.now - start < .seconds(4))
     }
 
     @Test func aggregateUntrackedBudgetSkipsUnreadableRemainder() throws {
@@ -92,6 +113,48 @@ import Testing
         #expect(files.map(\.path) == ["first.txt", "missing.txt"])
         #expect(files.map(\.additions) == [2, 0])
         #expect(files.map(\.isBinary) == [false, true])
+        #expect(files.map(\.isApproximate) == [false, true])
+    }
+
+    @Test func cappedUntrackedCountMarksFileAndSnapshotPartial() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-untracked-partial-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("one\ntwo\n".utf8).write(to: root.appendingPathComponent("partial.txt"))
+        let runner = FakeWorkspaceChangesGitRunner(results: [
+            ["diff", "-M", "--name-status", "-z", "HEAD", "--"]:
+                FakeWorkspaceChangesGitRunner.result(),
+            ["diff", "-M", "--numstat", "-z", "HEAD", "--"]:
+                FakeWorkspaceChangesGitRunner.result(),
+            ["ls-files", "--others", "--exclude-standard", "-z"]:
+                FakeWorkspaceChangesGitRunner.result("partial.txt\0"),
+        ])
+        let loader = WorkspaceChangesSnapshotLoader(
+            runner: runner,
+            untrackedInspector: WorkspaceUntrackedFileInspector(
+                perFileReadByteCount: 4,
+                aggregateReadByteCount: 4
+            )
+        )
+        let scope = WorkspaceChangesScope(
+            repoRoot: root.path,
+            branch: "main",
+            baseRef: nil,
+            diffBase: "HEAD",
+            diffBaseCommitOID: "abc"
+        )
+
+        let snapshot = try loader.loadSnapshot(scope: scope)
+        let file = try #require(snapshot.files.first)
+        let response = WorkspaceChangesService(runner: runner)
+            .changedFilesValue(from: snapshot)
+
+        #expect(file.additions == 1)
+        #expect(file.isApproximate)
+        #expect(snapshot.truncated)
+        #expect(response.files.first?.isApproximate == true)
+        #expect(response.truncated)
     }
 
     @Test func exhaustedLineBudgetStillClassifiesBinaryPrefix() throws {
@@ -113,6 +176,7 @@ import Testing
 
         #expect(files.map(\.additions) == [1, 0])
         #expect(files.map(\.isBinary) == [false, true])
+        #expect(files.map(\.isApproximate) == [false, false])
     }
 
     @Test func exhaustedClassificationBudgetFallsBackToBinary() throws {
@@ -133,6 +197,7 @@ import Testing
 
         #expect(files.first?.additions == 0)
         #expect(files.first?.isBinary == true)
+        #expect(files.first?.isApproximate == true)
     }
 
     @Test func aggregateUntrackedInspectionObservesTaskCancellation() async {
@@ -158,5 +223,6 @@ import Testing
         #expect(files?.map(\.path) == ["missing-after-cancel.txt"])
         #expect(files?.map(\.additions) == [0])
         #expect(files?.map(\.isBinary) == [true])
+        #expect(files?.map(\.isApproximate) == [true])
     }
 }

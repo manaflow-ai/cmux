@@ -55,7 +55,8 @@ import Testing
               "status": "added",
               "additions": 12,
               "deletions": 0,
-              "is_binary": false
+              "is_binary": false,
+              "is_approximate": true
             },
             {
               "path": "Sources/Renamed.swift",
@@ -80,8 +81,10 @@ import Testing
         #expect(response.repoRoot == "/Users/test/cmux")
         #expect(response.files.count == 3)
         #expect(response.files[0].status == .added)
+        #expect(response.files[0].isApproximate == true)
         #expect(response.files[1].status == .renamed)
         #expect(response.files[1].oldPath == "Sources/Old.swift")
+        #expect(response.files[1].isApproximate == nil)
         #expect(response.files[2].status == .unknown)
         #expect(response.files[2].additions == 0)
         #expect(response.files[2].deletions == 0)

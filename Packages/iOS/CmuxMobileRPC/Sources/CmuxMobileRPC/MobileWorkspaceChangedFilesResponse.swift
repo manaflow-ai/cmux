@@ -16,6 +16,8 @@ public struct MobileWorkspaceChangedFilesResponse: Decodable, Sendable {
         public let deletions: Int
         /// Whether Git identified the file as binary.
         public let isBinary: Bool
+        /// Whether a host-side cap made the additions count partial.
+        public let isApproximate: Bool?
 
         private enum CodingKeys: String, CodingKey {
             case path
@@ -24,6 +26,7 @@ public struct MobileWorkspaceChangedFilesResponse: Decodable, Sendable {
             case additions
             case deletions
             case isBinary = "is_binary"
+            case isApproximate = "is_approximate"
         }
 
         /// Decodes one file entry with defaults for fields omitted by older hosts.
@@ -37,6 +40,7 @@ public struct MobileWorkspaceChangedFilesResponse: Decodable, Sendable {
             additions = (try? container.decodeIfPresent(Int.self, forKey: .additions)) ?? 0
             deletions = (try? container.decodeIfPresent(Int.self, forKey: .deletions)) ?? 0
             isBinary = (try? container.decodeIfPresent(Bool.self, forKey: .isBinary)) ?? false
+            isApproximate = try? container.decodeIfPresent(Bool.self, forKey: .isApproximate)
         }
     }
 

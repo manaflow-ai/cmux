@@ -53,21 +53,15 @@ actor WorkspaceChangesBaseContentCache {
         size >= 0 && size <= byteBudget
     }
 
-    func fileURL(
-        for key: Key,
-        materialize: @Sendable (_ destination: URL) throws -> Int64
-    ) throws -> URL {
-        try fileURL(for: key, takingLease: false, materialize: materialize)
-    }
-
     func withLeasedFileURL<Value: Sendable>(
         for key: Key,
-        materialize: @Sendable (_ destination: URL) throws -> Int64,
+        projectedSize: Int64,
+        materialize: @Sendable (_ destination: URL) throws -> Void,
         operation: @Sendable (URL) async throws -> Value
     ) async throws -> Value {
         let leasedURL = try fileURL(
             for: key,
-            takingLease: true,
+            projectedSize: projectedSize,
             materialize: materialize
         )
         defer { releaseLease(for: key) }
@@ -76,8 +70,8 @@ actor WorkspaceChangesBaseContentCache {
 
     private func fileURL(
         for key: Key,
-        takingLease: Bool,
-        materialize: @Sendable (_ destination: URL) throws -> Int64
+        projectedSize: Int64,
+        materialize: @Sendable (_ destination: URL) throws -> Void
     ) throws -> URL {
         if let entry = entries[key] {
             if fileManager.fileExists(atPath: entry.fileURL.path) {
@@ -86,7 +80,7 @@ actor WorkspaceChangesBaseContentCache {
                     fileURL: entry.fileURL,
                     size: entry.size,
                     accessOrdinal: nextAccessOrdinal,
-                    leaseCount: entry.leaseCount + (takingLease ? 1 : 0)
+                    leaseCount: entry.leaseCount + 1
                 )
                 return entry.fileURL
             }
@@ -94,44 +88,27 @@ actor WorkspaceChangesBaseContentCache {
             totalBytes -= entry.size
         }
 
-        try prepareEntrySlot()
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        try reserveEntry(size: projectedSize)
         let pathExtension = URL(fileURLWithPath: key.path).pathExtension
         let filename = pathExtension.isEmpty
             ? UUID().uuidString
             : "\(UUID().uuidString).\(pathExtension)"
         let destination = directory.appendingPathComponent(filename, isDirectory: false)
         do {
-            let size = try materialize(destination)
-            guard permitsEntry(size: size) else {
-                throw Error.entryExceedsByteBudget
-            }
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+            try materialize(destination)
             nextAccessOrdinal &+= 1
             entries[key] = Entry(
                 fileURL: destination,
-                size: size,
+                size: projectedSize,
                 accessOrdinal: nextAccessOrdinal,
-                leaseCount: takingLease ? 1 : 0
+                leaseCount: 1
             )
-            totalBytes += size
-            evictIfNeeded()
             return destination
         } catch {
+            totalBytes -= projectedSize
             try? fileManager.removeItem(at: destination)
             throw error
-        }
-    }
-
-    private func evictIfNeeded() {
-        // The count bound keeps zero-byte blobs (invisible to the byte
-        // budget) from growing entries and temp files without limit.
-        while totalBytes > byteBudget || entries.count > maximumEntryCount {
-            guard let victim = entries
-                .filter({ $0.value.leaseCount == 0 })
-                .min(by: { $0.value.accessOrdinal < $1.value.accessOrdinal }) else {
-                return
-            }
-            evict(victim)
         }
     }
 
@@ -139,18 +116,24 @@ actor WorkspaceChangesBaseContentCache {
         guard var entry = entries[key], entry.leaseCount > 0 else { return }
         entry.leaseCount -= 1
         entries[key] = entry
-        evictIfNeeded()
     }
 
-    private func prepareEntrySlot() throws {
-        while entries.count >= maximumEntryCount {
+    private func reserveEntry(size: Int64) throws {
+        guard permitsEntry(size: size) else {
+            throw Error.entryExceedsByteBudget
+        }
+        while entries.count >= maximumEntryCount || totalBytes + size > byteBudget {
             guard let victim = entries
                 .filter({ $0.value.leaseCount == 0 })
                 .min(by: { $0.value.accessOrdinal < $1.value.accessOrdinal }) else {
-                throw Error.entryCountLimitReached
+                if entries.count >= maximumEntryCount {
+                    throw Error.entryCountLimitReached
+                }
+                throw Error.entryExceedsByteBudget
             }
             evict(victim)
         }
+        totalBytes += size
     }
 
     private func evict(_ victim: Dictionary<Key, Entry>.Element) {

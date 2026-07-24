@@ -306,7 +306,9 @@ import Testing
             ["diff", "-M", "--name-status", "-z", "HEAD", "--"]: FakeWorkspaceChangesGitRunner.result("M\0large.bin\0"),
             ["diff", "-M", "--numstat", "-z", "HEAD", "--"]: FakeWorkspaceChangesGitRunner.result("1\t1\tlarge.bin\0"),
             ["ls-files", "--others", "--exclude-standard", "-z"]: FakeWorkspaceChangesGitRunner.result(),
-            ["--literal-pathspecs", "cat-file", "-s", "abc:large.bin"]:
+            ["--literal-pathspecs", "rev-parse", "abc:large.bin"]:
+                FakeWorkspaceChangesGitRunner.result("blob-abc\n"),
+            ["--literal-pathspecs", "cat-file", "-s", "blob-abc"]:
                 FakeWorkspaceChangesGitRunner.result("5\n"),
         ])
         let cache = WorkspaceChangesBaseContentCache(
@@ -324,81 +326,4 @@ import Testing
         }
     }
 
-    @Test func baseCacheBoundsZeroByteEntriesByCount() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-base-cache-count-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let cache = WorkspaceChangesBaseContentCache(
-            byteBudget: 1024,
-            maximumEntryCount: 3,
-            temporaryDirectory: root
-        )
-
-        var urls: [URL] = []
-        for index in 0..<6 {
-            let key = WorkspaceChangesBaseContentCache.Key(
-                repoRoot: "/repo",
-                baseCommitOID: "abc",
-                path: "empty-\(index)"
-            )
-            let url = try await cache.fileURL(for: key) { destination in
-                try Data().write(to: destination)
-                return 0
-            }
-            urls.append(url)
-        }
-
-        // Zero-byte entries are invisible to the byte budget; the count bound
-        // must evict the oldest so entries and temp files stay bounded.
-        let survivors = urls.filter { FileManager.default.fileExists(atPath: $0.path) }
-        #expect(survivors.count == 3)
-        #expect(survivors == Array(urls.suffix(3)))
-    }
-
-    @Test func baseCacheRejectsOversizedEntriesAndEvictsLeastRecentlyUsed() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-base-cache-budget-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let cache = WorkspaceChangesBaseContentCache(byteBudget: 4, temporaryDirectory: root)
-        let oversized = WorkspaceChangesBaseContentCache.Key(
-            repoRoot: "/repo",
-            baseCommitOID: "abc",
-            path: "oversized"
-        )
-
-        await #expect(throws: WorkspaceChangesBaseContentCache.Error.entryExceedsByteBudget) {
-            try await cache.fileURL(for: oversized) { destination in
-                try Data("12345".utf8).write(to: destination)
-                return 5
-            }
-        }
-        let recovered = try await cache.fileURL(for: oversized) { destination in
-            try Data("x".utf8).write(to: destination)
-            return 1
-        }
-        #expect(try Data(contentsOf: recovered) == Data("x".utf8))
-
-        let second = WorkspaceChangesBaseContentCache.Key(
-            repoRoot: "/repo",
-            baseCommitOID: "abc",
-            path: "second"
-        )
-        let third = WorkspaceChangesBaseContentCache.Key(
-            repoRoot: "/repo",
-            baseCommitOID: "abc",
-            path: "third"
-        )
-        let secondURL = try await cache.fileURL(for: second) { destination in
-            try Data("22".utf8).write(to: destination)
-            return 2
-        }
-        _ = try await cache.fileURL(for: third) { destination in
-            try Data("333".utf8).write(to: destination)
-            return 3
-        }
-        #expect(!FileManager.default.fileExists(atPath: recovered.path))
-        #expect(!FileManager.default.fileExists(atPath: secondURL.path))
-    }
 }
