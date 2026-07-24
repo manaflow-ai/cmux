@@ -79,6 +79,36 @@ struct BrowserDesignModeArtifactStoreTests {
         #expect(try Data(contentsOf: screenshotURL) == expected)
     }
 
+    @Test func releasedArtifactIsPrunableAcrossStoreInstances() async throws {
+        let directory = URL.temporaryDirectory
+            .appendingPathComponent("cmux-design-mode-cross-store-release-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let firstStore = BrowserDesignModeArtifactStore(
+            directory: directory,
+            liveContextSessionID: "current"
+        )
+        let secondStore = BrowserDesignModeArtifactStore(
+            directory: directory,
+            liveContextSessionID: "current"
+        )
+        let releasedURL = try await firstStore.saveScreenshot(
+            Data([0]),
+            surfaceID: UUID(),
+            retention: .liveContext
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 0)],
+            ofItemAtPath: releasedURL.path
+        )
+        await firstStore.release(releasedURL)
+
+        for value in 0...100 {
+            _ = try await secondStore.saveScreenshot(Data([UInt8(value)]), surfaceID: UUID())
+        }
+
+        #expect(!FileManager.default.fileExists(atPath: releasedURL.path))
+    }
+
     @Test func contextJSONUsesTheScreenshotPruningLifecycle() async throws {
         let directory = URL.temporaryDirectory
             .appendingPathComponent("cmux-design-mode-context-pruning-test-\(UUID().uuidString)", isDirectory: true)

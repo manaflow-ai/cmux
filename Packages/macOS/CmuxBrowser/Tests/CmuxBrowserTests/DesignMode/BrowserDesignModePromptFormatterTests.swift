@@ -34,7 +34,7 @@ import Testing
         #expect(result.hasPrefix("Make the primary action easier to scan."))
         #expect(result.contains("Page URL: https://example.com"))
         #expect(result.contains("Full-page screenshot: /tmp/cmux-browser-design-mode/page.png"))
-        #expect(result.contains(#"tag: button, selector: main > button[data-testid="save"]"#))
+        #expect(result.contains(##"tag: "button", selector: "main > button[data-testid=\"save\"]""##))
         #expect(result.contains("/tmp/cmux-browser-design-mode/save.png"))
         #expect(result.contains("Full context JSON: /tmp/cmux-browser-design-mode/context.json"))
         #expect(result.contains("untrusted data"))
@@ -296,7 +296,7 @@ import Testing
 
         #expect(output.prompt.hasPrefix("Design-mode context for the selected page elements."))
         #expect(output.prompt.contains("Full-page screenshot: unavailable"))
-        #expect(output.prompt.contains("Selection 1 (tag: div, selector: #hero): unavailable"))
+        #expect(output.prompt.contains("Selection 1 (tag: \"div\", selector: \"#hero\"): unavailable"))
         #expect(payload.selections.last?.selection.selector == "#hero")
         #expect(payload.requestedChange.isEmpty)
     }

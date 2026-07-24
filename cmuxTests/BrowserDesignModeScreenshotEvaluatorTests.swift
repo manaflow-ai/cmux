@@ -260,7 +260,7 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         #expect(!prompt.contains("<cmux_design_mode>"))
         #expect(!prompt.contains("base64"))
         #expect(prompt.contains("Full-page screenshot: \(directory.path)/"))
-        #expect(prompt.contains("Selection 1 (tag: button, selector: #target): \(directory.path)/"))
+        #expect(prompt.contains("Selection 1 (tag: \"button\", selector: \"#target\"): \(directory.path)/"))
         #expect(contextURL(from: prompt).deletingLastPathComponent() == directory)
         #expect(try requestedChange(from: prompt) == "")
         _ = navigationDelegate

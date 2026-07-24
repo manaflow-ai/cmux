@@ -4,6 +4,7 @@ import Foundation
 actor BrowserDesignModeArtifactStore {
     private static let fileLimit = 100
     private static let processLiveContextSessionID = String(UUID().uuidString.prefix(8))
+    private static let releasedMarkerPrefix = ".released-"
     private static let screenshotSuffix = "screenshot.png"
 
     private let directory: URL
@@ -63,33 +64,32 @@ actor BrowserDesignModeArtifactStore {
 
     /// Deletes a capture that never became part of authoritative prompt context.
     func remove(_ url: URL) {
-        try? fileManager.removeItem(at: url)
+        removeArtifact(at: url)
     }
 
-    /// Returns a former live-context file to normal recency-based pruning.
+    /// Makes a former live-context file prunable without changing its handed-off path.
     func release(_ url: URL) {
-        if isLiveContext(url) {
-            let releasedURL = url.deletingLastPathComponent().appendingPathComponent(
-                url.lastPathComponent.replacingOccurrences(
-                    of: liveContextSuffix,
-                    with: Self.screenshotSuffix
-                )
-            )
-            do {
-                try fileManager.moveItem(at: url, to: releasedURL)
-            } catch {
-                try? fileManager.removeItem(at: url)
-            }
+        if url.lastPathComponent.hasSuffix("-\(liveContextSuffix)"),
+           fileManager.fileExists(atPath: url.path) {
+            try? Data().write(to: releasedMarkerURL(for: url), options: .atomic)
         }
         pruneKeepingNewest(limit: Self.fileLimit)
     }
 
     private func pruneKeepingNewest(limit: Int) {
-        guard let urls = try? fileManager.contentsOfDirectory(
+        guard let directoryURLs = try? fileManager.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: [.contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        ), urls.count > limit else { return }
+            options: []
+        ) else { return }
+        let markerURLs = directoryURLs.filter(isReleasedMarker)
+        for markerURL in markerURLs where !fileManager.fileExists(
+            atPath: artifactURL(forReleasedMarker: markerURL).path
+        ) {
+            try? fileManager.removeItem(at: markerURL)
+        }
+        let urls = directoryURLs.filter { !$0.lastPathComponent.hasPrefix(".") }
+        guard urls.count > limit else { return }
         let pinnedCount = urls.reduce(into: 0) { count, url in
             if isLiveContext(url) { count += 1 }
         }
@@ -100,11 +100,36 @@ actor BrowserDesignModeArtifactStore {
             return lhsDate > rhsDate
         }
         for staleURL in ordered.dropFirst(prunableLimit) {
-            try? fileManager.removeItem(at: staleURL)
+            removeArtifact(at: staleURL)
         }
     }
 
     private func isLiveContext(_ url: URL) -> Bool {
         url.lastPathComponent.hasSuffix("-\(liveContextSuffix)")
+            && !fileManager.fileExists(atPath: releasedMarkerURL(for: url).path)
+    }
+
+    private func removeArtifact(at url: URL) {
+        try? fileManager.removeItem(at: url)
+        try? fileManager.removeItem(at: releasedMarkerURL(for: url))
+    }
+
+    private func releasedMarkerURL(for url: URL) -> URL {
+        url.deletingLastPathComponent().appendingPathComponent(
+            "\(Self.releasedMarkerPrefix)\(url.lastPathComponent)",
+            isDirectory: false
+        )
+    }
+
+    private func artifactURL(forReleasedMarker markerURL: URL) -> URL {
+        let filename = markerURL.lastPathComponent.dropFirst(Self.releasedMarkerPrefix.count)
+        return markerURL.deletingLastPathComponent().appendingPathComponent(
+            String(filename),
+            isDirectory: false
+        )
+    }
+
+    private func isReleasedMarker(_ url: URL) -> Bool {
+        url.lastPathComponent.hasPrefix(Self.releasedMarkerPrefix)
     }
 }
