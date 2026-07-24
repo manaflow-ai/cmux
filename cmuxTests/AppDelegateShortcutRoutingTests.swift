@@ -9977,7 +9977,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         textView.font = NSFont.systemFont(ofSize: 14)
         textView.textColor = .labelColor
         textView.onPaste = { pasteboard, textView in
-            switch TerminalImageTransferPlanner.prepare(pasteboard: pasteboard, mode: .paste) {
+            switch TerminalImageTransferPlanner.prepareSynchronously(
+                pasteboard: pasteboard,
+                mode: .paste
+            ) {
             case .fileURLs(let fileURLs):
                 textView.insertAttachments(
                     fileURLs.map {

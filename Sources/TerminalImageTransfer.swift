@@ -195,13 +195,6 @@ enum TerminalImageTransferPlanner {
         }
     }
 
-    static func prepare(
-        pasteboard: NSPasteboard,
-        mode: TerminalImageTransferMode
-    ) -> TerminalImageTransferPreparedContent {
-        prepareSynchronously(pasteboard: pasteboard, mode: mode)
-    }
-
     @MainActor
     static func prepare(
         pasteboard: NSPasteboard,
