@@ -23,7 +23,7 @@ use cmux_remote::connection::{
 };
 use cmux_remote::crypto::{AuthKind, ClientAuthMode, CryptoError, StaticIdentity};
 use cmux_remote::daemon::{DaemonSessionPolicy, serve_direct_websocket, serve_unix};
-use cmux_remote::identity::{AuthDatabase, default_state_dir};
+use cmux_remote::identity::{AuthDatabase, credential_free_route_hint, default_state_dir};
 use cmux_remote::observability::ClientConnectionSnapshot;
 use cmux_remote::provider::{
     ConnectRequest, DirectWebSocketProvider, IrohListener, IrohPathMode, IrohProvider,
@@ -1403,9 +1403,9 @@ fn persist_runtime_info(state_dir: &Path, info: &DaemonRuntimeInfo) -> anyhow::R
     let mut persisted = info.clone();
     persisted.routes.clear();
     for route in &info.routes {
-        let endpoint =
-            Url::parse(route).map_err(|_| anyhow!("remote runtime route metadata is invalid"))?;
-        push_unique_route(&mut persisted.routes, sanitized_route(&endpoint));
+        let route = credential_free_route_hint(route)
+            .map_err(|_| anyhow!("remote runtime route metadata is invalid"))?;
+        push_unique_route(&mut persisted.routes, route);
     }
 
     let path = state_dir.join("runtime.json");
