@@ -31,22 +31,27 @@ struct ReorderShortcutActionTests {
         let workspace = Workspace()
         let firstPanelId = try #require(workspace.focusedPanelId)
         let paneId = try #require(workspace.paneId(forPanelId: firstPanelId))
-        let secondPanel = try #require(workspace.newTerminalSurface(inPane: paneId, focus: false))
-        let thirdPanel = try #require(workspace.newTerminalSurface(inPane: paneId, focus: false))
+        _ = try #require(workspace.newTerminalSurface(inPane: paneId, focus: false))
+        _ = try #require(workspace.newTerminalSurface(inPane: paneId, focus: false))
         workspace.focusPanel(firstPanelId)
+        let initialOrder = panelOrder(in: workspace, paneId: paneId)
+        try #require(initialOrder.first == firstPanelId)
+        let remainingPanelIds = initialOrder.filter { $0 != firstPanelId }
+        try #require(remainingPanelIds.count == 2)
 
         #expect(workspace.moveSelectedSurface(by: 1))
-        #expect(panelOrder(in: workspace, paneId: paneId) == [secondPanel.id, firstPanelId, thirdPanel.id])
+        let middleOrder = [remainingPanelIds[0], firstPanelId, remainingPanelIds[1]]
+        #expect(panelOrder(in: workspace, paneId: paneId) == middleOrder)
         #expect(workspace.focusedPanelId == firstPanelId)
 
         #expect(workspace.moveSelectedSurface(by: 1))
-        let rightEdgeOrder = [secondPanel.id, thirdPanel.id, firstPanelId]
+        let rightEdgeOrder = remainingPanelIds + [firstPanelId]
         #expect(panelOrder(in: workspace, paneId: paneId) == rightEdgeOrder)
         #expect(workspace.moveSelectedSurface(by: 1))
         #expect(panelOrder(in: workspace, paneId: paneId) == rightEdgeOrder)
 
         #expect(workspace.moveSelectedSurface(by: -1))
-        #expect(panelOrder(in: workspace, paneId: paneId) == [secondPanel.id, firstPanelId, thirdPanel.id])
+        #expect(panelOrder(in: workspace, paneId: paneId) == middleOrder)
     }
 
     @Test func singleSurfaceReorderIsANoOp() throws {
@@ -65,14 +70,21 @@ struct ReorderShortcutActionTests {
         let splitPaneId = try #require(workspace.paneId(forPanelId: firstPanelId))
         let secondPanel = try #require(workspace.newTerminalSurface(inPane: splitPaneId, focus: false))
         let thirdPanel = try #require(workspace.newTerminalSurface(inPane: splitPaneId, focus: false))
-        let originalOrder = [firstPanelId, secondPanel.id, thirdPanel.id]
+        let splitOrder = panelOrder(in: workspace, paneId: splitPaneId)
+        try #require(splitOrder.first == firstPanelId)
 
-        workspace.canvasModel.syncPanes(panelIds: originalOrder, focusedPanelId: firstPanelId)
+        workspace.canvasModel.syncPanes(panelIds: splitOrder, focusedPanelId: firstPanelId)
         #expect(workspace.canvasModel.joinPanel(secondPanel.id, withPaneContaining: firstPanelId))
         #expect(workspace.canvasModel.joinPanel(thirdPanel.id, withPaneContaining: firstPanelId))
         workspace.setLayoutMode(.canvas)
         workspace.focusPanel(firstPanelId)
         let canvasPaneId = try #require(workspace.canvasModel.paneID(containing: firstPanelId))
+        let canvasOrder = try #require(
+            workspace.canvasModel.layout.panelIds(in: canvasPaneId)?.map(\.rawValue)
+        )
+        try #require(canvasOrder.first == firstPanelId)
+        let remainingCanvasPanelIds = canvasOrder.filter { $0 != firstPanelId }
+        try #require(remainingCanvasPanelIds.count == 2)
         let viewport = ReorderCanvasViewportSpy()
         workspace.canvasModel.viewport = viewport
 
@@ -83,10 +95,10 @@ struct ReorderShortcutActionTests {
         #expect(viewport.modelDidChangeCount == 1)
         #expect(
             workspace.canvasModel.layout.panelIds(in: canvasPaneId)?.map(\.rawValue) ==
-                [secondPanel.id, firstPanelId, thirdPanel.id]
+                [remainingCanvasPanelIds[0], firstPanelId, remainingCanvasPanelIds[1]]
         )
         #expect(workspace.focusedPanelId == firstPanelId)
-        #expect(panelOrder(in: workspace, paneId: splitPaneId) == originalOrder)
+        #expect(panelOrder(in: workspace, paneId: splitPaneId) == splitOrder)
     }
 
     @Test func selectedWorkspaceMovesWithinItsPinTierAndStaysSelected() {
@@ -119,10 +131,16 @@ struct ReorderShortcutActionTests {
         #expect(manager.tabs.map(\.id) == [secondPinned.id, firstPinned.id, secondUnpinned.id, firstUnpinned.id])
     }
 
-    @Test func reorderActionsArePublicAndHaveAlignedCollisionFreeDefaults() throws {
+    @Test func movementActionsArePublicAndHaveAlignedCollisionFreeDefaults() throws {
         let actions: [KeyboardShortcutSettings.Action] = [
             .moveSurfaceLeft,
             .moveSurfaceRight,
+            .moveSurfaceToPreviousPane,
+            .moveSurfaceToNextPane,
+            .moveSurfaceToPaneLeft,
+            .moveSurfaceToPaneRight,
+            .moveSurfaceToPaneUp,
+            .moveSurfaceToPaneDown,
             .moveWorkspaceUp,
             .moveWorkspaceDown,
         ]
@@ -148,6 +166,45 @@ struct ReorderShortcutActionTests {
 
         #expect(ContentView.commandPaletteShortcutAction(forCommandID: "palette.moveWorkspaceUp") == .moveWorkspaceUp)
         #expect(ContentView.commandPaletteShortcutAction(forCommandID: "palette.moveWorkspaceDown") == .moveWorkspaceDown)
+        for movement in SurfacePaneMovement.allCases {
+            #expect(
+                ContentView.commandPaletteShortcutAction(
+                    forCommandID: movement.commandID
+                ) == movement.shortcutAction
+            )
+        }
+
+        let previousDefault =
+            KeyboardShortcutSettings.Action.moveSurfaceToPreviousPane.defaultShortcut
+        #expect(previousDefault.key == "[")
+        #expect(previousDefault.command)
+        #expect(previousDefault.shift)
+        #expect(!previousDefault.option)
+        #expect(previousDefault.control)
+
+        let nextDefault =
+            KeyboardShortcutSettings.Action.moveSurfaceToNextPane.defaultShortcut
+        #expect(nextDefault.key == "]")
+        #expect(nextDefault.command)
+        #expect(nextDefault.shift)
+        #expect(!nextDefault.option)
+        #expect(nextDefault.control)
+        let directionalDefaults: [
+            KeyboardShortcutSettings.Action: String
+        ] = [
+            .moveSurfaceToPaneLeft: "←",
+            .moveSurfaceToPaneRight: "→",
+            .moveSurfaceToPaneUp: "↑",
+            .moveSurfaceToPaneDown: "↓",
+        ]
+        for (action, key) in directionalDefaults {
+            let shortcut = action.defaultShortcut
+            #expect(shortcut.key == key)
+            #expect(shortcut.command)
+            #expect(shortcut.shift)
+            #expect(shortcut.option)
+            #expect(!shortcut.control)
+        }
     }
 
     private func panelOrder(in workspace: Workspace, paneId: PaneID) -> [UUID] {

@@ -8828,16 +8828,6 @@ final class Workspace: Identifiable, ObservableObject {
         return true
     }
 
-    @discardableResult
-    private func moveSurfaceToAdjacentPane(panelId: UUID, direction: NavigationDirection) -> Bool {
-        guard panels[panelId] != nil,
-              let sourcePaneId = paneId(forPanelId: panelId),
-              let targetPaneId = bonsplitController.adjacentPane(to: sourcePaneId, direction: direction) else {
-            return false
-        }
-        return moveSurface(panelId: panelId, toPane: targetPaneId, focus: true)
-    }
-
     func detachSurface(panelId: UUID) -> DetachedSurfaceTransfer? {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return nil }
         guard let sourcePanel = panels[panelId] else { return nil }
@@ -12414,10 +12404,10 @@ extension Workspace: BonsplitDelegate {
             _ = AppDelegate.shared?.moveBonsplitTabToNewWorkspace(tabId: tab.id.uuid, focus: true, focusWindow: false)
         case .moveToLeftPane:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
-            _ = moveSurfaceToAdjacentPane(panelId: panelId, direction: .left)
+            _ = moveSurface(panelId: panelId, to: .left)
         case .moveToRightPane:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
-            _ = moveSurfaceToAdjacentPane(panelId: panelId, direction: .right)
+            _ = moveSurface(panelId: panelId, to: .right)
         case .newTerminalToRight:
             createTerminalToRight(of: tab.id, inPane: pane)
         case .newBrowserToRight:

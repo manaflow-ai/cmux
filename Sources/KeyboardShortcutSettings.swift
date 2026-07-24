@@ -100,6 +100,9 @@ enum KeyboardShortcutSettings {
         case nextSurface
         case prevSurface
         case moveSurfaceLeft, moveSurfaceRight
+        case moveSurfaceToPreviousPane, moveSurfaceToNextPane
+        case moveSurfaceToPaneLeft, moveSurfaceToPaneRight
+        case moveSurfaceToPaneUp, moveSurfaceToPaneDown
         case selectSurfaceByNumber
         case nextSidebarTab
         case prevSidebarTab
@@ -231,8 +234,14 @@ enum KeyboardShortcutSettings {
             case .triggerFlash: return String(localized: "shortcut.flashFocusedPanel.label", defaultValue: "Flash Focused Panel")
             case .nextSurface: return String(localized: "shortcut.nextSurface.label", defaultValue: "Next Surface")
             case .prevSurface: return String(localized: "shortcut.previousSurface.label", defaultValue: "Previous Surface")
-            case .moveSurfaceLeft: return String(localized: "shortcut.moveSurfaceLeft.label", defaultValue: "Move Surface Left")
-            case .moveSurfaceRight: return String(localized: "shortcut.moveSurfaceRight.label", defaultValue: "Move Surface Right")
+            case .moveSurfaceLeft: return String(localized: "shortcut.moveSurfaceLeft.label", defaultValue: "Reorder Surface Left")
+            case .moveSurfaceRight: return String(localized: "shortcut.moveSurfaceRight.label", defaultValue: "Reorder Surface Right")
+            case .moveSurfaceToPreviousPane: return SurfacePaneMovement.previous.title
+            case .moveSurfaceToNextPane: return SurfacePaneMovement.next.title
+            case .moveSurfaceToPaneLeft: return SurfacePaneMovement.left.title
+            case .moveSurfaceToPaneRight: return SurfacePaneMovement.right.title
+            case .moveSurfaceToPaneUp: return SurfacePaneMovement.up.title
+            case .moveSurfaceToPaneDown: return SurfacePaneMovement.down.title
             case .selectSurfaceByNumber: return String(localized: "shortcut.selectSurfaceByNumber.label", defaultValue: "Select Surface 1…9")
             case .nextSidebarTab: return String(localized: "shortcut.nextWorkspace.label", defaultValue: "Next Workspace")
             case .prevSidebarTab: return String(localized: "shortcut.previousWorkspace.label", defaultValue: "Previous Workspace")
@@ -489,6 +498,18 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "[", command: true, shift: true, option: false, control: false)
             case .moveSurfaceLeft: return StoredShortcut(key: "[", command: true, shift: true, option: true, control: false)
             case .moveSurfaceRight: return StoredShortcut(key: "]", command: true, shift: true, option: true, control: false)
+            case .moveSurfaceToPreviousPane:
+                return StoredShortcut(key: "[", command: true, shift: true, option: false, control: true)
+            case .moveSurfaceToNextPane:
+                return StoredShortcut(key: "]", command: true, shift: true, option: false, control: true)
+            case .moveSurfaceToPaneLeft:
+                return StoredShortcut(key: "←", command: true, shift: true, option: true, control: false)
+            case .moveSurfaceToPaneRight:
+                return StoredShortcut(key: "→", command: true, shift: true, option: true, control: false)
+            case .moveSurfaceToPaneUp:
+                return StoredShortcut(key: "↑", command: true, shift: true, option: true, control: false)
+            case .moveSurfaceToPaneDown:
+                return StoredShortcut(key: "↓", command: true, shift: true, option: true, control: false)
             case .selectSurfaceByNumber:
                 return StoredShortcut(key: "1", command: false, shift: false, option: false, control: true)
             case .newSurface:
@@ -613,33 +634,6 @@ enum KeyboardShortcutSettings {
                     second: ShortcutStroke(key: "f", command: false, shift: false, option: false, control: false)
                 )
             }
-        }
-
-        func tooltip(_ base: String) -> String {
-            "\(base) (\(displayedShortcutString(for: KeyboardShortcutSettings.shortcut(for: self))))"
-        }
-
-        var usesNumberedDigitMatching: Bool {
-            switch self {
-            case .selectSurfaceByNumber, .selectWorkspaceByNumber:
-                return true
-            default:
-                return false
-            }
-        }
-
-        var allowsChordShortcut: Bool {
-            self != .fileExplorerOpenSelection && self != .fileExplorerOpenSelectionFinderAlias && self != .cycleTextBoxSubmitAction
-        }
-
-        func displayedShortcutString(for shortcut: StoredShortcut) -> String {
-            if shortcut.isUnbound {
-                return shortcut.displayString
-            }
-            if usesNumberedDigitMatching {
-                return shortcut.numberedDisplayString
-            }
-            return shortcut.displayString
         }
 
         func conflicts(
