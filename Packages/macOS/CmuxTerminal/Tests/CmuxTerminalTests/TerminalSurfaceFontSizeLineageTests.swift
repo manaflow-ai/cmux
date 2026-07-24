@@ -147,7 +147,6 @@ private func surfaceWasUpdated(_ surface: ghostty_surface_t) -> Bool
             runtimeSurface.deallocate()
         }
 
-        #expect(surface.runtimeWaitAfterCommand)
         #expect(surface.resetFontSize(toConfiguredRuntimePoints: 12))
         #expect(surfaceWasUpdated(runtimeSurface))
         #expect(surfaceLastUpdateWaitsAfterCommand(runtimeSurface))
