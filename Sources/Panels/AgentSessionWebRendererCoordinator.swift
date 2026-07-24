@@ -5,6 +5,7 @@ import WebKit
 @MainActor
 final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandlerWithReply {
     var webView: AgentSessionWebView?
+    private let assetSchemeHandler = AgentSessionAssetSchemeHandler()
     private var panelId = UUID()
     private var workspaceId = UUID()
     private var rendererKind: AgentSessionRendererKind = .react
@@ -21,6 +22,8 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     private var isClosed = false
     private var isProviderStartPending = false
     private var processStore = AgentSessionProcessStore()
+    nonisolated static let agentSessionAssetScheme = "cmux-agent-session"
+    nonisolated static let agentSessionAssetHost = "bundle"
     nonisolated private static let imagePreviewMaxBytes = 512 * 1024
     nonisolated private static let imagePreviewTotalMaxBytes = 2 * 1024 * 1024
     var onHasActiveProviderChanged: ((Bool) -> Void)? {
@@ -72,6 +75,10 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
 
         let configuration = WKWebViewConfiguration()
         configuration.suppressesIncrementalRendering = false
+        configuration.setURLSchemeHandler(
+            assetSchemeHandler,
+            forURLScheme: Self.agentSessionAssetScheme
+        )
         configuration.userContentController.addScriptMessageHandler(
             self,
             contentWorld: .page,
@@ -110,14 +117,14 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             rendererKind: rendererKind,
             resourceDirectoryURL: resourceDirectoryURL
         )
-        trustedShellURL = Self.normalizedTrustedFileURL(indexURL)
+        trustedShellURL = indexURL
 #if DEBUG
         cmuxDebugLog(
             "agentSession.web.load renderer=\(rendererKind.rawValue) " +
-            "index=\(indexURL.path)"
+            "index=\(indexURL.absoluteString)"
         )
 #endif
-        webView.loadFileURL(indexURL, allowingReadAccessTo: Bundle.main.resourceURL ?? resourceDirectoryURL)
+        webView.load(URLRequest(url: indexURL))
         loadedRendererKind = rendererKind
         hasFinishedNavigation = false
         hasCompletedVisiblePaintFlush = false
@@ -320,12 +327,21 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         rendererKind: AgentSessionRendererKind,
         resourceDirectoryURL: URL
     ) -> URL {
-        rendererKind.resourceHTMLPathComponents.reduce(resourceDirectoryURL) {
-            $0.appendingPathComponent($1, isDirectory: false)
+        _ = resourceDirectoryURL
+        var components = URLComponents()
+        components.scheme = agentSessionAssetScheme
+        components.host = agentSessionAssetHost
+        components.percentEncodedPath = "/" + rendererKind.resourceHTMLPathComponents.joined(separator: "/")
+        guard let url = components.url else {
+            preconditionFailure("Invalid Agent Session shell URL")
         }
+        return url
     }
 
     nonisolated static func isTrustedShellURL(_ candidate: URL?, expected: URL?) -> Bool {
+        if candidate?.scheme == agentSessionAssetScheme || expected?.scheme == agentSessionAssetScheme {
+            return normalizedAgentSessionAssetURL(candidate) == normalizedAgentSessionAssetURL(expected)
+        }
         guard let candidate = normalizedTrustedFileURL(candidate),
               let expected = normalizedTrustedFileURL(expected) else {
             return false
@@ -333,11 +349,120 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         return candidate == expected
     }
 
+    nonisolated static func agentSessionAssetFileURL(
+        for requestURL: URL?,
+        resourceDirectoryURL: URL?
+    ) -> URL? {
+        guard let requestURL,
+              requestURL.scheme == agentSessionAssetScheme,
+              requestURL.host == agentSessionAssetHost,
+              requestURL.query == nil,
+              requestURL.fragment == nil,
+              let resourceDirectoryURL,
+              let requestPathComponents = agentSessionAssetPathComponents(requestURL) else {
+            return nil
+        }
+
+        let rootURL = resourceDirectoryURL.standardizedFileURL.resolvingSymlinksInPath()
+        let candidateURL = requestPathComponents.reduce(rootURL) { partialURL, component in
+            partialURL.appendingPathComponent(component, isDirectory: false)
+        }.standardizedFileURL.resolvingSymlinksInPath()
+        guard candidateURL.isDescendant(of: rootURL) else {
+            return nil
+        }
+        if let fileURL = readableRegularFileURL(candidateURL) {
+            return fileURL
+        }
+
+        let deflatedURL = candidateURL.appendingPathExtension("deflate")
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        guard deflatedURL.isDescendant(of: rootURL) else {
+            return nil
+        }
+        return readableRegularFileURL(deflatedURL)
+    }
+
+    nonisolated static func agentSessionAssetMIMEType(for requestURL: URL) -> String {
+        switch requestURL.pathExtension.lowercased() {
+        case "html":
+            return "text/html"
+        case "mjs", "js":
+            return "text/javascript"
+        case "css":
+            return "text/css"
+        case "json":
+            return "application/json"
+        case "svg":
+            return "image/svg+xml"
+        default:
+            return UTType(filenameExtension: requestURL.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+        }
+    }
+
     nonisolated static func normalizedTrustedFileURL(_ url: URL?) -> URL? {
         guard let url, url.isFileURL else {
             return nil
         }
         return url.standardizedFileURL.resolvingSymlinksInPath()
+    }
+
+    nonisolated private static func normalizedAgentSessionAssetURL(_ url: URL?) -> URL? {
+        guard let url,
+              url.scheme == agentSessionAssetScheme,
+              url.host == agentSessionAssetHost,
+              url.query == nil,
+              url.fragment == nil,
+              let pathComponents = agentSessionAssetPathComponents(url) else {
+            return nil
+        }
+        var components = URLComponents()
+        components.scheme = agentSessionAssetScheme
+        components.host = agentSessionAssetHost
+        components.percentEncodedPath = "/" + pathComponents.joined(separator: "/")
+        return components.url
+    }
+
+    nonisolated private static func agentSessionAssetPathComponents(_ url: URL) -> [String]? {
+        guard let encodedPath = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath,
+              encodedPath.hasPrefix("/"),
+              !encodedPath.contains("\\"),
+              !encodedPath.contains("//") else {
+            return nil
+        }
+
+        let encodedComponents = encodedPath.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        guard !encodedComponents.isEmpty else {
+            return nil
+        }
+
+        var decodedComponents: [String] = []
+        decodedComponents.reserveCapacity(encodedComponents.count)
+        for encodedComponent in encodedComponents {
+            let lowercased = encodedComponent.lowercased()
+            guard !lowercased.contains("%2f"),
+                  !lowercased.contains("%5c"),
+                  let component = encodedComponent.removingPercentEncoding,
+                  !component.isEmpty,
+                  component != ".",
+                  component != "..",
+                  !component.contains("/"),
+                  !component.contains("\\") else {
+                return nil
+            }
+            decodedComponents.append(component)
+        }
+        return decodedComponents
+    }
+
+    nonisolated private static func readableRegularFileURL(_ url: URL) -> URL? {
+        var isDirectory = ObjCBool(false)
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+              !isDirectory.boolValue,
+              FileManager.default.isReadableFile(atPath: url.path) else {
+            return nil
+        }
+        return url
     }
 
     private func handle(_ request: AgentSessionBridgeRequest) async throws -> Any {
@@ -752,5 +877,158 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             current = item.nextResponder
         }
         return false
+    }
+}
+
+private final class AgentSessionAssetSchemeHandler: NSObject, WKURLSchemeHandler {
+    private final class SchemeTaskState: @unchecked Sendable {
+        let condition = NSCondition()
+        var isStopped = false
+        var callbacksInFlight = 0
+    }
+
+    private let lock = NSLock()
+    private var activeSchemeTasks: [ObjectIdentifier: SchemeTaskState] = [:]
+    private let streamQueue = DispatchQueue(
+        label: "com.manaflow.cmux.agent-session-assets",
+        qos: .userInitiated
+    )
+
+    func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
+        let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
+        let state = SchemeTaskState()
+        lock.lock()
+        activeSchemeTasks[taskID] = state
+        lock.unlock()
+
+        streamQueue.async { [weak self] in
+            guard let self else { return }
+            guard let requestURL = urlSchemeTask.request.url,
+                  let resourceDirectoryURL = Bundle.main.resourceURL,
+                  let fileURL = AgentSessionWebRendererCoordinator.agentSessionAssetFileURL(
+                      for: requestURL,
+                      resourceDirectoryURL: resourceDirectoryURL
+                  ) else {
+                self.failSchemeTask(taskID, urlSchemeTask, code: NSURLErrorFileDoesNotExist)
+                return
+            }
+
+            do {
+                let response = URLResponse(
+                    url: requestURL,
+                    mimeType: AgentSessionWebRendererCoordinator.agentSessionAssetMIMEType(for: requestURL),
+                    expectedContentLength: -1,
+                    textEncodingName: "utf-8"
+                )
+                guard self.performSchemeTaskCallback(taskID, {
+                    urlSchemeTask.didReceive(response)
+                }) else { return }
+
+                let reader = try DiffViewerAssetReader(fileURL: fileURL)
+                defer {
+                    try? reader.close()
+                }
+
+                while self.isSchemeTaskActive(taskID) {
+                    let data = try reader.read(upToCount: 64 * 1024)
+                    if data.isEmpty {
+                        break
+                    }
+                    guard self.performSchemeTaskCallback(taskID, {
+                        urlSchemeTask.didReceive(data)
+                    }) else { return }
+                }
+
+                guard self.performSchemeTaskCallback(taskID, {
+                    urlSchemeTask.didFinish()
+                }) else { return }
+                self.finishSchemeTask(taskID)
+            } catch {
+                guard self.performSchemeTaskCallback(taskID, {
+                    urlSchemeTask.didFailWithError(error)
+                }) else { return }
+                self.finishSchemeTask(taskID)
+            }
+        }
+    }
+
+    func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
+        let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
+        stopSchemeTask(taskID)
+    }
+
+    private func failSchemeTask(
+        _ taskID: ObjectIdentifier,
+        _ urlSchemeTask: WKURLSchemeTask,
+        code: Int
+    ) {
+        guard performSchemeTaskCallback(taskID, {
+            urlSchemeTask.didFailWithError(NSError(domain: NSURLErrorDomain, code: code))
+        }) else { return }
+        finishSchemeTask(taskID)
+    }
+
+    private func isSchemeTaskActive(_ taskID: ObjectIdentifier) -> Bool {
+        lock.lock()
+        let state = activeSchemeTasks[taskID]
+        lock.unlock()
+        guard let state else { return false }
+
+        state.condition.lock()
+        let active = !state.isStopped
+        state.condition.unlock()
+        return active
+    }
+
+    private func performSchemeTaskCallback(_ taskID: ObjectIdentifier, _ callback: () -> Void) -> Bool {
+        lock.lock()
+        let state = activeSchemeTasks[taskID]
+        lock.unlock()
+        guard let state else { return false }
+
+        state.condition.lock()
+        guard !state.isStopped else {
+            state.condition.unlock()
+            return false
+        }
+        state.callbacksInFlight += 1
+        state.condition.unlock()
+
+        callback()
+
+        state.condition.lock()
+        state.callbacksInFlight -= 1
+        if state.callbacksInFlight == 0 {
+            state.condition.broadcast()
+        }
+        let active = !state.isStopped
+        state.condition.unlock()
+        return active
+    }
+
+    private func finishSchemeTask(_ taskID: ObjectIdentifier) {
+        stopSchemeTask(taskID)
+    }
+
+    private func stopSchemeTask(_ taskID: ObjectIdentifier) {
+        lock.lock()
+        let state = activeSchemeTasks.removeValue(forKey: taskID)
+        lock.unlock()
+        guard let state else { return }
+
+        state.condition.lock()
+        state.isStopped = true
+        while state.callbacksInFlight > 0 {
+            state.condition.wait()
+        }
+        state.condition.unlock()
+    }
+}
+
+private extension URL {
+    func isDescendant(of rootURL: URL) -> Bool {
+        let path = standardizedFileURL.path
+        let rootPath = rootURL.standardizedFileURL.path
+        return path == rootPath || path.hasPrefix(rootPath + "/")
     }
 }
