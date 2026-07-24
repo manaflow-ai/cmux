@@ -5273,6 +5273,108 @@ mod tests {
     }
 
     #[test]
+    fn enabling_late_unsized_client_exits_exclusive_sizing() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let target_writer = test_writer();
+        let target = mux.control_clients.register(ClientTransport::Unix, target_writer.clone());
+        let target_stream = target_writer.start_stream(&json!({"event": "test"})).unwrap();
+        mux.control_clients.attach_surface(target, surface.id, target_stream).unwrap();
+        handle_command(
+            &mux,
+            target,
+            Command::ResizeSurface { surface: surface.id, cols: 120, rows: 40 },
+            &target_writer,
+        )
+        .unwrap();
+        handle_command(
+            &mux,
+            target,
+            Command::SetClientSizing {
+                surface: surface.id,
+                client: Some(target),
+                enabled: true,
+                exclusive: true,
+            },
+            &target_writer,
+        )
+        .unwrap();
+
+        let late_writer = test_writer();
+        let late = mux.control_clients.register(ClientTransport::Unix, late_writer.clone());
+        let late_stream = late_writer.start_stream(&json!({"event": "test"})).unwrap();
+        mux.control_clients.attach_surface(late, surface.id, late_stream).unwrap();
+        assert!(!mux.client_size_participates(surface.id, late));
+
+        handle_command(
+            &mux,
+            late,
+            Command::SetClientSizing {
+                surface: surface.id,
+                client: Some(late),
+                enabled: true,
+                exclusive: false,
+            },
+            &late_writer,
+        )
+        .unwrap();
+
+        assert!(mux.client_size_participates(surface.id, late));
+    }
+
+    #[test]
+    fn disabling_late_unsized_client_preserves_exclusive_sizing() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let target_writer = test_writer();
+        let target = mux.control_clients.register(ClientTransport::Unix, target_writer.clone());
+        let target_stream = target_writer.start_stream(&json!({"event": "test"})).unwrap();
+        mux.control_clients.attach_surface(target, surface.id, target_stream).unwrap();
+        handle_command(
+            &mux,
+            target,
+            Command::ResizeSurface { surface: surface.id, cols: 120, rows: 40 },
+            &target_writer,
+        )
+        .unwrap();
+        handle_command(
+            &mux,
+            target,
+            Command::SetClientSizing {
+                surface: surface.id,
+                client: Some(target),
+                enabled: true,
+                exclusive: true,
+            },
+            &target_writer,
+        )
+        .unwrap();
+
+        let late_writer = test_writer();
+        let late = mux.control_clients.register(ClientTransport::Unix, late_writer.clone());
+        let late_stream = late_writer.start_stream(&json!({"event": "test"})).unwrap();
+        mux.control_clients.attach_surface(late, surface.id, late_stream).unwrap();
+        handle_command(
+            &mux,
+            late,
+            Command::SetClientSizing {
+                surface: surface.id,
+                client: Some(late),
+                enabled: false,
+                exclusive: false,
+            },
+            &late_writer,
+        )
+        .unwrap();
+
+        let newest_writer = test_writer();
+        let newest = mux.control_clients.register(ClientTransport::Unix, newest_writer.clone());
+        let newest_stream = newest_writer.start_stream(&json!({"event": "test"})).unwrap();
+        mux.control_clients.attach_surface(newest, surface.id, newest_stream).unwrap();
+        assert!(!mux.client_size_participates(surface.id, newest));
+    }
+
+    #[test]
     fn ignored_report_does_not_replace_unsized_creation_default() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((100, 40))).unwrap();

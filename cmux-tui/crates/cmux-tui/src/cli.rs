@@ -1755,6 +1755,33 @@ mod tests {
     }
 
     #[test]
+    fn client_sizing_restore_all_omits_client() {
+        let flags = FlagMap {
+            values: BTreeMap::from([
+                ("surface".to_string(), "9".to_string()),
+                ("enabled".to_string(), "true".to_string()),
+            ]),
+            ..Default::default()
+        };
+        assert_eq!(
+            build_set_client_sizing(&flags).unwrap(),
+            json!({"surface": 9, "enabled": true})
+        );
+
+        let flags = FlagMap {
+            values: BTreeMap::from([
+                ("surface".to_string(), "9".to_string()),
+                ("enabled".to_string(), "false".to_string()),
+            ]),
+            ..Default::default()
+        };
+        assert_eq!(
+            build_set_client_sizing(&flags).unwrap_err().0,
+            "--client is required when disabling sizing"
+        );
+    }
+
+    #[test]
     fn protocol_v7_cli_builders_emit_render_tree_paste_and_scrollback_fields() {
         let attach = VERBS.iter().find(|verb| verb.name == "attach-surface").unwrap();
         assert!(attach.allowed.contains(&"cols"));

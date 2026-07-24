@@ -5304,6 +5304,20 @@ mod tests {
     }
 
     #[test]
+    fn detaching_client_does_not_resize_an_unrelated_surface() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, None).unwrap();
+        let second = mux.new_workspace(None, None).unwrap();
+        mux.resize_surface_for_client(first.id, 1, 120, 40).unwrap();
+        mux.resize_surface_for_client(second.id, 2, 80, 25).unwrap();
+        mux.resize_surface(second.id, 100, 35).unwrap();
+
+        mux.remove_size_client(1);
+
+        assert_eq!(second.size(), (100, 35));
+    }
+
+    #[test]
     fn detaching_exclusive_target_restores_remaining_clients() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
