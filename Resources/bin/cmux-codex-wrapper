@@ -226,6 +226,30 @@ cmux_codex_resume_subcommand_index() {
     return 1
 }
 
+# Print the zero-based index of the actual end-of-options marker in a resume
+# invocation. A marker-shaped token consumed by a known option is data, so skip
+# value slots with the same arity table used by the resume parser.
+cmux_codex_resume_terminator_index() {
+    local resume_index="$1"
+    shift
+    local args=("$@")
+    local index=$(( resume_index + 1 )) arg
+    while (( index < ${#args[@]} )); do
+        arg="${args[$index]}"
+        if codex_option_consumes_value "$arg"; then
+            (( index + 1 < ${#args[@]} )) || return 1
+            (( index += 2 ))
+            continue
+        fi
+        if [[ "$arg" == "--" ]]; then
+            printf '%s' "$index"
+            return 0
+        fi
+        (( index += 1 ))
+    done
+    return 1
+}
+
 # Decide whether this invocation is a Codex SESSION entrypoint we should inject
 # hooks into. Bare `codex` (no args) and `codex [prompt]` are interactive
 # sessions; `codex exec ...` is a non-interactive session; `codex resume ...`
@@ -513,15 +537,11 @@ if cmux_codex_read_inject_args; then
         cmux_codex_read_resume_args || cmux_codex_resume_args=()
         if (( ${#cmux_codex_resume_args[@]} > 0 )); then
             cmux_codex_user_args=("$@")
-            cmux_codex_resume_terminator=-1
-            for (( cmux_codex_arg_index = cmux_codex_resume_index + 1;
-                   cmux_codex_arg_index < ${#cmux_codex_user_args[@]};
-                   cmux_codex_arg_index++ )); do
-                if [[ "${cmux_codex_user_args[$cmux_codex_arg_index]}" == "--" ]]; then
-                    cmux_codex_resume_terminator=$cmux_codex_arg_index
-                    break
-                fi
-            done
+            cmux_codex_resume_terminator="$(
+                cmux_codex_resume_terminator_index \
+                    "$cmux_codex_resume_index" \
+                    "${cmux_codex_user_args[@]}"
+            )" || cmux_codex_resume_terminator=-1
             if (( cmux_codex_resume_terminator >= 0 )); then
                 exec_real_codex \
                     "${cmux_codex_injected_args[@]}" \
