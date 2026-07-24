@@ -1,13 +1,12 @@
 import AppKit
 
-extension AppDelegate {
-    /// Restores the newest restorable workspace record without consuming tab or window history.
+extension ClosedItemHistoryStore {
+    /// Restores the newest restorable workspace without consuming newer panel or window records.
     @discardableResult
-    func reopenMostRecentlyClosedWorkspace(
-        preferredTabManager: TabManager? = nil,
-        shouldActivate: Bool = true
+    func restoreMostRecentlyClosedWorkspace(
+        using restore: (ClosedWorkspaceHistoryEntry) -> Bool
     ) -> Bool {
-        ClosedItemHistoryStore.shared.restoreFirstRestorable(
+        restoreFirstRestorable(
             newerThan: nil,
             matching: { entry in
                 if case .workspace = entry {
@@ -17,19 +16,33 @@ extension AppDelegate {
             },
             using: { entry in
                 guard case .workspace(let workspaceEntry) = entry else { return false }
-                let manager =
-                    workspaceEntry.windowId.flatMap { self.tabManagerFor(windowId: $0) }
-                    ?? preferredTabManager
-                    ?? self.tabManager
-                guard let manager, manager.restoreClosedWorkspace(workspaceEntry) else {
-                    return false
-                }
-                if shouldActivate, let windowId = self.windowId(for: manager) {
-                    _ = self.focusMainWindow(windowId: windowId)
-                }
-                return true
+                return restore(workspaceEntry)
             }
         )
+    }
+}
+
+extension AppDelegate {
+    /// Restores the newest restorable workspace record without consuming tab or window history.
+    @discardableResult
+    func reopenMostRecentlyClosedWorkspace(
+        from historyStore: ClosedItemHistoryStore = .shared,
+        preferredTabManager: TabManager? = nil,
+        shouldActivate: Bool = true
+    ) -> Bool {
+        historyStore.restoreMostRecentlyClosedWorkspace { workspaceEntry in
+            let manager =
+                preferredTabManager
+                ?? workspaceEntry.windowId.flatMap { self.tabManagerFor(windowId: $0) }
+                ?? self.tabManager
+            guard let manager, manager.restoreClosedWorkspace(workspaceEntry) else {
+                return false
+            }
+            if shouldActivate, let windowId = self.windowId(for: manager) {
+                _ = self.focusMainWindow(windowId: windowId)
+            }
+            return true
+        }
     }
 }
 
@@ -39,23 +52,8 @@ extension TabManager {
     func reopenMostRecentlyClosedWorkspace(
         from historyStore: ClosedItemHistoryStore = .shared
     ) -> Bool {
-        if historyStore === ClosedItemHistoryStore.shared,
-           let appDelegate = AppDelegate.shared {
-            return appDelegate.reopenMostRecentlyClosedWorkspace(preferredTabManager: self)
+        historyStore.restoreMostRecentlyClosedWorkspace { workspaceEntry in
+            restoreClosedWorkspace(workspaceEntry)
         }
-
-        return historyStore.restoreFirstRestorable(
-            newerThan: nil,
-            matching: { entry in
-                if case .workspace = entry {
-                    return true
-                }
-                return false
-            },
-            using: { entry in
-                guard case .workspace(let workspaceEntry) = entry else { return false }
-                return self.restoreClosedWorkspace(workspaceEntry)
-            }
-        )
     }
 }

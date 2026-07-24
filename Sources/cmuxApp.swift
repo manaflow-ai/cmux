@@ -234,7 +234,6 @@ struct cmuxApp: App {
             notificationStore: notificationStore,
             sidebarState: sidebarState,
             settingsRuntime: settingsRuntime,
-            workspaceDirectoryCustomizationStore: workspaceDirectoryCustomizationStore,
             auth: authComposition
         )
         StartupBreadcrumbLog.append("app.init.delegate.configured")

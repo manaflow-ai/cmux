@@ -1099,6 +1099,7 @@ class TabManager: ObservableObject {
         autoWelcomeIfNeeded: Bool = true,
         autoRefreshMetadata: Bool = true,
         normalizeWorkspaceGroupsAfterInsert: Bool = true,
+        shouldApplyWorkspaceDirectoryCustomization: Bool = true,
         allowTextBoxFocusDefault: Bool = true
     ) -> Workspace {
         let sourceWorkspace = selectedWorkspace
@@ -1173,7 +1174,9 @@ class TabManager: ObservableObject {
                 from: sourceWorkspace ?? capturedTabs.first
             )
             newWorkspace.owningTabManager = self
-            applyWorkspaceDirectoryCustomization(to: newWorkspace, explicitTitle: title)
+            if shouldApplyWorkspaceDirectoryCustomization {
+                applyWorkspaceDirectoryCustomization(to: newWorkspace, explicitTitle: title)
+            }
             wireClosedBrowserTracking(for: newWorkspace)
             if eagerLoadTerminal && !select {
                 requestBackgroundWorkspaceLoad(for: newWorkspace.id)
@@ -4241,7 +4244,8 @@ class TabManager: ObservableObject {
             title: entry.snapshot.customTitle ?? entry.snapshot.processTitle,
             workingDirectory: entry.snapshot.currentDirectory,
             select: false,
-            autoWelcomeIfNeeded: false
+            autoWelcomeIfNeeded: false,
+            shouldApplyWorkspaceDirectoryCustomization: false
         )
         let restoredPanelIds = workspace.restoreSessionSnapshot(entry.snapshot, excludingStableIdentities: excludedStableIdentities)
         reconcileWorkspaceDirectoryCustomization(afterRestoring: entry.snapshot, to: workspace)

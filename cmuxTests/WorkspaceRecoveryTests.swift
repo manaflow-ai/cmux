@@ -1,4 +1,5 @@
 import CmuxSettings
+import CmuxWorkspaces
 import Foundation
 import Testing
 
@@ -13,13 +14,42 @@ private typealias AppStoredShortcut = cmux.StoredShortcut
 @MainActor
 @Suite(.serialized)
 struct WorkspaceRecoveryTests {
+    private func makeCustomizationStore() throws -> (
+        store: WorkspaceDirectoryCustomizationStore,
+        defaults: UserDefaults,
+        suiteName: String
+    ) {
+        let suiteName = "WorkspaceDirectoryCustomizationStore.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        return (
+            WorkspaceDirectoryCustomizationStore(
+                defaults: defaults,
+                storageKey: "test.customizations"
+            ),
+            defaults,
+            suiteName
+        )
+    }
+
     @Test
     func closedHistoryPushesMostRecentFirstAndBoundsCapacity() throws {
-        #expect(ClosedItemHistoryStore.defaultCapacity == 100)
+        #expect(ClosedItemHistoryStore.defaultWorkspaceCapacity == 100)
         let manager = TabManager(autoWelcomeIfNeeded: false)
         let workspace = try #require(manager.selectedWorkspace)
         let baseSnapshot = workspace.sessionSnapshot(includeScrollback: false)
-        let historyStore = ClosedItemHistoryStore(capacity: 2, loadPersisted: false)
+        let panelSnapshot = try #require(baseSnapshot.panels.first)
+        let historyStore = ClosedItemHistoryStore(
+            workspaceCapacity: 2,
+            loadPersisted: false
+        )
+
+        historyStore.push(.panel(ClosedPanelHistoryEntry(
+            workspaceId: workspace.id,
+            paneId: UUID(),
+            tabIndex: 0,
+            snapshot: panelSnapshot
+        )))
 
         for index in 1...3 {
             var snapshot = baseSnapshot
@@ -33,8 +63,17 @@ struct WorkspaceRecoveryTests {
         }
 
         let menuSnapshot = historyStore.menuSnapshot()
-        #expect(menuSnapshot.totalItemCount == 2)
-        #expect(menuSnapshot.items.map(\.title) == ["Closed 3", "Closed 2"])
+        #expect(menuSnapshot.totalItemCount == 3)
+        #expect(
+            menuSnapshot.items
+                .filter {
+                    $0.detail == String(
+                        localized: "menu.history.recentlyClosed.kind.workspace",
+                        defaultValue: "Workspace"
+                    )
+                }
+                .map(\.title) == ["Closed 3", "Closed 2"]
+        )
     }
 
     @Test
@@ -107,6 +146,95 @@ struct WorkspaceRecoveryTests {
     }
 
     @Test
+    func appRestorePrefersTheActiveDestinationWithoutMutatingTheSourceWindow() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let sourceWindowId = UUID()
+        let sourceManager = TabManager(autoWelcomeIfNeeded: false)
+        sourceManager.windowId = sourceWindowId
+        let closedWorkspace = sourceManager.addWorkspace(
+            title: "Closed in Source",
+            workingDirectory: "/tmp/source-window",
+            select: false
+        )
+        let entry = ClosedWorkspaceHistoryEntry(
+            workspaceId: closedWorkspace.id,
+            windowId: sourceWindowId,
+            workspaceIndex: try #require(
+                sourceManager.tabs.firstIndex { $0.id == closedWorkspace.id }
+            ),
+            snapshot: closedWorkspace.sessionSnapshot(includeScrollback: false)
+        )
+        sourceManager.closeWorkspace(closedWorkspace, recordHistory: false)
+
+        let sourceContext = AppDelegate.MainWindowContext(
+            windowId: sourceWindowId,
+            tabManager: sourceManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: nil,
+            cmuxConfigStore: nil,
+            window: nil
+        )
+        appDelegate.mainWindowContexts[ObjectIdentifier(sourceContext)] = sourceContext
+        appDelegate.tabManager = sourceManager
+
+        let destinationManager = TabManager(autoWelcomeIfNeeded: false)
+        let sourceIdsBeforeRestore = Set(sourceManager.tabs.map(\.id))
+        let destinationIdsBeforeRestore = Set(destinationManager.tabs.map(\.id))
+        let historyStore = ClosedItemHistoryStore(loadPersisted: false)
+        historyStore.push(.workspace(entry))
+
+        #expect(appDelegate.reopenMostRecentlyClosedWorkspace(
+            from: historyStore,
+            preferredTabManager: destinationManager,
+            shouldActivate: false
+        ))
+        #expect(Set(sourceManager.tabs.map(\.id)) == sourceIdsBeforeRestore)
+        #expect(destinationIdsBeforeRestore.isSubset(of: Set(destinationManager.tabs.map(\.id))))
+        #expect(destinationManager.tabs.count == destinationIdsBeforeRestore.count + 1)
+        #expect(destinationManager.selectedWorkspace?.customTitle == "Closed in Source")
+    }
+
+    @Test
+    func closedRestoreDoesNotTurnAnAutomaticSnapshotTitleIntoStickyUserIdentity() throws {
+        let directory = "/tmp/automatic-history-title"
+        let fixture = try makeCustomizationStore()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        fixture.store.setCustomTitle("Sticky Label", for: directory)
+
+        let sourceManager = TabManager(
+            initialWorkingDirectory: directory,
+            autoWelcomeIfNeeded: false
+        )
+        let closedWorkspace = try #require(sourceManager.selectedWorkspace)
+        #expect(sourceManager.setCustomTitle(
+            tabId: closedWorkspace.id,
+            title: "Automatic Snapshot Title",
+            source: .auto
+        ))
+        let entry = ClosedWorkspaceHistoryEntry(
+            workspaceId: closedWorkspace.id,
+            windowId: nil,
+            workspaceIndex: 0,
+            snapshot: closedWorkspace.sessionSnapshot(includeScrollback: false)
+        )
+
+        let destinationManager = TabManager(
+            autoWelcomeIfNeeded: false,
+            workspaceDirectoryCustomizationStore: fixture.store
+        )
+        let historyStore = ClosedItemHistoryStore(loadPersisted: false)
+        historyStore.push(.workspace(entry))
+
+        #expect(destinationManager.reopenMostRecentlyClosedWorkspace(from: historyStore))
+        #expect(destinationManager.selectedWorkspace?.customTitle == "Sticky Label")
+        #expect(fixture.store.customization(for: directory)?.customTitle == "Sticky Label")
+    }
+
+    @Test
     func directoryCustomizationPersistsAndNormalizesEquivalentPaths() throws {
         let suiteName = "WorkspaceDirectoryCustomizationStore.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -136,7 +264,9 @@ struct WorkspaceRecoveryTests {
     @Test
     func createRenameAndColorChangesShareOneStickyDirectoryRecord() throws {
         let directory = "/tmp/sticky-project"
-        let store = WorkspaceDirectoryCustomizationStore()
+        let fixture = try makeCustomizationStore()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let store = fixture.store
         store.setCustomTitle("Original Label", for: directory)
         store.setCustomColor("#112233", for: directory)
 
@@ -201,7 +331,9 @@ struct WorkspaceRecoveryTests {
         let snapshot = sourceManager.sessionSnapshot(includeScrollback: false)
         #expect(snapshot.workspaces.first?.customizationDirectory == directory)
 
-        let store = WorkspaceDirectoryCustomizationStore()
+        let fixture = try makeCustomizationStore()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let store = fixture.store
         store.setCustomTitle("Sticky Session Label", for: directory)
         store.setCustomColor("#778899", for: directory)
         let restoredManager = TabManager(
@@ -220,7 +352,9 @@ struct WorkspaceRecoveryTests {
     @Test
     func explicitCreationTitleUpdatesStickyLabelAndPreservesStickyColor() throws {
         let directory = "/tmp/explicit-project"
-        let store = WorkspaceDirectoryCustomizationStore()
+        let fixture = try makeCustomizationStore()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let store = fixture.store
         store.setCustomTitle("Old Label", for: directory)
         store.setCustomColor("#445566", for: directory)
         let manager = TabManager(
@@ -264,6 +398,7 @@ struct WorkspaceRecoveryTests {
             settingsAction.defaultStroke ==
                 CmuxSettings.ShortcutStroke(key: "t", command: true, shift: true)
         )
+        #expect(settingsAction.group == .workspace)
         #expect(settingsAction.displayName == KeyboardShortcutSettings.Action.reopenClosedWorkspace.label)
         #expect(ShortcutAction.settingsVisibleActions.contains(settingsAction))
         #expect(ShortcutAction.reopenClosedBrowserPanel.defaultStroke == nil)

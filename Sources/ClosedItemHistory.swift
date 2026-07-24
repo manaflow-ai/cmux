@@ -126,15 +126,15 @@ enum ClosedWindowRestoreValidation {
 
 @MainActor
 final class ClosedItemHistoryStore: ObservableObject {
-    static let defaultCapacity = 100
+    static let defaultWorkspaceCapacity = 100
     static let shared = ClosedItemHistoryStore(
-        capacity: defaultCapacity,
+        workspaceCapacity: defaultWorkspaceCapacity,
         fileURL: defaultHistoryFileURL()
     )
 
     @Published private(set) var revision: UInt64 = 0
     @Published private var records: [ClosedItemHistoryRecord] = []
-    private let capacity: Int?
+    private let capacityPolicy: ClosedItemHistoryCapacityPolicy
     private let fileURL: URL?
     private let persistsRecordsSynchronously: Bool
     private var didFinishPersistedRecordsLoad: Bool
@@ -155,12 +155,16 @@ final class ClosedItemHistoryStore: ObservableObject {
 
     init(
         capacity: Int? = nil,
+        workspaceCapacity: Int? = nil,
         fileURL: URL? = nil,
         loadPersisted: Bool = true,
         loadsPersistedRecordsSynchronously: Bool = false,
         persistsRecordsSynchronously: Bool = false
     ) {
-        self.capacity = capacity.map { max(1, $0) }
+        self.capacityPolicy = ClosedItemHistoryCapacityPolicy(
+            totalCapacity: capacity,
+            workspaceCapacity: workspaceCapacity
+        )
         self.fileURL = fileURL
         self.persistsRecordsSynchronously = persistsRecordsSynchronously
         self.didFinishPersistedRecordsLoad = !loadPersisted || fileURL == nil
@@ -244,17 +248,7 @@ final class ClosedItemHistoryStore: ObservableObject {
 
     func insert(_ record: ClosedItemHistoryRecord, at index: Int) {
         records.insert(record, at: min(max(0, index), records.count))
-        if let capacity, records.count > capacity {
-            let protectedRecordId = record.id
-            let overflow = records.count - capacity
-            for _ in 0..<overflow {
-                guard let removalIndex = records.firstIndex(where: { $0.id != protectedRecordId }) else {
-                    records.removeFirst()
-                    continue
-                }
-                records.remove(at: removalIndex)
-            }
-        }
+        records = capacityPolicy.trimming(records, preserving: record.id)
         revision &+= 1
         persistRecords()
     }
@@ -352,8 +346,7 @@ final class ClosedItemHistoryStore: ObservableObject {
     }
 
     private func trimToCapacityIfNeeded() {
-        guard let capacity, records.count > capacity else { return }
-        records.removeFirst(records.count - capacity)
+        records = capacityPolicy.trimming(records)
     }
 
     private func persistRecords() {
