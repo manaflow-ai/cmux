@@ -1271,7 +1271,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Likewise drop the registry-backed device tree so a shared device never
         // shows the previous user's team devices after sign-out.
         registryDevices = []
-        hiddenRegistryDisplayNamesByDeviceID = [:]
         // Reset the in-memory restoring flags; hasKnownPairedMac stays driven by
         // the hide path. On a real account switch the next reconnect's no-mac
         // branch clears the hint. Bump the reconnect generation so any in-flight
@@ -1386,7 +1385,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         hiddenComputers = []
         hasHiddenComputers = false
         registryDevices = []
-        hiddenRegistryDisplayNamesByDeviceID = [:]
         teamScopeReconnectTask?.cancel()
         teamScopeReconnectTask = Task { @MainActor [weak self] in
             guard let self,
@@ -2155,14 +2153,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public private(set) var pairedMacAliasIDsByRepresentativeID: [String: [String]] = [:]
     /// Cached device-local hidden ids keyed by signed-in account/team scope.
     @ObservationIgnored var hiddenMacDeviceIDsByScope: [String: Set<String>] = [:]
-    /// Hidden entries for the current account/team, including legacy markers without rows.
+    /// Row-backed hidden entries for the current account/team.
     public internal(set) var hiddenComputers: [MobileHiddenComputer] = []
-    /// Best registry name seen for hidden legacy device ids.
-    @ObservationIgnored var hiddenRegistryDisplayNamesByDeviceID: [String: String] = [:]
     /// True when the current account/team scope has at least one hidden computer.
     public internal(set) var hasHiddenComputers = false
-    /// True while a legacy hidden-computer recovery is scanning and reconnecting.
-    public internal(set) var isRecoveringHiddenComputer = false
 
     var pairedMacsForIdentityMatching: [MobilePairedMac] {
         storedPairedMacs.isEmpty ? pairedMacs : storedPairedMacs
@@ -2262,18 +2256,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let hiddenIDs = await hiddenMacDeviceIDs(scope: scope)
         guard await isScopeCurrent(scope) else { return }
         let compatible = compatibleRegistryDevices(loaded)
-        for device in compatible where hiddenIDs.contains(device.deviceId)
-            || hiddenIDs.contains(where: {
-                MobilePairedMac.pairingIdentity(from: $0).macDeviceID == device.deviceId
-            }) {
-            if let displayName = device.displayName, !displayName.isEmpty {
-                hiddenRegistryDisplayNamesByDeviceID[device.deviceId] = displayName
-            }
-        }
-        updateHiddenComputers(
-            loadedMacs: storedPairedMacsIncludingHidden,
-            hiddenIDs: hiddenIDs
-        )
         registryDevices = compatible
             .filter { device in
                 !hiddenIDs.contains(device.deviceId)
@@ -2441,8 +2423,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard await isScopeCurrent(scope) else {
             return
         }
-        let visibleLoaded = await visibleStoredPairedMacs(from: loaded, scope: scope)
-        let hiddenIDs = await hiddenMacDeviceIDs(scope: scope)
+        let storedHiddenIDs = await hiddenMacDeviceIDs(scope: scope)
+        let hiddenIDs = await migrateLegacyHiddenMacMarkers(
+            loadedMacs: loaded,
+            hiddenIDs: storedHiddenIDs,
+            scope: scope
+        )
+        let visibleLoaded = visibleStoredPairedMacs(
+            from: loaded,
+            hiddenIDs: hiddenIDs
+        )
         guard await isScopeCurrent(scope) else {
             return
         }
@@ -2481,7 +2471,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// To avoid stranding the user, the store's active row is only updated on a
     /// successful connect, and on failure the previously-active Mac (still the
     /// active row) is reconnected. A no-op when already connected to that Mac.
-    /// - Parameter macDeviceID: The stored Mac to switch to.
+    /// - Parameters:
+    ///   - macDeviceID: The stored physical Mac to switch to.
+    ///   - instanceTag: Exact saved app instance to switch to, or `nil` for
+    ///     legacy device-level routing.
     /// - Returns: `true` if the foreground connection now targets that Mac (or
     ///   already did), `false` if the switch could not connect — so callers like
     ///   `openWorkspace` can avoid selecting a workspace whose Mac is not live.
