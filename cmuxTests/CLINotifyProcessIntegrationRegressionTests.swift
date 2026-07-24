@@ -48,6 +48,21 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 encoding: .utf8
             )
         )
+        let emptyProjectsResponse = try XCTUnwrap(
+            String(
+                data: JSONSerialization.data(withJSONObject: [
+                    "id": 2,
+                    "result": [
+                        "config": [
+                            "projects": [:],
+                        ],
+                        "origins": [:],
+                        "layers": NSNull(),
+                    ],
+                ]),
+                encoding: .utf8
+            )
+        )
         try """
         #!/bin/sh
         printf '%s\n' BEGIN "$@" >> "\(codexArgumentsLog.path)"
@@ -65,6 +80,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             *'"method":"config/read"'*)
               if [ "$static_catalog" = true ] && [ "${CMUX_TEST_REJECT_STATIC_CATALOG:-0}" = 1 ]; then
                 printf '%s\n' '{"id":2,"error":{"code":-32602,"message":"managed catalog rejects override"}}'
+              elif [ "${CMUX_TEST_EMPTY_PROJECTS:-0}" = 1 ]; then
+                printf '%s\n' '\(emptyProjectsResponse)'
               else
                 printf '%s\n' '\(response)'
               fi
@@ -143,6 +160,25 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             --stdio
 
             """
+        )
+
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent(".git", isDirectory: true),
+            withIntermediateDirectories: false
+        )
+        environment["CMUX_TEST_EMPTY_PROJECTS"] = "1"
+        let failedRepositoryProbe = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "inject-resume-args"],
+            environment: environment,
+            timeout: 2
+        )
+
+        XCTAssertFalse(failedRepositoryProbe.timedOut, failedRepositoryProbe.stderr)
+        XCTAssertEqual(failedRepositoryProbe.status, 0, failedRepositoryProbe.stderr)
+        XCTAssertTrue(
+            failedRepositoryProbe.stdout.isEmpty,
+            "A broken repository marker must fail closed instead of overriding project trust."
         )
     }
 
