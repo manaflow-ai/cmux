@@ -60,11 +60,18 @@ struct SidebarWorkspaceRowSuspensionTests {
         manualTaskStatus: WorkspaceTaskStatus? = nil,
         checklistItems: [WorkspaceChecklistItem] = [],
         isChecklistExpanded: Bool = false,
-        editingChecklistItemId: UUID? = nil
+        editingChecklistItemId: UUID? = nil,
+        isChecklistPopoverPresented: Bool = false,
+        checklistStyle: WorkspaceTodoChecklistStyle? = nil
     ) -> SidebarWorkspaceRowModel {
-        let settings = SidebarTabItemSettingsSnapshot(
-            defaults: UserDefaults(suiteName: UUID().uuidString)!
-        )
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        if let checklistStyle {
+            defaults.set(
+                checklistStyle.rawValue,
+                forKey: BetaFeaturesCatalogSection().workspaceTodosChecklistStyle.userDefaultsKey
+            )
+        }
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
         return SidebarWorkspaceRowModel(
             workspaceId: UUID(),
             index: 0,
@@ -92,7 +99,7 @@ struct SidebarWorkspaceRowSuspensionTests {
             globalFontMagnificationPercent: 100,
             isChecklistExpanded: isChecklistExpanded,
             checklistAddFieldActivationToken: checklistAddFieldActivationToken,
-            isChecklistPopoverPresented: false,
+            isChecklistPopoverPresented: isChecklistPopoverPresented,
             editingChecklistItemId: editingChecklistItemId,
             todoControlsEnabled: checklistAddFieldActivationToken > 0
                 || manualTaskStatus != nil
@@ -109,7 +116,8 @@ struct SidebarWorkspaceRowSuspensionTests {
         onConsumeChecklistAddFieldActivation: @escaping () -> Void = {},
         onChecklistAddItem: @escaping (String) -> Void = { _ in },
         onChecklistEditItem: @escaping (UUID, String) -> Void = { _, _ in },
-        onEndChecklistItemEdit: @escaping (UUID) -> Void = { _ in }
+        onEndChecklistItemEdit: @escaping (UUID) -> Void = { _ in },
+        onChecklistPopoverPresentedChange: @escaping (Bool) -> Void = { _ in }
     ) -> SidebarAppKitRowActions {
         let workspace = workspace ?? Workspace()
         let commands = SidebarWorkspaceRowCommands(
@@ -149,7 +157,7 @@ struct SidebarWorkspaceRowSuspensionTests {
             checklistAddAttachments: { _ in },
             checklistRemoveAttachment: { _, _ in },
             checklistOpenAttachments: { _, _ in },
-            onChecklistPopoverPresentedChange: { _ in },
+            onChecklistPopoverPresentedChange: onChecklistPopoverPresentedChange,
             onBeginChecklistItemEdit: { _ in },
             onEndChecklistItemEdit: onEndChecklistItemEdit,
             applyTodoStatus: { _ in },
@@ -271,6 +279,58 @@ struct SidebarWorkspaceRowSuspensionTests {
         cell.suspendPresentation()
 
         #expect(!popoverWindow.isVisible)
+    }
+
+    @Test
+    func transientWindowReparentingPreservesChecklistPopover() throws {
+        let application = NSApplication.shared
+        let model = Self.makeModel(
+            checklistAddFieldActivationToken: 1,
+            checklistItems: [WorkspaceChecklistItem(text: "Draft item")],
+            isChecklistPopoverPresented: true,
+            checklistStyle: .popover
+        )
+        var presentationChanges: [Bool] = []
+        var tokenConsumptions = 0
+        let cell = SidebarWorkspaceRowTableCellView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 100)
+        )
+        let window = NSWindow(
+            contentRect: cell.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = cell
+        window.orderFront(nil)
+        defer { window.close() }
+        let existingWindowIds = Set(application.windows.map(ObjectIdentifier.init))
+        cell.configure(
+            model: model,
+            actions: Self.makeActions(
+                model: model,
+                onConsumeChecklistAddFieldActivation: { tokenConsumptions += 1 },
+                onChecklistPopoverPresentedChange: { presentationChanges.append($0) }
+            ),
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+        _ = cell.layoutContent(model: model, width: cell.bounds.width, apply: true)
+        cell.layoutSubtreeIfNeeded()
+        let popoverWindow = try #require(
+            application.windows.first {
+                !existingWindowIds.contains(ObjectIdentifier($0)) && $0.isVisible
+            }
+        )
+
+        let replacementRoot = NSView(frame: cell.frame)
+        window.contentView = replacementRoot
+        replacementRoot.addSubview(cell)
+
+        #expect(popoverWindow.isVisible)
+        #expect(presentationChanges.isEmpty)
+        #expect(tokenConsumptions == 0)
     }
 
     @Test

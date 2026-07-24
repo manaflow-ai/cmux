@@ -97,6 +97,50 @@ struct SidebarHiddenPresentationTests {
     }
 
     @Test
+    func controllerHideSuspendsCreatedCellOutsideTableRowLookup() async throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let model = SidebarWorkspaceRowSuspensionTests.makeModel()
+        var payload: NSObject? = NSObject()
+        weak var retainedPayload = payload
+        var row: SidebarWorkspaceTableRowConfiguration? = SidebarWorkspaceTableRowConfiguration(
+            workspaceRowModel: model,
+            actions: SidebarWorkspaceRowSuspensionTests.makeActions(
+                model: model,
+                onCommitRename: { [capturedPayload = payload!] _ in _ = capturedPayload }
+            ),
+            groupId: nil,
+            isPinned: false,
+            environment: SidebarWorkspaceTableEnvironmentSnapshot(
+                colorScheme: .light,
+                globalFontMagnificationPercent: 100,
+                lazyContractProbe: SidebarLazyContractProbe()
+            )
+        )
+        controller.apply(
+            rows: [row!], actions: makeTableActions(), workspaceIds: [model.workspaceId],
+            selectedWorkspaceId: nil, selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        let cell = try #require(
+            controller.tableView(
+                container.tableView,
+                viewFor: container.tableView.tableColumns.first,
+                row: 0
+            ) as? SidebarWorkspaceRowTableCellView
+        )
+        payload = nil
+        row = nil
+        #expect(retainedPayload != nil)
+
+        controller.setPresentationActive(false, workspaceIds: [model.workspaceId])
+
+        withExtendedLifetime(cell) {
+            #expect(retainedPayload == nil, "Hiding must suspend cells parked outside row lookup.")
+        }
+    }
+
+    @Test
     func hostedCellClearReleasesItsLiveRowPayload() {
         let cell = SidebarWorkspaceTableCellView()
         var payload: NSObject? = NSObject()
