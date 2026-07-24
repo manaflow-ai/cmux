@@ -13856,6 +13856,78 @@ mod tests {
     }
 
     #[test]
+    fn guarded_mouse_encoding_rejects_changed_terminal_geometry() {
+        let (mux, surface) = test_mux("atomic-mouse-geometry-test", None);
+        let app = test_app(Session::Local(mux.clone()));
+        let handle = app.session.surface(surface.id).expect("local PTY handle");
+        let expected = surface
+            .with_terminal(|terminal| terminal.pointer_semantic_snapshot())
+            .expect("PTY terminal snapshot");
+        surface
+            .with_terminal(|terminal| {
+                terminal.resize(terminal.cols().saturating_add(1), terminal.rows(), 1, 1)
+            })
+            .expect("PTY terminal")
+            .expect("terminal resize");
+
+        let mut output = Vec::new();
+        let encoded = handle.encode_mouse_if_semantics(expected, test_mouse_motion(), &mut output);
+
+        assert!(
+            matches!(encoded, Some(GuardedMouseEncode::SemanticsChanged)),
+            "a pointer event must not use cell geometry from an older rendered frame"
+        );
+        assert!(output.is_empty());
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn captured_pty_motion_rejects_geometry_changed_since_press() {
+        let (mux, surface) = test_mux("captured-mouse-geometry-test", None);
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1003h\x1b[?1006h"));
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_visible = false;
+        app.sync_layout((40, 15));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let content = app.pane_areas[0].content;
+        let press = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 4,
+            row: content.y + 2,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle(AppEvent::Input(Event::Mouse(press))).unwrap();
+        assert!(matches!(app.drag, Some(Drag::PtyMouse { .. })));
+
+        app.encode_buf.clear();
+        surface
+            .with_terminal(|terminal| {
+                terminal.resize(terminal.cols().saturating_add(1), terminal.rows(), 1, 1)
+            })
+            .expect("PTY terminal")
+            .expect("terminal resize");
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: press.column + 1,
+            ..press
+        })))
+        .unwrap();
+
+        assert!(
+            app.encode_buf.is_empty(),
+            "captured motion must retain the press frame's terminal geometry guard"
+        );
+        assert!(matches!(app.drag, Some(Drag::PtyMouse { .. })));
+        app.cancel_pty_mouse_drag();
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn menu_pointer_routes_share_the_committed_snapshot() {
         let levels: Arc<[RenderedMenuLevel]> = vec![RenderedMenuLevel {
             rect: Rect { x: 2, y: 2, width: 20, height: 3 },
