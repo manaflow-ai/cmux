@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import Carbon.HIToolbox
 import CoreMedia
 import ScreenCaptureKit
 import SwiftUI
@@ -37,9 +38,12 @@ final class ApplicationCaptureView: NSView {
     private let onStateChanged: (ApplicationPanel.CaptureState) -> Void
     private let displayLayer = AVSampleBufferDisplayLayer()
     private let streamOutput: ApplicationCaptureStreamOutput
+    private let streamDelegate: ApplicationCaptureStreamDelegate
     private var captureTask: Task<Void, Never>?
     private var stream: SCStream?
     private var sourceFrame: CGRect = .zero
+    private var pendingScrollX = 0.0
+    private var pendingScrollY = 0.0
 
     override var acceptsFirstResponder: Bool { true }
     override var isFlipped: Bool { true }
@@ -55,6 +59,11 @@ final class ApplicationCaptureView: NSView {
         self.targetFrameRate = targetFrameRate
         self.onStateChanged = onStateChanged
         self.streamOutput = ApplicationCaptureStreamOutput(displayLayer: displayLayer)
+        self.streamDelegate = ApplicationCaptureStreamDelegate { detail in
+            Task { @MainActor in
+                onStateChanged(.failed(detail))
+            }
+        }
         super.init(frame: .zero)
         wantsLayer = true
         layer = CALayer()
@@ -133,7 +142,11 @@ final class ApplicationCaptureView: NSView {
             configuration.showsCursor = true
             configuration.pixelFormat = kCVPixelFormatType_32BGRA
 
-            let newStream = SCStream(filter: filter, configuration: configuration, delegate: nil)
+            let newStream = SCStream(
+                filter: filter,
+                configuration: configuration,
+                delegate: streamDelegate
+            )
             try newStream.addStreamOutput(
                 streamOutput,
                 type: .screen,
@@ -187,12 +200,19 @@ final class ApplicationCaptureView: NSView {
     }
 
     override func scrollWheel(with event: NSEvent) {
+        pendingScrollX += event.scrollingDeltaX
+        pendingScrollY += event.scrollingDeltaY
+        let scrollX = pendingScrollX.rounded(.towardZero)
+        let scrollY = pendingScrollY.rounded(.towardZero)
+        pendingScrollX -= scrollX
+        pendingScrollY -= scrollY
+        guard scrollX != 0 || scrollY != 0 else { return }
         guard let cgEvent = CGEvent(
                 scrollWheelEvent2Source: nil,
                 units: .pixel,
                 wheelCount: 2,
-                wheel1: Int32(event.scrollingDeltaY),
-                wheel2: Int32(event.scrollingDeltaX),
+                wheel1: Int32(scrollY),
+                wheel2: Int32(scrollX),
                 wheel3: 0
               ) else { return }
         cgEvent.postToPid(processID)
@@ -207,23 +227,64 @@ final class ApplicationCaptureView: NSView {
     }
 
     override func flagsChanged(with event: NSEvent) {
-        postKey(event, keyDown: true)
+        let modifier: NSEvent.ModifierFlags
+        switch Int(event.keyCode) {
+        case kVK_Command, kVK_RightCommand:
+            modifier = .command
+        case kVK_Shift, kVK_RightShift:
+            modifier = .shift
+        case kVK_Option, kVK_RightOption:
+            modifier = .option
+        case kVK_Control, kVK_RightControl:
+            modifier = .control
+        case kVK_CapsLock:
+            modifier = .capsLock
+        case kVK_Function:
+            modifier = .function
+        default:
+            return
+        }
+        postKey(event, keyDown: event.modifierFlags.contains(modifier))
     }
 
     func sendNamedKey(_ name: String) -> Bool {
         let normalized = name.lowercased()
         let keys: [String: CGKeyCode] = [
-            "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5,
-            "z": 6, "x": 7, "c": 8, "v": 9, "b": 11,
-            "q": 12, "w": 13, "e": 14, "r": 15, "y": 16, "t": 17,
-            "1": 18, "2": 19, "3": 20, "4": 21, "6": 22, "5": 23,
-            "9": 25, "7": 26, "8": 28, "0": 29,
-            "enter": 36, "return": 36, "tab": 48, "space": 49,
-            "escape": 53, "esc": 53,
-            "f1": 122, "f2": 120, "f3": 99, "f4": 118,
-            "f5": 96, "f6": 97, "f7": 98, "f8": 100,
-            "f9": 101, "f10": 109, "f11": 103, "f12": 111,
-            "left": 123, "right": 124, "down": 125, "up": 126,
+            "a": CGKeyCode(kVK_ANSI_A), "b": CGKeyCode(kVK_ANSI_B),
+            "c": CGKeyCode(kVK_ANSI_C), "d": CGKeyCode(kVK_ANSI_D),
+            "e": CGKeyCode(kVK_ANSI_E), "f": CGKeyCode(kVK_ANSI_F),
+            "g": CGKeyCode(kVK_ANSI_G), "h": CGKeyCode(kVK_ANSI_H),
+            "i": CGKeyCode(kVK_ANSI_I), "j": CGKeyCode(kVK_ANSI_J),
+            "k": CGKeyCode(kVK_ANSI_K), "l": CGKeyCode(kVK_ANSI_L),
+            "m": CGKeyCode(kVK_ANSI_M), "n": CGKeyCode(kVK_ANSI_N),
+            "o": CGKeyCode(kVK_ANSI_O), "p": CGKeyCode(kVK_ANSI_P),
+            "q": CGKeyCode(kVK_ANSI_Q), "r": CGKeyCode(kVK_ANSI_R),
+            "s": CGKeyCode(kVK_ANSI_S), "t": CGKeyCode(kVK_ANSI_T),
+            "u": CGKeyCode(kVK_ANSI_U), "v": CGKeyCode(kVK_ANSI_V),
+            "w": CGKeyCode(kVK_ANSI_W), "x": CGKeyCode(kVK_ANSI_X),
+            "y": CGKeyCode(kVK_ANSI_Y), "z": CGKeyCode(kVK_ANSI_Z),
+            "0": CGKeyCode(kVK_ANSI_0), "1": CGKeyCode(kVK_ANSI_1),
+            "2": CGKeyCode(kVK_ANSI_2), "3": CGKeyCode(kVK_ANSI_3),
+            "4": CGKeyCode(kVK_ANSI_4), "5": CGKeyCode(kVK_ANSI_5),
+            "6": CGKeyCode(kVK_ANSI_6), "7": CGKeyCode(kVK_ANSI_7),
+            "8": CGKeyCode(kVK_ANSI_8), "9": CGKeyCode(kVK_ANSI_9),
+            "enter": CGKeyCode(kVK_Return), "return": CGKeyCode(kVK_Return),
+            "tab": CGKeyCode(kVK_Tab), "space": CGKeyCode(kVK_Space),
+            "escape": CGKeyCode(kVK_Escape), "esc": CGKeyCode(kVK_Escape),
+            "backspace": CGKeyCode(kVK_Delete),
+            "delete": CGKeyCode(kVK_ForwardDelete),
+            "del": CGKeyCode(kVK_ForwardDelete),
+            "home": CGKeyCode(kVK_Home), "end": CGKeyCode(kVK_End),
+            "pageup": CGKeyCode(kVK_PageUp), "page_up": CGKeyCode(kVK_PageUp),
+            "pagedown": CGKeyCode(kVK_PageDown), "page_down": CGKeyCode(kVK_PageDown),
+            "f1": CGKeyCode(kVK_F1), "f2": CGKeyCode(kVK_F2),
+            "f3": CGKeyCode(kVK_F3), "f4": CGKeyCode(kVK_F4),
+            "f5": CGKeyCode(kVK_F5), "f6": CGKeyCode(kVK_F6),
+            "f7": CGKeyCode(kVK_F7), "f8": CGKeyCode(kVK_F8),
+            "f9": CGKeyCode(kVK_F9), "f10": CGKeyCode(kVK_F10),
+            "f11": CGKeyCode(kVK_F11), "f12": CGKeyCode(kVK_F12),
+            "left": CGKeyCode(kVK_LeftArrow), "right": CGKeyCode(kVK_RightArrow),
+            "down": CGKeyCode(kVK_DownArrow), "up": CGKeyCode(kVK_UpArrow),
         ]
         var components = normalized.split(separator: "-").map(String.init)
         guard let keyName = components.popLast(), let keyCode = keys[keyName] else {
@@ -257,6 +318,9 @@ final class ApplicationCaptureView: NSView {
     }
 
     private func postMouse(_ event: NSEvent, type: CGEventType, button: CGMouseButton) {
+        if let currentFrame = currentSourceFrame() {
+            sourceFrame = currentFrame
+        }
         guard sourceFrame.width > 0, sourceFrame.height > 0 else { return }
         let point = convert(event.locationInWindow, from: nil)
         let scale = min(bounds.width / sourceFrame.width, bounds.height / sourceFrame.height)
@@ -280,6 +344,21 @@ final class ApplicationCaptureView: NSView {
         cgEvent.postToPid(processID)
     }
 
+    private func currentSourceFrame() -> CGRect? {
+        let windows = CGWindowListCopyWindowInfo(
+            [.optionIncludingWindow],
+            sourceWindowID
+        ) as? [[String: Any]]
+        guard let bounds = windows?.first?[kCGWindowBounds as String] as? NSDictionary else {
+            return nil
+        }
+        var frame = CGRect.zero
+        guard CGRectMakeWithDictionaryRepresentation(bounds, &frame) else {
+            return nil
+        }
+        return frame
+    }
+
     private func postKey(_ event: NSEvent, keyDown: Bool) {
         guard let cgEvent = CGEvent(
                 keyboardEventSource: nil,
@@ -288,6 +367,18 @@ final class ApplicationCaptureView: NSView {
               ) else { return }
         cgEvent.flags = CGEventFlags(rawValue: UInt64(event.modifierFlags.rawValue))
         cgEvent.postToPid(processID)
+    }
+}
+
+private final class ApplicationCaptureStreamDelegate: NSObject, SCStreamDelegate, @unchecked Sendable {
+    private let onStopped: @Sendable (String) -> Void
+
+    init(onStopped: @escaping @Sendable (String) -> Void) {
+        self.onStopped = onStopped
+    }
+
+    func stream(_ stream: SCStream, didStopWithError error: Error) {
+        onStopped(error.localizedDescription)
     }
 }
 
