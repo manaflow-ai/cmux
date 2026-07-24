@@ -8,7 +8,7 @@ import {
   type AuditedBlogPostKey,
   blogPostSeoCopy,
 } from "@/i18n/audited-seo";
-import { lawrenceChen } from "@/app/[locale]/components/blog-authors";
+import { blogPosts } from "@/app/[locale]/components/blog-posts";
 
 /**
  * Article + BreadcrumbList JSON-LD for a blog post. Defaults to the post's
@@ -43,6 +43,11 @@ export function BlogSchema({
   const headline = headlineOverride ?? auditedCopy?.title ?? tp("title");
   const description =
     descriptionOverride ?? auditedCopy?.description ?? tm("metaDescription");
+  const author = blogPosts.find((candidate) => candidate.key === postKey)?.author;
+
+  if (!author) {
+    throw new Error(`Missing author for blog post: ${postKey}`);
+  }
 
   return (
     <>
@@ -54,9 +59,9 @@ export function BlogSchema({
           description,
           datePublished,
           authorType: "Person",
-          authorName: lawrenceChen.name,
-          authorUrl: lawrenceChen.url,
-          authorImage: lawrenceChen.avatar,
+          authorName: author.name,
+          authorUrl: author.url,
+          authorImage: author.avatar,
         })}
       />
       <JsonLd

@@ -43,11 +43,14 @@ export default function BlogPage() {
           <article key={post.slug}>
             <Link
               href={`/blog/${post.slug}`}
-              className="group"
+              className="group block"
             >
               <h2 className="text-lg font-medium group-hover:underline">
                 {t(`posts.${post.key}.title`)}
               </h2>
+              <p className="mt-1 text-muted">
+                {t(`posts.${post.key}.summary`)}
+              </p>
             </Link>
             <BlogPostMeta
               author={post.author}
@@ -55,14 +58,6 @@ export default function BlogPage() {
               dateTime={post.date}
               compact
             />
-            <Link
-              href={`/blog/${post.slug}`}
-              className="group block"
-            >
-              <p className="mt-1 text-muted">
-                {t(`posts.${post.key}.summary`)}
-              </p>
-            </Link>
           </article>
         ))}
       </div>
