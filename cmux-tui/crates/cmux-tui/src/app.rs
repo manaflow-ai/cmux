@@ -4277,11 +4277,7 @@ impl App {
                 let replay = self.replay_deferred_input_batch()?;
                 self.render_action(terminal, replay.action)?;
                 self.retry_pending_surface_attach();
-                replay_ready = matches!(
-                    replay.disposition,
-                    DeferredReplayDisposition::RenderBoundary | DeferredReplayDisposition::Yield
-                ) && (!self.deferred_input.is_empty()
-                    || self.pending_pointer_motion.is_some());
+                replay_ready = self.replay_can_continue_immediately(replay.disposition);
                 continue;
             }
             // Block for the first event, then drain whatever queued so a
@@ -4368,11 +4364,7 @@ impl App {
                 let replay = self.replay_deferred_input_batch()?;
                 self.render_action(terminal, replay.action)?;
                 self.retry_pending_surface_attach();
-                replay_ready = matches!(
-                    replay.disposition,
-                    DeferredReplayDisposition::RenderBoundary | DeferredReplayDisposition::Yield
-                ) && (!self.deferred_input.is_empty()
-                    || self.pending_pointer_motion.is_some());
+                replay_ready = self.replay_can_continue_immediately(replay.disposition);
             }
         }
         Ok(())
@@ -4833,6 +4825,29 @@ impl App {
         }
     }
 
+    fn replay_can_continue_immediately(&self, disposition: DeferredReplayDisposition) -> bool {
+        matches!(
+            disposition,
+            DeferredReplayDisposition::RenderBoundary | DeferredReplayDisposition::Yield
+        ) && (!self.deferred_input.is_empty() || self.pending_pointer_motion.is_some())
+            && !self.pointer_route_is_stale()
+    }
+
+    fn pointer_replay_barrier(action: RenderAction) -> DeferredReplayDisposition {
+        // RenderBoundary promises the event loop that rendering this batch can
+        // make the next replay attempt progress.
+        if action.rebuilds_pointer_route() {
+            DeferredReplayDisposition::RenderBoundary
+        } else {
+            DeferredReplayDisposition::Blocked
+        }
+    }
+
+    fn retains_input_sequence(&self, sequence: u64) -> bool {
+        self.pending_pointer_motion.is_some_and(|pointer| pointer.sequence == sequence)
+            || self.deferred_input.iter().any(|input| input.sequence == sequence)
+    }
+
     fn replay_deferred_input_batch(&mut self) -> anyhow::Result<DeferredReplayOutcome> {
         const MAX_REPLAYED_INPUTS: usize = 256;
         let mut action = RenderAction::None;
@@ -4862,7 +4877,7 @@ impl App {
                 if self.pointer_route_is_stale() {
                     return Ok(DeferredReplayOutcome {
                         action,
-                        disposition: DeferredReplayDisposition::RenderBoundary,
+                        disposition: Self::pointer_replay_barrier(action),
                     });
                 }
                 let pointer = self.pending_pointer_motion.take().unwrap();
@@ -4870,13 +4885,21 @@ impl App {
                 let pointer_action =
                     self.handle_replayed_input(Event::Mouse(pointer.event), pointer.sequence)?;
                 action = action.merge(pointer_action);
+                // A missing mirror can retain the same logical input again.
+                // Stop here so later sequences cannot overtake it.
+                if self.retains_input_sequence(pointer.sequence) {
+                    return Ok(DeferredReplayOutcome {
+                        action,
+                        disposition: DeferredReplayDisposition::Blocked,
+                    });
+                }
                 continue;
             }
             let Some(input) = self.deferred_input.front() else { break };
             if matches!(input.event, Event::Mouse(_)) && self.pointer_route_is_stale() {
                 return Ok(DeferredReplayOutcome {
                     action,
-                    disposition: DeferredReplayDisposition::RenderBoundary,
+                    disposition: Self::pointer_replay_barrier(action),
                 });
             }
             let input = self.deferred_input.pop_front().unwrap();
@@ -4901,6 +4924,14 @@ impl App {
             }
             let input_action = self.handle_replayed_input(input.event, input.sequence)?;
             action = action.merge(input_action);
+            // A missing mirror can retain the same logical input again.
+            // Stop here so later sequences cannot overtake it.
+            if self.retains_input_sequence(input.sequence) {
+                return Ok(DeferredReplayOutcome {
+                    action,
+                    disposition: DeferredReplayDisposition::Blocked,
+                });
+            }
         }
         let has_remaining_input =
             !self.deferred_input.is_empty() || self.pending_pointer_motion.is_some();
@@ -4909,7 +4940,7 @@ impl App {
         } else if replayed >= MAX_REPLAYED_INPUTS {
             DeferredReplayDisposition::Yield
         } else if self.pointer_route_is_stale() {
-            DeferredReplayDisposition::RenderBoundary
+            Self::pointer_replay_barrier(action)
         } else {
             DeferredReplayDisposition::Blocked
         };
@@ -5734,14 +5765,14 @@ impl App {
         {
             let mouse = *mouse;
             if self.pointer_route_is_stale() {
-                self.retain_pointer_motion(mouse);
+                self.retain_pointer_motion_with_sequence(mouse, input_sequence);
                 return Ok(RenderAction::None);
             }
             let input = Event::Mouse(mouse);
             let missing_surface = self.missing_input_surface(&input);
             if let Some(surface) = missing_surface {
                 self.queue_surface_attach(surface);
-                self.retain_pointer_motion(mouse);
+                self.retain_pointer_motion_with_sequence(mouse, input_sequence);
                 return Ok(RenderAction::None);
             }
         }
@@ -5750,7 +5781,7 @@ impl App {
                 if self.pointer_route_is_stale()
                     && !self.input_can_update_pending_mutation(&input) =>
             {
-                return Ok(self.defer_input(input));
+                return Ok(self.defer_input_with_sequence(input, input_sequence));
             }
             AppEvent::Input(input @ (Event::Key(_) | Event::Mouse(_) | Event::Paste(_)))
                 if self.missing_input_surface(&input).is_some()
@@ -5758,7 +5789,7 @@ impl App {
             {
                 let surface = self.missing_input_surface(&input).unwrap();
                 self.queue_surface_attach(surface);
-                return Ok(self.defer_input(input));
+                return Ok(self.defer_input_with_sequence(input, input_sequence));
             }
             AppEvent::Input(input @ (Event::Key(_) | Event::Mouse(_) | Event::Paste(_)))
                 if !matches!(
@@ -5771,7 +5802,7 @@ impl App {
                         && !replaying_non_pointer)
                     && !self.input_can_update_pending_mutation(&input) =>
             {
-                return Ok(self.defer_input(input));
+                return Ok(self.defer_input_with_sequence(input, input_sequence));
             }
             event => event,
         };
@@ -6244,46 +6275,56 @@ impl App {
         )
     }
 
+    #[cfg(test)]
     fn defer_input(&mut self, input: Event) -> RenderAction {
+        self.defer_input_with_sequence(input, None)
+    }
+
+    fn defer_input_with_sequence(
+        &mut self,
+        input: Event,
+        replay_sequence: Option<u64>,
+    ) -> RenderAction {
         let destination = self.input_destination(&input);
         let sidebar_focus_intent =
             self.sidebar_focus_pending && matches!(&input, Event::Key(_) | Event::Paste(_));
         let destination_started = self.session.destination_mutation_started();
         let destination_intent = (destination_started > self.applied_destination_generation)
             .then_some(destination_started);
-        let sequence = self.next_deferred_input_sequence();
-        let replace_motion = match (&input, self.deferred_input.back()) {
-            (
-                Event::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. }),
-                Some(DeferredInput {
-                    event: Event::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. }),
-                    destination: previous_destination,
-                    destination_intent: previous_intent,
-                    sidebar_focus_intent: previous_sidebar_intent,
-                    ..
-                }),
-            ) => {
-                *previous_destination == destination
-                    && *previous_intent == destination_intent
-                    && *previous_sidebar_intent == sidebar_focus_intent
-            }
-            (
-                Event::Mouse(MouseEvent { kind: MouseEventKind::Drag(button), .. }),
-                Some(DeferredInput {
-                    event: Event::Mouse(MouseEvent { kind: MouseEventKind::Drag(previous), .. }),
-                    destination: previous_destination,
-                    destination_intent: previous_intent,
-                    sidebar_focus_intent: previous_sidebar_intent,
-                    ..
-                }),
-            ) => {
-                button == previous
-                    && *previous_destination == destination
-                    && *previous_intent == destination_intent
-                    && *previous_sidebar_intent == sidebar_focus_intent
-            }
-            _ => false,
-        };
+        let sequence = replay_sequence.unwrap_or_else(|| self.next_deferred_input_sequence());
+        let replace_motion = replay_sequence.is_none()
+            && match (&input, self.deferred_input.back()) {
+                (
+                    Event::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. }),
+                    Some(DeferredInput {
+                        event: Event::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. }),
+                        destination: previous_destination,
+                        destination_intent: previous_intent,
+                        sidebar_focus_intent: previous_sidebar_intent,
+                        ..
+                    }),
+                ) => {
+                    *previous_destination == destination
+                        && *previous_intent == destination_intent
+                        && *previous_sidebar_intent == sidebar_focus_intent
+                }
+                (
+                    Event::Mouse(MouseEvent { kind: MouseEventKind::Drag(button), .. }),
+                    Some(DeferredInput {
+                        event: Event::Mouse(MouseEvent { kind: MouseEventKind::Drag(previous), .. }),
+                        destination: previous_destination,
+                        destination_intent: previous_intent,
+                        sidebar_focus_intent: previous_sidebar_intent,
+                        ..
+                    }),
+                ) => {
+                    button == previous
+                        && *previous_destination == destination
+                        && *previous_intent == destination_intent
+                        && *previous_sidebar_intent == sidebar_focus_intent
+                }
+                _ => false,
+            };
         if replace_motion {
             *self.deferred_input.back_mut().unwrap() = DeferredInput {
                 event: input,
@@ -6314,13 +6355,24 @@ impl App {
             let Some(removed) = self.deferred_input.pop_front() else { break };
             queued_bytes = queued_bytes.saturating_sub(deferred_input_bytes(&removed.event));
         }
-        self.deferred_input.push_back(DeferredInput {
+        let input = DeferredInput {
             event: input,
             destination,
             destination_intent,
             sidebar_focus_intent,
             sequence,
-        });
+        };
+        if replay_sequence.is_some() {
+            // A replayed input keeps its original chronological position.
+            let index = self
+                .deferred_input
+                .iter()
+                .position(|queued| queued.sequence > sequence)
+                .unwrap_or(self.deferred_input.len());
+            self.deferred_input.insert(index, input);
+        } else {
+            self.deferred_input.push_back(input);
+        }
         RenderAction::None
     }
 
@@ -6329,9 +6381,20 @@ impl App {
         self.deferred_input_sequence
     }
 
+    #[cfg(test)]
     fn retain_pointer_motion(&mut self, event: MouseEvent) {
-        let sequence = self.next_deferred_input_sequence();
-        self.pending_pointer_motion = Some(PendingPointerMotion { event, sequence });
+        self.retain_pointer_motion_with_sequence(event, None);
+    }
+
+    fn retain_pointer_motion_with_sequence(
+        &mut self,
+        event: MouseEvent,
+        replay_sequence: Option<u64>,
+    ) {
+        let sequence = replay_sequence.unwrap_or_else(|| self.next_deferred_input_sequence());
+        if self.pending_pointer_motion.is_none_or(|pending| pending.sequence <= sequence) {
+            self.pending_pointer_motion = Some(PendingPointerMotion { event, sequence });
+        }
     }
 
     fn input_destination(&self, input: &Event) -> Option<SurfaceId> {
@@ -14938,6 +15001,10 @@ mod tests {
             replay.disposition,
             DeferredReplayDisposition::Blocked,
             "a replay boundary without a render action cannot make immediate progress"
+        );
+        assert!(
+            !app.replay_can_continue_immediately(replay.disposition),
+            "the event loop must wait for a state-changing event instead of spinning"
         );
     }
 
