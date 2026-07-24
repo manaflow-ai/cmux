@@ -152,6 +152,8 @@ struct BrowserPaneFileDropUploadRegressionTests {
                 backing: .buffered,
                 defer: false
             )
+            window.isReleasedWhenClosed = false
+            window.animationBehavior = .none
             defer { close(window) }
             window.makeKeyAndOrderFront(nil)
             window.displayIfNeeded()

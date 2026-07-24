@@ -246,6 +246,7 @@ final class WorkspaceContentViewVisibilityTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.contentView = MainWindowHostingView(rootView: root)
         defer {
             window.contentView = nil

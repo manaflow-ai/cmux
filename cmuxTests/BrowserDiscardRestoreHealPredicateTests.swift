@@ -445,6 +445,7 @@ struct BrowserDiscardRestorePolicyCancelTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         defer {
             panel.resetInsecureHTTPAlertHooksForTesting()
             window.close()

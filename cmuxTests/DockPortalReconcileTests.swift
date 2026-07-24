@@ -652,6 +652,8 @@ struct DockPortalReconcileTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
+        window.animationBehavior = .none
         window.orderFront(nil)
         window.contentView?.layoutSubtreeIfNeeded()
         return window

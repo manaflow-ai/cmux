@@ -24,6 +24,8 @@ final class MarkdownMermaidZoomTests {
         let coordinator = MarkdownWebRenderer.Coordinator()
         coordinator.webView = webView
         let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.animationBehavior = .none
         window.contentView = webView
         window.orderFrontRegardless()
         defer {

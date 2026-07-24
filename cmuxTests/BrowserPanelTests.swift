@@ -4195,6 +4195,7 @@ final class OmnibarNativeTextFieldCaretTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
         return window
     }

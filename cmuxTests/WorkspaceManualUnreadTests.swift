@@ -2424,12 +2424,14 @@ final class CommandPaletteSwitcherSearchIndexerTests: XCTestCase {
 @MainActor
 final class CommandPaletteRequestRoutingTests: XCTestCase {
     private func makeWindow() -> NSWindow {
-        NSWindow(
+        let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
+        return window
     }
 
     func testRequestedWindowTargetsOnlyMatchingObservedWindow() {

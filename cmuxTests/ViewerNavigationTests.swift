@@ -238,6 +238,8 @@ struct ViewerNavigationTests {
         let frame = NSRect(x: 0, y: 0, width: 720, height: 360)
         let webView = MarkdownWebView(frame: frame, configuration: WKWebViewConfiguration())
         let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.animationBehavior = .none
         window.contentView = webView
         window.orderFrontRegardless()
         defer {

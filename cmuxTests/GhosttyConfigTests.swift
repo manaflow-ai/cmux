@@ -2059,6 +2059,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        realHostWindow.isReleasedWhenClosed = false
         defer {
             realHostWindow.contentView = nil
             realHostWindow.close()

@@ -13,12 +13,14 @@ import Testing
 @MainActor
 @Suite struct ForeignFirstResponderPolicyTests {
     private func makeWindow() -> NSWindow {
-        NSWindow(
+        let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 200, height: 200),
             styleMask: [.titled],
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
+        return window
     }
 
     private let neverSidebarOwner: (NSResponder) -> Bool = { _ in false }

@@ -687,6 +687,7 @@ struct NotificationsPopoverAnchorPolicyTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         defer { window.orderOut(nil) }
         guard let contentView = window.contentView else {
             Issue.record("Expected content view")

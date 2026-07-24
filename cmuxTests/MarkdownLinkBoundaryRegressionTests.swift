@@ -68,6 +68,8 @@ final class MarkdownLinkBoundaryRegressionTests {
         let frame = NSRect(x: 0, y: 0, width: 1_000, height: 600)
         let webView = WKWebView(frame: frame, configuration: WKWebViewConfiguration())
         let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.animationBehavior = .none
         window.contentView = webView
         window.orderFrontRegardless()
         defer {

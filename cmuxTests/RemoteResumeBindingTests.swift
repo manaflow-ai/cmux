@@ -1166,6 +1166,7 @@ struct RemoteResumeBindingTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
         return window
     }

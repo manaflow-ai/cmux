@@ -38,6 +38,8 @@ struct TerminalNotificationOpenPanelFallbackTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
+        window.animationBehavior = .none
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
         window.makeKeyAndOrderFront(nil)
 
@@ -106,6 +108,8 @@ struct TerminalNotificationOpenPanelFallbackTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
+        window.animationBehavior = .none
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
         window.makeKeyAndOrderFront(nil)
 

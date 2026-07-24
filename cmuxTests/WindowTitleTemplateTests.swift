@@ -198,6 +198,7 @@ struct WindowTitleTemplateTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         manager.window = window
         defer {
             manager.window = nil
@@ -244,6 +245,7 @@ struct WindowTitleTemplateTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         manager.window = window
         defer {
             manager.window = nil
@@ -323,6 +325,7 @@ struct WindowTitleTemplateTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         manager.window = window
         defer {
             manager.window = nil

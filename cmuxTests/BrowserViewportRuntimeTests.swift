@@ -125,6 +125,8 @@ struct BrowserViewportRuntimeTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
+        window.animationBehavior = .none
         let pane = NSView(frame: paneFrame)
         let webView = CmuxWebView(frame: pane.bounds, configuration: WKWebViewConfiguration())
         let viewportHost = BrowserViewportHostView(frame: pane.bounds)

@@ -222,6 +222,7 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
         return window
     }
@@ -2195,12 +2196,14 @@ struct FullscreenControlsPlacementTests {
 @MainActor
 final class FolderWindowMoveSuppressionTests: XCTestCase {
     private func makeWindow() -> NSWindow {
-        NSWindow(
+        let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
+        return window
     }
 
     func testSuppressionTracksMovableWindowWithoutChangingMovability() {
@@ -3663,6 +3666,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         let scrollView = NSScrollView(frame: window.contentView?.bounds ?? .zero)
         scrollView.autoresizingMask = [.width, .height]
         window.contentView?.addSubview(scrollView)

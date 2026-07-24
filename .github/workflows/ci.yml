@@ -860,7 +860,12 @@ jobs:
           # Stream output via tee so CI logs are visible in real time, while still
           # capturing for post-run analysis of expected vs unexpected failures.
           TEST_OUTPUT="$RUNNER_TEMP/cmux-unit-output-shard-${{ matrix.shard }}.txt"
-          RUN_START=$(date '+%Y-%m-%d %H:%M:%S')
+          # macOS writes crash reports to one fixed directory, so this shard cannot have its own.
+          # Recording what is already there gives the same thing by subtraction: anything
+          # cmux-named that appears later belongs to this run.
+          CRASH_SNAPSHOT="$RUNNER_TEMP/cmux-crash-snapshot-shard-${{ matrix.shard }}.txt"
+          CRASH_KEPT="$RUNNER_TEMP/cmux-crashes-shard-${{ matrix.shard }}"
+          python3 scripts/crash-reports-since.py --snapshot "$CRASH_SNAPSHOT"
           set +e
           run_unit_tests | tee "$TEST_OUTPUT"
           EXIT_CODE=${PIPESTATUS[0]}
@@ -902,12 +907,24 @@ jobs:
           # The restart line above is the runner noticing a host it has to replace, so it misses a
           # crash with nothing left to restart — one during teardown, after the last verdict is
           # already printed. That crash is still an over-release, and it reads as a clean shard.
-          # The process's own crash report is the evidence, matched on the timestamp in its JSON
-          # header rather than the file's mtime, because macOS rewrites those mtimes when it prunes
-          # the directory. A count above zero proves a crash; zero does not prove none, for the
-          # same pruning reason, which is why this backs up the restart check instead of replacing
-          # it.
-          CRASHES=$(python3 scripts/crash-reports-since.py "$RUN_START" || true)
+          # The process's own crash report is the evidence. Reports that appeared since the
+          # snapshot belong to this run, and each is copied out because macOS prunes that
+          # directory and the copy is what survives into the artifact.
+          #
+          # A report above zero proves a crash; zero does not prove none, because ReportCrash
+          # writes asynchronously and can land after this runs. So this backs the restart check
+          # up instead of replacing it.
+          #
+          # The scan's own failure is a failure. Swallowing its exit status would turn a renamed
+          # script or a missing interpreter into empty output, which reads as "nothing crashed".
+          set +e
+          CRASHES=$(python3 scripts/crash-reports-since.py --new-since "$CRASH_SNAPSHOT" --copy-to "$CRASH_KEPT")
+          CRASH_SCAN_RC=$?
+          set -e
+          if [ "$CRASH_SCAN_RC" -ne 0 ]; then
+            echo "::error::the crash-report scan failed (exit ${CRASH_SCAN_RC}); refusing to read that as a clean shard"
+            exit 1
+          fi
           if [ -n "$CRASHES" ]; then
             echo "::error::a cmux process crashed during this shard, even if every verdict printed"
             echo "$CRASHES" | sed 's/^/  /'
@@ -950,6 +967,7 @@ jobs:
           path: |
             ${{ runner.temp }}/cmux-unit-output-shard-${{ matrix.shard }}.txt
             ${{ runner.temp }}/cmux-unit-shard-${{ matrix.shard }}.args
+            ${{ runner.temp }}/cmux-crashes-shard-${{ matrix.shard }}/
           if-no-files-found: warn
           retention-days: 14
 
