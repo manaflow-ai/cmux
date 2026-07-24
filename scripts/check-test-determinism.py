@@ -505,6 +505,7 @@ class _PythonSleepVisitor(ast.NodeVisitor):
         )
         self.scope = self.module_scope
         self.sleep_lines: set[int] = set()
+        self.sleep_positions: dict[int, set[int]] = {}
 
     def _resolve(self, name: str) -> Optional[str]:
         scope: Optional[_PythonScope] = self.scope
@@ -658,10 +659,14 @@ class _PythonSleepVisitor(ast.NodeVisitor):
 
     def visit_Import(self, node: ast.Import) -> None:
         for alias in node.names:
-            name = alias.asname or alias.name.split(".", maxsplit=1)[0]
+            root = alias.name.split(".", maxsplit=1)[0]
+            name = alias.asname or root
             binding = (
                 _PYTHON_MODULE_BINDING
-                if alias.name in _PYTHON_SLEEP_MODULES
+                if (
+                    alias.name in _PYTHON_SLEEP_MODULES
+                    or (alias.asname is None and root in _PYTHON_SLEEP_MODULES)
+                )
                 else _PYTHON_SHADOWED_BINDING
             )
             self._bind(name, binding)
@@ -714,7 +719,14 @@ class _PythonSleepVisitor(ast.NodeVisitor):
 
     def visit_NamedExpr(self, node: ast.NamedExpr) -> None:
         self.visit(node.value)
+        previous_scope = self.scope
+        while (
+            self.scope.kind == "comprehension"
+            and self.scope.parent is not None
+        ):
+            self.scope = self.scope.parent
         self._bind_target(node.target)
+        self.scope = previous_scope
 
     def visit_Delete(self, node: ast.Delete) -> None:
         for target in node.targets:
@@ -864,7 +876,11 @@ class _PythonSleepVisitor(ast.NodeVisitor):
         # targets and the remaining expressions live in an isolated scope.
         self.visit(generators[0].iter)
         previous_scope = self.scope
-        self.scope = _PythonScope("function", self._lexical_parent(), {})
+        self.scope = _PythonScope(
+            "comprehension",
+            self._lexical_parent(),
+            {},
+        )
         first = generators[0]
         self._visit_target_expressions(first.target)
         self._bind_target(first.target)
@@ -901,15 +917,24 @@ class _PythonSleepVisitor(ast.NodeVisitor):
             and self._resolve(function.value.id) == _PYTHON_MODULE_BINDING
         ):
             self.sleep_lines.add(node.lineno - 1)
+            self.sleep_positions.setdefault(node.lineno - 1, set()).add(
+                node.col_offset
+            )
         elif (
             isinstance(function, ast.Name)
             and self._resolve(function.id) == _PYTHON_FUNCTION_BINDING
         ):
             self.sleep_lines.add(node.lineno - 1)
+            self.sleep_positions.setdefault(node.lineno - 1, set()).add(
+                node.col_offset
+            )
         self.generic_visit(node)
 
 
-def _python_real_sleep_lines(text: str) -> set[int]:
+def _python_real_sleep_lines(
+    text: str,
+    positions: Optional[dict[int, set[int]]] = None,
+) -> set[int]:
     """Locate direct trusted Python sleep APIs with lexical AST resolution."""
     try:
         tree = ast.parse(text)
@@ -917,6 +942,8 @@ def _python_real_sleep_lines(text: str) -> set[int]:
         return set()
     visitor = _PythonSleepVisitor()
     visitor.visit(tree)
+    if positions is not None:
+        positions.update(visitor.sleep_positions)
     return visitor.sleep_lines
 
 
@@ -1118,6 +1145,7 @@ def detect_sleep_then_assert(
     idx: int,
     path_suffix: str,
     python_sleep_lines: Optional[set[int]] = None,
+    python_sleep_positions: Optional[dict[int, set[int]]] = None,
 ) -> bool:
     """Sleep on lines[idx] followed by an assertion within 3 non-blank lines."""
     line = masked_lines[idx]
@@ -1133,6 +1161,32 @@ def detect_sleep_then_assert(
         return False
     if _sleep_in_loop(lines, idx):
         return False
+
+    if python_sleep_positions is not None:
+        sleep_starts = python_sleep_positions.get(idx, set())
+    elif path_suffix == ".sh":
+        sleep_starts = {
+            match.start() for match in _SHELL_BARE_SLEEP.finditer(line)
+        }
+    else:
+        sleep_starts = (
+            {match.start() for match in sleep_pattern.finditer(line)}
+            if sleep_pattern is not None
+            else set()
+        )
+    assertion_starts = {
+        match.start() for match in _ASSERT_TOKEN.finditer(line)
+    }
+    raise_if = _RAISE_IF.search(line)
+    if raise_if is not None:
+        assertion_starts.add(raise_if.start())
+    for sleep_start in sleep_starts:
+        for assertion_start in assertion_starts:
+            if assertion_start > sleep_start:
+                return True
+            if ";" not in line[assertion_start:sleep_start]:
+                return True
+
     seen = 0
     for j in range(idx + 1, len(lines)):
         nxt = masked_lines[j]
@@ -1187,8 +1241,11 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
     masked_lines = (
         _mask_noncode(raw_lines, suffix) if has_sleep_candidate else code_lines
     )
+    python_sleep_positions: Optional[dict[int, set[int]]] = (
+        {} if suffix == ".py" and has_sleep_candidate else None
+    )
     python_sleep_lines = (
-        _python_real_sleep_lines(text)
+        _python_real_sleep_lines(text, python_sleep_positions)
         if suffix == ".py" and has_sleep_candidate
         else None
     )
@@ -1223,6 +1280,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
                 i,
                 suffix,
                 python_sleep_lines,
+                python_sleep_positions,
             )
         ):
             findings.append(Finding(rel_posix, line_no, RULE_SLEEP_THEN_ASSERT, snippet))
