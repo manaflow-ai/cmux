@@ -1121,6 +1121,7 @@ impl SurfaceHandle {
                 Ok(Arc::new(SurfaceRenderFrame {
                     frame: rs.build_frame()?,
                     scrollback_rows: term.history_rows(),
+                    mouse_tracking: term.mouse_tracking(),
                     palette_colors,
                     palette_overridden,
                 }))
@@ -1199,6 +1200,16 @@ impl SurfaceHandle {
                 surface.reset_mouse_motion_dedupe();
             }
             SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => {}
+        }
+    }
+
+    pub fn try_mouse_tracking(&self) -> Option<bool> {
+        match self {
+            SurfaceHandle::Local(surface, _) => surface.try_mouse_tracking(),
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
+                surface.try_mouse_tracking()
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
         }
     }
 

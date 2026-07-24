@@ -14,8 +14,10 @@
 //!   backlog of stale hover/drag positions.
 //! - When the queue is full (the worker is stuck inside a blocking
 //!   call), pointer and key events are dropped instead of blocking the
-//!   UI. The latest rejected resize per surface and uninterrupted resize
-//!   run is retained so geometry catches up without crossing later input.
+//!   UI. Releases that close accepted pointer interactions are retained
+//!   in a bounded fallback, and the latest rejected resize per surface
+//!   and uninterrupted resize run is retained. Both fallbacks rejoin the
+//!   ordinary lane in sequence order.
 //!
 //! Ordinary input errors are reported by the surface's own status. Resize
 //! failures are retained per surface and reported to the app because retrying a
@@ -37,6 +39,9 @@ use crate::session::SurfaceHandle;
 /// (drag + key repeat) never drop while a healthy worker drains, but a
 /// blocked worker caps queued work at a few hundred events.
 const QUEUE_CAPACITY: usize = 512;
+/// At most the ordinary queue plus its one in-flight event can contain
+/// accepted presses awaiting releases while the browser worker is wedged.
+const RETAINED_RELEASE_CAPACITY: usize = QUEUE_CAPACITY + 1;
 
 pub struct BrowserInputEvent {
     pub surface_id: SurfaceId,
@@ -171,6 +176,7 @@ pub struct BrowserInputDispatcher {
     tx: SyncSender<SequencedBrowserInputEvent>,
     order: Arc<Mutex<BrowserEnqueueOrder>>,
     latest_resizes: Arc<Mutex<HashMap<(SurfaceId, u64), SequencedBrowserInputEvent>>>,
+    retained_releases: Arc<Mutex<Vec<SequencedBrowserInputEvent>>>,
     failed_resizes: Arc<Mutex<HashMap<SurfaceId, FailedBrowserResize>>>,
     surface_lifetimes: Arc<Mutex<HashMap<SurfaceId, Arc<AtomicBool>>>>,
 }
@@ -178,13 +184,20 @@ pub struct BrowserInputDispatcher {
 #[cfg(test)]
 pub(crate) struct BlockedBrowserInput {
     rx: Receiver<SequencedBrowserInputEvent>,
+    retained_releases: Arc<Mutex<Vec<SequencedBrowserInputEvent>>>,
 }
 
 #[cfg(test)]
 impl BlockedBrowserInput {
     pub(crate) fn drain_mouse_lifetimes(&self) -> Vec<(&'static str, bool)> {
-        let mut events = Vec::new();
+        let mut pending = Vec::new();
         while let Ok(event) = self.rx.try_recv() {
+            pending.push(event);
+        }
+        pending.append(&mut self.retained_releases.lock().unwrap());
+        pending.sort_unstable_by_key(|event| event.sequence);
+        let mut events = Vec::new();
+        for event in pending {
             if let BrowserInputKind::Mouse { event_type, .. } = event.event.kind {
                 events.push((event_type, event.lifetime.load(Ordering::Acquire)));
             }
@@ -201,10 +214,12 @@ impl BrowserInputDispatcher {
         let (tx, rx) = sync_channel(QUEUE_CAPACITY);
         let order = Arc::new(Mutex::new(BrowserEnqueueOrder::default()));
         let latest_resizes = Arc::new(Mutex::new(HashMap::new()));
+        let retained_releases = Arc::new(Mutex::new(Vec::new()));
         let failed_resizes = Arc::new(Mutex::new(HashMap::new()));
         let surface_lifetimes = Arc::new(Mutex::new(HashMap::new()));
         let worker_order = order.clone();
         let worker_resizes = latest_resizes.clone();
+        let worker_releases = retained_releases.clone();
         let worker_failures = failed_resizes.clone();
         let on_resize_failure = Arc::new(on_resize_failure);
         let on_control_failure = Arc::new(on_control_failure);
@@ -213,34 +228,46 @@ impl BrowserInputDispatcher {
                 rx,
                 worker_order,
                 worker_resizes,
+                worker_releases,
                 worker_failures,
                 on_resize_failure,
                 on_control_failure,
             );
         })?;
-        Ok(BrowserInputDispatcher { tx, order, latest_resizes, failed_resizes, surface_lifetimes })
+        Ok(BrowserInputDispatcher {
+            tx,
+            order,
+            latest_resizes,
+            retained_releases,
+            failed_resizes,
+            surface_lifetimes,
+        })
     }
 
     #[cfg(test)]
     pub(crate) fn blocked(capacity: usize) -> (Self, BlockedBrowserInput) {
         let (tx, rx) = sync_channel(capacity);
+        let retained_releases = Arc::new(Mutex::new(Vec::new()));
         (
             BrowserInputDispatcher {
                 tx,
                 order: Arc::new(Mutex::new(BrowserEnqueueOrder::default())),
                 latest_resizes: Arc::new(Mutex::new(HashMap::new())),
+                retained_releases: retained_releases.clone(),
                 failed_resizes: Arc::new(Mutex::new(HashMap::new())),
                 surface_lifetimes: Arc::new(Mutex::new(HashMap::new())),
             },
-            BlockedBrowserInput { rx },
+            BlockedBrowserInput { rx, retained_releases },
         )
     }
 
-    /// Queue an event without blocking. A full queue retains the latest
-    /// resize per surface and input-delimited run, and drops other input.
+    /// Queue an event without blocking. A full queue retains releases and
+    /// the latest resize per surface and input-delimited run, and drops
+    /// other input.
     #[must_use = "control commands must surface backpressure instead of dropping silently"]
     pub fn enqueue(&self, event: BrowserInputEvent) -> bool {
         let is_resize = event.kind.is_resize();
+        let is_release = event.kind.closes_pointer_interaction();
         if let Some(desired) = event.kind.resize_dimensions()
             && self.resize_failed(event.surface_id, desired)
         {
@@ -273,6 +300,15 @@ impl BrowserInputDispatcher {
                     .lock()
                     .unwrap()
                     .insert((event.event.surface_id, order.barrier_epoch), event);
+                true
+            }
+            Err(TrySendError::Full(event)) if is_release => {
+                let mut releases = self.retained_releases.lock().unwrap();
+                if releases.len() >= RETAINED_RELEASE_CAPACITY {
+                    return false;
+                }
+                releases.push(event);
+                order.barrier_epoch = order.barrier_epoch.saturating_add(1);
                 true
             }
             Ok(()) => true,
@@ -340,13 +376,14 @@ fn worker(
     rx: Receiver<SequencedBrowserInputEvent>,
     order: Arc<Mutex<BrowserEnqueueOrder>>,
     latest_resizes: Arc<Mutex<HashMap<(SurfaceId, u64), SequencedBrowserInputEvent>>>,
+    retained_releases: Arc<Mutex<Vec<SequencedBrowserInputEvent>>>,
     failed_resizes: Arc<Mutex<HashMap<SurfaceId, FailedBrowserResize>>>,
     on_resize_failure: Arc<dyn Fn(BrowserResizeFailure) + Send + Sync>,
     on_control_failure: Arc<dyn Fn(String) + Send + Sync>,
 ) {
     while let Ok(event) = rx.recv() {
         let mut batch = vec![event];
-        finish_ordered_batch(&rx, &order, &latest_resizes, &mut batch);
+        finish_ordered_batch(&rx, &order, &latest_resizes, &retained_releases, &mut batch);
         coalesce_sequenced_browser_events(&mut batch);
         for mut event in batch {
             if event.lifetime.load(Ordering::Acquire) {
@@ -412,6 +449,7 @@ fn finish_ordered_batch(
     rx: &Receiver<SequencedBrowserInputEvent>,
     order: &Mutex<BrowserEnqueueOrder>,
     latest_resizes: &Mutex<HashMap<(SurfaceId, u64), SequencedBrowserInputEvent>>,
+    retained_releases: &Mutex<Vec<SequencedBrowserInputEvent>>,
     batch: &mut Vec<SequencedBrowserInputEvent>,
 ) {
     // Block new sequence assignments while establishing the batch cut.
@@ -421,15 +459,18 @@ fn finish_ordered_batch(
         batch.push(next);
     }
     let latest = std::mem::take(&mut *latest_resizes.lock().unwrap());
+    let releases = std::mem::take(&mut *retained_releases.lock().unwrap());
     drop(order_guard);
-    merge_latest_resizes(batch, latest);
+    merge_fallback_events(batch, latest, releases);
 }
 
-fn merge_latest_resizes(
+fn merge_fallback_events(
     batch: &mut Vec<SequencedBrowserInputEvent>,
     latest: HashMap<(SurfaceId, u64), SequencedBrowserInputEvent>,
+    releases: Vec<SequencedBrowserInputEvent>,
 ) {
     batch.extend(latest.into_values());
+    batch.extend(releases);
     // A fallback may race with a later successful channel send. Restore
     // their common enqueue order before applying adjacency coalescing.
     batch.sort_unstable_by_key(|event| event.sequence);
@@ -733,6 +774,7 @@ mod tests {
             tx,
             order: Arc::new(Mutex::new(BrowserEnqueueOrder::default())),
             latest_resizes: latest_resizes.clone(),
+            retained_releases: Arc::new(Mutex::new(Vec::new())),
             failed_resizes: Arc::new(Mutex::new(HashMap::new())),
             surface_lifetimes: Arc::new(Mutex::new(HashMap::new())),
         };
@@ -766,6 +808,7 @@ mod tests {
             tx,
             order: Arc::new(Mutex::new(BrowserEnqueueOrder::default())),
             latest_resizes: latest_resizes.clone(),
+            retained_releases: Arc::new(Mutex::new(Vec::new())),
             failed_resizes: Arc::new(Mutex::new(HashMap::new())),
             surface_lifetimes: Arc::new(Mutex::new(HashMap::new())),
         };
@@ -865,6 +908,7 @@ mod tests {
             tx,
             order: Arc::new(Mutex::new(BrowserEnqueueOrder::default())),
             latest_resizes: latest_resizes.clone(),
+            retained_releases: Arc::new(Mutex::new(Vec::new())),
             failed_resizes: Arc::new(Mutex::new(HashMap::new())),
             surface_lifetimes: Arc::new(Mutex::new(HashMap::new())),
         };
@@ -913,7 +957,7 @@ mod tests {
         let mut batch = vec![sequenced(0, click_event(1))];
         let latest = HashMap::from([((1, 0), sequenced(1, resize_event(1, 132)))]);
 
-        merge_latest_resizes(&mut batch, latest);
+        merge_fallback_events(&mut batch, latest, Vec::new());
 
         assert_eq!(batch.len(), 2);
         assert!(matches!(batch[0].event.kind, BrowserInputKind::Mouse { .. }));
@@ -928,6 +972,7 @@ mod tests {
             tx,
             order: Arc::new(Mutex::new(BrowserEnqueueOrder::default())),
             latest_resizes: latest_resizes.clone(),
+            retained_releases: Arc::new(Mutex::new(Vec::new())),
             failed_resizes: Arc::new(Mutex::new(HashMap::new())),
             surface_lifetimes: Arc::new(Mutex::new(HashMap::new())),
         };
@@ -938,7 +983,13 @@ mod tests {
         let _ = dispatcher.enqueue(click_event(1));
         let _ = dispatcher.enqueue(resize_event(1, 144));
         let mut batch = vec![first];
-        finish_ordered_batch(&rx, &dispatcher.order, &latest_resizes, &mut batch);
+        finish_ordered_batch(
+            &rx,
+            &dispatcher.order,
+            &latest_resizes,
+            &dispatcher.retained_releases,
+            &mut batch,
+        );
 
         assert_eq!(batch.iter().map(|event| event.sequence).collect::<Vec<_>>(), vec![0, 1, 2, 3]);
         assert!(matches!(batch[0].event.kind, BrowserInputKind::Mouse { .. }));

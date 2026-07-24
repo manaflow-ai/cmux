@@ -467,6 +467,7 @@ impl AttachTap {
 pub struct SurfaceRenderFrame {
     pub frame: RenderFrame,
     pub scrollback_rows: u32,
+    pub mouse_tracking: bool,
     pub palette_colors: [Rgb; 256],
     pub palette_overridden: [bool; 256],
 }
@@ -1802,6 +1803,17 @@ impl Surface {
         pty.render.lock().unwrap().latest.clone().ok_or(ghostty_vt::Error::NoValue)
     }
 
+    /// Read current mouse-tracking state without waiting behind terminal parsing.
+    /// A contended terminal is unknown to pointer replay and must fail closed.
+    pub fn try_mouse_tracking(&self) -> Option<bool> {
+        let pty = self.as_pty()?;
+        match pty.term.try_lock() {
+            Ok(term) => Some(term.mouse_tracking()),
+            Err(TryLockError::Poisoned(error)) => Some(error.into_inner().mouse_tracking()),
+            Err(TryLockError::WouldBlock) => None,
+        }
+    }
+
     /// Resize this surface. PTYs receive cell dimensions; browsers also
     /// use the last configured cell pixel size for CDP device metrics.
     /// Returns whether a clamped size change was applied or accepted. Browser
@@ -2352,6 +2364,7 @@ impl PtySurface {
                 let frame = Arc::new(SurfaceRenderFrame {
                     frame: render.state.build_frame()?,
                     scrollback_rows: term.history_rows(),
+                    mouse_tracking: term.mouse_tracking(),
                     palette_colors,
                     palette_overridden,
                 });

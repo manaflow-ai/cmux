@@ -91,6 +91,7 @@ pub fn draw_all(app: &mut App, frame: &mut Frame) -> DrawCursors {
     let areas = app.pane_areas.clone();
     let visible_surfaces: HashSet<_> = areas.iter().map(|area| area.surface).collect();
     app.rendered_terminal_bounds.retain(|surface, _| visible_surfaces.contains(surface));
+    app.rendered_terminal_mouse_tracking.retain(|surface, _| visible_surfaces.contains(surface));
     let mut input_cursor = None;
     let mut terminal_cursor = None;
     for area in &areas {
@@ -340,6 +341,7 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
 fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) -> DrawCursors {
     let rect = area.content;
     app.rendered_terminal_bounds.remove(&area.surface);
+    app.rendered_terminal_mouse_tracking.remove(&area.surface);
     if rect.width == 0 || rect.height == 0 {
         return DrawCursors::default();
     }
@@ -368,6 +370,7 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     let live = super::terminal_grid::rendered_viewport_rect(rect, frame.area(), &render);
     app.rendered_terminal_bounds.insert(area.surface, live);
     app.rendered_terminal_sizes.insert(area.surface, render.frame.size);
+    app.rendered_terminal_mouse_tracking.insert(area.surface, render.mouse_tracking);
     if focused && app.menu.is_none() && app.prompt.is_none() && app.pairing_dialog.is_none() {
         let (shape, blinking) = render.frame.cursor_visual;
         app.use_terminal_cursor_spec(

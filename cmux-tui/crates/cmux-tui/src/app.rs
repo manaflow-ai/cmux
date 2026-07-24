@@ -2949,7 +2949,7 @@ enum MenuPointerRegion {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PanePointerRegion {
     BrowserCell { column: u16, row: u16 },
-    TerminalCell { column: u16, row: u16 },
+    TerminalCell { column: u16, row: u16, pty_mouse_owned: Option<bool> },
     ContentPadding,
     Chrome,
 }
@@ -3027,6 +3027,18 @@ enum PointerRouteIdentity {
     Outside,
 }
 
+impl PointerRouteIdentity {
+    fn terminal_mouse_ownership(&self) -> Option<(SurfaceId, Option<bool>)> {
+        match self {
+            Self::Pane {
+                pane,
+                region: PanePointerRegion::TerminalCell { pty_mouse_owned, .. },
+            } => Some((pane.surface, *pty_mouse_owned)),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Default)]
 struct RenderedPointerFrame {
     pairing: Option<(u64, Rect, Rect, Rect)>,
@@ -3038,10 +3050,12 @@ struct RenderedPointerFrame {
     workspace_rail: Option<Rect>,
     hits: Vec<(Rect, Hit)>,
     panes: Vec<RenderedPaneRoute>,
+    terminal_mouse_tracking: HashMap<SurfaceId, bool>,
 }
 
 impl RenderedPointerFrame {
-    fn route_at(&self, x: u16, y: u16) -> PointerRouteIdentity {
+    fn route_for_mouse(&self, mouse: &MouseEvent) -> PointerRouteIdentity {
+        let (x, y) = (mouse.column, mouse.row);
         if let Some((request, rect, approve, deny)) = self.pairing {
             let region = if approve.contains(x, y) {
                 PairingPointerRegion::Approve
@@ -3153,6 +3167,11 @@ impl RenderedPointerFrame {
                         PanePointerRegion::TerminalCell {
                             column: x.saturating_sub(input.x),
                             row: y.saturating_sub(input.y),
+                            pty_mouse_owned: self
+                                .terminal_mouse_tracking
+                                .get(&pane.surface)
+                                .copied()
+                                .map(|tracking| terminal_mouse_input_owned(mouse, tracking)),
                         }
                     }
                     Some(SurfaceKind::Pty) | None => PanePointerRegion::ContentPadding,
@@ -3304,6 +3323,9 @@ pub struct App {
     /// surface. Pointer routing uses this snapshot so resize transitions do
     /// not target blank pane margins or wait on the PTY's terminal lock.
     pub rendered_terminal_sizes: HashMap<SurfaceId, (u16, u16)>,
+    /// PTY mouse-tracking state captured under the same terminal lock as
+    /// each rendered frame.
+    pub(crate) rendered_terminal_mouse_tracking: HashMap<SurfaceId, bool>,
     desired_outer_cursor: OuterCursorSpec,
     applied_outer_cursor: Option<OuterCursorSpec>,
     pub graphics_writer: Option<GraphicsWriter>,
@@ -4329,6 +4351,7 @@ pub fn run_with_machine_updates(
         tab_locations: HashMap::new(),
         render_states: HashMap::new(),
         rendered_terminal_sizes: HashMap::new(),
+        rendered_terminal_mouse_tracking: HashMap::new(),
         desired_outer_cursor: OuterCursorSpec::Reset,
         applied_outer_cursor: None,
         graphics_writer,
@@ -5053,6 +5076,7 @@ impl App {
         self.pane_focus_history = PaneFocusHistory::default();
         self.pane_focus_history.sync_membership(&self.tree);
         self.rendered_terminal_sizes.clear();
+        self.rendered_terminal_mouse_tracking.clear();
         self.rendered_terminal_bounds.clear();
         self.visible_size_surfaces.clear();
         self.pending_size_releases.clear();
@@ -5195,6 +5219,7 @@ impl App {
             workspace_rail,
             hits: self.hits.clone(),
             panes,
+            terminal_mouse_tracking: self.rendered_terminal_mouse_tracking.clone(),
         };
     }
 
@@ -5304,10 +5329,15 @@ impl App {
             }
             let input = self.deferred_input.pop_front().unwrap();
             replayed += 1;
+            let pointer_has_capture = match &input.event {
+                Event::Mouse(mouse) => self.replayed_pointer_has_capture(mouse.kind),
+                _ => false,
+            };
             if let (Event::Mouse(mouse), Some(DeferredPointerInput { route: Some(expected), .. })) =
                 (&input.event, &input.pointer)
-                && !self.replayed_pointer_has_capture(mouse.kind)
-                && &self.rendered_pointer_frame.route_at(mouse.column, mouse.row) != expected
+                && !pointer_has_capture
+                && (&self.rendered_pointer_frame.route_for_mouse(mouse) != expected
+                    || !self.replayed_pointer_matches_live_pty_ownership(mouse, expected))
             {
                 continue;
             }
@@ -5320,6 +5350,7 @@ impl App {
                 input.sidebar_focus_intent && self.workspace_sidebar_focused();
             if !follows_pending_route
                 && !follows_sidebar_focus
+                && !pointer_has_capture
                 && self.input_destination(&input.event) != input.destination
             {
                 if !matches!(input.event, Event::Mouse(_)) {
@@ -5597,6 +5628,7 @@ impl App {
         }
         self.render_states.remove(&surface);
         self.rendered_terminal_sizes.remove(&surface);
+        self.rendered_terminal_mouse_tracking.remove(&surface);
         self.rendered_terminal_bounds.remove(&surface);
         self.visible_size_surfaces.remove(&surface);
         self.pending_size_releases.remove(&surface);
@@ -6768,7 +6800,7 @@ impl App {
             Some(DeferredPointerInput {
                 focus_generation: self.pointer_focus_generation,
                 route: Self::mouse_requires_rendered_route(mouse.kind)
-                    .then(|| self.rendered_pointer_frame.route_at(mouse.column, mouse.row)),
+                    .then(|| self.rendered_pointer_frame.route_for_mouse(mouse)),
             })
         } else {
             None
@@ -6901,6 +6933,23 @@ impl App {
             }
             _ => false,
         }
+    }
+
+    fn replayed_pointer_matches_live_pty_ownership(
+        &self,
+        mouse: &MouseEvent,
+        expected: &PointerRouteIdentity,
+    ) -> bool {
+        let Some((surface, expected_owned)) = expected.terminal_mouse_ownership() else {
+            return true;
+        };
+        let Some(expected_owned) = expected_owned else {
+            return false;
+        };
+        self.session
+            .surface(surface)
+            .and_then(|surface| surface.try_mouse_tracking())
+            .is_some_and(|tracking| terminal_mouse_input_owned(mouse, tracking) == expected_owned)
     }
 
     fn input_destination(&self, input: &Event) -> Option<SurfaceId> {
@@ -11259,6 +11308,19 @@ fn canonical_terminal_content(content: Rect, rendered_size: Option<(u16, u16)>) 
         width: content.width.min(cols),
         height: content.height.min(rows),
     }
+}
+
+fn terminal_mouse_input_owned(mouse: &MouseEvent, tracking: bool) -> bool {
+    tracking
+        && !mouse.modifiers.contains(KeyModifiers::SHIFT)
+        && matches!(
+            mouse.kind,
+            MouseEventKind::Down(_)
+                | MouseEventKind::ScrollUp
+                | MouseEventKind::ScrollDown
+                | MouseEventKind::ScrollLeft
+                | MouseEventKind::ScrollRight
+        )
 }
 
 fn outer_cursor_escape_if_changed(
@@ -19140,6 +19202,7 @@ mod tests {
             tab_locations: HashMap::new(),
             render_states: HashMap::<u64, RenderState>::new(),
             rendered_terminal_sizes: HashMap::new(),
+            rendered_terminal_mouse_tracking: HashMap::new(),
             desired_outer_cursor: OuterCursorSpec::Reset,
             applied_outer_cursor: None,
             graphics_writer: None,

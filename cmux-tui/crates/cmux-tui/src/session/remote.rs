@@ -290,6 +290,17 @@ impl RemoteSurface {
     pub(super) fn reset_mouse_motion_dedupe(&self) {
         self.mouse_encoders.lock().unwrap().reset_motion_dedupe();
     }
+
+    pub(super) fn try_mouse_tracking(&self) -> Option<bool> {
+        match self.term.try_lock() {
+            Ok(term) => Some(term.mouse_tracking()),
+            Err(std::sync::TryLockError::Poisoned(error)) => {
+                Some(error.into_inner().mouse_tracking())
+            }
+            Err(std::sync::TryLockError::WouldBlock) => None,
+        }
+    }
+
     /// Apply an ordered attach-stream resize marker to the mirror terminal.
     pub(super) fn apply_stream_resize(&self, cols: u16, rows: u16, replay: Option<&[u8]>) {
         self.apply_stream_resize_with_colors(cols, rows, replay, None);
