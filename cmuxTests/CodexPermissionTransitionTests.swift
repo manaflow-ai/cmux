@@ -241,6 +241,19 @@ struct CodexPermissionTransitionTests {
         #expect(completed.state.phase == .resumed)
     }
 
+    @Test func fullyUnscopedRequestCorrelatesToOnlyActiveStart() {
+        let tool = CodexPermissionSignalIdentity(turnID: "turn-unscoped", requestID: "call-1")
+        let started = permissionMachine.reduce(
+            current: nil, event: .toolStarted, identity: tool, runtime: runtime
+        )
+        let requested = permissionMachine.reduce(
+            current: started.state, event: .permissionRequested,
+            identity: .init(turnID: nil, requestID: nil), runtime: runtime
+        )
+        #expect(requested.accepted)
+        #expect(requested.state.identity == tool)
+    }
+
     @Test func lateCompletionCannotClearNewerPermission() {
         let oldTool = CodexPermissionSignalIdentity(turnID: "turn-6", requestID: "call-old")
         let newTool = CodexPermissionSignalIdentity(turnID: "turn-6", requestID: "call-new")
