@@ -9,6 +9,34 @@ import Testing
 @MainActor
 struct SidebarHiddenPresentationTests {
     @Test
+    func focusBoundaryUsesScrollableRespondersVisibleRect() throws {
+        let boundary = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 180))
+        let scrollView = NSScrollView(frame: boundary.bounds)
+        let responder = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 240, height: 1_200))
+        scrollView.documentView = responder
+        boundary.addSubview(scrollView)
+
+        let window = NSWindow(
+            contentRect: boundary.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = boundary
+        defer { window.close() }
+        boundary.layoutSubtreeIfNeeded()
+
+        let reference = SidebarFocusBoundaryReference()
+        reference.attach(boundary)
+        #expect(window.makeFirstResponder(responder))
+        let firstResponder = try #require(window.firstResponder)
+        #expect(
+            reference.contains(firstResponder, in: window),
+            "A clipped document view belongs to the sidebar when its visible portion is inside it."
+        )
+    }
+
+    @Test
     func controllerHideReleasesLiveRowPayloadWithoutDiscardingRowIdentity() async {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
@@ -352,5 +380,9 @@ struct SidebarHiddenPresentationTests {
 
     private struct TestRowContent: View, Equatable {
         var body: some View { EmptyView() }
+    }
+
+    private final class FocusProbeView: NSView {
+        override var acceptsFirstResponder: Bool { true }
     }
 }

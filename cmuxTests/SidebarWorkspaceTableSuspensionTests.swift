@@ -245,6 +245,26 @@ struct SidebarWorkspaceTableSuspensionTests {
         #expect(reloads == 2)
     }
 
+    @Test
+    func mutationSchedulerKeepsDeferredActionsAliveUntilFlush() async {
+        var postUpdateActions = 0
+        var scheduler: SidebarWorkspaceTableMutationScheduler? =
+            SidebarWorkspaceTableMutationScheduler(
+                applyFlush: { _ in },
+                viewportChangeFlush: {},
+                reloadFlush: {}
+            )
+        weak var scheduledOwner = scheduler
+
+        scheduler?.stagePostUpdateActions([{ postUpdateActions += 1 }])
+        scheduler = nil
+
+        #expect(scheduledOwner != nil, "The scheduled flush must retain its queued actions.")
+        await flushStagedTableMutations()
+        #expect(postUpdateActions == 1)
+        #expect(scheduledOwner == nil)
+    }
+
     private func makeRowConfiguration(
         workspaceId: UUID = UUID(),
         contentToken: Int = 0
