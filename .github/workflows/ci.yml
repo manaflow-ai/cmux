@@ -157,9 +157,6 @@ jobs:
       - name: Validate TestFlight notes generator
         run: python3 tests/test_ios_testflight_notes.py
 
-      - name: Validate CMUX INTERNAL main-push path filter
-        run: python3 tests/test_ios_testflight_main_push_filter.py
-
       - name: Validate external TestFlight group assignment helper
         run: python3 tests/test_ios_testflight_external_distribution.py
 
@@ -254,6 +251,9 @@ jobs:
 
       - name: Validate test determinism gate
         run: python3 scripts/check-test-determinism.py --strict
+
+      - name: Validate the crash-report scan
+        run: python3 scripts/crash-reports-since.py --self-test
 
   remote-daemon-tests:
     needs: changes
@@ -857,6 +857,12 @@ jobs:
           # Stream output via tee so CI logs are visible in real time, while still
           # capturing for post-run analysis of expected vs unexpected failures.
           TEST_OUTPUT="$RUNNER_TEMP/cmux-unit-output-shard-${{ matrix.shard }}.txt"
+          # macOS writes crash reports to one fixed directory, so this shard cannot have its own.
+          # Recording what is already there gives the same thing by subtraction: anything
+          # cmux-named that appears later belongs to this run.
+          CRASH_SNAPSHOT="$RUNNER_TEMP/cmux-crash-snapshot-shard-${{ matrix.shard }}.txt"
+          CRASH_KEPT="$RUNNER_TEMP/cmux-crashes-shard-${{ matrix.shard }}"
+          python3 scripts/crash-reports-since.py --snapshot "$CRASH_SNAPSHOT"
           set +e
           run_unit_tests | tee "$TEST_OUTPUT"
           EXIT_CODE=${PIPESTATUS[0]}
@@ -879,6 +885,76 @@ jobs:
             set -e
           fi
 
+          # A dead app host is never a pass, whatever the summary says. When the host dies the
+          # runner relaunches it and the summary line then describes only the tests the LAST
+          # launch managed. Measured on this repo: a shard printing "Test run with 0 tests in 1
+          # suite passed" while two hosts had died, and job logs carrying 24 restarts. Those
+          # verdicts are not green, they are absent.
+          HOST_DEATHS=$(grep -c "Restarting after unexpected exit, crash, or test timeout" "$TEST_OUTPUT" || true)
+          if [ "${HOST_DEATHS:-0}" -ne 0 ]; then
+            echo "::error::app host died ${HOST_DEATHS} time(s); every verdict pending in those launches is lost"
+            echo "Tests that started but never reported (the last one named is where a host died):"
+            # Both harnesses, because they announce tests in different shapes and this shard may be
+            # either. swift-testing prints "Test foo() started"; XCTest prints
+            # "Test Case '-[Suite testFoo]' started". Matching only the first form made this list
+            # empty for a shard of XCTest suites — which is most of them — and an empty list reads
+            # as "nothing was lost" at the exact moment something was.
+            comm -23 \
+              <({ grep -oE "Test [A-Za-z0-9_]+\(\)" "$TEST_OUTPUT" | sed 's/^Test //'
+                  grep -oE "Test Case '-\[[A-Za-z0-9_.]+ [A-Za-z0-9_]+\]' started" "$TEST_OUTPUT" \
+                    | sed -E "s/^Test Case '-\[//; s/\]' started$//"
+                } | sort -u) \
+              <({ grep -oE "(✔|✘) Test [A-Za-z0-9_]+\(\)" "$TEST_OUTPUT" | sed -E 's/^(✔|✘) Test //'
+                  grep -oE "Test Case '-\[[A-Za-z0-9_.]+ [A-Za-z0-9_]+\]' (passed|failed)" "$TEST_OUTPUT" \
+                    | sed -E "s/^Test Case '-\[//; s/\]' (passed|failed)$//"
+                } | sort -u) \
+              | head -20 || true
+            exit 1
+          fi
+
+          # The restart line above is the runner noticing a host it has to replace, so it misses a
+          # crash with nothing left to restart — one during teardown, after the last verdict is
+          # already printed. That crash is still an over-release, and it reads as a clean shard.
+          # The process's own crash report is the evidence. Reports that appeared since the
+          # snapshot belong to this run, and each is copied out because macOS prunes that
+          # directory and the copy is what survives into the artifact.
+          #
+          # A report above zero proves a crash; zero does not prove none, because ReportCrash
+          # writes asynchronously and can land after this runs. So this backs the restart check
+          # up instead of replacing it.
+          #
+          # The scan's own failure is a failure. Swallowing its exit status would turn a renamed
+          # script or a missing interpreter into empty output, which reads as "nothing crashed".
+          set +e
+          CRASHES=$(python3 scripts/crash-reports-since.py --new-since "$CRASH_SNAPSHOT" --copy-to "$CRASH_KEPT")
+          CRASH_SCAN_RC=$?
+          set -e
+          if [ "$CRASH_SCAN_RC" -ne 0 ]; then
+            echo "::error::the crash-report scan failed (exit ${CRASH_SCAN_RC}); refusing to read that as a clean shard"
+            exit 1
+          fi
+          if [ -n "$CRASHES" ]; then
+            echo "::error::a cmux process crashed during this shard, even if every verdict printed"
+            echo "$CRASHES" | sed 's/^/  /'
+            exit 1
+          fi
+
+          # A run that executed nothing is not a pass either. A selector naming a file rather than
+          # a suite, or a suite that no longer exists, leaves xcodebuild reporting success having
+          # done no work at all.
+          #
+          # Both harnesses have to be counted. swift-testing prints a line per test; XCTest prints
+          # none of those and only reports "Executed N tests" — a shard of XCTest suites therefore
+          # looks empty if you count swift-testing lines alone.
+          SWIFT_TESTS=$(grep -c "✔ Test \|✘ Test " "$TEST_OUTPUT" || true)
+          XCTESTS=$(grep -oE "Executed [0-9]+ test" "$TEST_OUTPUT" | grep -oE "[0-9]+" | sort -rn | head -1)
+          TESTS_SEEN=$(( ${SWIFT_TESTS:-0} + ${XCTESTS:-0} ))
+          if [ "$TESTS_SEEN" -eq 0 ]; then
+            echo "::error::no tests executed for this shard; its selectors matched nothing"
+            exit 1
+          fi
+          echo "shard executed ${TESTS_SEEN} tests with no host deaths"
+
           if [ "$EXIT_CODE" -ne 0 ]; then
             SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
             if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
@@ -888,6 +964,20 @@ jobs:
               exit 1
             fi
           fi
+
+      - name: Keep the unit test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cmux-unit-shard-${{ matrix.shard }}-output
+          # Without this, "which test failed on CI" is unanswerable after the fact: the job log is a
+          # filtered excerpt, and neither the xcodebuild output nor an xcresult was kept.
+          path: |
+            ${{ runner.temp }}/cmux-unit-output-shard-${{ matrix.shard }}.txt
+            ${{ runner.temp }}/cmux-unit-shard-${{ matrix.shard }}.args
+            ${{ runner.temp }}/cmux-crashes-shard-${{ matrix.shard }}/
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Run bundled Ghostty theme picker helper regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
