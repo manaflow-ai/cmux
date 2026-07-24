@@ -915,6 +915,11 @@ struct ComputerUseUXTests {
         #expect(configuration.environment["CUA_DRIVER_RS_UPDATE_CHECK"] == "false")
         #expect(configuration.environment["CUA_DRIVER_RS_RESPONSIBILITY_DISCLAIMED"] == "1")
         #expect(configuration.environment["CUA_DRIVER_SOCKET_AUTH_TOKEN"] == "test-auth-token")
+        let hostAuthority = try #require(
+            configuration.environment["CUA_DRIVER_SOCKET_HOST_AUTH_TOKEN"]
+        )
+        #expect(hostAuthority.count == 64)
+        #expect(hostAuthority != "test-auth-token")
         #expect(configuration.environment["CUA_DRIVER_SOCKET_AUTHORIZED_ROOT_PID"]
             == "42")
         #expect(configuration.environment["CUA_DRIVER_SOCKET_AUTHORIZED_ROOT_START_SECONDS"]
