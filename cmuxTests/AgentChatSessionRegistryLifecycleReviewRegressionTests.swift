@@ -1,6 +1,7 @@
 import CMUXAgentLaunch
 import CmuxAgentChat
 import Foundation
+@preconcurrency import Network
 import Testing
 
 #if canImport(cmux_DEV)
@@ -10,6 +11,66 @@ import Testing
 #endif
 
 struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
+    @MainActor
+    @Test func liveCodexHookDefersFallbackTranscriptScanUntilHistoryOpen() async throws {
+        let home = try temporaryHomeDirectory()
+        let sessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        let transcriptURL = home
+            .appendingPathComponent(".codex/sessions/2026/07/24", isDirectory: true)
+            .appendingPathComponent("rollout-2026-07-24T00-00-00-\(sessionID).jsonl")
+        try FileManager.default.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "{}\n".write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            resolver: AgentChatTranscriptResolver(homeDirectory: home, environment: [:]),
+            emitEventPayload: { _ in }
+        )
+        let connection = MobileHostConnection(
+            id: UUID(),
+            connection: NWConnection(
+                host: NWEndpoint.Host("127.0.0.1"),
+                port: NWEndpoint.Port(rawValue: 9)!,
+                using: .tcp
+            ),
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+        await connection.subscribe(
+            streamID: "agent-chat-fallback-regression",
+            topics: [AgentChatTranscriptService.eventTopic]
+        )
+
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .sessionStart,
+            source: "codex",
+            workspaceId: UUID().uuidString,
+            surfaceId: UUID().uuidString,
+            transcriptPath: nil,
+            cwd: "/Users/example/project",
+            ppid: nil,
+            receivedAt: Date(timeIntervalSince1970: 300)
+        ))
+        let recordAfterHook = service.sessionRecord(sessionID: sessionID)
+        _ = await connection.unsubscribe(streamID: "agent-chat-fallback-regression")
+
+        let history = await service.history(sessionID: sessionID, beforeSeq: nil, limit: 50)
+        let recordAfterHistory = service.sessionRecord(sessionID: sessionID)
+        let adoptedHistoryPath = recordAfterHistory?.transcriptPath.map {
+            URL(fileURLWithPath: $0).resolvingSymlinksInPath().path
+        }
+
+        #expect(recordAfterHook?.transcriptPath == nil)
+        #expect(history != nil)
+        #expect(adoptedHistoryPath == transcriptURL.resolvingSymlinksInPath().path)
+    }
+
     @MainActor
     @Test func onlyHookEventsProvideAuthoritativeAgentLifecycleState() throws {
         let registry = AgentChatSessionRegistry()
