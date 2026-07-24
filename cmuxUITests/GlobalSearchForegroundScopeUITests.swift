@@ -97,6 +97,28 @@ final class GlobalSearchForegroundScopeUITests: XCTestCase {
             "cmux must remain backgrounded after the foreground app receives Cmd-Option-F"
         )
         XCTAssertFalse(globalSearchField.exists, "Background Cmd-Option-F must not open cmux Global Search")
+
+        app.activate()
+        XCTAssertTrue(
+            app.wait(for: .runningForeground, timeout: 10.0),
+            "Expected cmux to become foreground. state=\(app.state.rawValue)"
+        )
+
+        app.typeKey("f", modifierFlags: [.command, .option])
+        XCTAssertTrue(
+            globalSearchField.waitForExistence(timeout: 8.0),
+            "Foreground Cmd-Option-F must open cmux Global Search"
+        )
+
+        app.typeKey("f", modifierFlags: [.command, .option])
+        XCTAssertTrue(
+            waitForPredicate(
+                NSPredicate(format: "exists == false"),
+                object: globalSearchField,
+                timeout: 8.0
+            ),
+            "A second foreground Cmd-Option-F must close cmux Global Search"
+        )
     }
 
     private func waitForAppToRun(_ application: XCUIApplication, timeout: TimeInterval) -> Bool {
