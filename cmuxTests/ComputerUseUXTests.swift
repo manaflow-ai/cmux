@@ -876,11 +876,12 @@ struct ComputerUseUXTests {
         )
         let status = await refreshTask.value
         replacement.stop()
-        await runtime.setEnabled(false)
 
         #expect(runtime.permissionStatusIsKnown)
         #expect(status.accessibility)
         #expect(status.screenRecording)
+
+        await runtime.setEnabled(false)
     }
 
     @Test func helperLaunchConfigurationIsQuietAndExternallyOwned() throws {
