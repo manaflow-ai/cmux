@@ -4,33 +4,33 @@ extension AppDelegate {
     /// Routes adjacent surface navigation and surface/workspace reordering through
     /// the main-window context selected for the key event.
     func handleAdjacentNavigationShortcut(event: NSEvent) -> Bool {
-        let routedTabManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager
+        let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager
             ?? tabManager
         if matchConfiguredShortcut(event: event, action: .nextSurface) {
             if performFocusedDockShortcut(.selectNextSurface, event: event) { return true }
-            routedTabManager?.selectNextSurface()
+            routedTabs?.selectNextSurface()
             return true
         }
         if matchConfiguredShortcut(event: event, action: .prevSurface) {
             if performFocusedDockShortcut(.selectPreviousSurface, event: event) { return true }
-            routedTabManager?.selectPreviousSurface()
+            routedTabs?.selectPreviousSurface()
             return true
         }
         if matchConfiguredShortcut(event: event, action: .moveSurfaceLeft) {
             if performFocusedDockShortcut(.moveSurface(offset: -1), event: event) { return true }
-            routedTabManager?.selectedWorkspace?.moveSelectedSurface(by: -1)
+            routedTabs?.selectedWorkspace?.moveSelectedSurface(by: -1)
             return true
         }
         if matchConfiguredShortcut(event: event, action: .moveSurfaceRight) {
             if performFocusedDockShortcut(.moveSurface(offset: 1), event: event) { return true }
-            routedTabManager?.selectedWorkspace?.moveSelectedSurface(by: 1)
+            routedTabs?.selectedWorkspace?.moveSelectedSurface(by: 1)
             return true
         }
         for movement in SurfacePaneMovement.allCases
         where matchesSurfacePaneMovementShortcut(event: event, movement: movement) {
             if !performSurfacePaneMovement(
                 movement,
-                tabManager: routedTabManager,
+                tabManager: routedTabs,
                 preferredWindow: event.window
             ) {
                 NSSound.beep()
@@ -38,11 +38,11 @@ extension AppDelegate {
             return true
         }
         if matchConfiguredShortcut(event: event, action: .moveWorkspaceUp) {
-            routedTabManager?.moveSelectedWorkspace(by: -1)
+            routedTabs?.moveSelectedWorkspace(by: -1)
             return true
         }
         if matchConfiguredShortcut(event: event, action: .moveWorkspaceDown) {
-            routedTabManager?.moveSelectedWorkspace(by: 1)
+            routedTabs?.moveSelectedWorkspace(by: 1)
             return true
         }
         return false
