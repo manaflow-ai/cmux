@@ -181,6 +181,14 @@ mod tests {
     }
 
     #[test]
+    fn closing_websockets_do_not_consume_capacity() {
+        assert!(websocket_counts_toward_capacity(1, 200, 100));
+        assert!(!websocket_counts_toward_capacity(2, 200, 100));
+        assert!(!websocket_counts_toward_capacity(3, 200, 100));
+        assert!(!websocket_counts_toward_capacity(1, 100, 100));
+    }
+
+    #[test]
     fn circuit_admission_allows_two_peers_but_bounds_pending_upgrades() {
         assert!(admit_circuit_socket(0, 0));
         assert!(admit_circuit_socket(1, 1));
