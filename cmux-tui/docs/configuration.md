@@ -72,6 +72,96 @@ cmux-tui plugin use --builtin
 cmux-tui plugin disable
 ```
 
+## Machines
+
+The machine rail is an optional first rail to the left of the existing sidebar. It is inactive when `machine_sidebar.enabled` is false and `machines` is empty. Setting `enabled` to true shows the current local session and the static connector actions even when no extra targets are configured. Any valid `machines` entry also activates the rail.
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `machine_sidebar.enabled` | boolean | `false` | Enables the machine rail without requiring a configured target |
+| `machine_sidebar.width` | integer | `22` | Initial machine-rail width, clamped to 10 through 60 on load |
+| `machine_sidebar.max_width` | integer | `0` | Maximum live drag width for the machine rail; `0` means no configured maximum |
+| `machines` | array | `[]` | Static Unix-socket and SSH connection targets |
+
+Every machine has a unique nonempty `id`, a nonempty display `name`, an optional `subtitle`, and one transport. The id `current` is reserved for the automatically inserted local session.
+
+| Machine key | Applies to | Type | Default | Effect |
+| --- | --- | --- | --- | --- |
+| `id` | all | string | required | Stable config identity; duplicate and empty ids are ignored |
+| `name` | all | string | required | Primary rail label |
+| `subtitle` | all | string | `""` | Secondary rail label |
+| `transport` | all | `"unix"` or `"ssh"` | required | Connector type |
+| `socket` | Unix | string | required | Absolute path to an existing cmux session socket |
+| `host` | SSH | string | required | SSH host name or address |
+| `user` | SSH | string | unset | SSH user, passed as `user@host` |
+| `port` | SSH | integer | unset | SSH port, passed with `-p` |
+| `identity_file` | SSH | string | unset | Local SSH identity path, passed with `-i` |
+| `session` | SSH | string | `"main"` | Remote cmux session passed to `relay --session` |
+| `binary` | SSH | string | `"cmux-tui"` | Remote executable path used for `binary relay`; this is one executable, not a shell command |
+
+```json
+{
+  "machine_sidebar": {
+    "enabled": true,
+    "width": 20,
+    "max_width": 36
+  },
+  "machines": [
+    {
+      "id": "local-agents",
+      "name": "Local agents",
+      "subtitle": "second session",
+      "transport": "unix",
+      "socket": "/tmp/cmux-tui-501/agents.sock"
+    },
+    {
+      "id": "buildbox",
+      "name": "Build box",
+      "subtitle": "us-central1",
+      "transport": "ssh",
+      "host": "buildbox.example.com",
+      "user": "dev",
+      "port": 22,
+      "identity_file": "/Users/me/.ssh/id_ed25519",
+      "session": "agents",
+      "binary": "/home/dev/.local/bin/cmux"
+    }
+  ]
+}
+```
+
+The SSH target invokes noninteractive `ssh -T` with strict host-key checking, disabled agent forwarding, and disabled port forwarding, then runs `binary relay --session session` remotely. It connects to an existing remote server and does not start one. See [Machines](machines.md) for rail behavior and a complete `npx cmux` remote setup.
+
+### Dynamic machine provider
+
+Dynamic provider startup is disabled by default. Persistent configuration currently covers the built-in cloud SSH transport:
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `machine_provider.cloud.enabled` | boolean | `false` | Starts the dynamic provider through SSH |
+| `machine_provider.cloud.host` | string | `"cmux.cloud"` | SSH host |
+| `machine_provider.cloud.user` | string or null | `null` | Optional SSH user |
+| `machine_provider.cloud.port` | integer or null | `null` | Optional nonzero SSH port |
+| `machine_provider.cloud.identity_file` | string or null | `null` | Optional local SSH identity path |
+
+```json
+{
+  "machine_provider": {
+    "cloud": {
+      "enabled": true,
+      "host": "cmux.cloud",
+      "user": "lawrence",
+      "port": 22,
+      "identity_file": "/Users/me/.ssh/id_ed25519"
+    }
+  }
+}
+```
+
+`--cloud-host`, `--cloud-user`, `--cloud-port`, and `--cloud-identity` override their matching config values and imply `--cloud`. A local Cloud client composes the static `machines` array with the provider catalog. Static entries and temporary `+ Connect machine` targets stay client-local and use local SSH credentials. Explicit `--machine-provider <socket>` or `--machine-provider-command <argv...> --` overrides an enabled cloud config; those provider-only modes reject a nonempty `machines` array. Every dynamic provider rejects another provider transport, `attach`, server socket/listener flags, `--headless`, and `--term`.
+
+The cloud connector runs `cmux provider control` and `cmux provider stream` remotely. These are provider service commands, not cmux-tui control-socket verbs. See [Machines](machines.md#dynamic-providers).
+
 ## Browser
 
 | Key | Type | Default | Effect |
@@ -115,10 +205,10 @@ WebSocket clients pair through a six-digit browser/TUI comparison by default. We
 | `keys.alt_shortcuts` | boolean | `true` | Enables default modeless Alt bindings when true |
 | `keys.new-tab` | chord string or array or `"none"` | `["t","alt+t"]` | New PTY tab |
 | `keys.new_browser_tab` | chord string or array or `"none"` | `"B"` | Browser URL prompt |
-| `keys.new-pane-smart` | chord string or array or `"none"` | `"alt+n"` | New pane using smart split direction |
+| `keys.new-pane-smart` | chord string or array or `"none"` | `"alt+n"` | New pane using the default automatic layout |
 | `keys.next-tab` | chord string or array or `"none"` | `"tab"` | Next tab |
 | `keys.prev-tab` | chord string or array or `"none"` | `"backtab"` | Previous tab |
-| `keys.select-tab-1` through `keys.select-tab-9` | chord string or array or `"none"` | unbound | Select tab by visible tab number; use these to restore the old `Ctrl-b 1` through `Ctrl-b 9` tab selectors |
+| `keys.select-tab-0` through `keys.select-tab-9` | chord string or array or `"none"` | unbound | Select tab by its zero-based visible index |
 | `keys.split-right` | chord string or array or `"none"` | `"%"` | Split right |
 | `keys.split-down` | chord string or array or `"none"` | `"\""` | Split down |
 | `keys.close-pane` | chord string or array or `"none"` | `"x"` | Close active pane |
@@ -130,8 +220,7 @@ WebSocket clients pair through a six-digit browser/TUI comparison by default. We
 | `keys.close-screen` | chord string or array or `"none"` | `"&"` | Close active screen |
 | `keys.prev-screen` | chord string or array or `"none"` | `["p","alt+["]` | Previous screen |
 | `keys.next-screen` | chord string or array or `"none"` | `["n","alt+]"]` | Next screen |
-| `keys.select-screen-1` through `keys.select-screen-9` | chord string or array or `"none"` | `"1"` through `"9"` | Select visible screen 1 through 9 |
-| `keys.select-screen-0` | chord string or array or `"none"` | `"0"` | Select visible screen 10 |
+| `keys.select-screen-0` through `keys.select-screen-9` | chord string or array or `"none"` | `"0"` through `"9"` | Select visible screen 0 through 9 |
 | `keys.new-screen` | chord string or array or `"none"` | `"c"` | New screen |
 | `keys.next-workspace` | chord string or array or `"none"` | `"w"` | Next workspace |
 | `keys.new-workspace` | chord string or array or `"none"` | `"W"` | New workspace |
@@ -160,7 +249,7 @@ Each action override replaces all default chords for that action. Values may be 
 
 `Ctrl-b x` now follows tmux and closes the active pane. `Ctrl-b X` closes the active tab. Existing users can restore the old cmux behavior with `"close-tab": "x"` and `"close-pane": "X"`.
 
-Screens are visibly numbered from 1, so `select-screen-1` selects the first visible screen and `select-screen-0` selects the tenth visible screen. The snake_case spellings `select_screen_N` and `select_tab_N` are accepted as aliases. `Ctrl-b ]` and `Ctrl-b q` are intentionally unbound: cmux has no paste-buffer command and no pane-number quick-jump overlay yet. Zellij's modal `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are not defaults because they conflict with common shell and editor control keys.
+Screen and tab positions are zero-based, so each `select-screen-N` or `select-tab-N` action selects index `N`. Generated workspace names also start at `0`. The snake_case spellings `select_screen_N` and `select_tab_N` are accepted as aliases. `Ctrl-b ]` and `Ctrl-b q` are intentionally unbound: cmux has no paste-buffer command and no pane-number quick-jump overlay yet. Zellij's modal `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are not defaults because they conflict with common shell and editor control keys.
 
 Chord strings can be single characters or a key name with optional `ctrl`, `control`, `alt`, `option`, or `shift` modifiers. Examples: `"c"`, `"%"`, `"ctrl+b"`, `"alt+enter"`, `"tab"`, `"backtab"`, `"shift+tab"`, `"pageup"`, `"pagedown"`, `"esc"`, `"space"`, `"left"`, `"right"`, `"up"`, `"down"`, `"home"`, and `"end"`.
 
@@ -193,6 +282,23 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
     "width": 24,
     "max_width": 40
   },
+  "machine_sidebar": {
+    "enabled": true,
+    "width": 20,
+    "max_width": 36
+  },
+  "machines": [
+    {
+      "id": "buildbox",
+      "name": "Build box",
+      "subtitle": "remote agents",
+      "transport": "ssh",
+      "host": "buildbox.example.com",
+      "user": "dev",
+      "session": "agents",
+      "binary": "/home/dev/.local/bin/cmux"
+    }
+  ],
   "browser": {
     "chrome_binary": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     "mode": "headful",

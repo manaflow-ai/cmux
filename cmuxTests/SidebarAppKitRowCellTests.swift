@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSidebar
 import Testing
 @testable import cmux_DEV
 
@@ -7,7 +8,10 @@ import Testing
 @Suite
 @MainActor
 struct SidebarAppKitRowCellTests {
-    private static func makeSnapshot(title: String = "Workspace") -> SidebarWorkspaceSnapshotBuilder.Snapshot {
+    private static func makeSnapshot(
+        title: String = "Workspace",
+        metadataEntries: [SidebarStatusEntry] = []
+    ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: SidebarWorkspaceSnapshotFactory.presentationKey(
                 settings: SidebarTabItemSettingsSnapshot(defaults: UserDefaults(suiteName: UUID().uuidString)!),
@@ -23,7 +27,7 @@ struct SidebarAppKitRowCellTests {
             showsRemoteReconnectAffordance: false,
             copyableSidebarSSHError: nil,
             latestConversationMessage: nil,
-            metadataEntries: [],
+            metadataEntries: metadataEntries,
             metadataBlocks: [],
             latestLog: nil,
             progress: nil,
@@ -51,14 +55,16 @@ struct SidebarAppKitRowCellTests {
         workspaceId: UUID = UUID(),
         isActive: Bool = false,
         canClose: Bool = true,
-        settings: SidebarTabItemSettingsSnapshot? = nil
+        settings: SidebarTabItemSettingsSnapshot? = nil,
+        metadataEntries: [SidebarStatusEntry] = [],
+        shortcutHintText: String? = nil
     ) -> SidebarWorkspaceRowModel {
         let resolvedSettings = settings
             ?? SidebarTabItemSettingsSnapshot(defaults: UserDefaults(suiteName: UUID().uuidString)!)
         return SidebarWorkspaceRowModel(
             workspaceId: workspaceId,
             index: 0,
-            snapshot: makeSnapshot(),
+            snapshot: makeSnapshot(metadataEntries: metadataEntries),
             settings: resolvedSettings,
             isActive: isActive,
             isMultiSelected: false,
@@ -73,12 +79,15 @@ struct SidebarAppKitRowCellTests {
             bottomDropIndicatorVisible: false,
             isGrouped: false,
             isFirstRow: true,
-            shortcutHintText: nil,
-            showsShortcutHints: false,
+            shortcutHintText: shortcutHintText,
+            showsShortcutHints: shortcutHintText != nil,
             colorSchemeIsDark: true,
             globalFontMagnificationPercent: 100,
             isChecklistExpanded: false,
             checklistAddFieldActivationToken: 0,
+            isChecklistPopoverPresented: false,
+            editingChecklistItemId: nil,
+            todoControlsEnabled: false,
             isMetadataExpanded: false,
             isMarkdownExpanded: false
         )
@@ -140,7 +149,10 @@ struct SidebarAppKitRowCellTests {
         UserDefaults(suiteName: "SidebarAppKitRowCellTests.\(UUID().uuidString)")!
     }
 
-    private static func makeActions(model: SidebarWorkspaceRowModel) -> SidebarAppKitRowActions {
+    private static func makeActions(
+        model: SidebarWorkspaceRowModel,
+        onOpenStatusURL: @escaping (URL) -> Void = { _ in }
+    ) -> SidebarAppKitRowActions {
         let commands = SidebarWorkspaceRowCommands(
             tab: Workspace(),
             tabManager: nil,
@@ -162,6 +174,7 @@ struct SidebarAppKitRowCellTests {
         )
         return SidebarAppKitRowActions(
             commands: commands,
+            onOpenStatusURL: onOpenStatusURL,
             onOpenPullRequest: { _ in },
             onOpenPort: { _ in },
             onToggleChecklistExpansion: {},
@@ -172,22 +185,72 @@ struct SidebarAppKitRowCellTests {
             checklistRemoveItem: { _ in },
             checklistAddItem: { _ in },
             checklistEditItem: { _, _ in },
+            checklistMoveItem: { _, _ in },
+            checklistOpenPane: {},
+            checklistAddAttachments: { _ in },
+            checklistRemoveAttachment: { _, _ in },
+            checklistOpenAttachments: { _, _ in },
+            onChecklistPopoverPresentedChange: { _ in },
+            onBeginChecklistItemEdit: { _ in },
+            onEndChecklistItemEdit: { _ in },
+            applyTodoStatus: { _ in },
+            hideTodoStatus: {},
             commitRename: { _ in }
         )
     }
 
     private static func configuredCell(
-        model: SidebarWorkspaceRowModel
+        model: SidebarWorkspaceRowModel,
+        onOpenStatusURL: @escaping (URL) -> Void = { _ in }
     ) -> SidebarWorkspaceRowTableCellView {
         let cell = SidebarWorkspaceRowTableCellView()
         cell.configure(
             model: model,
-            actions: makeActions(model: model),
+            actions: makeActions(model: model, onOpenStatusURL: onOpenStatusURL),
             isPointerHovering: false,
             contextMenuDidOpen: {},
             contextMenuDidClose: {}
         )
         return cell
+    }
+
+    private static func descendants(of view: NSView) -> [NSView] {
+        view.subviews + view.subviews.flatMap { descendants(of: $0) }
+    }
+
+    @Test(arguments: zip(["codex", "claude_code"], ["Running", "Needs input"]))
+    func metadataStatusTextOmitsRawAgentKey(_ key: String, _ status: String) throws {
+        let model = Self.makeModel()
+        let row = SidebarRowIconTextLine()
+
+        row.configureMetadataEntry(
+            SidebarStatusEntry(key: key, value: status, icon: "bolt.fill"),
+            model: model,
+            color: .labelColor,
+            onOpenURL: { _ in }
+        )
+
+        let textView = try #require(row.subviews.compactMap { $0 as? SidebarRowTextView }.first)
+        #expect(textView.stringValue == status)
+        #expect(!textView.stringValue.contains(key))
+    }
+
+    @Test
+    func metadataStatusURLRendersAnActionBoundToItsDestination() throws {
+        let url = try #require(URL(string: "https://example.com/issues/8520"))
+        let model = Self.makeModel(
+            metadataEntries: [SidebarStatusEntry(key: "repro_link", value: "click me", url: url)]
+        )
+        var openedURL: URL?
+        let cell = Self.configuredCell(model: model) { openedURL = $0 }
+        let buttons = Self.descendants(of: cell).compactMap { $0 as? NSButton }
+
+        let link = try #require(buttons.first { $0.toolTip == url.absoluteString })
+        #expect(link.action != nil)
+        #expect(link.target != nil)
+        #expect(link.isEnabled)
+        link.performClick(nil)
+        #expect(openedURL == url)
     }
 
     @Test
@@ -205,6 +268,101 @@ struct SidebarAppKitRowCellTests {
 
         cell.enforcePointerHovering(true)
         #expect(applies == 1)
+    }
+
+    @Test
+    func shortcutHintPillKeepsVisibleDuringFadeOut() async throws {
+        let pill = SidebarShortcutHintPillView(reduceMotionProvider: { false })
+        pill.configure(text: "⌘1", fontSize: 10, emphasis: 1)
+
+        pill.configure(text: nil, fontSize: 10, emphasis: 1)
+
+        #expect(!pill.isHidden)
+        let clock = ContinuousClock()
+        let deadline = clock.now + .seconds(1)
+        while !pill.isHidden, clock.now < deadline {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(pill.isHidden)
+    }
+
+    @Test
+    func shortcutHintPillUsesExplicitOpacityAnimationInsideDisabledTransaction() {
+        let pill = SidebarShortcutHintPillView(reduceMotionProvider: { false })
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        pill.configure(text: "⌘1", fontSize: 9, emphasis: 1)
+        CATransaction.commit()
+
+        #expect(!(pill.layer?.animationKeys() ?? []).isEmpty)
+    }
+
+    @Test
+    func shortcutHintPillAppliesReducedMotionVisibilityImmediately() {
+        let pill = SidebarShortcutHintPillView(reduceMotionProvider: { true })
+
+        pill.configure(text: "⌘1", fontSize: 9, emphasis: 1)
+        #expect(!pill.isHidden)
+        #expect(pill.layer?.opacity == 1)
+        #expect((pill.layer?.animationKeys() ?? []).isEmpty)
+
+        pill.configure(text: nil, fontSize: 9, emphasis: 1)
+        #expect(pill.isHidden)
+        #expect(pill.layer?.opacity == 0)
+        #expect((pill.layer?.animationKeys() ?? []).isEmpty)
+    }
+
+    @Test
+    func reusedWorkspaceCellClearsPreviousShortcutHintImmediately() throws {
+        let workspaceId = UUID()
+        let first = Self.makeModel(workspaceId: workspaceId, shortcutHintText: "⌘1")
+        let cell = Self.configuredCell(model: first)
+        let pill = try #require(Self.descendants(of: cell).compactMap { $0 as? SidebarShortcutHintPillView }.first)
+
+        cell.prepareForReuse()
+        let replacement = Self.makeModel(workspaceId: workspaceId)
+        cell.configure(
+            model: replacement,
+            actions: Self.makeActions(model: replacement),
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+
+        #expect(pill.isHidden)
+        #expect((pill.layer?.animationKeys() ?? []).isEmpty)
+    }
+
+    @Test
+    func shortcutHintPillNeverInterceptsPointerEvents() {
+        let pill = SidebarShortcutHintPillView()
+        pill.frame = NSRect(x: 0, y: 0, width: 32, height: 18)
+        pill.configure(text: "⌘1", fontSize: 9, emphasis: 1)
+        pill.layoutSubtreeIfNeeded()
+
+        #expect(pill.hitTest(NSPoint(x: 16, y: 9)) == nil)
+    }
+
+    @Test
+    func shortcutHintPillUsesCompactHorizontalPadding() throws {
+        let pill = SidebarShortcutHintPillView()
+        pill.configure(text: "⌘1", fontSize: 9, emphasis: 1)
+        let label = try #require(Self.descendants(of: pill).compactMap { $0 as? NSTextField }.first)
+
+        #expect(pill.fittingPillSize().width == ceil(label.sidebarNaturalCellSize.width) + 8)
+    }
+
+    @Test
+    func shortcutHintPillClipsMaterialToItsCapsule() throws {
+        let pill = SidebarShortcutHintPillView()
+        pill.frame = NSRect(x: 0, y: 0, width: 36, height: 18)
+        pill.configure(text: "⌘1", fontSize: 10, emphasis: 1)
+        pill.layoutSubtreeIfNeeded()
+
+        let material = try #require(Self.descendants(of: pill).compactMap { $0 as? NSVisualEffectView }.first)
+        #expect(material.layer?.masksToBounds == true)
+        #expect(material.layer?.cornerRadius == pill.bounds.height / 2)
     }
 
     @Test

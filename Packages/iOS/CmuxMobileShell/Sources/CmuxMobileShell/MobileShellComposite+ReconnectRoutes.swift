@@ -55,6 +55,37 @@ struct ReconnectRefreshSnapshot: Sendable {
 
 @MainActor
 extension MobileShellComposite {
+    /// Resolves one immutable pre-Iroh capability for an exact raw Tailscale
+    /// route. Fresh registry/manual routes cannot create this evidence; they
+    /// must match a route retained by the local schema migration.
+    static func legacyTailscaleAuthorizationEvidence(
+        for route: CmxAttachRoute,
+        macDeviceID: String,
+        persistedRoutes: [CmxAttachRoute]
+    ) -> CmxLegacyTailscaleAuthorizationEvidence? {
+        guard route.kind == .tailscale,
+              case let .hostPort(host, port) = route.endpoint else {
+            return nil
+        }
+        for persistedRoute in persistedRoutes where persistedRoute.kind == .tailscale {
+            guard case let .hostPort(persistedHost, persistedPort) = persistedRoute.endpoint,
+                  let evidence = try? CmxLegacyTailscaleAuthorizationEvidence(
+                      macDeviceID: macDeviceID,
+                      host: persistedHost,
+                      port: persistedPort
+                  ),
+                  evidence.authorizes(
+                      macDeviceID: macDeviceID,
+                      host: host,
+                      port: port
+                  ) else {
+                continue
+            }
+            return evidence
+        }
+        return nil
+    }
+
     /// Supported routes for reconnecting an already-paired Mac.
     ///
     /// Unlike the legacy host/port helper, this preserves Iroh peer routes. Once
@@ -108,7 +139,7 @@ extension MobileShellComposite {
             ), let self else { return }
             await self.performSerializedPairedMacWrite(ifStillCurrent: nil) {
                 guard await self.isScopeCurrent(scope),
-                      await !self.isForgottenMacDeviceID(
+                      await !self.isHiddenMacDeviceID(
                         macDeviceID,
                         instanceTag: capturedInstanceTag,
                         scope: scope
@@ -124,7 +155,7 @@ extension MobileShellComposite {
                     return
                 }
                 guard await self.isScopeCurrent(scope),
-                      await !self.isForgottenMacDeviceID(
+                      await !self.isHiddenMacDeviceID(
                         macDeviceID,
                         instanceTag: capturedInstanceTag,
                         scope: scope
@@ -154,7 +185,7 @@ extension MobileShellComposite {
                     reconnectRouteLog.debug("registry refresh upsert failed: \(String(describing: error), privacy: .public)")
                     return
                 }
-                if await self.isForgottenMacDeviceID(
+                if await self.isHiddenMacDeviceID(
                     macDeviceID,
                     instanceTag: capturedInstanceTag,
                     scope: scope
@@ -275,7 +306,7 @@ extension MobileShellComposite {
                   pairedMacs: pairedMacs,
                   registryDevices: nil
               ).currentMac(for: captured),
-              await !isForgottenMacDeviceID(
+              await !isHiddenMacDeviceID(
                   captured.macDeviceID,
                   instanceTag: captured.instanceTag,
                   scope: scope
@@ -294,14 +325,14 @@ extension MobileShellComposite {
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         guard let snapshot,
               await isScopeCurrent(scope),
-              await !isForgottenMacDeviceID(
+              await !isHiddenMacDeviceID(
                   mac.macDeviceID,
                   instanceTag: mac.instanceTag,
                   scope: scope
               ),
               let currentMac = snapshot.currentMac(for: mac),
               await isScopeCurrent(scope),
-              await !isForgottenMacDeviceID(
+              await !isHiddenMacDeviceID(
                   mac.macDeviceID,
                   instanceTag: mac.instanceTag,
                   scope: scope

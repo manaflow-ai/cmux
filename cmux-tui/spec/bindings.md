@@ -2,7 +2,7 @@
 
 Generated bindings live under `cmux-tui/bindings/<lang>/` in a future round. They are generated from this spec and validated by the conformance suite in this file.
 
-All bindings must expose the implemented protocol v7 commands, events, and transports. APIs newer than the connected server must be guarded by explicit version checks or feature gates.
+All bindings must expose the implemented protocol v9 commands, events, transports, stable split ids, stack layouts, and `set-split-ratio` API. APIs newer than the connected server must be guarded by explicit version checks or feature gates.
 
 ## Shared Requirements
 
@@ -12,7 +12,7 @@ Bindings must:
 
 | Requirement | Contract |
 | --- | --- |
-| Version check | Call `identify` or require the caller to supply protocol compatibility before using newer features |
+| Version check | Call `identify` or require the caller to supply protocol compatibility before using newer features; require `attach-initial-size` for initial attach sizing and `workspace-registry-v1` for registry APIs |
 | Error handling | Preserve the server error string and expose a typed transport vs command distinction |
 | Events | Route response lines and event lines correctly on full-duplex connections |
 | Attach | Preserve attach ordering for the selected mode: v5 `vt-state`, then `output`, then `detached`; v6 byte mode `vt-state`, then `(resized | output | colors-changed | scroll-changed)*`, then `detached`; v7 render mode `render-state`, then `(render-delta | scroll-changed)*`, then `detached` |
@@ -24,6 +24,14 @@ Bindings must:
 ## Protocol v7 SDK Expectations
 
 SDKs that expose protocol v7 should provide a version-gated render attachment iterator whose first item is typed `render-state` and whose later union is `render-delta | scroll-changed | detached`; it must preserve plain UTF-8 run text, exact optional fields, resolved colors, row indexes, and unknown-event fallback without routing render events through a VT emulator. Subscribe APIs should default to `tree_events:"coarse"` and expose explicit `"deltas"` opt-in. Delta event unions add every workspace/screen/pane/tab lifecycle event with typed subject and parent ids plus the exact `list-workspaces` entity payload, while retaining `tree-changed` as an explicit resync case rather than an ordinary-change dependency. Detailed per-language API design, generated models, and conformance fixtures are deferred to a later SDK round.
+
+## Protocol v8 SDK Expectations
+
+SDKs must treat `layout.split` and `set-split-ratio` as protocol-v8 features. A client connected to protocol 7 must not require the field or send the command.
+
+## Protocol v9 SDK Expectations
+
+SDKs must treat stack layout nodes and `new-pane` as protocol-v9 features. `new-pane` must fail locally before sending when the identified server reports protocol 8 or older.
 
 ## Rust
 

@@ -497,6 +497,11 @@ private struct IrohDiagnosticsReportRows: View {
             String(localized: "settings.networking.diagnostics.failure.offline", defaultValue: "Offline")
         case .some(.timedOut):
             String(localized: "settings.networking.diagnostics.failure.timedOut", defaultValue: "Timed Out")
+        case .some(.transportIdleTimedOut):
+            String(
+                localized: "settings.networking.diagnostics.failure.transportIdleTimedOut",
+                defaultValue: "Transport Idle Timeout"
+            )
         case .some(.connectionRefused):
             String(
                 localized: "settings.networking.diagnostics.failure.connectionRefused",
@@ -556,6 +561,16 @@ private struct IrohDiagnosticsReportRows: View {
             String(
                 localized: "settings.networking.diagnostics.failure.admissionDenied",
                 defaultValue: "Connection Admission Denied"
+            )
+        case .some(.admissionLeaseExpired):
+            String(
+                localized: "settings.networking.diagnostics.failure.admissionLeaseExpired",
+                defaultValue: "Admission Lease Expired"
+            )
+        case .some(.admissionRevalidationFailed):
+            String(
+                localized: "settings.networking.diagnostics.failure.admissionRevalidationFailed",
+                defaultValue: "Admission Revalidation Failed"
             )
         case .some(.authorizationFailed):
             String(
