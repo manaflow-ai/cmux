@@ -618,19 +618,26 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(newStart.timedOut, newStart.stderr)
         XCTAssertEqual(newStart.status, 0, newStart.stderr)
         let newStartCommands = Array(context.state.commands.dropFirst(newStartCommandIndex))
-        let replacementClear = try XCTUnwrap(
+        let replacementSet = try XCTUnwrap(
             newStartCommands.compactMap { command -> [String: Any]? in
                 guard let payload = jsonObject(command),
-                      payload["method"] as? String == "surface.resume.clear" else {
+                      payload["method"] as? String == "surface.resume.set" else {
                     return nil
                 }
                 return payload["params"] as? [String: Any]
             }.first,
-            "Expected replacement SessionStart to clear the prior resume binding, saw \(newStartCommands)"
+            "Expected replacement SessionStart to atomically replace the prior resume binding, saw \(newStartCommands)"
         )
-        XCTAssertNil(
-            replacementClear["checkpoint_id"],
-            "The replacement SessionStart must clear the prior session's agent-hook binding."
+        XCTAssertEqual(replacementSet["workspace_id"] as? String, context.workspaceId)
+        XCTAssertEqual(replacementSet["surface_id"] as? String, context.surfaceId)
+        XCTAssertEqual(replacementSet["checkpoint_id"] as? String, "new-session")
+        XCTAssertEqual(replacementSet["source"] as? String, "agent-hook")
+        XCTAssertFalse(
+            newStartCommands.contains {
+                $0.hasPrefix("set_status claude_code Running ")
+                    || $0.hasPrefix("set_agent_lifecycle claude_code running ")
+            },
+            "Replacement SessionStart must remain status-neutral until prompt submit, saw \(newStartCommands)"
         )
 
         let newPromptStart = context.state.commands.count
@@ -1884,11 +1891,75 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             },
             "Notification requiring user input must correct the visible lifecycle, saw \(notificationCommands)"
         )
+        func statusRevision(
+            lifecycle: String,
+            in commands: [String]
+        ) -> UInt64? {
+            commands.first {
+                $0.hasPrefix("set_agent_lifecycle codex \(lifecycle) ")
+            }?
+            .split(separator: " ")
+            .first { $0.hasPrefix("--status-revision=") }
+            .flatMap { UInt64($0.dropFirst("--status-revision=".count)) }
+        }
+        let permissionRevision = try XCTUnwrap(
+            statusRevision(lifecycle: "needsInput", in: notificationCommands),
+            "Codex permission lifecycle must carry an ordered revision: \(notificationCommands)"
+        )
 
         state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
         sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
         record = try XCTUnwrap(sessions[sessionId] as? [String: Any])
         XCTAssertEqual(record["agentLifecycle"] as? String, "needsInput")
+
+        let resumedPromptStart = context.state.commands.count
+        let resumedPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-2","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(resumedPrompt.timedOut, resumedPrompt.stderr)
+        XCTAssertEqual(resumedPrompt.status, 0, resumedPrompt.stderr)
+        let resumedPromptCommands = Array(context.state.commands.dropFirst(resumedPromptStart))
+        let resumedPromptRevision = try XCTUnwrap(
+            statusRevision(lifecycle: "running", in: resumedPromptCommands),
+            "Codex prompt after an approval must remain ordered: \(resumedPromptCommands)"
+        )
+        XCTAssertGreaterThan(resumedPromptRevision, permissionRevision)
+
+        let resumedStopStart = context.state.commands.count
+        let resumedStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-2","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"done again"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(resumedStop.timedOut, resumedStop.stderr)
+        XCTAssertEqual(resumedStop.status, 0, resumedStop.stderr)
+        let resumedStopCommands = Array(context.state.commands.dropFirst(resumedStopStart))
+        let resumedStopRevision = try XCTUnwrap(
+            statusRevision(lifecycle: "idle", in: resumedStopCommands),
+            "Codex Stop after an approval must remain ordered: \(resumedStopCommands)"
+        )
+        XCTAssertGreaterThan(resumedStopRevision, resumedPromptRevision)
+
+        let stalePermissionStart = context.state.commands.count
+        let stalePermission = runCodexHook(
+            context: context,
+            subcommand: "notification",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","request_id":"late-call","cwd":"\#(context.root.path)","hook_event_name":"PermissionRequest","message":"late approval"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(stalePermission.timedOut, stalePermission.stderr)
+        XCTAssertEqual(stalePermission.status, 0, stalePermission.stderr)
+        let stalePermissionCommands = Array(context.state.commands.dropFirst(stalePermissionStart))
+        XCTAssertFalse(
+            stalePermissionCommands.contains {
+                $0.hasPrefix("set_agent_lifecycle codex needsInput ")
+            },
+            "A delayed approval from a terminal turn must not revive Needs input: \(stalePermissionCommands)"
+        )
     }
 
     func testGenericAgentStaleIdleStopDoesNotOverwriteNewerRunningLifecycle() throws {

@@ -234,6 +234,7 @@ extension AgentNotificationRegressionTests {
         "Malformed structured status payloads fail closed",
         arguments: [
             #"{"_cmux_agent_status_signal":7}"#,
+            #"{"_cmux_agent_status_disposition":"rejected"}"#,
             "{malformed",
         ]
     )
