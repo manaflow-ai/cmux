@@ -183,6 +183,13 @@ esac
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn('"cmux_resume_rebind":true', logged_cmux_calls)
 
+    def test_fresh_launch_does_not_query_resume_trust(self) -> None:
+        args, logged_cmux_calls, result = self.run_wrapper(["--yolo"])
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(args, ["--enable", "hooks", "--yolo"])
+        self.assertNotIn("hooks codex inject-resume-args", logged_cmux_calls)
+
     def test_resume_helper_empty_or_failed_partial_output_is_discarded(self) -> None:
         for mode in ("empty", "partial"):
             with self.subTest(mode=mode):

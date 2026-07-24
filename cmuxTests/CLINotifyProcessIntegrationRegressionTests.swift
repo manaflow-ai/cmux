@@ -7,7 +7,7 @@ import Darwin
 #endif
 
 final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
-    func testCodexResumeTrustReadsSelectedProfileConfig() throws {
+    func testCodexResumeTrustReadsCodexEffectiveConfig() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-profile-trust-\(UUID().uuidString)", isDirectory: true)
@@ -15,25 +15,64 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
+        let codexArgumentsLog = root.appendingPathComponent("codex-arguments.log", isDirectory: false)
+        let fakeCodex = root.appendingPathComponent("codex", isDirectory: false)
+        let canonicalRoot = root.resolvingSymlinksInPath().path
+        let response = try XCTUnwrap(
+            String(
+                data: JSONSerialization.data(withJSONObject: [
+                    "id": 2,
+                    "result": [
+                        "config": [
+                            "projects": [
+                                canonicalRoot: ["trust_level": "trusted"],
+                            ],
+                        ],
+                        "origins": [
+                            "projects.\(canonicalRoot).trust_level": [
+                                "name": [
+                                    "type": "system",
+                                    "file": "/etc/codex/config.toml",
+                                ],
+                                "version": "test",
+                            ],
+                        ],
+                        "layers": NSNull(),
+                    ],
+                ]),
+                encoding: .utf8
+            )
+        )
         try """
-        [projects."\(root.path)"]
-        trust_level = "trusted"
-        """.write(
-            to: codexHome.appendingPathComponent("dogfood.config.toml", isDirectory: false),
-            atomically: true,
-            encoding: .utf8
+        #!/bin/sh
+        printf '%s\n' "$@" > "\(codexArgumentsLog.path)"
+        while IFS= read -r line; do
+          case "$line" in
+            *'"method":"initialize"'*)
+              printf '%s\n' '{"id":1,"result":{"userAgent":"test","codexHome":"\(codexHome.path)","platformFamily":"unix","platformOs":"macos"}}'
+              ;;
+            *'"method":"config/read"'*)
+              printf '%s\n' '\(response)'
+              ;;
+          esac
+        done
+        """.write(to: fakeCodex, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: fakeCodex.path
         )
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
         environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated([
-            "/usr/local/bin/codex",
+            fakeCodex.path,
             "resume",
             "session-name",
             "--profile",
             "dogfood",
         ])
+        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = fakeCodex.path
         environment["CODEX_HOME"] = codexHome.path
 
         let result = runProcess(
@@ -46,6 +85,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertTrue(result.stdout.isEmpty, result.stdout)
+        XCTAssertEqual(
+            try String(contentsOf: codexArgumentsLog, encoding: .utf8),
+            "--profile\ndogfood\napp-server\n--stdio\n"
+        )
     }
 
     func testClaudeClearSessionStartMarksWorkspaceRunning() throws {
