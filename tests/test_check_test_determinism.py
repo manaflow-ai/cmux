@@ -160,6 +160,34 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "await Bun.sleep(1)\n"
                 "expect(finished).toBe(true)\n"
             ),
+            "swift-interpolation.swift": (
+                'let value = "\\(Thread.sleep(forTimeInterval: 1))"\n'
+                "#expect(finished)\n"
+            ),
+            "swift-raw-interpolation.swift": (
+                'let value = #"\\#(Task.sleep(nanoseconds: 1))"#\n'
+                "#expect(finished)\n"
+            ),
+            "swift-multiline-interpolation.swift": (
+                'let value = """\n'
+                "\\(\n"
+                "    Thread.sleep(forTimeInterval: 1)\n"
+                ")\n"
+                '"""\n'
+                "#expect(finished)\n"
+            ),
+            "swift-raw-multiline-interpolation.swift": (
+                'let value = ##"""\n'
+                "\\##(\n"
+                "    Task.sleep(nanoseconds: 1)\n"
+                ")\n"
+                '"""##\n'
+                "#expect(finished)\n"
+            ),
+            "shell-time.sh": (
+                "time sleep 1\n"
+                'assert "$actual" "$expected"\n'
+            ),
         }
 
         result = self.run_checker(fixtures)
@@ -167,6 +195,13 @@ class DeterminismCheckerCLITests(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         for relative_path in fixtures:
             line = (
+                3
+                if relative_path
+                in (
+                    "swift-multiline-interpolation.swift",
+                    "swift-raw-multiline-interpolation.swift",
+                )
+                else
                 2
                 if relative_path
                 in (
@@ -211,6 +246,30 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "virtual.ts": (
                     "await fixture.Bun.sleep(1)\n"
                     "expect(completed).toBe(true)\n"
+                ),
+                "dollar-identifiers.ts": (
+                    "$setTimeout(callback, 1)\n"
+                    "expect(completed).toBe(true)\n"
+                    "$Bun.sleep(1)\n"
+                    "expect(completed).toBe(true)\n"
+                    "$globalThis.setTimeout(callback, 1)\n"
+                    "expect(completed).toBe(true)\n"
+                ),
+                "projected-identifiers.swift": (
+                    "$sleep(1)\n"
+                    "#expect(completed)\n"
+                    "$Task.sleep(nanoseconds: 1)\n"
+                    "#expect(completed)\n"
+                    "$Thread.sleep(forTimeInterval: 1)\n"
+                    "#expect(completed)\n"
+                ),
+                "raw-strings.swift": (
+                    'let source = #"fixture " '
+                    'Task.sleep(nanoseconds: 1) "#\n'
+                    "#expect(source.isEmpty == false)\n"
+                    'let source2 = ##"fixture "# '
+                    'Thread.sleep(forTimeInterval: 1) "##\n'
+                    "#expect(source2.isEmpty == false)\n"
                 ),
                 "cross-language.swift": (
                     "Bun.sleep(1)\n"
