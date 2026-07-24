@@ -1,4 +1,4 @@
-import CoreGraphics
+import AppKit
 import XCTest
 
 final class GlobalSearchForegroundScopeUITests: XCTestCase {
@@ -40,26 +40,33 @@ final class GlobalSearchForegroundScopeUITests: XCTestCase {
         app = nil
     }
 
-    func testBackgroundGlobalSearchShortcutIsDeliveredToFinder() {
+    func testBackgroundGlobalSearchShortcutIsDeliveredToFinder() throws {
         defer { attachScreenshot(named: "background-shortcut-delivered-to-finder") }
 
         let globalSearchField = app.textFields["GlobalSearchSearchField"].firstMatch
         XCTAssertFalse(globalSearchField.exists, "Global Search should start closed")
 
+        let finderProbeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-global-search-finder-probe-\(UUID().uuidString)")
+        try Data().write(to: finderProbeURL)
+        defer { try? FileManager.default.removeItem(at: finderProbeURL) }
+
         let finder = XCUIApplication(bundleIdentifier: "com.apple.finder")
-        finder.activate()
+        NSWorkspace.shared.activateFileViewerSelecting([finderProbeURL])
         XCTAssertTrue(
             finder.wait(for: .runningForeground, timeout: 8.0),
             "Expected Finder to be foreground. state=\(finder.state.rawValue)"
+        )
+        XCTAssertTrue(
+            finder.windows.firstMatch.waitForExistence(timeout: 8.0),
+            "Expected Finder to open a window for keyboard input"
         )
         XCTAssertTrue(
             waitForAppToLeaveForeground(app, timeout: 8.0),
             "Expected cmux to be backgrounded. state=\(app.state.rawValue)"
         )
 
-        XCTContext.runActivity(named: "Post Cmd-Option-F through the HID event tap") { _ in
-            postCommandOptionF()
-        }
+        finder.typeKey("f", modifierFlags: [.command, .option])
 
         let finderSearchField = finder.searchFields.firstMatch
         XCTAssertTrue(
@@ -81,31 +88,6 @@ final class GlobalSearchForegroundScopeUITests: XCTestCase {
             object: application,
             timeout: timeout
         )
-    }
-
-    private func postCommandOptionF() {
-        let source = CGEventSource(stateID: .hidSystemState)
-        guard
-            let keyDown = CGEvent(
-                keyboardEventSource: source,
-                virtualKey: 0x03,
-                keyDown: true
-            ),
-            let keyUp = CGEvent(
-                keyboardEventSource: source,
-                virtualKey: 0x03,
-                keyDown: false
-            )
-        else {
-            XCTFail("Could not create Cmd-Option-F keyboard events")
-            return
-        }
-
-        let modifierFlags: CGEventFlags = [.maskCommand, .maskAlternate]
-        keyDown.flags = modifierFlags
-        keyUp.flags = modifierFlags
-        keyDown.post(tap: .cghidEventTap)
-        keyUp.post(tap: .cghidEventTap)
     }
 
     private func waitForKeyboardFocus(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
