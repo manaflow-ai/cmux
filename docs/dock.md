@@ -44,7 +44,7 @@ cmux list-pane-surfaces --pane <dock-pane-id>
 
 Text output marks them as `[dock:workspace]` or `[dock:global]`. JSON and socket rows carry the additive `dock_scope` field with the stable value `workspace` or `global`; existing non-Dock rows are unchanged. Pane and surface IDs remain stable for the lifetime of their Dock items.
 
-Existing surface and pane verbs accept these Dock IDs directly. In particular, `send`, `send-key`, `read-screen`, `capture-pane`, `focus`, and `close` can target a Dock terminal by its bare surface ID in either Dock scope. No Dock-specific addressing syntax is required.
+Existing surface-addressed terminal verbs accept these Dock surface IDs directly. In particular, `send`, `send-key`, `read-screen`, `capture-pane`, `focus`, and `close` can target a Dock terminal by its bare surface ID in either Dock scope. No Dock-specific addressing syntax is required.
 
 ## Configuration
 

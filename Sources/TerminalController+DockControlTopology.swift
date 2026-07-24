@@ -40,6 +40,7 @@ extension TerminalController {
         var paneByPanelID: [UUID: UUID] = [:]
         var indexInPaneByPanelID: [UUID: Int] = [:]
         var selectedInPaneByPanelID: [UUID: Bool] = [:]
+        var titleByPanelID: [UUID: String] = [:]
         for paneID in dock.bonsplitController.allPaneIds {
             let tabs = dock.bonsplitController.tabs(inPane: paneID)
             let selected = dock.bonsplitController.selectedTab(inPane: paneID)
@@ -48,6 +49,7 @@ extension TerminalController {
                 paneByPanelID[panel.id] = paneID.id
                 indexInPaneByPanelID[panel.id] = index
                 selectedInPaneByPanelID[panel.id] = tab.id == selected?.id
+                titleByPanelID[panel.id] = tab.title
             }
         }
 
@@ -56,7 +58,7 @@ extension TerminalController {
             return ControlSurfaceSummary(
                 surfaceID: panel.id,
                 typeRawValue: panel.panelType.rawValue,
-                title: dockPanelTitle(panel, in: dock),
+                title: titleByPanelID[panel.id] ?? panel.displayTitle,
                 isFocused: panel.id == dock.focusedPanelId,
                 paneID: paneByPanelID[panel.id],
                 indexInPane: indexInPaneByPanelID[panel.id],

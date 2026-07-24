@@ -3,6 +3,30 @@ import Foundation
 
 @MainActor
 extension AppDelegate {
+    /// Resolves the current notification owner for a surface across every
+    /// container. Dock IDs are stable notification namespaces (`workspaceId`
+    /// is the workspace ID for a workspace Dock and the window ID for a global
+    /// Dock); main-tree surfaces keep the existing workspace owner.
+    func notificationSurfaceOwner(
+        surfaceID: UUID,
+        preferredTabID: UUID? = nil
+    ) -> (tabID: UUID, surfaceID: UUID, tabManager: TabManager)? {
+        if let dock = DockSplitStore.liveStores.first(where: { $0.containsPanel(surfaceID) }) {
+            let manager = dock.scope == .global
+                ? tabManagerFor(windowId: dock.workspaceId)
+                : tabManagerFor(tabId: dock.workspaceId)
+            guard let manager else { return nil }
+            return (dock.workspaceId, surfaceID, manager)
+        }
+        guard let owner = workspaceContainingPanel(
+            panelId: surfaceID,
+            preferredWorkspaceId: preferredTabID
+        ) else {
+            return nil
+        }
+        return (owner.workspace.id, surfaceID, owner.tabManager)
+    }
+
     /// Shared notification-attention route for every surface container. Dock
     /// stores resolve first through their live registry; workspace panels use
     /// the existing attention coordinator and pane-overlay path.

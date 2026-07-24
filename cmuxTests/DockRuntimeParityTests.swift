@@ -1,6 +1,7 @@
 import Bonsplit
 import Combine
 import CmuxControlSocket
+import CmuxTerminal
 import Foundation
 import Testing
 
@@ -107,6 +108,7 @@ struct DockRuntimeParityTests {
 
     private func waitForLiveSurface(_ surface: TerminalSurface) async {
         guard !surface.hasLiveSurface else { return }
+        defer { surface.onRuntimeReady = nil }
         let readiness = AsyncStream<Void> { continuation in
             surface.onRuntimeReady = {
                 continuation.yield()
@@ -114,7 +116,6 @@ struct DockRuntimeParityTests {
             }
         }
         for await _ in readiness { break }
-        surface.onRuntimeReady = nil
     }
 
     private func withAppContext(
@@ -150,6 +151,19 @@ struct DockRuntimeParityTests {
             let globalPanel = DockRuntimeParityPanel(title: "Global Dock")
             try workspaceDock.seedRuntimeParityPanel(workspacePanel)
             try globalDock.seedRuntimeParityPanel(globalPanel)
+
+            let workspaceDelivery = appDelegate.agentNotificationDeliveryTarget(
+                claimedTabId: workspace.id,
+                surfaceId: workspacePanel.id
+            )
+            #expect(workspaceDelivery?.tabId == workspace.id)
+            #expect(workspaceDelivery?.surfaceId == workspacePanel.id)
+            let globalDelivery = appDelegate.agentNotificationDeliveryTarget(
+                claimedTabId: workspace.id,
+                surfaceId: globalPanel.id
+            )
+            #expect(globalDelivery?.tabId == globalDock.workspaceId)
+            #expect(globalDelivery?.surfaceId == globalPanel.id)
 
             workspace.triggerNotificationFocusFlash(
                 panelId: workspacePanel.id,
@@ -188,7 +202,10 @@ struct DockRuntimeParityTests {
         }
     }
 
-    @Test("Dock surfaces are discoverable and workspace Dock terminals resolve by bare ID")
+    @Test(
+        "Dock surfaces are discoverable and workspace Dock terminals resolve by bare ID",
+        .timeLimit(.minutes(1))
+    )
     func topologyAndBareIDRoutingIncludeBothDockScopes() async throws {
         try await withAppContext { appDelegate, _, workspace, windowID in
             let workspaceDock = workspace.dockSplit
@@ -266,15 +283,11 @@ struct DockRuntimeParityTests {
                 hasSurfaceIDParam: true,
                 text: "dock input"
             )
-            switch send {
-            case .sent(_, _, let surfaceID, _),
-                 .surfaceUnavailable(let surfaceID),
-                 .processExited(let surfaceID),
-                 .inputQueueFull(let surfaceID):
-                #expect(surfaceID == workspaceTerminal.id)
-            default:
+            guard case .sent(_, _, let sentSurfaceID, _) = send else {
                 Issue.record("Workspace Dock send did not resolve its terminal: \(send)")
+                return
             }
+            #expect(sentSurfaceID == workspaceTerminal.id)
 
             await waitForLiveSurface(workspaceTerminal.surface)
             try #require(workspaceTerminal.surface.hasLiveSurface)
