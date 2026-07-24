@@ -54,7 +54,7 @@ struct CodexPermissionTransitionMachine: Sendable {
         }
     }
 
-    /// Marks every current request as older than a causal prompt or Stop boundary.
+    /// Tombstones current requests and starts at a causal prompt or Stop boundary.
     func crossOrderingBoundary(
         current: CodexPermissionState?,
         runtime: CodexPermissionRuntimeGeneration,
@@ -66,14 +66,22 @@ struct CodexPermissionTransitionMachine: Sendable {
             request.blocksInput = false
             return request
         }
+        var resolved = current.resolvedIdentities
+        for identity in current.startedIdentities ?? [] {
+            appendBounded(
+                identity,
+                to: &resolved,
+                maximumCount: maximumResolvedIdentities
+            )
+        }
         return CodexPermissionState(
             phase: .resumed,
             identity: current.identity,
             runtime: runtime,
             revision: revision,
             notificationID: current.notificationID,
-            resolvedIdentities: current.resolvedIdentities,
-            startedIdentities: current.startedIdentities ?? [],
+            resolvedIdentities: resolved,
+            startedIdentities: [],
             trackedRequests: requests
         )
     }
