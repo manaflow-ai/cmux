@@ -397,3 +397,26 @@ fn anonymous_or_reused_placement_ids_have_distinct_snapshot_keys() {
     assert_ne!(snapshot.placements[0].placement_id, snapshot.placements[1].placement_id);
     assert_ne!(snapshot.placements[0].key, snapshot.placements[1].key);
 }
+
+#[test]
+fn replay_keeps_anonymous_placements_separate_from_later_explicit_ids() {
+    let mut source = terminal();
+    source.vt_write(&kitty("a=t,t=d,f=24,i=51,s=1,v=1,q=2", "/wAA"));
+    source.vt_write(b"\x1b[1;1H");
+    source.vt_write(&kitty("a=p,i=51,p=0,c=1,r=1,q=2", ""));
+    source.vt_write(b"\x1b[2;2H");
+    source.vt_write(&kitty("a=p,i=51,p=0,c=1,r=1,q=2", ""));
+
+    let replay = source.vt_replay_bytes().unwrap();
+    let mut mirror = terminal();
+    mirror.vt_write(&replay);
+
+    let explicit = kitty("a=p,i=51,p=1,c=1,r=1,q=2", "");
+    source.vt_write(b"\x1b[3;3H");
+    mirror.vt_write(b"\x1b[3;3H");
+    source.vt_write(&explicit);
+    mirror.vt_write(&explicit);
+
+    assert_eq!(source.kitty_graphics_snapshot().unwrap().placements.len(), 3);
+    assert_eq!(mirror.kitty_graphics_snapshot().unwrap().placements.len(), 3);
+}
