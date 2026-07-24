@@ -199,17 +199,27 @@ extension TerminalController {
 
     /// The `workspace.action` sub-actions the mobile data plane may invoke.
     ///
-    /// Mobile gets pin/unpin/rename/read-state only. The other sub-actions of
-    /// ``v2WorkspaceAction(params:)`` reorder the global sidebar or destroy
-    /// sibling workspaces, so they stay on the Mac/automation socket. The action
-    /// is normalized exactly as ``v2ActionKey(_:_:)`` so this gate and the
-    /// handler can never disagree on which action runs.
+    /// Mobile gets workspace identity and read-state mutations. The other
+    /// sub-actions of ``v2WorkspaceAction(params:)`` reorder the global sidebar
+    /// or destroy sibling workspaces, so they stay on the Mac/automation socket.
+    /// The action is normalized exactly as ``v2ActionKey(_:_:)`` so this gate and
+    /// the handler can never disagree on which action runs.
     /// - Parameter rawAction: The raw `action` param value.
     /// - Returns: `true` when the normalized action is mobile-allowed.
     nonisolated static func mobileAllowsWorkspaceAction(_ rawAction: String?) -> Bool {
+        guard let normalized = mobileWorkspaceActionKey(rawAction) else { return false }
+        return [
+            "pin", "unpin", "rename",
+            "set_description", "clear_description",
+            "set_color", "clear_color",
+            "mark_read", "mark_unread",
+        ].contains(normalized)
+    }
+
+    /// Normalized mobile workspace-action key.
+    nonisolated static func mobileWorkspaceActionKey(_ rawAction: String?) -> String? {
         guard let trimmed = rawAction?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else { return false }
-        let normalized = trimmed.lowercased().replacingOccurrences(of: "-", with: "_")
-        return ["pin", "unpin", "rename", "mark_read", "mark_unread"].contains(normalized)
+              !trimmed.isEmpty else { return nil }
+        return trimmed.lowercased().replacingOccurrences(of: "-", with: "_")
     }
 }

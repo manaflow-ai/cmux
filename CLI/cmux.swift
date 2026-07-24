@@ -4595,7 +4595,8 @@ struct CMUXCLI {
                         let count = pane["surface_count"] as? Int ?? 0
                         let prefix = focused ? "* " : "  "
                         let focusTag = focused ? "  [focused]" : ""
-                        print("\(prefix)\(handle)  [\(count) surface\(count == 1 ? "" : "s")]\(focusTag)")
+                        let dockTag = dockScopeTag(pane)
+                        print("\(prefix)\(handle)  [\(count) surface\(count == 1 ? "" : "s")]\(dockTag)\(focusTag)")
                     }
                 }
             }
@@ -4618,13 +4619,14 @@ struct CMUXCLI {
                 if surfaces.isEmpty {
                     print("No surfaces in pane")
                 } else {
+                    let dockTag = dockScopeTag(payload)
                     for surface in surfaces {
                         let selected = (surface["selected"] as? Bool) == true
                         let handle = textHandle(surface, idFormat: idFormat)
                         let title = (surface["title"] as? String) ?? ""
                         let prefix = selected ? "* " : "  "
                         let selTag = selected ? "  [selected]" : ""
-                        print("\(prefix)\(handle)  \(title)\(selTag)")
+                        print("\(prefix)\(handle)  \(title)\(dockTag)\(selTag)")
                     }
                 }
             }
@@ -4865,7 +4867,8 @@ struct CMUXCLI {
                         let prefix = focused ? "* " : "  "
                         let focusTag = focused ? "  [focused]" : ""
                         let titlePart = title.isEmpty ? "" : "  \"\(title)\""
-                        print("\(prefix)\(handle)  \(sType)\(focusTag)\(titlePart)")
+                        let dockTag = dockScopeTag(surface)
+                        print("\(prefix)\(handle)  \(sType)\(dockTag)\(focusTag)\(titlePart)")
                     }
                 }
             }
@@ -17951,7 +17954,14 @@ struct CMUXCLI {
             if workspaces.isEmpty {
                 throw CLIError(message: "Workspace not found")
             }
-            let workspaceNodes = try workspaces.map { try buildTreeWorkspaceNode(workspace: $0, activePath: activePath, client: client) }
+            let workspaceNodes = try workspaces.map {
+                try buildTreeWorkspaceNode(
+                    workspace: $0,
+                    activePath: activePath,
+                    includeGlobalDock: true,
+                    client: client
+                )
+            }
             var node = window
             let isActiveWindow = treeItemMatchesHandle(node, handle: activePath.windowHandle)
             node["current"] = isActiveWindow
@@ -18011,7 +18021,14 @@ struct CMUXCLI {
         }
         let workspacePayload = try client.sendV2(method: "workspace.list", params: workspaceParams)
         let workspaces = workspacePayload["workspaces"] as? [[String: Any]] ?? []
-        let workspaceNodes = try workspaces.map { try buildTreeWorkspaceNode(workspace: $0, activePath: activePath, client: client) }
+        let workspaceNodes = try workspaces.map {
+            try buildTreeWorkspaceNode(
+                workspace: $0,
+                activePath: activePath,
+                includeGlobalDock: ($0["selected"] as? Bool) == true,
+                client: client
+            )
+        }
         var windowNode = window
         let isActiveWindow = treeItemMatchesHandle(windowNode, handle: activePath.windowHandle)
         windowNode["current"] = isActiveWindow
@@ -18024,6 +18041,7 @@ struct CMUXCLI {
     private func buildTreeWorkspaceNode(
         workspace: [String: Any],
         activePath: TreePath,
+        includeGlobalDock: Bool,
         client: SocketClient
     ) throws -> [String: Any] {
         var workspaceNode = workspace
@@ -18034,8 +18052,12 @@ struct CMUXCLI {
 
         let panePayload = try client.sendV2(method: "pane.list", params: ["workspace_id": workspaceHandle])
         let surfacePayload = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceHandle])
-        let panes = panePayload["panes"] as? [[String: Any]] ?? []
-        let surfaces = surfacePayload["surfaces"] as? [[String: Any]] ?? []
+        let panes = (panePayload["panes"] as? [[String: Any]] ?? []).filter {
+            includeGlobalDock || ($0["dock_scope"] as? String) != "global"
+        }
+        let surfaces = (surfacePayload["surfaces"] as? [[String: Any]] ?? []).filter {
+            includeGlobalDock || ($0["dock_scope"] as? String) != "global"
+        }
         let browserURLsByHandle = fetchTreeBrowserURLs(
             workspaceHandle: workspaceHandle,
             surfaces: surfaces,
@@ -18323,6 +18345,9 @@ struct CMUXCLI {
 
     private func treePaneLabel(_ pane: [String: Any], idFormat: CLIIDFormat) -> String {
         var parts = ["pane \(textHandle(pane, idFormat: idFormat))"]
+        if let dockScope = pane["dock_scope"] as? String {
+            parts.append("[dock:\(dockScope)]")
+        }
         if (pane["focused"] as? Bool) == true {
             parts.append("[focused]")
         }
@@ -18336,6 +18361,9 @@ struct CMUXCLI {
         let rawType = ((surface["type"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let surfaceType = rawType.isEmpty ? "unknown" : rawType
         var parts = ["surface \(textHandle(surface, idFormat: idFormat))", "[\(surfaceType)]"]
+        if let dockScope = surface["dock_scope"] as? String {
+            parts.append("[dock:\(dockScope)]")
+        }
         let title = (surface["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !title.isEmpty {
             parts.append("\"\(title)\"")
@@ -18358,6 +18386,11 @@ struct CMUXCLI {
             parts.append(url)
         }
         return parts.joined(separator: " ")
+    }
+
+    private func dockScopeTag(_ item: [String: Any]) -> String {
+        guard let scope = item["dock_scope"] as? String else { return "" }
+        return "  [dock:\(scope)]"
     }
 
     private func renderTopText(

@@ -50,6 +50,8 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
     public let simulatorDeviceName: String?
     /// Live CoreSimulator state, or booted when the pane is streaming.
     public let simulatorDeviceState: String?
+    /// The Dock container scope for Dock-hosted surfaces, else `nil`.
+    public let dockScopeRawValue: String?
 
     /// Creates a surface summary.
     ///
@@ -67,6 +69,7 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
     ///   - tmuxStartCommand: For terminals, the tmux start command.
     ///   - isTerminal: Whether this is a terminal surface.
     ///   - resumeBinding: For terminals, the resume binding.
+    ///   - dockScopeRawValue: The Dock scope for a Dock-hosted surface.
     public init(
         surfaceID: UUID,
         typeRawValue: String,
@@ -85,7 +88,8 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
         simulatorRuntimeIdentifier: String? = nil,
         simulatorDeviceTypeIdentifier: String? = nil,
         simulatorDeviceName: String? = nil,
-        simulatorDeviceState: String? = nil
+        simulatorDeviceState: String? = nil,
+        dockScopeRawValue: String? = nil
     ) {
         self.surfaceID = surfaceID
         self.typeRawValue = typeRawValue
@@ -105,5 +109,6 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
         self.simulatorDeviceTypeIdentifier = simulatorDeviceTypeIdentifier
         self.simulatorDeviceName = simulatorDeviceName
         self.simulatorDeviceState = simulatorDeviceState
+        self.dockScopeRawValue = dockScopeRawValue
     }
 }

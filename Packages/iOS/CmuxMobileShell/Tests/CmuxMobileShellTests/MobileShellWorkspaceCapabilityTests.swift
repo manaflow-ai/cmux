@@ -34,16 +34,27 @@ import Testing
             "workspace.actions.v1",
         ])
         #expect(oldMac.store.supportsWorkspaceActions)
+        #expect(!oldMac.store.supportsWorkspaceMetadata)
         #expect(!oldMac.store.supportsWorkspaceReadStateActions && !oldMac.store.supportsWorkspaceCloseActions)
         #expect(!oldMac.store.supportsWorkspaceMoveActions && !oldMac.store.supportsWorkspaceGroupActions)
         #expect(!oldMac.store.supportsWorkspaceCreateInGroup)
         #expect(!oldMac.store.supportsWorkspaceGroupCreate)
+
+        let metadataOnly = try await connectedStore(capabilities: [
+            "events.v1",
+            "terminal.render_grid.v1",
+            "terminal.replay.v1",
+            "workspace.metadata.v1",
+        ])
+        #expect(metadataOnly.store.supportsWorkspaceMetadata)
+        #expect(metadataOnly.store.workspaces.first?.actionCapabilities.supportsWorkspaceMetadata == false)
 
         let currentCapabilities = [
             "events.v1",
             "terminal.render_grid.v1",
             "terminal.replay.v1",
             "workspace.actions.v1",
+            "workspace.metadata.v1",
             "workspace.read_state.v1",
             "workspace.close.v1",
             "workspace.move.v1",
@@ -52,6 +63,8 @@ import Testing
             "workspace.group_create.v1",
         ]
         let scoped = try await connectedStore(capabilities: currentCapabilities)
+        #expect(scoped.store.supportsWorkspaceMetadata)
+        #expect(scoped.store.workspaces.first?.actionCapabilities.supportsWorkspaceMetadata == true)
         #expect(scoped.store.supportsWorkspaceReadStateActions && scoped.store.supportsWorkspaceCloseActions)
         #expect(!scoped.store.supportsWorkspaceMoveActions && !scoped.store.supportsWorkspaceGroupActions)
         #expect(!scoped.store.supportsWorkspaceCreateInGroup)

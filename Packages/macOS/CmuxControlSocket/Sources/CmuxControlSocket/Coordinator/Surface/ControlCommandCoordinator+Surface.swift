@@ -177,6 +177,9 @@ extension ControlCommandCoordinator {
                     item["device_name"] = orNull(surface.simulatorDeviceName)
                     item["state"] = orNull(surface.simulatorDeviceState)
                 }
+                if let dockScope = surface.dockScopeRawValue {
+                    item["dock_scope"] = .string(dockScope)
+                }
                 return .object(item)
             }
 

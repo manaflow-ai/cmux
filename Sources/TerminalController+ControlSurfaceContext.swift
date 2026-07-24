@@ -107,72 +107,57 @@ extension TerminalController: ControlSurfaceContext {
             return nil
         }
         if let dock = windowDockForRouting(routing, tabManager: tabManager) {
-            return controlDockSurfaceList(dock: dock, tabManager: tabManager)
+            return controlSimulatorAwareDockSurfaceList(dock: dock, tabManager: tabManager)
         }
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else { return nil }
 
         return ControlSurfaceListSnapshot(
             workspaceID: ws.id,
             windowID: v2ResolveWindowId(tabManager: tabManager),
-            surfaces: controlSurfaceSummaries(workspace: ws)
+            surfaces: controlSurfaceSummaries(workspace: ws) +
+                controlTopologyDocks(workspace: ws, tabManager: tabManager)
+                .flatMap { controlSimulatorAwareDockSurfaceSummaries(dock: $0) }
         )
     }
 
-    private func controlDockSurfaceList(
+    private func controlSimulatorAwareDockSurfaceList(
         dock: DockSplitStore,
         tabManager: TabManager
     ) -> ControlSurfaceListSnapshot {
-        var paneByPanelId: [UUID: UUID] = [:]
-        var indexInPaneByPanelId: [UUID: Int] = [:]
-        var selectedInPaneByPanelId: [UUID: Bool] = [:]
-        for paneId in dock.bonsplitController.allPaneIds {
-            let tabs = dock.bonsplitController.tabs(inPane: paneId)
-            let selected = dock.bonsplitController.selectedTab(inPane: paneId)
-            for (idx, tab) in tabs.enumerated() {
-                guard let panel = dock.panel(for: tab.id) else { continue }
-                paneByPanelId[panel.id] = paneId.id
-                indexInPaneByPanelId[panel.id] = idx
-                selectedInPaneByPanelId[panel.id] = (tab.id == selected?.id)
-            }
-        }
+        return ControlSurfaceListSnapshot(
+            workspaceID: dock.workspaceId,
+            windowID: dockResultWindowId(for: dock, tabManager: tabManager),
+            surfaces: controlSimulatorAwareDockSurfaceSummaries(dock: dock)
+        )
+    }
 
-        let focusedSurfaceId = dock.focusedPanelId
-        let surfaces: [ControlSurfaceSummary] = orderedPanels(in: dock).map { panel in
-            let terminalPanel = panel as? TerminalPanel
-            let simulatorPanel = panel as? SimulatorPanel
+    private func controlSimulatorAwareDockSurfaceSummaries(
+        dock: DockSplitStore
+    ) -> [ControlSurfaceSummary] {
+        controlDockSurfaceSummaries(dock: dock).map { summary in
+            let simulatorPanel = dock.panels[summary.surfaceID] as? SimulatorPanel
             return ControlSurfaceSummary(
-                surfaceID: panel.id,
-                typeRawValue: panel.panelType.rawValue,
-                title: dockPanelTitle(panel, in: dock),
-                isFocused: panel.id == focusedSurfaceId,
-                paneID: paneByPanelId[panel.id],
-                indexInPane: indexInPaneByPanelId[panel.id],
-                selectedInPane: selectedInPaneByPanelId[panel.id],
-                developerToolsVisible: (panel as? BrowserPanel)?.isDeveloperToolsVisible(),
-                requestedWorkingDirectory: terminalPanel.flatMap {
-                    v2NonEmptyString($0.requestedWorkingDirectory)
-                },
-                initialCommand: terminalPanel.flatMap {
-                    v2NonEmptyString($0.surface.debugInitialCommand())
-                },
-                tmuxStartCommand: terminalPanel.flatMap {
-                    v2NonEmptyString($0.surface.debugTmuxStartCommand())
-                },
-                isTerminal: terminalPanel != nil,
-                resumeBinding: nil,
+                surfaceID: summary.surfaceID,
+                typeRawValue: summary.typeRawValue,
+                title: summary.title,
+                isFocused: summary.isFocused,
+                paneID: summary.paneID,
+                indexInPane: summary.indexInPane,
+                selectedInPane: summary.selectedInPane,
+                developerToolsVisible: summary.developerToolsVisible,
+                requestedWorkingDirectory: summary.requestedWorkingDirectory,
+                initialCommand: summary.initialCommand,
+                tmuxStartCommand: summary.tmuxStartCommand,
+                isTerminal: summary.isTerminal,
+                resumeBinding: summary.resumeBinding,
                 simulatorDeviceID: simulatorPanel?.selectedDeviceID,
                 simulatorRuntimeIdentifier: simulatorPanel?.selectedRuntimeIdentifier,
                 simulatorDeviceTypeIdentifier: simulatorPanel?.selectedDeviceTypeIdentifier,
                 simulatorDeviceName: simulatorPanel?.selectedDeviceName,
-                simulatorDeviceState: simulatorPanel?.selectedDeviceState
+                simulatorDeviceState: simulatorPanel?.selectedDeviceState,
+                dockScopeRawValue: summary.dockScopeRawValue
             )
         }
-
-        return ControlSurfaceListSnapshot(
-            workspaceID: dock.workspaceId,
-            windowID: dockResultWindowId(for: dock, tabManager: tabManager),
-            surfaces: surfaces
-        )
     }
 
     // MARK: - current
