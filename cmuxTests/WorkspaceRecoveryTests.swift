@@ -169,6 +169,17 @@ struct WorkspaceRecoveryTests {
         )
         sourceManager.closeWorkspace(closedWorkspace, recordHistory: false)
 
+        let collisionManager = TabManager(autoWelcomeIfNeeded: false)
+        collisionManager.restoreSessionSnapshot(SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: 0,
+            workspaces: [entry.snapshot]
+        ))
+        let collisionWorkspace = try #require(collisionManager.tabs.first {
+            $0.customTitle == "Closed in Source"
+        })
+        let collisionPanelStableIds = Set(collisionWorkspace.panels.values.map(\.stableSurfaceId))
+        _ = appDelegate.registerMainWindowContextForTesting(tabManager: collisionManager)
+
         let sourceContext = AppDelegate.MainWindowContext(
             windowId: sourceWindowId,
             tabManager: sourceManager,
@@ -195,7 +206,11 @@ struct WorkspaceRecoveryTests {
         #expect(Set(sourceManager.tabs.map(\.id)) == sourceIdsBeforeRestore)
         #expect(destinationIdsBeforeRestore.isSubset(of: Set(destinationManager.tabs.map(\.id))))
         #expect(destinationManager.tabs.count == destinationIdsBeforeRestore.count + 1)
-        #expect(destinationManager.selectedWorkspace?.customTitle == "Closed in Source")
+        let restoredWorkspace = try #require(destinationManager.selectedWorkspace)
+        #expect(restoredWorkspace.customTitle == "Closed in Source")
+        #expect(restoredWorkspace.id != collisionWorkspace.id)
+        #expect(restoredWorkspace.stableId != collisionWorkspace.stableId)
+        #expect(collisionPanelStableIds.isDisjoint(with: restoredWorkspace.panels.values.map(\.stableSurfaceId)))
     }
 
     @Test
@@ -232,6 +247,42 @@ struct WorkspaceRecoveryTests {
         #expect(destinationManager.reopenMostRecentlyClosedWorkspace(from: historyStore))
         #expect(destinationManager.selectedWorkspace?.customTitle == "Sticky Label")
         #expect(fixture.store.customization(for: directory)?.customTitle == "Sticky Label")
+
+        let generated = destinationManager.addWorkspace(
+            title: "Generated Title",
+            titleSource: .auto,
+            workingDirectory: directory,
+            select: false
+        )
+        #expect(generated.customTitle == "Sticky Label")
+        #expect(fixture.store.customization(for: directory)?.customTitle == "Sticky Label")
+    }
+
+    @Test
+    func failedClosedRestoreDoesNotPersistSnapshotCustomization() throws {
+        let directory = "/tmp/failed-history-restore"
+        let fixture = try makeCustomizationStore()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        fixture.store.setCustomTitle("Existing Label", for: directory)
+
+        let sourceManager = TabManager(initialWorkingDirectory: directory, autoWelcomeIfNeeded: false)
+        var snapshot = try #require(sourceManager.selectedWorkspace).sessionSnapshot(includeScrollback: false)
+        snapshot.customTitle = "Failed Restore Label"
+        snapshot.customTitleSource = .user
+        snapshot.panels = []
+        let entry = ClosedWorkspaceHistoryEntry(
+            workspaceId: UUID(),
+            windowId: nil,
+            workspaceIndex: 0,
+            snapshot: snapshot
+        )
+        let destinationManager = TabManager(
+            autoWelcomeIfNeeded: false,
+            workspaceDirectoryCustomizationStore: fixture.store
+        )
+
+        #expect(!destinationManager.restoreClosedWorkspace(entry))
+        #expect(fixture.store.customization(for: directory)?.customTitle == "Existing Label")
     }
 
     @Test

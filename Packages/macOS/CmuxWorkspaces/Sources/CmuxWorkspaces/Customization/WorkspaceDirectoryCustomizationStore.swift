@@ -4,12 +4,12 @@ public import Foundation
 ///
 /// `UserDefaults` is the sole source of truth. The store deliberately keeps no
 /// in-memory mirror, so independently constructed window graphs cannot drift.
-public struct WorkspaceDirectoryCustomizationStore: Sendable {
+@MainActor
+public struct WorkspaceDirectoryCustomizationStore {
     /// The production defaults key for the encoded directory map.
-    public static let defaultStorageKey = "workspaceDirectoryCustomizations.v1"
+    public nonisolated static let defaultStorageKey = "workspaceDirectoryCustomizations.v1"
 
-    // UserDefaults is documented thread-safe and the reference is immutable.
-    private nonisolated(unsafe) let defaults: UserDefaults?
+    private let defaults: UserDefaults?
     private let storageKey: String
 
     /// Creates a store backed by the supplied defaults suite.

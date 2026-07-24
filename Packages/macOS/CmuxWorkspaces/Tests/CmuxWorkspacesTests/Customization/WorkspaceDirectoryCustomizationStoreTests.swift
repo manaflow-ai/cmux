@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxWorkspaces
 
+@MainActor
 @Suite("Workspace directory customization store", .serialized)
 struct WorkspaceDirectoryCustomizationStoreTests {
     @Test("persists normalized directory identity across store instances")

@@ -4,7 +4,8 @@ extension TabManager {
     /// Applies sticky identity to a newly-created workspace. An explicit creation title wins.
     func applyWorkspaceDirectoryCustomization(
         to workspace: Workspace,
-        explicitTitle: String?
+        explicitTitle: String?,
+        explicitTitleSource: Workspace.CustomTitleSource
     ) {
         let directoryKey = workspaceDirectoryCustomizationStore.directoryKey(
             for: workspace.currentDirectory
@@ -14,7 +15,8 @@ extension TabManager {
         if let customization = workspaceDirectoryCustomizationStore.customization(
             for: directoryKey
         ) {
-            if explicitTitle == nil, let customTitle = customization.customTitle {
+            if (explicitTitle == nil || explicitTitleSource == .auto),
+               let customTitle = customization.customTitle {
                 workspace.setCustomTitle(customTitle)
             }
             if let customColor = customization.customColor {
@@ -23,8 +25,8 @@ extension TabManager {
         }
 
         if let explicitTitle {
-            workspace.setCustomTitle(explicitTitle)
-            recordWorkspaceCustomTitle(workspace, source: .user)
+            workspace.setCustomTitle(explicitTitle, source: explicitTitleSource)
+            recordWorkspaceCustomTitle(workspace, source: explicitTitleSource)
         }
     }
 

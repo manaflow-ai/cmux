@@ -1,5 +1,3 @@
-public import Foundation
-
 /// The user-owned identity that cmux reapplies when a directory becomes a workspace again.
 public struct WorkspaceDirectoryCustomization: Codable, Equatable, Sendable {
     /// The explicit user-owned workspace label.

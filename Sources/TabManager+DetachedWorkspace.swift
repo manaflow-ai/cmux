@@ -26,6 +26,7 @@ extension TabManager {
     func addWorkspace(
         fromDetachedSurface detached: Workspace.DetachedSurfaceTransfer,
         title: String? = nil,
+        titleSource: Workspace.CustomTitleSource = .auto,
         select: Bool = true,
         placementOverride: WorkspacePlacement? = nil,
         insertionIndexOverride: Int? = nil,
@@ -77,7 +78,11 @@ extension TabManager {
 
             applyCreationChromeInheritance(to: newWorkspace, from: sourceWorkspace ?? capturedTabs.first)
             newWorkspace.owningTabManager = self
-            applyWorkspaceDirectoryCustomization(to: newWorkspace, explicitTitle: title)
+            applyWorkspaceDirectoryCustomization(
+                to: newWorkspace,
+                explicitTitle: title,
+                explicitTitleSource: titleSource
+            )
             wireClosedBrowserTracking(for: newWorkspace)
 
             var updatedTabs = tabs

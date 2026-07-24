@@ -546,6 +546,7 @@ class TabManager: ObservableObject {
         workspaceGrouping.attach(host: self)
         addWorkspace(
             title: initialWorkspaceTitle,
+            titleSource: .auto,
             workingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: autoWelcomeIfNeeded
@@ -1083,6 +1084,7 @@ class TabManager: ObservableObject {
     func addWorkspace(
         id: UUID? = nil,
         title: String? = nil,
+        titleSource: Workspace.CustomTitleSource = .user,
         workingDirectory overrideWorkingDirectory: String? = nil,
         initialSurface: NewWorkspaceInitialSurface = .terminal,
         initialTerminalCommand: String? = nil,
@@ -1175,7 +1177,11 @@ class TabManager: ObservableObject {
             )
             newWorkspace.owningTabManager = self
             if shouldApplyWorkspaceDirectoryCustomization {
-                applyWorkspaceDirectoryCustomization(to: newWorkspace, explicitTitle: title)
+                applyWorkspaceDirectoryCustomization(
+                    to: newWorkspace,
+                    explicitTitle: title,
+                    explicitTitleSource: titleSource
+                )
             }
             wireClosedBrowserTracking(for: newWorkspace)
             if eagerLoadTerminal && !select {
@@ -1919,6 +1925,7 @@ class TabManager: ObservableObject {
     ) -> Workspace {
         addWorkspace(
             title: title,
+            titleSource: .auto,
             workingDirectory: workingDirectory,
             inheritWorkingDirectory: inheritWorkingDirectory,
             select: select,
@@ -4240,7 +4247,6 @@ class TabManager: ObservableObject {
             shouldApplyWorkspaceDirectoryCustomization: false
         )
         let restoredPanelIds = workspace.restoreSessionSnapshot(entry.snapshot, excludingStableIdentities: excludedStableIdentities)
-        reconcileWorkspaceDirectoryCustomization(afterRestoring: entry.snapshot, to: workspace)
         guard !entry.snapshot.hasRestorablePanels || !restoredPanelIds.isEmpty else {
             closeWorkspace(workspace, recordHistory: false)
             return false
@@ -4249,6 +4255,7 @@ class TabManager: ObservableObject {
             closeWorkspace(workspace, recordHistory: false)
             return false
         }
+        reconcileWorkspaceDirectoryCustomization(afterRestoring: entry.snapshot, to: workspace)
         // The snapshot may carry a groupId for a group that no longer exists
         // in this TabManager (e.g. the group was dissolved between close and
         // reopen). Drop those stale references so the restored workspace
@@ -6113,7 +6120,7 @@ extension TabManager {
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )
             fallback.owningTabManager = self
-            applyWorkspaceDirectoryCustomization(to: fallback, explicitTitle: nil)
+            applyWorkspaceDirectoryCustomization(to: fallback, explicitTitle: nil, explicitTitleSource: .auto)
             wireClosedBrowserTracking(for: fallback)
             newTabs.append(fallback)
         }

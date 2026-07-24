@@ -12895,7 +12895,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 let result = try await CmuxExtensionWorktreePrototype.createWorktree(projectRootPath: projectRootPath)
                 let spawnArgs = result.workspaceSpawnArgs()
                 tabManager.addWorkspace(
-                    title: spawnArgs.title,
+                    title: spawnArgs.title, titleSource: .auto,
                     workingDirectory: spawnArgs.workingDirectory,
                     initialTerminalInput: spawnArgs.initialTerminalInput,
                     inheritWorkingDirectory: spawnArgs.inheritWorkingDirectory,

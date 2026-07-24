@@ -7502,6 +7502,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         } else {
             workspace = context.tabManager.addWorkspace(
                 title: workspaceTitle,
+                titleSource: .auto,
                 initialSurface: .cloudVMLoading,
                 inheritWorkingDirectory: false,
                 select: true,
