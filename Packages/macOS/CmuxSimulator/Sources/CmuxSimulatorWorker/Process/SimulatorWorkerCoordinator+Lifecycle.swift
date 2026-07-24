@@ -6,6 +6,9 @@ extension SimulatorWorkerCoordinator {
     func setFramebufferPublishing(_ enabled: Bool) async {
         do {
             try await framebuffer?.setPublishingEnabled(enabled)
+            if enabled, framebuffer != nil {
+                send(.status(.streaming))
+            }
         } catch {
             report(error)
         }
@@ -96,6 +99,12 @@ extension SimulatorWorkerCoordinator {
                     }
                     self.currentDisplay = display
                     self.send(.display(display))
+                },
+                onPublicationFailure: { [weak self] failure in
+                    guard let self else { return }
+                    self.currentFrameTransport = nil
+                    self.send(.failure(failure))
+                    self.send(.status(.failed(failure)))
                 },
                 targetGeometry: surfaceGeometry
             )

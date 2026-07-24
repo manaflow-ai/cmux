@@ -10,6 +10,8 @@ public enum SimulatorWorkerInbound: Codable, Equatable, Sendable {
     case resize(SimulatorSurfaceGeometry)
     /// Starts or stops framebuffer publication while preserving control state.
     case setFramebufferPublishing(Bool)
+    /// Confirms the host mapped the current frame ring so older names can retire.
+    case acknowledgeFrameTransport(SimulatorFrameTransportDescriptor)
     /// Forward one ordered touch event.
     case pointer(SimulatorPointerEvent)
     /// Forward one USB HID keyboard event.

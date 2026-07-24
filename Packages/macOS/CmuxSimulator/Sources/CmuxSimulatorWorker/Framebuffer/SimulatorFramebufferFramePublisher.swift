@@ -9,6 +9,7 @@ final class SimulatorFramebufferFramePublisher {
 
     private let continuation: AsyncStream<SimulatorFramebufferFrame>.Continuation
     private let consumerTask: Task<Void, Never>
+    private let retirementLedger: SimulatorFramebufferRetirementLedger
     private let clock = ContinuousClock()
     private let minimumFrameInterval: Duration
     private let interactiveFrameInterval: Duration
@@ -29,6 +30,7 @@ final class SimulatorFramebufferFramePublisher {
         interactiveFrameInterval: Duration = .milliseconds(16),
         beforeFrameTransportChange: @escaping @Sendable () async -> Void = {},
         afterFrameTransportChange: @escaping @Sendable () async -> Void = {},
+        onPublicationFailure: @escaping @MainActor @Sendable (SimulatorFailure) -> Void = { _ in },
         onFrameTransportChange: @escaping @MainActor @Sendable (
             SimulatorFrameTransportDescriptor
         ) -> Void
@@ -60,16 +62,13 @@ final class SimulatorFramebufferFramePublisher {
             bufferingPolicy: .bufferingNewest(1)
         )
         continuation = source.continuation
+        let retirementLedger = SimulatorFramebufferRetirementLedger()
+        self.retirementLedger = retirementLedger
         consumerTask = Task.detached(priority: .userInitiated) {
             var ring = initialRing
-            var retiredSharedMemoryNames: Set<String> = []
-            defer {
-                for name in retiredSharedMemoryNames {
-                    simulatorUnlinkFrameSharedMemory(named: name)
-                }
-            }
+            var failurePolicy = SimulatorFramebufferPublicationFailurePolicy()
             for await frame in source.stream {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled else { break }
                 do {
                     let transportChanged = ring.descriptor.width != frame.width
                         || ring.descriptor.height != frame.height
@@ -78,19 +77,43 @@ final class SimulatorFramebufferFramePublisher {
                             width: frame.width,
                             height: frame.height
                         )
-                        retiredSharedMemoryNames.insert(ring.descriptor.sharedMemoryName)
+                        try replacement.publish(frame.surface)
+                        let retiredName = ring.descriptor.sharedMemoryName
+                        guard await retirementLedger.recordRetired(retiredName) else {
+                            throw SimulatorWorkerFailure.framebufferUnavailable(
+                                "The host did not acknowledge retired Simulator frame transports."
+                            )
+                        }
                         ring.releaseResources(unlinkSharedMemory: false)
                         ring = replacement
-                    }
-                    try ring.publish(frame.surface)
-                    if transportChanged, !Task.isCancelled {
+                        guard !Task.isCancelled else { break }
                         await beforeFrameTransportChange()
                         await onFrameTransportChange(ring.descriptor)
                         await afterFrameTransportChange()
+                    } else {
+                        try ring.publish(frame.surface)
                     }
+                    failurePolicy.recordSuccess()
                 } catch {
-                    continue
+                    guard let retryDelay = failurePolicy.retryDelayAfterFailure() else {
+                        let failure = (error as? SimulatorWorkerFailure)?.processSafeValue
+                            ?? SimulatorFailure(
+                                code: "framebuffer_unavailable",
+                                message: error.localizedDescription,
+                                isRecoverable: true
+                            )
+                        await onPublicationFailure(failure)
+                        break
+                    }
+                    do {
+                        try await Task.sleep(for: retryDelay)
+                    } catch {
+                        break
+                    }
                 }
+            }
+            for name in await retirementLedger.takeRetiredNames() {
+                simulatorUnlinkFrameSharedMemory(named: name)
             }
         }
         lastEnqueuedInstant = clock.now
@@ -132,6 +155,12 @@ final class SimulatorFramebufferFramePublisher {
     /// publication interval without forcing a copy of pixels that predate input.
     func prioritizeNextFrame() {
         prioritizeNextEnqueue = true
+    }
+
+    func acknowledgeFrameTransportAdoption() async {
+        for name in await retirementLedger.takeRetiredNames() {
+            simulatorUnlinkFrameSharedMemory(named: name)
+        }
     }
 
     private func schedulePacingTask() {

@@ -156,6 +156,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        reconcileHostWindowVisibility()
         rebuildPresentationTimer()
         if !isTornDown, isPointerInputEnabled, let window {
             installStagePointerMonitor(for: window)
@@ -167,6 +168,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         if window !== newWindow {
+            stopPresentationTimer()
             cancelInputs()
             removeStagePointerMonitor()
             NotificationCenter.default.removeObserver(self)
@@ -183,6 +185,24 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
                 self,
                 selector: #selector(windowWillClose(_:)),
                 name: NSWindow.willCloseNotification,
+                object: newWindow
+            )
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(hostWindowVisibilityDidChange(_:)),
+                name: NSWindow.didChangeOcclusionStateNotification,
+                object: newWindow
+            )
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(hostWindowVisibilityDidChange(_:)),
+                name: NSWindow.didMiniaturizeNotification,
+                object: newWindow
+            )
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(hostWindowVisibilityDidChange(_:)),
+                name: NSWindow.didDeminiaturizeNotification,
                 object: newWindow
             )
         }
@@ -367,9 +387,10 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     private func startPresentationTimer() {
         guard presentationTimer == nil,
               framePipeline != nil,
-              window != nil else { return }
+              let window,
+              simulatorHostWindowIsVisible(window) else { return }
         let interval = Self.presentationTimerIntervalNanoseconds(
-            maximumFramesPerSecond: window?.screen?.maximumFramesPerSecond
+            maximumFramesPerSecond: window.screen?.maximumFramesPerSecond
         )
         let timer = DispatchSource.makeTimerSource(flags: .strict, queue: .main)
         timer.schedule(
@@ -400,6 +421,21 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         guard !isTornDown, framePipeline != nil else { return }
         stopPresentationTimer()
         startPresentationTimer()
+    }
+
+    private func reconcileHostWindowVisibility() {
+        let isVisible = window.map(simulatorHostWindowIsVisible) ?? false
+        if isVisible {
+            startPresentationTimer()
+            renderLatestFrame()
+        } else {
+            stopPresentationTimer()
+        }
+    }
+
+    @objc private func hostWindowVisibilityDidChange(_ notification: Notification) {
+        guard notification.object as? NSWindow === window else { return }
+        reconcileHostWindowVisibility()
     }
 
     private func presentationTimerDidFire() {

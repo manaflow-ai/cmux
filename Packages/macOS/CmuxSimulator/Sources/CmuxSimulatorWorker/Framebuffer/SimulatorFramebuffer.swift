@@ -14,6 +14,7 @@ final class SimulatorFramebuffer {
     private let callbackQueue = DispatchQueue.main
     private let onFrameTransportChange: @MainActor (SimulatorFrameTransportDescriptor) -> Void
     private let onDisplayChange: @MainActor (SimulatorDisplayMetadata) -> Void
+    private let onPublicationFailure: @MainActor (SimulatorFailure) -> Void
     private let beforeFrameTransportChange: @Sendable () async -> Void
     private let afterFrameTransportChange: @Sendable () async -> Void
 
@@ -33,12 +34,14 @@ final class SimulatorFramebuffer {
     init(
         onFrameTransportChange: @escaping @MainActor (SimulatorFrameTransportDescriptor) -> Void,
         onDisplayChange: @escaping @MainActor (SimulatorDisplayMetadata) -> Void,
+        onPublicationFailure: @escaping @MainActor (SimulatorFailure) -> Void = { _ in },
         beforeFrameTransportChange: @escaping @Sendable () async -> Void = {},
         afterFrameTransportChange: @escaping @Sendable () async -> Void = {},
         targetGeometry: SimulatorSurfaceGeometry? = nil
     ) {
         self.onFrameTransportChange = onFrameTransportChange
         self.onDisplayChange = onDisplayChange
+        self.onPublicationFailure = onPublicationFailure
         self.beforeFrameTransportChange = beforeFrameTransportChange
         self.afterFrameTransportChange = afterFrameTransportChange
         self.targetGeometry = targetGeometry
@@ -123,6 +126,10 @@ final class SimulatorFramebuffer {
         framePublisher?.prioritizeNextFrame()
     }
 
+    func acknowledgeFrameTransportAdoption() async {
+        await framePublisher?.acknowledgeFrameTransportAdoption()
+    }
+
     private func startPublisher(initialSurface: IOSurface) async throws {
         let publisherGeneration = framePublisherGeneration
         let publisher = try await SimulatorFramebufferFramePublisher(
@@ -130,6 +137,14 @@ final class SimulatorFramebuffer {
             initialGeometry: targetGeometry,
             beforeFrameTransportChange: beforeFrameTransportChange,
             afterFrameTransportChange: afterFrameTransportChange,
+            onPublicationFailure: { [weak self] failure in
+                guard let self,
+                      self.framePublisherGeneration == publisherGeneration else { return }
+                self.publishingEnabled = false
+                self.framePublisherGeneration &+= 1
+                self.framePublisher = nil
+                self.onPublicationFailure(failure)
+            },
             onFrameTransportChange: { [weak self] transport in
                 guard let self,
                       self.framePublisherGeneration == publisherGeneration,

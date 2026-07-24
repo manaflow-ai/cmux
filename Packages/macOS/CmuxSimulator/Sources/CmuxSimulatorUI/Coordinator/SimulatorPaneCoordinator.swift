@@ -77,7 +77,7 @@ public final class SimulatorPaneCoordinator {
     var chromeProfile: SimulatorDeviceChromeProfile?
     /// Whether the native tools inspector is visible.
     public var showsTools = false {
-        didSet { setLiveStatusVisibility(paneIsVisible && showsTools) }
+        didSet { setLiveStatusVisibility(effectivePaneIsVisible && showsTools) }
     }
     /// A monotonically increasing request observed by the AppKit input surface.
     public internal(set) var focusRequestGeneration: UInt64 = 0
@@ -137,6 +137,7 @@ public final class SimulatorPaneCoordinator {
     @ObservationIgnored var capabilityHydrationCompleted = false
     @ObservationIgnored var capabilityHydrationWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
     @ObservationIgnored var paneIsVisible = false
+    @ObservationIgnored var hostWindowIsVisible = true
     @ObservationIgnored var frameIsVisible = false
     @ObservationIgnored var locationRouteDeviceID: String?
     @ObservationIgnored var locationRoute: SimulatorLocationRoute?

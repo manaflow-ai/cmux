@@ -56,5 +56,11 @@ public struct SimulatorPaneView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(backgroundColor)
+        .background {
+            SimulatorHostWindowVisibilityObserver { [weak coordinator] isVisible in
+                coordinator?.setHostWindowVisibility(isVisible)
+            }
+            .allowsHitTesting(false)
+        }
     }
 }

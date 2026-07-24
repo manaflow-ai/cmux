@@ -112,6 +112,9 @@ final class SimulatorWorkerCoordinator {
             framebuffer?.setTargetGeometry(geometry)
         case .setFramebufferPublishing(let enabled):
             await setFramebufferPublishing(enabled)
+        case .acknowledgeFrameTransport(let descriptor):
+            guard currentFrameTransport == descriptor else { break }
+            await framebuffer?.acknowledgeFrameTransportAdoption()
         case .pointer(let event):
             if event.phase == .began { scrollWheel?.cancel() }
             framebuffer?.prioritizeNextFrame()

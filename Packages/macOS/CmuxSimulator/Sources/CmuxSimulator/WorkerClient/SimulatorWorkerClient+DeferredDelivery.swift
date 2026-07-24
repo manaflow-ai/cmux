@@ -28,7 +28,7 @@ extension SimulatorWorkerClient {
 
     func shouldDeferMessage(_ message: SimulatorWorkerInbound) -> Bool {
         switch message {
-        case .shutdown, .releaseInputs:
+        case .shutdown, .releaseInputs, .acknowledgeFrameTransport:
             return false
         default:
             return attachmentAwaitingStreaming

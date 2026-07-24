@@ -5,6 +5,21 @@ extension SimulatorPaneCoordinator {
     /// work while the Simulator is occluded.
     public func setPaneVisibility(_ isVisible: Bool) {
         paneIsVisible = isVisible
+        applyEffectivePaneVisibility()
+    }
+
+    func setHostWindowVisibility(_ isVisible: Bool) {
+        guard hostWindowIsVisible != isVisible else { return }
+        hostWindowIsVisible = isVisible
+        applyEffectivePaneVisibility()
+    }
+
+    var effectivePaneIsVisible: Bool {
+        paneIsVisible && hostWindowIsVisible
+    }
+
+    private func applyEffectivePaneVisibility() {
+        let isVisible = effectivePaneIsVisible
         setAccessibilityOverlayVisibility(isVisible)
         setLiveStatusVisibility(isVisible && showsTools)
         setFrameVisibility(isVisible)

@@ -334,6 +334,11 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
             simulatorUnlinkFrameSharedMemory(named: name)
             frameTransportSharedMemoryNames.remove(name)
         }
+        do {
+            try await sendRequired(.acknowledgeFrameTransport(descriptor), probe: false)
+        } catch {
+            await broadcastFailure(error, code: "frame_transport_adoption_failed")
+        }
     }
 
     /// Clears a tripped crash fuse and relaunches the worker with its last
