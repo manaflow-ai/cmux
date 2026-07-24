@@ -483,6 +483,8 @@ final class BrowserDesignModeController {
               let webView else { return }
         let operation = beginOperation()
         errorMessage = nil
+        var candidateLease: UUID?
+        var deliveryOwnsLease = false
         do {
             let capture = try await captureStableSelection(in: webView)
             guard operation == operationRevision else { return }
@@ -490,6 +492,8 @@ final class BrowserDesignModeController {
             guard !capture.snapshot.selections.isEmpty else {
                 throw BrowserScreenshotError.invalidSelection
             }
+            let lease = await artifactStore.beginHandoff()
+            candidateLease = lease
             var screenshotPaths: [String?] = []
             for selection in capture.snapshot.selections {
                 if let annotationPath = annotationScreenshotPaths[selection.selector] {
@@ -503,13 +507,25 @@ final class BrowserDesignModeController {
                 )
                 let pngData = try BrowserScreenshotPasteboardWriter.pngData(for: crop)
                 screenshotPaths.append(try await artifactStore.saveScreenshot(
-                    pngData, surfaceID: surfaceID
+                    pngData,
+                    surfaceID: surfaceID,
+                    handoffLease: lease
                 ).path)
             }
-            guard operation == operationRevision else { return }
+            guard operation == operationRevision else {
+                await artifactStore.releaseHandoff(lease)
+                return
+            }
             let pagePNG = try BrowserScreenshotPasteboardWriter.pngData(for: capture.image)
-            let pageScreenshotPath = try await artifactStore.saveScreenshot(pagePNG, surfaceID: surfaceID).path
-            guard operation == operationRevision else { return }
+            let pageScreenshotPath = try await artifactStore.saveScreenshot(
+                pagePNG,
+                surfaceID: surfaceID,
+                handoffLease: lease
+            ).path
+            guard operation == operationRevision else {
+                await artifactStore.releaseHandoff(lease)
+                return
+            }
             let context = BrowserDesignModePromptContext(
                 pageURL: webView.url?.absoluteString ?? "about:blank",
                 snapshot: capture.snapshot,
@@ -519,18 +535,30 @@ final class BrowserDesignModeController {
                 prompt: promptRuns
             )
             let contextJSON = try promptFormatter.contextJSON(for: context)
-            let contextJSONPath = try await artifactStore.saveContextJSON(contextJSON, surfaceID: surfaceID).path
-            guard operation == operationRevision else { return }
+            let contextJSONPath = try await artifactStore.saveContextJSON(
+                contextJSON,
+                surfaceID: surfaceID,
+                handoffLease: lease
+            ).path
+            guard operation == operationRevision else {
+                await artifactStore.releaseHandoff(lease)
+                return
+            }
             let artifactPaths = screenshotPaths.compactMap { $0 } + [pageScreenshotPath, contextJSONPath]
             let prompt = promptFormatter.format(context, contextJSONPath: contextJSONPath)
             guard !prompt.isEmpty else { throw BrowserDesignModeError.invalidRuntimeResponse }
+            deliveryOwnsLease = true
             guard try await deliverHandoff(
                 prompt: prompt,
                 artifactPaths: artifactPaths,
-                operation: operation
+                operation: operation,
+                candidateLease: lease
             ) else { return }
             didCopy = true
         } catch let copyError {
+            if let candidateLease, !deliveryOwnsLease {
+                await artifactStore.releaseHandoff(candidateLease)
+            }
             guard operation == operationRevision else { return }
             BrowserDesignModeSupport.record(copyError, operation: "copy")
             let message = BrowserDesignModeSupport.productMessage(

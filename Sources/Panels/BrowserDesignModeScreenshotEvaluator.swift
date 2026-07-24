@@ -10,10 +10,15 @@ final class BrowserDesignModeScreenshotEvaluator {
         @escaping @MainActor (Result<NSImage, any Error>) -> Void
     ) -> Void
     typealias AsyncCapture = @MainActor (WKWebView) async throws -> NSImage
+    typealias ProgressiveCapture = @MainActor (
+        WKWebView,
+        @escaping @MainActor () -> Void
+    ) async throws -> NSImage
 
     private let timeout: TimeInterval
     private let visibleViewportCapture: Capture
-    private let fullPageCapture: AsyncCapture
+    private let fullPageCapture: ProgressiveCapture
+    private let fullPageUsesInactivityTimeout: Bool
     private var continuations: [UUID: CheckedContinuation<NSImage, any Error>] = [:]
     private var timeoutTasks: [UUID: Task<Void, Never>] = [:]
     private var captureTasks: [UUID: Task<Void, Never>] = [:]
@@ -26,9 +31,13 @@ final class BrowserDesignModeScreenshotEvaluator {
                 completion: completion
             )
         }
-        fullPageCapture = { webView in
-            try await BrowserScreenshotWebViewSnapshotter.captureFullPage(from: webView)
+        fullPageCapture = { webView, onProgress in
+            try await BrowserScreenshotWebViewSnapshotter.captureFullPage(
+                from: webView,
+                onProgress: onProgress
+            )
         }
+        fullPageUsesInactivityTimeout = true
     }
 
     convenience init(timeout: TimeInterval, capture: @escaping Capture) {
@@ -52,11 +61,25 @@ final class BrowserDesignModeScreenshotEvaluator {
     ) {
         self.timeout = timeout
         self.visibleViewportCapture = visibleViewportCapture
+        self.fullPageCapture = { webView, _ in
+            try await fullPageCapture(webView)
+        }
+        fullPageUsesInactivityTimeout = false
+    }
+
+    init(
+        timeout: TimeInterval,
+        visibleViewportCapture: @escaping Capture,
+        fullPageCapture: @escaping ProgressiveCapture
+    ) {
+        self.timeout = timeout
+        self.visibleViewportCapture = visibleViewportCapture
         self.fullPageCapture = fullPageCapture
+        fullPageUsesInactivityTimeout = true
     }
 
     func captureVisibleViewport(from webView: WKWebView) async throws -> NSImage {
-        try await captureImage { [visibleViewportCapture] operationID in
+        try await captureImage(usesTimeout: true) { [visibleViewportCapture] operationID in
             visibleViewportCapture(webView) { [weak self] result in
                 self?.finish(operationID, with: result)
             }
@@ -64,11 +87,15 @@ final class BrowserDesignModeScreenshotEvaluator {
     }
 
     func captureFullPage(from webView: WKWebView) async throws -> NSImage {
-        try await captureImage { [weak self, fullPageCapture] operationID in
+        try await captureImage(
+            usesTimeout: fullPageUsesInactivityTimeout
+        ) { [weak self, fullPageCapture] operationID in
             guard let self else { return }
             self.captureTasks[operationID] = Task { @MainActor [weak self] in
                 do {
-                    let image = try await fullPageCapture(webView)
+                    let image = try await fullPageCapture(webView) { [weak self] in
+                        self?.resetTimeout(operationID)
+                    }
                     self?.finish(operationID, returning: image)
                 } catch {
                     self?.finish(operationID, throwing: error)
@@ -78,6 +105,7 @@ final class BrowserDesignModeScreenshotEvaluator {
     }
 
     private func captureImage(
+        usesTimeout: Bool,
         start: @escaping @MainActor (_ operationID: UUID) -> Void
     ) async throws -> NSImage {
         let operationID = UUID()
@@ -85,26 +113,32 @@ final class BrowserDesignModeScreenshotEvaluator {
             try Task.checkCancellation()
             return try await withCheckedThrowingContinuation { continuation in
                 continuations[operationID] = continuation
-
-                timeoutTasks[operationID] = Task { @MainActor [weak self, timeout = self.timeout] in
-                    // This is a bounded operation deadline, not a synchronization delay.
-                    do {
-                        try await ContinuousClock().sleep(for: .seconds(timeout))
-                    } catch {
-                        return
-                    }
-                    self?.finish(
-                        operationID,
-                        throwing: BrowserDesignModeError.operationTimedOut
-                    )
+                if usesTimeout {
+                    resetTimeout(operationID)
                 }
-
                 start(operationID)
             }
         } onCancel: { [weak self] in
             Task { @MainActor [weak self] in
                 self?.finish(operationID, throwing: CancellationError())
             }
+        }
+    }
+
+    private func resetTimeout(_ operationID: UUID) {
+        guard continuations[operationID] != nil else { return }
+        timeoutTasks.removeValue(forKey: operationID)?.cancel()
+        timeoutTasks[operationID] = Task { @MainActor [weak self, timeout] in
+            // This is a bounded operation deadline, not a synchronization delay.
+            do {
+                try await ContinuousClock().sleep(for: .seconds(timeout))
+            } catch {
+                return
+            }
+            self?.finish(
+                operationID,
+                throwing: BrowserDesignModeError.operationTimedOut
+            )
         }
     }
 

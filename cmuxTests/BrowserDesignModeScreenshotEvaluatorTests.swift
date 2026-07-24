@@ -59,10 +59,13 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
     @Test func fullPageCaptureCanOutliveSingleViewportDeadline() async throws {
         let expected = NSImage(size: NSSize(width: 20, height: 40))
         let evaluator = BrowserDesignModeScreenshotEvaluator(
-            timeout: 0,
+            timeout: 0.2,
             visibleViewportCapture: { _, _ in },
-            fullPageCapture: { _ in
-                await Task.yield()
+            fullPageCapture: { _, onProgress in
+                for _ in 0..<5 {
+                    try await ContinuousClock().sleep(for: .milliseconds(50))
+                    onProgress()
+                }
                 return expected
             }
         )

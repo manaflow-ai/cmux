@@ -27,29 +27,41 @@ actor BrowserDesignModeArtifactStore {
     func saveScreenshot(
         _ pngData: Data,
         surfaceID: UUID,
-        retention: BrowserDesignModeArtifactRetention = .prunable
+        retention: BrowserDesignModeArtifactRetention = .prunable,
+        handoffLease: UUID? = nil
     ) throws -> URL {
         try save(
             pngData,
             surfaceID: surfaceID,
             filenameSuffix: retention == .liveContext
                 ? liveContextSuffix
-                : Self.screenshotSuffix
+                : Self.screenshotSuffix,
+            handoffLease: handoffLease
         )
     }
 
-    func saveContextJSON(_ jsonData: Data, surfaceID: UUID) throws -> URL {
+    func saveContextJSON(
+        _ jsonData: Data,
+        surfaceID: UUID,
+        handoffLease: UUID? = nil
+    ) throws -> URL {
         try save(
             jsonData,
             surfaceID: surfaceID,
-            filenameSuffix: "context.json"
+            filenameSuffix: "context.json",
+            handoffLease: handoffLease
         )
+    }
+
+    func beginHandoff() -> UUID {
+        UUID()
     }
 
     private func save(
         _ data: Data,
         surfaceID: UUID,
-        filenameSuffix: String
+        filenameSuffix: String,
+        handoffLease: UUID?
     ) throws -> URL {
         let timestamp = Int(Date().timeIntervalSince1970 * 1_000)
         let filename = [
@@ -61,6 +73,17 @@ actor BrowserDesignModeArtifactStore {
         let url = directory.appendingPathComponent(filename, isDirectory: false)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         try data.write(to: url, options: .atomic)
+        if let handoffLease {
+            do {
+                try Data().write(
+                    to: handoffMarkerURL(for: url, lease: handoffLease),
+                    options: .atomic
+                )
+            } catch {
+                removeArtifact(at: url)
+                throw error
+            }
+        }
         pruneKeepingNewest(limit: Self.fileLimit)
         guard fileManager.fileExists(atPath: url.path) else {
             throw CocoaError(.fileNoSuchFile)
@@ -72,7 +95,7 @@ actor BrowserDesignModeArtifactStore {
     ///
     /// The caller releases the candidate if clipboard delivery fails, or the
     /// previous clipboard bundle after a later delivery replaces it.
-    func retainHandoffArtifacts(at paths: [String]) -> Bool {
+    func retainHandoffArtifacts(at paths: [String], lease: UUID) -> Bool {
         let urls = paths.map { URL(fileURLWithPath: $0).standardizedFileURL }
         let standardizedDirectory = directory.standardizedFileURL
         guard !urls.isEmpty,
@@ -85,24 +108,33 @@ actor BrowserDesignModeArtifactStore {
         var retainedURLs: [URL] = []
         for url in urls {
             do {
-                try Data().write(to: handoffMarkerURL(for: url), options: .atomic)
+                try Data().write(
+                    to: handoffMarkerURL(for: url, lease: lease),
+                    options: .atomic
+                )
                 retainedURLs.append(url)
             } catch {
-                retainedURLs.forEach { removeHandoffMarker(for: $0) }
+                retainedURLs.forEach { removeHandoffMarker(for: $0, lease: lease) }
                 return false
             }
         }
         guard urls.allSatisfy({ fileManager.fileExists(atPath: $0.path) }) else {
-            retainedURLs.forEach { removeHandoffMarker(for: $0) }
+            retainedURLs.forEach { removeHandoffMarker(for: $0, lease: lease) }
             return false
         }
         return true
     }
 
-    func releaseHandoff(_ paths: [String]) {
-        paths
-            .map { URL(fileURLWithPath: $0).standardizedFileURL }
-            .forEach { removeHandoffMarker(for: $0) }
+    func releaseHandoff(_ lease: UUID) {
+        guard let directoryURLs = try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: []
+        ) else { return }
+        let leaseMarkerPrefix = "\(handoffMarkerPrefix)\(lease.uuidString)-"
+        for markerURL in directoryURLs where markerURL.lastPathComponent.hasPrefix(leaseMarkerPrefix) {
+            try? fileManager.removeItem(at: markerURL)
+        }
         pruneKeepingNewest(limit: Self.fileLimit)
     }
 
@@ -133,24 +165,32 @@ actor BrowserDesignModeArtifactStore {
         let markerURLs = directoryURLs.filter {
             isReleasedMarker($0) || isCurrentHandoffMarker($0)
         }
-        for markerURL in markerURLs where !fileManager.fileExists(
-            atPath: artifactURL(forMarker: markerURL).path
-        ) {
-            try? fileManager.removeItem(at: markerURL)
+        var handoffArtifactNames = Set<String>()
+        for markerURL in markerURLs {
+            guard let artifactURL = artifactURL(forMarker: markerURL),
+                  fileManager.fileExists(atPath: artifactURL.path) else {
+                try? fileManager.removeItem(at: markerURL)
+                continue
+            }
+            if isCurrentHandoffMarker(markerURL) {
+                handoffArtifactNames.insert(artifactURL.lastPathComponent)
+            }
         }
         let urls = directoryURLs.filter { !$0.lastPathComponent.hasPrefix(".") }
         guard urls.count > limit else { return }
         let pinnedCount = urls.reduce(into: 0) { count, url in
-            if isRetained(url) { count += 1 }
+            if isRetained(url, handoffArtifactNames: handoffArtifactNames) { count += 1 }
         }
         let prunableLimit = max(0, limit - pinnedCount)
-        let ordered = urls.filter { !isRetained($0) }.sorted { lhs, rhs in
+        let ordered = urls.filter {
+            !isRetained($0, handoffArtifactNames: handoffArtifactNames)
+        }.sorted { lhs, rhs in
             let lhsDate = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
             let rhsDate = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
             return lhsDate > rhsDate
         }
         for staleURL in ordered.dropFirst(prunableLimit) {
-            if !isRetained(staleURL) {
+            if !isRetained(staleURL, handoffArtifactNames: handoffArtifactNames) {
                 removeArtifact(at: staleURL)
             }
         }
@@ -161,26 +201,41 @@ actor BrowserDesignModeArtifactStore {
             && !fileManager.fileExists(atPath: releasedMarkerURL(for: url).path)
     }
 
-    private func isRetained(_ url: URL) -> Bool {
+    private func isRetained(
+        _ url: URL,
+        handoffArtifactNames: Set<String>
+    ) -> Bool {
         isLiveContext(url)
-            || fileManager.fileExists(atPath: handoffMarkerURL(for: url).path)
+            || handoffArtifactNames.contains(url.lastPathComponent)
     }
 
     private func removeArtifact(at url: URL) {
         try? fileManager.removeItem(at: url)
         try? fileManager.removeItem(at: releasedMarkerURL(for: url))
-        removeHandoffMarker(for: url)
+        removeHandoffMarkers(for: url)
     }
 
-    private func handoffMarkerURL(for url: URL) -> URL {
+    private func handoffMarkerURL(for url: URL, lease: UUID) -> URL {
         url.deletingLastPathComponent().appendingPathComponent(
-            "\(handoffMarkerPrefix)\(url.lastPathComponent)",
+            "\(handoffMarkerPrefix)\(lease.uuidString)-\(url.lastPathComponent)",
             isDirectory: false
         )
     }
 
-    private func removeHandoffMarker(for url: URL) {
-        try? fileManager.removeItem(at: handoffMarkerURL(for: url))
+    private func removeHandoffMarker(for url: URL, lease: UUID) {
+        try? fileManager.removeItem(at: handoffMarkerURL(for: url, lease: lease))
+    }
+
+    private func removeHandoffMarkers(for url: URL) {
+        guard let directoryURLs = try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: []
+        ) else { return }
+        for markerURL in directoryURLs where isCurrentHandoffMarker(markerURL)
+            && artifactURL(forMarker: markerURL)?.standardizedFileURL == url.standardizedFileURL {
+            try? fileManager.removeItem(at: markerURL)
+        }
     }
 
     private func releasedMarkerURL(for url: URL) -> URL {
@@ -190,12 +245,20 @@ actor BrowserDesignModeArtifactStore {
         )
     }
 
-    private func artifactURL(forMarker markerURL: URL) -> URL {
-        let filename = markerURL.lastPathComponent.dropFirst(
-            isReleasedMarker(markerURL)
-                ? Self.releasedMarkerPrefix.count
-                : handoffMarkerPrefix.count
-        )
+    private func artifactURL(forMarker markerURL: URL) -> URL? {
+        let filename: Substring
+        if isReleasedMarker(markerURL) {
+            filename = markerURL.lastPathComponent.dropFirst(Self.releasedMarkerPrefix.count)
+        } else {
+            let leaseAndFilename = markerURL.lastPathComponent.dropFirst(handoffMarkerPrefix.count)
+            guard leaseAndFilename.count > 37 else { return nil }
+            let separator = leaseAndFilename.index(leaseAndFilename.startIndex, offsetBy: 36)
+            guard leaseAndFilename[separator] == "-",
+                  UUID(uuidString: String(leaseAndFilename[..<separator])) != nil else {
+                return nil
+            }
+            filename = leaseAndFilename.dropFirst(37)
+        }
         return markerURL.deletingLastPathComponent().appendingPathComponent(
             String(filename),
             isDirectory: false

@@ -4,7 +4,7 @@ import Foundation
 private enum BrowserDesignModeHandoffState {
     struct Lease {
         let artifactStore: BrowserDesignModeArtifactStore
-        let artifactPaths: [String]
+        let id: UUID
     }
 
     static var currentLease: Lease?
@@ -14,31 +14,35 @@ extension BrowserDesignModeController {
     func deliverHandoff(
         prompt: String,
         artifactPaths: [String],
-        operation: UInt
+        operation: UInt,
+        candidateLease: UUID? = nil
     ) async throws -> Bool {
-        guard await artifactStore.retainHandoffArtifacts(at: artifactPaths) else {
+        let lease: UUID
+        if let candidateLease {
+            lease = candidateLease
+        } else {
+            lease = await artifactStore.beginHandoff()
+        }
+        guard await artifactStore.retainHandoffArtifacts(at: artifactPaths, lease: lease) else {
+            await artifactStore.releaseHandoff(lease)
             throw BrowserDesignModeError.invalidRuntimeResponse
         }
         guard operation == operationRevision else {
-            await artifactStore.releaseHandoff(artifactPaths)
+            await artifactStore.releaseHandoff(lease)
             return false
         }
         guard clipboardWriter(prompt) else {
-            await artifactStore.releaseHandoff(artifactPaths)
+            await artifactStore.releaseHandoff(lease)
             throw BrowserScreenshotError.pasteboardWriteFailed
         }
 
         let previousLease = BrowserDesignModeHandoffState.currentLease
         BrowserDesignModeHandoffState.currentLease = .init(
             artifactStore: artifactStore,
-            artifactPaths: artifactPaths
+            id: lease
         )
         if let previousLease {
-            let currentPaths = Set(artifactPaths)
-            let supersededPaths = previousLease.artifactPaths.filter {
-                !currentPaths.contains($0)
-            }
-            await previousLease.artifactStore.releaseHandoff(supersededPaths)
+            await previousLease.artifactStore.releaseHandoff(previousLease.id)
         }
         return operation == operationRevision
     }

@@ -241,12 +241,13 @@ struct BrowserDesignModeArtifactStoreTests {
             )
         }
 
-        #expect(await validatingStore.retainHandoffArtifacts(at: [artifact.path]))
+        let lease = await validatingStore.beginHandoff()
+        #expect(await validatingStore.retainHandoffArtifacts(at: [artifact.path], lease: lease))
         _ = try await competingStore.saveScreenshot(Data([255]), surfaceID: UUID())
 
         #expect(FileManager.default.fileExists(atPath: artifact.path))
 
-        await validatingStore.releaseHandoff([artifact.path])
+        await validatingStore.releaseHandoff(lease)
         _ = try await competingStore.saveScreenshot(Data([254]), surfaceID: UUID())
 
         #expect(!FileManager.default.fileExists(atPath: artifact.path))
@@ -297,7 +298,8 @@ struct BrowserDesignModeArtifactStoreTests {
             [.modificationDate: Date(timeIntervalSince1970: 0)],
             ofItemAtPath: staleURL.path
         )
-        #expect(await oldStore.retainHandoffArtifacts(at: [staleURL.path]))
+        let staleLease = await oldStore.beginHandoff()
+        #expect(await oldStore.retainHandoffArtifacts(at: [staleURL.path], lease: staleLease))
         let currentStore = BrowserDesignModeArtifactStore(
             directory: directory,
             liveContextSessionID: "current"

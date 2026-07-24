@@ -24,10 +24,12 @@ enum BrowserScreenshotCaptureBounds {
 enum BrowserScreenshotWebViewSnapshotter {
     static func captureFullPage(
         from webView: WKWebView,
-        afterScreenUpdates: Bool = true
+        afterScreenUpdates: Bool = true,
+        onProgress: @escaping @MainActor () -> Void = {}
     ) async throws -> NSImage {
         try Task.checkCancellation()
         let metrics = try await webContentMetrics(for: webView)
+        onProgress()
         try Task.checkCancellation()
         try BrowserScreenshotCaptureBounds.validateFullPageSize(metrics.contentSize)
         if let snapshotRect = metrics.untransformedFullContentSnapshotRect(in: webView.bounds) {
@@ -37,6 +39,7 @@ enum BrowserScreenshotWebViewSnapshotter {
                     snapshotRect: snapshotRect,
                     afterScreenUpdates: afterScreenUpdates
                 )
+                onProgress()
                 try Task.checkCancellation()
                 if isAcceptableFullContentSnapshot(image, metrics: metrics) {
                     return image
@@ -44,6 +47,7 @@ enum BrowserScreenshotWebViewSnapshotter {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
+                onProgress()
                 #if DEBUG
                 cmuxDebugLog("browser.screenshot.fullPage.singleSnapshot.failed error=\(error.localizedDescription)")
                 #endif
@@ -53,7 +57,8 @@ enum BrowserScreenshotWebViewSnapshotter {
         return try await captureStitchedFullPage(
             from: webView,
             metrics: metrics,
-            afterScreenUpdates: afterScreenUpdates
+            afterScreenUpdates: afterScreenUpdates,
+            onProgress: onProgress
         )
     }
 
@@ -101,7 +106,8 @@ enum BrowserScreenshotWebViewSnapshotter {
     private static func captureStitchedFullPage(
         from webView: WKWebView,
         metrics: BrowserViewportContentMetrics,
-        afterScreenUpdates: Bool
+        afterScreenUpdates: Bool,
+        onProgress: @escaping @MainActor () -> Void
     ) async throws -> NSImage {
         let contentSize = metrics.contentSize
         let viewportSize = metrics.viewportSize
@@ -137,12 +143,14 @@ enum BrowserScreenshotWebViewSnapshotter {
                         throw BrowserScreenshotError.webContentMetricsUnavailable
                     }
                     try await scroll(webView, to: origin)
+                    onProgress()
                     try Task.checkCancellation()
                     let tile = try await captureVisibleViewport(
                         from: webView,
                         afterScreenUpdates: afterScreenUpdates,
                         renderer: tileRenderer
                     )
+                    onProgress()
                     try Task.checkCancellation()
                     drawTile(
                         tile,
@@ -165,6 +173,7 @@ enum BrowserScreenshotWebViewSnapshotter {
             try? await scroll(webView, to: metrics.scrollOffset)
         }
         await restoration.value
+        onProgress()
         if let captureError {
             throw captureError
         }
