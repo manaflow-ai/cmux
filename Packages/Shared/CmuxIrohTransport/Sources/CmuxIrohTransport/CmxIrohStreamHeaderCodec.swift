@@ -78,6 +78,21 @@ public struct CmxIrohStreamHeaderCodec: Sendable {
                 append(cursor, to: &payload)
             }
 
+        case let .terminalScene(request):
+            laneCode = 5
+            credentialCode = 0
+            flags = 0
+            try appendLengthPrefixedString(
+                request.resourceID.value,
+                lengthByteCount: 1,
+                to: &payload
+            )
+            append(request.presentationID, to: &payload)
+            append(request.presentationGeneration, to: &payload)
+            append(request.width, to: &payload)
+            append(request.height, to: &payload)
+            append(request.contentScale.bitPattern, to: &payload)
+
         case let .artifact(resourceID, offset):
             laneCode = 4
             credentialCode = 0
@@ -186,6 +201,22 @@ public struct CmxIrohStreamHeaderCodec: Sendable {
             let resourceID = try readResourceID(payload: &payload)
             let offset = try payload.readUInt64()
             return try CmxIrohStreamHeader(lane: .artifact(resourceID: resourceID, offset: offset))
+        case 5:
+            guard flags == 0 else {
+                throw CmxIrohStreamHeaderCodecError.invalidFlags(flags)
+            }
+            guard credentialCode == 0 else {
+                throw CmxIrohStreamHeaderCodecError.invalidCredentialKind(credentialCode)
+            }
+            let request = try CmxIrohTerminalSceneLaneRequest(
+                resourceID: readResourceID(payload: &payload),
+                presentationID: readUUID(payload: &payload),
+                presentationGeneration: payload.readUInt64(),
+                width: payload.readUInt32(),
+                height: payload.readUInt32(),
+                contentScale: Double(bitPattern: payload.readUInt64())
+            )
+            return try CmxIrohStreamHeader(lane: .terminalScene(request))
         default:
             throw CmxIrohStreamHeaderCodecError.unknownLane(laneCode)
         }
@@ -276,5 +307,20 @@ public struct CmxIrohStreamHeaderCodec: Sendable {
     private func append(_ value: UInt64, to data: inout Data) {
         let bigEndian = value.bigEndian
         withUnsafeBytes(of: bigEndian) { data.append(contentsOf: $0) }
+    }
+
+    private func append(_ value: UUID, to data: inout Data) {
+        var bytes = value.uuid
+        withUnsafeBytes(of: &bytes) { data.append(contentsOf: $0) }
+    }
+
+    private func readUUID(payload: inout CmxIrohBinaryCursor) throws -> UUID {
+        let bytes = Array(try payload.readData(byteCount: 16))
+        return UUID(uuid: (
+            bytes[0], bytes[1], bytes[2], bytes[3],
+            bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[8], bytes[9], bytes[10], bytes[11],
+            bytes[12], bytes[13], bytes[14], bytes[15]
+        ))
     }
 }

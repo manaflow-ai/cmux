@@ -27,7 +27,7 @@ struct CmxIrohTerminalSceneEnvelopeTests {
             .scene(try scene(kind: .delta, contentSequence: 22, presentationSequence: 2)),
             .scene(try scene(kind: .unchanged, contentSequence: 22, presentationSequence: 3)),
         ]
-        let encoded = try envelopes.map(codec.encode)
+        let encoded = envelopes.map(codec.encode)
         let joined = encoded.reduce(into: Data(), +=)
 
         var offset = 0
@@ -48,7 +48,7 @@ struct CmxIrohTerminalSceneEnvelopeTests {
             .scene(try scene(kind: .full, contentSequence: 21, presentationSequence: 1)),
             .scene(try scene(kind: .delta, contentSequence: 22, presentationSequence: 2)),
         ]
-        let bytes = try envelopes.map(codec.encode).reduce(into: Data(), +=)
+        let bytes = envelopes.map(codec.encode).reduce(into: Data(), +=)
 
         for split in 0 ... bytes.count {
             var decoder = CmxIrohTerminalSceneEnvelopeDecoder()
