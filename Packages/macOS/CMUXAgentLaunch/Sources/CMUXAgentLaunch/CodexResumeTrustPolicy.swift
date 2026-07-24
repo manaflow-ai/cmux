@@ -7,7 +7,8 @@ import Foundation
 /// no explicit `projects.<path>.trust_level` decision. A cmux auto-resume cannot
 /// answer that prompt safely, so an undecided resume receives an invocation-only
 /// `untrusted` override. Explicit trusted or untrusted decisions in the user's
-/// config, and explicit resume-scoped launch overrides, remain authoritative.
+/// config, and explicit root- or resume-scoped launch overrides, remain
+/// authoritative.
 public struct CodexResumeTrustPolicy: Sendable, Equatable {
     public init() {}
 
@@ -21,7 +22,7 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
         userConfigContents: String?,
         profileConfigContents: String? = nil
     ) -> [String] {
-        guard let resumeIndex = resumeSubcommandIndex(arguments) else { return [] }
+        guard resumeSubcommandIndex(arguments) != nil else { return [] }
 
         let currentDirectory = effectiveWorkingDirectory(
             arguments: arguments,
@@ -34,8 +35,7 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
             candidates.insert(canonicalProjectPath(path))
         }
 
-        let resumeArguments = Array(arguments[arguments.index(after: resumeIndex)...])
-        if argumentsContainProjectTrustDecision(resumeArguments, candidates: candidates)
+        if argumentsContainProjectTrustDecision(arguments, candidates: candidates)
             || [userConfigContents, profileConfigContents].contains(where: {
                 userConfigContainsProjectTrustDecision($0, candidates: candidates)
             }) {
@@ -232,9 +232,24 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
         _ arguments: [String],
         candidates: Set<String>
     ) -> Bool {
-        var index = 0
+        let nonConfigValueOptions: Set<String> = [
+            "--enable", "--disable",
+            "-i", "--image",
+            "-m", "--model",
+            "--remote", "--remote-auth-token-env",
+            "--local-provider",
+            "-p", "--profile",
+            "-s", "--sandbox",
+            "-C", "--cd",
+            "--add-dir",
+            "-a", "--ask-for-approval",
+        ]
+        var index = executableArgumentStart(arguments)
         while index < arguments.count {
             let argument = arguments[index]
+            if argument == "--" {
+                break
+            }
             if (argument == "-c" || argument == "--config"), index + 1 < arguments.count {
                 if projectTrustOverrideMatches(arguments[index + 1], candidates: candidates) {
                     return true
@@ -255,6 +270,11 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
                    candidates: candidates
                ) {
                 return true
+            }
+            if nonConfigValueOptions.contains(argument) {
+                guard index + 1 < arguments.count else { break }
+                index += 2
+                continue
             }
             index += 1
         }

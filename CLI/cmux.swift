@@ -778,6 +778,7 @@ final class ClaudeHookSessionStore {
         guard !normalized.isEmpty else { return false }
         return try withLockedState { state in
             let now = Date().timeIntervalSince1970
+            let hadExistingRecord = state.sessions[normalized] != nil
             var record = makeSessionRecord(
                 state: state,
                 sessionId: normalized,
@@ -785,7 +786,7 @@ final class ClaudeHookSessionStore {
                 surfaceId: surfaceId,
                 now: now
             )
-            if codexSessionStartIsStale(
+            if hadExistingRecord, codexSessionStartIsStale(
                 record,
                 incomingPID: pid,
                 allowResumedProcessReplacement: allowResumedProcessReplacement
@@ -1015,16 +1016,21 @@ final class ClaudeHookSessionStore {
         allowResumedProcessReplacement: Bool = false
     ) -> Bool {
         // A wrapper-confirmed resume may replace an interrupted active turn only
-        // when its exact process generation is newer. PID inequality alone is
-        // insufficient because fire-and-forget hooks can arrive out of order and
-        // the OS can reuse a numeric PID.
-        if allowResumedProcessReplacement,
-           let incomingPID,
-           resumedProcessCanReplace(
-               incomingPID: incomingPID,
-               than: record
-           ) {
-            return false
+        // when its process generation is newer, matches an already accepted
+        // update, or replaces a dead owner from a legacy record. PID inequality
+        // alone is insufficient because fire-and-forget hooks can arrive out of
+        // order and the OS can reuse a numeric PID.
+        if allowResumedProcessReplacement {
+            guard let incomingPID else { return true }
+            switch resumedProcessGenerationRelation(
+                incomingPID: incomingPID,
+                to: record
+            ) {
+            case .newer, .same, .legacyDeadOwner:
+                return false
+            case .older, .indeterminate:
+                return true
+            }
         }
         if max(record.activePromptDepth ?? 0, record.activePromptTurnIds?.count ?? 0) > 0 {
             return true
@@ -1039,19 +1045,30 @@ final class ClaudeHookSessionStore {
         return incomingPID == existingPID
     }
 
-    private func resumedProcessCanReplace(
+    private enum ResumedProcessGenerationRelation {
+        case newer
+        case same
+        case older
+        case legacyDeadOwner
+        case indeterminate
+    }
+
+    private func resumedProcessGenerationRelation(
         incomingPID: Int,
-        than record: ClaudeHookSessionRecord
-    ) -> Bool {
+        to record: ClaudeHookSessionRecord
+    ) -> ResumedProcessGenerationRelation {
         guard let incoming = processStartIdentity(pid: incomingPID) else {
-            return false
+            return .indeterminate
         }
         if let existingSeconds = record.pidStartSeconds,
            let existingMicroseconds = record.pidStartMicroseconds {
             if incoming.seconds != existingSeconds {
-                return incoming.seconds > existingSeconds
+                return incoming.seconds > existingSeconds ? .newer : .older
             }
-            return incoming.microseconds > existingMicroseconds
+            if incoming.microseconds != existingMicroseconds {
+                return incoming.microseconds > existingMicroseconds ? .newer : .older
+            }
+            return .same
         }
 
         // Older cmux CLIs can decode and rewrite the shared store without the
@@ -1062,9 +1079,9 @@ final class ClaudeHookSessionStore {
               existingPID > 0,
               existingPID != incomingPID,
               processStartIdentity(pid: existingPID) == nil else {
-            return false
+            return .indeterminate
         }
-        return true
+        return .legacyDeadOwner
     }
 
     private func clearCodexSessionStartTurnState(on record: inout ClaudeHookSessionRecord) {

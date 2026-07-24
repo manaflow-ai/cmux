@@ -376,7 +376,7 @@ enum AgentResumeCommandBuilder {
             workingDirectory: workingDirectory,
             customRegistration: customRegistration,
             includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
-            routesThroughResumeWrapper: false
+            routesThroughResumeWrapper: true
         )
     }
 
