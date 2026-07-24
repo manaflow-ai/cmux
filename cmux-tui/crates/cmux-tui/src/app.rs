@@ -15432,6 +15432,55 @@ mod tests {
     }
 
     #[test]
+    fn queued_user_action_runs_before_failed_provider_reconnect_retry() {
+        let mux = Mux::new("provider-reconnect-user-action-test", SurfaceOptions::default());
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui());
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        install_machine_controller(
+            &mut app,
+            Box::new(FakeMachineController {
+                actions: VecDeque::from([
+                    FakeMachineAction::Return(Box::new(MachineActionResult::ui(
+                        provider_machine_ui(),
+                    ))),
+                    FakeMachineAction::Return(Box::new(MachineActionResult::ui(
+                        provider_machine_ui(),
+                    ))),
+                ]),
+                requests: requests.clone(),
+            }),
+        );
+        let user_request = MachineRequest::SelectProviderScope("team".into());
+        app.machine_action_in_flight = true;
+        app.machine_action_request = Some(MachineRequest::ReconnectProvider);
+        app.machine_ui.as_mut().unwrap().request = Some(user_request.clone());
+
+        app.apply_machine_controller_completion(super::MachineControllerCompletion::Action {
+            result: Err("provider is still offline".into()),
+            updates: None,
+        });
+
+        assert_eq!(app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()), Some(&user_request));
+        app.machine_provider_reconnect_retry_at = Some(Instant::now() - Duration::from_millis(1));
+
+        settle_machine_action(&mut app, &events);
+        assert_eq!(requests.lock().unwrap().as_slice(), &[user_request]);
+        assert!(app.machine_provider_reconnect_retry_at.is_some());
+
+        settle_machine_action(&mut app, &events);
+        assert_eq!(
+            requests.lock().unwrap().as_slice(),
+            &[
+                MachineRequest::SelectProviderScope("team".into()),
+                MachineRequest::ReconnectProvider,
+            ]
+        );
+        assert_eq!(app.machine_provider_reconnect_attempts, 0);
+        assert!(app.machine_provider_reconnect_retry_at.is_none());
+    }
+
+    #[test]
     fn rejected_provider_workspace_mirror_commit_surfaces_the_session_error() {
         let mux = Mux::new("managed-workspace-rejected-mirror-test", SurfaceOptions::default());
         let placement = mux
