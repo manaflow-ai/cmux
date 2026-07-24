@@ -1,10 +1,12 @@
 #if os(iOS)
 import CMUXMobileCore
+import CmuxMobileShell
 import CmuxMobileSupport
 import SwiftUI
 
 @MainActor
 struct MobileIrohCustomPrivatePathEditor: View {
+    private let suggestionText = MobilePrivateNetworkSuggestionText()
     private let existing: CmxIrohSettingsSnapshot.CustomPrivateNetwork?
     private let availableMacs: [CmxIrohSettingsSnapshot.PrivateNetworkMac]
     private let onSave: (CmxIrohCustomPrivatePathDraft) async -> Bool
@@ -65,6 +67,56 @@ struct MobileIrohCustomPrivatePathEditor: View {
                                     .tag(mac.id)
                             }
                         }
+                    }
+                }
+
+                if !selectedMacSuggestions.isEmpty {
+                    Section {
+                        ForEach(selectedMacSuggestions) { suggestion in
+                            let isAdded = suggestionText.contains(
+                                suggestion,
+                                in: addressesText
+                            )
+                            Button {
+                                addressesText = suggestionText.appending(
+                                    suggestion,
+                                    to: addressesText
+                                )
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(suggestion.address)
+                                            .font(.body.monospaced())
+                                            .foregroundStyle(.primary)
+                                        Text(suggestionSubtitle(suggestion))
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Image(systemName: isAdded ? "checkmark.circle.fill" : "plus.circle")
+                                        .foregroundStyle(isAdded ? Color.green : Color.accentColor)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(isAdded)
+                            .accessibilityLabel(isAdded
+                                ? L10n.string(
+                                    "mobile.iroh.private.custom.suggestion.added",
+                                    defaultValue: "Address Added"
+                                )
+                                : L10n.string(
+                                    "mobile.iroh.private.custom.suggestion.add",
+                                    defaultValue: "Add Address"
+                                ))
+                        }
+                    } header: {
+                        Text(String(
+                            format: L10n.string(
+                                "mobile.iroh.private.custom.suggestion.header",
+                                defaultValue: "Suggested by %@"
+                            ),
+                            selectedMacDisplayName
+                        ))
                     }
                 }
 
@@ -147,6 +199,49 @@ struct MobileIrohCustomPrivatePathEditor: View {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty { return trimmed }
         return L10n.string("mobile.iroh.private.custom.unnamedMac", defaultValue: "Mac")
+    }
+
+    private var selectedMacSuggestions: [CmxPrivateNetworkAddress] {
+        availableMacs.first {
+            $0.id == selectedMacDeviceID
+        }?.suggestedAddresses ?? []
+    }
+
+    private var selectedMacDisplayName: String {
+        let name = availableMacs.first {
+            $0.id == selectedMacDeviceID
+        }?.displayName ?? existing?.macDisplayName ?? ""
+        return displayName(name)
+    }
+
+    private func suggestionSubtitle(
+        _ suggestion: CmxPrivateNetworkAddress
+    ) -> String {
+        let kind = switch suggestion.kind {
+        case .vpnTunnel:
+            L10n.string(
+                "mobile.iroh.private.custom.suggestion.kind.vpn",
+                defaultValue: "VPN tunnel"
+            )
+        case .localNetwork:
+            L10n.string(
+                "mobile.iroh.private.custom.suggestion.kind.local",
+                defaultValue: "Local network"
+            )
+        case .other:
+            L10n.string(
+                "mobile.iroh.private.custom.suggestion.kind.other",
+                defaultValue: "Private network"
+            )
+        }
+        return String(
+            format: L10n.string(
+                "mobile.iroh.private.custom.suggestion.summary",
+                defaultValue: "%1$@ · %2$@"
+            ),
+            kind,
+            suggestion.interfaceName
+        )
     }
 
     private func save() {

@@ -92,10 +92,23 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
     public struct PrivateNetworkMac: Identifiable, Equatable, Sendable {
         public let id: String
         public let displayName: String
+        /// Device-local private-address suggestions reported by this Mac.
+        public let suggestedAddresses: [CmxPrivateNetworkAddress]
 
-        public init(id: String, displayName: String) {
+        /// Creates one Mac option for private-path settings.
+        ///
+        /// - Parameters:
+        ///   - id: The canonical Mac device identifier.
+        ///   - displayName: The Mac's user-facing name.
+        ///   - suggestedAddresses: In-memory suggestions from authenticated status.
+        public init(
+            id: String,
+            displayName: String,
+            suggestedAddresses: [CmxPrivateNetworkAddress] = []
+        ) {
             self.id = id
             self.displayName = displayName
+            self.suggestedAddresses = suggestedAddresses
         }
     }
 

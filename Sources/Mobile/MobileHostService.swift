@@ -254,6 +254,7 @@ final class MobileHostService {
     nonisolated static func identityStatusPayload(
         routes: [CmxAttachRoute],
         additionalCapabilities: Set<String> = [],
+        privateNetworkAddresses: [CmxPrivateNetworkAddress]? = nil,
         now: Date = Date()
     ) -> [String: Any] {
         var payload = publicStatusPayload(routes: [], now: now)
@@ -274,6 +275,20 @@ final class MobileHostService {
         }
         if let appBuild = build.appBuild {
             payload["mac_app_build"] = appBuild
+        }
+        let discoveredAddresses = CmxPrivateNetworkAddress.sorted(
+            privateNetworkAddresses
+                ?? MobilePrivateNetworkAddressResolver.shared.addresses(now: now)
+        )
+        if !discoveredAddresses.isEmpty {
+            payload["private_network_addresses"] = discoveredAddresses.map {
+                [
+                    "address": $0.address,
+                    "family": $0.family.rawValue,
+                    "interface": $0.interfaceName,
+                    "kind": $0.kind.rawValue,
+                ]
+            }
         }
         return payload
     }
@@ -1571,6 +1586,7 @@ final class MobileHostService {
         // TTL-fresh cache from the previous network with no further path
         // callback coming to correct it.
         routeResolver.invalidateResolvedTailscaleHostCache()
+        MobilePrivateNetworkAddressResolver.shared.invalidateCache()
         guard let port = listenerPort else {
             // Mid-bind (no port yet): the `.ready` handler publishes against the
             // current path when the bind completes, and the invalidation above

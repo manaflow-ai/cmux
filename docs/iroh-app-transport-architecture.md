@@ -69,9 +69,19 @@ Offline LAN discovery is opt-in. The iOS target must declare its cmux Bonjour se
 | Iroh-discovered LAN, Tailscale, or VPN candidate | Supported after admission | Same connection may migrate direct; selection is opportunistic, not guaranteed. |
 | Authenticated Bonjour LAN Iroh bootstrap | Supported | Exact known EndpointID or one-use offline proof; numeric on-link addresses only. |
 | Numeric Tailscale TCP | Compatibility only | Current framed RPC after interface-bound route proof; no Iroh-only features. |
-| Explicit relayless Tailscale/custom-VPN Iroh hint | Deferred | Models and tests exist, but no production provider/profile producer exists. |
+| Explicit relayless custom-VPN/LAN Iroh hint | Supported | Device-local iOS Private Networks configuration; authenticated Mac discovery and explicit user activation are required. |
+| Explicit relayless Tailscale Iroh hint | Deferred | No production provider-bound profile producer exists; automatic Tailscale paths remain separate. |
 | Generic LAN/custom-VPN raw TCP authorization | Unsupported | Plaintext transport cannot prove the intended Mac or safely carry a Stack bearer. |
 | Relay-only peer-IP concealment | Unsupported | An admitted peer can receive private candidates; managed relays still observe metadata. |
+
+### User-provided VPN and LAN addresses
+
+The Mac discloses eligible private interface addresses only in its authenticated identity status payload.
+The unauthenticated public status payload contains no private addresses.
+iOS keeps these suggestions in process memory; it never sends them to the broker, backup, or account sync.
+A suggestion is inert until the user saves and enables it in iOS Private Networks.
+The configured numeric address is only a reachability hint joined to the Mac's authenticated UDP port.
+Peer identity remains the Iroh EndpointID proven by the QUIC handshake.
 
 ## Authorization
 

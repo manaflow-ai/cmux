@@ -1,3 +1,4 @@
+import AppKit
 import CMUXMobileCore
 import SwiftUI
 
@@ -10,7 +11,15 @@ public struct IrohNetworkingSection: View {
     @State private var pendingCustomRemovalID: String?
 
     public init(hostActions: SettingsHostActions) {
-        _model = State(initialValue: IrohSettingsModel(controller: hostActions.irohSettingsController()))
+        _model = State(initialValue: IrohSettingsModel(
+            controller: hostActions.irohSettingsController(),
+            privateNetworkAddressProvider: {
+                hostActions.localPrivateNetworkAddresses()
+            },
+            mobileDirectPortProvider: {
+                hostActions.mobileDirectPort()
+            }
+        ))
     }
 
     public var body: some View {
@@ -193,9 +202,74 @@ public struct IrohNetworkingSection: View {
                     .foregroundStyle(.secondary)
             }
 
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                searchAnchorID: "setting:networking:privateAddresses",
+                String(
+                    localized: "settings.networking.private.addresses",
+                    defaultValue: "This Mac's Private Addresses"
+                ),
+                subtitle: model.localPrivateNetworkAddresses.isEmpty
+                    ? String(
+                        localized: "settings.networking.private.addresses.none",
+                        defaultValue: "No VPN or local addresses detected"
+                    )
+                    : nil
+            ) {
+                EmptyView()
+            }
+
+            ForEach(model.localPrivateNetworkAddresses) { address in
+                SettingsCardDivider()
+                SettingsCardRow(
+                    configurationReview: .settingsOnly,
+                    searchAnchorID: "setting:networking:privateAddress:\(address.id)",
+                    address.address,
+                    subtitle: privateNetworkAddressSubtitle(address),
+                    titleFontDesign: .monospaced
+                ) {
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(address.address, forType: .string)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help(String(
+                        localized: "settings.networking.private.address.copy",
+                        defaultValue: "Copy Address"
+                    ))
+                    .accessibilityLabel(String(
+                        localized: "settings.networking.private.address.copy",
+                        defaultValue: "Copy Address"
+                    ))
+                }
+            }
+
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                searchAnchorID: "setting:networking:directPort",
+                String(
+                    localized: "settings.networking.private.directPort",
+                    defaultValue: "Direct Connection UDP Port"
+                ),
+                subtitle: String(
+                    localized: "settings.networking.private.directPort.subtitle",
+                    defaultValue: "Your iPhone learns the live port automatically. Allow this UDP port through VPN and firewall ACLs."
+                )
+            ) {
+                // A port is an identifier, not a quantity: no locale grouping.
+                Text(verbatim: String(model.mobileDirectPort))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+
             SettingsCardNote(String(
                 localized: "settings.networking.private.note.short",
-                defaultValue: "Custom raw TCP routes are not accepted because they cannot prove the remote Mac. Iroh private paths stay encrypted and bound to its exact EndpointID."
+                defaultValue: "On iPhone, go to Settings → Networking → Private Networks → Add Private Addresses. WireGuard, ZeroTier, and any VPN or LAN that routes to this Mac work; connections stay end-to-end encrypted and verified against this Mac's Iroh identity."
             ))
         }
     }
@@ -358,6 +432,36 @@ public struct IrohNetworkingSection: View {
 
     private var policySymbol: String {
         model.snapshot.policySource == .unavailable ? "exclamationmark.triangle.fill" : "checkmark.shield.fill"
+    }
+
+    private func privateNetworkAddressSubtitle(
+        _ address: CmxPrivateNetworkAddress
+    ) -> String {
+        let kind = switch address.kind {
+        case .vpnTunnel:
+            String(
+                localized: "settings.networking.private.kind.vpn",
+                defaultValue: "VPN tunnel"
+            )
+        case .localNetwork:
+            String(
+                localized: "settings.networking.private.kind.local",
+                defaultValue: "Local network"
+            )
+        case .other:
+            String(
+                localized: "settings.networking.private.kind.other",
+                defaultValue: "Private network"
+            )
+        }
+        return String(
+            format: String(
+                localized: "settings.networking.private.address.summary",
+                defaultValue: "%1$@ · %2$@"
+            ),
+            kind,
+            address.interfaceName
+        )
     }
 }
 

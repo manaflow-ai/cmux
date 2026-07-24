@@ -287,6 +287,11 @@ struct MobileIrohSettingsView: View {
 
     private var privatePathEditorMacs: [CmxIrohSettingsSnapshot.PrivateNetworkMac] {
         if let editedPrivatePath {
+            if let available = model.snapshot.privateNetworkMacs.first(where: {
+                $0.id == editedPrivatePath.macDeviceID
+            }) {
+                return [available]
+            }
             return [.init(
                 id: editedPrivatePath.macDeviceID,
                 displayName: editedPrivatePath.macDisplayName

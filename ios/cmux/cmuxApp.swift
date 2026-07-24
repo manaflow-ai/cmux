@@ -149,6 +149,7 @@ struct cmuxApp: App {
             tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
             personalIrohRouteCatalog: Self.root.iroh.routeCatalog,
             personalIrohDiscovery: Self.root.iroh,
+            privateNetworkSuggestionStore: Self.root.iroh.privateNetworkSuggestionStore,
             signOutHook: Self.root.signOutHook,
             diagnosticLog: Self.root.diagnosticLog
         )

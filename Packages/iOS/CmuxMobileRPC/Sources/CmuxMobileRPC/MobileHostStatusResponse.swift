@@ -38,6 +38,11 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
     /// colors. `nil` from older Macs that predate the field, in which case the
     /// phone keeps its built-in Monokai default.
     public let theme: TerminalTheme?
+    /// Private VPN and LAN address suggestions disclosed by an authenticated Mac.
+    ///
+    /// Older Macs omit this field. Malformed fields and entries are ignored so
+    /// address discovery cannot break transport negotiation or identity adoption.
+    public let privateNetworkAddresses: [CmxPrivateNetworkAddress]
 
     private enum CodingKeys: String, CodingKey {
         case capabilities
@@ -48,6 +53,7 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
         case terminalThemeRevisionEpoch = "terminal_theme_revision_epoch"
         case macAppVersion = "mac_app_version"
         case macAppBuild = "mac_app_build"
+        case privateNetworkAddresses = "private_network_addresses"
         case theme
     }
 
@@ -69,6 +75,15 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
         // leniently: a bad theme object yields `nil` and the phone keeps its
         // built-in Monokai default, exactly like an older Mac that omits it.
         theme = (try? container.decodeIfPresent(TerminalTheme.self, forKey: .theme)) ?? nil
+        // Private-network suggestions are optional metadata. A malformed field
+        // must not fail identity or transport negotiation; malformed individual
+        // entries are dropped while valid suggestions remain available.
+        privateNetworkAddresses = (
+            try? container.decodeIfPresent(
+                LossyDecodableArray<CmxPrivateNetworkAddress>.self,
+                forKey: .privateNetworkAddresses
+            )
+        )?.elements ?? []
     }
 
     /// Decode a host-status response from raw JSON data.

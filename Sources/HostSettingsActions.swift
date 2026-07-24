@@ -311,6 +311,14 @@ final class HostSettingsActions: SettingsHostActions {
         MobileHostIrohRuntime.shared
     }
 
+    func localPrivateNetworkAddresses() -> [CmxPrivateNetworkAddress] {
+        MobilePrivateNetworkAddressResolver.shared.addresses()
+    }
+
+    func mobileDirectPort() -> Int {
+        MobileHostService.configuredPort()
+    }
+
     /// Maps the host's ``MobileHostServiceStatus`` into the settings package's
     /// Foundation-only ``MobilePairingStatusSnapshot``. Static so the status
     /// stream's forwarding task does not retain this host bridge.

@@ -81,6 +81,7 @@ extension MobileShellComposite {
     /// full status payload, and skipping the hint there would leave it absent
     /// (or a previous Mac's hint stale) until the next reconnect.
     func refreshMacUpdateHintFromRecoveredStatus(_ payload: MobileHostStatusResponse) {
+        recordPrivateNetworkSuggestions(from: payload)
         refreshMacUpdateHint(
             capabilities: Set(payload.capabilities),
             statusMacAppVersion: payload.macAppVersion,
