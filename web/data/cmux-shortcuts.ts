@@ -626,7 +626,8 @@ export const shortcutCategories: ShortcutCategory[] = [
       },
       {
         id: "diffViewerScrollToTop",
-        combos: [["G", "G"]],
+        combos: [],
+        chordCombos: [[["G"], ["G"]]],
         description: { en: "Scroll diff to top", ja: "差分の先頭へスクロール" },
         note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
         configValue: '["g", "g"]',
@@ -639,14 +640,16 @@ export const shortcutCategories: ShortcutCategory[] = [
       },
       {
         id: "diffViewerNextFile",
-        combos: [["]", "F"]],
+        combos: [],
+        chordCombos: [[["]"], ["F"]]],
         description: { en: "Jump to next diff file", ja: "次の差分ファイルへ移動" },
         note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
         configValue: '["]", "f"]',
       },
       {
         id: "diffViewerPreviousFile",
-        combos: [["[", "F"]],
+        combos: [],
+        chordCombos: [[["["], ["F"]]],
         description: { en: "Jump to previous diff file", ja: "前の差分ファイルへ移動" },
         note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
         configValue: '["[", "f"]]',

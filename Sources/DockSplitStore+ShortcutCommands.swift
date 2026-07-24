@@ -52,13 +52,17 @@ extension DockSplitStore {
             guard amount > 0,
                   let focusedPanelId,
                   let paneId = paneId(forPanelId: focusedPanelId) else { return false }
-            return PaneLayoutService().resizeSplit(
+            let didResize = PaneLayoutService().resizeSplit(
                 in: bonsplitController.treeSnapshot(),
                 targetPaneId: paneId.id.uuidString,
                 direction: direction,
                 amountPixels: amount,
                 controller: bonsplitController
             )
+            if didResize {
+                scheduleDockPortalReconcile(reason: "dock.shortcut.resize")
+            }
+            return didResize
         case .togglePaneZoom:
             guard let pane = bonsplitController.focusedPaneId else { return false }
             return toggleDockPaneZoom(inPane: pane)
