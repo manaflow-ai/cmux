@@ -1120,6 +1120,105 @@ import Testing
         #expect(rendered.count == 2)
     }
 
+    /// DECSTBM is screen-local. A reused surface can retain a different
+    /// restricted region on primary and alternate screens, so each capture
+    /// fills an eight-row viewport: without the reset, rows scroll out through
+    /// the stale region while the snapshot is painted.
+    @Test(.timeLimit(.minutes(1)))
+    func reusedSurfaceReseedResetsScreenLocalScrollRegionsBeforeCapturePaint() async throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+        let layout = RemoteTmuxLayoutNode(
+            width: 80, height: 8, x: 0, y: 0, content: .pane(7)
+        )
+        fixture.connection.windowsByID[1] = RemoteTmuxWindow(
+            id: 1, name: "main", width: 80, height: 8, layout: layout
+        )
+        fixture.connection.windowOrder = [1]
+        fixture.connection.recordPublishedPaneOwnership(windowId: 1, paneIds: [7])
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        workspace.isRemoteTmuxMirror = true
+        let sessionMirror = RemoteTmuxSessionMirror(
+            host: fixture.connection.host,
+            sessionName: "work",
+            connection: fixture.connection,
+            tabManager: manager,
+            workspace: workspace
+        )
+        defer { sessionMirror.detachObserver() }
+        let panelID = try #require(sessionMirror.panelIdByPane[7])
+        let panel = try #require(workspace.panels[panelID] as? TerminalPanel)
+        let terminal = try hostedTerminal(panel.surface)
+        defer { terminal.window.orderOut(nil) }
+        await waitForLiveSurface(terminal.surface)
+        terminal.surface.setAssignedGrid(columns: 80, rows: 8)
+        await waitForAppliedTerminalGrid(terminal.surface, columns: 80, rows: 8)
+        finishPendingCommands(
+            on: fixture.connection,
+            captureRows: [],
+            paneHeight: 8,
+            startingAt: 20
+        )
+
+        // Restrict primary, then switch to and restrict alternate. The first
+        // reseed remains on alternate; the second returns to the stale primary
+        // region, exercising DECSTBM's screen-local persistence on one surface.
+        fixture.connection.routePaneOutput(
+            paneId: 7,
+            data: Data("\u{1b}[2;6r\u{1b}[?1049h\u{1b}[3;6r".utf8)
+        )
+
+        let alternateRows = (1...8).map { String(format: "ALT_REGION_ROW_%02d", $0) }
+        fixture.connection.capturePane(paneId: 7, clearScrollback: true)
+        finishPendingCommands(
+            on: fixture.connection,
+            captureRows: alternateRows,
+            paneHeight: 8,
+            startingAt: 40,
+            alternateOn: true
+        )
+        await waitForGhosttyState(terminal.surface) {
+            (try? readTerminalText(
+                terminal.surface,
+                pointTag: GHOSTTY_POINT_VIEWPORT
+            ))?.contains(alternateRows[7]) == true
+        }
+        let alternateViewport = try readTerminalText(
+            terminal.surface,
+            pointTag: GHOSTTY_POINT_VIEWPORT
+        )
+        #expect(
+            alternateViewport.contains(alternateRows.joined(separator: "\n")),
+            "alternate reseed must fill the active viewport without region scrolling"
+        )
+
+        let primaryRows = (1...8).map { String(format: "PRIMARY_REGION_ROW_%02d", $0) }
+        fixture.connection.capturePane(paneId: 7, clearScrollback: true)
+        finishPendingCommands(
+            on: fixture.connection,
+            captureRows: primaryRows,
+            paneHeight: 8,
+            startingAt: 60,
+            alternateOn: false
+        )
+        await waitForGhosttyState(terminal.surface) {
+            (try? readTerminalText(
+                terminal.surface,
+                pointTag: GHOSTTY_POINT_VIEWPORT
+            ))?.contains(primaryRows[7]) == true
+        }
+        let primaryViewport = try readTerminalText(
+            terminal.surface,
+            pointTag: GHOSTTY_POINT_VIEWPORT
+        )
+        #expect(
+            primaryViewport.contains(primaryRows.joined(separator: "\n")),
+            "primary reseed must fill the active viewport without region scrolling"
+        )
+    }
+
     /// A visible-screen repair after a verified pane-height grow must not turn
     /// rows already represented in primary-screen history into a second copy.
     /// This drives the real Ghostty manual-I/O parser because observer-byte
@@ -1477,7 +1576,8 @@ import Testing
         on connection: RemoteTmuxControlConnection,
         captureRows: [String],
         paneHeight: Int,
-        startingAt firstCommandNumber: Int
+        startingAt firstCommandNumber: Int,
+        alternateOn: Bool = false
     ) {
         var commandNumber = firstCommandNumber
         while let kind = connection.pendingCommandKindsForTesting.first {
@@ -1486,7 +1586,7 @@ import Testing
             case .paneReflow:
                 lines = ["0|zsh"]
             case .paneAltScreen:
-                lines = ["0"]
+                lines = [alternateOn ? "1" : "0"]
             case .capturePane:
                 lines = captureRows
             case .paneState:
