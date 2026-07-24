@@ -8,7 +8,8 @@ import Testing
 @MainActor
 struct SidebarWorkspaceRowSuspensionTests {
     private static func makeSnapshot(
-        manualTaskStatus: WorkspaceTaskStatus? = nil
+        manualTaskStatus: WorkspaceTaskStatus? = nil,
+        checklistItems: [WorkspaceChecklistItem] = []
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: SidebarWorkspaceSnapshotFactory.presentationKey(
@@ -47,16 +48,19 @@ struct SidebarWorkspaceRowSuspensionTests {
                 )
             },
             hasManualTaskStatus: manualTaskStatus != nil,
-            checklistItems: [],
-            checklistCompletedCount: 0,
-            checklistTotalCount: 0,
-            checklistFirstUncheckedText: nil
+            checklistItems: checklistItems,
+            checklistCompletedCount: checklistItems.filter { $0.state == .completed }.count,
+            checklistTotalCount: checklistItems.count,
+            checklistFirstUncheckedText: checklistItems.first { $0.state != .completed }?.text
         )
     }
 
     private static func makeModel(
         checklistAddFieldActivationToken: Int = 0,
-        manualTaskStatus: WorkspaceTaskStatus? = nil
+        manualTaskStatus: WorkspaceTaskStatus? = nil,
+        checklistItems: [WorkspaceChecklistItem] = [],
+        isChecklistExpanded: Bool = false,
+        editingChecklistItemId: UUID? = nil
     ) -> SidebarWorkspaceRowModel {
         let settings = SidebarTabItemSettingsSnapshot(
             defaults: UserDefaults(suiteName: UUID().uuidString)!
@@ -64,7 +68,10 @@ struct SidebarWorkspaceRowSuspensionTests {
         return SidebarWorkspaceRowModel(
             workspaceId: UUID(),
             index: 0,
-            snapshot: makeSnapshot(manualTaskStatus: manualTaskStatus),
+            snapshot: makeSnapshot(
+                manualTaskStatus: manualTaskStatus,
+                checklistItems: checklistItems
+            ),
             settings: settings,
             isActive: false,
             isMultiSelected: false,
@@ -83,11 +90,13 @@ struct SidebarWorkspaceRowSuspensionTests {
             showsShortcutHints: false,
             colorSchemeIsDark: true,
             globalFontMagnificationPercent: 100,
-            isChecklistExpanded: false,
+            isChecklistExpanded: isChecklistExpanded,
             checklistAddFieldActivationToken: checklistAddFieldActivationToken,
             isChecklistPopoverPresented: false,
-            editingChecklistItemId: nil,
-            todoControlsEnabled: checklistAddFieldActivationToken > 0 || manualTaskStatus != nil,
+            editingChecklistItemId: editingChecklistItemId,
+            todoControlsEnabled: checklistAddFieldActivationToken > 0
+                || manualTaskStatus != nil
+                || !checklistItems.isEmpty,
             isMetadataExpanded: false,
             isMarkdownExpanded: false
         )
@@ -98,7 +107,9 @@ struct SidebarWorkspaceRowSuspensionTests {
         workspace: Workspace? = nil,
         onCommitRename: @escaping (String) -> Void = { _ in },
         onConsumeChecklistAddFieldActivation: @escaping () -> Void = {},
-        onChecklistAddItem: @escaping (String) -> Void = { _ in }
+        onChecklistAddItem: @escaping (String) -> Void = { _ in },
+        onChecklistEditItem: @escaping (UUID, String) -> Void = { _, _ in },
+        onEndChecklistItemEdit: @escaping (UUID) -> Void = { _ in }
     ) -> SidebarAppKitRowActions {
         let workspace = workspace ?? Workspace()
         let commands = SidebarWorkspaceRowCommands(
@@ -132,7 +143,7 @@ struct SidebarWorkspaceRowSuspensionTests {
             checklistSetItemState: { _, _ in },
             checklistRemoveItem: { _ in },
             checklistAddItem: onChecklistAddItem,
-            checklistEditItem: { _, _ in },
+            checklistEditItem: onChecklistEditItem,
             checklistMoveItem: { _, _ in },
             checklistOpenPane: {},
             checklistAddAttachments: { _ in },
@@ -140,7 +151,7 @@ struct SidebarWorkspaceRowSuspensionTests {
             checklistOpenAttachments: { _, _ in },
             onChecklistPopoverPresentedChange: { _ in },
             onBeginChecklistItemEdit: { _ in },
-            onEndChecklistItemEdit: { _ in },
+            onEndChecklistItemEdit: onEndChecklistItemEdit,
             applyTodoStatus: { _ in },
             hideTodoStatus: {},
             commitRename: onCommitRename
@@ -291,6 +302,46 @@ struct SidebarWorkspaceRowSuspensionTests {
         cell.suspendPresentation(commitEdits: true)
         #expect(additions == ["Review checklist lifecycle"])
         #expect(consumptions == 1)
+    }
+
+    @Test
+    func checklistItemDraftCommitDefersUntilAfterDetachment() throws {
+        let item = WorkspaceChecklistItem(text: "Original checklist item")
+        let model = Self.makeModel(
+            checklistItems: [item],
+            isChecklistExpanded: true,
+            editingChecklistItemId: item.id
+        )
+        var endedItemIds: [UUID] = []
+        var edits: [(itemId: UUID, text: String)] = []
+        let cell = SidebarWorkspaceRowTableCellView()
+        cell.configure(
+            model: model,
+            actions: Self.makeActions(
+                model: model,
+                onChecklistEditItem: { edits.append(($0, $1)) },
+                onEndChecklistItemEdit: { endedItemIds.append($0) }
+            ),
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+        let field = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? SidebarRowChecklistFocusField }
+                .first { $0.accessibilityIdentifier() == "SidebarChecklistEditItemField" }
+        )
+        field.stringValue = "  Updated while closing  "
+
+        let postUpdateActions = cell.detachPresentation(commitEdits: true)
+
+        #expect(endedItemIds.isEmpty)
+        #expect(edits.isEmpty)
+        for action in postUpdateActions { action() }
+        #expect(endedItemIds == [item.id])
+        #expect(edits.count == 1)
+        #expect(edits.first?.itemId == item.id)
+        #expect(edits.first?.text == "Updated while closing")
     }
 
     private static func descendants(of view: NSView) -> [NSView] {
