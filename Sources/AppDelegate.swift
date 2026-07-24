@@ -1396,6 +1396,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 options.attachStacktrace = true
                 // Avoid recursively capturing failed requests from Sentry's own ingestion endpoint.
                 options.enableCaptureFailedRequests = false
+                // Sentry's uncaught-NSException reporting registers
+                // NSApplicationCrashOnExceptions=YES, which turns AppKit-internal
+                // exceptions into hard crashes. On macOS 27 (beta) AppKit throws an
+                // NSException inside -[NSImageSymbolRepProvider
+                // bestRepresentationForImage:hints:] while rendering SF Symbols
+                // (see #7254), so that default converts an otherwise-recoverable
+                // OS bug into a startup/navigation crash loop. Keep the legacy
+                // catch-and-log behavior there instead; crash reporting for real
+                // signal-level crashes is unaffected, and stable macOS keeps
+                // Sentry's NSException reporting. Remove once Apple fixes the
+                // SF Symbol rendering path (FB23740635).
+                if #available(macOS 27, *) {
+                    options.enableUncaughtNSExceptionReporting = false
+                }
                 // Redact file paths, emails, and secrets from every outgoing
                 // event, breadcrumb, and (belt-and-suspenders, if tracing is ever
                 // re-enabled) child performance span before it leaves the device.
