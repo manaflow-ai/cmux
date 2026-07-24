@@ -332,16 +332,19 @@ actor ShareSocket {
         _ message: ShareHostMessage,
         connection: UInt64? = nil
     ) async {
+        guard let taskToStop = webSocketTask, !isStopped else {
+            if connection == nil {
+                await stop()
+            }
+            return
+        }
+        if let connection,
+           activeConnectionGeneration != connection {
+            return
+        }
         guard let message = outboundValidator.prepareForTransport(message),
               let (outbound, priority) = Self.encode(message) else {
             shareSocketLogger.error("Dropping an unencodable final share protocol message")
-            await stop()
-            return
-        }
-        guard webSocketTask != nil,
-              !isStopped,
-              connection == nil
-                || activeConnectionGeneration == connection else {
             await stop()
             return
         }
@@ -356,6 +359,12 @@ actor ShareSocket {
             )
             if !accepted {
                 continuation.resume(returning: false)
+            }
+        }
+        if let connection {
+            guard activeConnectionGeneration == connection,
+                  webSocketTask === taskToStop else {
+                return
             }
         }
         await stop()
@@ -460,18 +469,23 @@ actor ShareSocket {
     nonisolated func beginAcknowledgementBarrier(
         connection: UInt64
     ) -> Bool {
-        var discarded: [
-            WorkspaceShareOutboundMailbox<PendingOutbound>.Entry
-        ] = []
-        let accepted = connectionAdmission.withLock { admission in
+        let result: (
+            accepted: Bool,
+            discarded: [
+                WorkspaceShareOutboundMailbox<PendingOutbound>.Entry
+            ]
+        ) = connectionAdmission.withLock { admission in
             guard admission.accepting,
                   admission.connection == connection else {
-                return false
+                return (false, [])
             }
-            discarded = outboundMailbox.beginAcknowledgementBarrier()
-            return true
+            return (
+                true,
+                outboundMailbox.beginAcknowledgementBarrier()
+            )
         }
-        guard accepted else { return false }
+        guard result.accepted else { return false }
+        let discarded = result.discarded
         if !discarded.isEmpty {
             shareSocketLogger.warning(
                 "Dropping outbound share work displaced before its acknowledgement marker"
@@ -486,18 +500,23 @@ actor ShareSocket {
     nonisolated func discardAcknowledgementBarrier(
         connection: UInt64
     ) -> Bool {
-        var discarded: [
-            WorkspaceShareOutboundMailbox<PendingOutbound>.Entry
-        ] = []
-        let accepted = connectionAdmission.withLock { admission in
+        let result: (
+            accepted: Bool,
+            discarded: [
+                WorkspaceShareOutboundMailbox<PendingOutbound>.Entry
+            ]
+        ) = connectionAdmission.withLock { admission in
             guard admission.accepting,
                   admission.connection == connection else {
-                return false
+                return (false, [])
             }
-            discarded = outboundMailbox.discardAcknowledgementBarrier()
-            return true
+            return (
+                true,
+                outboundMailbox.discardAcknowledgementBarrier()
+            )
         }
-        guard accepted else { return false }
+        guard result.accepted else { return false }
+        let discarded = result.discarded
         if !discarded.isEmpty {
             shareSocketLogger.warning(
                 "Dropping outbound share work behind an unresolved acknowledgement marker"
