@@ -49,7 +49,11 @@ impl MuxLaneTracker {
         if let Some(event) = value.get("event").and_then(Value::as_str) {
             return Some(match event {
                 "output" | "vt-state" | "render-state" | "render-delta" | "frame"
-                | "browser-state" => Lane::Bulk,
+                | "browser-state" | "resized" | "colors-changed" | "scroll-changed"
+                | "detached" => Lane::Bulk,
+                "overflow" if value.get("scope").and_then(Value::as_str) == Some("surface") => {
+                    Lane::Bulk
+                }
                 _ => Lane::Control,
             });
         }
@@ -121,14 +125,21 @@ mod tests {
     }
 
     #[test]
-    fn terminal_render_events_use_the_bulk_lane() {
+    fn surface_stream_state_events_use_the_bulk_lane() {
         let tracker = MuxLaneTracker::default();
-        for event in ["render-state", "render-delta"] {
+        for event in [
+            "render-state",
+            "render-delta",
+            "resized",
+            "colors-changed",
+            "scroll-changed",
+            "detached",
+        ] {
             let line = format!(r#"{{"event":"{event}","surface":1}}"#);
             assert_eq!(
                 tracker.classify_server_line(line.as_bytes()),
                 Some(Lane::Bulk),
-                "{event} must not consume control-lane replay capacity"
+                "{event} must stay ordered with surface output"
             );
         }
     }
@@ -136,9 +147,8 @@ mod tests {
     #[test]
     fn surface_stream_terminal_cannot_overtake_its_bulk_tail() {
         let tracker = MuxLaneTracker::default();
-        let render_lane = tracker
-            .classify_server_line(br#"{"event":"render-delta","surface":1}"#)
-            .unwrap();
+        let render_lane =
+            tracker.classify_server_line(br#"{"event":"render-delta","surface":1}"#).unwrap();
 
         for terminal in [
             br#"{"event":"detached","surface":1}"#.as_slice(),
