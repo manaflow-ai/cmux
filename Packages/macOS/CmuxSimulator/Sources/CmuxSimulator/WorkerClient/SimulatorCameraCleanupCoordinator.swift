@@ -18,6 +18,13 @@ actor SimulatorCameraCleanupCoordinator {
     private var ownerByTarget: [Target: UUID] = [:]
     private let ownershipStore: SimulatorCrossProcessOwnershipStore
 
+    var trackedTargetCount: Int {
+        Set(tailByTarget.keys)
+            .union(revisionByTarget.keys)
+            .union(ownerByTarget.keys)
+            .count
+    }
+
     init(
         ownershipStore: SimulatorCrossProcessOwnershipStore =
             SimulatorCrossProcessOwnershipStore()
@@ -96,6 +103,9 @@ actor SimulatorCameraCleanupCoordinator {
             Target(deviceIdentifier: deviceIdentifier, bundleIdentifier: $0)
         })
         let previous = targets.compactMap { tailByTarget[$0] }
+        let owners = Dictionary(uniqueKeysWithValues: targets.compactMap { target in
+            ownerByTarget[target].map { (target, $0) }
+        })
         let task = Task<SimulatorCameraCleanupResult, Never> {
             for pendingCleanup in previous {
                 _ = await pendingCleanup.value
@@ -114,15 +124,19 @@ actor SimulatorCameraCleanupCoordinator {
         }
         Task { [weak self] in
             let result = await task.value
-            await self?.finish(revisions: revisions, result: result)
+            await self?.finish(revisions: revisions, owners: owners, result: result)
         }
         return task
     }
 
     private func finish(
         revisions: [Target: UInt64],
+        owners: [Target: UUID],
         result: SimulatorCameraCleanupResult
     ) {
+        for (target, owner) in owners where ownerByTarget[target] == owner {
+            ownerByTarget.removeValue(forKey: target)
+        }
         guard result == .completed else { return }
         for (target, revision) in revisions
         where revisionByTarget[target] == revision {
@@ -142,6 +156,7 @@ actor SimulatorCameraCleanupCoordinator {
             if case .failed = result {
                 tailByTarget.removeValue(forKey: target)
                 revisionByTarget.removeValue(forKey: target)
+                ownerByTarget.removeValue(forKey: target)
             }
             return result
         }

@@ -68,7 +68,9 @@ final class SimulatorPanel: Panel {
         requiresExplicitDeviceSelection: Bool = false,
         clientFactory: @escaping @MainActor () -> any SimulatorPaneClient = {
             SimulatorWorkerClientFactory(
-                locationOwnershipScope: TerminalController.shared.simulatorLocationOwnershipScope
+                locationOwnershipScope: TerminalController.shared.simulatorLocationOwnershipScope,
+                cameraCleanupOwnershipScope:
+                    TerminalController.shared.simulatorCameraCleanupOwnershipScope
             ).makeClient()
         }
     ) {

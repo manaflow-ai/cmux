@@ -140,6 +140,8 @@ class TerminalController {
     nonisolated let remoteProxyBroker: any RemoteProxyBrokering
     /// App-owned location mutation scope injected into every Simulator pane.
     let simulatorLocationOwnershipScope: SimulatorLocationOwnershipScope
+    /// App-owned camera cleanup scope injected into every Simulator pane.
+    let simulatorCameraCleanupOwnershipScope: SimulatorCameraCleanupOwnershipScope
     /// Process-wide native SSH master owner and per-host reconnect coordinator.
     nonisolated let nativeSSHConnectionBroker: NativeSSHConnectionBroker
     // Stateless Sendable structs from CmuxControlSocket; injected at construction.
@@ -377,11 +379,16 @@ class TerminalController {
         self.transport = transport
         self.remoteProxyBroker = remoteProxyBroker
         let simulatorOwnershipFileManager = FileManager()
-        self.simulatorLocationOwnershipScope = SimulatorLocationOwnershipScope(
-            directory: simulatorOwnershipFileManager.temporaryDirectory.appendingPathComponent(
+        let simulatorOwnershipDirectory = simulatorOwnershipFileManager.temporaryDirectory
+            .appendingPathComponent(
                 "com.cmux.simulator-ownership",
                 isDirectory: true
             )
+        self.simulatorLocationOwnershipScope = SimulatorLocationOwnershipScope(
+            directory: simulatorOwnershipDirectory
+        )
+        self.simulatorCameraCleanupOwnershipScope = SimulatorCameraCleanupOwnershipScope(
+            directory: simulatorOwnershipDirectory
         )
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
         let serverEventTarget = ServerEventTarget()
