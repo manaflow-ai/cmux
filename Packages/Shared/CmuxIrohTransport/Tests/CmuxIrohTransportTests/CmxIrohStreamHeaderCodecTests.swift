@@ -38,17 +38,74 @@ struct CmxIrohStreamHeaderCodecTests {
         let codec = try CmxIrohStreamHeaderCodec()
         let terminalID = try CmxIrohResourceID("terminal:1")
         let artifactID = try CmxIrohResourceID("artifact.preview:2")
+        let sceneRequest = try CmxIrohTerminalSceneLaneRequest(
+            resourceID: terminalID,
+            presentationID: UUID(uuidString: "11111111-2222-3333-4444-555555555555")!,
+            presentationGeneration: 7,
+            width: 2_358,
+            height: 1_290,
+            contentScale: 3
+        )
         let lanes: [CmxIrohLane] = [
             .serverEvents(cursor: nil),
             .serverEvents(cursor: 91),
             .terminal(resourceID: terminalID, cursor: nil),
             .terminal(resourceID: terminalID, cursor: 4_096),
+            .terminalScene(sceneRequest),
             .artifact(resourceID: artifactID, offset: 8_192),
         ]
 
         for lane in lanes {
             let header = try CmxIrohStreamHeader(lane: lane)
             #expect(try codec.decodePrefix(codec.encode(header)).header == header)
+        }
+    }
+
+    @Test
+    func terminalSceneLaneRejectsInvalidPresentationGeometryAndIdentity() throws {
+        let terminalID = try CmxIrohResourceID("terminal:1")
+        let presentationID = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
+        let zeroUUID = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+
+        #expect(throws: CmxIrohTerminalSceneLaneRequest.ValidationError.zeroPresentationID) {
+            try CmxIrohTerminalSceneLaneRequest(
+                resourceID: terminalID,
+                presentationID: zeroUUID,
+                presentationGeneration: 1,
+                width: 1,
+                height: 1,
+                contentScale: 1
+            )
+        }
+        #expect(throws: CmxIrohTerminalSceneLaneRequest.ValidationError.zeroPresentationGeneration) {
+            try CmxIrohTerminalSceneLaneRequest(
+                resourceID: terminalID,
+                presentationID: presentationID,
+                presentationGeneration: 0,
+                width: 1,
+                height: 1,
+                contentScale: 1
+            )
+        }
+        #expect(throws: CmxIrohTerminalSceneLaneRequest.ValidationError.invalidDimensions) {
+            try CmxIrohTerminalSceneLaneRequest(
+                resourceID: terminalID,
+                presentationID: presentationID,
+                presentationGeneration: 1,
+                width: 0,
+                height: 1,
+                contentScale: 1
+            )
+        }
+        #expect(throws: CmxIrohTerminalSceneLaneRequest.ValidationError.invalidContentScale) {
+            try CmxIrohTerminalSceneLaneRequest(
+                resourceID: terminalID,
+                presentationID: presentationID,
+                presentationGeneration: 1,
+                width: 1,
+                height: 1,
+                contentScale: Double.infinity
+            )
         }
     }
 
