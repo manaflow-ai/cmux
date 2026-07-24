@@ -321,6 +321,49 @@ mod tests {
     }
 
     #[test]
+    fn test_poll_read_returns_a_matching_event_without_a_second_wait() {
+        const EVENT: InternalEvent = InternalEvent::Event(Event::Resize(10, 10));
+        let mut reader = InternalEventReader {
+            events: VecDeque::new(),
+            source: Some(Box::new(FakeSource::with_events(&[EVENT]))),
+            skipped_events: Vec::with_capacity(32),
+        };
+
+        assert_eq!(
+            reader.poll_read(Some(Duration::ZERO), &InternalEventFilter).unwrap(),
+            Some(EVENT)
+        );
+    }
+
+    #[test]
+    fn test_poll_read_returns_none_at_its_deadline() {
+        let mut reader = InternalEventReader {
+            events: VecDeque::new(),
+            source: Some(Box::new(FakeSource::default())),
+            skipped_events: Vec::with_capacity(32),
+        };
+
+        assert_eq!(reader.poll_read(Some(Duration::ZERO), &InternalEventFilter).unwrap(), None);
+    }
+
+    #[test]
+    fn test_poll_read_propagates_source_errors() {
+        let mut reader = InternalEventReader {
+            events: VecDeque::new(),
+            source: Some(Box::new(FakeSource::new(&[]))),
+            skipped_events: Vec::with_capacity(32),
+        };
+
+        assert_eq!(
+            reader
+                .poll_read(Some(Duration::ZERO), &InternalEventFilter)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::Other
+        );
+    }
+
+    #[test]
     fn test_read_propagates_error() {
         let mut reader = InternalEventReader {
             events: VecDeque::new(),
