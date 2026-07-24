@@ -8,7 +8,7 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite("TextBox IME composition layout")
+@Suite("TextBox IME composition layout", .serialized)
 struct TextBoxIMECompositionLayoutTests {
     @Test("printable Option shortcuts defer to active IME composition")
     @MainActor
