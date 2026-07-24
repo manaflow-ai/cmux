@@ -14110,6 +14110,58 @@ mod tests {
     }
 
     #[test]
+    fn discrete_pointer_waits_behind_earlier_deferred_input() {
+        let mux = Mux::new("ordered-discrete-pointer-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.session.pending_mutations.store(1, Ordering::Release);
+
+        app.handle(AppEvent::Input(Event::Paste("first".to_string()))).unwrap();
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 14,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+
+        assert_eq!(app.deferred_input.len(), 2);
+        assert!(matches!(
+            app.deferred_input.front().map(|input| &input.event),
+            Some(Event::Paste(text)) if text == "first"
+        ));
+        assert!(matches!(
+            app.deferred_input.back().map(|input| &input.event),
+            Some(Event::Mouse(MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), .. }))
+        ));
+    }
+
+    #[test]
+    fn event_loop_drains_replay_draw_before_receiving_more_input() {
+        let mux = Mux::new("event-loop-draw-replay-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.prefix_armed = true;
+        app.defer_input(Event::Key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE)));
+        app.retain_pointer_motion(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 14,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        });
+        app.routing_refresh_pending = true;
+        let (events, receiver) = std::sync::mpsc::channel();
+        events.send(AppEvent::Mux(MuxEvent::SurfaceOutput(999))).unwrap();
+        drop(events);
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+
+        app.event_loop(&mut terminal, receiver).unwrap();
+
+        assert!(!app.sidebar_visible);
+        assert_eq!(app.hover, Some((14, 6)));
+        assert!(app.pending_pointer_motion.is_none());
+        assert!(!app.routing_refresh_pending);
+    }
+
+    #[test]
     fn browser_drag_release_bypasses_a_pending_focus_mutation() {
         let mux = Mux::new("browser-release-barrier-test", SurfaceOptions::default());
         let (mut app, _events) = test_app_with_events(Session::Local(mux));
