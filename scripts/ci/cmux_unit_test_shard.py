@@ -43,8 +43,9 @@ FOCUSED_GATE_SELECTORS = {
 # BrowserDeveloperToolsVisibilityPersistenceTests used to crash-restart the app host, and the
 # "Restarting after unexpected exit" storms it produced timed out any live-WKWebView navigation
 # test packed behind it — which is how both attempts of
-# https://github.com/manaflow-ai/cmux/pull/7687 failed shard 3. The crash itself is fixed: its
-# windows now clear isReleasedWhenClosed, and a local run of the suite reports no restarts.
+# https://github.com/manaflow-ai/cmux/pull/7687 failed shard 3. The crash is addressed separately,
+# in https://github.com/manaflow-ai/cmux/pull/8832, which stops test windows releasing themselves
+# on close.
 #
 # The separation stays because the crash was not the only reason for it. That suite drives real
 # WebKit inspector attach/detach and is slow enough on its own to starve a live-navigation suite

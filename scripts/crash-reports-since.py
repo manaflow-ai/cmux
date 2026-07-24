@@ -69,7 +69,8 @@ def cmux_reports(directory: str = REPORT_DIR) -> list[str]:
     """Every cmux-named report currently in the directory."""
     hits = []
     for path in sorted(glob.glob(os.path.join(os.path.expanduser(directory), "*.ips"))):
-        name = str(header_of(path).get("app_name") or header_of(path).get("procName") or "")
+        header = header_of(path)
+        name = str(header.get("app_name") or header.get("procName") or "")
         if "cmux" in name.lower():
             hits.append(os.path.basename(path))
     return hits
@@ -85,7 +86,12 @@ def write_snapshot(snapshot: str, directory: str = REPORT_DIR) -> list[str]:
 def new_since_snapshot(
     snapshot: str, directory: str = REPORT_DIR, copy_to: str | None = None
 ) -> list[str]:
-    """Reports that appeared after the snapshot. A missing snapshot means none are attributable."""
+    """Reports that appeared after the snapshot.
+
+    A missing snapshot returns every cmux report in the directory rather than none. The shard
+    writes the snapshot before the run, so its absence means something went wrong with the scan
+    rather than that the run was clean, and the caller should see the reports and decide.
+    """
     before: set[str] = set()
     if os.path.exists(snapshot):
         before = {
