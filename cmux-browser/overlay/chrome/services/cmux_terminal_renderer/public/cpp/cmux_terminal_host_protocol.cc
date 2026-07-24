@@ -273,14 +273,13 @@ TerminalHostProtocolError ValidateKittyImageAliases(
   if (aliases.size() > kTerminalHostMaxKittyImageAliases) {
     return TerminalHostProtocolError::kPayloadTooLarge;
   }
+  // Repeated image numbers preserve Kitty's assignment history. Image IDs
+  // remain unique identities within a snapshot.
   std::unordered_set<uint32_t> image_ids;
-  std::unordered_set<uint32_t> image_numbers;
   image_ids.reserve(aliases.size());
-  image_numbers.reserve(aliases.size());
   for (const TerminalHostKittyImageAlias& alias : aliases) {
     if (alias.image_id == 0 || alias.image_number == 0 ||
-        !image_ids.insert(alias.image_id).second ||
-        !image_numbers.insert(alias.image_number).second) {
+        !image_ids.insert(alias.image_id).second) {
       return TerminalHostProtocolError::kMalformedPayload;
     }
   }

@@ -2623,17 +2623,15 @@ mod unix {
         if aliases.len() > MAX_KITTY_IMAGE_ALIASES {
             anyhow::bail!("terminal-host Kitty image alias count is too large");
         }
+        // Repeated image numbers preserve Kitty's assignment history. Image
+        // IDs remain unique identities within a snapshot.
         let mut image_ids = HashSet::with_capacity(aliases.len());
-        let mut image_numbers = HashSet::with_capacity(aliases.len());
         for alias in aliases {
             if alias.image_id == 0 || alias.image_number == 0 {
                 anyhow::bail!("terminal-host Kitty image aliases must be nonzero");
             }
             if !image_ids.insert(alias.image_id) {
                 anyhow::bail!("duplicate terminal-host Kitty image alias ID");
-            }
-            if !image_numbers.insert(alias.image_number) {
-                anyhow::bail!("duplicate terminal-host Kitty image alias number");
             }
         }
         Ok(())

@@ -2109,6 +2109,10 @@ impl Terminal {
         let mut bytes = Vec::new();
         let mut insertion_offsets = BTreeMap::new();
         let mut segment_start = range.start;
+        let replay_rows = range.end - range.start + 1;
+        let screen_rows = u64::from(self.rows().max(1));
+        let history_bearing = replay_rows > screen_rows;
+        let mut emitted_breaks = 0usize;
         for segment_end in segment_ends {
             if segment_end < segment_start {
                 continue;
@@ -2124,7 +2128,20 @@ impl Terminal {
             else {
                 return Ok(None);
             };
+            emitted_breaks = emitted_breaks
+                .saturating_add(chunk.windows(2).filter(|bytes| *bytes == b"\r\n").count());
             bytes.extend_from_slice(&chunk);
+            if history_bearing {
+                let expected_breaks =
+                    usize::try_from(segment_end - range.start).unwrap_or(usize::MAX);
+                for _ in emitted_breaks..expected_breaks {
+                    if bytes.len().saturating_add(2) > format_max_bytes {
+                        return Ok(None);
+                    }
+                    bytes.extend_from_slice(b"\r\n");
+                    emitted_breaks = emitted_breaks.saturating_add(1);
+                }
+            }
             if placement_rows.contains(&segment_end) {
                 insertion_offsets.insert(segment_end, bytes.len());
             }
@@ -2133,18 +2150,16 @@ impl Terminal {
                     return Ok(None);
                 }
                 bytes.extend_from_slice(b"\r\n");
+                emitted_breaks = emitted_breaks.saturating_add(1);
                 segment_start = segment_end.saturating_add(1);
             }
         }
-        let replay_rows = range.end - range.start + 1;
-        let screen_rows = u64::from(self.rows().max(1));
-        if replay_rows > screen_rows {
+        if history_bearing {
             // A history-bearing selection must advance once per row so the
             // reconstructed scrollback keeps Kitty anchors aligned. A
             // viewport-only selection may use direct cursor positioning for
             // sparse rows; padding that case would scroll visible text away.
             let expected_breaks = usize::try_from(replay_rows - 1).unwrap_or(usize::MAX);
-            let emitted_breaks = bytes.windows(2).filter(|bytes| *bytes == b"\r\n").count();
             for _ in emitted_breaks..expected_breaks {
                 if bytes.len().saturating_add(2) > format_max_bytes {
                     return Ok(None);
