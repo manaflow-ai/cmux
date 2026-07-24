@@ -32,6 +32,30 @@ func TestResizeResponsePreservesReservationIdentity(t *testing.T) {
 	}
 }
 
+func TestClientInfoNormalizesProtocolNineSizingParticipation(t *testing.T) {
+	var result ClientInfo
+	if err := json.Unmarshal([]byte(`{
+		"client":7,
+		"transport":"ws",
+		"connected_seconds":12,
+		"attached":[31,32],
+		"sizes":[
+			{"surface":31,"cols":126,"rows":38},
+			{"surface":32,"cols":100,"rows":30,"size_participating":true}
+		],
+		"size_participating":false,
+		"self":true
+	}`), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Sizes[0].SizeParticipating == nil || *result.Sizes[0].SizeParticipating {
+		t.Fatalf("legacy participation = %v, want false", result.Sizes[0].SizeParticipating)
+	}
+	if result.Sizes[1].SizeParticipating == nil || !*result.Sizes[1].SizeParticipating {
+		t.Fatalf("surface participation = %v, want true", result.Sizes[1].SizeParticipating)
+	}
+}
+
 func TestWorkspaceRegistryTypesDecode(t *testing.T) {
 	var tree Tree
 	if err := json.Unmarshal([]byte(`{"workspace_revision":4,"pane_revision":7,"workspaces":[{"id":1,"key":"stable","name":"one","active":true,"screens":[]}]}`), &tree); err != nil {

@@ -1201,6 +1201,28 @@ mod tests {
     }
 
     #[test]
+    fn client_info_normalizes_protocol_nine_sizing_participation() {
+        let client: ClientInfo = serde_json::from_value(serde_json::json!({
+            "client": 7,
+            "transport": "ws",
+            "name": null,
+            "kind": "web",
+            "connected_seconds": 12,
+            "attached": [31, 32],
+            "sizes": [
+                {"surface": 31, "cols": 126, "rows": 38},
+                {"surface": 32, "cols": 100, "rows": 30, "size_participating": true},
+            ],
+            "size_participating": false,
+            "self": true,
+        }))
+        .unwrap();
+
+        assert_eq!(client.sizes[0].size_participating, Some(false));
+        assert_eq!(client.sizes[1].size_participating, Some(true));
+    }
+
+    #[test]
     fn legacy_tree_defaults_additive_workspace_registry_fields() {
         let tree: Tree = serde_json::from_value(serde_json::json!({
             "workspaces": [{
