@@ -19,14 +19,14 @@ import Testing
         #expect(defaults.object(forKey: MobileHapticFeedback.enabledDefaultsKey) == nil)
     }
 
-    @Test func persistsBothPreferenceValues() throws {
+    @Test func readsBothPersistedPreferenceValues() throws {
         let defaults = try makeDefaults("persistence")
         let haptics = MobileHapticFeedback(defaults: defaults)
 
-        haptics.setEnabled(false)
+        defaults.set(false, forKey: MobileHapticFeedback.enabledDefaultsKey)
         #expect(!haptics.isEnabled)
 
-        haptics.setEnabled(true)
+        defaults.set(true, forKey: MobileHapticFeedback.enabledDefaultsKey)
         #expect(haptics.isEnabled)
     }
 
@@ -35,13 +35,13 @@ import Testing
         let haptics = MobileHapticFeedback(defaults: defaults)
         var emissionCount = 0
 
-        haptics.setEnabled(false)
+        defaults.set(false, forKey: MobileHapticFeedback.enabledDefaultsKey)
         haptics.performIfEnabled {
             emissionCount += 1
         }
         #expect(emissionCount == 0)
 
-        haptics.setEnabled(true)
+        defaults.set(true, forKey: MobileHapticFeedback.enabledDefaultsKey)
         haptics.performIfEnabled {
             emissionCount += 1
         }

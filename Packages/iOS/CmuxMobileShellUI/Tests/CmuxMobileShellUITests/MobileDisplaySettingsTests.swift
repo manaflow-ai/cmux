@@ -1,6 +1,4 @@
-import CMUXMobileCore
 import Foundation
-import Observation
 import Testing
 @testable import CmuxMobileShellUI
 
@@ -100,28 +98,15 @@ import Testing
         #expect(MobileDisplaySettings(defaults: defaults).hapticFeedbackEnabled)
     }
 
-    @Test func hapticFeedbackReflectsPolicyWrites() async throws {
-        let defaults = try makeDefaults("hapticFeedbackReflectsPolicyWrites")
-        let notificationCenter = NotificationCenter()
-        let settings = MobileDisplaySettings(
-            defaults: defaults,
-            notificationCenter: notificationCenter
-        )
-        let haptics = MobileHapticFeedback(
-            defaults: defaults,
-            notificationCenter: notificationCenter
-        )
+    @Test func hapticFeedbackPolicyReadsSettingsWrites() throws {
+        let defaults = try makeDefaults("hapticFeedbackPolicyReadsSettingsWrites")
+        let settings = MobileDisplaySettings(defaults: defaults)
 
-        await confirmation("policy write invalidates settings observation") { didChange in
-            withObservationTracking {
-                _ = settings.hapticFeedbackEnabled
-            } onChange: {
-                didChange()
-            }
-            haptics.setEnabled(false)
-        }
+        settings.hapticFeedbackEnabled = false
+        #expect(!settings.haptics.isEnabled)
 
-        #expect(!settings.hapticFeedbackEnabled)
+        settings.hapticFeedbackEnabled = true
+        #expect(settings.haptics.isEnabled)
     }
 
     @Test func terminalFolderTapReadsStoredFalse() throws {

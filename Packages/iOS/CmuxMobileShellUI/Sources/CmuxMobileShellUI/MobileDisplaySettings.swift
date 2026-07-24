@@ -22,9 +22,6 @@ public final class MobileDisplaySettings {
     // `init` and the write-through in `didSet` are safe nonisolated.
     private nonisolated(unsafe) let defaults: UserDefaults
     public let haptics: MobileHapticFeedback
-    @ObservationIgnored private let notificationCenter: NotificationCenter
-    @ObservationIgnored private nonisolated(unsafe) var hapticFeedbackObserver: (any NSObjectProtocol)?
-    private var hapticFeedbackRevision = 0
     private static let wrapWorkspaceTitlesKey = "cmux.mobile.wrapWorkspaceTitles"
     private static let showAltScreenNoticeKey = "cmux.mobile.showAltScreenNotice"
     private static let showMissingFilesKey = "cmux.mobile.showMissingFiles"
@@ -85,15 +82,11 @@ public final class MobileDisplaySettings {
     }
 
     /// Whether cmux emits app-owned haptic feedback. Defaults to `true`.
-    /// The policy remains authoritative; this live projection never caches a
-    /// second copy of the preference.
+    /// This is the sole observed writer for the persisted preference; haptic
+    /// emitters read the same defaults store through ``haptics``.
     public var hapticFeedbackEnabled: Bool {
-        get {
-            _ = hapticFeedbackRevision
-            return haptics.isEnabled
-        }
-        set {
-            haptics.setEnabled(newValue)
+        didSet {
+            defaults.set(hapticFeedbackEnabled, forKey: MobileHapticFeedback.enabledDefaultsKey)
         }
     }
 
@@ -177,21 +170,15 @@ public final class MobileDisplaySettings {
     ///   are initialized from `defaults`; absent keys read as their default
     ///   (single-line titles, enabled folder taps, hidden missing files, two
     ///   preview lines) without a write.
-    public init(
-        defaults: UserDefaults = .standard,
-        notificationCenter: NotificationCenter = .default
-    ) {
-        let haptics = MobileHapticFeedback(
-            defaults: defaults,
-            notificationCenter: notificationCenter
-        )
+    public init(defaults: UserDefaults = .standard) {
+        let haptics = MobileHapticFeedback(defaults: defaults)
         self.defaults = defaults
         self.haptics = haptics
-        self.notificationCenter = notificationCenter
         self.wrapWorkspaceTitles = defaults.bool(forKey: Self.wrapWorkspaceTitlesKey)
         self.showAltScreenNotice = defaults.object(forKey: Self.showAltScreenNoticeKey) as? Bool ?? true
         self.showMissingFiles = defaults.bool(forKey: Self.showMissingFilesKey)
         self.terminalFolderTapEnabled = defaults.object(forKey: Self.terminalFolderTapEnabledKey) as? Bool ?? true
+        self.hapticFeedbackEnabled = haptics.isEnabled
         self.terminalFilesChipEnabled = defaults.bool(forKey: Self.terminalFilesChipEnabledKey)
         self.taskComposerEnabled = defaults.bool(forKey: Self.taskComposerEnabledKey)
         let storedPreviewLines = defaults.object(forKey: Self.workspacePreviewLineCountKey) as? Int
@@ -218,21 +205,6 @@ public final class MobileDisplaySettings {
             forKey: Self.taskComposerShellIconVariantKey
         ).flatMap(TaskComposerShellIconVariant.init(rawValue:)) ?? .current
         #endif
-        self.hapticFeedbackObserver = notificationCenter.addObserver(
-            forName: MobileHapticFeedback.didChangeNotification,
-            object: defaults,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.hapticFeedbackRevision &+= 1
-            }
-        }
-    }
-
-    deinit {
-        if let hapticFeedbackObserver {
-            notificationCenter.removeObserver(hapticFeedbackObserver)
-        }
     }
 
     /// Clamps a stored or assigned preview line count to the supported range.

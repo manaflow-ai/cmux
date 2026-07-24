@@ -10,37 +10,29 @@ import UIKit
 /// preserves existing behavior for current installs. Every cmux haptic must go
 /// through this type so the Settings toggle applies across package boundaries.
 public struct MobileHapticFeedback {
+    /// UserDefaults key for the app-wide haptic preference.
     public static let enabledDefaultsKey = "cmux.mobile.hapticFeedbackEnabled"
-    public static let didChangeNotification = Notification.Name(
-        "dev.cmux.mobile.hapticFeedbackDidChange"
-    )
 
     private let defaults: UserDefaults
-    private let notificationCenter: NotificationCenter
 
-    public init(
-        defaults: UserDefaults = .standard,
-        notificationCenter: NotificationCenter = .default
-    ) {
+    /// Creates a haptic reader backed by the supplied defaults store.
+    public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        self.notificationCenter = notificationCenter
     }
 
+    /// Whether app-owned haptic feedback is currently enabled.
     public var isEnabled: Bool {
         defaults.object(forKey: Self.enabledDefaultsKey) as? Bool ?? true
     }
 
-    public func setEnabled(_ isEnabled: Bool) {
-        defaults.set(isEnabled, forKey: Self.enabledDefaultsKey)
-        notificationCenter.post(name: Self.didChangeNotification, object: defaults)
-    }
-
+    /// Runs `feedback` only when app-owned haptics are enabled.
     public func performIfEnabled(_ feedback: () -> Void) {
         guard isEnabled else { return }
         feedback()
     }
 
     #if canImport(UIKit)
+    /// Prepares a UIKit feedback generator only when haptics are enabled.
     @MainActor
     public func prepare(_ generator: UIFeedbackGenerator) {
         performIfEnabled {
@@ -48,6 +40,7 @@ public struct MobileHapticFeedback {
         }
     }
 
+    /// Emits impact feedback through an existing generator when enabled.
     @MainActor
     public func impact(_ generator: UIImpactFeedbackGenerator) {
         performIfEnabled {
@@ -55,6 +48,7 @@ public struct MobileHapticFeedback {
         }
     }
 
+    /// Emits one impact using a temporary generator when enabled.
     @MainActor
     public func impact(style: UIImpactFeedbackGenerator.FeedbackStyle) {
         performIfEnabled {
@@ -62,6 +56,7 @@ public struct MobileHapticFeedback {
         }
     }
 
+    /// Emits notification feedback when enabled.
     @MainActor
     public func notification(
         _ feedbackType: UINotificationFeedbackGenerator.FeedbackType
