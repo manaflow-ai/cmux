@@ -1,6 +1,6 @@
 import Foundation
 
-enum HTMLPlainTextParser {
+struct HTMLPlainTextParser: Sendable {
     private static let hiddenBlockTags: Set<String> = [
         "noscript",
         "script",
@@ -69,7 +69,7 @@ enum HTMLPlainTextParser {
         "trade": "™",
     ]
 
-    static func plainText(from html: String) -> String? {
+    func plainText(from html: String) -> String? {
         var output = ""
         output.reserveCapacity(min(html.count, 16_384))
         var hiddenTag: String?
@@ -121,7 +121,7 @@ enum HTMLPlainTextParser {
                 continue
             }
 
-            if hiddenBlockTags.contains(tag.name) {
+            if Self.hiddenBlockTags.contains(tag.name) {
                 if !tag.isClosing, !tag.isSelfClosing {
                     hiddenTag = tag.name
                 }
@@ -129,7 +129,7 @@ enum HTMLPlainTextParser {
             }
 
             if tag.name == "br"
-                || blockBoundaryTags.contains(tag.name) {
+                || Self.blockBoundaryTags.contains(tag.name) {
                 appendBlockBoundary(to: &output)
             }
         }
@@ -144,7 +144,7 @@ enum HTMLPlainTextParser {
         let isSelfClosing: Bool
     }
 
-    private static func endOfTag(
+    private func endOfTag(
         in html: String,
         startingAt openingBracket: String.Index
     ) -> String.Index? {
@@ -166,7 +166,7 @@ enum HTMLPlainTextParser {
         return nil
     }
 
-    private static func parsedTag(_ rawTag: String) -> ParsedTag? {
+    private func parsedTag(_ rawTag: String) -> ParsedTag? {
         var tag = rawTag.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !tag.isEmpty,
               tag.first != "!",
@@ -194,7 +194,7 @@ enum HTMLPlainTextParser {
         )
     }
 
-    private static func appendVisibleText(
+    private func appendVisibleText(
         _ htmlText: String,
         to output: inout String
     ) {
@@ -203,7 +203,7 @@ enum HTMLPlainTextParser {
         }
     }
 
-    private static func appendBlockBoundary(to output: inout String) {
+    private func appendBlockBoundary(to output: inout String) {
         guard !output.isEmpty, output.last != "\n" else { return }
         while output.last == " " {
             output.removeLast()
@@ -213,7 +213,7 @@ enum HTMLPlainTextParser {
         }
     }
 
-    private static func decodeEntities(in text: String) -> String {
+    private func decodeEntities(in text: String) -> String {
         var result = ""
         result.reserveCapacity(text.count)
         var index = text.startIndex
@@ -242,7 +242,7 @@ enum HTMLPlainTextParser {
         return result
     }
 
-    private static func entitySemicolon(
+    private func entitySemicolon(
         in text: String,
         after ampersand: String.Index
     ) -> String.Index? {
@@ -260,7 +260,7 @@ enum HTMLPlainTextParser {
         return nil
     }
 
-    private static func decodedEntity(_ body: String) -> String? {
+    private func decodedEntity(_ body: String) -> String? {
         if body.hasPrefix("#x") || body.hasPrefix("#X") {
             return unicodeScalarString(
                 String(body.dropFirst(2)),
@@ -273,10 +273,10 @@ enum HTMLPlainTextParser {
                 radix: 10
             )
         }
-        return namedEntities[body.lowercased()]
+        return Self.namedEntities[body.lowercased()]
     }
 
-    private static func unicodeScalarString(
+    private func unicodeScalarString(
         _ digits: String,
         radix: Int
     ) -> String? {
@@ -287,7 +287,7 @@ enum HTMLPlainTextParser {
         return String(scalar)
     }
 
-    private static func normalize(_ text: String) -> String {
+    private func normalize(_ text: String) -> String {
         var characters: [Character] = []
         characters.reserveCapacity(text.count)
         var pendingSpace = false

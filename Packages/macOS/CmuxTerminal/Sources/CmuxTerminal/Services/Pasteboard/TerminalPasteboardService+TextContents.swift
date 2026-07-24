@@ -108,7 +108,7 @@ extension TerminalPasteboardService {
                 String(data: $0, encoding: .utf8)
             }
         guard let html else { return nil }
-        return HTMLPlainTextParser.plainText(from: html)
+        return HTMLPlainTextParser().plainText(from: html)
     }
 
     private func plainTextContents(from pasteboard: NSPasteboard) -> String? {

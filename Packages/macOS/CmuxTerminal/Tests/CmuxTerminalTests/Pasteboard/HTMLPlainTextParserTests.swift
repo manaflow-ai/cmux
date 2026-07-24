@@ -6,8 +6,9 @@ import Testing
 struct HTMLPlainTextParserTests {
     @Test("preserves inline text and decodes entities")
     func preservesInlineTextAndDecodesEntities() {
+        let parser = HTMLPlainTextParser()
         #expect(
-            HTMLPlainTextParser.plainText(
+            parser.plainText(
                 from: "<p>Hello <strong>world</strong> &amp; friends &#169;</p>"
             ) == "Hello world & friends ©"
         )
@@ -15,6 +16,7 @@ struct HTMLPlainTextParserTests {
 
     @Test("omits comments and hidden blocks")
     func omitsCommentsAndHiddenBlocks() {
+        let parser = HTMLPlainTextParser()
         let html = """
         <!-- hidden comment -->
         <style>body::before { content: "hidden"; }</style>
@@ -24,11 +26,12 @@ struct HTMLPlainTextParserTests {
         <div>Visible</div>
         """
 
-        #expect(HTMLPlainTextParser.plainText(from: html) == "Visible")
+        #expect(parser.plainText(from: html) == "Visible")
     }
 
     @Test("preserves block and line-break boundaries")
     func preservesBlockAndLineBreakBoundaries() {
+        let parser = HTMLPlainTextParser()
         let html = """
         <div>first <span>line</span></div>
         <p>second<br>third</p>
@@ -36,15 +39,16 @@ struct HTMLPlainTextParserTests {
         """
 
         #expect(
-            HTMLPlainTextParser.plainText(from: html)
+            parser.plainText(from: html)
                 == "first line\nsecond\nthird\nfourth\nfifth"
         )
     }
 
     @Test("image-only HTML has no plain text")
     func imageOnlyHTMLHasNoPlainText() {
+        let parser = HTMLPlainTextParser()
         #expect(
-            HTMLPlainTextParser.plainText(
+            parser.plainText(
                 from: "<div><img src=\"capture.png\" alt=\"screenshot\"></div>"
             ) == nil
         )
@@ -53,7 +57,7 @@ struct HTMLPlainTextParserTests {
     @Test("parses from a background task")
     func parsesFromBackgroundTask() async {
         let parsed = await Task.detached {
-            HTMLPlainTextParser.plainText(
+            HTMLPlainTextParser().plainText(
                 from: "<p>remote &amp; responsive</p>"
             )
         }.value
