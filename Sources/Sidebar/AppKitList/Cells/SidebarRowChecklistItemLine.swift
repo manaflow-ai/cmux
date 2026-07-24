@@ -364,12 +364,16 @@ final class SidebarRowChecklistItemLine: NSView {
         let postUpdateAction = commitEdits
             ? editFieldBridge?.deferredEndEditingAction(text: editField?.stringValue ?? "")
             : nil
+        // Only representable/controller teardown suppresses AppKit's normal
+        // focus-loss callback: the pending result was claimed above and must
+        // run after the enclosing update. Ordinary editor reconciliation
+        // keeps its delegate so switching items commits the previous draft.
+        editField?.delegate = nil
         resetForReuse()
         return postUpdateAction
     }
 
     private func discardEditField() {
-        editField?.delegate = nil
         editField?.removeFromSuperview()
         editField = nil
         editFieldBridge = nil
