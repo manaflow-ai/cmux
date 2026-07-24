@@ -712,6 +712,48 @@ class _PythonLocalBindingCollector(ast.NodeVisitor):
         self._visit_comprehension(node.generators, [node.key, node.value])
 
 
+class _PythonDeferredBindingCollector(_PythonLocalBindingCollector):
+    """Collect stable/ambiguous module bindings used by deferred bodies."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.trusted_bindings: dict[str, str] = {}
+
+    def visit_Import(self, node: ast.Import) -> None:
+        for alias in node.names:
+            root = alias.name.split(".", maxsplit=1)[0]
+            if (
+                alias.name in _PYTHON_SLEEP_MODULES
+                or (alias.asname is None and root in _PYTHON_SLEEP_MODULES)
+            ):
+                self.trusted_bindings[
+                    alias.asname or root
+                ] = _PYTHON_MODULE_BINDING
+                continue
+            self.local_names.add(alias.asname or root)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        for alias in node.names:
+            if alias.name == "*":
+                self.local_names.update(_PYTHON_SLEEP_MODULES)
+            elif (
+                node.level == 0
+                and node.module in _PYTHON_SLEEP_MODULES
+                and alias.name == "sleep"
+            ):
+                self.trusted_bindings[
+                    alias.asname or alias.name
+                ] = _PYTHON_FUNCTION_BINDING
+            else:
+                self.local_names.add(alias.asname or alias.name)
+
+    def deferred_bindings(self) -> dict[str, str]:
+        result = self.trusted_bindings.copy()
+        for name in self.local_names:
+            result[name] = _PYTHON_SHADOWED_BINDING
+        return result
+
+
 def _python_function_bindings(
     body: list[ast.stmt],
 ) -> tuple[set[str], set[str], set[str]]:
@@ -741,7 +783,11 @@ class _PythonScope:
 class _PythonSleepVisitor(ast.NodeVisitor):
     """Find exact trusted ``sleep`` calls without guessing receiver types."""
 
-    def __init__(self, postponed_annotations: bool) -> None:
+    def __init__(
+        self,
+        postponed_annotations: bool,
+        deferred_module_bindings: dict[str, str],
+    ) -> None:
         self.module_scope = _PythonScope(
             kind="module",
             parent=None,
@@ -752,6 +798,7 @@ class _PythonSleepVisitor(ast.NodeVisitor):
         )
         self.scope = self.module_scope
         self.postponed_annotations = postponed_annotations
+        self.deferred_module_bindings = deferred_module_bindings
         self.sleep_lines: set[int] = set()
         self.sleep_positions: dict[int, set[int]] = {}
 
@@ -902,6 +949,8 @@ class _PythonSleepVisitor(ast.NodeVisitor):
             snapshot_scope = snapshot_scope.parent
         for name, binding in previous_scope.deferred_parent_bindings.items():
             self._bind_in_scope(parent, name, binding)
+        for name, binding in self.deferred_module_bindings.items():
+            self.module_scope.bindings[name] = binding
         self.scope = _PythonScope(
             "function",
             parent,
@@ -943,6 +992,8 @@ class _PythonSleepVisitor(ast.NodeVisitor):
             snapshot_scope = snapshot_scope.parent
         for name, binding in previous_scope.deferred_parent_bindings.items():
             self._bind_in_scope(parent, name, binding)
+        for name, binding in self.deferred_module_bindings.items():
+            self.module_scope.bindings[name] = binding
         self.scope = _PythonScope(
             "function",
             parent,
@@ -1281,7 +1332,13 @@ def _python_real_sleep_lines(
         and any(alias.name == "annotations" for alias in statement.names)
         for statement in tree.body
     )
-    visitor = _PythonSleepVisitor(postponed_annotations)
+    deferred_binding_collector = _PythonDeferredBindingCollector()
+    for statement in tree.body:
+        deferred_binding_collector.visit(statement)
+    visitor = _PythonSleepVisitor(
+        postponed_annotations,
+        deferred_binding_collector.deferred_bindings(),
+    )
     visitor.visit(tree)
     if positions is not None:
         source_lines = text.splitlines()
@@ -1575,7 +1632,6 @@ def _shell_prefixed_sleep_position(
 ) -> Optional[int]:
     """Find a sleep command after shell control/assignment prefix words."""
     index = start
-    saw_assignment = False
     while True:
         while index < len(raw_line) and raw_line[index].isspace():
             index += 1
@@ -1606,12 +1662,10 @@ def _shell_prefixed_sleep_position(
         assignment_end = _shell_assignment_word_end(raw_line, index)
         if assignment_end is None:
             break
-        saw_assignment = True
         index = assignment_end
 
     if (
-        saw_assignment
-        and masked_line.startswith("sleep", index)
+        masked_line.startswith("sleep", index)
         and (
             index + len("sleep") == len(masked_line)
             or masked_line[index + len("sleep")].isspace()
@@ -1660,7 +1714,13 @@ def _shell_real_sleep_positions(
                 masked_line,
                 command_start.end(),
             )
-            if sleep_position is not None:
+            if (
+                sleep_position is not None
+                and not _shell_function_declaration_at(
+                    raw_line,
+                    sleep_position,
+                )
+            ):
                 positions.setdefault(line_index, set()).add(sleep_position)
     return positions
 
@@ -1774,9 +1834,10 @@ def _shell_asserted_substitution_sleep_positions(
                 set_current_command_assertion(False)
             index += 1
 
-        top_level_assertion = False
-        if frames:
-            frames[-1].command_assertion = False
+        if not _has_odd_trailing_backslashes(line):
+            top_level_assertion = False
+            if frames:
+                frames[-1].command_assertion = False
 
     return result
 
