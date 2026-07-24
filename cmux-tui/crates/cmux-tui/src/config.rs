@@ -2010,6 +2010,15 @@ mod tests {
     }
 
     #[test]
+    fn ghostty_option_policy_only_applies_inside_ghostty() {
+        assert_eq!(ghostty_option_policy_for_host(Some("ghostty"), Some(false)), Some(false));
+        assert_eq!(ghostty_option_policy_for_host(Some("Ghostty"), Some(true)), Some(true));
+        assert_eq!(ghostty_option_policy_for_host(Some("kitty"), Some(false)), None);
+        assert_eq!(ghostty_option_policy_for_host(Some("iTerm.app"), Some(false)), None);
+        assert_eq!(ghostty_option_policy_for_host(None, Some(false)), None);
+    }
+
+    #[test]
     fn parses_ghostty_terminal_colors_and_palette_with_later_valid_entry_wins() {
         let defaults = parse_ghostty_defaults(
             "foreground = #010203\n\

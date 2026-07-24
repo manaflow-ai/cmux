@@ -10918,7 +10918,8 @@ mod tests {
         WorkspaceRailSelection, browser_content_size_for_rect, browser_hover_forward_allowed,
         canonical_terminal_content, clamp_split_ratio_for_tab_bars, client_menu_item,
         disable_host_keyboard_protocol, enable_host_keyboard_protocol, forward_mux_event,
-        forward_mux_events, outer_cursor_escape, outer_cursor_escape_if_changed,
+        forward_mux_events, keyboard_protocol_accepts, outer_cursor_escape,
+        outer_cursor_escape_if_changed,
         pane_context_menu_groups, pane_parts_for_rect, prepare_ordered_session,
         preserve_client_view, rail_drag_width, record_surface_resize_dispatch_result,
         sidebar_layout_for, sidebar_plugin_status_settles_passive_claim, start_ordered_session,
@@ -10935,8 +10936,8 @@ mod tests {
         SurfaceOptions, layout_screen, server,
     };
     use crossterm::event::{
-        EnhancedKeyEvent, Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent,
-        MouseEventKind,
+        EnhancedKeyEvent, Event, KeyCode, KeyEvent, KeyModifiers, KeyboardEnhancementFlags,
+        MouseButton, MouseEvent, MouseEventKind,
     };
     use ghostty_vt::{
         CursorShape, KeyEncoder, Mods, MouseAction, MouseButton as GhosttyMouseButton, MouseInput,
@@ -11005,6 +11006,19 @@ mod tests {
         assert!(!ownership.pushed);
         disable_host_keyboard_protocol(&mut output, ownership).unwrap();
         assert_eq!(output.writes, 1, "cleanup must not pop a stack entry cmux did not push");
+    }
+
+    #[test]
+    fn host_keyboard_protocol_requires_every_requested_flag() {
+        let requested = KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+            | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS
+            | KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES
+            | KeyboardEnhancementFlags::REPORT_ASSOCIATED_TEXT;
+        let partial = requested - KeyboardEnhancementFlags::REPORT_ASSOCIATED_TEXT;
+
+        assert!(!keyboard_protocol_accepts(requested, Some(partial)));
+        assert!(!keyboard_protocol_accepts(requested, None));
+        assert!(keyboard_protocol_accepts(requested, Some(requested)));
     }
 
     #[test]

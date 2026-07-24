@@ -891,6 +891,19 @@ mod tests {
     }
 
     #[test]
+    fn test_keyboard_enhancement_query_parses_all_decimal_flag_bits() {
+        let flags = KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+            | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS
+            | KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES
+            | KeyboardEnhancementFlags::REPORT_ASSOCIATED_TEXT;
+
+        assert_eq!(
+            parse_event(b"\x1B[?29u", false).unwrap(),
+            Some(InternalEvent::KeyboardEnhancementFlags(flags)),
+        );
+    }
+
+    #[test]
     fn test_alt_key() {
         assert_eq!(
             parse_event(b"\x1Bc", false).unwrap(),

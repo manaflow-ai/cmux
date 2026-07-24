@@ -2526,6 +2526,21 @@ mod tests {
     }
 
     #[test]
+    fn cursor_prompt_detection_follows_saved_private_screen_mode() {
+        let mut terminal = Terminal::new(10, 3, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b]133;A\x07$ \x1b]133;B\x07pending");
+        assert!(terminal.cursor_is_at_prompt());
+
+        terminal.vt_write(b"\x1b[?1049s\x1b[?1049h\x1b]133;C\x07\x1b[?1049r");
+
+        assert_eq!(terminal.active_screen(), Screen::Primary);
+        assert!(terminal.cursor_is_at_prompt());
+
+        terminal.vt_write(b"\x1b]133;C\x07");
+        assert!(!terminal.cursor_is_at_prompt());
+    }
+
+    #[test]
     fn clear_history_preserves_the_active_prompt_and_cursor() {
         let mut terminal = Terminal::new(20, 4, 1_000, Callbacks::default()).unwrap();
         for line in 0..10 {
