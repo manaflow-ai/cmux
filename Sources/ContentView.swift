@@ -14988,7 +14988,7 @@ struct TabItemView: View, Equatable {
 
     var body: some View {
 #if DEBUG
-        let _ = { sidebarLazyContractProbe.workspaceRowBody?() }()
+        let _ = { sidebarLazyContractProbe.workspaceRowBody?(workspaceId) }()
 #endif
         let signpost = SidebarProfilingSignposts.begin("sidebar-tab-item-body", "index=\(index) workspace=\(sidebarShortTabId(workspaceId)) active=\(isActive) unread=\(unreadCount)")
         let workspaceSnapshot = self.workspaceSnapshot
