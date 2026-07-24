@@ -10,18 +10,14 @@ import {
 
 const welcome = enMessages.appProWelcome;
 
-type WelcomeStepKey = "modelGateway" | "aiAccounts" | "iosApp" | "billing";
+type WelcomeStepKey = "iosApp" | "billing";
 
 const STEP_HREFS: Record<WelcomeStepKey, string> = {
-  modelGateway: "/dashboard/subrouter",
-  aiAccounts: "/dashboard/ai-accounts",
   iosApp: "/dashboard/testflight",
   billing: "/dashboard/billing",
 };
 
 const STEP_ORDER: readonly WelcomeStepKey[] = [
-  "modelGateway",
-  "aiAccounts",
   "iosApp",
   "billing",
 ];
