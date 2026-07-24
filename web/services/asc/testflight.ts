@@ -45,16 +45,20 @@ export async function testerGroupStatus(
   const tester = await findBetaTesterByEmail(email);
   if (!tester) return { enrolled: false };
 
-  const response = await ascFetch<JsonApiList>(
-    `/v1/betaTesters/${encodeURIComponent(tester.id)}/betaGroups?limit=200`,
-  );
-  const enrolled = Boolean(
-    response.data?.some((group) => group.id === PRO_TESTFLIGHT_GROUP_ID),
-  );
+  const enrolled = await testerIsInProGroup(tester.id);
   return {
     enrolled,
     state: tester.state,
   };
+}
+
+async function testerIsInProGroup(testerId: string): Promise<boolean> {
+  const response = await ascFetch<JsonApiList>(
+    `/v1/betaTesters/${encodeURIComponent(testerId)}/betaGroups?limit=200`,
+  );
+  return Boolean(
+    response.data?.some((group) => group.id === PRO_TESTFLIGHT_GROUP_ID),
+  );
 }
 
 export async function enrollTester(
@@ -94,6 +98,7 @@ export async function enrollTester(
 
   const tester = await findBetaTesterByEmail(normalizedEmail);
   if (!tester) throw new AscApiError("Existing beta tester could not be found", 409);
+  if (await testerIsInProGroup(tester.id)) return;
   const added = await addTesterToGroup(tester.id);
   if (added) await sendTesterInvitation(tester.id);
 }

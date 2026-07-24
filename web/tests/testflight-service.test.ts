@@ -100,6 +100,9 @@ describe("TestFlight ASC service", () => {
       if (String(path).startsWith("/v1/betaTesters?")) {
         return betaTesterList("tester_123");
       }
+      if (String(path).includes("/betaGroups?")) {
+        return { data: [] };
+      }
       return {};
     });
 
@@ -109,7 +112,7 @@ describe("TestFlight ASC service", () => {
       "/v1/betaGroups/34fbede5-3880-4560-b1bb-a45787249780/relationships/betaTesters",
       expect.objectContaining({ method: "POST" }),
     );
-    const body = JSON.parse(String(callInit(2).body));
+    const body = JSON.parse(String(callInit(3).body));
     expect(body).toEqual({
       data: [{ type: "betaTesters", id: "tester_123" }],
     });
@@ -127,13 +130,25 @@ describe("TestFlight ASC service", () => {
       if (String(path).startsWith("/v1/betaTesters?")) {
         return betaTesterList("tester_123");
       }
-      throw new MockAscApiError("already related", 409);
+      if (String(path).includes("/betaGroups?")) {
+        return {
+          data: [
+            {
+              type: "betaGroups",
+              id: "34fbede5-3880-4560-b1bb-a45787249780",
+            },
+          ],
+        };
+      }
+      return {};
     });
 
     await expect(enrollTester("exists@example.com")).resolves.toBeUndefined();
     expect(
       (ascFetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.some(
-        ([path]) => path === "/v1/betaTesterInvitations",
+        ([path]) =>
+          path === "/v1/betaTesterInvitations" ||
+          String(path).includes("/relationships/betaTesters"),
       ),
     ).toBe(false);
   });
