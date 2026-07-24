@@ -11,16 +11,12 @@ import UIKit
 final class GhosttySurfaceBridge: @unchecked Sendable {
     // lint:allow lock — sanctioned carve-out: serial low-level primitive hidden behind the type, guarding a single weak ref on the libghostty-callback / typing-latency path; actor rewrite tracked as the GhosttySurfaceView split follow-up.
     private let lock = NSLock()
-    // Deliberately STRONG despite forming a view<->bridge cycle: libghostty
-    // holds the raw view pointer (`ghostty_platform_ios_s.uiview`,
-    // passUnretained in `makeSurface`), so the view must outlive every queued
-    // surface operation. A weak back-reference would let the view deallocate
-    // while queued renderer work still dereferences that pointer
-    // (use-after-free). The cycle means a closed terminal's view/bridge/
-    // surface are reclaimed only by the render-pipeline recovery rebuild, not
-    // by dismantle; fixing the leak needs retained-uiview / free-on-dismantle
-    // choreography, tracked in
-    // https://github.com/manaflow-ai/cmux/issues/7199.
+    // Deliberately STRONG: libghostty holds the raw view pointer
+    // (`ghostty_platform_ios_s.uiview`, passUnretained in `makeSurface`), so
+    // the view must outlive queued surface operations. Surface creation gives
+    // libghostty an owned bridge retain; dismantle detaches this reference to
+    // break the view<->bridge cycle, and final C-surface destruction releases
+    // the bridge only after internal callbacks and app-action leases stop.
     private var _surfaceView: GhosttySurfaceView?
 
     var surfaceView: GhosttySurfaceView? {
@@ -71,6 +67,11 @@ final class GhosttySurfaceBridge: @unchecked Sendable {
     static func fromOpaque(_ userdata: UnsafeMutableRawPointer?) -> GhosttySurfaceBridge? {
         guard let userdata else { return nil }
         return Unmanaged<GhosttySurfaceBridge>.fromOpaque(userdata).takeUnretainedValue()
+    }
+
+    static func releaseRetainedOpaque(_ userdata: UnsafeMutableRawPointer?) {
+        guard let userdata else { return }
+        Unmanaged<GhosttySurfaceBridge>.fromOpaque(userdata).release()
     }
 }
 
