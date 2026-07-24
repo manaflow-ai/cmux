@@ -1180,6 +1180,17 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "assert-argument-after-sleep.sh": (
                     "sleep 1; echo assert\n"
                 ),
+                "substitution-closer-argument.sh": (
+                    "echo $(prepare) sleep 1\n"
+                    'assert "$ready"\n'
+                ),
+                "case-substitution-closer-argument.sh": (
+                    'case "$state" in ready) echo $(prepare) sleep 1 ;; esac\n'
+                    'assert "$ready"\n'
+                ),
+                "assertion-looking-argument.sh": (
+                    'echo assert "$(sleep 1)"\n'
+                ),
             },
             timeout=2,
         )
@@ -1405,6 +1416,12 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "expect(nested).toBeTruthy()\n"
                     "const escaped = `\\${Bun.sleep(1)}`\n"
                     "expect(escaped).toBeTruthy()\n"
+                ),
+                "leading-comments.ts": (
+                    "// Bun.sleep(1)\n"
+                    "expect(finished).toBe(true)\n"
+                    "doWork(); // setTimeout(resolve, 1)\n"
+                    "expect(done).toBe(true)\n"
                 ),
                 "continued-string.ts": (
                     'const source = "prefix\\\n'
