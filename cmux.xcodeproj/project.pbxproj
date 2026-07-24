@@ -1977,7 +1977,16 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		B7758A020000000000000001 /* TerminationWatchdogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7758A020000000000000002 /* TerminationWatchdogTests.swift */; };
 		C0DE7B330000000000000001 /* TextBoxAgentDetection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B330000000000000002 /* TextBoxAgentDetection.swift */; };
 		7898A0020000000000000001 /* TextBoxGitIgnoreProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7898A0020000000000000002 /* TextBoxGitIgnoreProbe.swift */; };
+		5330B0715330B0715330B071 /* TextBoxInlineAttachmentCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5330B0725330B0725330B072 /* TextBoxInlineAttachmentCell.swift */; };
+		5330B0015330B0015330B001 /* TextBoxInlineAttachmentRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5330B0025330B0025330B002 /* TextBoxInlineAttachmentRenderer.swift */; };
 		5330A0015330A0015330A001 /* TextBoxInlineAttachmentRenderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5330A0025330A0025330A002 /* TextBoxInlineAttachmentRenderingTests.swift */; };
+		5330B0115330B0115330B011 /* TextBoxInlineAttachmentRenderKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5330B0125330B0125330B012 /* TextBoxInlineAttachmentRenderKey.swift */; };
+		5330B0215330B0215330B021 /* TextBoxInlineAttachmentThumbnailNormalizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5330B0225330B0225330B022 /* TextBoxInlineAttachmentThumbnailNormalizer.swift */; };
+		5330B0315330B0315330B031 /* TextBoxInlineAttachmentThumbnailNormalizing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5330B0325330B0325330B032 /* TextBoxInlineAttachmentThumbnailNormalizing.swift */; };
+		5330B0415330B0415330B041 /* TextBoxInlineAttachmentThumbnailPixels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5330B0425330B0425330B042 /* TextBoxInlineAttachmentThumbnailPixels.swift */; };
+		5330B0515330B0515330B051 /* TextBoxInlineAttachmentThumbnailSize.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5330B0525330B0525330B052 /* TextBoxInlineAttachmentThumbnailSize.swift */; };
+		5330B0615330B0615330B061 /* TextBoxInlineAttachmentThumbnailSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5330B0625330B0625330B062 /* TextBoxInlineAttachmentThumbnailSource.swift */; };
+		5330B0815330B0815330B081 /* TextBoxInlineTextAttachment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5330B0825330B0825330B082 /* TextBoxInlineTextAttachment.swift */; };
 		C0DE7B100000000000000001 /* TextBoxInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B100000000000000002 /* TextBoxInput.swift */; };
 		C0DE7B3B0000000000000001 /* TextBoxInputTextViewDebug.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B3B0000000000000002 /* TextBoxInputTextViewDebug.swift */; };
 		C0DE7B310000000000000001 /* TextBoxMentionCachedIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B310000000000000002 /* TextBoxMentionCachedIndex.swift */; };
@@ -4157,7 +4166,16 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		B7758A020000000000000002 /* TerminationWatchdogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminationWatchdogTests.swift; sourceTree = "<group>"; };
 		C0DE7B330000000000000002 /* TextBoxAgentDetection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxAgentDetection.swift; sourceTree = "<group>"; };
 		7898A0020000000000000002 /* TextBoxGitIgnoreProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxGitIgnoreProbe.swift; sourceTree = "<group>"; };
+		5330B0725330B0725330B072 /* TextBoxInlineAttachmentCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInlineAttachmentCell.swift; sourceTree = "<group>"; };
+		5330B0025330B0025330B002 /* TextBoxInlineAttachmentRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInlineAttachmentRenderer.swift; sourceTree = "<group>"; };
 		5330A0025330A0025330A002 /* TextBoxInlineAttachmentRenderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInlineAttachmentRenderingTests.swift; sourceTree = "<group>"; };
+		5330B0125330B0125330B012 /* TextBoxInlineAttachmentRenderKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInlineAttachmentRenderKey.swift; sourceTree = "<group>"; };
+		5330B0225330B0225330B022 /* TextBoxInlineAttachmentThumbnailNormalizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInlineAttachmentThumbnailNormalizer.swift; sourceTree = "<group>"; };
+		5330B0325330B0325330B032 /* TextBoxInlineAttachmentThumbnailNormalizing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInlineAttachmentThumbnailNormalizing.swift; sourceTree = "<group>"; };
+		5330B0425330B0425330B042 /* TextBoxInlineAttachmentThumbnailPixels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInlineAttachmentThumbnailPixels.swift; sourceTree = "<group>"; };
+		5330B0525330B0525330B052 /* TextBoxInlineAttachmentThumbnailSize.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInlineAttachmentThumbnailSize.swift; sourceTree = "<group>"; };
+		5330B0625330B0625330B062 /* TextBoxInlineAttachmentThumbnailSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInlineAttachmentThumbnailSource.swift; sourceTree = "<group>"; };
+		5330B0825330B0825330B082 /* TextBoxInlineTextAttachment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInlineTextAttachment.swift; sourceTree = "<group>"; };
 		C0DE7B100000000000000002 /* TextBoxInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInput.swift; sourceTree = "<group>"; };
 		C0DE7B3B0000000000000002 /* TextBoxInputTextViewDebug.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/TextBoxInputTextViewDebug.swift; sourceTree = "<group>"; };
 		C0DE7B310000000000000002 /* TextBoxMentionCachedIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxMentionCachedIndex.swift; sourceTree = "<group>"; };
@@ -5021,6 +5039,15 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F7216002000000000000002 /* KeyboardShortcutSettings+SystemWideHotkeyConflicts.swift */,
 				C0DE7B330000000000000002 /* TextBoxAgentDetection.swift */,
 				7898A0020000000000000002 /* TextBoxGitIgnoreProbe.swift */,
+				5330B0725330B0725330B072 /* TextBoxInlineAttachmentCell.swift */,
+				5330B0125330B0125330B012 /* TextBoxInlineAttachmentRenderKey.swift */,
+				5330B0025330B0025330B002 /* TextBoxInlineAttachmentRenderer.swift */,
+				5330B0325330B0325330B032 /* TextBoxInlineAttachmentThumbnailNormalizing.swift */,
+				5330B0225330B0225330B022 /* TextBoxInlineAttachmentThumbnailNormalizer.swift */,
+				5330B0425330B0425330B042 /* TextBoxInlineAttachmentThumbnailPixels.swift */,
+				5330B0525330B0525330B052 /* TextBoxInlineAttachmentThumbnailSize.swift */,
+				5330B0625330B0625330B062 /* TextBoxInlineAttachmentThumbnailSource.swift */,
+				5330B0825330B0825330B082 /* TextBoxInlineTextAttachment.swift */,
 				C0DE7B310000000000000002 /* TextBoxMentionCachedIndex.swift */,
 				C0DE7B250000000000000002 /* TextBoxMentionCandidate.swift */,
 				C0DE7B260000000000000002 /* TextBoxMentionCandidateIndex.swift */,
@@ -8391,6 +8418,15 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B7758A030000000000000001 /* TerminationWatchdogAtomic.c in Sources */,
 				C0DE7B330000000000000001 /* TextBoxAgentDetection.swift in Sources */,
 				7898A0020000000000000001 /* TextBoxGitIgnoreProbe.swift in Sources */,
+				5330B0715330B0715330B071 /* TextBoxInlineAttachmentCell.swift in Sources */,
+				5330B0015330B0015330B001 /* TextBoxInlineAttachmentRenderer.swift in Sources */,
+				5330B0115330B0115330B011 /* TextBoxInlineAttachmentRenderKey.swift in Sources */,
+				5330B0215330B0215330B021 /* TextBoxInlineAttachmentThumbnailNormalizer.swift in Sources */,
+				5330B0315330B0315330B031 /* TextBoxInlineAttachmentThumbnailNormalizing.swift in Sources */,
+				5330B0415330B0415330B041 /* TextBoxInlineAttachmentThumbnailPixels.swift in Sources */,
+				5330B0515330B0515330B051 /* TextBoxInlineAttachmentThumbnailSize.swift in Sources */,
+				5330B0615330B0615330B061 /* TextBoxInlineAttachmentThumbnailSource.swift in Sources */,
+				5330B0815330B0815330B081 /* TextBoxInlineTextAttachment.swift in Sources */,
 				C0DE7B100000000000000001 /* TextBoxInput.swift in Sources */,
 				C0DE7B3B0000000000000001 /* TextBoxInputTextViewDebug.swift in Sources */,
 				C0DE7B310000000000000001 /* TextBoxMentionCachedIndex.swift in Sources */,

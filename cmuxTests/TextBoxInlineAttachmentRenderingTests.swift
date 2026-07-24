@@ -50,6 +50,43 @@ import Testing
             "Changing focus should refresh only the attachment whose visual focus state changed."
         )
     }
+
+    @Test func thumbnailNormalizationRunsOnceOffMainActor() async throws {
+        let normalizer = RecordingThumbnailNormalizer()
+        let source = TextBoxInlineAttachmentThumbnailSource(
+            fileURL: URL(fileURLWithPath: "/unused/image.png"),
+            normalizer: normalizer
+        )
+        let pixelSize = TextBoxInlineAttachmentThumbnailSize(width: 32, height: 32)
+
+        _ = await source.thumbnail(pixelSize: pixelSize)
+        _ = await source.thumbnail(pixelSize: pixelSize)
+
+        #expect(normalizer.invocationCount == 1)
+        #expect(normalizer.didRunOnMainThread == false)
+    }
+}
+
+// The source actor serializes writes, and the test reads only after awaiting both calls.
+nonisolated private final class RecordingThumbnailNormalizer:
+    TextBoxInlineAttachmentThumbnailNormalizing,
+    @unchecked Sendable
+{
+    private(set) var invocationCount = 0
+    private(set) var didRunOnMainThread = false
+
+    func normalizedThumbnail(
+        for fileURL: URL,
+        pixelSize: TextBoxInlineAttachmentThumbnailSize
+    ) -> TextBoxInlineAttachmentThumbnailPixels? {
+        invocationCount += 1
+        didRunOnMainThread = Thread.isMainThread
+        return TextBoxInlineAttachmentThumbnailPixels(
+            size: pixelSize,
+            bytesPerRow: pixelSize.width * 4,
+            rgba8: Data(repeating: 0, count: pixelSize.width * pixelSize.height * 4)
+        )
+    }
 }
 
 @MainActor
