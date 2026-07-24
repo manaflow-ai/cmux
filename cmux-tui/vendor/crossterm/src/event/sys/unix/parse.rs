@@ -1251,6 +1251,18 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_basic_csi_u_preserves_shifted_character_value() {
+        let Some(InternalEvent::Event(Event::Key(event))) =
+            parse_csi_u_encoded_key_code(b"\x1B[97;2u").unwrap()
+        else {
+            panic!("expected a basic CSI-u key event");
+        };
+
+        assert_eq!(event.code, KeyCode::Char('A'));
+        assert_eq!(event.modifiers, KeyModifiers::SHIFT);
+    }
+
+    #[test]
     fn test_parse_basic_csi_u_encoded_key_code_special_keys() {
         assert_eq!(
             parse_csi_u_encoded_key_code(b"\x1B[13u").unwrap(),
