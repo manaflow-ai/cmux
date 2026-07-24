@@ -81,6 +81,88 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
         XCTAssertEqual(activationCount, 0)
     }
 
+    func testFocusUnavailableWindowReturnsFalseBeforeWindowOperations() {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        let windowId = UUID()
+        let workspaceId = UUID()
+        var activeCount = 0
+        var operationCount = 0
+        var activationCount = 0
+        var breadcrumbs: [String: [String: Any]] = [:]
+
+        let controller = MainWindowVisibilityController(
+            dependencies: .init(
+                isActivationSuppressed: { false },
+                windowAvailability: { _ in
+                    .init(
+                        isAvailable: false,
+                        windowId: windowId,
+                        workspaceId: workspaceId
+                    )
+                },
+                setActiveMainWindow: { _ in activeCount += 1 },
+                isApplicationHidden: { false },
+                activateRunningApplication: { _ in activationCount += 1 },
+                recordBreadcrumb: { message, data in
+                    breadcrumbs[message] = data
+                },
+                windowOperations: makeWindowOperations(
+                    isMiniaturized: { _ in operationCount += 1; return false },
+                    deminiaturize: { _ in operationCount += 1 },
+                    makeKeyAndOrderFront: { _ in operationCount += 1 },
+                    orderFront: { _ in operationCount += 1 },
+                    softShow: { _ in operationCount += 1 }
+                )
+            )
+        )
+
+        XCTAssertFalse(controller.focus(window, reason: .focusMainWindow))
+        XCTAssertEqual(activeCount, 0)
+        XCTAssertEqual(operationCount, 0)
+        XCTAssertEqual(activationCount, 0)
+        XCTAssertEqual(
+            breadcrumbs["mainWindow.focus.unavailable"]?["reason"] as? String,
+            "focusMainWindow"
+        )
+        XCTAssertEqual(
+            breadcrumbs["mainWindow.focus.unavailable"]?["windowId"] as? String,
+            windowId.uuidString
+        )
+        XCTAssertEqual(
+            breadcrumbs["mainWindow.focus.unavailable"]?["workspaceId"] as? String,
+            workspaceId.uuidString
+        )
+        XCTAssertEqual(
+            breadcrumbs["mainWindow.focus.unavailable"]?["contextAvailable"] as? Bool,
+            false
+        )
+    }
+
+    func testFocusUnavailableWindowDoesNotUseSuppressedActiveContextShortcut() {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        var activeCount = 0
+        let controller = MainWindowVisibilityController(
+            dependencies: .init(
+                isActivationSuppressed: { true },
+                windowAvailability: { _ in
+                    .init(isAvailable: false, windowId: nil, workspaceId: nil)
+                },
+                setActiveMainWindow: { _ in activeCount += 1 },
+                isApplicationHidden: { false },
+                windowOperations: makeWindowOperations(
+                    makeKeyAndOrderFront: { _ in XCTFail("Unavailable windows must not be ordered") }
+                )
+            )
+        )
+
+        XCTAssertFalse(controller.focus(window, reason: .socketActivate))
+        XCTAssertEqual(activeCount, 0)
+    }
+
     func testHotkeyRestoreUsesCapturedVisibleTargetsWithoutDeminiaturizingMiniaturizedWindows() {
         let visibleWindow = makeWindow()
         let miniaturizedWindow = makeWindow()
