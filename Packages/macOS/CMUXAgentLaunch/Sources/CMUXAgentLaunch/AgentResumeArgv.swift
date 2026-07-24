@@ -19,6 +19,9 @@ private func codexCommandExecutableIndex(_ parts: [String]) -> Int? {
     guard !parts.isEmpty else { return nil }
     let first = (parts[0] as NSString).lastPathComponent
     guard first == "env" else { return 0 }
+    // Only parse the macOS system env grammar. A captured custom executable
+    // named `env` may implement different options and must remain unchanged.
+    guard parts[0] == "env" || parts[0] == "/usr/bin/env" else { return 0 }
     var index = 1
     var parsesOptions = true
     while index < parts.count {
