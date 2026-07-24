@@ -3023,6 +3023,7 @@ impl Mux {
         participating: bool,
     ) -> Option<bool> {
         let _lifecycle = self.lock_client_sizing_lifecycle();
+        self.surface(surface)?;
         let mut sizing = self.client_sizing.lock().unwrap();
         let attached_clients = self.control_clients.attached_client_ids_for_surface(surface);
         let mut known_clients = attached_clients.clone();
@@ -3059,6 +3060,7 @@ impl Mux {
     /// Atomically make one client the only sizing participant for one terminal.
     pub fn use_only_client_size(&self, surface: SurfaceId, target: u64) -> Option<bool> {
         let _lifecycle = self.lock_client_sizing_lifecycle();
+        self.surface(surface)?;
         let mut sizing = self.client_sizing.lock().unwrap();
         let attached_clients = self.control_clients.attached_client_ids_for_surface(surface);
         let reporters = sizing.surfaces.get(&surface);
@@ -3644,6 +3646,7 @@ impl Mux {
     fn purge_surface_side_tables(&self, surface: SurfaceId) {
         self.agent_records.lock().unwrap().remove(&surface);
         self.surface_notifications.lock().unwrap().remove(&surface);
+        let _lifecycle = self.lock_client_sizing_lifecycle();
         let mut sizing = self.client_sizing.lock().unwrap();
         sizing.surfaces.remove(&surface);
         sizing.report_order.retain(|(reported_surface, _), _| *reported_surface != surface);
