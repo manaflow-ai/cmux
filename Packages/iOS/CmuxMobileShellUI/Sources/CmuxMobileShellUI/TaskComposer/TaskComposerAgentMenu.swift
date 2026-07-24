@@ -19,9 +19,21 @@ struct TaskComposerAgentMenu: View, Equatable {
         }
     }
 
+    private var selectedModel: MobileTaskAgentModel? {
+        guard value.modelPickerVariant.renderedVariant == .combined,
+              let selectedTemplate,
+              let selectedModelID = value.selectedModelID else { return nil }
+        return MobileTaskAgentModelCatalog.model(
+            id: selectedModelID,
+            forCommand: selectedTemplate.command
+        )
+    }
+
     var body: some View {
         Menu {
-            if !value.templates.isEmpty {
+            if value.modelPickerVariant.renderedVariant == .combined {
+                combinedChoices
+            } else if !value.templates.isEmpty {
                 Picker(
                     L10n.string("mobile.taskComposer.agent", defaultValue: "Agent"),
                     selection: Binding(
@@ -103,25 +115,85 @@ struct TaskComposerAgentMenu: View, Equatable {
         // editor remains the recovery path for adding an agent.
         .disabled(value.isDisabled)
         .accessibilityLabel(L10n.string("mobile.taskComposer.agent", defaultValue: "Agent"))
-        .accessibilityValue(selectedTemplate?.name ?? "")
+        .accessibilityValue(selectedTemplate.map(title(for:)) ?? "")
         .accessibilityHint(TaskComposerSheet.templateAccessibilityHint)
         .accessibilityIdentifier("MobileTaskComposerAgentMenu")
     }
 
+    @ViewBuilder
+    private var combinedChoices: some View {
+        ForEach(value.templates) { template in
+            let models = MobileTaskAgentModelCatalog.models(forCommand: template.command)
+            if models.isEmpty {
+                Button {
+                    actions.selectTemplate(template.id)
+                } label: {
+                    Text(template.name)
+                }
+                .accessibilityAddTraits(
+                    template.id == value.selectedTemplateID ? .isSelected : []
+                )
+                .accessibilityIdentifier("MobileTaskComposerAgentChoice-\(template.id)")
+            } else {
+                Menu {
+                    Button {
+                        actions.selectTemplate(template.id)
+                        actions.selectModel(nil)
+                    } label: {
+                        Text(L10n.string(
+                            "mobile.taskComposer.model.default",
+                            defaultValue: "Default"
+                        ))
+                    }
+                    .accessibilityAddTraits(
+                        template.id == value.selectedTemplateID
+                            && value.selectedModelID == nil ? .isSelected : []
+                    )
+                    .accessibilityIdentifier(
+                        "MobileTaskComposerAgentModel-\(template.id)-default"
+                    )
+
+                    ForEach(models) { model in
+                        Button {
+                            actions.selectTemplate(template.id)
+                            actions.selectModel(model.id)
+                        } label: {
+                            Text(verbatim: model.displayName)
+                        }
+                        .accessibilityAddTraits(
+                            template.id == value.selectedTemplateID
+                                && model.id == value.selectedModelID ? .isSelected : []
+                        )
+                        .accessibilityIdentifier(
+                            "MobileTaskComposerAgentModel-\(template.id)-\(model.id)"
+                        )
+                    }
+                } label: {
+                    Text(template.name)
+                }
+                .accessibilityIdentifier("MobileTaskComposerAgentSubmenu-\(template.id)")
+            }
+        }
+    }
+
     private func title(for template: MobileTaskTemplate) -> String {
+        let baseTitle: String
         if template.isPlainShell {
-            return L10n.string(
+            baseTitle = L10n.string(
                 "mobile.taskComposer.promptTitle.shell",
                 defaultValue: "Shell command"
             )
+        } else {
+            baseTitle = String(
+                format: L10n.string(
+                    "mobile.taskComposer.promptTitle.agentFormat",
+                    defaultValue: "Ask %@"
+                ),
+                template.name
+            )
         }
-        return String(
-            format: L10n.string(
-                "mobile.taskComposer.promptTitle.agentFormat",
-                defaultValue: "Ask %@"
-            ),
-            template.name
-        )
+        guard let selectedModel else { return baseTitle }
+        return "\(baseTitle) · \(selectedModel.displayName)"
     }
 }
 #endif

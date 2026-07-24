@@ -11,12 +11,14 @@ struct TaskComposerSheet: View {
     @Environment(\.dismiss) var dismiss
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(MobileDisplaySettings.self) private var displaySettings
     @Bindable var store: CMUXMobileShellStore
 
     @State var prompt = ""
     @State var workspaceName = ""
     @State private var templates: [MobileTaskTemplate]
     @State var selectedTemplateID: MobileTaskTemplate.ID?
+    @State var selectedModelID: String?
     @State var selectedMacDeviceID: String
     @State var directory: String
     @State var didEditDirectory = false
@@ -102,6 +104,13 @@ struct TaskComposerSheet: View {
             .flatMap { id in templates.contains(where: { $0.id == id }) ? id : nil }
             ?? templates.first?.id
         let selectedTemplate = selectedTemplateID.flatMap { id in templates.first { $0.id == id } }
+        let initialModelID = (draft?.templateID == selectedTemplateID)
+            ? draft?.modelID.flatMap { id in
+                selectedTemplate.flatMap {
+                    MobileTaskAgentModelCatalog.model(id: id, forCommand: $0.command)?.id
+                }
+            }
+            : nil
         let openDirectory = Self.preferredOpenDirectory(
             workspaces: store.workspaces,
             selectedWorkspaceID: store.selectedWorkspaceID,
@@ -132,6 +141,7 @@ struct TaskComposerSheet: View {
             MobileTaskSubmissionSnapshot(
                 template: $0,
                 prompt: initialPrompt,
+                modelID: initialModelID,
                 macDeviceID: selectedMacID,
                 directory: initialDirectory,
                 workspaceName: initialWorkspaceName,
@@ -152,6 +162,7 @@ struct TaskComposerSheet: View {
         _workspaceName = State(initialValue: initialWorkspaceName)
         _templates = State(initialValue: templates)
         _selectedTemplateID = State(initialValue: selectedTemplateID)
+        _selectedModelID = State(initialValue: initialModelID)
         _selectedMacDeviceID = State(initialValue: selectedMacID)
         _directory = State(initialValue: initialDirectory)
         _didEditDirectory = State(initialValue: canRestoreDraftDirectory && draft?.didEditDirectory == true)
@@ -189,7 +200,11 @@ struct TaskComposerSheet: View {
                             endEditing: resolveCompletedOperationRecoveryAfterEditing,
                             templates: templates,
                             selectedTemplateID: selectedTemplateID,
+                            modelPickerVariant: displaySettings.taskComposerModelPickerVariant,
+                            models: availableModels,
+                            selectedModelID: selectedModelID,
                             selectTemplate: selectTemplateFromPicker,
+                            selectModel: selectModel,
                             editTemplates: presentTemplateEditor
                         )
 
@@ -198,10 +213,14 @@ struct TaskComposerSheet: View {
                             machines: machines,
                             selectedMacDeviceID: selectedMacDeviceID,
                             directory: directory,
+                            modelPickerVariant: displaySettings.taskComposerModelPickerVariant,
+                            models: availableModels,
+                            selectedModelID: selectedModelID,
                             isDisabled: submissionPhase.disablesRequestEditing,
                             endWorkspaceNameEditing: resolveCompletedOperationRecoveryAfterEditing,
                             selectMachine: selectMachine,
-                            selectDirectory: { isDirectoryPickerPresented = true }
+                            selectDirectory: { isDirectoryPickerPresented = true },
+                            selectModel: selectModel
                         )
                         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                     }
@@ -552,6 +571,7 @@ struct TaskComposerSheet: View {
         updateSubmissionRequest(reconcileRecovery: true) {
             store.taskTemplateStore?.addTemplate(template)
             selectedTemplateID = template.id
+            selectedModelID = nil
             syncSuggestedDirectory()
         }
     }
@@ -574,6 +594,7 @@ struct TaskComposerSheet: View {
             if let selectedTemplateID, !templates.contains(where: { $0.id == selectedTemplateID }) {
                 self.selectedTemplateID = templates.first?.id
             }
+            selectedModelID = selectedModel?.id
             // Sync template edits unless the user typed the directory.
             syncSuggestedDirectory()
         }

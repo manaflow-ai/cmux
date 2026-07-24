@@ -6070,6 +6070,244 @@
         }
       }
     },
+    "mobile.settings.modelPickerLab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Task Model Lab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規タスク・モデルラボ"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a variant, then reopen New Task."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バリエーションを選び、もう一度「新規タスク」を開いてください。"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.variant.combined.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick agent and model in one menu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントとモデルを1つのメニューで選びます。"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.variant.combined.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Combined Agent Menu"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントメニューに統合"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.variant.contextRow.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model row beside Mac and directory."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macとディレクトリの並びにモデル行を表示します。"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.variant.contextRow.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Context Row"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテキスト行"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.variant.off.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No model selection in New Task."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規タスクではモデルを選択しません。"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.variant.off.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.variant.pillStrip.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One-tap model pills under the agent."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの下にワンタップ式のモデル選択肢を表示します。"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.variant.pillStrip.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model Pills"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデルピル"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.variant.separateRow.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dedicated model row under the agent."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの下にモデル専用の行を表示します。"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.variant.separateRow.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model Row"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデル行"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.variant.trailingChip.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compact model chip on the agent row."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント行にコンパクトなモデルチップを表示します。"
+          }
+        }
+      }
+    },
+    "mobile.settings.modelPickerLab.variant.trailingChip.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model Chip"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデルチップ"
+          }
+        }
+      }
+    },
     "mobile.settings.notSignedIn": {
       "extractionState": "manual",
       "localizations": {
@@ -10180,6 +10418,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "ペアリング済みのMacがありません"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.model": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデル"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.model.accessibilityHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chooses the model this agent runs with."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このエージェントで使用するモデルを選択します。"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.model.default": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルト"
           }
         }
       }

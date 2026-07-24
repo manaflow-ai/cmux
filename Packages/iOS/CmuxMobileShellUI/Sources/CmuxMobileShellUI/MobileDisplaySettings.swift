@@ -31,6 +31,7 @@ public final class MobileDisplaySettings {
     private static let profilePictureLeftShiftKey = "cmux.mobile.debug.profilePictureLeftShift"
     private static let profilePictureSizeKey = "cmux.mobile.debug.profilePictureSize"
     #if DEBUG
+    private static let taskComposerModelPickerVariantKey = "cmux.mobile.debug.taskComposerModelPickerVariant.v1"
     private static let taskComposerShellIconVariantKey = "cmux.mobile.debug.taskComposerShellIconVariant.v1"
     #endif
 
@@ -139,6 +140,16 @@ public final class MobileDisplaySettings {
     }
 
     #if DEBUG
+    /// Persisted selection for the debug-only New Task model-picker lab.
+    var taskComposerModelPickerVariant: TaskComposerModelPickerVariant {
+        didSet {
+            defaults.set(
+                taskComposerModelPickerVariant.rawValue,
+                forKey: Self.taskComposerModelPickerVariantKey
+            )
+        }
+    }
+
     /// Persisted selection for the debug-only Shell icon lab.
     var taskComposerShellIconVariant: TaskComposerShellIconVariant {
         didSet {
@@ -149,6 +160,8 @@ public final class MobileDisplaySettings {
         }
     }
     #else
+    /// Production builds hide model selection in the New Task composer.
+    var taskComposerModelPickerVariant: TaskComposerModelPickerVariant { .off }
     /// Production builds expose only the shipping Shell icon treatment.
     var taskComposerShellIconVariant: TaskComposerShellIconVariant { .current }
     #endif
@@ -187,6 +200,9 @@ public final class MobileDisplaySettings {
             to: Self.profilePictureSizeRange
         )
         #if DEBUG
+        self.taskComposerModelPickerVariant = defaults.string(
+            forKey: Self.taskComposerModelPickerVariantKey
+        ).flatMap(TaskComposerModelPickerVariant.init(rawValue:)) ?? .combined
         self.taskComposerShellIconVariant = defaults.string(
             forKey: Self.taskComposerShellIconVariantKey
         ).flatMap(TaskComposerShellIconVariant.init(rawValue:)) ?? .current

@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobilePairedMac
+import CmuxMobileShellModel
 import SwiftUI
 
 /// Groups the optional workspace title with the Mac and directory that define
@@ -9,10 +10,14 @@ struct TaskComposerContextSection: View {
     let machines: [MobilePairedMac]
     let selectedMacDeviceID: String
     let directory: String
+    let modelPickerVariant: TaskComposerModelPickerVariant
+    let models: [MobileTaskAgentModel]
+    let selectedModelID: String?
     let isDisabled: Bool
     let endWorkspaceNameEditing: () -> Void
     let selectMachine: (String) -> Void
     let selectDirectory: () -> Void
+    let selectModel: (String?) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -33,6 +38,19 @@ struct TaskComposerContextSection: View {
                 selectMachine: selectMachine,
                 selectDirectory: selectDirectory
             )
+
+            if !models.isEmpty,
+               modelPickerVariant.renderedVariant == .contextRow {
+                Divider()
+                    .padding(.horizontal, 10)
+
+                TaskComposerModelContextRow(
+                    models: models,
+                    selectedModelID: selectedModelID,
+                    isDisabled: isDisabled,
+                    selectModel: selectModel
+                )
+            }
         }
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay {

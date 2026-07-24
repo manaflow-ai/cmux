@@ -12,6 +12,8 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
     public let macDeviceID: String
     /// Unmodified prompt text captured from the composer.
     public let prompt: String
+    /// Optional CLI model identifier captured from the composer.
+    public let modelID: String?
     /// Optional workspace name exactly as entered in the composer.
     public let workspaceName: String
     /// Workspace name with surrounding whitespace removed.
@@ -37,6 +39,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
     /// - Parameters:
     ///   - template: Task template selected when submission begins.
     ///   - prompt: Prompt text to compose into the template command.
+    ///   - modelID: Optional CLI model identifier to apply to the command.
     ///   - macDeviceID: Identifier of the Mac that should create the task.
     ///   - directory: Working-directory text shown in the composer.
     ///   - workspaceName: Optional workspace name shown in the composer.
@@ -45,6 +48,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
     public init(
         template: MobileTaskTemplate,
         prompt: String,
+        modelID: String? = nil,
         macDeviceID: String,
         directory: String,
         workspaceName: String = "",
@@ -54,13 +58,18 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
         self.templateID = template.id
         self.macDeviceID = macDeviceID
         self.prompt = prompt
+        self.modelID = modelID
         self.workspaceName = workspaceName
         self.trimmedWorkspaceName = workspaceName.trimmingCharacters(in: .whitespacesAndNewlines)
         self.directory = directory
         self.trimmedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         self.didEditDirectory = didEditDirectory
         self.operationID = operationID
-        self.composition = MobileTaskCommandComposer().compose(template: template, prompt: prompt)
+        self.composition = MobileTaskCommandComposer().compose(
+            template: template,
+            prompt: prompt,
+            modelID: modelID
+        )
     }
 
     /// Whether both snapshots produce the same `workspace.create` request.
@@ -85,6 +94,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
             templateID: templateID,
             macDeviceID: macDeviceID,
             prompt: prompt,
+            modelID: modelID,
             workspaceName: workspaceName,
             directory: directory,
             didEditDirectory: didEditDirectory,
@@ -127,6 +137,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
     public var draft: MobileTaskComposerDraft {
         MobileTaskComposerDraft(
             prompt: prompt,
+            modelID: modelID,
             templateID: templateID,
             macDeviceID: macDeviceID.isEmpty ? nil : macDeviceID,
             directory: directory,
@@ -140,6 +151,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
         templateID: MobileTaskTemplate.ID,
         macDeviceID: String,
         prompt: String,
+        modelID: String?,
         workspaceName: String,
         directory: String,
         didEditDirectory: Bool,
@@ -151,6 +163,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
         self.templateID = templateID
         self.macDeviceID = macDeviceID
         self.prompt = prompt
+        self.modelID = modelID
         self.workspaceName = workspaceName
         self.trimmedWorkspaceName = trimmedWorkspaceName
         self.directory = directory

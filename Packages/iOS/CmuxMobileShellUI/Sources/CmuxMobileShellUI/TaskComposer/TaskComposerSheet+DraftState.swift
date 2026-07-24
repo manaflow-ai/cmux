@@ -6,6 +6,7 @@ extension TaskComposerSheet {
     func selectTemplate(_ template: MobileTaskTemplate) {
         updateSubmissionRequest(reconcileRecovery: true) {
             selectedTemplateID = template.id
+            selectedModelID = nil
             syncSuggestedDirectory()
         }
     }
@@ -14,6 +15,11 @@ extension TaskComposerSheet {
         prompt = snapshot.prompt
         workspaceName = snapshot.workspaceName
         selectedTemplateID = snapshot.templateID
+        selectedModelID = snapshot.modelID.flatMap { id in
+            selectedTemplate.flatMap {
+                MobileTaskAgentModelCatalog.model(id: id, forCommand: $0.command)?.id
+            }
+        }
         selectedMacDeviceID = snapshot.macDeviceID
         directory = snapshot.directory
         didEditDirectory = snapshot.didEditDirectory
@@ -111,6 +117,7 @@ extension TaskComposerSheet {
         let completedOperationID = reconcileCompletedOperationRecovery(with: resolved)
         return MobileTaskComposerDraft(
             prompt: prompt,
+            modelID: selectedModel?.id,
             templateID: selectedTemplateID,
             macDeviceID: selectedMacDeviceID.isEmpty ? nil : selectedMacDeviceID,
             directory: directory,
@@ -126,6 +133,7 @@ extension TaskComposerSheet {
         return MobileTaskSubmissionSnapshot(
             template: selectedTemplate,
             prompt: prompt,
+            modelID: selectedModel?.id,
             macDeviceID: selectedMacDeviceID,
             directory: directory,
             workspaceName: workspaceName,

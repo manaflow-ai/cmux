@@ -139,6 +139,12 @@ import Testing
         #expect(defaults.object(forKey: "cmux.mobile.debug.unreadIndicatorLeftShift.v2") == nil)
         #expect(defaults.object(forKey: "cmux.mobile.debug.profilePictureLeftShift") == nil)
         #expect(defaults.object(forKey: "cmux.mobile.debug.profilePictureSize") == nil)
+        #if DEBUG
+        #expect(settings.taskComposerModelPickerVariant == .combined)
+        #else
+        #expect(settings.taskComposerModelPickerVariant == .off)
+        #endif
+        #expect(defaults.object(forKey: "cmux.mobile.debug.taskComposerModelPickerVariant.v1") == nil)
         #expect(settings.taskComposerShellIconVariant == .current)
         #expect(defaults.object(forKey: "cmux.mobile.debug.taskComposerShellIconVariant.v1") == nil)
     }
@@ -168,6 +174,16 @@ import Testing
     }
 
     #if DEBUG
+    @Test func modelPickerVariantPersistsAndRejectsUnknownValues() throws {
+        let defaults = try makeDefaults("modelPickerVariant")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        settings.taskComposerModelPickerVariant = .pillStrip
+        #expect(MobileDisplaySettings(defaults: defaults).taskComposerModelPickerVariant == .pillStrip)
+
+        defaults.set("removed-variant", forKey: "cmux.mobile.debug.taskComposerModelPickerVariant.v1")
+        #expect(MobileDisplaySettings(defaults: defaults).taskComposerModelPickerVariant == .combined)
+    }
+
     @Test func shellIconVariantPersistsAndRejectsUnknownValues() throws {
         let defaults = try makeDefaults("shellIconVariant")
         let settings = MobileDisplaySettings(defaults: defaults)
