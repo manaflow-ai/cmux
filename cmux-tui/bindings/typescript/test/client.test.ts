@@ -585,6 +585,44 @@ test("attachSurface render mode rejects oversized Kitty image data before buffer
   await client.close();
 });
 
+test("render attach counts non-image JSON bytes against the retained buffer cap", async () => {
+  const main = new ScriptedTransport((request, transport) => {
+    transport.emit({
+      id: request.id,
+      ok: true,
+      data: { app: "cmux-tui", version: "0.1.2", protocol: 7, session: "main", pid: 1 },
+    });
+  });
+  const renderDelta = {
+    event: "render-delta",
+    surface: 7,
+    full: false,
+    rows: [{ row: 0, runs: [{ text: "x", fg: null, bg: null, attrs: 0 }] }],
+    graphics: {
+      generation: 5,
+      removed_image_ids: [9],
+      placements: [renderGraphics.placements[0]],
+    },
+  };
+  assert.ok(new TextEncoder().encode(JSON.stringify(renderDelta)).byteLength > 64);
+  const attach = new ScriptedTransport((request, transport) => {
+    transport.emit(renderDelta);
+    transport.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({
+    transport: main,
+    streamTransportFactory: () => attach,
+    timeoutMs: 100,
+    maxAttachEncodedChars: 64,
+  } as CmuxClientOptionsWithSecurityLimits);
+
+  await assert.rejects(
+    () => client.attachSurface(7, { mode: "render" }),
+    /stream buffered data exceeds 64 bytes/,
+  );
+  await client.close();
+});
+
 test("render attach accepts the full decoded-image budget below its encoded limit", async () => {
   assert.equal(RENDER_GRAPHIC_MAX_DECODED_BYTES, 10_000_000);
   assert.equal(RENDER_GRAPHIC_MAX_ENCODED_CHARS, 13_333_336);
