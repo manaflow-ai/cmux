@@ -87,11 +87,20 @@ struct RemoteTmuxMirrorTopTopologyTests {
 
             for (surfaceIndex, surface) in surfaces.enumerated() {
                 let surfaceID = surfaceIDs[surfaceIndex]
+                let expectedSurface = try #require(expectedPane.surfaces.first {
+                    $0.surfaceID == surfaceID
+                })
                 let surfaceRef = try #require(surface["ref"] as? String)
                 #expect(TerminalController.shared.v2ResolveHandleRef(surfaceRef) == surfaceID)
 
                 let paneRef = try #require(surface["pane_ref"] as? String)
                 #expect(TerminalController.shared.v2ResolveHandleRef(paneRef) == paneID)
+
+                if let expectedProcessAlive = expectedSurface.processAlive {
+                    #expect(surface["process_alive"] as? Bool == expectedProcessAlive)
+                } else {
+                    #expect(surface["process_alive"] is NSNull)
+                }
             }
         }
     }
