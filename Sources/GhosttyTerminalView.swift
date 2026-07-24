@@ -3306,6 +3306,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var wordPathHoverActive = false
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var imeConsumedKeyUps: Set<UInt16> = []
+    private var keyboardLayoutKeyIdentityTracker = KeyboardLayoutKeyIdentityTracker()
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeCursor: TerminalKeyboardCopyModeCursor?
     private var keyboardCopyModePendingViewportJumpSync = false
@@ -3355,6 +3356,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var eventMonitor: Any?
     private var trackingArea: NSTrackingArea?
     private var windowObserver: NSObjectProtocol?
+    private var windowFocusObserver: NSObjectProtocol?
     private var lastScrollEventTime: CFTimeInterval = 0
     private let scrollSpeedAccumulator = TerminalScrollSpeedAccumulator()
     private var visibleInUI: Bool = true
@@ -3618,6 +3620,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             NotificationCenter.default.removeObserver(windowObserver)
             self.windowObserver = nil
         }
+        if let windowFocusObserver {
+            NotificationCenter.default.removeObserver(windowFocusObserver)
+            self.windowFocusObserver = nil
+        }
         // Balance the cursor stack if the view is removed while hover is active
         if wordPathHoverActive {
             wordPathHoverActive = false
@@ -3630,7 +3636,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             "pending=\(String(format: "%.1fx%.1f", Double(pendingSurfaceSize?.width ?? 0), Double(pendingSurfaceSize?.height ?? 0)))"
         )
 #endif
-        guard let window else { return }
+        guard let window else {
+            keyboardLayoutKeyIdentityTracker.reset()
+            return
+        }
 
         // Reconcile the already-started runtime with the real window backing context.
         terminalSurface?.attachToView(self)
@@ -3651,6 +3660,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             queue: .main
         ) { [weak self] notification in
             self?.windowDidChangeScreen(notification)
+        }
+        windowFocusObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            self?.keyboardLayoutKeyIdentityTracker.reset()
         }
 
         if let surface = terminalSurface?.surface,
@@ -5075,6 +5091,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         var shouldApplySurfaceFocus = false
         if result {
             imeConsumedKeyUps.removeAll()
+            keyboardLayoutKeyIdentityTracker.reset()
             if let terminalSurface,
                AppDelegate.shared?.allowsTerminalKeyboardFocus(
                    workspaceId: terminalSurface.tabId,
@@ -5174,6 +5191,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let result = super.resignFirstResponder()
         if result {
             imeConsumedKeyUps.removeAll()
+            keyboardLayoutKeyIdentityTracker.reset()
             desiredFocus = false
             terminalSurface?.hostedView.cancelSuppressedFirstResponderFocusReapply()
             terminalSurface?.recordExternalFocusState(false)
@@ -5242,7 +5260,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return debugTextInputEventHandler(self, event)
         }
 #endif
-        guard NSApp.currentEvent === event, let inputContext else {
+        guard event.windowNumber != 0,
+              NSApp.currentEvent === event,
+              let inputContext else {
             interpretKeyEvents([event])
             return false
         }
@@ -5664,6 +5684,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyEvent.action = action
         keyEvent.consumed_mods = consumedModsFromFlags(translationEvent.modifierFlags)
         keyEvent.composing = composing
+        keyEvent.unshifted_codepoint = keyboardLayoutKeyIdentityTracker.codepointForKeyDown(
+            keyCode: event.keyCode,
+            resolvedCodepoint: keyEvent.unshifted_codepoint,
+            isRepeat: event.isARepeat
+        )
 
         guard let text, shouldSendText(text) else {
             keyEvent.text = nil
@@ -5729,6 +5754,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
     override func keyUp(with event: NSEvent) {
+        let pressedCodepoint = keyboardLayoutKeyIdentityTracker.codepointForKeyUp(
+            keyCode: event.keyCode
+        )
         guard let surface = ensureSurfaceReadyForInput() else {
             super.keyUp(with: event)
             return
@@ -5755,6 +5783,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // consumers that depend on precise key identity (for example Space
         // hold/release flows) receive consistent metadata.
         var keyEvent = ghosttyKeyEvent(for: event, surface: surface)
+        if let pressedCodepoint {
+            keyEvent.unshifted_codepoint = pressedCodepoint
+        }
         keyEvent.action = GHOSTTY_ACTION_RELEASE
         keyEvent.text = nil
         keyEvent.composing = false
@@ -5916,10 +5947,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     /// Get the unshifted codepoint for the key event
     private func unshiftedCodepointFromEvent(_ event: NSEvent) -> UInt32 {
-        guard event.type == .keyDown || event.type == .keyUp,
-              let chars = event.characters(byApplyingModifiers: []),
-              let scalar = chars.unicodeScalars.first else { return 0 }
-        return scalar.value
+        KeyboardLayout.unshiftedCodepoint(for: event)
     }
 
     private func ghosttyKeyEvent(for event: NSEvent, surface: ghostty_surface_t) -> ghostty_input_key_s {
@@ -7117,6 +7145,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         if let windowObserver {
             NotificationCenter.default.removeObserver(windowObserver)
+        }
+        if let windowFocusObserver {
+            NotificationCenter.default.removeObserver(windowFocusObserver)
         }
         if let trackingArea {
             removeTrackingArea(trackingArea)
@@ -11584,7 +11615,11 @@ extension GhosttyNSView: NSTextInputClient {
             return
         }
 
-        // Clear marked text since we're inserting
+        // AppKit defines insertText as committed text. The replacement range
+        // describes an edit to a document; it is not a composition boundary.
+        // Terminals have no editable backing document, so we follow Ghostty and
+        // commit the supplied text while AppKit owns provisional state through
+        // setMarkedText.
         unmarkText()
 
         // Some IME/input-method paths call insertText with an empty payload to

@@ -9,7 +9,7 @@ class KeyboardLayout {
         forKeyCode keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags = []
     ) -> String? {
-        if let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
+        if let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
            let result = characterFromInputSource(
                source,
                forKeyCode: keyCode,
@@ -21,7 +21,7 @@ class KeyboardLayout {
         // Current input source has no Unicode layout data or returned a
         // non-ASCII character. Fall back to the ASCII-capable source so
         // shortcut matching remains independent of the active writing system.
-        if let asciiSource = TISCopyCurrentASCIICapableKeyboardInputSource()?.takeRetainedValue(),
+        if let asciiSource = TISCopyCurrentASCIICapableKeyboardLayoutInputSource()?.takeRetainedValue(),
            let result = characterFromInputSource(
                asciiSource,
                forKeyCode: keyCode,
@@ -42,6 +42,56 @@ class KeyboardLayout {
             return layoutChar
         }
         return raw
+    }
+
+    /// Returns the physical-layout code point libghostty uses for encoding.
+    ///
+    /// AppKit normally supplies the correct unmodified layout scalar. A Control
+    /// combination can instead collapse `characters` to a C0 byte, so only that
+    /// ambiguous case uses the ASCII-capable shortcut layout to recover the key.
+    static func unshiftedCodepoint(
+        for event: NSEvent,
+        controlCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? =
+            KeyboardLayout.character(forKeyCode:modifierFlags:),
+        eventCharacterProvider: (NSEvent) -> String? = {
+            $0.characters(byApplyingModifiers: [])
+        }
+    ) -> UInt32 {
+        guard event.type == .keyDown || event.type == .keyUp else { return 0 }
+
+        if event.modifierFlags.contains(.control),
+           isSingleC0ControlText(event.characters),
+           let layoutText = controlCharacterProvider(event.keyCode, []),
+           let scalar = singlePrintableASCIIScalar(in: layoutText) {
+            return scalar.value
+        }
+
+        guard let text = eventCharacterProvider(event),
+              let scalar = text.unicodeScalars.first else {
+            return 0
+        }
+        return scalar.value
+    }
+
+    private static func isSingleC0ControlText(_ text: String?) -> Bool {
+        guard let text else { return false }
+        let scalars = text.unicodeScalars
+        guard let scalar = scalars.first,
+              scalars.index(after: scalars.startIndex) == scalars.endIndex else {
+            return false
+        }
+        return scalar.value < 0x20
+    }
+
+    private static func singlePrintableASCIIScalar(in text: String) -> UnicodeScalar? {
+        let scalars = text.unicodeScalars
+        guard let scalar = scalars.first,
+              scalars.index(after: scalars.startIndex) == scalars.endIndex,
+              scalar.value >= 0x20,
+              scalar.value < 0x7F else {
+            return nil
+        }
+        return scalar
     }
 
     private static func characterFromInputSource(
