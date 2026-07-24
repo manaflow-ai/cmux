@@ -241,15 +241,6 @@ public final class GhosttyRuntime {
         target: ghostty_target_s,
         action: ghostty_action_s
     ) -> Bool {
-        if action.tag == GHOSTTY_ACTION_RENDER {
-            guard target.tag == GHOSTTY_TARGET_SURFACE,
-                  let surface = target.target.surface else { return false }
-            Task { @MainActor in
-                GhosttySurfaceView.view(for: surface)?.drawForWakeup()
-            }
-            return true
-        }
-
         if action.tag == GHOSTTY_ACTION_OPEN_URL {
             let payload = action.action.open_url
             guard let urlPtr = payload.url else { return false }
