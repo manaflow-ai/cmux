@@ -487,6 +487,96 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
     }
 
+    func testSharedArrowChordPrefixCanonicalizesRecordedAndConfiguredRepresentations() {
+        let recordedFocusShortcut = StoredShortcut(
+            key: "\u{F703}",
+            command: false,
+            shift: false,
+            option: false,
+            control: true,
+            keyCode: 124,
+            chordKey: "x",
+            chordCommand: false,
+            chordShift: false,
+            chordOption: false,
+            chordControl: true
+        )
+        let configuredResizeShortcut = StoredShortcut(
+            key: "→",
+            command: false,
+            shift: false,
+            option: false,
+            control: true,
+            chordKey: "r",
+            chordCommand: false,
+            chordShift: false,
+            chordOption: false,
+            chordControl: true
+        )
+        withTemporaryShortcut(action: .focusRight, shortcut: recordedFocusShortcut) {
+            withTemporaryShortcut(action: .resizeSplitRight, shortcut: configuredResizeShortcut) {
+                guard let appDelegate = AppDelegate.shared else {
+                    XCTFail("Expected AppDelegate.shared")
+                    return
+                }
+
+                let windowId = appDelegate.createMainWindow()
+                defer { closeWindow(withId: windowId) }
+
+                guard let window = window(withId: windowId),
+                      let manager = appDelegate.tabManagerFor(windowId: windowId),
+                      let workspace = manager.selectedWorkspace,
+                      let leftPanelId = workspace.focusedPanelId,
+                      workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) != nil else {
+                    XCTFail("Expected horizontal split setup")
+                    return
+                }
+
+                workspace.focusPanel(leftPanelId)
+                window.makeKeyAndOrderFront(nil)
+                RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+                guard let split = shortcutRoutingSplitNodes(
+                    in: workspace.bonsplitController.treeSnapshot()
+                ).first,
+                      let splitId = UUID(uuidString: split.id),
+                      let prefixEvent = makeKeyDownEvent(
+                          key: String(UnicodeScalar(NSRightArrowFunctionKey)!),
+                          modifiers: [.control],
+                          keyCode: 124,
+                          windowNumber: window.windowNumber
+                      ),
+                      let resizeEvent = makeKeyDownEvent(
+                          key: "r",
+                          modifiers: [.control],
+                          keyCode: 15,
+                          windowNumber: window.windowNumber
+                      ) else {
+                    XCTFail("Expected split and mixed-representation chord events")
+                    return
+                }
+                XCTAssertTrue(workspace.bonsplitController.setDividerPosition(0.5, forSplit: splitId))
+
+#if DEBUG
+                XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
+                XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: resizeEvent))
+#else
+                XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+                return
+#endif
+
+                guard let resizedSplit = shortcutRoutingSplitNodes(
+                    in: workspace.bonsplitController.treeSnapshot()
+                ).first else {
+                    XCTFail("Expected resized split node")
+                    return
+                }
+                XCTAssertGreaterThan(resizedSplit.dividerPosition, 0.5)
+                XCTAssertEqual(workspace.focusedPanelId, leftPanelId)
+            }
+        }
+    }
+
     private func shortcutRoutingSplitNodes(in node: ExternalTreeNode) -> [ExternalSplitNode] {
         switch node {
         case .pane:
