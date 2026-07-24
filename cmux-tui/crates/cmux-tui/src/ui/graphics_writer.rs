@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::thread::{JoinHandle, ThreadId};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use super::graphics::{GraphicPlacement, GraphicsState};
 
@@ -18,6 +18,8 @@ const MAX_LOCKED_GRAPHICS_WRITE_BYTES: usize = 64 * 1024;
 const CONTROL_STRING_CANCEL: u8 = 0x18;
 #[cfg(unix)]
 const OUTPUT_POLL_INTERVAL_MS: i32 = 20;
+#[cfg(unix)]
+const CONTROL_STRING_ABORT_TIMEOUT: Duration = Duration::from_millis(200);
 
 trait GraphicsOutput: Send + 'static {
     /// Write one complete group of Kitty APC commands. `Ok(false)` means
@@ -48,6 +50,8 @@ impl InterruptibleStdout {
     }
 
     fn abort_partial_control_string(&mut self) -> io::Result<()> {
+        let deadline = Instant::now() + CONTROL_STRING_ABORT_TIMEOUT;
+        let mut output_flushed = false;
         loop {
             let written = unsafe {
                 libc::write(self.fd.as_raw_fd(), (&CONTROL_STRING_CANCEL as *const u8).cast(), 1)
@@ -65,9 +69,30 @@ impl InterruptibleStdout {
             match error.raw_os_error() {
                 Some(libc::EINTR) => continue,
                 Some(libc::EAGAIN) => {
+                    if Instant::now() >= deadline {
+                        // A real terminal can stop draining indefinitely. Drop
+                        // this descriptor's pending APC tail, then use the
+                        // newly available byte for CAN so restoration starts
+                        // from the parser's ground state. Non-terminal test
+                        // descriptors cannot be flushed and fail closed.
+                        if output_flushed
+                            || unsafe { libc::tcflush(self.fd.as_raw_fd(), libc::TCOFLUSH) } != 0
+                        {
+                            return Err(io::Error::new(
+                                io::ErrorKind::TimedOut,
+                                "terminal stayed blocked while canceling a partial control string",
+                            ));
+                        }
+                        output_flushed = true;
+                        continue;
+                    }
                     let mut poll_fd =
                         libc::pollfd { fd: self.fd.as_raw_fd(), events: libc::POLLOUT, revents: 0 };
-                    let ready = unsafe { libc::poll(&mut poll_fd, 1, OUTPUT_POLL_INTERVAL_MS) };
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    let poll_ms = remaining
+                        .min(Duration::from_millis(OUTPUT_POLL_INTERVAL_MS as u64))
+                        .as_millis() as i32;
+                    let ready = unsafe { libc::poll(&mut poll_fd, 1, poll_ms) };
                     if ready < 0 && io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
                         return Err(io::Error::last_os_error());
                     }
@@ -687,7 +712,7 @@ mod tests {
         )]);
         attempt_rx.recv_timeout(Duration::from_secs(1)).unwrap();
 
-        let started = std::time::Instant::now();
+        let started = Instant::now();
         writer.shutdown(Duration::ZERO);
         assert!(
             started.elapsed() < Duration::from_secs(1),
@@ -720,7 +745,7 @@ mod tests {
             output.write_segment(&command, &worker_control)
         });
 
-        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        let deadline = Instant::now() + Duration::from_secs(1);
         loop {
             let mut available: libc::c_int = 0;
             assert_eq!(
@@ -730,7 +755,7 @@ mod tests {
             if available > 0 {
                 break;
             }
-            assert!(std::time::Instant::now() < deadline, "writer never emitted its APC prefix");
+            assert!(Instant::now() < deadline, "writer never emitted its APC prefix");
             std::thread::yield_now();
         }
         control.cancelled.store(true, Ordering::Release);
@@ -749,6 +774,72 @@ mod tests {
         assert!(
             emitted.iter().position(|byte| *byte == CONTROL_STRING_CANCEL).unwrap() < 256 * 1024,
             "writer completed the large payload instead of canceling its partial APC"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn partial_apc_abort_is_bounded_when_output_never_becomes_writable() {
+        let mut raw_fds = [-1; 2];
+        assert_eq!(unsafe { libc::pipe(raw_fds.as_mut_ptr()) }, 0);
+        let read_fd = unsafe { OwnedFd::from_raw_fd(raw_fds[0]) };
+        let write_fd = unsafe { OwnedFd::from_raw_fd(raw_fds[1]) };
+        let flags = unsafe { libc::fcntl(write_fd.as_raw_fd(), libc::F_GETFL) };
+        assert!(flags >= 0);
+        assert_eq!(
+            unsafe { libc::fcntl(write_fd.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) },
+            0
+        );
+
+        let fill = [0_u8; 4_096];
+        loop {
+            let written =
+                unsafe { libc::write(write_fd.as_raw_fd(), fill.as_ptr().cast(), fill.len()) };
+            if written >= 0 {
+                continue;
+            }
+            assert_eq!(io::Error::last_os_error().raw_os_error(), Some(libc::EAGAIN));
+            break;
+        }
+        let mut full_bytes: libc::c_int = 0;
+        assert_eq!(unsafe { libc::ioctl(read_fd.as_raw_fd(), libc::FIONREAD, &mut full_bytes) }, 0);
+        let mut drained = [0_u8; 4_096];
+        assert_eq!(
+            unsafe { libc::read(read_fd.as_raw_fd(), drained.as_mut_ptr().cast(), drained.len()) },
+            drained.len() as isize
+        );
+
+        let mut command = b"\x1b_Gq=2;".to_vec();
+        command.resize(256 * 1024, b'A');
+        command.extend_from_slice(b"\x1b\\");
+        let control = Arc::new(WriterControl::default());
+        let worker_control = control.clone();
+        let worker = std::thread::spawn(move || {
+            let mut output = InterruptibleStdout { fd: write_fd };
+            output.write_segment(&command, &worker_control)
+        });
+
+        let fill_deadline = Instant::now() + Duration::from_secs(1);
+        loop {
+            let mut available: libc::c_int = 0;
+            assert_eq!(
+                unsafe { libc::ioctl(read_fd.as_raw_fd(), libc::FIONREAD, &mut available) },
+                0
+            );
+            if available == full_bytes {
+                break;
+            }
+            assert!(Instant::now() < fill_deadline, "writer never partially filled the pipe");
+            std::thread::yield_now();
+        }
+        let started = Instant::now();
+        control.cancelled.store(true, Ordering::Release);
+        let error = worker.join().unwrap().unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "partial APC cancellation remained blocked after its deadline"
         );
     }
 

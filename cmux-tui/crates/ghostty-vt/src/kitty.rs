@@ -125,7 +125,7 @@ impl KittyInFlightTracker {
         self.replay_prefix_checked(max_bytes).unwrap_or_default()
     }
 
-    pub(crate) fn replay_prefix_checked(&self, max_bytes: usize) -> Result<Vec<u8>> {
+    fn replay_prefix_parts(&self) -> Result<(&[u8], &[u8])> {
         if self.overflowed {
             return Err(Error::OutOfSpace);
         }
@@ -137,9 +137,23 @@ impl KittyInFlightTracker {
             _ => &[],
         };
         let prefix = if self.loading { self.prefix.as_slice() } else { &[] };
+        Ok((prefix, partial))
+    }
+
+    pub(crate) fn replay_prefix_fits(&self, max_bytes: usize) -> Result<()> {
+        let (prefix, partial) = self.replay_prefix_parts()?;
         let Some(total) = prefix.len().checked_add(partial.len()) else {
             return Err(Error::OutOfSpace);
         };
+        if total > max_bytes {
+            return Err(Error::OutOfSpace);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn replay_prefix_checked(&self, max_bytes: usize) -> Result<Vec<u8>> {
+        let (prefix, partial) = self.replay_prefix_parts()?;
+        let total = prefix.len().checked_add(partial.len()).ok_or(Error::OutOfSpace)?;
         if total > max_bytes {
             return Err(Error::OutOfSpace);
         }

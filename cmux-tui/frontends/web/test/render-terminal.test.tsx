@@ -1,4 +1,4 @@
-import { fireEvent, render } from "@testing-library/react";
+import { fireEvent, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CmuxClient } from "cmux/browser";
 import type { RenderModel } from "../src/lib/renderModel";
@@ -148,13 +148,17 @@ describe("RenderTerminal DOM grid", () => {
     });
   });
 
-  it("renders cropped Kitty placements around terminal text in z order", () => {
+  it("renders cropped Kitty placements around terminal text in z order", async () => {
     const { container } = render(
       <RenderTerminal client={{ protocol: 7 } as CmuxClient} surface={7} active error={null} onError={vi.fn()} />,
     );
 
     const below = container.querySelector<HTMLElement>(".render-graphics-below");
     const above = container.querySelector<HTMLElement>(".render-graphics-above");
+    await waitFor(() => {
+      expect(below?.querySelector("[data-graphic-placement='9:3:0']")).not.toBeNull();
+      expect(above?.querySelector("[data-graphic-placement='9:4:0']")).not.toBeNull();
+    });
     const cropped = below?.querySelector<HTMLCanvasElement>("[data-graphic-placement='9:3:0']");
     expect(cropped).toHaveAttribute("width", "1");
     expect(cropped).toHaveAttribute("height", "2");
@@ -191,7 +195,7 @@ describe("RenderTerminal DOM grid", () => {
     });
   });
 
-  it("draws source crops and releases canvas backing stores on unmount", () => {
+  it("draws source crops and releases canvas backing stores on unmount", async () => {
     class FakeImageData {
       readonly colorSpace = "srgb";
       constructor(
@@ -211,6 +215,7 @@ describe("RenderTerminal DOM grid", () => {
       const { container, unmount } = render(
         <RenderTerminal client={{ protocol: 7 } as CmuxClient} surface={7} active error={null} onError={vi.fn()} />,
       );
+      await waitFor(() => expect(context.putImageData).toHaveBeenCalled());
       const canvases = [...container.querySelectorAll<HTMLCanvasElement>("[data-graphic-placement]")];
 
       expect(context.putImageData).toHaveBeenCalledWith(

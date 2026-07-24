@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react";
+import { render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { RenderGraphicPlacement } from "cmux/browser";
 import { RenderGraphics } from "../src/components/RenderGraphics";
@@ -43,7 +43,7 @@ function placement(
 }
 
 describe("RenderGraphics canvas resource policy", () => {
-  it("bounds aggregate backing for repeated large placements", () => {
+  it("decodes asynchronously and bounds aggregate backing for repeated large placements", async () => {
     const width = 1_000;
     const height = 1_000;
     const placementCount = 512;
@@ -68,6 +68,11 @@ describe("RenderGraphics canvas resource policy", () => {
         <div>terminal</div>
       </RenderGraphics>,
     );
+    expect(container.querySelectorAll("[data-graphic-placement]")).toHaveLength(0);
+    await waitFor(
+      () => expect(container.querySelectorAll("[data-graphic-placement]")).toHaveLength(16),
+      { timeout: 5_000 },
+    );
     const canvases = [...container.querySelectorAll<HTMLCanvasElement>(
       "[data-graphic-placement]",
     )];
@@ -82,7 +87,7 @@ describe("RenderGraphics canvas resource policy", () => {
     expect(backingBytes).toBeLessThanOrEqual(RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP);
   });
 
-  it("admits an exact-cap z-ordered protocol prefix", () => {
+  it("admits an exact-cap z-ordered protocol prefix", async () => {
     const width = 1_024;
     const height = 1_024;
     const graphics: RenderGraphicsModel = {
@@ -109,6 +114,10 @@ describe("RenderGraphics canvas resource policy", () => {
         <div>terminal</div>
       </RenderGraphics>,
     );
+    await waitFor(
+      () => expect(container.querySelectorAll("[data-graphic-placement]")).toHaveLength(16),
+      { timeout: 5_000 },
+    );
     const canvases = [...container.querySelectorAll<HTMLCanvasElement>(
       "[data-graphic-placement]",
     )];
@@ -123,7 +132,7 @@ describe("RenderGraphics canvas resource policy", () => {
     );
   });
 
-  it("caps tiny placements by canvas count independently of backing bytes", () => {
+  it("caps tiny placements by canvas count independently of backing bytes", async () => {
     const placementCount = RENDER_GRAPHIC_CANVAS_COUNT_CAP + 1_000;
     const graphics: RenderGraphicsModel = {
       generation: 1,
@@ -147,7 +156,54 @@ describe("RenderGraphics canvas resource policy", () => {
       </RenderGraphics>,
     );
 
-    expect(container.querySelectorAll("[data-graphic-placement]"))
-      .toHaveLength(RENDER_GRAPHIC_CANVAS_COUNT_CAP);
+    await waitFor(() => {
+      expect(container.querySelectorAll("[data-graphic-placement]"))
+        .toHaveLength(RENDER_GRAPHIC_CANVAS_COUNT_CAP);
+    });
+  });
+
+  it("cancels a superseded decode before publishing stale pixels", async () => {
+    const first: RenderGraphicsModel = {
+      generation: 1,
+      images: [{
+        id: 1,
+        generation: 1,
+        width: 1,
+        height: 1,
+        format: "rgba",
+        data: zeroBytesBase64(4),
+      }],
+      placements: [placement(1, 1, 1)],
+    };
+    const second: RenderGraphicsModel = {
+      generation: 2,
+      images: [{
+        id: 1,
+        generation: 2,
+        width: 2,
+        height: 1,
+        format: "rgba",
+        data: zeroBytesBase64(8),
+      }],
+      placements: [placement(1, 2, 1)],
+    };
+    const { container, rerender } = render(
+      <RenderGraphics graphics={first}>
+        <div>terminal</div>
+      </RenderGraphics>,
+    );
+    rerender(
+      <RenderGraphics graphics={second}>
+        <div>terminal</div>
+      </RenderGraphics>,
+    );
+
+    await waitFor(() => {
+      const canvases = container.querySelectorAll<HTMLCanvasElement>(
+        "[data-graphic-placement]",
+      );
+      expect(canvases).toHaveLength(1);
+      expect(canvases[0]).toHaveAttribute("width", "2");
+    });
   });
 });

@@ -1789,15 +1789,21 @@ impl OrderedSession {
 
     pub fn set_cell_pixel_size(&self, width: u16, height: u16) {
         let ownership = self.surface_resize_ownership.clone();
-        self.enqueue("set cell pixel size", move |session| {
-            session.set_cell_pixel_size(
-                width,
-                height,
-                Arc::new(move |surface, desired, accepted| {
-                    record_surface_resize_dispatch_result(&ownership, surface, desired, accepted);
-                }),
-            )
-        });
+        self.enqueue_coalescing_session_mutation(
+            "set cell pixel size",
+            ("cell pixel size", 0),
+            move |session| {
+                session.set_cell_pixel_size(
+                    width,
+                    height,
+                    Arc::new(move |surface, desired, accepted| {
+                        record_surface_resize_dispatch_result(
+                            &ownership, surface, desired, accepted,
+                        );
+                    }),
+                )
+            },
+        );
     }
 
     pub fn new_workspace(&self, size: Option<(u16, u16)>) -> anyhow::Result<()> {

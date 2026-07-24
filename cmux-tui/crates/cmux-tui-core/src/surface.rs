@@ -2964,6 +2964,26 @@ impl PtySurface {
             #[cfg(unix)]
             PtyRuntime::ExitedHosted => return Ok(false),
         };
+        let has_attach_taps = {
+            let mut taps = self.taps.lock().unwrap();
+            taps.retain(|tap| !tap.lifecycle.is_canceled());
+            !taps.is_empty()
+        };
+        // The only replay state that cannot be bounded by dropping old text
+        // and completed graphics is an oversized in-flight Kitty upload.
+        // Reject it before resize mutates Ghostty's reflow and scrollback.
+        if has_attach_taps {
+            term.preflight_vt_replay_bounded(VT_REPLAY_MAX_BYTES).map_err(|error| {
+                anyhow::anyhow!(
+                    "could not preflight attach replay before resizing PTY surface to {}x{} at \
+                     {}x{} px per cell: {error}; geometry unchanged",
+                    next.cols,
+                    next.rows,
+                    next.cell_width,
+                    next.cell_height
+                )
+            })?;
+        }
         if let Some(master) = master {
             master.resize(next.pty_size()).map_err(|error| {
                 anyhow::anyhow!(
@@ -3000,44 +3020,22 @@ impl PtySurface {
                 )),
             };
         }
-        let has_attach_taps = {
-            let mut taps = self.taps.lock().unwrap();
-            taps.retain(|tap| !tap.lifecycle.is_canceled());
-            !taps.is_empty()
-        };
         let replay = if has_attach_taps {
             #[cfg(test)]
             self.vt_replay_builds.fetch_add(1, Ordering::AcqRel);
             match term.vt_replay_bounded(VT_REPLAY_MAX_BYTES) {
                 Ok(replay) => Some(replay),
-                Err(error) => {
-                    let terminal_rollback = term.resize(
-                        previous.cols,
-                        previous.rows,
-                        u32::from(previous.cell_width),
-                        u32::from(previous.cell_height),
-                    );
-                    let master_rollback =
-                        master.map_or(Ok(()), |master| master.resize(previous.pty_size()));
-                    return match (terminal_rollback, master_rollback) {
-                        (Ok(()), Ok(())) => Err(anyhow::anyhow!(
-                            "could not build attach replay after resizing PTY surface to {}x{} at \
-                             {}x{} px per cell: {error}; terminal and PTY geometry rolled back",
-                            next.cols,
-                            next.rows,
-                            next.cell_width,
-                            next.cell_height
-                        )),
-                        (terminal, master) => Err(anyhow::anyhow!(
-                            "could not build attach replay after resizing PTY surface to {}x{} at \
-                             {}x{} px per cell: {error}; Ghostty rollback: {terminal:?}; PTY master \
-                             rollback: {master:?}",
-                            next.cols,
-                            next.rows,
-                            next.cell_width,
-                            next.cell_height
-                        )),
-                    };
+                Err(_) => {
+                    // Budget failure was already ruled out under this same
+                    // terminal lock. A formatter/backend failure must not be
+                    // answered with a destructive inverse resize. Disconnect
+                    // byte mirrors so they reattach from fresh state.
+                    let mut taps = self.taps.lock().unwrap();
+                    for tap in &*taps {
+                        tap.lifecycle.cancel();
+                    }
+                    taps.clear();
+                    None
                 }
             }
         } else {
@@ -4121,31 +4119,36 @@ mod tests {
     }
 
     #[test]
-    fn resize_replay_failure_rolls_back_terminal_and_pty_geometry() {
+    fn resize_replay_failure_preflights_without_mutating_terminal_or_pty_geometry() {
         let mux = Mux::new_for_test("failed-resize-replay", SurfaceOptions::default());
         let surface =
             Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
         let attach = surface.attach_stream().unwrap();
         let pty = surface.as_pty().unwrap();
+        let history = (0..40).map(|line| format!("history-{line:02}\r\n")).collect::<String>();
         let mut oversized = b"\x1b_Ga=t,t=d,f=24,i=197,s=1,v=1,m=1,q=2;".to_vec();
         oversized.resize(ghostty_vt::KITTY_INFLIGHT_REPLAY_MAX_BYTES + 1, b'A');
         oversized.extend_from_slice(b"\x1b\\");
-        {
+        let (text_before, scrollbar_before) = {
             let mut terminal = pty.term.lock().unwrap();
+            terminal.vt_write(history.as_bytes());
             terminal.vt_write(&oversized);
             assert_eq!(
                 terminal.vt_replay_bounded(VT_REPLAY_MAX_BYTES),
                 Err(ghostty_vt::Error::OutOfSpace)
             );
-        }
+            (terminal.plain_text().unwrap(), terminal.scrollbar())
+        };
 
         let error = surface.resize(100, 30).unwrap_err();
 
-        assert!(error.to_string().contains("terminal and PTY geometry rolled back"), "{error:#}");
+        assert!(error.to_string().contains("geometry unchanged"), "{error:#}");
         assert_eq!(surface.size(), (80, 24));
         {
-            let terminal = pty.term.lock().unwrap();
+            let mut terminal = pty.term.lock().unwrap();
             assert_eq!((terminal.cols(), terminal.rows()), (80, 24));
+            assert_eq!(terminal.plain_text().unwrap(), text_before);
+            assert_eq!(terminal.scrollbar(), scrollbar_before);
         }
         let master = surface.test_master_size();
         assert_eq!(

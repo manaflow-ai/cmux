@@ -36,6 +36,7 @@ const MAX_HOST_CLIENT_QUEUED_BYTES: usize =
 const HOST_START_NONCE_LEN: usize = 32;
 const TERMINAL_DIMENSION_MAX: u16 = 10_000;
 const TERMINAL_CELL_AREA_MAX: u64 = 4_000_000;
+const DEFAULT_CELL_PIXELS: (u16, u16) = (8, 16);
 const TERMINAL_COLORS_WIRE_VERSION_V1: u16 = 1;
 pub const TERMINAL_COLORS_WIRE_VERSION: u16 = 2;
 pub const MAX_TERMINAL_COLORS_PAYLOAD: usize = 8 + 3 * 3 + 2 + 256 * 4;
@@ -306,6 +307,15 @@ mod unix {
     const HOST_PTY_DRAIN_GRACE: Duration = Duration::from_millis(250);
     const HOST_FORCED_DRAIN_WINDOW: Duration = Duration::from_millis(100);
     const HOST_LAUNCH_ROLLBACK_WAIT: Duration = Duration::from_secs(4);
+
+    fn pty_size(cols: u16, rows: u16, cell_pixels: (u16, u16)) -> PtySize {
+        PtySize {
+            rows,
+            cols,
+            pixel_width: cols.saturating_mul(cell_pixels.0),
+            pixel_height: rows.saturating_mul(cell_pixels.1),
+        }
+    }
 
     struct SpawnedHostProcess {
         child: Option<std::process::Child>,
@@ -1708,22 +1718,12 @@ mod unix {
             let mut term = self.term.lock().unwrap();
             if changed {
                 let master = self.master.lock().unwrap();
-                let next_size = PtySize {
-                    rows: size.1,
-                    cols: size.0,
-                    pixel_width: size.0.saturating_mul(next.0),
-                    pixel_height: size.1.saturating_mul(next.1),
-                };
+                let next_size = pty_size(size.0, size.1, next);
                 master.resize(next_size)?;
                 if let Err(error) =
                     term.resize(size.0, size.1, u32::from(next.0), u32::from(next.1))
                 {
-                    let rollback = master.resize(PtySize {
-                        rows: size.1,
-                        cols: size.0,
-                        pixel_width: size.0.saturating_mul(previous.0),
-                        pixel_height: size.1.saturating_mul(previous.1),
-                    });
+                    let rollback = master.resize(pty_size(size.0, size.1, previous));
                     return match rollback {
                         Ok(()) => Err(error.into()),
                         Err(rollback_error) => Err(anyhow::anyhow!(
@@ -1753,12 +1753,8 @@ mod unix {
             if !queued && changed {
                 let terminal_rollback =
                     term.resize(size.0, size.1, u32::from(previous.0), u32::from(previous.1));
-                let master_rollback = self.master.lock().unwrap().resize(PtySize {
-                    rows: size.1,
-                    cols: size.0,
-                    pixel_width: size.0.saturating_mul(previous.0),
-                    pixel_height: size.1.saturating_mul(previous.1),
-                });
+                let master_rollback =
+                    self.master.lock().unwrap().resize(pty_size(size.0, size.1, previous));
                 match (terminal_rollback, master_rollback) {
                     (Ok(()), Ok(())) => *cell_pixels = previous,
                     (terminal, master) => {
@@ -1802,21 +1798,14 @@ mod unix {
             let mut term = self.term.lock().unwrap();
             let master = self.master.lock().unwrap();
             if changed {
-                master.resize(PtySize {
-                    rows,
-                    cols,
-                    pixel_width: cols.saturating_mul(cell_pixels.0),
-                    pixel_height: rows.saturating_mul(cell_pixels.1),
-                })?;
+                term.preflight_vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES).context(
+                    "could not preflight terminal-host resize replay; geometry unchanged",
+                )?;
+                master.resize(pty_size(cols, rows, *cell_pixels))?;
                 if let Err(error) =
                     term.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))
                 {
-                    let _ = master.resize(PtySize {
-                        rows: previous.1,
-                        cols: previous.0,
-                        pixel_width: previous.0.saturating_mul(cell_pixels.0),
-                        pixel_height: previous.1.saturating_mul(cell_pixels.1),
-                    });
+                    let _ = master.resize(pty_size(previous.0, previous.1, *cell_pixels));
                     return Err(error.into());
                 }
             }
@@ -1824,23 +1813,20 @@ mod unix {
                 .vt_replay_bounded_theme_portable_with_aliases(crate::surface::VT_REPLAY_MAX_BYTES)
             {
                 Ok(replay) => replay,
-                Err(error) => {
-                    if changed {
-                        let _ = term.resize(
-                            previous.0,
-                            previous.1,
-                            u32::from(cell_pixels.0),
-                            u32::from(cell_pixels.1),
-                        );
-                        let _ = master.resize(PtySize {
-                            rows: previous.1,
-                            cols: previous.0,
-                            pixel_width: previous.0.saturating_mul(cell_pixels.0),
-                            pixel_height: previous.1.saturating_mul(cell_pixels.1),
-                        });
+                Err(_) if changed => {
+                    // The bounded preflight ruled out the only persistent
+                    // budget failure. Preserve the committed terminal state
+                    // and force mirrors to reconnect instead of attempting an
+                    // inverse, destructive Ghostty resize.
+                    *size = (cols, rows);
+                    let mut taps = self.taps.lock().unwrap();
+                    for tap in taps.values() {
+                        tap.close();
                     }
-                    return Err(error.into());
+                    taps.clear();
+                    return Ok(false);
                 }
+                Err(error) => return Err(error.into()),
             };
             let colors = term.color_overrides();
             if changed {
@@ -2294,12 +2280,8 @@ mod unix {
         launch: &HostLaunch,
         bootstrapped: &crate::terminal_host::BootstrappedHost,
     ) -> anyhow::Result<Arc<HostShared>> {
-        let pty = native_pty_system().openpty(PtySize {
-            rows: launch.rows,
-            cols: launch.cols,
-            pixel_width: 0,
-            pixel_height: 0,
-        })?;
+        let initial_pty_size = pty_size(launch.cols, launch.rows, DEFAULT_CELL_PIXELS);
+        let pty = native_pty_system().openpty(initial_pty_size)?;
         let mut command = CommandBuilder::new(&launch.command[0]);
         command.args(&launch.command[1..]);
         command.env("TERM", &launch.term);
@@ -2336,6 +2318,12 @@ mod unix {
             })),
         };
         let mut term = Terminal::new(launch.cols, launch.rows, launch.scrollback, callbacks)?;
+        term.resize(
+            launch.cols,
+            launch.rows,
+            u32::from(DEFAULT_CELL_PIXELS.0),
+            u32::from(DEFAULT_CELL_PIXELS.1),
+        )?;
         term.replace_default_colors(
             launch.default_colors.fg,
             launch.default_colors.bg,
@@ -2357,7 +2345,7 @@ mod unix {
             command: launch.command.clone(),
             cwd: launch.cwd.clone(),
             size: Mutex::new((launch.cols, launch.rows)),
-            cell_pixels: Mutex::new((8, 16)),
+            cell_pixels: Mutex::new(DEFAULT_CELL_PIXELS),
             viewer_sizes: Mutex::new(HashMap::new()),
             taps: Mutex::new(HashMap::new()),
             broadcast_lock: Mutex::new(()),
@@ -3168,6 +3156,26 @@ mod unix {
             let lease = HostLivenessLease::acquire(liveness_path(&record_path, &record)).unwrap();
             write_record(&record_path, &record).unwrap();
             (record_path, record, lease)
+        }
+
+        #[test]
+        fn default_host_cell_metrics_initialize_both_terminal_backends() {
+            let size = pty_size(80, 24, DEFAULT_CELL_PIXELS);
+            assert_eq!(
+                (size.cols, size.rows, size.pixel_width, size.pixel_height),
+                (80, 24, 640, 384)
+            );
+
+            let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+            terminal
+                .resize(80, 24, u32::from(DEFAULT_CELL_PIXELS.0), u32::from(DEFAULT_CELL_PIXELS.1))
+                .unwrap();
+            terminal.vt_write(b"\x1b_Ga=T,t=d,f=24,i=1,p=1,s=1,v=1,c=1,r=1,q=2;/wAA\x1b\\");
+            let graphics = terminal.kitty_graphics_snapshot().unwrap();
+            assert_eq!(
+                (graphics.placements[0].pixel_width, graphics.placements[0].pixel_height),
+                (8, 16)
+            );
         }
 
         #[test]

@@ -67,6 +67,7 @@ import type {
 } from "./protocol/index.js";
 import {
   RENDER_ATTACH_MAX_ENCODED_CHARS,
+  RENDER_GRAPHIC_MAX_ENCODED_CHARS,
   RENDER_GRAPHIC_MAX_PLACEMENTS,
 } from "./protocol/render.js";
 import type { Transport, Unsubscribe } from "./transport.js";
@@ -882,6 +883,7 @@ export class CmuxClient {
       this.validateAttachEncodedData(
         (image as { data?: unknown }).data,
         `${event.event} graphics image`,
+        Math.min(this.maxAttachEncodedChars, RENDER_GRAPHIC_MAX_ENCODED_CHARS),
       );
     }
     return event as RenderAttachEvent;
@@ -891,13 +893,17 @@ export class CmuxClient {
     return decodeBase64(this.validateAttachEncodedData(value, eventName));
   }
 
-  private validateAttachEncodedData(value: unknown, eventName: string): string {
+  private validateAttachEncodedData(
+    value: unknown,
+    eventName: string,
+    maxEncodedChars = this.maxAttachEncodedChars,
+  ): string {
     if (typeof value !== "string") {
       throw new CmuxProtocolError(`${eventName} data is not base64 text`);
     }
-    if (value.length > this.maxAttachEncodedChars) {
+    if (value.length > maxEncodedChars) {
       throw new CmuxProtocolError(
-        `${eventName} data exceeds ${this.maxAttachEncodedChars} encoded characters`,
+        `${eventName} data exceeds ${maxEncodedChars} encoded characters`,
       );
     }
     return value;

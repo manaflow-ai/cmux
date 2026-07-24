@@ -289,8 +289,8 @@ pub struct Terminal {
 }
 
 /// Ghostty's parser intentionally treats bytes >= 0x80 as UTF-8 in ground
-/// state, while PTYs can still emit the 8-bit OSC/ST forms. Normalize only
-/// standalone C1 OSC/ST bytes; continuation bytes inside UTF-8 text remain
+/// state, while PTYs can still emit the 8-bit OSC/APC/ST forms. Normalize only
+/// standalone C1 control bytes; continuation bytes inside UTF-8 text remain
 /// byte-for-byte unchanged.
 #[derive(Default)]
 struct C1Normalizer {
@@ -310,6 +310,7 @@ impl C1Normalizer {
             };
             let replacement = (!continuation).then_some(byte).and_then(|byte| match byte {
                 0x9d => Some(b']'),
+                0x9f => Some(b'_'),
                 0x9c => Some(b'\\'),
                 _ => None,
             });
@@ -1879,6 +1880,13 @@ impl Terminal {
     /// Byte-only compatibility replay. This discards Kitty number aliases.
     pub fn vt_replay_bytes(&mut self) -> Result<Vec<u8>> {
         Ok(self.vt_replay()?.bytes)
+    }
+
+    /// Reject replay state that cannot fit under `max_bytes` regardless of
+    /// text or completed graphics truncation. Callers can use this before a
+    /// destructive geometry change, then build the full replay afterward.
+    pub fn preflight_vt_replay_bounded(&self, max_bytes: usize) -> Result<()> {
+        self.kitty_inflight.replay_prefix_fits(max_bytes)
     }
 
     /// VT replay bounded to `max_bytes`, retaining the newest complete rows.

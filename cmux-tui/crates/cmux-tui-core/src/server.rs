@@ -25,7 +25,7 @@ use std::mem::{offset_of, size_of};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
+use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -786,18 +786,23 @@ impl RenderGraphicBase64Cache {
     }
 }
 
-fn render_graphic_base64(data: &Arc<[u8]>) -> Arc<str> {
-    static CACHE: OnceLock<Mutex<RenderGraphicBase64Cache>> = OnceLock::new();
-    CACHE
-        .get_or_init(|| {
-            Mutex::new(RenderGraphicBase64Cache::new(
+struct RenderService {
+    graphic_base64: Mutex<RenderGraphicBase64Cache>,
+}
+
+impl RenderService {
+    fn new() -> Self {
+        Self {
+            graphic_base64: Mutex::new(RenderGraphicBase64Cache::new(
                 RENDER_GRAPHIC_BASE64_CACHE_MAX_BYTES,
                 RENDER_GRAPHIC_BASE64_CACHE_MAX_ENTRIES,
-            ))
-        })
-        .lock()
-        .unwrap()
-        .encode(data)
+            )),
+        }
+    }
+
+    fn encode_graphic(&self, data: &Arc<[u8]>) -> Arc<str> {
+        self.graphic_base64.lock().unwrap().encode(data)
+    }
 }
 
 #[derive(Clone)]
@@ -845,14 +850,24 @@ struct MessageWriter {
     sink: Arc<dyn MessageSink>,
     open: Arc<AtomicBool>,
     next_stream_id: Arc<AtomicU64>,
+    render_service: Arc<RenderService>,
 }
 
 impl MessageWriter {
+    #[cfg(test)]
     fn new(sink: impl MessageSink + 'static) -> Self {
+        Self::new_with_render_service(sink, Arc::new(RenderService::new()))
+    }
+
+    fn new_with_render_service(
+        sink: impl MessageSink + 'static,
+        render_service: Arc<RenderService>,
+    ) -> Self {
         Self {
             sink: Arc::new(sink),
             open: Arc::new(AtomicBool::new(true)),
             next_stream_id: Arc::new(AtomicU64::new(1)),
+            render_service,
         }
     }
 
@@ -1645,15 +1660,17 @@ pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     let listener = transport::listen(&path)?;
     platform::restrict_file(&path)?;
     let active_connections = Arc::new(AtomicU64::new(0));
+    let render_service = Arc::new(RenderService::new());
 
     std::thread::Builder::new().name("mux-server".into()).spawn(move || {
         loop {
             let Ok(stream) = listener.accept() else { continue };
             let Some(permit) = claim_connection(&active_connections) else { continue };
             let mux = mux.clone();
+            let render_service = render_service.clone();
             let _ = std::thread::Builder::new().name("mux-conn".into()).spawn(move || {
                 let _permit = permit;
-                handle_connection(mux, stream);
+                handle_connection(mux, stream, render_service);
             });
         }
     })?;
@@ -1719,6 +1736,7 @@ pub fn serve_websocket(
     let active_connections = Arc::new(AtomicU64::new(0));
     let thread_shutdown = shutdown.clone();
     let thread_connections = connections.clone();
+    let render_service = Arc::new(RenderService::new());
     let thread = std::thread::Builder::new().name("mux-ws-server".into()).spawn(move || {
         while !thread_shutdown.load(Ordering::Acquire) {
             let (stream, peer) = match listener.accept() {
@@ -1746,13 +1764,20 @@ pub fn serve_websocket(
             }
             let mux = mux.clone();
             let token = token.clone();
+            let render_service = render_service.clone();
             let connections = thread_connections.clone();
             let cleanup_connections = thread_connections.clone();
             if std::thread::Builder::new()
                 .name("mux-ws-conn".into())
                 .spawn(move || {
                     let _permit = permit;
-                    handle_websocket_connection(mux, stream, peer, token.as_deref());
+                    handle_websocket_connection(
+                        mux,
+                        stream,
+                        peer,
+                        token.as_deref(),
+                        render_service,
+                    );
                     connections.lock().unwrap().remove(&id);
                 })
                 .is_err()
@@ -1779,17 +1804,21 @@ fn sanitize_window_title(title: &str) -> String {
         .collect()
 }
 
-fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
+fn handle_connection(
+    mux: Arc<Mux>,
+    stream: Box<dyn transport::Stream>,
+    render_service: Arc<RenderService>,
+) {
     let Ok(mut write_half) = stream.try_clone_box() else { return };
     let Ok(control) = write_half.try_clone_box() else { return };
     if write_half.set_write_timeout(Some(STREAM_WRITE_TIMEOUT)).is_err() {
         return;
     }
     let outbound = Arc::new(BoundedOutbound::default());
-    let writer = MessageWriter::new(QueuedSink {
-        outbound: outbound.clone(),
-        control: Some(SinkControl::Unix(control)),
-    });
+    let writer = MessageWriter::new_with_render_service(
+        QueuedSink { outbound: outbound.clone(), control: Some(SinkControl::Unix(control)) },
+        render_service,
+    );
     let writer_outbound = outbound;
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-line-out".into()).spawn(move || {
@@ -1831,6 +1860,7 @@ fn handle_websocket_connection(
     stream: TcpStream,
     peer: SocketAddr,
     token: Option<&str>,
+    render_service: Arc<RenderService>,
 ) {
     let stream = SynchronizedTcpStream::new(stream);
     if stream.set_read_timeout(Some(WEBSOCKET_HANDSHAKE_TIMEOUT)).is_err()
@@ -1863,10 +1893,10 @@ fn handle_websocket_connection(
     let Ok(control) = writer_stream.try_clone_raw() else { return };
     let _ = writer_stream.set_write_timeout(Some(STREAM_WRITE_TIMEOUT));
     let outbound = Arc::new(BoundedOutbound::default());
-    let writer = MessageWriter::new(QueuedSink {
-        outbound: outbound.clone(),
-        control: Some(SinkControl::WebSocket(control)),
-    });
+    let writer = MessageWriter::new_with_render_service(
+        QueuedSink { outbound: outbound.clone(), control: Some(SinkControl::WebSocket(control)) },
+        render_service,
+    );
     let writer_outbound = outbound;
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-ws-out".into()).spawn(move || {
@@ -2688,6 +2718,7 @@ fn render_cursor_json(frame: &SurfaceRenderFrame) -> Value {
 }
 
 fn render_graphics_json(
+    render_service: &RenderService,
     graphics: &ghostty_vt::KittyGraphicsSnapshot,
     image_ids: Option<&HashSet<u32>>,
     removed_image_ids: &[u32],
@@ -2697,7 +2728,7 @@ fn render_graphics_json(
         .iter()
         .filter(|image| image_ids.is_none_or(|ids| ids.contains(&image.id)))
         .map(|image| {
-            let data = render_graphic_base64(&image.data);
+            let data = render_service.encode_graphic(&image.data);
             json!({
                 "id": image.id,
                 "generation": image.generation,
@@ -2751,7 +2782,11 @@ fn render_graphics_json(
     value
 }
 
-fn render_state_json(surface: SurfaceId, frame: &SurfaceRenderFrame) -> Value {
+fn render_state_json(
+    render_service: &RenderService,
+    surface: SurfaceId,
+    frame: &SurfaceRenderFrame,
+) -> Value {
     let (cols, rows) = frame.frame.size;
     json!({
         "event": "render-state",
@@ -2762,11 +2797,17 @@ fn render_state_json(surface: SurfaceId, frame: &SurfaceRenderFrame) -> Value {
         "default_bg": rgb_hex(frame.frame.default_colors.0),
         "scrollback_rows": frame.scrollback_rows,
         "rows": render_rows_json(frame, 0..rows),
-        "graphics": render_graphics_json(&frame.frame.kitty_graphics, None, &[]),
+        "graphics": render_graphics_json(
+            render_service,
+            &frame.frame.kitty_graphics,
+            None,
+            &[],
+        ),
     })
 }
 
 struct RenderClientState {
+    render_service: Arc<RenderService>,
     size: (u16, u16),
     default_colors: (Rgb, Rgb),
     scrollback_rows: u32,
@@ -2776,8 +2817,9 @@ struct RenderClientState {
 }
 
 impl RenderClientState {
-    fn new(frame: &SurfaceRenderFrame) -> Self {
+    fn new(render_service: Arc<RenderService>, frame: &SurfaceRenderFrame) -> Self {
         Self {
+            render_service,
             size: frame.frame.size,
             default_colors: frame.frame.default_colors,
             scrollback_rows: frame.scrollback_rows,
@@ -2849,8 +2891,12 @@ impl RenderClientState {
             let images_changed = !upsert_image_ids.is_empty() || !removed_image_ids.is_empty();
             let placements_changed = self.graphics_placements != graphics.placements;
             if images_changed || placements_changed {
-                value["graphics"] =
-                    render_graphics_json(graphics, Some(&upsert_image_ids), &removed_image_ids);
+                value["graphics"] = render_graphics_json(
+                    &self.render_service,
+                    graphics,
+                    Some(&upsert_image_ids),
+                    &removed_image_ids,
+                );
             }
             if images_changed {
                 self.graphics_image_generations = image_generations;
@@ -4337,9 +4383,10 @@ fn handle_command(
                         return Err(error.into());
                     }
                 };
-                if let Err(error) = writer
-                    .send_initial(&render_state_json(surface_id, &attach.initial), &outbound_stream)
-                {
+                if let Err(error) = writer.send_initial(
+                    &render_state_json(&writer.render_service, surface_id, &attach.initial),
+                    &outbound_stream,
+                ) {
                     handle_attach_send_error(&lifecycle, &error);
                     rollback_failed_attach(
                         mux,
@@ -4365,7 +4412,8 @@ fn handle_command(
                         if worker_committed.recv().is_err() {
                             return;
                         }
-                        let mut state = RenderClientState::new(&attach.initial);
+                        let mut state =
+                            RenderClientState::new(writer.render_service.clone(), &attach.initial);
                         while writer.is_open()
                             && outbound_stream.is_open()
                             && !lifecycle.is_canceled()
@@ -4971,7 +5019,10 @@ mod tests {
         terminal: &mut Terminal,
         render_state: &mut RenderState,
     ) -> RenderClientState {
-        RenderClientState::new(&render_protocol_frame(terminal, render_state))
+        RenderClientState::new(
+            Arc::new(RenderService::new()),
+            &render_protocol_frame(terminal, render_state),
+        )
     }
 
     const RED_IMAGE_41: &[u8] = b"\x1b_Ga=T,t=d,f=24,i=41,p=7,s=1,v=1,c=1,r=1,q=2;/wAA\x1b\\";
@@ -5001,7 +5052,7 @@ mod tests {
         terminal.vt_write(&large_rgba_kitty_transmission());
         let mut render_state = RenderState::new().unwrap();
         let frame = render_protocol_frame(&mut terminal, &mut render_state);
-        let value = render_state_json(7, &frame);
+        let value = render_state_json(&RenderService::new(), 7, &frame);
         let serialized = serde_json::to_string(&value).unwrap();
 
         assert_eq!(
@@ -5055,6 +5106,31 @@ mod tests {
     }
 
     #[test]
+    fn render_service_shares_cache_across_connections_and_releases_it_with_its_owner() {
+        let service = Arc::new(RenderService::new());
+        let weak = Arc::downgrade(&service);
+        let first_writer = MessageWriter::new_with_render_service(
+            QueuedSink { outbound: Arc::new(BoundedOutbound::default()), control: None },
+            service.clone(),
+        );
+        let second_writer = MessageWriter::new_with_render_service(
+            QueuedSink { outbound: Arc::new(BoundedOutbound::default()), control: None },
+            service.clone(),
+        );
+        let pixels: Arc<[u8]> = Arc::from([1_u8, 2, 3, 4, 5, 6]);
+
+        let first = first_writer.render_service.encode_graphic(&pixels);
+        let second = second_writer.render_service.encode_graphic(&pixels);
+        assert!(Arc::ptr_eq(&first, &second));
+
+        drop(service);
+        assert!(weak.upgrade().is_some(), "connection writers must retain their server service");
+        drop(first_writer);
+        drop(second_writer);
+        assert!(weak.upgrade().is_none(), "the cache outlived its server and connections");
+    }
+
+    #[test]
     fn render_budget_covers_max_image_and_placement_metadata() {
         let placement = ghostty_vt::KittyPlacement {
             key: ghostty_vt::KittyPlacementKey {
@@ -5087,7 +5163,7 @@ mod tests {
             images: Vec::new(),
             placements: vec![placement],
         };
-        let serialized = render_graphics_json(&graphics, None, &[]);
+        let serialized = render_graphics_json(&RenderService::new(), &graphics, None, &[]);
         let placement_bytes = serde_json::to_string(&serialized["placements"][0]).unwrap().len();
         let placement_array_bytes = 2
             + placement_bytes * RENDER_GRAPHIC_MAX_PLACEMENTS
@@ -5329,7 +5405,13 @@ mod tests {
         let (server, peer) = listener.accept().unwrap();
         let (done, finished) = std::sync::mpsc::channel();
         let handler = std::thread::spawn(move || {
-            handle_websocket_connection(test_mux(), server, peer, None);
+            handle_websocket_connection(
+                test_mux(),
+                server,
+                peer,
+                None,
+                Arc::new(RenderService::new()),
+            );
             done.send(()).unwrap();
         });
 
@@ -5347,7 +5429,13 @@ mod tests {
         let (server, peer) = listener.accept().unwrap();
         let (done, finished) = std::sync::mpsc::channel();
         let handler = std::thread::spawn(move || {
-            handle_websocket_connection(test_mux(), server, peer, Some("secret"));
+            handle_websocket_connection(
+                test_mux(),
+                server,
+                peer,
+                Some("secret"),
+                Arc::new(RenderService::new()),
+            );
             done.send(()).unwrap();
         });
         let (client, _) = tungstenite::client("ws://localhost/", client_stream).unwrap();

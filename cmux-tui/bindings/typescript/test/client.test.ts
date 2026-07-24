@@ -808,6 +808,54 @@ test("render attach accepts the full decoded-image budget below its encoded limi
   await client.close();
 });
 
+test("render attach rejects an image above its protocol limit under the larger attach cap", async () => {
+  const main = new ScriptedTransport((request, transport) => {
+    transport.emit({
+      id: request.id,
+      ok: true,
+      data: { app: "cmux-tui", version: "0.1.2", protocol: 7, session: "main", pid: 1 },
+    });
+  });
+  const attach = new ScriptedTransport((request, transport) => {
+    transport.emit({
+      event: "render-state",
+      surface: 7,
+      size: { cols: 1, rows: 1 },
+      cursor: { x: 0, y: 0, style: "block", blink: false, visible: false, color: null },
+      default_fg: "#ffffff",
+      default_bg: "#000000",
+      scrollback_rows: 0,
+      rows: [],
+      graphics: {
+        generation: 1,
+        images: [{
+          id: 1,
+          generation: 1,
+          width: 1,
+          height: 1,
+          format: "rgba",
+          data: "A".repeat(RENDER_GRAPHIC_MAX_ENCODED_CHARS + 1),
+        }],
+        placements: [],
+      },
+    });
+    transport.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({
+    transport: main,
+    streamTransportFactory: () => attach,
+    timeoutMs: 1_000,
+  });
+
+  await assert.rejects(
+    () => client.attachSurface(7, { mode: "render" }),
+    new RegExp(
+      `render-state graphics image data exceeds ${RENDER_GRAPHIC_MAX_ENCODED_CHARS} encoded characters`,
+    ),
+  );
+  await client.close();
+});
+
 test("attachSurface render mode accepts a newer additive protocol", async () => {
   const main = new ScriptedTransport((request, transport) => {
     assert.equal(request.cmd, "identify");

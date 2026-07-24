@@ -644,14 +644,21 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
 #[test]
 fn vt_write_returns_the_exact_normalized_stream_across_split_utf8_and_c1_controls() {
     let mut term = Terminal::new(80, 2, 0, Callbacks::default()).unwrap();
-    let chunks: &[&[u8]] =
-        &[b"\xc2", b"\x9dUTF8-continued ", b"\x9d4;9;#090909", b"\x9c", b"VISIBLE"];
+    let chunks: &[&[u8]] = &[
+        b"\xc2",
+        b"\x9fUTF8-continued ",
+        b"\x9fignored",
+        b"\x9c",
+        b"\x9d4;9;#090909",
+        b"\x9c",
+        b"VISIBLE",
+    ];
     let mut emitted = Vec::new();
     for chunk in chunks {
         emitted.extend_from_slice(term.vt_write_with_normalized(chunk).as_ref());
     }
 
-    assert_eq!(emitted, b"\xc2\x9dUTF8-continued \x1b]4;9;#090909\x1b\\VISIBLE");
+    assert_eq!(emitted, b"\xc2\x9fUTF8-continued \x1b_ignored\x1b\\\x1b]4;9;#090909\x1b\\VISIBLE");
     assert!(term.palette_overridden(9));
     assert!(term.viewport_text().unwrap().contains("VISIBLE"));
 }

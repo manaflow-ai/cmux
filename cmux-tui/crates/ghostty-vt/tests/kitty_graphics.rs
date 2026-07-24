@@ -400,10 +400,21 @@ fn bare_c1_kitty_apc_chunked_transmission_remains_replayable() {
     let first = b"\x9fGa=t,t=d,f=24,i=195,s=1,v=2,m=1,q=2;////\x9c";
     source.vt_write(first);
 
+    let replay = source.vt_replay().unwrap();
     assert!(
-        source.vt_replay().unwrap().bytes.ends_with(first),
+        replay.bytes.ends_with(first),
         "a genuine bare C1 Kitty APC must remain part of attach replay"
     );
+    let mut mirror = terminal();
+    mirror.vt_write(&replay.bytes);
+    mirror.restore_kitty_image_aliases(&replay.kitty_image_aliases).unwrap();
+
+    let final_chunk = b"\x9fGm=0,q=2;////\x9c";
+    source.vt_write(final_chunk);
+    mirror.vt_write(final_chunk);
+
+    assert_eq!(&*source.kitty_graphics_snapshot().unwrap().image(195).unwrap().data, &[255; 6]);
+    assert_eq!(&*mirror.kitty_graphics_snapshot().unwrap().image(195).unwrap().data, &[255; 6]);
 }
 
 #[test]

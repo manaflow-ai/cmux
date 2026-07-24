@@ -1,10 +1,10 @@
 import {
   useCallback,
   useMemo,
-  useRef,
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { useDecodedRenderGraphicImages } from "../hooks/useDecodedRenderGraphicImages";
 import type { RenderGraphicsModel } from "../lib/renderModel";
 import {
   RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP,
@@ -12,7 +12,6 @@ import {
   resolveRenderGraphicPlacement,
   type DecodedRenderGraphicImage,
   type ResolvedRenderGraphicPlacement,
-  updateDecodedRenderGraphicImages,
 } from "../lib/renderGraphics";
 
 interface RenderGraphicsProps {
@@ -72,15 +71,7 @@ function RenderGraphicCanvas({ decoded, placement }: RenderGraphicCanvasProps) {
 }
 
 export function RenderGraphics({ children, graphics }: RenderGraphicsProps) {
-  const decodedCacheRef = useRef<ReadonlyMap<number, DecodedRenderGraphicImage>>(new Map());
-  const decodedImages = useMemo(() => {
-    const decoded = updateDecodedRenderGraphicImages(
-      decodedCacheRef.current,
-      graphics?.images ?? [],
-    );
-    decodedCacheRef.current = decoded;
-    return decoded;
-  }, [graphics?.images]);
+  const decodedImages = useDecodedRenderGraphicImages(graphics?.images ?? []);
   const placements = useMemo(() => {
     const rendered: RenderedPlacement[] = [];
     for (const [order, candidate] of (graphics?.placements ?? []).entries()) {
@@ -92,30 +83,31 @@ export function RenderGraphics({ children, graphics }: RenderGraphicsProps) {
     rendered.sort((left, right) =>
       left.placement.z - right.placement.z || left.order - right.order
     );
-    const admitted: RenderedPlacement[] = [];
+    const below: RenderedPlacement[] = [];
+    const above: RenderedPlacement[] = [];
+    let admitted = 0;
     let backingBytes = 0;
     for (const candidate of rendered) {
-      if (admitted.length >= RENDER_GRAPHIC_CANVAS_COUNT_CAP) break;
+      if (admitted >= RENDER_GRAPHIC_CANVAS_COUNT_CAP) break;
       if (candidate.placement.backingBytes
         > RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP - backingBytes) continue;
       backingBytes += candidate.placement.backingBytes;
-      admitted.push(candidate);
+      admitted += 1;
+      (candidate.placement.layer === "below" ? below : above).push(candidate);
     }
-    return admitted;
+    return { below, above };
   }, [decodedImages, graphics?.placements]);
-  const below = placements.filter((candidate) => candidate.placement.layer === "below");
-  const above = placements.filter((candidate) => candidate.placement.layer === "above");
 
   return (
     <>
       <div aria-hidden="true" className="render-graphics-layer render-graphics-below">
-        {below.map(({ decoded, placement }) => (
+        {placements.below.map(({ decoded, placement }) => (
           <RenderGraphicCanvas decoded={decoded} key={placement.key} placement={placement} />
         ))}
       </div>
       {children}
       <div aria-hidden="true" className="render-graphics-layer render-graphics-above">
-        {above.map(({ decoded, placement }) => (
+        {placements.above.map(({ decoded, placement }) => (
           <RenderGraphicCanvas decoded={decoded} key={placement.key} placement={placement} />
         ))}
       </div>
