@@ -11969,6 +11969,23 @@
         }
       }
     },
+    "mobile.workspaces.macPicker.titleWithBuildFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        }
+      }
+    },
     "mobile.workspaces.macPicker.label": {
       "extractionState": "manual",
       "localizations": {
@@ -14974,6 +14991,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "安全なチャネルの確立に失敗"
+          }
+        }
+      }
+    },
+    "mobile.iroh.diagnostics.failure.sendQueueOverflow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send Queue Overflow"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信キューオーバーフロー"
           }
         }
       }

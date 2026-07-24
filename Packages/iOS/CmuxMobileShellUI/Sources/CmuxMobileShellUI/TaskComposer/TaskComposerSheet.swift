@@ -18,6 +18,7 @@ struct TaskComposerSheet: View {
     @State private var templates: [MobileTaskTemplate]
     @State var selectedTemplateID: MobileTaskTemplate.ID?
     @State var selectedMacDeviceID: String
+    @State var selectedMacInstanceTag: String?
     @State var directory: String
     @State var didEditDirectory = false
     @State var submissionPhase: TaskComposerSubmissionPhase = .idle
@@ -36,15 +37,18 @@ struct TaskComposerSheet: View {
     private let availableMachines: [MobilePairedMac]?
     let submitTaskComposer: @MainActor (
         _ macDeviceID: String,
+        _ instanceTag: String?,
         _ spec: MobileWorkspaceCreateSpec,
         _ willStartCreate: @escaping @MainActor () -> Void
     ) async -> Result<Void, MobileWorkspaceMutationFailure>
     private let searchTaskDirectories: (@MainActor (
         _ macDeviceID: String,
+        _ instanceTag: String?,
         _ query: String
     ) async -> Result<MobileTaskDirectorySearchResponse, MobileTaskDirectorySearchFailure>)?
     private let listTaskDirectories: (@MainActor (
         _ macDeviceID: String,
+        _ instanceTag: String?,
         _ path: String,
         _ offset: Int
     ) async -> Result<MobileTaskDirectoryListResponse, MobileTaskDirectoryListFailure>)?
@@ -54,15 +58,18 @@ struct TaskComposerSheet: View {
         availableMachines: [MobilePairedMac]? = nil,
         submitTaskComposer: (@MainActor (
             _ macDeviceID: String,
+            _ instanceTag: String?,
             _ spec: MobileWorkspaceCreateSpec,
             _ willStartCreate: @escaping @MainActor () -> Void
         ) async -> Result<Void, MobileWorkspaceMutationFailure>)? = nil,
         searchTaskDirectories: (@MainActor (
             _ macDeviceID: String,
+            _ instanceTag: String?,
             _ query: String
         ) async -> Result<MobileTaskDirectorySearchResponse, MobileTaskDirectorySearchFailure>)? = nil,
         listTaskDirectories: (@MainActor (
             _ macDeviceID: String,
+            _ instanceTag: String?,
             _ path: String,
             _ offset: Int
         ) async -> Result<MobileTaskDirectoryListResponse, MobileTaskDirectoryListFailure>)? = nil
@@ -72,9 +79,14 @@ struct TaskComposerSheet: View {
         self.sessionGeneration = store.currentSessionGeneration
         self.searchTaskDirectories = searchTaskDirectories
         self.listTaskDirectories = listTaskDirectories
-        self.submitTaskComposer = submitTaskComposer ?? { macDeviceID, spec, willStartCreate in
+        self.submitTaskComposer = submitTaskComposer ?? {
+            macDeviceID,
+            instanceTag,
+            spec,
+            willStartCreate in
             await store.submitTaskComposer(
                 macDeviceID: macDeviceID,
+                instanceTag: instanceTag,
                 spec: spec,
                 willStartCreate: willStartCreate
             )
@@ -84,7 +96,8 @@ struct TaskComposerSheet: View {
         let draft = store.taskTemplateStore?.composerDraft()
         let foregroundMacID = store.connectedMacDeviceID
         // Restore persisted Mac IDs only while they remain paired.
-        let pairedMacIDs = (availableMachines ?? store.displayPairedMacs).map(\.macDeviceID)
+        let availablePairedMacs = availableMachines ?? store.displayPairedMacs
+        let pairedMacIDs = availablePairedMacs.map(\.macDeviceID)
         let restoredMacID = store.taskTemplateStore?.lastMacDeviceID()
             .flatMap { id in pairedMacIDs.contains(id) ? id : nil }
         let draftMacID = draft?.macDeviceID
@@ -95,6 +108,18 @@ struct TaskComposerSheet: View {
             ?? pairedMacIDs.first
             ?? foregroundMacID
             ?? ""
+        // A draft that named a specific paired build restores that exact
+        // pairing; otherwise prefer the active pairing for the device.
+        let draftInstanceTag = draftMacID != nil ? draft?.macInstanceTag : nil
+        let selectedMac = draftInstanceTag.flatMap { tag in
+            availablePairedMacs.first {
+                $0.macDeviceID == selectedMacID && $0.instanceTag == tag
+            }
+        } ?? availablePairedMacs.first {
+            $0.macDeviceID == selectedMacID && $0.isActive
+        } ?? availablePairedMacs.first {
+            $0.macDeviceID == selectedMacID
+        }
         let draftTemplateID = draft?.templateID
             .flatMap { id in templates.contains(where: { $0.id == id }) ? id : nil }
         let selectedTemplateID = draftTemplateID
@@ -133,6 +158,7 @@ struct TaskComposerSheet: View {
                 template: $0,
                 prompt: initialPrompt,
                 macDeviceID: selectedMacID,
+                macInstanceTag: selectedMac?.instanceTag,
                 directory: initialDirectory,
                 workspaceName: initialWorkspaceName,
                 didEditDirectory: canRestoreDraftDirectory && draft?.didEditDirectory == true,
@@ -153,6 +179,7 @@ struct TaskComposerSheet: View {
         _templates = State(initialValue: templates)
         _selectedTemplateID = State(initialValue: selectedTemplateID)
         _selectedMacDeviceID = State(initialValue: selectedMacID)
+        _selectedMacInstanceTag = State(initialValue: selectedMac?.instanceTag)
         _directory = State(initialValue: initialDirectory)
         _didEditDirectory = State(initialValue: canRestoreDraftDirectory && draft?.didEditDirectory == true)
         _submissionIdentity = State(initialValue: MobileTaskSubmissionIdentity(
@@ -196,7 +223,8 @@ struct TaskComposerSheet: View {
                         TaskComposerContextSection(
                             workspaceName: workspaceNameBinding,
                             machines: machines,
-                            selectedMacDeviceID: selectedMacDeviceID,
+                            selectedMacPairingID: selectedMacPairingID,
+                            buildLabelsByID: machineBuildLabelsByID,
                             directory: directory,
                             isDisabled: submissionPhase.disablesRequestEditing,
                             endWorkspaceNameEditing: resolveCompletedOperationRecoveryAfterEditing,
@@ -264,19 +292,30 @@ struct TaskComposerSheet: View {
                     select: selectDirectory,
                     searchMac: { query in
                         if let searchTaskDirectories {
-                            return await searchTaskDirectories(selectedMacDeviceID, query)
+                            return await searchTaskDirectories(
+                                selectedMacDeviceID,
+                                selectedMacInstanceTag,
+                                query
+                            )
                         }
                         return await store.searchTaskDirectories(
                             macDeviceID: selectedMacDeviceID,
+                            instanceTag: selectedMacInstanceTag,
                             query: query
                         )
                     },
                     listMac: { path, offset in
                         if let listTaskDirectories {
-                            return await listTaskDirectories(selectedMacDeviceID, path, offset)
+                            return await listTaskDirectories(
+                                selectedMacDeviceID,
+                                selectedMacInstanceTag,
+                                path,
+                                offset
+                            )
                         }
                         return await store.listTaskDirectories(
                             macDeviceID: selectedMacDeviceID,
+                            instanceTag: selectedMacInstanceTag,
                             path: path,
                             offset: offset
                         )
@@ -296,7 +335,7 @@ struct TaskComposerSheet: View {
                 guard newPhase != .active else { return }
                 persistDraft()
             }
-            .onChange(of: machines.map(\.macDeviceID)) { _, _ in
+            .onChange(of: machines.map(\.id)) { _, _ in
                 validateMacSelection()
             }
             .modifier(TaskComposerStartAgainConfirmationModifier(
@@ -320,8 +359,29 @@ struct TaskComposerSheet: View {
         availableMachines ?? store.displayPairedMacs
     }
 
-    private var selectedMachine: MobilePairedMac? {
-        machines.first { $0.macDeviceID == selectedMacDeviceID }
+    var selectedMachine: MobilePairedMac? {
+        machines.first {
+            $0.macDeviceID == selectedMacDeviceID
+                && $0.instanceTag == selectedMacInstanceTag
+        }
+    }
+
+    private var selectedMacPairingID: String {
+        MobilePairedMac.pairingID(
+            macDeviceID: selectedMacDeviceID,
+            instanceTag: selectedMacInstanceTag
+        )
+    }
+
+    private var machineBuildLabelsByID: [String: String] {
+        var labels: [String: String] = [:]
+        for mac in machines {
+            labels[mac.id] = store.presenceSummary(
+                for: mac.macDeviceID,
+                instanceTag: mac.instanceTag
+            )?.buildLabel ?? MacBuildChannel().label(bundleID: nil, tag: mac.instanceTag)
+        }
+        return labels
     }
 
     private var canLaunchSelectedTemplate: Bool {
@@ -465,11 +525,14 @@ struct TaskComposerSheet: View {
         isEditorPresented = true
     }
 
-    private func selectMachine(_ macDeviceID: String) {
+    private func selectMachine(_ macDeviceID: String, _ instanceTag: String?) {
         guard !submissionPhase.disablesRequestEditing,
-              machines.contains(where: { $0.macDeviceID == macDeviceID }) else { return }
+              machines.contains(where: {
+                  $0.macDeviceID == macDeviceID && $0.instanceTag == instanceTag
+              }) else { return }
         updateSubmissionRequest(reconcileRecovery: true) {
             selectedMacDeviceID = macDeviceID
+            selectedMacInstanceTag = instanceTag
             syncSuggestedDirectory()
         }
     }
@@ -508,7 +571,11 @@ struct TaskComposerSheet: View {
         activeSubmissionSnapshot = snapshot
         failureText = nil
         let spec = workspaceCreateSpec(for: snapshot)
-        let result = await submitTaskComposer(snapshot.macDeviceID, spec) {
+        let result = await submitTaskComposer(
+            snapshot.macDeviceID,
+            snapshot.macInstanceTag,
+            spec
+        ) {
             submissionPhase = .committed
         }
         submissionPhase = .idle
@@ -584,6 +651,7 @@ struct TaskComposerSheet: View {
         guard selectedMachine == nil else { return }
         updateSubmissionRequest(reconcileRecovery: true) {
             selectedMacDeviceID = machines.first?.macDeviceID ?? ""
+            selectedMacInstanceTag = machines.first?.instanceTag
             syncSuggestedDirectory()
         }
     }
