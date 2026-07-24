@@ -205,8 +205,8 @@ _SWIFT_SLEEP_CALL = re.compile(
 _PYTHON_SLEEP_MODULES = frozenset(("time", "asyncio", "trio", "anyio", "gevent"))
 _JS_SLEEP_CALL = re.compile(
     r"""(?x)
-    (?<![.$\w])Bun\.sleep\s*\(
-  | (?<![.$\w])(?:global|globalThis|self|window)\.setTimeout\s*\(
+    (?<![.$\w])Bun\s*\.\s*sleep\s*\(
+  | (?<![.$\w])(?:global|globalThis|self|window)\s*\.\s*setTimeout\s*\(
   | (?<![.$\w])setTimeout\s*\(
     """
 )
@@ -735,6 +735,7 @@ class _PythonScope:
     bindings: dict[str, str]
     global_names: set[str] = field(default_factory=set)
     nonlocal_names: set[str] = field(default_factory=set)
+    deferred_parent_bindings: dict[str, str] = field(default_factory=dict)
 
 
 class _PythonSleepVisitor(ast.NodeVisitor):
@@ -770,18 +771,26 @@ class _PythonSleepVisitor(ast.NodeVisitor):
             scope = scope.parent
         return None
 
-    def _bind(self, name: str, binding: str = _PYTHON_SHADOWED_BINDING) -> None:
-        if name in self.scope.global_names:
+    def _bind_in_scope(
+        self,
+        scope: _PythonScope,
+        name: str,
+        binding: str,
+    ) -> None:
+        if name in scope.global_names:
             self.module_scope.bindings[name] = binding
             return
-        if name in self.scope.nonlocal_names:
-            scope = self.scope.parent
-            while scope is not None:
-                if scope.kind != "class" and name in scope.bindings:
-                    scope.bindings[name] = binding
+        if name in scope.nonlocal_names:
+            target = scope.parent
+            while target is not None:
+                if target.kind != "class" and name in target.bindings:
+                    target.bindings[name] = binding
                     return
-                scope = scope.parent
-        self.scope.bindings[name] = binding
+                target = target.parent
+        scope.bindings[name] = binding
+
+    def _bind(self, name: str, binding: str = _PYTHON_SHADOWED_BINDING) -> None:
+        self._bind_in_scope(self.scope, name, binding)
 
     def _bind_target(self, target: ast.expr) -> None:
         if isinstance(target, ast.Name):
@@ -891,6 +900,8 @@ class _PythonSleepVisitor(ast.NodeVisitor):
                 (snapshot_scope, snapshot_scope.bindings.copy())
             )
             snapshot_scope = snapshot_scope.parent
+        for name, binding in previous_scope.deferred_parent_bindings.items():
+            self._bind_in_scope(parent, name, binding)
         self.scope = _PythonScope(
             "function",
             parent,
@@ -923,6 +934,15 @@ class _PythonSleepVisitor(ast.NodeVisitor):
         previous_scope = self.scope
         collector = _PythonLocalBindingCollector()
         collector.visit(node.body)
+        scope_snapshots: list[tuple[_PythonScope, dict[str, str]]] = []
+        snapshot_scope: Optional[_PythonScope] = previous_scope
+        while snapshot_scope is not None:
+            scope_snapshots.append(
+                (snapshot_scope, snapshot_scope.bindings.copy())
+            )
+            snapshot_scope = snapshot_scope.parent
+        for name, binding in previous_scope.deferred_parent_bindings.items():
+            self._bind_in_scope(parent, name, binding)
         self.scope = _PythonScope(
             "function",
             parent,
@@ -933,8 +953,12 @@ class _PythonSleepVisitor(ast.NodeVisitor):
         )
         for argument in self._argument_nodes(node.args):
             self._bind(argument.arg)
-        self.visit(node.body)
-        self.scope = previous_scope
+        try:
+            self.visit(node.body)
+        finally:
+            for scope, bindings in scope_snapshots:
+                scope.bindings = bindings
+            self.scope = previous_scope
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         for decorator in node.decorator_list:
@@ -944,8 +968,6 @@ class _PythonSleepVisitor(ast.NodeVisitor):
         for keyword in node.keywords:
             self.visit(keyword.value)
 
-        # Methods execute after the class object has replaced this outer name.
-        self._bind(node.name)
         parent = self._lexical_parent()
         previous_scope = self.scope
         _, global_names, nonlocal_names = _python_function_bindings(node.body)
@@ -955,10 +977,13 @@ class _PythonSleepVisitor(ast.NodeVisitor):
             {},
             global_names,
             nonlocal_names,
+            {node.name: _PYTHON_SHADOWED_BINDING},
         )
         for statement in node.body:
             self.visit(statement)
         self.scope = previous_scope
+        # The class name becomes visible only after its body has executed.
+        self._bind(node.name)
 
     def visit_Import(self, node: ast.Import) -> None:
         for alias in node.names:
@@ -1579,6 +1604,24 @@ def _shell_prefixed_sleep_position(
     return None
 
 
+def _shell_function_declaration_at(line: str, sleep_position: int) -> bool:
+    """Return whether ``sleep`` names a shell function instead of a command."""
+    index = sleep_position + len("sleep")
+    while index < len(line) and line[index].isspace():
+        index += 1
+    if index >= len(line) or line[index] != "(":
+        return False
+    index += 1
+    while index < len(line) and line[index].isspace():
+        index += 1
+    if index >= len(line) or line[index] != ")":
+        return False
+    index += 1
+    while index < len(line) and line[index].isspace():
+        index += 1
+    return index < len(line) and line[index] == "{"
+
+
 def _shell_real_sleep_positions(
     raw_lines: list[str],
     masked_lines: list[str],
@@ -1588,9 +1631,12 @@ def _shell_real_sleep_positions(
         zip(raw_lines, masked_lines)
     ):
         for match in _SHELL_BARE_SLEEP.finditer(masked_line):
-            positions.setdefault(line_index, set()).add(
-                match.start() + match.group().rfind("sleep")
-            )
+            sleep_position = match.start() + match.group().rfind("sleep")
+            if not _shell_function_declaration_at(
+                raw_line,
+                sleep_position,
+            ):
+                positions.setdefault(line_index, set()).add(sleep_position)
         for command_start in _SHELL_COMMAND_START.finditer(masked_line):
             sleep_position = _shell_prefixed_sleep_position(
                 raw_line,
@@ -1944,6 +1990,13 @@ def _mask_javascript_regex_literals(lines: list[str]) -> list[str]:
     return "".join(masked).split("\n")
 
 
+def _shell_hash_starts_comment(line: str, index: int) -> bool:
+    """Return whether an unquoted shell ``#`` starts a comment word."""
+    if index == 0:
+        return True
+    return line[index - 1].isspace() or line[index - 1] in ";&|()<>{}"
+
+
 def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
     """Replace quoted strings and comments while preserving line positions."""
     if path_suffix == ".swift":
@@ -2128,6 +2181,13 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
             if marker is None:
                 break
             token = marker.group()
+            if (
+                path_suffix == ".sh"
+                and token == "#"
+                and not _shell_hash_starts_comment(line, marker.start())
+            ):
+                i = marker.end()
+                continue
             if token == ("#" if hash_comments else "//"):
                 masked[marker.start() :] = " " * (
                     len(line) - marker.start()
@@ -2185,6 +2245,30 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
     return masked_lines
 
 
+def _assertion_encloses_sleep(
+    line: str,
+    assertion_end: int,
+    sleep_start: int,
+    path_suffix: str,
+) -> bool:
+    """Return whether a preceding assertion syntactically contains a sleep."""
+    index = assertion_end
+    while index < sleep_start and line[index].isspace():
+        index += 1
+    if index < sleep_start and line[index] == "(":
+        depth = 0
+        for char in line[index:sleep_start]:
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+        return depth > 0
+
+    # Python's statement-form assert and ``raise ... if`` have no wrapping
+    # call delimiter; their expression extends to the statement separator.
+    return path_suffix == ".py" and ";" not in line[assertion_end:sleep_start]
+
+
 def detect_sleep_then_assert(
     lines: list[str],
     masked_lines: list[str],
@@ -2224,12 +2308,13 @@ def detect_sleep_then_assert(
             if sleep_pattern is not None
             else set()
         )
-    assertion_starts = {
-        match.start() for match in _ASSERT_TOKEN.finditer(line)
-    }
+    assertions = [
+        (match.start(), match.end())
+        for match in _ASSERT_TOKEN.finditer(line)
+    ]
     raise_if = _RAISE_IF.search(line)
     if raise_if is not None:
-        assertion_starts.add(raise_if.start())
+        assertions.append((raise_if.start(), raise_if.end()))
     for sleep_start in sleep_starts:
         if (
             assertion_enclosed_sleep_positions is not None
@@ -2237,14 +2322,19 @@ def detect_sleep_then_assert(
             in assertion_enclosed_sleep_positions.get(idx, set())
         ):
             return True
-        for assertion_start in assertion_starts:
+        for assertion_start, assertion_end in assertions:
             if assertion_start > sleep_start:
                 return True
             between = line[assertion_start:sleep_start]
             if path_suffix == ".sh":
                 if not _SHELL_COMMAND_SEPARATOR.search(between):
                     return True
-            elif ";" not in between:
+            elif _assertion_encloses_sleep(
+                line,
+                assertion_end,
+                sleep_start,
+                path_suffix,
+            ):
                 return True
 
     end_positions = (
