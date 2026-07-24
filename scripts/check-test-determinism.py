@@ -221,7 +221,7 @@ _SHELL_HEREDOC_START = re.compile(
     (?:
         '(?P<single>[^'\n]+)'
       | "(?P<double>[^"\n]+)"
-      | \\?(?P<bare>[A-Za-z_][A-Za-z0-9_]*)
+      | (?P<backslash>\\)?(?P<bare>[A-Za-z_][A-Za-z0-9_]*)
     )
     """
 )
@@ -533,6 +533,25 @@ def _swift_real_sleep_positions(
     return positions
 
 
+def _javascript_real_sleep_positions(
+    masked_lines: list[str],
+) -> dict[int, set[int]]:
+    """Return line/column sites for trusted JavaScript sleeps."""
+    text = "\n".join(masked_lines)
+    positions: dict[int, set[int]] = {}
+    for match in _JS_SLEEP_CALL.finditer(text):
+        token = (
+            "setTimeout"
+            if "setTimeout" in match.group()
+            else "sleep"
+        )
+        sleep_offset = match.start() + match.group().rfind(token)
+        line = text.count("\n", 0, sleep_offset)
+        line_start = text.rfind("\n", 0, sleep_offset) + 1
+        positions.setdefault(line, set()).add(sleep_offset - line_start)
+    return positions
+
+
 _PYTHON_MODULE_BINDING = "module"
 _PYTHON_FUNCTION_BINDING = "function"
 _PYTHON_SHADOWED_BINDING = "shadowed"
@@ -765,13 +784,14 @@ class _PythonSleepVisitor(ast.NodeVisitor):
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
         if node.value is not None:
             self.visit(node.value)
+        self._visit_target_expressions(node.target)
+        if node.value is not None:
+            self._bind_target(node.target)
         if (
             not self.postponed_annotations
             and self.scope.kind in ("module", "class")
         ):
             self.visit(node.annotation)
-        self._visit_target_expressions(node.target)
-        self._bind_target(node.target)
 
     def visit_AugAssign(self, node: ast.AugAssign) -> None:
         self._visit_target_expressions(node.target)
@@ -1267,7 +1287,8 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
                         delimiter,
                         heredoc.group("strip") is not None,
                         heredoc.group("single") is None
-                        and heredoc.group("double") is None,
+                        and heredoc.group("double") is None
+                        and heredoc.group("backslash") is None,
                     )
                 )
         masked_lines.append(masked_line)
@@ -1280,18 +1301,14 @@ def detect_sleep_then_assert(
     masked_lines: list[str],
     idx: int,
     path_suffix: str,
-    python_sleep_lines: Optional[set[int]] = None,
-    python_sleep_positions: Optional[dict[int, set[int]]] = None,
-    swift_sleep_lines: Optional[set[int]] = None,
-    swift_sleep_positions: Optional[dict[int, set[int]]] = None,
+    known_sleep_lines: Optional[set[int]] = None,
+    known_sleep_positions: Optional[dict[int, set[int]]] = None,
 ) -> bool:
     """Sleep on lines[idx] followed by an assertion within 3 non-blank lines."""
     line = masked_lines[idx]
     sleep_pattern = _sleep_call_pattern(path_suffix)
-    if python_sleep_lines is not None:
-        is_sleep = idx in python_sleep_lines
-    elif swift_sleep_lines is not None:
-        is_sleep = idx in swift_sleep_lines
+    if known_sleep_lines is not None:
+        is_sleep = idx in known_sleep_lines
     else:
         is_sleep = bool(sleep_pattern and sleep_pattern.search(line))
     if path_suffix == ".sh":
@@ -1301,10 +1318,8 @@ def detect_sleep_then_assert(
     if _sleep_in_loop(lines, idx):
         return False
 
-    if python_sleep_positions is not None:
-        sleep_starts = python_sleep_positions.get(idx, set())
-    elif swift_sleep_positions is not None:
-        sleep_starts = swift_sleep_positions.get(idx, set())
+    if known_sleep_positions is not None:
+        sleep_starts = known_sleep_positions.get(idx, set())
     elif path_suffix == ".sh":
         sleep_starts = {
             match.start() for match in _SHELL_BARE_SLEEP.finditer(line)
@@ -1382,28 +1397,22 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
     masked_lines = (
         _mask_noncode(raw_lines, suffix) if has_sleep_candidate else code_lines
     )
-    python_sleep_positions: Optional[dict[int, set[int]]] = (
-        {} if suffix == ".py" and has_sleep_candidate else None
-    )
-    python_sleep_lines = (
-        _python_real_sleep_lines(text, python_sleep_positions)
-        if suffix == ".py" and has_sleep_candidate
-        else None
-    )
-    swift_sleep_positions: Optional[dict[int, set[int]]] = (
-        _swift_real_sleep_positions(masked_lines)
-        if suffix == ".swift" and has_sleep_candidate
-        else None
-    )
-    swift_sleep_lines = (
-        set(swift_sleep_positions)
-        if swift_sleep_positions is not None
-        else None
-    )
-    if suffix == ".py":
-        has_sleep_candidate = bool(python_sleep_lines)
-    elif suffix == ".swift":
-        has_sleep_candidate = bool(swift_sleep_lines)
+    known_sleep_positions: Optional[dict[int, set[int]]] = None
+    known_sleep_lines: Optional[set[int]] = None
+    if suffix == ".py" and has_sleep_candidate:
+        known_sleep_positions = {}
+        known_sleep_lines = _python_real_sleep_lines(
+            text,
+            known_sleep_positions,
+        )
+    elif suffix == ".swift" and has_sleep_candidate:
+        known_sleep_positions = _swift_real_sleep_positions(masked_lines)
+        known_sleep_lines = set(known_sleep_positions)
+    elif suffix in _JS_SUFFIXES and has_sleep_candidate:
+        known_sleep_positions = _javascript_real_sleep_positions(masked_lines)
+        known_sleep_lines = set(known_sleep_positions)
+    if known_sleep_lines is not None:
+        has_sleep_candidate = bool(known_sleep_lines)
     findings: list[Finding] = []
 
     for i, code in enumerate(code_lines):
@@ -1423,7 +1432,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
         if (
             has_sleep_candidate
             and (
-                (python_sleep_lines is not None and i in python_sleep_lines)
+                (known_sleep_lines is not None and i in known_sleep_lines)
                 or "sleep" in code
                 or "setTimeout" in code
             )
@@ -1432,10 +1441,8 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
                 masked_lines,
                 i,
                 suffix,
-                python_sleep_lines,
-                python_sleep_positions,
-                swift_sleep_lines,
-                swift_sleep_positions,
+                known_sleep_lines,
+                known_sleep_positions,
             )
         ):
             findings.append(Finding(rel_posix, line_no, RULE_SLEEP_THEN_ASSERT, snippet))
