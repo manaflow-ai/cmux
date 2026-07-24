@@ -36,6 +36,7 @@ enum CmuxMain {
         Bonsplit.DebugEventLog.setExternalSink { cmuxDebugLog($0) }
 #endif
         CmuxWorkerEntrypoint(arguments: CommandLine.arguments).runIfRequested()
+        SurfaceResumeApprovalStore.preloadSigningSecret()
         cmuxApp.main()
     }
 }
