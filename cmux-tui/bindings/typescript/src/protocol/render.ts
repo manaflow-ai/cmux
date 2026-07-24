@@ -11,6 +11,7 @@ import type { Base64, ColorHex, Id, Size } from "./common.js";
 export const RENDER_GRAPHIC_MAX_DECODED_BYTES = 10_000_000;
 export const RENDER_GRAPHIC_MAX_ENCODED_CHARS =
   Math.ceil(RENDER_GRAPHIC_MAX_DECODED_BYTES / 3) * 4;
+export const RENDER_GRAPHIC_MAX_PLACEMENTS = 16_384;
 export const RENDER_ATTACH_MAX_ENCODED_CHARS = 32 * 1024 * 1024;
 
 /** Exact underline style for a terminal render run. */

@@ -36,7 +36,6 @@ use ghostty_vt::{
 };
 use ratatui::Terminal as RatatuiTerminal;
 use ratatui::backend::CrosstermBackend;
-use unicode_width::UnicodeWidthStr;
 
 use crate::browser_input::{
     BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind, BrowserResizeFailure,
@@ -5314,25 +5313,7 @@ impl App {
         self.menu.as_ref().is_some_and(|menu| menu.intersects(rect))
             || self.prompt.as_ref().is_some_and(|prompt| rects_intersect(rect, prompt.rect))
             || self.pairing_dialog.as_ref().is_some_and(|dialog| rects_intersect(rect, dialog.rect))
-            || self.toast_rect().is_some_and(|toast| rects_intersect(rect, toast))
-    }
-
-    fn toast_rect(&self) -> Option<Rect> {
-        let toast = self.toast.as_ref()?;
-        let area = self.content_area;
-        if area.width == 0 || area.height == 0 {
-            return None;
-        }
-        let label = format!(" {} ", toast.text);
-        let width = u16::try_from(UnicodeWidthStr::width(label.as_str()))
-            .unwrap_or(u16::MAX)
-            .min(area.width);
-        (width > 0).then_some(Rect {
-            x: area.x + area.width.saturating_sub(width + 1),
-            y: area.y + area.height.saturating_sub(2),
-            width,
-            height: 1,
-        })
+            || crate::ui::toast_rect(self).is_some_and(|toast| rects_intersect(rect, toast))
     }
 
     fn refresh_cell_pixels(&mut self, query_fallback: bool) {

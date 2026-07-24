@@ -174,7 +174,7 @@ button { color: inherit; touch-action: manipulation; }
 .render-underline-dotted { text-decoration-style: dotted; }
 .render-underline-dashed { text-decoration-style: dashed; }
 .render-run-blink { animation: render-text-blink 1s steps(1, end) infinite; }
-.render-cursor { position: absolute; z-index: 4; display: block; width: var(--render-cell-width); height: var(--render-cell-height); background: currentColor; opacity: .72; pointer-events: none; }
+.render-cursor { position: absolute; z-index: 4; display: block; width: var(--render-cell-width); height: var(--render-cell-height); background: currentcolor; opacity: .72; pointer-events: none; }
 .render-cursor-underline { height: 2px; margin-top: calc(var(--render-cell-height) - 2px); opacity: 1; }
 .render-cursor-bar { width: 2px; opacity: 1; }
 .render-cursor.unfocused { opacity: .5; animation: none; }

@@ -7,6 +7,7 @@ import { RenderTerminal } from "../src/components/RenderTerminal";
 
 const renderHook = vi.hoisted(() => ({
   focused: true,
+  graphicsEnabled: true,
   historyActive: false,
   sendKey: vi.fn(),
   sendText: vi.fn(),
@@ -85,7 +86,7 @@ vi.mock("../src/hooks/useRenderTerminal", () => ({
     terminalRef: () => undefined,
     focused: renderHook.focused,
     foreignSize: null,
-    model,
+    model: renderHook.graphicsEnabled ? model : { ...model, graphics: undefined },
     history: {
       active: renderHook.historyActive,
       loading: false,
@@ -100,6 +101,7 @@ vi.mock("../src/hooks/useRenderTerminal", () => ({
 
 beforeEach(() => {
   renderHook.focused = true;
+  renderHook.graphicsEnabled = true;
   renderHook.historyActive = false;
   renderHook.sendKey.mockClear();
   renderHook.sendText.mockClear();
@@ -131,6 +133,19 @@ describe("RenderTerminal DOM grid", () => {
     fireEvent.click(getByLabelText("Left arrow"));
     expect(renderHook.sendKey).toHaveBeenCalledWith("left");
     expect(renderHook.sendText).not.toHaveBeenCalled();
+  });
+
+  it("renders one row layer with real backgrounds when graphics are absent", () => {
+    renderHook.graphicsEnabled = false;
+    const { container } = render(
+      <RenderTerminal client={{ protocol: 7 } as CmuxClient} surface={7} active error={null} onError={vi.fn()} />,
+    );
+
+    expect(container.querySelectorAll(".render-row-background")).toHaveLength(0);
+    expect(container.querySelectorAll(".render-row")).toHaveLength(2);
+    expect(container.querySelector(".render-row .render-run")).toHaveStyle({
+      backgroundColor: "#111111",
+    });
   });
 
   it("renders cropped Kitty placements around terminal text in z order", () => {
@@ -170,6 +185,10 @@ describe("RenderTerminal DOM grid", () => {
     );
 
     expect(container.querySelectorAll("[data-graphic-placement]")).toHaveLength(0);
+    expect(container.querySelectorAll(".render-row-background")).toHaveLength(0);
+    expect(container.querySelector(".render-row .render-run")).toHaveStyle({
+      backgroundColor: "#111111",
+    });
   });
 
   it("draws source crops and releases canvas backing stores on unmount", () => {

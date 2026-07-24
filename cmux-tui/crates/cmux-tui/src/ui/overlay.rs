@@ -267,19 +267,28 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
 
 pub fn draw_toast(app: &App, frame: &mut Frame) {
     let Some(toast) = app.toast.as_ref() else { return };
-    let area = app.content_area;
-    if area.width == 0 || area.height == 0 {
-        return;
-    }
     let label = format!(" {} ", toast.text);
-    let width = label_width(&label).min(area.width);
-    if width == 0 {
-        return;
-    }
-    let x = area.x + area.width.saturating_sub(width + 1);
-    let y = area.y + area.height.saturating_sub(2);
+    let Some(rect) = toast_rect_for_label(app.content_area, &label) else { return };
     let style = Style::default().bg(app.chrome.toast_bg).fg(app.chrome.toast_fg);
-    frame.buffer_mut().set_stringn(x, y, &label, width as usize, style);
+    frame.buffer_mut().set_stringn(rect.x, rect.y, &label, rect.width as usize, style);
+}
+
+pub(crate) fn toast_rect(app: &App) -> Option<Rect> {
+    let toast = app.toast.as_ref()?;
+    toast_rect_for_label(app.content_area, &format!(" {} ", toast.text))
+}
+
+fn toast_rect_for_label(area: Rect, label: &str) -> Option<Rect> {
+    if area.width == 0 || area.height == 0 {
+        return None;
+    }
+    let width = label_width(label).min(area.width);
+    (width > 0).then_some(Rect {
+        x: area.x + area.width.saturating_sub(width + 1),
+        y: area.y + area.height.saturating_sub(2),
+        width,
+        height: 1,
+    })
 }
 
 fn set_cell(buf: &mut Buffer, x: u16, y: u16, symbol: &str, style: Style) {
@@ -316,11 +325,22 @@ fn label_width(label: &str) -> u16 {
 
 #[cfg(test)]
 mod tests {
+    use cmux_tui_core::Rect;
+
+    use super::toast_rect_for_label;
     use crate::localization::catalog_for_locale;
 
     #[test]
     fn pairing_dialog_has_english_and_japanese_copy() {
         assert_eq!(catalog_for_locale("en_US.UTF-8").pairing.title, "Approve browser?");
         assert_eq!(catalog_for_locale("ja_JP.UTF-8").pairing.title, "ブラウザを承認しますか？");
+    }
+
+    #[test]
+    fn toast_occlusion_uses_the_rendered_character_clamp() {
+        assert_eq!(
+            toast_rect_for_label(Rect { x: 10, y: 2, width: 10, height: 5 }, " 界 "),
+            Some(Rect { x: 16, y: 5, width: 3, height: 1 })
+        );
     }
 }

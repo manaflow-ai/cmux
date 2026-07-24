@@ -1,16 +1,17 @@
 import {
   useCallback,
   useMemo,
+  useRef,
   type CSSProperties,
   type ReactNode,
 } from "react";
 import type { RenderGraphicsModel } from "../lib/renderModel";
 import {
-  decodeRenderGraphicImage,
   RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP,
   resolveRenderGraphicPlacement,
   type DecodedRenderGraphicImage,
   type ResolvedRenderGraphicPlacement,
+  updateDecodedRenderGraphicImages,
 } from "../lib/renderGraphics";
 
 interface RenderGraphicsProps {
@@ -70,12 +71,13 @@ function RenderGraphicCanvas({ decoded, placement }: RenderGraphicCanvasProps) {
 }
 
 export function RenderGraphics({ children, graphics }: RenderGraphicsProps) {
+  const decodedCacheRef = useRef<ReadonlyMap<number, DecodedRenderGraphicImage>>(new Map());
   const decodedImages = useMemo(() => {
-    const decoded = new Map<number, DecodedRenderGraphicImage>();
-    for (const image of graphics?.images ?? []) {
-      const candidate = decodeRenderGraphicImage(image);
-      if (candidate !== null) decoded.set(image.id, candidate);
-    }
+    const decoded = updateDecodedRenderGraphicImages(
+      decodedCacheRef.current,
+      graphics?.images ?? [],
+    );
+    decodedCacheRef.current = decoded;
     return decoded;
   }, [graphics?.images]);
   const placements = useMemo(() => {

@@ -75,6 +75,24 @@ export function decodeRenderGraphicImage(
   return { image, pixels };
 }
 
+/** Decode the current image set while retaining unchanged pixel buffers. */
+export function updateDecodedRenderGraphicImages(
+  previous: ReadonlyMap<number, DecodedRenderGraphicImage>,
+  images: readonly RenderGraphicImage[],
+): Map<number, DecodedRenderGraphicImage> {
+  const decoded = new Map<number, DecodedRenderGraphicImage>();
+  for (const image of images) {
+    const cached = previous.get(image.id);
+    if (cached?.image === image) {
+      decoded.set(image.id, cached);
+      continue;
+    }
+    const candidate = decodeRenderGraphicImage(image);
+    if (candidate !== null) decoded.set(image.id, candidate);
+  }
+  return decoded;
+}
+
 export function resolveRenderGraphicPlacement(
   image: RenderGraphicImage,
   placement: RenderGraphicPlacement,

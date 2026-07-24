@@ -21,6 +21,7 @@ use ratatui::style::{Color, Modifier, Style};
 
 use crate::app::{App, Hit};
 
+pub(crate) use overlay::toast_rect;
 pub(crate) use scrollbar::thumb_geometry;
 
 pub fn draw(app: &mut App, frame: &mut Frame) {

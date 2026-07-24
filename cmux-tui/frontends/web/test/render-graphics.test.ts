@@ -10,6 +10,7 @@ import {
   decodeRenderGraphicImage,
   RENDER_GRAPHIC_MAX_CANVAS_DIMENSION,
   resolveRenderGraphicPlacement,
+  updateDecodedRenderGraphicImages,
 } from "../src/lib/renderGraphics";
 
 const placement: RenderGraphicPlacement = {
@@ -102,6 +103,32 @@ describe("render graphics", () => {
 
     expect(decodeRenderGraphicImage(oversized)).toBeNull();
     expect(Array.from(decodeRenderGraphicImage(next)!.pixels)).toEqual([0, 0, 255, 255]);
+  });
+
+  it("reuses unchanged decoded pixels and evicts replaced or removed images", () => {
+    const firstImage: RenderGraphicImage = {
+      id: 9,
+      generation: 1,
+      width: 1,
+      height: 1,
+      format: "rgba",
+      data: "/wAA/w==",
+    };
+    const removedImage: RenderGraphicImage = {
+      ...firstImage,
+      id: 10,
+    };
+    const first = updateDecodedRenderGraphicImages(new Map(), [firstImage, removedImage]);
+    const replacement = { ...removedImage, generation: 2 };
+    const second = updateDecodedRenderGraphicImages(first, [firstImage, replacement]);
+
+    expect(second.get(9)).toBe(first.get(9));
+    expect(second.get(10)).not.toBe(first.get(10));
+    expect(second.get(10)?.image).toBe(replacement);
+
+    const third = updateDecodedRenderGraphicImages(second, [replacement]);
+    expect(third.has(9)).toBe(false);
+    expect(third.get(10)).toBe(second.get(10));
   });
 
   it("resolves source crop, cell origin, pixel offsets, explicit size, and layer", () => {

@@ -65,7 +65,10 @@ import type {
   DeclarativeLayout,
   FocusDirectionResult,
 } from "./protocol/index.js";
-import { RENDER_ATTACH_MAX_ENCODED_CHARS } from "./protocol/render.js";
+import {
+  RENDER_ATTACH_MAX_ENCODED_CHARS,
+  RENDER_GRAPHIC_MAX_PLACEMENTS,
+} from "./protocol/render.js";
 import type { Transport, Unsubscribe } from "./transport.js";
 
 export interface CmuxClientOptions {
@@ -82,6 +85,30 @@ export interface CmuxClientOptions {
 
 export const DEFAULT_MAX_BUFFERED_EVENTS = 256;
 export const DEFAULT_MAX_ATTACH_ENCODED_CHARS = RENDER_ATTACH_MAX_ENCODED_CHARS;
+
+/** Return a string's UTF-8 size without allocating an encoded copy. */
+function utf8ByteLength(value: string): number {
+  let bytes = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const codeUnit = value.charCodeAt(index);
+    if (codeUnit <= 0x7f) {
+      bytes += 1;
+    } else if (codeUnit <= 0x7ff) {
+      bytes += 2;
+    } else if (codeUnit >= 0xd800 && codeUnit <= 0xdbff && index + 1 < value.length) {
+      const next = value.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        index += 1;
+      } else {
+        bytes += 3;
+      }
+    } else {
+      bytes += 3;
+    }
+  }
+  return bytes;
+}
 
 function workspaceMutationResult(result: EmptyResult | WorkspaceMutation): WorkspaceMutation {
   if ("workspace" in result
@@ -139,7 +166,8 @@ interface PendingResponse {
 
 class MessageRouter {
   private readonly pending = new Map<string, PendingResponse>();
-  private readonly eventHandlers = new Set<(event: UnknownEvent) => void>();
+  private readonly eventHandlers =
+    new Set<(event: UnknownEvent, receivedBytes: number) => void>();
   private readonly terminalHandlers = new Set<(error: Error) => void>();
   private terminalError: Error | null = null;
 
@@ -170,7 +198,7 @@ class MessageRouter {
     });
   }
 
-  onEvent(handler: (event: UnknownEvent) => void): Unsubscribe {
+  onEvent(handler: (event: UnknownEvent, receivedBytes: number) => void): Unsubscribe {
     this.eventHandlers.add(handler);
     return () => this.eventHandlers.delete(handler);
   }
@@ -196,7 +224,10 @@ class MessageRouter {
 
     const object = value as Record<string, unknown>;
     if (typeof object.event === "string") {
-      for (const handler of this.eventHandlers) handler(object as UnknownEvent);
+      const receivedBytes = utf8ByteLength(json);
+      for (const handler of this.eventHandlers) {
+        handler(object as UnknownEvent, receivedBytes);
+      }
       return;
     }
 
@@ -302,7 +333,7 @@ export class CmuxStream<T extends { event: string }> implements AsyncIterable<T>
     this.rejectWaiters(new CmuxConnectionError("stream is closed"));
   }
 
-  push(event: T, terminal = false): void {
+  push(event: T, terminal = false, retainedBytesOverride?: number): void {
     if (this.closed) return;
     let delivered = false;
     while (this.waiters.length > 0) {
@@ -317,7 +348,7 @@ export class CmuxStream<T extends { event: string }> implements AsyncIterable<T>
         this.fail(new CmuxProtocolError("stream event buffer overflow"));
         return;
       }
-      const retainedBytes = this.retainedBytes(event);
+      const retainedBytes = retainedBytesOverride ?? this.retainedBytes(event);
       if (retainedBytes > this.maxBufferedBytes - this.bufferedBytes) {
         this.fail(
           new CmuxProtocolError(
@@ -652,7 +683,7 @@ export class CmuxClient {
         false,
         {
           maxBytes: this.maxAttachEncodedChars,
-          retainedBytes: (event) => this.renderAttachEventRetainedBytes(event),
+          retainedBytes: (_event, receivedBytes) => receivedBytes,
         },
       );
     }
@@ -719,7 +750,10 @@ export class CmuxClient {
     accept: (event: UnknownEvent, dedicated: boolean) => boolean,
     terminal: (event: T) => boolean = () => false,
     exclusiveSharedSubscription = false,
-    buffering?: { maxBytes: number; retainedBytes: (event: T) => number },
+    buffering?: {
+      maxBytes: number;
+      retainedBytes: (event: T, receivedBytes: number) => number;
+    },
   ): Promise<CmuxStream<T>> {
     const dedicated = this.streamTransportFactory !== undefined;
     if (exclusiveSharedSubscription && !dedicated) {
@@ -742,12 +776,16 @@ export class CmuxClient {
         this.sharedSubscriptionActive = false;
       }
       if (dedicated) transport.close();
-    }, this.maxBufferedEvents, buffering?.maxBytes, buffering?.retainedBytes);
-    eventSubscription = router.onEvent((event) => {
+    }, this.maxBufferedEvents, buffering?.maxBytes);
+    eventSubscription = router.onEvent((event, receivedBytes) => {
       if (!accept(event, dedicated)) return;
       try {
         const mapped = map(event);
-        stream.push(mapped, terminal(mapped));
+        stream.push(
+          mapped,
+          terminal(mapped),
+          buffering?.retainedBytes(mapped, receivedBytes),
+        );
         streamError ??= stream.error;
       } catch (error) {
         streamError = error instanceof CmuxProtocolError
@@ -815,6 +853,15 @@ export class CmuxClient {
     if (graphics === null || typeof graphics !== "object" || Array.isArray(graphics)) {
       throw new CmuxProtocolError(`${event.event} graphics is not an object`);
     }
+    const placements = (graphics as { placements?: unknown }).placements;
+    if (!Array.isArray(placements)) {
+      throw new CmuxProtocolError(`${event.event} graphics placements is not an array`);
+    }
+    if (placements.length > RENDER_GRAPHIC_MAX_PLACEMENTS) {
+      throw new CmuxProtocolError(
+        `${event.event} graphics exceeds ${RENDER_GRAPHIC_MAX_PLACEMENTS} placements`,
+      );
+    }
     const images = (graphics as { images?: unknown }).images;
     if (images === undefined) return event as RenderAttachEvent;
     if (!Array.isArray(images)) {
@@ -830,10 +877,6 @@ export class CmuxClient {
       );
     }
     return event as RenderAttachEvent;
-  }
-
-  private renderAttachEventRetainedBytes(event: RenderAttachEvent): number {
-    return new TextEncoder().encode(JSON.stringify(event)).byteLength;
   }
 
   private decodeAttachData(value: unknown, eventName: string): Uint8Array {

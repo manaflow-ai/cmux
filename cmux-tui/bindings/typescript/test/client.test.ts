@@ -15,6 +15,7 @@ import {
   RENDER_ATTACH_MAX_ENCODED_CHARS,
   RENDER_GRAPHIC_MAX_DECODED_BYTES,
   RENDER_GRAPHIC_MAX_ENCODED_CHARS,
+  RENDER_GRAPHIC_MAX_PLACEMENTS,
 } from "../src/protocol/render.js";
 import type { Transport, Unsubscribe } from "../src/transport.js";
 
@@ -640,6 +641,57 @@ test("attachSurface render mode rejects oversized Kitty image data before buffer
   await client.close();
 });
 
+test("attachSurface render mode requires a bounded Kitty placement array", async () => {
+  const missingPlacements = {
+    generation: renderGraphics.generation,
+    images: renderGraphics.images,
+  };
+  for (const [graphics, expected] of [
+    [missingPlacements, /render-state graphics placements is not an array/],
+    [{ ...renderGraphics, placements: {} }, /render-state graphics placements is not an array/],
+    [
+      {
+        ...renderGraphics,
+        placements: new Array(RENDER_GRAPHIC_MAX_PLACEMENTS + 1).fill(null),
+      },
+      new RegExp(`render-state graphics exceeds ${RENDER_GRAPHIC_MAX_PLACEMENTS} placements`),
+    ],
+  ]) {
+    const main = new ScriptedTransport((request, transport) => {
+      transport.emit({
+        id: request.id,
+        ok: true,
+        data: { app: "cmux-tui", version: "0.1.2", protocol: 7, session: "main", pid: 1 },
+      });
+    });
+    const attach = new ScriptedTransport((request, transport) => {
+      transport.emit({
+        event: "render-state",
+        surface: 7,
+        size: { cols: 1, rows: 1 },
+        cursor: { x: 0, y: 0, style: "block", blink: false, visible: false, color: null },
+        default_fg: "#ffffff",
+        default_bg: "#000000",
+        scrollback_rows: 0,
+        rows: [],
+        graphics,
+      });
+      transport.emit({ id: request.id, ok: true, data: {} });
+    });
+    const client = new CmuxClient({
+      transport: main,
+      streamTransportFactory: () => attach,
+      timeoutMs: 100,
+    });
+
+    await assert.rejects(
+      () => client.attachSurface(7, { mode: "render" }),
+      expected as RegExp,
+    );
+    await client.close();
+  }
+});
+
 test("render attach counts non-image JSON bytes against the retained buffer cap", async () => {
   const main = new ScriptedTransport((request, transport) => {
     transport.emit({
@@ -652,14 +704,15 @@ test("render attach counts non-image JSON bytes against the retained buffer cap"
     event: "render-delta",
     surface: 7,
     full: false,
-    rows: [{ row: 0, runs: [{ text: "x", fg: null, bg: null, attrs: 0 }] }],
+    rows: [{ row: 0, runs: [{ text: "界", fg: null, bg: null, attrs: 0 }] }],
     graphics: {
       generation: 5,
       removed_image_ids: [9],
       placements: [renderGraphics.placements[0]],
     },
   };
-  assert.ok(new TextEncoder().encode(JSON.stringify(renderDelta)).byteLength > 64);
+  const encodedChars = JSON.stringify(renderDelta).length;
+  assert.ok(new TextEncoder().encode(JSON.stringify(renderDelta)).byteLength > encodedChars);
   const attach = new ScriptedTransport((request, transport) => {
     transport.emit(renderDelta);
     transport.emit({ id: request.id, ok: true, data: {} });
@@ -668,12 +721,12 @@ test("render attach counts non-image JSON bytes against the retained buffer cap"
     transport: main,
     streamTransportFactory: () => attach,
     timeoutMs: 100,
-    maxAttachEncodedChars: 64,
+    maxAttachEncodedChars: encodedChars,
   } as CmuxClientOptionsWithSecurityLimits);
 
   await assert.rejects(
     () => client.attachSurface(7, { mode: "render" }),
-    /stream buffered data exceeds 64 bytes/,
+    new RegExp(`stream buffered data exceeds ${encodedChars} bytes`),
   );
   await client.close();
 });
@@ -681,6 +734,7 @@ test("render attach counts non-image JSON bytes against the retained buffer cap"
 test("render attach accepts the full decoded-image budget below its encoded limit", async () => {
   assert.equal(RENDER_GRAPHIC_MAX_DECODED_BYTES, 10_000_000);
   assert.equal(RENDER_GRAPHIC_MAX_ENCODED_CHARS, 13_333_336);
+  assert.equal(RENDER_GRAPHIC_MAX_PLACEMENTS, 16_384);
   assert.equal(RENDER_ATTACH_MAX_ENCODED_CHARS, 33_554_432);
   assert.equal(DEFAULT_MAX_ATTACH_ENCODED_CHARS, RENDER_ATTACH_MAX_ENCODED_CHARS);
   assert.ok(RENDER_GRAPHIC_MAX_ENCODED_CHARS < RENDER_ATTACH_MAX_ENCODED_CHARS);

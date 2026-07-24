@@ -20,7 +20,7 @@ interface RenderRowViewProps {
   index: number;
   defaultFg: string;
   defaultBg: string;
-  backgroundOnly?: boolean;
+  mode?: "plain" | "background" | "foreground";
 }
 
 const RenderRowView = memo(function RenderRowView({
@@ -28,8 +28,9 @@ const RenderRowView = memo(function RenderRowView({
   index,
   defaultFg,
   defaultBg,
-  backgroundOnly = false,
+  mode = "plain",
 }: RenderRowViewProps) {
+  const backgroundOnly = mode === "background";
   return (
     <div
       aria-hidden={backgroundOnly || undefined}
@@ -45,7 +46,9 @@ const RenderRowView = memo(function RenderRowView({
             backgroundColor: presentation.style.backgroundColor,
             ...(presentation.style.width === undefined ? {} : { width: presentation.style.width }),
           }
-          : { ...presentation.style, backgroundColor: "transparent" };
+          : mode === "foreground"
+            ? { ...presentation.style, backgroundColor: "transparent" }
+            : presentation.style;
         return (
           <span
             className={backgroundOnly ? "render-run" : presentation.className}
@@ -92,6 +95,12 @@ export function RenderTerminal({
     top: `calc(var(--render-cell-height) * ${cursor.y})`,
     color: cursor.color ?? "var(--terminal-cursor)",
   } satisfies CSSProperties;
+  const layeredGraphics = !history.active
+    && model?.graphics !== undefined
+    && model.graphics.images.length > 0
+    && model.graphics.placements.length > 0
+    ? model.graphics
+    : undefined;
 
   return (
     <TerminalFrame
@@ -110,27 +119,40 @@ export function RenderTerminal({
           data-render-scroll
         >
           <div className="render-grid" style={gridStyle} role="log">
-            {rows.map((row, index) => (
+            {layeredGraphics === undefined ? rows.map((row, index) => (
               <RenderRowView
-                backgroundOnly
                 row={row}
                 index={index}
                 defaultFg={defaultFg}
                 defaultBg={defaultBg}
-                key={`background-${history.active ? "history" : "live"}-${row.row}`}
+                key={`${history.active ? "history" : "live"}-${row.row}`}
               />
-            ))}
-            <RenderGraphics graphics={history.active ? undefined : model?.graphics}>
-              {rows.map((row, index) => (
-                <RenderRowView
-                  row={row}
-                  index={index}
-                  defaultFg={defaultFg}
-                  defaultBg={defaultBg}
-                  key={`${history.active ? "history" : "live"}-${row.row}`}
-                />
-              ))}
-            </RenderGraphics>
+            )) : (
+              <>
+                {rows.map((row, index) => (
+                  <RenderRowView
+                    mode="background"
+                    row={row}
+                    index={index}
+                    defaultFg={defaultFg}
+                    defaultBg={defaultBg}
+                    key={`background-live-${row.row}`}
+                  />
+                ))}
+                <RenderGraphics graphics={layeredGraphics}>
+                  {rows.map((row, index) => (
+                    <RenderRowView
+                      mode="foreground"
+                      row={row}
+                      index={index}
+                      defaultFg={defaultFg}
+                      defaultBg={defaultBg}
+                      key={`live-${row.row}`}
+                    />
+                  ))}
+                </RenderGraphics>
+              </>
+            )}
             {!history.active && cursor?.visible && cursorStyle !== undefined && (
               <span
                 aria-hidden="true"

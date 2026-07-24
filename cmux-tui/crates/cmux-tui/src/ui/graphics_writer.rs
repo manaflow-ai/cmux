@@ -101,7 +101,9 @@ pub(crate) struct GraphicsWriterShutdown {
 
 impl GraphicsWriterShutdown {
     /// Stop the writer and wait until no future host-terminal writes are
-    /// possible. This is safe to call from the process panic hook.
+    /// possible. This is safe to call from the process panic hook. The wait
+    /// is deliberately unbounded because returning while a `Write` is still
+    /// blocked would allow Kitty bytes to arrive after terminal restoration.
     pub(crate) fn cancel_and_wait(&self) {
         self.control.request_cancel(&self.notify);
         if self
