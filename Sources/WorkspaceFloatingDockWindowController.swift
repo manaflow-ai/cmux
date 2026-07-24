@@ -63,6 +63,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
     private var hasAppliedInitialScreenPlacement = false
     private var isScreenConfigurationChanging = false
     private var isShowingStashedWindow = false
+    private var isStashedWindowHovered = false
     private var stashedVisibleScreenFrame: CGRect?
 
     init(
@@ -196,6 +197,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         presentationGeneration &+= 1
         isAnimatingPresentation = false
         isShowingStashedWindow = false
+        isStashedWindowHovered = false
         stashedVisibleScreenFrame = nil
         stashOverlay.isHidden = true
         (window as? WorkspaceFloatingDockPanel)?.presentsStashedWindow = false
@@ -223,6 +225,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             parentWindow.addChildWindow(panel, ordered: .above)
         }
         isShowingStashedWindow = true
+        isStashedWindowHovered = false
         stashedVisibleScreenFrame = visibleScreenFrame
         stashOverlay.isHidden = false
         (panel as? WorkspaceFloatingDockPanel)?.presentsStashedWindow = true
@@ -264,6 +267,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             isHovered: false
         )
         isShowingStashedWindow = true
+        isStashedWindowHovered = false
         stashedVisibleScreenFrame = visibleScreenFrame
         stashOverlay.isHidden = false
         (panel as? WorkspaceFloatingDockPanel)?.presentsStashedWindow = true
@@ -304,6 +308,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             } else {
                 self.isAnimatingPresentation = false
                 self.isShowingStashedWindow = false
+                self.isStashedWindowHovered = false
                 self.stashedVisibleScreenFrame = nil
                 self.stashOverlay.isHidden = true
                 (panel as? WorkspaceFloatingDockPanel)?.presentsStashedWindow = false
@@ -337,6 +342,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         let generation = presentationGeneration
         let destinationFrame = modelScreenFrame()
         isShowingStashedWindow = false
+        isStashedWindowHovered = false
         stashedVisibleScreenFrame = nil
         stashOverlay.isHidden = true
         (panel as? WorkspaceFloatingDockPanel)?.presentsStashedWindow = false
@@ -376,12 +382,21 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
               isShowingStashedWindow,
               let panel = window,
               let visibleScreenFrame = stashedVisibleScreenFrame else { return }
+        guard isHovered != isStashedWindowHovered else { return }
+        isStashedWindowHovered = isHovered
         let targetFrame = WorkspaceFloatingDockStashLayout.stashedWindowFrame(
             windowFrame: modelScreenFrame(),
             visibleScreenFrame: visibleScreenFrame,
             isHovered: isHovered
         )
         animatePanel(panel, to: targetFrame, duration: 0.16)
+    }
+
+    func updateStashedPointer(at screenPoint: NSPoint) {
+        guard dock.isStashed,
+              isShowingStashedWindow,
+              let panel = window else { return }
+        setStashedWindowHovered(panel.frame.contains(screenPoint))
     }
 
     func orderStashedWindowFront() {

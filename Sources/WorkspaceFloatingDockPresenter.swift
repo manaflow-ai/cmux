@@ -7,10 +7,12 @@ final class WorkspaceFloatingDockPresenter {
     private weak var tabManager: TabManager?
     private var controllers: [UUID: WorkspaceFloatingDockWindowController] = [:]
     private var lastActiveDockId: UUID?
+    private var localMouseMonitor: Any?
 
     init(parentWindow: NSWindow, tabManager: TabManager) {
         self.parentWindow = parentWindow
         self.tabManager = tabManager
+        installMouseMonitors()
     }
 
     func refresh(
@@ -107,6 +109,10 @@ final class WorkspaceFloatingDockPresenter {
     func teardown() {
         controllers.values.forEach { $0.teardown() }
         controllers.removeAll()
+        if let localMouseMonitor {
+            NSEvent.removeMonitor(localMouseMonitor)
+            self.localMouseMonitor = nil
+        }
     }
 
     func animateStash(_ dock: WorkspaceFloatingDock) {
@@ -198,5 +204,23 @@ final class WorkspaceFloatingDockPresenter {
 
     private func visibleScreenFrame() -> CGRect? {
         parentWindow?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
+    }
+
+    private func installMouseMonitors() {
+        let eventMask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged]
+        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: eventMask) {
+            [weak self] event in
+            MainActor.assumeIsolated {
+                self?.updateStashedWindowHover()
+            }
+            return event
+        }
+    }
+
+    private func updateStashedWindowHover() {
+        let mouseLocation = NSEvent.mouseLocation
+        controllers.values.forEach {
+            $0.updateStashedPointer(at: mouseLocation)
+        }
     }
 }
