@@ -1,3 +1,5 @@
+import Foundation
+
 /// Coalesces display ticks into one off-main frame copy at a time.
 ///
 /// A blocked read can strand one detached task for this source, but the actor
@@ -6,8 +8,10 @@
 final class SimulatorFramePresentationPipeline {
     private let source: any SimulatorFrameSurfaceReading
     private let presentationDidComplete: @MainActor () -> Void
+    private nonisolated let framePublicationWakeup = SimulatorFramePublicationWakeup()
     private var isActive = true
     private var copyIsInFlight = false
+    private var publicationArrivedWhileCopying = false
     private var framePublicationHandlerIsInstalled = false
     private var lastCopiedSequence: UInt64?
     private var newestCompletedPresentation: SimulatorFramePresentation?
@@ -49,10 +53,16 @@ final class SimulatorFramePresentationPipeline {
         }
         guard isActive else { return false }
         if framePublicationHandlerIsInstalled { return true }
+        let wakeup = framePublicationWakeup
         framePublicationHandlerIsInstalled = source.setFramePublicationHandler {
             [weak self] in
+            guard wakeup.recordSignal() else { return }
             Task { @MainActor [weak self] in
-                self?.framePublicationDidFire()
+                guard let self else {
+                    wakeup.abandonDelivery()
+                    return
+                }
+                self.deliverFramePublicationWakeup(wakeup)
             }
         }
         return framePublicationHandlerIsInstalled
@@ -81,7 +91,25 @@ final class SimulatorFramePresentationPipeline {
 
     private func framePublicationDidFire() {
         guard isActive, framePublicationHandlerIsInstalled else { return }
+        if copyIsInFlight {
+            publicationArrivedWhileCopying = true
+            return
+        }
         requestCopy()
+    }
+
+    private func deliverFramePublicationWakeup(
+        _ wakeup: SimulatorFramePublicationWakeup
+    ) {
+        framePublicationDidFire()
+        guard wakeup.deliveryDidFinish() else { return }
+        Task { @MainActor [weak self] in
+            guard let self else {
+                wakeup.abandonDelivery()
+                return
+            }
+            self.deliverFramePublicationWakeup(wakeup)
+        }
     }
 
     private func copyDidComplete(
@@ -90,6 +118,8 @@ final class SimulatorFramePresentationPipeline {
     ) {
         copyIsInFlight = false
         guard isActive else { return }
+        let shouldRetry = publicationArrivedWhileCopying
+        publicationArrivedWhileCopying = false
         if let observedSequence,
            lastCopiedSequence.map({ observedSequence > $0 }) ?? true {
             lastCopiedSequence = observedSequence
@@ -98,6 +128,44 @@ final class SimulatorFramePresentationPipeline {
            newestCompletedPresentation.map({ presentation.sequence > $0.sequence }) ?? true {
             newestCompletedPresentation = presentation
             presentationDidComplete()
+        }
+        if shouldRetry {
+            requestCopy()
+        }
+    }
+}
+
+private final class SimulatorFramePublicationWakeup: @unchecked Sendable {
+    private let lock = NSLock()
+    private var deliveryIsScheduled = false
+    private var signalArrivedWhileScheduled = false
+
+    func recordSignal() -> Bool {
+        lock.withLock {
+            guard !deliveryIsScheduled else {
+                signalArrivedWhileScheduled = true
+                return false
+            }
+            deliveryIsScheduled = true
+            return true
+        }
+    }
+
+    func deliveryDidFinish() -> Bool {
+        lock.withLock {
+            guard signalArrivedWhileScheduled else {
+                deliveryIsScheduled = false
+                return false
+            }
+            signalArrivedWhileScheduled = false
+            return true
+        }
+    }
+
+    func abandonDelivery() {
+        lock.withLock {
+            deliveryIsScheduled = false
+            signalArrivedWhileScheduled = false
         }
     }
 }
