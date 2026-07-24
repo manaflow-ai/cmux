@@ -1,4 +1,5 @@
 import CmuxWorkspaces
+import CmuxWorkspaces
 import Foundation
 
 extension DockSplitStore {
