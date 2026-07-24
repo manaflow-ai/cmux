@@ -613,6 +613,57 @@
         }
       }
     },
+    "mobile.settings.haptics" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Haptics"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "触覚フィードバック"
+          }
+        }
+      }
+    },
+    "mobile.settings.hapticFeedback" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Haptic Feedback"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "触覚フィードバック"
+          }
+        }
+      }
+    },
+    "mobile.settings.hapticFeedbackFooter" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When off, cmux does not vibrate for actions, confirmations, warnings, or errors."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "オフにすると、操作、確認、警告、エラーでcmuxが振動しなくなります。"
+          }
+        }
+      }
+    },
     "mobile.common.actions" : {
       "extractionState" : "manual",
       "localizations" : {
