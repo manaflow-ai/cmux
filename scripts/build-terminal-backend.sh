@@ -91,7 +91,7 @@ case "$CONFIGURATION" in
   *) echo "error: --configuration must be debug or release" >&2; exit 2 ;;
 esac
 
-ZIG_BIN="${ZIG:-/opt/homebrew/opt/zig@0.15/bin/zig}"
+ZIG_BIN="${ZIG:-${CMUX_ZIG:-/opt/homebrew/opt/zig@0.15/bin/zig}}"
 [[ -x "$ZIG_BIN" ]] || { echo "error: Zig 0.15 is required at $ZIG_BIN" >&2; exit 1; }
 command -v cargo >/dev/null 2>&1 || { echo "error: cargo is required" >&2; exit 1; }
 [[ -x "$FINGERPRINT_TOOL" ]] || { echo "error: build fingerprint tool is missing: $FINGERPRINT_TOOL" >&2; exit 1; }
