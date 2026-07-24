@@ -7,6 +7,7 @@ import {
   buildFoundersWelcomeEmail,
   foundersThreadRef,
 } from "../app/api/stripe/founders-welcome/welcome-email";
+import { welcomeTriggerForMetadata } from "../app/api/stripe/founders-welcome/welcome-trigger";
 
 // Regression coverage for the Founder's Edition welcome email collapsing into a
 // single Gmail conversation. Gmail threads messages that share a normalized
@@ -23,6 +24,61 @@ const baseParams = {
   from: "Austin Wang <austin@manaflow.ai>",
   customerName: "Ada Lovelace",
 } as const;
+
+// Founder's Edition and cmux Pro are the same tier (product decision), so both
+// checkout shapes must trigger the identical welcome email. Pro sessions carry
+// { app: "cmux", plan: "pro" } from /api/billing/checkout and no
+// founders_edition key — before the pro_plan trigger existed they were skipped
+// and a real Pro subscriber never got the welcome.
+describe("welcomeTriggerForMetadata", () => {
+  test("founders payment-link metadata triggers as founders_edition", () => {
+    expect(welcomeTriggerForMetadata({ founders_edition: "true" })).toBe(
+      "founders_edition",
+    );
+  });
+
+  test("cmux Pro checkout metadata triggers as pro_plan (no founders key)", () => {
+    expect(
+      welcomeTriggerForMetadata({
+        stackUserId: "user-1",
+        plan: "pro",
+        app: "cmux",
+      }),
+    ).toBe("pro_plan");
+  });
+
+  test("founders_edition wins when both shapes are present", () => {
+    expect(
+      welcomeTriggerForMetadata({
+        founders_edition: "true",
+        plan: "pro",
+        app: "cmux",
+      }),
+    ).toBe("founders_edition");
+  });
+
+  test("team plan is excluded", () => {
+    expect(
+      welcomeTriggerForMetadata({
+        stackTeamId: "team-1",
+        plan: "team",
+        app: "cmux",
+      }),
+    ).toBeNull();
+  });
+
+  test("pro plan for a different app is excluded", () => {
+    expect(welcomeTriggerForMetadata({ plan: "pro", app: "other" })).toBeNull();
+    expect(welcomeTriggerForMetadata({ plan: "pro" })).toBeNull();
+  });
+
+  test("non-true founders flag and missing metadata are excluded", () => {
+    expect(welcomeTriggerForMetadata({ founders_edition: "false" })).toBeNull();
+    expect(welcomeTriggerForMetadata({})).toBeNull();
+    expect(welcomeTriggerForMetadata(null)).toBeNull();
+    expect(welcomeTriggerForMetadata(undefined)).toBeNull();
+  });
+});
 
 describe("foundersThreadRef", () => {
   test("different sessions produce different thread keys (a new Gmail thread each)", () => {
