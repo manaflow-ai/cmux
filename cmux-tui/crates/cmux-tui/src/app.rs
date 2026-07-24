@@ -11039,6 +11039,18 @@ mod tests {
     }
 
     #[test]
+    fn host_keyboard_protocol_cleanup_is_single_use_across_clones() {
+        let mut output = Vec::new();
+        let ownership = enable_host_keyboard_protocol(&mut output).unwrap();
+        let panic_ownership = ownership.clone();
+
+        disable_host_keyboard_protocol(&mut output, panic_ownership).unwrap();
+        disable_host_keyboard_protocol(&mut output, ownership).unwrap();
+
+        assert_eq!(output, b"\x1b[>29u\x1b[<1u");
+    }
+
+    #[test]
     fn unsupported_host_keyboard_protocol_is_a_nonfatal_fallback() {
         struct UnsupportedWriter {
             writes: usize,
@@ -11429,6 +11441,16 @@ mod tests {
         assert_eq!(key, crate::browser_input::BrowserKey::Character('j'));
         assert_eq!(code, "KeyJ");
         assert_eq!(vk, 74);
+        assert_eq!(text, None);
+    }
+
+    #[test]
+    fn browser_mapping_does_not_invent_physical_identity_without_host_metadata() {
+        let (key, code, vk, text) = super::browser_key_mapping(KeyCode::Char('a'), None).unwrap();
+
+        assert_eq!(key, crate::browser_input::BrowserKey::Character('a'));
+        assert_eq!(code, "");
+        assert_eq!(vk, 0);
         assert_eq!(text, None);
     }
 
@@ -11886,6 +11908,34 @@ mod tests {
                 | Ok(cmux_tui_core::AttachFrame::ColorsChanged(_)) => {}
                 Err(_) if Instant::now() < deadline => {}
                 Err(error) => panic!("alternate-screen app did not receive Command-K: {error}"),
+            }
+        }
+
+        let action =
+            app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)).unwrap();
+        assert_eq!(action, RenderAction::Draw);
+        assert!(app.prefix_armed);
+        let action =
+            app.handle_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL)).unwrap();
+        assert_eq!(action, RenderAction::None);
+        assert!(!app.prefix_armed);
+
+        let expected = b"\x1b[108;5u";
+        let deadline = Instant::now() + Duration::from_secs(1);
+        output.clear();
+        while !output.windows(expected.len()).any(|window| window == expected) {
+            match attach.stream.recv_timeout(Duration::from_millis(20)) {
+                Ok(cmux_tui_core::AttachFrame::Output(bytes)) => output.extend_from_slice(&bytes),
+                Ok(cmux_tui_core::AttachFrame::OutputWithColors { output: bytes, .. }) => {
+                    output.extend_from_slice(&bytes);
+                }
+                Ok(cmux_tui_core::AttachFrame::Resized { .. })
+                | Ok(cmux_tui_core::AttachFrame::ResizedWithColors { .. })
+                | Ok(cmux_tui_core::AttachFrame::ColorsChanged(_)) => {}
+                Err(_) if Instant::now() < deadline => {}
+                Err(error) => {
+                    panic!("alternate-screen app did not receive prefixed Ctrl-L: {error}")
+                }
             }
         }
 
