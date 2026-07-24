@@ -2268,13 +2268,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add a computer to start syncing terminal workspaces."
+            "value": "Sign in to cmux on your computer with this account and it appears here automatically."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータを追加してターミナルワークスペースの同期を開始します。"
+            "value": "コンピュータの cmux にこのアカウントでサインインすると、ここに自動的に表示されます。"
           }
         }
       }
@@ -2285,13 +2285,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No devices"
+            "value": "No Computers"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "デバイスがありません"
+            "value": "コンピュータがありません"
           }
         }
       }
@@ -11914,6 +11914,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "未読"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.forgetComputer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forget This Computer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコンピュータの登録を解除"
           }
         }
       }

@@ -65,14 +65,10 @@ struct DisconnectedWorkspaceShellView: View {
                 .accessibilityIdentifier("MobileDisconnectedWorkspaceShell")
                 .task {
                     // Load (and, via the backup decorator, restore) saved Macs so a
-                    // known/restored Mac shows up here for one-tap reconnect. Only
-                    // auto-present the pairing sheet when there is nothing to pick,
-                    // so a returning user is not buried under the add-device flow.
+                    // known/restored Mac shows up here for one-tap reconnect.
+                    // Same-account discovery is the primary path; manual pairing
+                    // remains available from the explicit Add Computer controls.
                     await store?.loadPairedMacs()
-                    if shouldAutoPresentAddDeviceAfterLoadingSavedMacs {
-                        showAddDevice()
-                        return
-                    }
                     #if os(iOS)
                     // Registry + presence enrich the rows (online dots, build
                     // labels). The loop then keeps presence and last-seen fresh
@@ -102,12 +98,12 @@ struct DisconnectedWorkspaceShellView: View {
         }) {
             // Reuse the same Settings sheet the workspace list opens from its
             // Settings button so the no-devices screen's chrome matches. There is no
-            // connected host or QR to rescan here, but the store is forwarded so
+            // connected computer to forget here, but the store is forwarded so
             // a user whose active Mac went offline can still switch to another
             // paired Mac; the sheet also surfaces the account + Sign Out.
             MobileSettingsView(
                 connectedHostName: "",
-                rescanQR: nil,
+                forgetComputer: nil,
                 startPairingScanner: {
                     settingsPairingScannerHandoff.requestScannerAfterDismiss(
                         isSettingsPresented: $showingSettings
@@ -136,12 +132,6 @@ struct DisconnectedWorkspaceShellView: View {
     /// shows, so a Mac paired under several stored ids is one row here too.
     private var savedComputers: [MacComputerSnapshot] {
         store.map { MacComputerSnapshot.snapshots(from: $0) } ?? []
-    }
-
-    var shouldAutoPresentAddDeviceAfterLoadingSavedMacs: Bool {
-        guard let store else { return false }
-        return store.pairedMacLoadState == .loaded
-            && store.pairedMacs.isEmpty
     }
 
     @ViewBuilder
@@ -212,13 +202,13 @@ struct DisconnectedWorkspaceShellView: View {
     private var emptyState: some View {
         ContentUnavailableView {
             Label(
-                L10n.string("mobile.devices.emptyTitle", defaultValue: "No devices"),
+                L10n.string("mobile.devices.emptyTitle", defaultValue: "No Computers"),
                 systemImage: "desktopcomputer.and.iphone"
             )
         } description: {
             Text(L10n.string(
                 "mobile.devices.emptyDescription",
-                defaultValue: "Add a computer to start syncing terminal workspaces."
+                defaultValue: "Sign in to cmux on your computer with this account and it appears here automatically."
             ))
         } actions: {
             Button(action: showAddDevice) {
@@ -299,14 +289,17 @@ struct DisconnectedWorkspaceShellView: View {
         ContentUnavailableView {
             Label(
                 savedMacs.isEmpty
-                    ? L10n.string("mobile.devices.emptyTitle", defaultValue: "No devices")
+                    ? L10n.string("mobile.devices.emptyTitle", defaultValue: "No Computers")
                     : L10n.string("mobile.devices.savedTitle", defaultValue: "Your Computers"),
                 systemImage: "desktopcomputer.and.iphone"
             )
         } description: {
             Text(
                 savedMacs.isEmpty
-                    ? L10n.string("mobile.devices.emptyDescription", defaultValue: "Add a computer to start syncing terminal workspaces.")
+                    ? L10n.string(
+                        "mobile.devices.emptyDescription",
+                        defaultValue: "Sign in to cmux on your computer with this account and it appears here automatically."
+                    )
                     : L10n.string("mobile.devices.savedDescription", defaultValue: "Tap a saved computer to reconnect, or add another.")
             )
         } actions: {
