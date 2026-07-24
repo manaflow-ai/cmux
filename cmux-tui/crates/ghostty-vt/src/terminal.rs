@@ -2136,6 +2136,22 @@ impl Terminal {
                 segment_start = segment_end.saturating_add(1);
             }
         }
+        let replay_rows = range.end - range.start + 1;
+        let screen_rows = u64::from(self.rows().max(1));
+        if replay_rows > screen_rows {
+            // A history-bearing selection must advance once per row so the
+            // reconstructed scrollback keeps Kitty anchors aligned. A
+            // viewport-only selection may use direct cursor positioning for
+            // sparse rows; padding that case would scroll visible text away.
+            let expected_breaks = usize::try_from(replay_rows - 1).unwrap_or(usize::MAX);
+            let emitted_breaks = bytes.windows(2).filter(|bytes| *bytes == b"\r\n").count();
+            for _ in emitted_breaks..expected_breaks {
+                if bytes.len().saturating_add(2) > format_max_bytes {
+                    return Ok(None);
+                }
+                bytes.extend_from_slice(b"\r\n");
+            }
+        }
         if let Some(suffix) = suffix {
             bytes.extend_from_slice(&suffix);
         }
