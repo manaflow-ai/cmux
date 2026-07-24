@@ -257,6 +257,45 @@ pub fn divider(area: Rect) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+
+    #[test]
+    fn active_entry_keeps_the_shared_rail_when_it_has_a_status_indicator() {
+        let mut terminal = Terminal::new(TestBackend::new(16, 3)).unwrap();
+        let palette = RailPalette {
+            base: Style::default(),
+            dim: Style::default(),
+            active: Style::default().add_modifier(Modifier::BOLD),
+            border: Style::default(),
+            rail: Color::Cyan,
+        };
+        terminal
+            .draw(|frame| {
+                entry(
+                    frame,
+                    Rect { x: 0, y: 0, width: 16, height: 3 },
+                    0,
+                    Entry {
+                        name: "machine",
+                        subtitle: "running",
+                        highlighted: true,
+                        active: true,
+                        indicator: Some(Color::Green),
+                        dimmed: false,
+                    },
+                    palette,
+                );
+            })
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(0, 0)].symbol(), "▎");
+        assert_eq!(buffer[(0, 1)].symbol(), "▎");
+        assert_eq!(buffer[(1, 0)].symbol(), "•");
+        assert_eq!(buffer[(3, 0)].symbol(), "m");
+        assert_eq!(buffer[(1, 1)].symbol(), "r");
+    }
 
     #[test]
     fn short_viewport_pins_footer_and_keeps_selected_action_visible() {
