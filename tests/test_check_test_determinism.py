@@ -278,6 +278,24 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "    time.sleep(0.1)\n"
                 "    assert done\n"
             ),
+            "shell-assert-arithmetic-substitution.sh": (
+                'assert "$(echo $((1 + 2)); sleep 1)"\n'
+            ),
+            "shell-expansion-suffix-before-sleep.sh": (
+                "value=$(printf ok)#suffix; sleep 1\n"
+                'assert "$actual" "$expected"\n'
+            ),
+            "shell-quoted-closer-expansion-suffix.sh": (
+                "value=$(printf ')')#suffix; sleep 1\n"
+                'assert "$actual" "$expected"\n'
+            ),
+            "unicode-before-multiline-sleep.py": (
+                "éééééééééééééééééééé = time.sleep(\n"
+                "    0.1\n"
+                ")\n"
+                "marker = 1\n"
+                "assert done\n"
+            ),
         }
 
         result = self.run_checker(fixtures)
@@ -1062,6 +1080,12 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "sleep 1\n"
                     'assert "$actual" "$expected"\n'
                 ),
+                "heredoc-embedded-hash.sh": (
+                    "cat <<EOF\n"
+                    "$(printf foo#bar; sleep 1)\n"
+                    "EOF\n"
+                    'assert "$actual" "$expected"\n'
+                ),
             }
         )
 
@@ -1072,6 +1096,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             "heredoc-multiline-substitution.sh": 3,
             "heredoc-multiline-backtick.sh": 3,
             "punctuated-heredoc-then-sleep.sh": 4,
+            "heredoc-embedded-hash.sh": 2,
         }
         for relative_path, line in expected_lines.items():
             self.assertIn(
