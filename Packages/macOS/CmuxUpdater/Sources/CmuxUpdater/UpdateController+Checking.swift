@@ -16,6 +16,7 @@ extension UpdateController {
     }
 
     func requestUpdateCheck(_ intent: UpdateCheckIntent) {
+        noUpdateRetryIntent = nil
         // A coincident menu check must not downgrade ownership after the user already accepted an
         // install. It may replace the transport session, but its result still serves that install.
         let intent = attemptCoordinator.isMonitoring ? UpdateCheckIntent.installLatest : intent
@@ -39,7 +40,7 @@ extension UpdateController {
             activeCheckIntent = nil
             attemptCoordinator.cancel()
             installWatchdog.disarm()
-            model.setState(.notFound(.init(acknowledgement: {})))
+            model.setState(.notFound(.init(reason: .developmentBuild, acknowledgement: {})))
             return
         }
 
@@ -119,6 +120,7 @@ extension UpdateController {
             self?.cancelQueuedCheckByUser()
         }))
         model.replaceActiveState(with: state)
+        driver.finishPendingCheckTransitionAsSuperseded()
     }
 
     private func waitForReadinessThenCheck() {
@@ -174,7 +176,7 @@ extension UpdateController {
             code: UpdateStateModel.updaterNotReadyCode,
             userInfo: [NSLocalizedDescriptionKey: String(
                 localized: "update.error.notReady",
-                defaultValue: "Updater is still starting. Try again in a moment."
+                defaultValue: "The updater isn’t ready to check yet. Try again in a moment."
             )]
         )
         model.setState(.error(.init(
@@ -207,6 +209,59 @@ extension UpdateController {
 }
 
 extension UpdateController: UpdateDriverEventDelegate {
+    func updateDriverWillPresentNoUpdate() {
+        let intent = strongestCurrentIntent()
+        noUpdateRetryIntent = intent
+        log.append("controller captured no-update retry intent (intent=\(intent.rawValue))")
+    }
+
+    func updateDriverDidPresentError() {
+        var intent = strongestCurrentIntent()
+        switch model.state {
+        case .startingDownload, .downloading, .extracting, .installing:
+            intent = .installLatest
+        default:
+            break
+        }
+        // The queued replacement now belongs to the visible Retry action. Leaving it pending
+        // would start it from the old cycle's finish callback after install ownership is canceled.
+        pendingCheckIntent = nil
+        cancelReadinessRetry()
+        errorRetryIntent = intent
+        attemptCoordinator.cancel()
+        installWatchdog.disarm()
+        log.append("controller captured updater error retry intent (intent=\(intent.rawValue))")
+    }
+
+    private func strongestCurrentIntent() -> UpdateCheckIntent {
+        var intent = activeCheckIntent
+            ?? pendingCheckIntent
+            ?? (attemptCoordinator.isMonitoring ? .installLatest : .manual)
+        if let pendingCheckIntent {
+            intent = intent.merged(with: pendingCheckIntent)
+        }
+        if attemptCoordinator.isMonitoring {
+            intent = intent.merged(with: .installLatest)
+        }
+        return intent
+    }
+
+    func updateDriverRequestsRetryAfterError() {
+        let intent = errorRetryIntent ?? .manual
+        errorRetryIntent = nil
+        log.append("controller retrying updater error (intent=\(intent.rawValue))")
+        switch intent {
+        case .manual:
+            checkForUpdates()
+        case .installLatest:
+            attemptUpdate()
+        }
+    }
+
+    func updateDriverDidDismissError() {
+        errorRetryIntent = nil
+    }
+
     func updateDriverDidFinishCycle(_ updateCheck: SPUUpdateCheck, error: NSError?) {
         let finishedIntent = activeCheckIntent
         activeCheckIntent = nil
@@ -221,6 +276,13 @@ extension UpdateController: UpdateDriverEventDelegate {
         }
 
         if finishedIntent == .installLatest, attemptCoordinator.isMonitoring {
+            if case .notFound = model.state {
+                // Sparkle can finish the cycle before the async model observer consumes the
+                // no-update terminal. Reconcile it through the same coordinator path now.
+                reconcileInstallAttempt(with: model.state)
+                installWatchdog.disarm()
+                return
+            }
             switch model.state {
             case .downloading, .extracting, .installing, .error:
                 return

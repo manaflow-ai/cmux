@@ -20,6 +20,18 @@ test("marks guard as complete and skips build/upload when all immutable assets a
   assert.equal(result.hasPartialConflict, false);
   assert.equal(result.shouldSkipBuildAndUpload, true);
   assert.equal(result.shouldSkipUpload, true);
+  assert.equal(result.requiresDraftFinalization, false);
+});
+
+test("finalizes a complete draft before repairing downstream publication", () => {
+  const result = evaluateReleaseAssetGuard({
+    existingAssetNames: IMMUTABLE_RELEASE_ASSETS,
+    releaseIsDraft: true,
+  });
+
+  assert.equal(result.guardState, RELEASE_ASSET_GUARD_STATE.COMPLETE);
+  assert.equal(result.shouldSkipBuildAndUpload, true);
+  assert.equal(result.requiresDraftFinalization, true);
 });
 
 test("marks guard as clear when immutable assets are not present", () => {
@@ -33,6 +45,7 @@ test("marks guard as clear when immutable assets are not present", () => {
   assert.equal(result.hasPartialConflict, false);
   assert.equal(result.shouldSkipBuildAndUpload, false);
   assert.equal(result.shouldSkipUpload, false);
+  assert.equal(result.requiresDraftFinalization, false);
 });
 
 test("marks guard as partial when only some immutable assets exist", () => {
@@ -50,4 +63,5 @@ test("marks guard as partial when only some immutable assets exist", () => {
   assert.equal(result.hasPartialConflict, true);
   assert.equal(result.shouldSkipBuildAndUpload, false);
   assert.equal(result.shouldSkipUpload, false);
+  assert.equal(result.requiresDraftFinalization, false);
 });

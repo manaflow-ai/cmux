@@ -30,7 +30,7 @@ public final class UpdateController {
     /// the public release appcast. See ``isDevLikeBundleIdentifier(_:)``.
     let isDevLikeBundle: Bool
 
-    /// Host actions the updater delegates upward (retry, relaunch prep). Forwarded to the driver.
+    /// Host relaunch preparation delegated upward. Forwarded to the driver.
     public weak var actionDelegate: (any UpdateActionDelegate)? {
         didSet { driver.actionDelegate = actionDelegate }
     }
@@ -44,6 +44,10 @@ public final class UpdateController {
     private var noUpdateDismissTask: Task<Void, Never>?
     var pendingCheckIntent: UpdateCheckIntent?
     var activeCheckIntent: UpdateCheckIntent?
+    /// Intent captured when Sparkle presents an error, retained until its Retry/Dismiss action.
+    var errorRetryIntent: UpdateCheckIntent?
+    /// Intent captured before a no-update result is presented, retained for its Retry action.
+    var noUpdateRetryIntent: UpdateCheckIntent?
     /// Armed when the user asks to install; fires a visible "Update Didn't Start" error if the
     /// flow never reaches downloading/installing (or another visible outcome). See
     /// ``attemptUpdate`` in `UpdateController+InstallAttempt.swift` (internal for that file).
@@ -186,7 +190,25 @@ public final class UpdateController {
     /// (the merge of the old `$state.sink`, the attempt sink, and the `CombineLatest` dismiss
     /// observer).
     private func handleStateChange(_ state: UpdateState, overrideState: UpdateState?) {
+        reconcileInstallAttempt(with: state)
+        if installWatchdog.isArmed {
+            // A fresh authoritative feed check may legitimately take arbitrarily long. The first
+            // deadline only guards reaching this callback; a new deadline starts when the chosen
+            // latest item is handed to Sparkle for download.
+            if case .checking = state {
+                installWatchdog.disarm()
+            } else if installWatchdog.installAttemptResolved(state) {
+                // Healthy install progress and visible terminal outcomes end the deadline.
+                installWatchdog.disarm()
+            }
+        }
+        scheduleNoUpdateDismiss(for: state, overrideState: overrideState)
+    }
 
+    /// Reconciles an observed update state with the accepted-install coordinator. The Sparkle
+    /// cycle-finished callback also uses this path when it can arrive before the async state
+    /// observer, keeping both callback orders behaviorally identical.
+    func reconcileInstallAttempt(with state: UpdateState) {
         if attemptCoordinator.isMonitoring {
             let action = attemptCoordinator.handleStateChange(state)
             // The watchdog guards one specific install attempt. If that attempt just ended
@@ -203,12 +225,6 @@ public final class UpdateController {
             }
             performAttemptAction(action)
         }
-        // Disarm the install watchdog the moment the flow progresses the install or shows a clear
-        // outcome, so a healthy install (or a real error / "no updates") never trips it.
-        if installWatchdog.isArmed, installWatchdog.installAttemptResolved(state) {
-            installWatchdog.disarm()
-        }
-        scheduleNoUpdateDismiss(for: state, overrideState: overrideState)
     }
 
     // The attempt-update entry point, its coordinator actions, and the install-watchdog trip
@@ -216,12 +232,37 @@ public final class UpdateController {
 
     // MARK: - "No updates" auto-dismiss
 
+    /// Clears and acknowledges the currently visible no-update result exactly once.
+    public func acknowledgeNoUpdate() {
+        noUpdateDismissTask?.cancel()
+        noUpdateDismissTask = nil
+        guard case .notFound(let notFound) = model.state else { return }
+        noUpdateRetryIntent = nil
+        model.setState(.idle)
+        notFound.acknowledgement()
+    }
+
+    /// Acknowledges an indeterminate no-update result and retries the operation that produced it.
+    public func retryNoUpdate() {
+        guard case .notFound = model.state else { return }
+        let intent = noUpdateRetryIntent ?? .manual
+        acknowledgeNoUpdate()
+        log.append("retrying indeterminate no-update result (intent=\(intent.rawValue))")
+        switch intent {
+        case .manual:
+            checkForUpdates()
+        case .installLatest:
+            attemptUpdate()
+        }
+    }
+
     private func scheduleNoUpdateDismiss(for state: UpdateState, overrideState: UpdateState?) {
         noUpdateDismissTask?.cancel()
         noUpdateDismissTask = nil
 
         guard overrideState == nil else { return }
         guard case .notFound(let notFound) = state else { return }
+        guard notFound.automaticallyDismisses else { return }
 
         recordUITestTimestamp(key: "noUpdateShownAt")
         noUpdateDismissTask = Task { @MainActor [weak self] in
@@ -229,11 +270,19 @@ public final class UpdateController {
             // Bounded, cancellable auto-dismiss delay via the injected clock.
             try? await self.clock.sleep(for: .seconds(UpdateTiming.noUpdateDisplayDuration))
             guard !Task.isCancelled else { return }
-            guard self.model.overrideState == nil, case .notFound = self.model.state else { return }
+            guard self.model.overrideState == nil else { return }
+            guard self.acknowledgeNoUpdate(ifMatching: notFound.id) else { return }
             self.recordUITestTimestamp(key: "noUpdateHiddenAt")
-            self.model.setState(.idle)
-            notFound.acknowledgement()
         }
+    }
+
+    /// Clears only the result that armed an auto-dismiss task. A newer actionable result must
+    /// remain visible even if an older timer becomes runnable before its cancellation is observed.
+    @discardableResult
+    func acknowledgeNoUpdate(ifMatching resultID: UUID) -> Bool {
+        guard case .notFound(let current) = model.state, current.id == resultID else { return false }
+        acknowledgeNoUpdate()
+        return true
     }
 
     // MARK: - Updater lifecycle
@@ -270,6 +319,9 @@ public final class UpdateController {
             // whether to schedule its own background checks against the public appcast (#6292).
             defaults.set(false, forKey: UpdateSettings.automaticChecksKey)
         }
+        // Re-assert the user-driven install policy immediately before Sparkle selects its driver.
+        // This also repairs any value changed after controller construction.
+        defaults.set(false, forKey: UpdateSettings.automaticallyUpdateKey)
         do {
             try updater.start()
             didStartUpdater = true

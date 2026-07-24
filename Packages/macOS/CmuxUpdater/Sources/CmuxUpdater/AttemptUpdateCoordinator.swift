@@ -100,7 +100,13 @@ struct AttemptUpdateCoordinator {
             case .updateAvailable:
                 phase = .startingDownload
                 return .confirmInstall
-            case .idle, .notFound:
+            case .notFound:
+                // The installed app can become current between the original prompt and this
+                // authoritative fresh check. Preserve Sparkle's "up to date" terminal instead of
+                // misreporting the successful check as a failed install.
+                phase = .inactive
+                return .none
+            case .idle:
                 phase = .inactive
                 return .installFailed
             case .error:

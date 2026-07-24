@@ -437,6 +437,33 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         XCTAssertEqual(row1.value as? String, "palette.attemptUpdate")
     }
 
+    func testCmdShiftPUpdateQueryPrefersInstallLatestAction() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        launchAndActivate(app)
+
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 8.0) {
+                app.windows.count >= 1
+            },
+            "Expected the main window to be visible"
+        )
+
+        openCommandPaletteCommands(app: app)
+        let searchField = app.textFields["CommandPaletteSearchField"]
+        searchField.typeText("update")
+
+        let row0 = app.descendants(matching: .any).matching(identifier: "CommandPaletteResultRow.0").firstMatch
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 5.0) {
+                row0.exists && (row0.value as? String) == "palette.attemptUpdate"
+            },
+            "Expected Update cmux to be the primary update command. row0=\(String(describing: row0.value))"
+        )
+        XCTAssertEqual(row0.value as? String, "palette.attemptUpdate")
+    }
+
     func testCmdPSearchCanIncludeSurfacesFromOtherWorkspacesWhenEnabled() throws {
         let app = XCUIApplication()
         configureSocketControlledLaunch(app, showSettingsWindow: true)

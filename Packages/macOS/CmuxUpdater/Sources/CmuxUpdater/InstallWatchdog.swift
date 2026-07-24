@@ -56,8 +56,10 @@ final class InstallWatchdog {
     }
 
     /// Whether `state`, observed when the watchdog fires, means the install never got going: the
-    /// user asked to install but the flow is still merely checking, showing "Update Available",
-    /// or sitting at `.idle` with no download underway. `.idle` counts as stalled because every
+    /// user asked to install but the flow is still waiting to start a check, waiting for Sparkle
+    /// to begin the accepted download, or sitting at `.idle` with no download underway. An active
+    /// authoritative `.checking` state is deliberately unbounded; the controller rearms when it
+    /// hands the freshly selected item to Sparkle. `.idle` counts as stalled because every
     /// legitimate way to be idle at the deadline disarms first (causal user-cancel callbacks end
     /// the attempt; terminal outcomes disarm via ``installAttemptResolved(_:)``) — so an armed
     /// deadline firing at idle is an unattributed accepted-install failure.
@@ -65,9 +67,10 @@ final class InstallWatchdog {
     /// would be wrong if Sparkle ever did).
     func installAttemptStalled(_ state: UpdateState) -> Bool {
         switch state {
-        case .preparingCheck, .checking, .updateAvailable, .startingDownload, .idle:
+        case .preparingCheck, .startingDownload, .idle:
             return true
-        case .permissionRequest, .downloading, .extracting, .installing, .notFound, .error:
+        case .permissionRequest, .checking, .updateAvailable, .downloading, .extracting,
+                .installing, .notFound, .error:
             return false
         }
     }

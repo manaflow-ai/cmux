@@ -106,12 +106,12 @@ import Testing
         }
     }
 
-    @Test func stopsMonitoringWhenFreshCheckFindsNothing() {
+    @Test func freshCheckFindingNothingPreservesUpToDateResult() {
         var coordinator = AttemptUpdateCoordinator()
         _ = coordinator.requestInstallLatest(currentState: updateAvailable("0.64.15"))
         coordinator.didStartFreshCheck()
         #expect(coordinator.handleStateChange(.checking(.init(cancel: {}))) == .none)
-        #expect(coordinator.handleStateChange(.notFound(.init(acknowledgement: {}))) == .installFailed)
+        #expect(coordinator.handleStateChange(.notFound(.init(acknowledgement: {}))) == .none)
         #expect(!coordinator.isMonitoring)
     }
 

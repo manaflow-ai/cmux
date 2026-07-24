@@ -455,7 +455,7 @@ struct cmuxApp: App {
                 Menu("Show Update Error…") {
                     ForEach(DebugUpdateErrorScenario.allCases, id: \.self) { scenario in
                         Button(scenario.menuTitle) {
-                            appDelegate.updateViewModel.debugShowUpdateError(scenario)
+                            appDelegate.debugShowUpdateError(scenario)
                         }
                     }
                 }

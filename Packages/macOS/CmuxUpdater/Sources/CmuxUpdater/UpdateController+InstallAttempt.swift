@@ -6,6 +6,14 @@ import Foundation
 extension UpdateController {
     // MARK: - Attempt update
 
+#if DEBUG
+    /// Surfaces the real retryable install-attempt error for debug-menu and UI automation. Unlike
+    /// a synthetic model override, its Retry action exercises the production attempt pipeline.
+    public func debugShowInstallDidNotStartError() {
+        setInstallDidNotStartError(diagnostic: "debug scenario: installDidNotStart")
+    }
+#endif
+
     /// Re-check for updates and auto-confirm the install of whatever the fresh check resolves.
     ///
     /// This is the single user-facing "install the update" entry point. It deliberately runs a
@@ -44,8 +52,8 @@ extension UpdateController {
             domain: UpdateStateModel.updateErrorDomain,
             code: UpdateStateModel.installDidNotStartCode,
             userInfo: [NSLocalizedDescriptionKey: String(
-                localized: "update.error.didNotStart.message",
-                defaultValue: "cmux couldn’t start the update. Check your internet connection and try again."
+                localized: "update.error.didNotStart.recovery.message",
+                defaultValue: "cmux couldn’t start the update. Try again, or download the latest version below."
             )]
         )
         let errorState = UpdateState.error(.init(
@@ -86,6 +94,7 @@ extension UpdateController {
                 )
                 // Publish ownership before invoking Sparkle because its callbacks may be
                 // synchronous. The pill stays visible until download or a retryable error.
+                installWatchdog.arm { [weak self] in self?.fireInstallWatchdogIfStalled() }
                 model.setState(.startingDownload)
                 available.reply.consume(.install, source: .installAttempt)
             } else if case .updateAvailable(let available) = model.state,

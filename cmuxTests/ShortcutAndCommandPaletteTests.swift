@@ -2017,6 +2017,42 @@ final class UpdateChannelSettingsTests: XCTestCase {
 }
 
 
+@MainActor
+final class UpdateCommandPaletteEntrypointTests: XCTestCase {
+    func testUpdateCmuxIsPrimaryVisibleContribution() {
+        let contributions = ContentView.commandPaletteUpdateCommandContributions()
+        XCTAssertEqual(
+            contributions.map(\.commandId),
+            ["palette.attemptUpdate", "palette.checkForUpdates"]
+        )
+        XCTAssertEqual(
+            contributions[0].title(CommandPaletteContextSnapshot()),
+            String(localized: "command.updateCmux.title", defaultValue: "Update cmux")
+        )
+        XCTAssertTrue(contributions[0].keywords.contains("latest"))
+    }
+
+    func testUpdateCmuxHandlerDispatchesFreshLatestVersionAction() {
+        var registry = CommandPaletteHandlerRegistry()
+        var checkCount = 0
+        var legacyApplyCount = 0
+        var attemptCount = 0
+        ContentView.registerUpdateCommandHandlers(
+            &registry,
+            checkForUpdates: { checkCount += 1 },
+            applyLegacyUpdate: { legacyApplyCount += 1 },
+            attemptUpdate: { attemptCount += 1 }
+        )
+
+        registry.handler(for: "palette.attemptUpdate")?()
+
+        XCTAssertEqual(attemptCount, 1)
+        XCTAssertEqual(checkCount, 0)
+        XCTAssertEqual(legacyApplyCount, 0)
+    }
+}
+
+
 final class UpdateSettingsTests: XCTestCase {
     func testApplyEnablesAutomaticChecksAndDailySchedule() {
         let defaults = makeDefaults()
@@ -2029,7 +2065,7 @@ final class UpdateSettingsTests: XCTestCase {
         XCTAssertTrue(defaults.bool(forKey: UpdateSettings.migrationKey))
     }
 
-    func testApplyRepairsLegacyDisabledAutomaticChecksOnce() {
+    func testApplyRepairsLegacyChecksAndDisablesCapturedAutomaticInstalls() {
         let defaults = makeDefaults()
         defaults.set(false, forKey: UpdateSettings.automaticChecksKey)
         defaults.set(0, forKey: UpdateSettings.scheduledCheckIntervalKey)
@@ -2039,7 +2075,7 @@ final class UpdateSettingsTests: XCTestCase {
 
         XCTAssertTrue(defaults.bool(forKey: UpdateSettings.automaticChecksKey))
         XCTAssertEqual(defaults.double(forKey: UpdateSettings.scheduledCheckIntervalKey), UpdateSettings().scheduledCheckInterval)
-        XCTAssertTrue(defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
+        XCTAssertFalse(defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
 
         defaults.set(false, forKey: UpdateSettings.automaticChecksKey)
         UpdateSettings().apply(to: defaults)

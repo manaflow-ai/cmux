@@ -2887,6 +2887,20 @@ struct ContentView: View {
             toggleCommandPalette()
         })
 
+#if DEBUG
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteQuerySetRequested)) { notification in
+            guard isCommandPalettePresented, case .commands = commandPaletteMode else { return }
+            let requestedWindow = notification.object as? NSWindow
+            guard Self.shouldHandleCommandPaletteRequest(
+                observedWindow: observedWindow,
+                requestedWindow: requestedWindow,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow
+            ), let query = notification.userInfo?["query"] as? String else { return }
+            commandPaletteQuery = query
+        })
+#endif
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteRequested)) { notification in
             let requestedWindow = notification.object as? NSWindow
             guard Self.shouldHandleCommandPaletteRequest(
@@ -6819,6 +6833,39 @@ struct ContentView: View {
         "ios", "ipados", "iphone", "ipad", "phone", "tablet", "qr",
     ]
 
+    static func commandPaletteUpdateCommandContributions() -> [CommandPaletteCommandContribution] {
+        let constant: (String) -> (CommandPaletteContextSnapshot) -> String = { value in
+            { _ in value }
+        }
+        return [
+            CommandPaletteCommandContribution(
+                commandId: "palette.attemptUpdate",
+                title: constant(String(localized: "command.updateCmux.title", defaultValue: "Update cmux")),
+                subtitle: constant(String(localized: "command.attemptUpdate.subtitle", defaultValue: "Global")),
+                keywords: ["update", "upgrade", "install", "latest", "release", "check"]
+            ),
+            CommandPaletteCommandContribution(
+                commandId: "palette.checkForUpdates",
+                title: constant(String(localized: "command.checkForUpdates.title", defaultValue: "Check for Updates")),
+                subtitle: constant(String(localized: "command.checkForUpdates.subtitle", defaultValue: "Global")),
+                keywords: ["check", "inspect", "update", "upgrade", "release"]
+            ),
+        ]
+    }
+
+    static func registerUpdateCommandHandlers(
+        _ registry: inout CommandPaletteHandlerRegistry,
+        checkForUpdates: @escaping () -> Void,
+        applyLegacyUpdate: @escaping () -> Void,
+        attemptUpdate: @escaping () -> Void
+    ) {
+        registry.register(commandId: "palette.checkForUpdates", handler: checkForUpdates)
+        // Keep the old identifier runnable for saved/custom integrations, but do not contribute it
+        // to search results. All visible install actions use the fresh latest-version entrypoint.
+        registry.register(commandId: "palette.applyUpdateIfAvailable", handler: applyLegacyUpdate)
+        registry.register(commandId: "palette.attemptUpdate", handler: attemptUpdate)
+    }
+
     private func commandPaletteCommandContributions() -> [CommandPaletteCommandContribution] {
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
             { _ in value }
@@ -7179,31 +7226,7 @@ struct ContentView: View {
                 when: { !$0.bool(CommandPaletteContextKeys.defaultTerminalIsDefault) }
             )
         )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.checkForUpdates",
-                title: constant(String(localized: "command.checkForUpdates.title", defaultValue: "Check for Updates")),
-                subtitle: constant(String(localized: "command.checkForUpdates.subtitle", defaultValue: "Global")),
-                keywords: ["update", "upgrade", "release"]
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.applyUpdateIfAvailable",
-                title: constant(String(localized: "command.applyUpdateIfAvailable.title", defaultValue: "Apply Update (If Available)")),
-                subtitle: constant(String(localized: "command.applyUpdateIfAvailable.subtitle", defaultValue: "Global")),
-                keywords: ["apply", "install", "update", "available"],
-                when: { $0.bool(CommandPaletteContextKeys.updateHasAvailable) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.attemptUpdate",
-                title: constant(String(localized: "command.attemptUpdate.title", defaultValue: "Attempt Update")),
-                subtitle: constant(String(localized: "command.attemptUpdate.subtitle", defaultValue: "Global")),
-                keywords: ["attempt", "check", "update", "upgrade", "release"]
-            )
-        )
+        contributions.append(contentsOf: Self.commandPaletteUpdateCommandContributions())
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.restartSocketListener",
@@ -8301,15 +8324,12 @@ struct ContentView: View {
         registry.register(commandId: "palette.makeDefaultTerminal") {
             DefaultTerminalUserAction.setAsDefault(debugSource: "palette.makeDefaultTerminal")
         }
-        registry.register(commandId: "palette.checkForUpdates") {
-            AppDelegate.shared?.checkForUpdates(nil)
-        }
-        registry.register(commandId: "palette.applyUpdateIfAvailable") {
-            AppDelegate.shared?.applyUpdateIfAvailable(nil)
-        }
-        registry.register(commandId: "palette.attemptUpdate") {
-            AppDelegate.shared?.attemptUpdate(nil)
-        }
+        Self.registerUpdateCommandHandlers(
+            &registry,
+            checkForUpdates: { AppDelegate.shared?.checkForUpdates(nil) },
+            applyLegacyUpdate: { AppDelegate.shared?.applyUpdateIfAvailable(nil) },
+            attemptUpdate: { AppDelegate.shared?.attemptUpdate(nil) }
+        )
         registry.register(commandId: "palette.restartSocketListener") {
             AppDelegate.shared?.restartSocketListener(nil)
         }
