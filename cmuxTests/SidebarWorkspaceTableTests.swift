@@ -251,6 +251,7 @@ struct SidebarWorkspaceTableTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.contentView = container
         controller.apply(
             rows: [makeRowConfiguration(workspaceId: workspaceId)],
@@ -303,6 +304,7 @@ struct SidebarWorkspaceTableTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.contentView = container
         var plannedPoints: [CGPoint] = []
         var plannedTargetCounts: [Int] = []
