@@ -1228,6 +1228,63 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn established_relay_circuit_treats_retryable_error_as_carrier_loss() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = Url::parse(&format!("ws://{}", listener.local_addr().unwrap())).unwrap();
+        let circuit = CircuitId("retryable-error-circuit".into());
+        let lane = LaneToken("retryable-error-lane".into());
+        let server_circuit = circuit.clone();
+        let server_lane = lane.clone();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let (mut socket, authorization) = accept_with_authorization(stream).await;
+            assert_eq!(authorization, "Bearer join-ticket");
+            assert_eq!(
+                receive_test_control(&mut socket).await,
+                RelayControl::Join {
+                    protocol: REMOTE_PROTOCOL_VERSION,
+                    slot: "test-slot".into(),
+                    circuit: server_circuit.clone(),
+                    lane: server_lane.clone(),
+                    generation: 4,
+                    ticket: "join-ticket".into(),
+                    role: RelayRole::Client,
+                }
+            );
+            send_test_control(
+                &mut socket,
+                &RelayControl::Ready { circuit: server_circuit, lane: server_lane, generation: 4 },
+            )
+            .await;
+            send_test_control(
+                &mut socket,
+                &RelayControl::Error {
+                    code: "peer-disconnected".into(),
+                    message: "peer disconnected".into(),
+                    retryable: true,
+                },
+            )
+            .await;
+        });
+
+        let link = join_circuit(
+            &endpoint,
+            "test-slot",
+            RelayRole::Client,
+            circuit,
+            lane,
+            4,
+            "join-ticket".into(),
+            64,
+            Duration::from_secs(1),
+        )
+        .await
+        .unwrap();
+        assert!(matches!(link.receive().await, Err(crate::link::LinkError::Transport(_))));
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
     async fn cancelling_registration_startup_closes_its_spawned_control_loop() {
         use crate::identity::AuthDatabase;
         use crate::session::SessionLimits;

@@ -650,153 +650,176 @@ async fn native_relay_recovers_after_every_carrier_is_dropped() {
     relay_task.abort();
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 async fn native_relay_recovers_concurrent_clients_and_persistent_streams() {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let relay_address = listener.local_addr().unwrap();
-    let relay = Relay::new(RelayConfig { allow_open: true, ..RelayConfig::default() }).unwrap();
-    let (listener, router) = relay.server_parts(listener);
-    let relay_task = tokio::spawn(async move {
-        axum::serve(listener, router).await.unwrap();
-    });
-    let proxy = DropProxy::start(relay_address).await;
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let relay_address = listener.local_addr().unwrap();
+            let relay =
+                Relay::new(RelayConfig { allow_open: true, ..RelayConfig::default() }).unwrap();
+            let (listener, router) = relay.server_parts(listener);
+            let relay_task = tokio::spawn(async move {
+                axum::serve(listener, router).await.unwrap();
+            });
+            let proxy = DropProxy::start(relay_address).await;
 
-    let state = tempdir().unwrap();
-    let auth = AuthDatabase::load_or_create(state.path(), "relay-concurrent", false).unwrap();
-    let (daemon, mut accepted) =
-        cmux_remote::daemon::RemoteDaemon::new(auth.clone(), SessionLimits::default());
-    let endpoint = Url::parse(&format!("relay+ws://{}", proxy.address)).unwrap();
-    let registration = register_relay_daemon(
-        daemon,
-        RelayDaemonConfig {
-            endpoint: endpoint.clone(),
-            slot: "concurrent-slot".into(),
-            ticket: "open-daemon-ticket".into(),
-            maximum_frame_bytes: 65_535,
-            control_timeout: Duration::from_secs(1),
-        },
-    )
-    .await
-    .unwrap();
-    let provider = RelayProvider::new(RelayClientConfig {
-        slot: "concurrent-slot".into(),
-        ticket: "open-client-ticket".into(),
-        maximum_frame_bytes: 65_535,
-        control_timeout: Duration::from_secs(1),
-    })
-    .unwrap();
-
-    let mut clients = Vec::new();
-    let mut client_services = Vec::new();
-    let mut server_services = Vec::new();
-    let mut client_streams = Vec::new();
-    let mut server_streams = Vec::new();
-    for index in 0..4_u8 {
-        let invitation = auth.create_invitation(Duration::from_secs(60), vec![]).await.unwrap();
-        let approver = tokio::spawn({
-            let auth = auth.clone();
-            async move {
-                let pending = auth.wait_for_pending(Duration::from_secs(5)).await.unwrap();
-                auth.approve(&pending[0].invitation_id).await.unwrap();
-            }
-        });
-        let session = SessionId([60 + index; 16]);
-        let group = provider
-            .connect(ConnectRequest {
+            let state = tempdir().unwrap();
+            let auth =
+                AuthDatabase::load_or_create(state.path(), "relay-concurrent", false).unwrap();
+            let (daemon, mut accepted) =
+                cmux_remote::daemon::RemoteDaemon::new(auth.clone(), SessionLimits::default());
+            let daemon_for_reregistration = daemon.clone();
+            let endpoint = Url::parse(&format!("relay+ws://{}", proxy.address)).unwrap();
+            let daemon_config = RelayDaemonConfig {
                 endpoint: endpoint.clone(),
-                session,
-                lane_policy: LanePolicy::Auto,
-                routing: Default::default(),
+                slot: "concurrent-slot".into(),
+                ticket: "open-daemon-ticket".into(),
+                maximum_frame_bytes: 65_535,
+                control_timeout: Duration::from_secs(1),
+            };
+            let mut registration =
+                register_relay_daemon(daemon, daemon_config.clone()).await.unwrap();
+            let provider = RelayProvider::new(RelayClientConfig {
+                slot: "concurrent-slot".into(),
+                ticket: "open-client-ticket".into(),
+                maximum_frame_bytes: 65_535,
+                control_timeout: Duration::from_secs(1),
             })
-            .await
             .unwrap();
-        let invitation_secret = invitation.secret_bytes().unwrap();
-        let client = ClientConnection::connect(
-            group,
-            ClientConnectionConfig {
-                identity: StaticIdentity::generate().unwrap(),
-                expected_daemon: Some(auth.identity().public_key()),
-                auth: ClientAuthMode::Invitation {
-                    id: invitation.id,
-                    secret: Zeroizing::new(invitation_secret),
-                },
-                device_name: format!("relay-concurrent-{index}"),
-                session,
-                lane_policy: LanePolicy::Auto,
-                limits: SessionLimits::default(),
-                reconnect: ReconnectPolicy {
-                    initial_delay: Duration::from_millis(10),
-                    maximum_delay: Duration::from_millis(50),
-                    attempt_timeout: Duration::from_secs(1),
-                    full_jitter: false,
-                    heartbeat_interval: None,
-                    heartbeat_timeout: Duration::from_millis(50),
-                    maximum_attempts: Some(100),
-                },
-            },
-        )
-        .await
-        .unwrap();
-        approver.await.unwrap();
-        let server =
-            tokio::time::timeout(Duration::from_secs(5), accepted.recv()).await.unwrap().unwrap();
-        let client_mux = ServiceMultiplexer::new(client.clone(), EndpointRole::Client);
-        let server_mux = ServiceMultiplexer::new(server, EndpointRole::Daemon);
-        let client_stream = client_mux.open(Service::WorkspaceRpc, BTreeMap::new()).await.unwrap();
-        let server_stream = server_mux.accept().await.unwrap().unwrap().stream;
-        client_stream.send(Bytes::from_static(b"before concurrent cut")).await.unwrap();
-        let before = server_stream.receive().await.unwrap().unwrap();
-        assert_eq!(before.payload, b"before concurrent cut".as_slice());
-        clients.push(client);
-        client_services.push(client_mux);
-        server_services.push(server_mux);
-        client_streams.push(client_stream);
-        server_streams.push(server_stream);
-    }
+            let services = DaemonServices::new(WorkspaceService::new(), None);
 
-    proxy.wait_for_active(29).await;
-    proxy.drop_all();
-    let deadline = tokio::time::Instant::now() + RECONNECT_TEST_TIMEOUT;
-    let recovered_generations = loop {
-        let mut snapshots = Vec::with_capacity(clients.len());
-        for client in &clients {
-            snapshots.push(client.snapshot().await);
-        }
-        if snapshots.iter().all(|snapshot| {
-            snapshot.state == ConnectionState::Connected
-                && (1..=MAXIMUM_EXPECTED_RECONNECT_GENERATION).contains(&snapshot.generation)
-        }) {
-            break snapshots.iter().map(|snapshot| snapshot.generation).collect::<Vec<_>>();
-        }
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "concurrent relay clients did not recover exactly once: {snapshots:#?}"
-        );
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    };
+            let mut clients = Vec::new();
+            let mut client_services = Vec::new();
+            let mut workspace_clients = Vec::new();
+            let mut service_tasks = Vec::new();
+            let client_identities =
+                [StaticIdentity::generate().unwrap(), StaticIdentity::generate().unwrap()];
+            for index in 0..5_u8 {
+                let invitation =
+                    auth.create_invitation(Duration::from_secs(60), vec![]).await.unwrap();
+                let approver = tokio::spawn({
+                    let auth = auth.clone();
+                    async move {
+                        let pending = auth.wait_for_pending(Duration::from_secs(5)).await.unwrap();
+                        auth.approve(&pending[0].invitation_id).await.unwrap();
+                    }
+                });
+                let session = SessionId([60 + index; 16]);
+                let group = provider
+                    .connect(ConnectRequest {
+                        endpoint: endpoint.clone(),
+                        session,
+                        lane_policy: LanePolicy::Auto,
+                        routing: Default::default(),
+                    })
+                    .await
+                    .unwrap();
+                let invitation_secret = invitation.secret_bytes().unwrap();
+                let client = ClientConnection::connect(
+                    group,
+                    ClientConnectionConfig {
+                        identity: client_identities[usize::from(index % 2)].clone(),
+                        expected_daemon: Some(auth.identity().public_key()),
+                        auth: ClientAuthMode::Invitation {
+                            id: invitation.id,
+                            secret: Zeroizing::new(invitation_secret),
+                        },
+                        device_name: format!("relay-concurrent-{index}"),
+                        session,
+                        lane_policy: LanePolicy::Auto,
+                        limits: SessionLimits::default(),
+                        reconnect: ReconnectPolicy {
+                            initial_delay: Duration::from_millis(100),
+                            maximum_delay: Duration::from_millis(500),
+                            attempt_timeout: Duration::from_secs(10),
+                            full_jitter: false,
+                            heartbeat_interval: Some(Duration::from_millis(500)),
+                            heartbeat_timeout: Duration::from_millis(1_500),
+                            maximum_attempts: None,
+                        },
+                    },
+                )
+                .await
+                .unwrap();
+                approver.await.unwrap();
+                let server = tokio::time::timeout(Duration::from_secs(5), accepted.recv())
+                    .await
+                    .unwrap()
+                    .unwrap();
+                service_tasks.push(tokio::task::spawn_local({
+                    let services = services.clone();
+                    async move { services.serve_client(server).await }
+                }));
+                let client_mux = ServiceMultiplexer::new(client.clone(), EndpointRole::Client);
+                let workspace = WorkspaceClient::connect(client_mux.clone()).await.unwrap();
+                assert!(matches!(
+                    workspace.request(WorkspaceRequest::ListWorkspaces).await.unwrap(),
+                    WorkspaceResponse::Workspaces { .. }
+                ));
+                clients.push(client);
+                client_services.push(client_mux);
+                workspace_clients.push(workspace);
+            }
 
-    for (client_stream, server_stream) in client_streams.iter().zip(&server_streams) {
-        client_stream.send(Bytes::from_static(b"after concurrent cut")).await.unwrap();
-        let after = tokio::time::timeout(Duration::from_secs(2), server_stream.receive())
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap();
-        assert_eq!(after.payload, b"after concurrent cut".as_slice());
-    }
+            proxy.wait_for_active(36).await;
+            registration.shutdown().await;
+            proxy.drop_all();
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            registration =
+                register_relay_daemon(daemon_for_reregistration, daemon_config).await.unwrap();
+            let deadline = tokio::time::Instant::now() + RECONNECT_TEST_TIMEOUT;
+            let recovered_generations = loop {
+                let mut snapshots = Vec::with_capacity(clients.len());
+                for client in &clients {
+                    snapshots.push(client.snapshot().await);
+                }
+                if snapshots.iter().all(|snapshot| {
+                    snapshot.state == ConnectionState::Connected
+                        && (1..=MAXIMUM_EXPECTED_RECONNECT_GENERATION)
+                            .contains(&snapshot.generation)
+                }) {
+                    break snapshots.iter().map(|snapshot| snapshot.generation).collect::<Vec<_>>();
+                }
+                assert!(
+                    tokio::time::Instant::now() < deadline,
+                    "concurrent relay clients did not recover exactly once: {snapshots:#?}"
+                );
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            };
 
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    for (client, expected_generation) in clients.iter().zip(&recovered_generations) {
-        let snapshot = client.snapshot().await;
-        assert_eq!(snapshot.state, ConnectionState::Connected);
-        assert_eq!(snapshot.generation, *expected_generation);
-    }
+            for workspace in &workspace_clients {
+                assert!(matches!(
+                    tokio::time::timeout(
+                        Duration::from_secs(2),
+                        workspace.request(WorkspaceRequest::ListWorkspaces),
+                    )
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                    WorkspaceResponse::Workspaces { .. }
+                ));
+            }
 
-    for client in clients {
-        client.close().await.unwrap();
-    }
-    drop(client_services);
-    drop(server_services);
-    registration.shutdown().await;
-    relay_task.abort();
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            for (client, expected_generation) in clients.iter().zip(&recovered_generations) {
+                let snapshot = client.snapshot().await;
+                assert_eq!(snapshot.state, ConnectionState::Connected);
+                assert_eq!(snapshot.generation, *expected_generation);
+            }
+
+            drop(workspace_clients);
+            for client_service in client_services {
+                client_service.shutdown().await;
+            }
+            for client in clients {
+                client.close().await.unwrap();
+            }
+            for task in service_tasks {
+                let _ = tokio::time::timeout(Duration::from_secs(2), task).await;
+            }
+            registration.shutdown().await;
+            relay_task.abort();
+        })
+        .await;
 }
