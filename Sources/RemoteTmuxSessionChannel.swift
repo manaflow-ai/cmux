@@ -279,6 +279,9 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
     @discardableResult func sendTracked(_ command: String, completion: @escaping (Bool) -> Void) -> Bool {
         underlying.sendTracked(command, completion: completion)
     }
+    // Pane-seed transactions live on the shared stream — it owns the capture
+    // boundary and the ids that track it — so the channel returns that id unchanged
+    // rather than minting one a caller couldn't correlate with anything.
     @discardableResult
     func repaintPaneVisibleScreen(paneId: Int) -> UUID? {
         underlying.repaintPaneVisibleScreen(paneId: paneId)
