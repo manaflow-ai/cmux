@@ -9,6 +9,12 @@ import Foundation
 @MainActor
 struct RemoteTmuxSessionObservers {
     var onPaneOutput: ((_ paneId: Int, _ data: Data) -> Void)?
+    /// Delivers an authoritative pane snapshot together with the ordered live
+    /// output that brackets its capture boundary. A consumer that never receives
+    /// this renders only the live stream, so a pane it mounted mid-session — or
+    /// re-mounted after a reconnect — stays blank until something happens to
+    /// redraw it.
+    var onPaneSeed: ((_ paneId: Int, _ seed: RemoteTmuxPaneSeed) -> Void)?
     var onPaneCwd: ((_ paneId: Int, _ path: String) -> Void)?
     var onPaneReflow: ((_ paneId: Int, _ noReflow: Bool) -> Void)?
     var onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)?
@@ -22,6 +28,7 @@ struct RemoteTmuxSessionObservers {
 
     init(
         onPaneOutput: ((_ paneId: Int, _ data: Data) -> Void)? = nil,
+        onPaneSeed: ((_ paneId: Int, _ seed: RemoteTmuxPaneSeed) -> Void)? = nil,
         onPaneCwd: ((_ paneId: Int, _ path: String) -> Void)? = nil,
         onPaneReflow: ((_ paneId: Int, _ noReflow: Bool) -> Void)? = nil,
         onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)? = nil,
@@ -32,6 +39,7 @@ struct RemoteTmuxSessionObservers {
         onConnectionStateChanged: ((RemoteTmuxConnectionState) -> Void)? = nil
     ) {
         self.onPaneOutput = onPaneOutput
+        self.onPaneSeed = onPaneSeed
         self.onPaneCwd = onPaneCwd
         self.onPaneReflow = onPaneReflow
         self.onActivePaneChanged = onActivePaneChanged
@@ -142,6 +150,15 @@ protocol RemoteTmuxSessionSource: AnyObject {
     func queryPaneActivity(paneId: Int, completion: @escaping ([Int: RemoteTmuxPaneForegroundState]?) -> Void)
     /// Pastes text into a pane.
     @discardableResult func pastePane(paneId: Int, text: String) -> Bool
+
+    /// Appends one event to the transport's diagnostic ring, the buffer
+    /// `remote.tmux.state` reads back. Consumer-side events belong in the same
+    /// ordered buffer as the transport's own, because reading a seed failure means
+    /// following one pane across the boundary between them, and a separate consumer
+    /// log would lose the interleaving that shows which side gave up first. A shared
+    /// stream carries several sessions' events, so an implementation serving one
+    /// session of many tags them with its identity.
+    func record(_ event: String)
 }
 
 /// GA: one control connection *is* one session, so the connection is its own source.
@@ -159,6 +176,7 @@ extension RemoteTmuxControlConnection: RemoteTmuxSessionSource {
     func addObserver(_ observers: RemoteTmuxSessionObservers) -> UUID {
         addObserver(
             onPaneOutput: observers.onPaneOutput,
+            onPaneSeed: observers.onPaneSeed,
             onPaneCwd: observers.onPaneCwd,
             onPaneReflow: observers.onPaneReflow,
             onActivePaneChanged: observers.onActivePaneChanged,
