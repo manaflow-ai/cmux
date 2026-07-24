@@ -24042,7 +24042,7 @@ struct CMUXCLI {
                 surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
                 telemetry: telemetry
             )
-            let shouldPromoteActiveSession = !isForkSessionLaunch && (isClearSessionStart || canReplaceStoppedSession)
+            let shouldEstablishActiveSession = !isForkSessionLaunch && (isClearSessionStart || canReplaceStoppedSession)
             if let sessionId = parsedInput.sessionId, !isForkSessionLaunch {
                 // Non-clear SessionStart can arrive late from startup/resume/compact
                 // after /clear, so only /clear or replacement of a stopped owner
@@ -24056,11 +24056,11 @@ struct CMUXCLI {
                     pid: claudePid,
                     launchCommand: launchCommand,
                     isRestorable: false,
-                    agentLifecycle: shouldPromoteActiveSession ? .running : .unknown,
-                    markActive: shouldPromoteActiveSession,
+                    agentLifecycle: .unknown,
+                    markActive: shouldEstablishActiveSession,
                     turnId: parsedInput.turnId
                 )
-                if shouldPromoteActiveSession {
+                if shouldEstablishActiveSession {
                     publishAgentSurfaceResumeBinding(
                         client: client,
                         workspaceId: workspaceId,
@@ -24076,14 +24076,14 @@ struct CMUXCLI {
                 }
             }
             // Register PID for stale-session detection and OSC suppression.
-            // Startup/resume SessionStart remains non-visible; /clear is a
-            // new active boundary and must keep the sidebar Running before
-            // any late pre-clear Stop can write Idle.
+            // Every SessionStart remains non-visible until a prompt begins;
+            // /clear still establishes the new active ownership boundary so
+            // a late pre-clear Stop cannot write Idle.
             // A pre-prompt fork reports the PARENT session id, not an identity
             // it owns, so it cannot register a runtime generation yet. Its
             // first prompt carries the minted fork id and registers there.
             let shouldRegisterPID = !isForkSessionLaunch && (
-                shouldPromoteActiveSession ||
+                shouldEstablishActiveSession ||
                 shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
                     parsedInput: parsedInput,
@@ -24105,21 +24105,6 @@ struct CMUXCLI {
             }
             if isClearSessionStart, !suppressVisibleMutations {
                 _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
-                setAgentLifecycle(
-                    client: client,
-                    key: Self.claudeCodeStatusKey,
-                    lifecycle: .running,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId
-                )
-                try setClaudeStatus(
-                    client: client,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    value: "Running",
-                    icon: "bolt.fill",
-                    color: "#4C8DFF"
-                )
             }
             printClaudeHookAck()
 

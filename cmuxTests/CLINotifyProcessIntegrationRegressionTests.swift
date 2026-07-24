@@ -19,7 +19,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             context.state.commands.contains { $0 == "clear_notifications --tab=\(context.workspaceId) --panel=\(context.surfaceId)" },
             "Expected clear SessionStart to clear only the current pane, saw \(context.state.commands)"
@@ -38,20 +38,17 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             },
             "Launching Claude without submitting a prompt must not project a Running lifecycle, saw \(context.state.commands)"
         )
-        let resumeClearRequests = context.state.commands.compactMap { command -> [String: Any]? in
+        let resumeBindingRequests = context.state.commands.compactMap { command -> [String: Any]? in
             guard let payload = jsonObject(command),
-                  payload["method"] as? String == "surface.resume.clear" else {
+                  payload["method"] as? String == "surface.resume.set" else {
                 return nil
             }
             return payload["params"] as? [String: Any]
         }
-        let resumeClear = try XCTUnwrap(resumeClearRequests.first)
-        XCTAssertEqual(resumeClear["surface_id"] as? String, context.surfaceId)
-        XCTAssertEqual(resumeClear["source"] as? String, "agent-hook")
-        XCTAssertNil(
-            resumeClear["checkpoint_id"],
-            "An accepted /clear session replaces any prior agent-hook binding on the surface."
-        )
+        let resumeBinding = try XCTUnwrap(resumeBindingRequests.first)
+        XCTAssertEqual(resumeBinding["surface_id"] as? String, context.surfaceId)
+        XCTAssertEqual(resumeBinding["source"] as? String, "agent-hook")
+        XCTAssertEqual(resumeBinding["checkpoint_id"] as? String, "clear-session")
     }
 
     func testClaudeSessionStartRecordIsNotRestorableUntilPrompt() throws {
@@ -507,48 +504,56 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(refreshedBaseCommit, promptCommit)
     }
 
-    func testClaudeStopFromPreviousSessionDoesNotClobberClearRunningStatus() throws {
+    func testClaudeStopFromPreviousSessionDoesNotClobberClearOwnershipBoundary() throws {
         let context = try makeClaudeHookContext(name: "claude-clear-stale-stop")
         defer { context.cleanup() }
-
-        let oldStart = runClaudeHook(
+        startClaudeHookMockServerAccepting(
             context: context,
-            arguments: ["hooks", "claude", "session-start"],
+            surfaceIds: [context.surfaceId],
+            connectionLimit: 32
+        )
+        func runHook(_ subcommand: String, standardInput: String) -> ProcessRunResult {
+            runClaudeHookWithoutServer(
+                context: context,
+                arguments: ["hooks", "claude", subcommand],
+                standardInput: standardInput
+            )
+        }
+
+        let oldStart = runHook(
+            "session-start",
             standardInput: #"{"session_id":"old-session","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
         )
         XCTAssertFalse(oldStart.timedOut, oldStart.stderr)
         XCTAssertEqual(oldStart.status, 0, oldStart.stderr)
 
-        let clearStart = runClaudeHook(
-            context: context,
-            arguments: ["hooks", "claude", "session-start"],
+        let clearStart = runHook(
+            "session-start",
             standardInput: #"{"session_id":"clear-session","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
         )
         XCTAssertFalse(clearStart.timedOut, clearStart.stderr)
         XCTAssertEqual(clearStart.status, 0, clearStart.stderr)
 
-        let lateOldStart = runClaudeHook(
-            context: context,
-            arguments: ["hooks", "claude", "session-start"],
+        let lateOldStart = runHook(
+            "session-start",
             standardInput: #"{"session_id":"old-session","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
         )
         XCTAssertFalse(lateOldStart.timedOut, lateOldStart.stderr)
         XCTAssertEqual(lateOldStart.status, 0, lateOldStart.stderr)
 
-        let staleStop = runClaudeHook(
-            context: context,
-            arguments: ["hooks", "claude", "stop"],
+        let staleStop = runHook(
+            "stop",
             standardInput: #"{"session_id":"old-session","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"old turn finished late"}"#
         )
         XCTAssertFalse(staleStop.timedOut, staleStop.stderr)
         XCTAssertEqual(staleStop.status, 0, staleStop.stderr)
 
-        XCTAssertTrue(
+        XCTAssertFalse(
             context.state.commands.contains {
                 $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
                     && $0.contains("--panel=\(context.surfaceId)")
             },
-            "Expected clear SessionStart to mark Claude running, saw \(context.state.commands)"
+            "Expected clear SessionStart to remain non-visible until a prompt begins, saw \(context.state.commands)"
         )
         XCTAssertFalse(
             context.state.commands.contains {
@@ -571,43 +576,50 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     func testClaudePromptSubmitFromNewSessionCanReplaceStoppedSession() throws {
         let context = try makeClaudeHookContext(name: "claude-new-session-after-stop")
         defer { context.cleanup() }
-
-        let oldStart = runClaudeHook(
+        startClaudeHookMockServerAccepting(
             context: context,
-            arguments: ["hooks", "claude", "session-start"],
+            surfaceIds: [context.surfaceId],
+            connectionLimit: 32
+        )
+        func runHook(_ subcommand: String, standardInput: String) -> ProcessRunResult {
+            runClaudeHookWithoutServer(
+                context: context,
+                arguments: ["hooks", "claude", subcommand],
+                standardInput: standardInput
+            )
+        }
+
+        let oldStart = runHook(
+            "session-start",
             standardInput: #"{"session_id":"old-session","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
         )
         XCTAssertFalse(oldStart.timedOut, oldStart.stderr)
         XCTAssertEqual(oldStart.status, 0, oldStart.stderr)
 
-        let oldPrompt = runClaudeHook(
-            context: context,
-            arguments: ["hooks", "claude", "prompt-submit"],
+        let oldPrompt = runHook(
+            "prompt-submit",
             standardInput: #"{"session_id":"old-session","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"PromptSubmit"}"#
         )
         XCTAssertFalse(oldPrompt.timedOut, oldPrompt.stderr)
         XCTAssertEqual(oldPrompt.status, 0, oldPrompt.stderr)
 
-        let oldStop = runClaudeHook(
-            context: context,
-            arguments: ["hooks", "claude", "stop"],
+        let oldStop = runHook(
+            "stop",
             standardInput: #"{"session_id":"old-session","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"old turn finished"}"#
         )
         XCTAssertFalse(oldStop.timedOut, oldStop.stderr)
         XCTAssertEqual(oldStop.status, 0, oldStop.stderr)
 
-        let newStart = runClaudeHook(
-            context: context,
-            arguments: ["hooks", "claude", "session-start"],
+        let newStart = runHook(
+            "session-start",
             standardInput: #"{"session_id":"new-session","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
         )
         XCTAssertFalse(newStart.timedOut, newStart.stderr)
         XCTAssertEqual(newStart.status, 0, newStart.stderr)
 
         let newPromptStart = context.state.commands.count
-        let newPrompt = runClaudeHook(
-            context: context,
-            arguments: ["hooks", "claude", "prompt-submit"],
+        let newPrompt = runHook(
+            "prompt-submit",
             standardInput: #"{"session_id":"new-session","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"PromptSubmit"}"#
         )
         XCTAssertFalse(newPrompt.timedOut, newPrompt.stderr)
@@ -1606,7 +1618,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertEqual(result.stdout, "{}\n")
         let savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
         let savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
         XCTAssertNil(
@@ -8842,7 +8854,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         standardInput: String,
         extraEnvironment: [String: String] = [:]
     ) -> ProcessRunResult {
-        let serverHandled = startMockServer(listenerFD: context.listenerFD, state: context.state, connectionCount: 8) { line in
+        let serverHandled = startMockServer(listenerFD: context.listenerFD, state: context.state, connectionCount: 4) { line in
             guard let payload = self.jsonObject(line) else {
                 return "OK"
             }

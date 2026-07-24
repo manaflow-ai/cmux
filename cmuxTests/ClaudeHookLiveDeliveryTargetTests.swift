@@ -238,12 +238,10 @@ struct ClaudeHookLiveDeliveryTargetTests {
             "Resume binding must target the pane that owns the live agent pid, not the stale tty row; params=\(resumeBinding)"
         )
         #expect(
-            commands.contains {
+            !commands.contains {
                 $0.hasPrefix("set_status claude_code Running ")
-                    && $0.contains("--tab=\(Self.liveWorkspaceId)")
-                    && $0.contains("--panel=\(Self.liveSurfaceId)")
             },
-            "Visible status must target the live pane; saw \(commands)"
+            "SessionStart must establish the live route without claiming Running; saw \(commands)"
         )
         let record = try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)
         #expect(record?["workspaceId"] as? String == Self.liveWorkspaceId)
