@@ -331,6 +331,71 @@ fn replay_preserves_an_inflight_chunked_transmission_until_its_final_chunk() {
 }
 
 #[test]
+fn replay_preserves_image_eviction_age_when_ids_sort_in_the_opposite_order() {
+    let mut source = terminal();
+    source.set_kitty_image_storage_limit(6).unwrap();
+    source.set_kitty_image_count_limit(2).unwrap();
+    source.vt_write(&kitty("a=t,t=d,f=24,i=90,s=1,v=1,q=2", "/wAA"));
+    source.vt_write(&kitty("a=t,t=d,f=24,i=10,s=1,v=1,q=2", "AP8A"));
+
+    let replay = source.vt_replay().unwrap();
+    let mut mirror = terminal();
+    mirror.set_kitty_image_storage_limit(6).unwrap();
+    mirror.set_kitty_image_count_limit(2).unwrap();
+    mirror.vt_write(&replay.bytes);
+    mirror.restore_kitty_image_aliases(&replay.kitty_image_aliases).unwrap();
+
+    let newest = kitty("a=t,t=d,f=24,i=50,s=1,v=1,q=2", "AAD/");
+    source.vt_write(&newest);
+    mirror.vt_write(&newest);
+    let image_ids = |terminal: &mut Terminal| {
+        terminal
+            .kitty_graphics_snapshot()
+            .unwrap()
+            .images
+            .iter()
+            .map(|image| image.id)
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(image_ids(&mut source), vec![10, 50]);
+    assert_eq!(image_ids(&mut mirror), image_ids(&mut source));
+}
+
+#[test]
+fn anonymous_transmission_after_replay_uses_an_unoccupied_image_id() {
+    const FIRST_AUTOMATIC_ID: u32 = 2_147_483_647;
+    let mut source = terminal();
+    source.vt_write(&kitty(&format!("a=t,t=d,f=24,i={FIRST_AUTOMATIC_ID},s=1,v=1,q=2"), "/wAA"));
+    source.vt_write(&kitty("a=t,t=d,f=24,i=7,s=1,v=1,q=2", "AP8A"));
+    let expected = source
+        .kitty_graphics_snapshot()
+        .unwrap()
+        .images
+        .iter()
+        .map(|image| (image.id, image.data.to_vec()))
+        .collect::<Vec<_>>();
+
+    let replay = source.vt_replay().unwrap();
+    let mut mirror = terminal();
+    mirror.vt_write(&replay.bytes);
+    mirror.restore_kitty_image_aliases(&replay.kitty_image_aliases).unwrap();
+    mirror.vt_write(&kitty("a=t,t=d,f=24,s=1,v=1,q=2", "AAD/"));
+
+    let snapshot = mirror.kitty_graphics_snapshot().unwrap();
+    assert_eq!(snapshot.images.len(), 3);
+    for (image_id, pixels) in expected {
+        assert_eq!(&*snapshot.image(image_id).expect("replayed image").data, pixels);
+    }
+    let anonymous = snapshot
+        .images
+        .iter()
+        .find(|image| image.id != FIRST_AUTOMATIC_ID && image.id != 7)
+        .expect("anonymous image must use an unoccupied ID");
+    assert_eq!(&*anonymous.data, &[0, 0, 255]);
+}
+
+#[test]
 fn storage_limit_bounds_retained_pixel_data() {
     let mut terminal = terminal();
     terminal.set_kitty_image_storage_limit(8).unwrap();
