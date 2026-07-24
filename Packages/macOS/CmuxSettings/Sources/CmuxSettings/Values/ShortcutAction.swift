@@ -52,9 +52,13 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case moveSurfaceToPreviousPane
     /// Moves the selected surface to the next pane in spatial order.
     case moveSurfaceToNextPane
+    /// Moves the selected surface to the adjacent pane on the left, splitting 50/50 if none exists.
     case moveSurfaceToPaneLeft
+    /// Moves the selected surface to the adjacent pane on the right, splitting 50/50 if none exists.
     case moveSurfaceToPaneRight
+    /// Moves the selected surface to the adjacent pane above, splitting 50/50 if none exists.
     case moveSurfaceToPaneUp
+    /// Moves the selected surface to the adjacent pane below, splitting 50/50 if none exists.
     case moveSurfaceToPaneDown
     case selectSurfaceByNumber
     case nextSidebarTab
