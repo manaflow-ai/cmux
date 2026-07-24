@@ -176,4 +176,146 @@ import Testing
         #expect(interpreted.characters == "n")
     }
 
+    @Test func unshiftedCodepointRecoversASCIIIdentityForC0ControlEvent() throws {
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.control],
+            timestamp: 1,
+            windowNumber: 0,
+            context: nil,
+            characters: "\u{001A}",
+            charactersIgnoringModifiers: "с",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_C)
+        ))
+
+        let codepoint = KeyboardLayout.unshiftedCodepoint(
+            for: event,
+            controlCharacterProvider: { keyCode, modifiers in
+                #expect(keyCode == UInt16(kVK_ANSI_C))
+                #expect(modifiers.isEmpty)
+                return "c"
+            }
+        )
+
+        #expect(codepoint == UnicodeScalar("c").value)
+    }
+
+    @Test func unshiftedCodepointUsesProductionKeyboardLayoutResolverForC0ControlEvent() throws {
+        let expectedText = try #require(
+            KeyboardLayout.character(forKeyCode: UInt16(kVK_ANSI_C))
+        )
+        let expectedScalar = try #require(expectedText.unicodeScalars.first)
+        #expect(expectedText.unicodeScalars.count == 1)
+        #expect(expectedScalar.value >= 0x20 && expectedScalar.value < 0x7F)
+
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.control],
+            timestamp: 1,
+            windowNumber: 0,
+            context: nil,
+            characters: "\u{001A}",
+            charactersIgnoringModifiers: "\u{001A}",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_C)
+        ))
+
+        #expect(
+            KeyboardLayout.unshiftedCodepoint(for: event) == expectedScalar.value
+        )
+    }
+
+    @Test func unshiftedCodepointPreservesAlternateASCIIKeyboardLayout() throws {
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.control],
+            timestamp: 1,
+            windowNumber: 0,
+            context: nil,
+            characters: "\u{000C}",
+            charactersIgnoringModifiers: "q",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_Q)
+        ))
+
+        let codepoint = KeyboardLayout.unshiftedCodepoint(
+            for: event,
+            controlCharacterProvider: { _, _ in "'" }
+        )
+
+        #expect(codepoint == UnicodeScalar("'").value)
+    }
+
+    @Test func unshiftedCodepointPreservesOrdinaryUnicodeLayoutIdentity() throws {
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 1,
+            windowNumber: 0,
+            context: nil,
+            characters: "с",
+            charactersIgnoringModifiers: "с",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_C)
+        ))
+        var normalizedShortcutLayout = false
+
+        let codepoint = KeyboardLayout.unshiftedCodepoint(
+            for: event,
+            controlCharacterProvider: { _, _ in
+                normalizedShortcutLayout = true
+                return "c"
+            },
+            eventCharacterProvider: { _ in "с" }
+        )
+
+        #expect(!normalizedShortcutLayout)
+        #expect(codepoint == UnicodeScalar("с").value)
+    }
+
+    @Test func keyIdentityTrackerPreservesCodepointAcrossRepeatAndRelease() {
+        var tracker = KeyboardLayoutKeyIdentityTracker()
+        let keyCode = UInt16(kVK_ANSI_C)
+        let pressCodepoint = UnicodeScalar("c").value
+        let changedLayoutCodepoint = UnicodeScalar("с").value
+
+        #expect(
+            tracker.codepointForKeyDown(
+                keyCode: keyCode,
+                resolvedCodepoint: pressCodepoint,
+                isRepeat: false
+            ) == pressCodepoint
+        )
+        #expect(
+            tracker.codepointForKeyDown(
+                keyCode: keyCode,
+                resolvedCodepoint: changedLayoutCodepoint,
+                isRepeat: true
+            ) == pressCodepoint
+        )
+        #expect(
+            tracker.codepointForKeyUp(keyCode: keyCode) == pressCodepoint
+        )
+        #expect(tracker.codepointForKeyUp(keyCode: keyCode) == nil)
+    }
+
+    @Test func keyIdentityTrackerClearsOnFocusLoss() {
+        var tracker = KeyboardLayoutKeyIdentityTracker()
+        let keyCode = UInt16(kVK_ANSI_C)
+
+        _ = tracker.codepointForKeyDown(
+            keyCode: keyCode,
+            resolvedCodepoint: UnicodeScalar("c").value,
+            isRepeat: false
+        )
+        tracker.reset()
+
+        #expect(tracker.codepointForKeyUp(keyCode: keyCode) == nil)
+    }
+
 }

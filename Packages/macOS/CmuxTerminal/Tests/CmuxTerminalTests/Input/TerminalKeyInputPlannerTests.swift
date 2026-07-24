@@ -127,6 +127,7 @@ import Testing
         ] as CFDictionary
         let sources = try #require(
             TISCreateInputSourceList(properties, true)?.takeRetainedValue()
+                as? [TISInputSource]
         )
         let modifierBits = [shiftKey, optionKey, controlKey, cmdKey]
         let modifierStates = (0..<(1 << modifierBits.count)).map { mask in
@@ -140,11 +141,7 @@ import Testing
         var checkedTranslations = 0
         var mismatches: [String] = []
 
-        for index in 0..<CFArrayGetCount(sources) {
-            let sourceObject = Unmanaged<AnyObject>
-                .fromOpaque(CFArrayGetValueAtIndex(sources, index))
-                .takeUnretainedValue()
-            let source = sourceObject as! TISInputSource
+        for source in sources {
             guard let layoutDataPointer = TISGetInputSourceProperty(
                 source,
                 kTISPropertyUnicodeKeyLayoutData

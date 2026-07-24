@@ -305,6 +305,31 @@ struct CJKIMEMarkedSelectionTests {
         #expect(view.keyTextAccumulatorForTesting == [text])
     }
 
+    @Test func insertTextCommitDoesNotInferStateFromReplacementRange() {
+        let replacementRanges = [
+            NSRange(location: NSNotFound, length: 0),
+            NSRange(location: 0, length: 0),
+            NSRange(location: 0, length: 7),
+            NSRange(location: 99, length: 99),
+        ]
+
+        for replacementRange in replacementRanges {
+            let view = GhosttyNSView(frame: .zero)
+            view.setKeyTextAccumulatorForTesting([])
+            view.setMarkedText(
+                "preedit",
+                selectedRange: NSRange(location: 7, length: 0),
+                replacementRange: NSRange(location: NSNotFound, length: 0)
+            )
+
+            view.insertText("committed", replacementRange: replacementRange)
+
+            #expect(!view.hasMarkedText())
+            #expect(view.keyTextAccumulatorForTesting == ["committed"])
+            view.setKeyTextAccumulatorForTesting(nil)
+        }
+    }
+
     private func makeHostedTerminalWindow() throws -> HostedTerminalWindow {
         _ = NSApplication.shared
 
