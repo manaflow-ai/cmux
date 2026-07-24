@@ -484,6 +484,25 @@ struct AgentResumeArgvTests {
             ).contains("'CMUX_CUSTOM_CODEX_PATH=/opt/company/bin/codex'"),
             "A captured absolute executable remains authoritative when env changes PATH."
         )
+        #expect(
+            AgentResumeArgv.renderingCodexWrapperExecutable(
+                parts: [
+                    "/opt/homebrew/bin/env",
+                    "CODEX_HOME=/tmp/codex",
+                    "/opt/company/bin/codex",
+                    "resume",
+                    "SID",
+                ],
+                quote: quote
+            ) == [
+                "'/opt/homebrew/bin/env'",
+                "'CODEX_HOME=/tmp/codex'",
+                "'/opt/company/bin/codex'",
+                "'resume'",
+                "'SID'",
+            ],
+            "A custom env implementation must remain byte-for-byte portable."
+        )
     }
 
     @Test("Absolute Codex wrapper fallback executes the captured binary")
