@@ -17,9 +17,9 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_core::{
-    BrowserSource, BrowserStatus, Direction, MuxEvent, Node, PairingChallenge, PaneId, Rect,
-    SplitDir, SplitEdge, SplitId, SurfaceId, SurfaceKind, WorkspaceId, exact_split_for_pane_edge,
-    layout_screen, split_sides, zellij_default_pane_layout,
+    BrowserSource, BrowserStatus, Direction, GuardedMouseEncode, MuxEvent, Node, PairingChallenge,
+    PaneId, PointerSemanticProbe, Rect, SplitDir, SplitEdge, SplitId, SurfaceId, SurfaceKind,
+    WorkspaceId, exact_split_for_pane_edge, layout_screen, split_sides, zellij_default_pane_layout,
 };
 use crossterm::ExecutableCommand;
 use crossterm::event::{
@@ -2397,11 +2397,12 @@ impl MenuItem {
 }
 
 pub struct MenuLevel {
-    pub items: Vec<MenuItem>,
-    all_items: Vec<MenuItem>,
+    pub items: Arc<[MenuItem]>,
+    all_items: Arc<[MenuItem]>,
     pub selected: usize,
     pub scroll_offset: usize,
     visible_rows: usize,
+    fitted_rows: Option<usize>,
     pub rect: Rect,
 }
 
@@ -2417,38 +2418,48 @@ impl MenuLevel {
         let height = items.len() as u16 + 2;
         let selected = items.iter().position(MenuItem::selectable).unwrap_or(0);
         let visible_rows = items.len();
+        let items: Arc<[MenuItem]> = items.into();
         Self {
             all_items: items.clone(),
             items,
             selected,
             scroll_offset: 0,
             visible_rows,
+            fitted_rows: None,
             rect: Rect { x, y, width, height },
         }
     }
 
     pub fn fit_to_rows(&mut self, max_rows: usize) {
+        if self.fitted_rows == Some(max_rows) {
+            return;
+        }
         let selected_item = self.items.get(self.selected).cloned();
         let selectable_count = self.all_items.iter().filter(|item| item.selectable()).count();
         let mut separator_budget = max_rows.saturating_sub(selectable_count);
-        self.items = self
-            .all_items
-            .iter()
-            .filter(|item| match item {
-                MenuItem::Separator if separator_budget > 0 => {
-                    separator_budget -= 1;
-                    true
-                }
-                MenuItem::Separator => false,
-                _ => true,
-            })
-            .cloned()
-            .collect();
+        self.items = if max_rows >= self.all_items.len() {
+            self.all_items.clone()
+        } else {
+            self.all_items
+                .iter()
+                .filter(|item| match item {
+                    MenuItem::Separator if separator_budget > 0 => {
+                        separator_budget -= 1;
+                        true
+                    }
+                    MenuItem::Separator => false,
+                    _ => true,
+                })
+                .cloned()
+                .collect::<Vec<_>>()
+                .into()
+        };
         self.selected = selected_item
             .and_then(|selected| self.items.iter().position(|item| *item == selected))
             .or_else(|| self.items.iter().position(MenuItem::selectable))
             .unwrap_or(0);
         self.visible_rows = self.items.len().min(max_rows);
+        self.fitted_rows = Some(max_rows);
         self.ensure_selection_visible();
         self.rect.height = self.visible_rows as u16 + 2;
     }
@@ -2922,10 +2933,25 @@ struct PtyInputForwardResult {
     reservation_id: Option<u64>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct TerminalPointerAdmission {
     surface: SurfaceId,
     semantics: TerminalPointerSemanticSnapshot,
+    encoding: TerminalPointerEncoding,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum TerminalPointerEncoding {
+    None,
+    Single(Arc<[u8]>),
+    PressPair { press: Arc<[u8]>, release: Arc<[u8]> },
+}
+
+enum TerminalPointerAdmissionResult {
+    NotTerminal,
+    Ready(TerminalPointerAdmission),
+    Contended,
+    Rejected,
 }
 
 enum PtyMouseReleaseCapture {
@@ -2971,7 +2997,13 @@ enum PanePointerRegion {
 struct RenderedMenuLevel {
     rect: Rect,
     scroll_offset: usize,
-    items: Vec<MenuItem>,
+    items: Arc<[MenuItem]>,
+    resources: Arc<[Option<MenuActionResource>]>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MenuActionResource {
+    Surface(SurfaceId),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -3040,6 +3072,7 @@ enum PointerRouteIdentity {
     Menu {
         levels: Arc<[RenderedMenuLevel]>,
         region: MenuPointerRegion,
+        resource: Option<MenuActionResource>,
     },
     Omnibar {
         pane: RenderedPaneRoute,
@@ -3077,10 +3110,10 @@ enum PointerRouteIdentity {
 impl PointerRouteIdentity {
     fn terminal_pointer_semantics(
         &self,
-    ) -> Option<(SurfaceId, Option<TerminalPointerSemanticSnapshot>)> {
+    ) -> Option<(SurfaceId, Rect, Option<TerminalPointerSemanticSnapshot>)> {
         match self {
             Self::Pane { pane, region: PanePointerRegion::TerminalCell { semantics, .. } } => {
-                Some((pane.surface, *semantics))
+                Some((pane.surface, pane.terminal_input?, *semantics))
             }
             _ => None,
         }
@@ -3096,9 +3129,10 @@ struct RenderedPointerFrame {
     sidebar_plugin: Option<(Rect, Option<SurfaceId>)>,
     machine_rail: Option<Rect>,
     workspace_rail: Option<Rect>,
-    hits: Vec<RenderedHitRoute>,
-    panes: Vec<RenderedPaneRoute>,
-    terminal_pointer_semantics: HashMap<SurfaceId, TerminalPointerSemanticSnapshot>,
+    hits: Arc<[RenderedHitRoute]>,
+    panes: Arc<[RenderedPaneRoute]>,
+    terminal_pointer_semantics: Arc<HashMap<SurfaceId, TerminalPointerSemanticSnapshot>>,
+    machine_context: Option<Arc<MachinePointerContext>>,
     pointer_map_generation: u64,
 }
 
@@ -3134,26 +3168,31 @@ impl RenderedPointerFrame {
             return PointerRouteIdentity::Prompt { target, rect, input, clear, ok, cancel, region };
         }
         if let Some(levels) = &self.menu {
-            let region = levels
+            let (region, resource) = levels
                 .iter()
                 .enumerate()
                 .rev()
                 .find(|(_, level)| level.rect.contains(x, y))
-                .map_or(MenuPointerRegion::Outside, |(depth, level)| {
+                .map_or((MenuPointerRegion::Outside, None), |(depth, level)| {
                     let right = level.rect.x + level.rect.width.saturating_sub(1);
                     let bottom = level.rect.y + level.rect.height.saturating_sub(1);
                     if x == level.rect.x || y == level.rect.y || x == right || y == bottom {
-                        return MenuPointerRegion::Chrome { depth };
+                        return (MenuPointerRegion::Chrome { depth }, None);
                     }
                     let index = level.scroll_offset + (y - level.rect.y - 1) as usize;
                     level.items.get(index).filter(|item| item.selectable()).map_or(
-                        MenuPointerRegion::Chrome { depth },
-                        |_| MenuPointerRegion::Item { depth, index },
+                        (MenuPointerRegion::Chrome { depth }, None),
+                        |_| {
+                            (
+                                MenuPointerRegion::Item { depth, index },
+                                level.resources.get(index).copied().flatten(),
+                            )
+                        },
                     )
                 });
-            return PointerRouteIdentity::Menu { levels: levels.clone(), region };
+            return PointerRouteIdentity::Menu { levels: levels.clone(), region, resource };
         }
-        for pane in &self.panes {
+        for pane in self.panes.iter() {
             let Some(rect) = pane.omnibar else { continue };
             if pane.kind != Some(SurfaceKind::Browser) {
                 continue;
@@ -3410,6 +3449,7 @@ pub struct App {
     pub focus: FocusTarget,
     pub sidebar_focus_pending: bool,
     pub machine_ui: Option<MachineUiState>,
+    machine_pointer_context_cache: Option<Arc<MachinePointerContext>>,
     pub sidebar_view: SidebarView,
     pub sidebar_files: FileBrowser,
     pub sidebar_workspace_selection: usize,
@@ -4430,6 +4470,7 @@ pub fn run_with_machine_updates(
         focus: FocusTarget::Pane,
         sidebar_focus_pending: false,
         machine_ui,
+        machine_pointer_context_cache: None,
         sidebar_view,
         sidebar_files: FileBrowser::new(fallback_cwd),
         sidebar_workspace_selection: 0,
@@ -5076,6 +5117,7 @@ impl App {
         }
         let notice = update.notice.clone();
         self.machine_ui = Some(update);
+        self.machine_pointer_context_cache = None;
         self.reconcile_workspace_rail_selection();
         if let Some(error) = guard_error {
             self.status_message = Some(error);
@@ -5223,7 +5265,7 @@ impl App {
             RenderAction::None => {}
         }
         if action.rebuilds_pointer_route() {
-            self.commit_rendered_pointer_frame();
+            self.commit_rendered_pointer_frame_for(action);
             self.pointer_route_phase = PointerRoutePhase::Fresh;
         }
         Ok(())
@@ -5233,17 +5275,28 @@ impl App {
         self.pointer_route_phase = self.pointer_route_phase.with_action(action);
     }
 
-    fn machine_pointer_context(&self) -> Option<Arc<MachinePointerContext>> {
-        let ui = self.machine_ui.as_ref()?;
-        Some(Arc::new(MachinePointerContext {
-            snapshot: ui.snapshot.clone(),
-            provider: ui.provider.clone(),
-            workspace_creation: ui.workspace_creation_policy(),
-        }))
+    fn refresh_machine_pointer_context(&mut self) -> Option<Arc<MachinePointerContext>> {
+        let Some(ui) = self.machine_ui.as_ref() else {
+            self.machine_pointer_context_cache = None;
+            return None;
+        };
+        let matches_live = self.machine_pointer_context_cache.as_ref().is_some_and(|context| {
+            context.snapshot == ui.snapshot
+                && context.provider == ui.provider
+                && context.workspace_creation == ui.workspace_creation_policy()
+        });
+        if !matches_live {
+            self.machine_pointer_context_cache = Some(Arc::new(MachinePointerContext {
+                snapshot: ui.snapshot.clone(),
+                provider: ui.provider.clone(),
+                workspace_creation: ui.workspace_creation_policy(),
+            }));
+        }
+        self.machine_pointer_context_cache.clone()
     }
 
-    fn machine_pointer_target(&self, machine: MachineKey) -> Option<MachinePointerTarget> {
-        let context = self.machine_pointer_context()?;
+    fn machine_pointer_target(&mut self, machine: MachineKey) -> Option<MachinePointerTarget> {
+        let context = self.refresh_machine_pointer_context()?;
         let managed = self.machine_ui.as_ref().and_then(|ui| ui.managed_machine(machine)).cloned();
         Some(MachinePointerTarget { context, machine, managed })
     }
@@ -5304,7 +5357,77 @@ impl App {
         }
     }
 
+    fn menu_action_resource(&self, action: MenuAction) -> Option<MenuActionResource> {
+        match action {
+            MenuAction::BrowserBack(pane)
+            | MenuAction::BrowserForward(pane)
+            | MenuAction::BrowserReload(pane)
+            | MenuAction::BrowserEditUrl(pane)
+            | MenuAction::BrowserCopyUrl(pane)
+            | MenuAction::BrowserActivate(pane)
+            | MenuAction::RenameTab(pane)
+            | MenuAction::CopyTabId(pane)
+            | MenuAction::CloseTab(pane) => self
+                .tree
+                .pane(pane)
+                .and_then(|pane| pane.active_surface())
+                .map(MenuActionResource::Surface),
+            _ => None,
+        }
+    }
+
+    fn rendered_menu_snapshot(&self, reuse_owners: bool) -> Option<Arc<[RenderedMenuLevel]>> {
+        let menu = self.menu.as_ref()?;
+        if reuse_owners
+            && let Some(rendered) = self.rendered_pointer_frame.menu.as_ref()
+            && rendered.len() == menu.levels.len()
+            && rendered.iter().zip(&menu.levels).all(|(rendered, live)| {
+                rendered.rect == live.rect
+                    && rendered.scroll_offset == live.scroll_offset
+                    && Arc::ptr_eq(&rendered.items, &live.items)
+            })
+        {
+            return Some(rendered.clone());
+        }
+        Some(Arc::from(
+            menu.levels
+                .iter()
+                .map(|level| RenderedMenuLevel {
+                    rect: level.rect,
+                    scroll_offset: level.scroll_offset,
+                    items: level.items.clone(),
+                    resources: level
+                        .items
+                        .iter()
+                        .map(|item| {
+                            item.action().and_then(|action| self.menu_action_resource(action))
+                        })
+                        .collect::<Vec<_>>()
+                        .into(),
+                })
+                .collect::<Vec<_>>(),
+        ))
+    }
+
+    fn rendered_pane_route(&self, area: &PaneArea) -> RenderedPaneRoute {
+        RenderedPaneRoute {
+            pane: area.pane,
+            surface: area.surface,
+            kind: self.surface_kind(area.surface),
+            rect: area.rect,
+            bar: area.bar,
+            omnibar: area.omnibar,
+            content: area.content,
+            track: area.track,
+            terminal_input: self.terminal_input_rect(area),
+        }
+    }
+
     fn commit_rendered_pointer_frame(&mut self) {
+        self.commit_rendered_pointer_frame_for(RenderAction::Draw);
+    }
+
+    fn commit_rendered_pointer_frame_for(&mut self, action: RenderAction) {
         let pairing = self
             .pairing_dialog
             .as_ref()
@@ -5312,39 +5435,78 @@ impl App {
         let prompt = self.prompt.as_ref().map(|prompt| {
             (prompt.target, prompt.rect, prompt.input_rect, prompt.clear, prompt.ok, prompt.cancel)
         });
-        let menu = self.menu.as_ref().map(|menu| {
-            Arc::from(
-                menu.levels
-                    .iter()
-                    .map(|level| RenderedMenuLevel {
-                        rect: level.rect,
-                        scroll_offset: level.scroll_offset,
-                        items: level.items.clone(),
-                    })
-                    .collect::<Vec<_>>(),
-            )
-        });
         let omnibar = self.omnibar.as_ref().map(|state| (state.pane, state.surface));
         let sidebar_plugin = (self.config.sidebar.plugin.is_some() && self.sidebar_visible)
             .then(|| (self.sidebar_plugin_rect(), self.sidebar_plugin_surface));
         let machine_rail = self.sidebar_layout.machine;
         let workspace_rail = self.sidebar_layout.workspace;
-        let machine_context = self.machine_pointer_context();
-        let panes = self
-            .pane_areas
-            .iter()
-            .map(|area| RenderedPaneRoute {
-                pane: area.pane,
-                surface: area.surface,
-                kind: self.surface_kind(area.surface),
-                rect: area.rect,
-                bar: area.bar,
-                omnibar: area.omnibar,
-                content: area.content,
-                track: area.track,
-                terminal_input: self.terminal_input_rect(area),
-            })
-            .collect();
+        let pointer_map_generation = self.session.pointer_map_generation();
+        let reuse_owners = action == RenderAction::Paint
+            && self.rendered_pointer_frame.pointer_map_generation == pointer_map_generation;
+        let machine_context = if reuse_owners {
+            self.rendered_pointer_frame.machine_context.clone()
+        } else {
+            self.refresh_machine_pointer_context()
+        };
+        let menu = self.rendered_menu_snapshot(reuse_owners);
+        let panes_match = self.rendered_pointer_frame.panes.len() == self.pane_areas.len()
+            && self
+                .rendered_pointer_frame
+                .panes
+                .iter()
+                .zip(&self.pane_areas)
+                .all(|(rendered, area)| *rendered == self.rendered_pane_route(area));
+        let panes = if panes_match {
+            self.rendered_pointer_frame.panes.clone()
+        } else {
+            self.pane_areas
+                .iter()
+                .map(|area| self.rendered_pane_route(area))
+                .collect::<Vec<_>>()
+                .into()
+        };
+        let hits_match = reuse_owners
+            && self.rendered_pointer_frame.hits.len() == self.hits.len()
+            && self
+                .rendered_pointer_frame
+                .hits
+                .iter()
+                .zip(&self.hits)
+                .all(|(rendered, (rect, hit))| rendered.rect == *rect && rendered.hit == *hit);
+        let hits = if hits_match {
+            self.rendered_pointer_frame.hits.clone()
+        } else {
+            self.hits
+                .iter()
+                .enumerate()
+                .map(|(index, (rect, hit))| {
+                    let reused_identity = reuse_owners
+                        .then(|| {
+                            self.rendered_pointer_frame
+                                .hits
+                                .get(index)
+                                .filter(|rendered| rendered.hit == *hit)
+                                .and_then(|rendered| rendered.identity.clone())
+                        })
+                        .flatten();
+                    RenderedHitRoute {
+                        rect: *rect,
+                        hit: *hit,
+                        identity: reused_identity.or_else(|| {
+                            self.pointer_hit_identity(*hit, machine_context.as_ref()).map(Arc::new)
+                        }),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .into()
+        };
+        let terminal_pointer_semantics = if *self.rendered_pointer_frame.terminal_pointer_semantics
+            == self.rendered_terminal_pointer_semantics
+        {
+            self.rendered_pointer_frame.terminal_pointer_semantics.clone()
+        } else {
+            Arc::new(self.rendered_terminal_pointer_semantics.clone())
+        };
         self.rendered_pointer_frame = RenderedPointerFrame {
             pairing,
             prompt,
@@ -5353,20 +5515,11 @@ impl App {
             sidebar_plugin,
             machine_rail,
             workspace_rail,
-            hits: self
-                .hits
-                .iter()
-                .map(|(rect, hit)| RenderedHitRoute {
-                    rect: *rect,
-                    hit: *hit,
-                    identity: self
-                        .pointer_hit_identity(*hit, machine_context.as_ref())
-                        .map(Arc::new),
-                })
-                .collect(),
+            hits,
             panes,
-            terminal_pointer_semantics: self.rendered_terminal_pointer_semantics.clone(),
-            pointer_map_generation: self.session.pointer_map_generation(),
+            terminal_pointer_semantics,
+            machine_context,
+            pointer_map_generation,
         };
     }
 
@@ -6423,12 +6576,45 @@ impl App {
                                 || expected != &rendered_route
                         })
                     });
-                let admission =
-                    self.terminal_pointer_admission_for_route(&rendered_route, missing_surface);
-                if replayed_route_changed || admission.is_err() {
+                if replayed_route_changed {
                     return Ok(RenderAction::None);
                 }
-                terminal_pointer_admission = admission.unwrap();
+                match self.terminal_pointer_admission_for_route(
+                    &rendered_route,
+                    mouse,
+                    missing_surface,
+                ) {
+                    TerminalPointerAdmissionResult::NotTerminal => {}
+                    TerminalPointerAdmissionResult::Ready(admission) => {
+                        terminal_pointer_admission = Some(admission);
+                    }
+                    TerminalPointerAdmissionResult::Rejected => {
+                        return Ok(RenderAction::None);
+                    }
+                    TerminalPointerAdmissionResult::Contended => {
+                        if mouse.kind == MouseEventKind::Moved {
+                            self.retain_pointer_motion_with_sequence(
+                                *mouse,
+                                input_sequence,
+                                replay_context
+                                    .as_ref()
+                                    .and_then(|context| context.pointer.as_ref())
+                                    .map(|pointer| pointer.focus_generation),
+                            );
+                        } else {
+                            self.defer_input_with_sequence(
+                                Event::Mouse(*mouse),
+                                input_sequence,
+                                replay_context.as_ref().and_then(|context| context.pointer.clone()),
+                                replay_context
+                                    .as_ref()
+                                    .and_then(|context| context.admission.as_ref())
+                                    .and_then(|admission| admission.pairing_request),
+                            );
+                        }
+                        return Ok(RenderAction::Paint);
+                    }
+                }
             }
             if let Some(admission) =
                 replay_context.as_ref().and_then(|context| context.admission.as_ref())
@@ -7182,30 +7368,145 @@ impl App {
     fn terminal_pointer_admission_for_route(
         &self,
         rendered_route: &PointerRouteIdentity,
+        mouse: &MouseEvent,
         missing_surface: Option<SurfaceId>,
-    ) -> Result<Option<TerminalPointerAdmission>, ()> {
-        let Some((surface, expected_semantics)) = rendered_route.terminal_pointer_semantics()
+    ) -> TerminalPointerAdmissionResult {
+        let Some((surface, input_rect, expected_semantics)) =
+            rendered_route.terminal_pointer_semantics()
         else {
-            return Ok(None);
+            return TerminalPointerAdmissionResult::NotTerminal;
         };
         let Some(expected_semantics) = expected_semantics else {
-            return if missing_surface == Some(surface) { Ok(None) } else { Err(()) };
+            return if missing_surface == Some(surface) {
+                TerminalPointerAdmissionResult::NotTerminal
+            } else {
+                TerminalPointerAdmissionResult::Rejected
+            };
         };
-        let admission = TerminalPointerAdmission { surface, semantics: expected_semantics };
         if missing_surface == Some(surface) {
-            return Ok(Some(admission));
+            return TerminalPointerAdmissionResult::Ready(TerminalPointerAdmission {
+                surface,
+                semantics: expected_semantics,
+                encoding: TerminalPointerEncoding::None,
+            });
         }
         let Some(surface_handle) = self.session.surface(surface) else {
-            return Err(());
+            return TerminalPointerAdmissionResult::Rejected;
         };
-        if surface_handle
-            .try_pointer_semantics()
-            .is_some_and(|live_semantics| live_semantics == expected_semantics)
-        {
-            Ok(Some(admission))
+
+        let cell_width = u32::from(self.cell_pixels.0.max(1));
+        let cell_height = u32::from(self.cell_pixels.1.max(1));
+        let position = (
+            (mouse.column as f32 - input_rect.x as f32 + 0.5) * cell_width as f32,
+            (mouse.row as f32 - input_rect.y as f32 + 0.5) * cell_height as f32,
+        );
+        let screen_size = (
+            u32::from(input_rect.width).saturating_mul(cell_width),
+            u32::from(input_rect.height).saturating_mul(cell_height),
+        );
+        let input = |action, button, any_button_pressed| MouseInput {
+            action,
+            button,
+            mods: Self::ghostty_mouse_mods(mouse.modifiers),
+            position,
+            screen_size,
+            cell_size: (cell_width, cell_height),
+            any_button_pressed,
+        };
+        let bypasses_terminal_mouse = mouse.modifiers.contains(KeyModifiers::SHIFT)
+            || matches!(
+                (mouse.kind, self.drag.as_ref()),
+                (MouseEventKind::Down(_), Some(Drag::PtyMouse { .. }))
+            );
+        let guarded = if bypasses_terminal_mouse {
+            None
         } else {
-            Err(())
-        }
+            match mouse.kind {
+                MouseEventKind::Down(button) => {
+                    let press =
+                        input(MouseAction::Press, Some(Self::ghostty_mouse_button(button)), true);
+                    let release = MouseInput {
+                        action: MouseAction::Release,
+                        any_button_pressed: false,
+                        ..press
+                    };
+                    let mut press_output = Vec::new();
+                    let mut release_output = Vec::new();
+                    let encoded = surface_handle.encode_mouse_press_pair_if_semantics(
+                        expected_semantics,
+                        press,
+                        release,
+                        &mut press_output,
+                        &mut release_output,
+                    );
+                    encoded.map(|encoded| {
+                        (
+                            encoded,
+                            TerminalPointerEncoding::PressPair {
+                                press: press_output.into(),
+                                release: release_output.into(),
+                            },
+                        )
+                    })
+                }
+                MouseEventKind::ScrollUp
+                | MouseEventKind::ScrollDown
+                | MouseEventKind::ScrollLeft
+                | MouseEventKind::ScrollRight
+                | MouseEventKind::Moved => {
+                    let (action, button) = match mouse.kind {
+                        MouseEventKind::ScrollUp => {
+                            (MouseAction::Press, Some(GhosttyMouseButton::WheelUp))
+                        }
+                        MouseEventKind::ScrollDown => {
+                            (MouseAction::Press, Some(GhosttyMouseButton::WheelDown))
+                        }
+                        MouseEventKind::ScrollLeft => {
+                            (MouseAction::Press, Some(GhosttyMouseButton::WheelLeft))
+                        }
+                        MouseEventKind::ScrollRight => {
+                            (MouseAction::Press, Some(GhosttyMouseButton::WheelRight))
+                        }
+                        MouseEventKind::Moved => (MouseAction::Motion, None),
+                        _ => unreachable!("guarded by the outer pointer-kind match"),
+                    };
+                    let mut output = Vec::new();
+                    let encoded = surface_handle.encode_mouse_if_semantics(
+                        expected_semantics,
+                        input(action, button, false),
+                        &mut output,
+                    );
+                    encoded.map(|encoded| (encoded, TerminalPointerEncoding::Single(output.into())))
+                }
+                MouseEventKind::Drag(_) | MouseEventKind::Up(_) => None,
+            }
+        };
+        let encoding = match guarded {
+            Some((GuardedMouseEncode::Encoded(Ok(())), encoding)) => encoding,
+            Some((GuardedMouseEncode::Contended, _)) => {
+                return TerminalPointerAdmissionResult::Contended;
+            }
+            Some((GuardedMouseEncode::Encoded(Err(_)), _))
+            | Some((GuardedMouseEncode::SemanticsChanged, _)) => {
+                return TerminalPointerAdmissionResult::Rejected;
+            }
+            None => match surface_handle.try_pointer_semantics() {
+                Some(PointerSemanticProbe::Contended) => {
+                    return TerminalPointerAdmissionResult::Contended;
+                }
+                Some(PointerSemanticProbe::Ready(live)) if live == expected_semantics => {
+                    TerminalPointerEncoding::None
+                }
+                Some(PointerSemanticProbe::Ready(_)) | None => {
+                    return TerminalPointerAdmissionResult::Rejected;
+                }
+            },
+        };
+        TerminalPointerAdmissionResult::Ready(TerminalPointerAdmission {
+            surface,
+            semantics: expected_semantics,
+            encoding,
+        })
     }
 
     fn input_destination(&self, input: &Event) -> Option<SurfaceId> {
@@ -9766,27 +10067,26 @@ impl App {
         let mut release_output = Vec::new();
         let mut press_output = Vec::new();
         let encoded = match terminal_admission {
-            Some(admission) if admission.surface == surface_id => surface
-                .encode_mouse_press_pair_if_semantics(
-                    admission.semantics,
-                    press,
-                    release,
-                    &mut press_output,
-                    &mut release_output,
-                ),
-            Some(_) => None,
-            None => surface.encode_mouse_press_pair(
-                press,
-                release,
-                &mut press_output,
-                &mut release_output,
-            ),
-        };
-        let Some(encoded) = encoded else {
-            return (PtyMouseReleaseCapture::Failed, failed());
+            Some(TerminalPointerAdmission {
+                surface,
+                encoding:
+                    TerminalPointerEncoding::PressPair {
+                        press: encoded_press,
+                        release: encoded_release,
+                    },
+                ..
+            }) if surface == surface_id => {
+                press_output.extend_from_slice(&encoded_press);
+                release_output.extend_from_slice(&encoded_release);
+                true
+            }
+            Some(_) => false,
+            None => surface
+                .encode_mouse_press_pair(press, release, &mut press_output, &mut release_output)
+                .is_some_and(|encoded| encoded.is_ok()),
         };
         self.encode_buf = press_output;
-        if encoded.is_err() {
+        if !encoded {
             return (PtyMouseReleaseCapture::Failed, failed());
         }
         let release_capture = if release_output.is_empty() {
@@ -10126,19 +10426,22 @@ impl App {
 
         let mut output = Vec::new();
         let encoded = match terminal_admission {
-            Some(admission) if admission.surface == surface_id => {
-                surface.encode_mouse_if_semantics(admission.semantics, input, &mut output)
+            Some(TerminalPointerAdmission {
+                surface,
+                encoding: TerminalPointerEncoding::Single(encoded),
+                ..
+            }) if surface == surface_id => {
+                output.extend_from_slice(&encoded);
+                true
             }
-            Some(_) => None,
-            None => surface.encode_mouse(input, &mut output),
-        };
-        let Some(encoded) = encoded else {
-            // The first sample can race terminal initialization. Motion is
-            // coalescible, so consume it without parking the UI loop.
-            return true;
+            Some(_) => return true,
+            None => match surface.encode_mouse(input, &mut output) {
+                Some(Ok(())) => true,
+                Some(Err(_)) | None => return true,
+            },
         };
         self.encode_buf = output;
-        if encoded.is_err() {
+        if !encoded {
             return true;
         }
         if self.encode_buf.is_empty() {
@@ -10189,15 +10492,19 @@ impl App {
 
         let mut output = Vec::new();
         let encoded = match terminal_admission {
-            Some(admission) if admission.surface == surface_id => {
-                surface.encode_mouse_if_semantics(admission.semantics, input, &mut output)
+            Some(TerminalPointerAdmission {
+                surface,
+                encoding: TerminalPointerEncoding::Single(encoded),
+                ..
+            }) if surface == surface_id => {
+                output.extend_from_slice(&encoded);
+                true
             }
-            Some(_) => None,
-            None => surface.encode_mouse(input, &mut output),
+            Some(_) => return None,
+            None => surface.encode_mouse(input, &mut output)?.is_ok(),
         };
-        let encoded = encoded?;
         self.encode_buf = output;
-        if encoded.is_err() {
+        if !encoded {
             return Some(PtyInputForwardResult {
                 owned: true,
                 accepted: false,
@@ -11562,7 +11869,7 @@ impl App {
                 }),
                 modifiers,
                 false,
-                terminal_admission,
+                terminal_admission.clone(),
             );
             match forwarded {
                 None => return Ok(RenderAction::None),
@@ -11893,20 +12200,20 @@ fn browser_key_mapping(
 mod tests {
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput,
-        DeferredReplayDisposition, Drag, FocusTarget, ForwardMuxOutcome, MachineActionWorker,
-        MenuAction, MenuItem, MutationImpact, MuxTitleIngress, OrderedSession, OuterCursorSpec,
-        PaneArea, PaneEdge, PaneFocusHistory, PendingSessionMutation, PendingSessionMutationState,
-        PointerHitIdentity, PointerRouteIdentity, PointerRoutePhase, Prompt, PromptTarget,
-        PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction, RenderedMenuLevel,
-        RenderedPointerFrame, Selection, SessionCompletion, SessionCompletionAction,
-        SessionEventSender, SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState,
-        SurfaceResizeDecision, SurfaceResizeOwnership, WorkspaceRailSelection,
-        browser_content_size_for_rect, browser_hover_forward_allowed, canonical_terminal_content,
-        clamp_split_ratio_for_tab_bars, client_menu_item, forward_mux_event, forward_mux_events,
-        outer_cursor_escape, outer_cursor_escape_if_changed, pane_context_menu_groups,
-        pane_parts_for_rect, prepare_ordered_session, preserve_client_view, rail_drag_width,
-        record_surface_resize_dispatch_result, sidebar_layout_for,
-        sidebar_plugin_status_settles_passive_claim, start_ordered_session,
+        DeferredReplayDisposition, Drag, FocusTarget, ForwardMuxOutcome, GuardedMouseEncode,
+        MachineActionWorker, MenuAction, MenuItem, MutationImpact, MuxTitleIngress, OrderedSession,
+        OuterCursorSpec, PaneArea, PaneEdge, PaneFocusHistory, PendingSessionMutation,
+        PendingSessionMutationState, PointerHitIdentity, PointerRouteIdentity, PointerRoutePhase,
+        Prompt, PromptTarget, PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction,
+        RenderedMenuLevel, RenderedPointerFrame, Selection, SessionCompletion,
+        SessionCompletionAction, SessionEventSender, SidebarLayout, SidebarPluginSyncClaim,
+        SidebarPluginSyncState, SurfaceResizeDecision, SurfaceResizeOwnership,
+        WorkspaceRailSelection, browser_content_size_for_rect, browser_hover_forward_allowed,
+        canonical_terminal_content, clamp_split_ratio_for_tab_bars, client_menu_item,
+        forward_mux_event, forward_mux_events, outer_cursor_escape, outer_cursor_escape_if_changed,
+        pane_context_menu_groups, pane_parts_for_rect, prepare_ordered_session,
+        preserve_client_view, rail_drag_width, record_surface_resize_dispatch_result,
+        sidebar_layout_for, sidebar_plugin_status_settles_passive_claim, start_ordered_session,
     };
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -11969,7 +12276,7 @@ mod tests {
         let menu = ContextMenu::at(10, 5, pane_context_menu_groups(pane, false, false));
 
         assert_eq!(
-            menu.levels[0].items,
+            menu.levels[0].items.as_ref(),
             vec![
                 MenuItem::Action(MenuAction::RenameTab(pane)),
                 MenuItem::Action(MenuAction::CloseTab(pane)),
@@ -11984,6 +12291,7 @@ mod tests {
                 MenuItem::Action(MenuAction::CopyTabId(pane)),
                 MenuItem::Action(MenuAction::CopyPaneId(pane)),
             ]
+            .as_slice()
         );
     }
 
@@ -13439,11 +13747,7 @@ mod tests {
         let queued = app.deferred_input.len();
         release_tx.send(()).unwrap();
         holder.join().unwrap();
-        assert_eq!(
-            queued,
-            1,
-            "ordinary terminal lock contention must retain a discrete press"
-        );
+        assert_eq!(queued, 1, "ordinary terminal lock contention must retain a discrete press");
 
         app.render_action(&mut terminal, action).unwrap();
         app.replay_deferred_input().unwrap();
@@ -13470,7 +13774,10 @@ mod tests {
         let mut output = Vec::new();
         let encoded = handle.encode_mouse_if_semantics(expected, test_mouse_motion(), &mut output);
 
-        assert!(encoded.is_none(), "a stale rendered token must fail at the encoding boundary");
+        assert!(
+            matches!(encoded, Some(GuardedMouseEncode::SemanticsChanged)),
+            "a stale rendered token must fail at the encoding boundary"
+        );
         assert!(output.is_empty());
         mux.close_surface(surface.id).unwrap();
     }
@@ -13483,7 +13790,9 @@ mod tests {
             items: vec![MenuItem::Submenu {
                 label: "nested".to_string(),
                 items: vec![MenuItem::Action(MenuAction::NewTab(7))],
-            }],
+            }]
+            .into(),
+            resources: vec![None].into(),
         }]
         .into();
         let frame = RenderedPointerFrame { menu: Some(levels.clone()), ..Default::default() };
@@ -13511,11 +13820,7 @@ mod tests {
             mux.new_browser_tab("about:blank#first".to_string(), None, Some((80, 24))).unwrap();
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
         let second = mux
-            .new_browser_tab(
-                "about:blank#second".to_string(),
-                Some(pane),
-                Some((80, 24)),
-            )
+            .new_browser_tab("about:blank#second".to_string(), Some(pane), Some((80, 24)))
             .unwrap();
         mux.select_tab(Some(pane), Some(0), None);
         let mut app = test_app(Session::Local(mux.clone()));
@@ -18445,7 +18750,7 @@ mod tests {
         app.machine_ui.as_mut().unwrap().request = None;
         app.open_context_menu(hit.x, hit.y);
         assert_eq!(
-            app.menu.as_ref().map(|menu| menu.levels[0].items.clone()),
+            app.menu.as_ref().map(|menu| menu.levels[0].items.to_vec()),
             Some(vec![
                 MenuItem::Action(MenuAction::RestoreManagedMachine(MachineKey(42))),
                 MenuItem::Action(MenuAction::PurgeManagedMachine(MachineKey(42))),
@@ -20295,6 +20600,7 @@ mod tests {
             focus: FocusTarget::Pane,
             sidebar_focus_pending: false,
             machine_ui: None,
+            machine_pointer_context_cache: None,
             sidebar_view: SidebarView::Files,
             sidebar_files: FileBrowser::new(std::env::temp_dir()),
             sidebar_workspace_selection: 0,

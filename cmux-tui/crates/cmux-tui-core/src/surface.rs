@@ -34,6 +34,19 @@ use crate::browser::{BrowserResizeWaiter, BrowserSurface, PendingBrowserResize};
 use crate::terminal_host_protocol::{FLAG_COLORS_FOLLOW, Frame, MessageKind, PROTOCOL_VERSION};
 use cmux_tui_cdp::BrowserMode;
 
+#[derive(Debug)]
+pub enum GuardedMouseEncode {
+    Encoded(ghostty_vt::Result<()>),
+    SemanticsChanged,
+    Contended,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PointerSemanticProbe {
+    Ready(TerminalPointerSemanticSnapshot),
+    Contended,
+}
+
 /// How to spawn surface children.
 #[derive(Debug, Clone)]
 pub struct SurfaceOptions {
@@ -1648,23 +1661,23 @@ impl Surface {
         expected: TerminalPointerSemanticSnapshot,
         input: MouseInput,
         output: &mut Vec<u8>,
-    ) -> Option<ghostty_vt::Result<()>> {
+    ) -> Option<GuardedMouseEncode> {
         let pty = self.as_pty()?;
         let term = match pty.term.try_lock() {
             Ok(term) => term,
             Err(TryLockError::Poisoned(error)) => error.into_inner(),
-            Err(TryLockError::WouldBlock) => return None,
+            Err(TryLockError::WouldBlock) => return Some(GuardedMouseEncode::Contended),
         };
         if term.pointer_semantic_snapshot() != expected {
-            return None;
+            return Some(GuardedMouseEncode::SemanticsChanged);
         }
         let mut encoders = match pty.mouse_encoders.try_lock() {
             Ok(encoders) => encoders,
             Err(TryLockError::Poisoned(error)) => error.into_inner(),
-            Err(TryLockError::WouldBlock) => return None,
+            Err(TryLockError::WouldBlock) => return Some(GuardedMouseEncode::Contended),
         };
         encoders.sync_from_terminal(&term);
-        Some(encoders.encode(input, output))
+        Some(GuardedMouseEncode::Encoded(encoders.encode(input, output)))
     }
 
     pub fn encode_mouse_release(
@@ -1714,23 +1727,28 @@ impl Surface {
         release: MouseInput,
         press_output: &mut Vec<u8>,
         release_output: &mut Vec<u8>,
-    ) -> Option<ghostty_vt::Result<()>> {
+    ) -> Option<GuardedMouseEncode> {
         let pty = self.as_pty()?;
         let term = match pty.term.try_lock() {
             Ok(term) => term,
             Err(TryLockError::Poisoned(error)) => error.into_inner(),
-            Err(TryLockError::WouldBlock) => return None,
+            Err(TryLockError::WouldBlock) => return Some(GuardedMouseEncode::Contended),
         };
         if term.pointer_semantic_snapshot() != expected {
-            return None;
+            return Some(GuardedMouseEncode::SemanticsChanged);
         }
         let mut encoders = match pty.mouse_encoders.try_lock() {
             Ok(encoders) => encoders,
             Err(TryLockError::Poisoned(error)) => error.into_inner(),
-            Err(TryLockError::WouldBlock) => return None,
+            Err(TryLockError::WouldBlock) => return Some(GuardedMouseEncode::Contended),
         };
         encoders.sync_from_terminal(&term);
-        Some(encoders.encode_press_pair(press, release, press_output, release_output))
+        Some(GuardedMouseEncode::Encoded(encoders.encode_press_pair(
+            press,
+            release,
+            press_output,
+            release_output,
+        )))
     }
 
     pub fn reset_mouse_motion_dedupe(&self) {
@@ -1860,15 +1878,15 @@ impl Surface {
     }
 
     /// Read current pointer-routing state without waiting behind terminal parsing.
-    /// A contended terminal is unknown to pointer admission and must fail closed.
-    pub fn try_pointer_semantics(&self) -> Option<TerminalPointerSemanticSnapshot> {
+    /// Contention is distinct so discrete input can be retained for replay.
+    pub fn try_pointer_semantics(&self) -> Option<PointerSemanticProbe> {
         let pty = self.as_pty()?;
         match pty.term.try_lock() {
-            Ok(term) => Some(term.pointer_semantic_snapshot()),
+            Ok(term) => Some(PointerSemanticProbe::Ready(term.pointer_semantic_snapshot())),
             Err(TryLockError::Poisoned(error)) => {
-                Some(error.into_inner().pointer_semantic_snapshot())
+                Some(PointerSemanticProbe::Ready(error.into_inner().pointer_semantic_snapshot()))
             }
-            Err(TryLockError::WouldBlock) => None,
+            Err(TryLockError::WouldBlock) => Some(PointerSemanticProbe::Contended),
         }
     }
 

@@ -13,9 +13,9 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_core::{
-    BrowserFrame, BrowserSource, BrowserStatus, DefaultColors, MuxEvent, MuxEventBroadcaster,
-    MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge, Rgb, SurfaceId,
-    SurfaceKind, platform::transport,
+    BrowserFrame, BrowserSource, BrowserStatus, DefaultColors, GuardedMouseEncode, MuxEvent,
+    MuxEventBroadcaster, MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge,
+    PointerSemanticProbe, Rgb, SurfaceId, SurfaceKind, platform::transport,
 };
 use cmux_tui_machine_protocol::BearerToken;
 use ghostty_vt::{
@@ -260,22 +260,26 @@ impl RemoteSurface {
         expected: TerminalPointerSemanticSnapshot,
         input: MouseInput,
         output: &mut Vec<u8>,
-    ) -> Option<ghostty_vt::Result<()>> {
+    ) -> GuardedMouseEncode {
         let term = match self.term.try_lock() {
             Ok(term) => term,
             Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
-            Err(std::sync::TryLockError::WouldBlock) => return None,
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return GuardedMouseEncode::Contended;
+            }
         };
         if term.pointer_semantic_snapshot() != expected {
-            return None;
+            return GuardedMouseEncode::SemanticsChanged;
         }
         let mut encoders = match self.mouse_encoders.try_lock() {
             Ok(encoders) => encoders,
             Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
-            Err(std::sync::TryLockError::WouldBlock) => return None,
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return GuardedMouseEncode::Contended;
+            }
         };
         encoders.sync_from_terminal(&term);
-        Some(encoders.encode(input, output))
+        GuardedMouseEncode::Encoded(encoders.encode(input, output))
     }
 
     pub(super) fn encode_mouse_release(
@@ -317,35 +321,44 @@ impl RemoteSurface {
         release: MouseInput,
         press_output: &mut Vec<u8>,
         release_output: &mut Vec<u8>,
-    ) -> Option<ghostty_vt::Result<()>> {
+    ) -> GuardedMouseEncode {
         let term = match self.term.try_lock() {
             Ok(term) => term,
             Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
-            Err(std::sync::TryLockError::WouldBlock) => return None,
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return GuardedMouseEncode::Contended;
+            }
         };
         if term.pointer_semantic_snapshot() != expected {
-            return None;
+            return GuardedMouseEncode::SemanticsChanged;
         }
         let mut encoders = match self.mouse_encoders.try_lock() {
             Ok(encoders) => encoders,
             Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
-            Err(std::sync::TryLockError::WouldBlock) => return None,
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return GuardedMouseEncode::Contended;
+            }
         };
         encoders.sync_from_terminal(&term);
-        Some(encoders.encode_press_pair(press, release, press_output, release_output))
+        GuardedMouseEncode::Encoded(encoders.encode_press_pair(
+            press,
+            release,
+            press_output,
+            release_output,
+        ))
     }
 
     pub(super) fn reset_mouse_motion_dedupe(&self) {
         self.mouse_encoders.lock().unwrap().reset_motion_dedupe();
     }
 
-    pub(super) fn try_pointer_semantics(&self) -> Option<TerminalPointerSemanticSnapshot> {
+    pub(super) fn try_pointer_semantics(&self) -> PointerSemanticProbe {
         match self.term.try_lock() {
-            Ok(term) => Some(term.pointer_semantic_snapshot()),
+            Ok(term) => PointerSemanticProbe::Ready(term.pointer_semantic_snapshot()),
             Err(std::sync::TryLockError::Poisoned(error)) => {
-                Some(error.into_inner().pointer_semantic_snapshot())
+                PointerSemanticProbe::Ready(error.into_inner().pointer_semantic_snapshot())
             }
-            Err(std::sync::TryLockError::WouldBlock) => None,
+            Err(std::sync::TryLockError::WouldBlock) => PointerSemanticProbe::Contended,
         }
     }
 
