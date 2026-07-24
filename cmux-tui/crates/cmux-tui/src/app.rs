@@ -15322,6 +15322,25 @@ mod tests {
     }
 
     #[test]
+    fn failed_provider_reconnect_remains_pending_for_retry() {
+        let mux = Mux::new("provider-reconnect-retry-test", SurfaceOptions::default());
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui());
+        let (controller, requests) =
+            fake_controller(FakeMachineAction::Fail("provider is still offline"));
+        install_machine_controller(&mut app, controller);
+        app.machine_ui.as_mut().unwrap().request = Some(MachineRequest::ReconnectProvider);
+
+        settle_machine_action(&mut app, &events);
+
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::ReconnectProvider)
+        );
+        assert_eq!(requests.lock().unwrap().as_slice(), &[MachineRequest::ReconnectProvider]);
+    }
+
+    #[test]
     fn rejected_provider_workspace_mirror_commit_surfaces_the_session_error() {
         let mux = Mux::new("managed-workspace-rejected-mirror-test", SurfaceOptions::default());
         let placement = mux
