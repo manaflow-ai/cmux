@@ -8234,6 +8234,24 @@ mod tests {
     }
 
     #[test]
+    fn closed_surfaces_reject_sizing_policy_mutations() {
+        let mux = test_mux();
+        let excluded = mux.new_workspace(None, None).unwrap();
+        let exclusive = mux.new_workspace(None, None).unwrap();
+        mux.resize_surface_for_client(excluded.id, 1, 120, 40).unwrap();
+        mux.resize_surface_for_client(exclusive.id, 2, 80, 24).unwrap();
+        assert!(mux.remove_surface_runtime_for_test(excluded.id).is_some());
+        assert!(mux.remove_surface_runtime_for_test(exclusive.id).is_some());
+
+        assert_eq!(mux.set_client_size_participation(excluded.id, 1, false), None);
+        assert_eq!(mux.use_only_client_size(exclusive.id, 2), None);
+
+        let sizing = mux.client_sizing.lock().unwrap();
+        assert!(!sizing.policies.contains_key(&excluded.id));
+        assert!(!sizing.policies.contains_key(&exclusive.id));
+    }
+
+    #[test]
     fn all_excluded_viewers_fall_back_to_their_shared_minimum() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
