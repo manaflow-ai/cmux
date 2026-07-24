@@ -916,6 +916,10 @@ declared architecture, and `_ghostty_surface_rebuild_renderer` plus
     to share the classifier; duplicating the continuation decision can make
     hover and activation disagree.
 
+The `f6b47c837` universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-f6b47c8371991a4555f907737e808f161c368661-crashsubdir-cmux-crash-v1
+and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
+
 ### Bounded Kitty graphics state
 
 - Pull request: https://github.com/manaflow-ai/ghostty/pull/137
