@@ -1012,8 +1012,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// above the Ghostty renderer's sublayer so a lifted Liquid-Glass button is not
     /// clipped by the terminal render bounds (item 6). Below the zoom HUD (1100).
     private static let bottomChromeZPosition: CGFloat = 1000
-    /// Floats above dock chrome and terminal content while yielding to the zoom HUD.
-    private static let artifactChipZPosition: CGFloat = 1050
+    /// Floats above dock chrome, terminal content, AND the verified-replay
+    /// frozen presentation (zPosition 2000). The freeze copies only renderer
+    /// pixels, so anything below it blinks out for the length of every
+    /// freeze/reveal transaction — one ~40-90ms chip blink per output burst
+    /// while an agent streams. Zoom-HUD conflicts are handled by the
+    /// `zoomOverlayShown` visibility gate, not by z-order.
+    private static let artifactChipZPosition: CGFloat = 2050
 
     /// Whether the always-visible bottom chrome (the docked accessory toolbar and,
     /// when open, the composer band) is currently on screen.
