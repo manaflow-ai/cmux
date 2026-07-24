@@ -10946,6 +10946,41 @@ mod tests {
     }
 
     #[test]
+    fn enhanced_control_text_uses_prompt_and_omnibar_shortcuts() {
+        let mux = Mux::new("enhanced-overlay-shortcut-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let control_a = || {
+            Event::EnhancedKey(EnhancedKeyEvent {
+                key_event: KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL),
+                shifted_key: None,
+                base_layout_key: Some('a'),
+                text: "a".to_string(),
+            })
+        };
+        app.prompt =
+            Some(super::Prompt::new("Rename", "word".into(), PromptTarget::Workspace(1)));
+
+        app.handle(AppEvent::Input(control_a())).unwrap();
+
+        let prompt = app.prompt.as_ref().unwrap();
+        assert_eq!(prompt.input.as_str(), "word");
+        assert_eq!(prompt.input.cursor, 0);
+        app.prompt = None;
+        app.omnibar = Some(super::OmnibarState {
+            pane: 1,
+            surface: 1,
+            input: crate::ui::input::TextInput::new("https://example.com".to_string()),
+            select_all: false,
+        });
+
+        app.handle(AppEvent::Input(control_a())).unwrap();
+
+        let omnibar = app.omnibar.as_ref().unwrap();
+        assert_eq!(omnibar.input.as_str(), "https://example.com");
+        assert!(omnibar.select_all);
+    }
+
+    #[test]
     fn shifted_layout_key_matches_reported_character_instead_of_us_pair() {
         let enhanced = EnhancedKeyEvent {
             key_event: KeyEvent::new(KeyCode::Char('&'), KeyModifiers::ALT | KeyModifiers::SHIFT),
@@ -11064,6 +11099,28 @@ mod tests {
     }
 
     #[test]
+    fn files_filter_does_not_insert_modified_associated_text() {
+        let temp = test_temp_dir("files-filter-modified-associated-text");
+        let mux = Mux::new("files-filter-modified-associated-text-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_view = SidebarView::Files;
+        app.focus = FocusTarget::WorkspaceRail;
+        app.sidebar_files.handle_key(&KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+
+        app.handle(AppEvent::Input(Event::EnhancedKey(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL),
+            shifted_key: None,
+            base_layout_key: Some('x'),
+            text: "x".to_string(),
+        })))
+        .unwrap();
+
+        assert_eq!(app.sidebar_files.query(), "");
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
     fn browser_inserts_complete_associated_text_atomically() {
         let mux = Mux::new("browser-associated-text-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -11082,6 +11139,35 @@ mod tests {
         assert!(matches!(
             event.kind,
             BrowserInputKind::InsertText(text) if text == "\u{2211}\u{6f22}"
+        ));
+    }
+
+    #[test]
+    fn browser_routes_modified_associated_text_as_a_key_event() {
+        let mux = Mux::new("browser-modified-associated-text-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let (dispatcher, blocked) = BrowserInputDispatcher::blocked(1);
+        app.browser_input = dispatcher;
+        let input = crate::keys::KeyboardInput::from(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT),
+            shifted_key: None,
+            base_layout_key: Some('j'),
+            text: "j".to_string(),
+        });
+
+        app.forward_browser_key_to(7, SurfaceHandle::RemoteBrowserUnsupported, &input);
+
+        let event = blocked.recv_timeout(Duration::from_secs(1));
+        assert!(matches!(
+            event.kind,
+            BrowserInputKind::Key {
+                event_type: "keyDown",
+                key: "j",
+                code: "KeyJ",
+                windows_virtual_key_code: 74,
+                modifiers: 1,
+                text: None,
+            }
         ));
     }
 
