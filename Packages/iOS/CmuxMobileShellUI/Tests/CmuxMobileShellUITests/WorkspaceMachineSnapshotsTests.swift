@@ -44,6 +44,51 @@ import Testing
         #expect(Set(snapshots.macPickerMachines.map(\.name)) == ["Desk Mac"])
     }
 
+    @Test func macPickerTitleAppendsBuildLabelOnlyForSiblingBuilds() {
+        let nightly = pairedMac(
+            deviceID: "mac-a",
+            name: "Desk Mac",
+            instanceTag: "nightly",
+            isActive: true
+        )
+        let stable = pairedMac(
+            deviceID: "mac-a",
+            name: "Desk Mac",
+            instanceTag: "stable"
+        )
+        let solo = pairedMac(
+            deviceID: "mac-b",
+            name: "Solo Mac",
+            instanceTag: "stable"
+        )
+        let scope = selectionScope(
+            selection: .all,
+            workspaces: [],
+            pairedMacs: [nightly, stable, solo]
+        )
+        let snapshots = WorkspaceMachineSnapshots(
+            workspaces: [],
+            filterMachineIDFor: { scope.aliasIndex.deviceRepresentativeID(for: $0) },
+            macPickerMachineIDs: scope.machineIDs,
+            namesByID: [
+                nightly.id: nightly.resolvedName,
+                stable.id: stable.resolvedName,
+                solo.id: solo.resolvedName,
+            ],
+            buildLabelsByID: [
+                nightly.id: "Nightly",
+                stable.id: "Stable",
+                solo.id: "Stable",
+            ],
+            fallbackName: "Mac"
+        )
+
+        #expect(snapshots.macPickerTitle(for: nightly.id, fallback: "Mac") == "Desk Mac · Nightly")
+        #expect(snapshots.macPickerTitle(for: stable.id, fallback: "Mac") == "Desk Mac · Stable")
+        #expect(snapshots.macPickerTitle(for: solo.id, fallback: "Mac") == "Solo Mac")
+        #expect(snapshots.macPickerTitle(for: "missing", fallback: "Mac") == "Mac")
+    }
+
     @Test func unpairedWorkspaceProducesDeviceLevelPickerEntryWithoutBuildLabel() {
         let scope = selectionScope(
             selection: .all,

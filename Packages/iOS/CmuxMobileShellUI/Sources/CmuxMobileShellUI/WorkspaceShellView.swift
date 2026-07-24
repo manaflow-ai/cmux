@@ -581,13 +581,7 @@ struct WorkspaceShellView: View {
             names = names.mapValues(buildScope.computerDisplayName)
         }
 
-        var buildLabelsByID: [String: String] = [:]
-        for mac in store.displayPairedMacs {
-            buildLabelsByID[mac.id] = store.presenceSummary(
-                for: mac.macDeviceID,
-                instanceTag: mac.instanceTag
-            )?.buildLabel ?? MacBuildChannel().label(bundleID: nil, tag: mac.instanceTag)
-        }
+        let buildLabelsByID = store.pairedMacBuildLabelsByEntryID()
         let toolbarMachineSnapshots = WorkspaceMachineSnapshots(
             workspaces: store.workspaces,
             filterMachineIDFor: { scope.aliasIndex.deviceRepresentativeID(for: $0) },
@@ -619,8 +613,10 @@ struct WorkspaceShellView: View {
         case .all, .automatic:
             title = L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Computers")
         case .machine(let id):
-            title = machineSnapshots.macPickerMachines.first { $0.id == id }?.name
-                ?? L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer")
+            title = machineSnapshots.macPickerTitle(
+                for: id,
+                fallback: L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer")
+            )
         }
         return WorkspaceRootToolbarRenderContext(
             title: title,

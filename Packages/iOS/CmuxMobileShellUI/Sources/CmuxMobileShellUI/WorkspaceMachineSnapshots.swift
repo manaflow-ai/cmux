@@ -1,4 +1,5 @@
 import CmuxMobileShellModel
+import CmuxMobileSupport
 
 struct WorkspaceMachineSnapshots: Equatable {
     var filterMachines: [WorkspaceFilterMachine]
@@ -44,5 +45,25 @@ struct WorkspaceMachineSnapshots: Equatable {
                 )
             }
             .sortedForMenuDisplay()
+    }
+
+    /// Collapsed title for a machine selection. Sibling builds of one physical
+    /// Mac share a name, so the build label joins the title exactly when the
+    /// name alone would be ambiguous.
+    func macPickerTitle(for id: String, fallback: String) -> String {
+        guard let machine = macPickerMachines.first(where: { $0.id == id }) else {
+            return fallback
+        }
+        let hasSibling = macPickerMachines.contains {
+            $0.id != machine.id && $0.macDeviceID == machine.macDeviceID
+        }
+        guard hasSibling, let buildLabel = machine.buildLabel else {
+            return machine.name
+        }
+        let format = L10n.string(
+            "mobile.workspaces.macPicker.titleWithBuildFormat",
+            defaultValue: "%1$@ · %2$@"
+        )
+        return String(format: format, machine.name, buildLabel)
     }
 }

@@ -147,7 +147,7 @@ public struct WorkspaceListLayoutPreviewView: View {
         ),
     ]
 
-    private static let previewPairedMacs: [MobilePairedMac] = [
+    static let previewPairedMacs: [MobilePairedMac] = [
         MobilePairedMac(
             macDeviceID: "preview-macbook-pro",
             displayName: "MacBook Pro",
@@ -284,7 +284,6 @@ public struct WorkspaceListLayoutPreviewView: View {
                             },
                             createWorkspace: {},
                             macSelection: $macSelection,
-                            previewDisplayPairedMacs: Self.previewPairedMacs,
                             refresh: {
                                 await MainActor.run {
                                     let current = workspacesBinding.wrappedValue
@@ -377,4 +376,14 @@ public struct WorkspaceListLayoutPreviewView: View {
         }
     }
 }
+
+/// Pairing rows for the store-free workspace-list fixture. Lives in this
+/// DEBUG-only file so the production view exposes no fixture storage; the
+/// picker reads it only when `UITestConfig.workspaceListLayoutPreviewEnabled`.
+enum WorkspaceListLayoutPreviewFixture {
+    static var displayPairedMacs: [MobilePairedMac] {
+        WorkspaceListLayoutPreviewView.previewPairedMacs
+    }
+}
+
 #endif

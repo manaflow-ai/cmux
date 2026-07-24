@@ -18,11 +18,12 @@ extension WorkspaceListView {
         if let store {
             return store.displayPairedMacs
         }
-        #if DEBUG
-        return previewDisplayPairedMacs
-        #else
-        return []
+        #if canImport(UIKit) && DEBUG
+        if UITestConfig.workspaceListLayoutPreviewEnabled {
+            return WorkspaceListLayoutPreviewFixture.displayPairedMacs
+        }
         #endif
+        return []
     }
 
     var macSelectionScope: WorkspaceMacSelectionScope {
@@ -87,15 +88,12 @@ extension WorkspaceListView {
     }
 
     func macBuildLabelsByID() -> [String: String] {
-        var labels: [String: String] = [:]
-        for mac in displayPairedMacsForPicker {
-            let label = store?.presenceSummary(
-                for: mac.macDeviceID,
-                instanceTag: mac.instanceTag
-            )?.buildLabel ?? MacBuildChannel().label(bundleID: nil, tag: mac.instanceTag)
-            labels[mac.id] = label
+        if let store {
+            return store.pairedMacBuildLabelsByEntryID()
         }
-        return labels
+        return MobileShellComposite.buildLabelsByEntryID(
+            for: displayPairedMacsForPicker
+        ) { _, _ in nil }
     }
 
     var filterMenuPresentMachineIDs: [String] {
@@ -145,7 +143,7 @@ extension WorkspaceListView {
         case .all, .automatic:
             L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Computers")
         case .machine(let id):
-            machineSnapshots.macPickerMachines.first { $0.id == id }?.name ?? fallbackMacPickerName
+            machineSnapshots.macPickerTitle(for: id, fallback: fallbackMacPickerName)
         }
     }
 
@@ -243,18 +241,17 @@ struct WorkspaceMacTitlePicker: View, Equatable {
         .accessibilityIdentifier("MobileWorkspaceMacPicker")
     }
 
+    /// Menu rows must stay a bare Text/Text/Image tuple: UIMenu bridging reads
+    /// the first Text as the title, the second as the subtitle, and the Image
+    /// as the item icon. Wrapping them in a stack drops the subtitle entirely.
     @ViewBuilder
     private func menuRow(title: String, subtitle: String?, isSelected: Bool) -> some View {
-        HStack {
-            if isSelected {
-                Image(systemName: "checkmark")
-            }
-            VStack(alignment: .leading) {
-                Text(title)
-                if let subtitle {
-                    Text(subtitle)
-                }
-            }
+        Text(title)
+        if let subtitle {
+            Text(subtitle)
+        }
+        if isSelected {
+            Image(systemName: "checkmark")
         }
     }
 }

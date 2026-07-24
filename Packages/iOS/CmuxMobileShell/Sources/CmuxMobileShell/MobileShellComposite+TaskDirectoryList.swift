@@ -32,16 +32,14 @@ extension MobileShellComposite {
             return .failure(.invalidPath)
         }
 
-        let matchesForegroundPairing = foregroundMacDeviceID == macDeviceID
-            && (instanceTag == nil || activeMacInstanceTag == instanceTag)
-        if !matchesForegroundPairing || remoteClient == nil {
+        if !matchesForegroundPairing(macDeviceID: macDeviceID, instanceTag: instanceTag)
+            || remoteClient == nil {
             guard await switchToMac(macDeviceID: macDeviceID, instanceTag: instanceTag) else {
                 return .failure(Task.isCancelled ? .cancelled : .unavailable)
             }
         }
         guard !Task.isCancelled,
-              foregroundMacDeviceID == macDeviceID,
-              instanceTag == nil || activeMacInstanceTag == instanceTag,
+              matchesForegroundPairing(macDeviceID: macDeviceID, instanceTag: instanceTag),
               let client = remoteClient else {
             return .failure(.cancelled)
         }
@@ -61,8 +59,7 @@ extension MobileShellComposite {
                 timeoutNanoseconds: 4_000_000_000
             )
             guard !Task.isCancelled,
-                  foregroundMacDeviceID == macDeviceID,
-                  instanceTag == nil || activeMacInstanceTag == instanceTag else {
+                  matchesForegroundPairing(macDeviceID: macDeviceID, instanceTag: instanceTag) else {
                 return .failure(.cancelled)
             }
             return .success(try MobileTaskDirectoryListResponse.decode(data))

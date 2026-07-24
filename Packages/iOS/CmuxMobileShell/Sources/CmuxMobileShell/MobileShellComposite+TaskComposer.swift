@@ -257,7 +257,9 @@ extension MobileShellComposite {
             ?? macDeviceID
     }
 
-    private func matchesForegroundPairing(macDeviceID: String, instanceTag: String?) -> Bool {
+    /// Whether the foreground connection already targets this Mac pairing.
+    /// A `nil` `instanceTag` keeps legacy device-level matching.
+    func matchesForegroundPairing(macDeviceID: String, instanceTag: String?) -> Bool {
         foregroundMacDeviceID == macDeviceID
             && (instanceTag == nil || activeMacInstanceTag == instanceTag)
     }

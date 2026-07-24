@@ -28,14 +28,17 @@ struct TaskComposerMachineMenu: View, Equatable {
                     Button {
                         actions.selectMachine(mac.macDeviceID, mac.instanceTag)
                     } label: {
-                        Label {
-                            VStack(alignment: .leading) {
-                                Text(mac.resolvedName)
-                                if let buildLabel = value.buildLabelsByID[mac.id] {
-                                    Text(buildLabel)
-                                }
-                            }
-                        } icon: {
+                        // Bare Text/Text/Image tuple: UIMenu bridging reads the
+                        // first Text as title, the second as subtitle, and the
+                        // Image as the item icon. A stack or Label drops the
+                        // subtitle entirely.
+                        Text(mac.resolvedName)
+                        if let buildLabel = value.buildLabelsByID[mac.id] {
+                            Text(buildLabel)
+                        }
+                        if value.isSelected(mac) {
+                            Image(systemName: "checkmark")
+                        } else {
                             Image(systemName: "desktopcomputer")
                         }
                     }

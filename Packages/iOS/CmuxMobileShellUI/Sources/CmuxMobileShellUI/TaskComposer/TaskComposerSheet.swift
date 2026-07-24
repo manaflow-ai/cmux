@@ -108,7 +108,14 @@ struct TaskComposerSheet: View {
             ?? pairedMacIDs.first
             ?? foregroundMacID
             ?? ""
-        let selectedMac = availablePairedMacs.first {
+        // A draft that named a specific paired build restores that exact
+        // pairing; otherwise prefer the active pairing for the device.
+        let draftInstanceTag = draftMacID != nil ? draft?.macInstanceTag : nil
+        let selectedMac = draftInstanceTag.flatMap { tag in
+            availablePairedMacs.first {
+                $0.macDeviceID == selectedMacID && $0.instanceTag == tag
+            }
+        } ?? availablePairedMacs.first {
             $0.macDeviceID == selectedMacID && $0.isActive
         } ?? availablePairedMacs.first {
             $0.macDeviceID == selectedMacID
@@ -151,6 +158,7 @@ struct TaskComposerSheet: View {
                 template: $0,
                 prompt: initialPrompt,
                 macDeviceID: selectedMacID,
+                macInstanceTag: selectedMac?.instanceTag,
                 directory: initialDirectory,
                 workspaceName: initialWorkspaceName,
                 didEditDirectory: canRestoreDraftDirectory && draft?.didEditDirectory == true,
@@ -565,7 +573,7 @@ struct TaskComposerSheet: View {
         let spec = workspaceCreateSpec(for: snapshot)
         let result = await submitTaskComposer(
             snapshot.macDeviceID,
-            selectedMachine?.instanceTag,
+            snapshot.macInstanceTag,
             spec
         ) {
             submissionPhase = .committed

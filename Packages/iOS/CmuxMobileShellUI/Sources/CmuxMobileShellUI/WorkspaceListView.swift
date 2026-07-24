@@ -1,4 +1,3 @@
-import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -51,10 +50,6 @@ struct WorkspaceListView: View {
     /// Cancels a title-picker switch that is still in flight. `nil` in previews,
     /// where no real foreground connection exists.
     var cancelMacSwitch: (@MainActor (_ restorePreviousOnCancel: Bool) async -> Void)? = nil
-    #if DEBUG
-    /// Pairing rows supplied by the store-free workspace-list simulator fixture.
-    var previewDisplayPairedMacs: [MobilePairedMac] = []
-    #endif
     /// Pull-to-refresh action. Awaits the real workspace-list re-sync from the
     /// paired Mac so the system refresh spinner reflects actual completion (and
     /// ends gracefully, leaving the list intact, when the Mac is offline). Passed
