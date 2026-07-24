@@ -16,8 +16,6 @@ struct WorkspaceListTable: UIViewRepresentable {
     let wrapWorkspaceTitles: Bool
     let previewLineLimit: Int
     let unreadIndicatorLeftShift: Double
-    let profilePictureLeftShift: Double
-    let profilePictureSize: Double
     let connectionStatus: MobileMacConnectionStatus
 
     let connectionRequiresReauth: Bool
@@ -37,6 +35,7 @@ struct WorkspaceListTable: UIViewRepresentable {
     let setUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)?
     let setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)?
     let renameRequest: ((MobileWorkspacePreview.ID) -> Void)?
+    var customizeRequest: ((MobileWorkspacePreview.ID) -> Void)? = nil
     let createWorkspaceInGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)?
     let renameWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID, String) -> Void)?
     let setGroupPinned: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)?
