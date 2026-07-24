@@ -48,6 +48,11 @@ Chromium:
 ./cmux-browser/scripts/run-host-tests.sh
 ```
 
+That command first runs a fail-closed desktop license check: the project
+package declarations and Manaflow-owned Browser source areas must remain
+GPL-3.0-or-later, and an AGPL SPDX declaration is rejected. Explanatory AGPL
+discussion in the policy documents remains allowed.
+
 The exact private source object and imported blob identities are recorded in
 [`SOURCE_SNAPSHOT.md`](SOURCE_SNAPSHOT.md). Later slices remain gated by
 [`IMPORT_PROVENANCE.md`](IMPORT_PROVENANCE.md).

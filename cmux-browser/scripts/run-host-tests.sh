@@ -12,6 +12,8 @@ TERMINAL_HOST_TEST_DIR="$ROOT/overlay/chrome/services/cmux_terminal_renderer/pub
 TMP_OUT="$(mktemp -d)"
 trap 'rm -rf "$TMP_OUT"' EXIT
 
+"$ROOT/scripts/check-license-policy.sh"
+
 CXX="${CXX:-c++}"
 CXXFLAGS=(
   -std=c++17
