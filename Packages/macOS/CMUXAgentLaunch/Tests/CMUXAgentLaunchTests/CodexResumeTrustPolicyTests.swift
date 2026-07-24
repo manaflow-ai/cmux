@@ -174,6 +174,40 @@ struct CodexResumeTrustPolicyTests {
         )
     }
 
+    @Test("The last selected Codex profile applies to resume trust")
+    func selectedResumeProfileUsesLastOccurrence() {
+        #expect(
+            policy.selectedProfile(
+                arguments: [
+                    "codex",
+                    "--profile",
+                    "global",
+                    "resume",
+                    "SID",
+                    "--profile=restored",
+                ]
+            ) == "restored"
+        )
+        #expect(
+            policy.selectedProfile(
+                arguments: ["codex", "--profile", "resume", "fresh prompt"]
+            ) == nil
+        )
+        #expect(
+            policy.selectedProfile(
+                arguments: [
+                    "codex",
+                    "--config",
+                    "-p",
+                    "resume",
+                    "SID",
+                    "--profile",
+                    "restored",
+                ]
+            ) == "restored"
+        )
+    }
+
     @Test("Codex -C selects the trust lookup directory")
     func workingDirectoryOptionSelectsTrustDirectory() {
         #expect(

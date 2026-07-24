@@ -160,6 +160,63 @@ codex_passthrough_option_flag() {
     return 1
 }
 
+codex_resume_parser_flag() {
+    case "$1" in
+        --strict-config|--oss|--dangerously-bypass-approvals-and-sandbox|\
+        --dangerously-bypass-hook-trust|--yolo|--search|--no-alt-screen|-h|--help|\
+        -V|--version)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+codex_recognized_inline_option() {
+    case "$1" in
+        -c=*|--config=*|--enable=*|--disable=*|-i=*|--image=*|-m=*|\
+        --model=*|--remote=*|--remote-auth-token-env=*|--local-provider=*|\
+        -p=*|--profile=*|-s=*|--sandbox=*|-C=*|--cd=*|--add-dir=*|-a=*|\
+        --ask-for-approval=*)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+# Print the zero-based index of the actual `resume` subcommand. This parser is
+# deliberately conservative: options with ambiguous or unknown value grammar
+# fail closed so an option value named `resume` cannot authorize a PID rebind.
+cmux_codex_resume_subcommand_index() {
+    local args=("$@")
+    local index=0 arg
+    while (( index < ${#args[@]} )); do
+        arg="${args[$index]}"
+        case "$arg" in
+            resume)
+                printf '%s' "$index"
+                return 0
+                ;;
+            --)
+                return 1
+                ;;
+            -i|--image)
+                return 1
+                ;;
+        esac
+        if codex_option_consumes_value "$arg"; then
+            (( index + 1 < ${#args[@]} )) || return 1
+            (( index += 2 ))
+            continue
+        fi
+        if codex_resume_parser_flag "$arg" || codex_recognized_inline_option "$arg"; then
+            (( index += 1 ))
+            continue
+        fi
+        return 1
+    done
+    return 1
+}
+
 # Decide whether this invocation is a Codex SESSION entrypoint we should inject
 # hooks into. Bare `codex` (no args) and `codex [prompt]` are interactive
 # sessions; `codex exec ...` is a non-interactive session; `codex resume ...`
@@ -214,17 +271,47 @@ should_inject_codex_hooks() {
 # interactive picker) and `--last` carry no id at launch, so this returns
 # non-zero and those are left to codex.
 cmux_codex_resume_session_id() {
-    local seen_resume=false arg
-    for arg in "$@"; do
-        if [[ "$seen_resume" == true ]]; then
-            if [[ "$arg" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
-                printf '%s' "$arg"
-                return 0
-            fi
-        elif [[ "$arg" == "resume" ]]; then
-            seen_resume=true
+    local args=("$@")
+    local resume_index index arg
+    resume_index="$(cmux_codex_resume_subcommand_index "$@")" || return 1
+    index=$(( resume_index + 1 ))
+    while (( index < ${#args[@]} )); do
+        arg="${args[$index]}"
+        if [[ "$arg" == "--" ]]; then
+            (( index += 1 ))
+            break
         fi
+        if [[ "$arg" == "--last" ]]; then
+            return 1
+        fi
+        if [[ "$arg" == "-i" || "$arg" == "--image" ]]; then
+            return 1
+        fi
+        if codex_option_consumes_value "$arg"; then
+            (( index + 1 < ${#args[@]} )) || return 1
+            (( index += 2 ))
+            continue
+        fi
+        if codex_recognized_inline_option "$arg" \
+            || codex_resume_parser_flag "$arg" \
+            || [[ "$arg" == "--all" || "$arg" == "--include-non-interactive" ]]; then
+            (( index += 1 ))
+            continue
+        fi
+        [[ "$arg" == -* ]] && return 1
+        if [[ "$arg" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
+            printf '%s' "$arg"
+            return 0
+        fi
+        return 1
     done
+    if (( index < ${#args[@]} )); then
+        arg="${args[$index]}"
+        if [[ "$arg" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
+            printf '%s' "$arg"
+            return 0
+        fi
+    fi
     return 1
 }
 
@@ -355,10 +442,11 @@ cmux_codex_read_inject_args() {
 
 # Codex parses project trust in the `resume` subcommand's argument scope. The
 # same `-c projects=...` override is ignored if it is prepended with the global
-# hook configuration, so fetch it separately and append it after the captured
-# resume argv. An explicit persisted or command-line trust decision emits
-# nothing and remains authoritative. Any helper failure likewise leaves the
-# suffix empty, allowing Codex's own trust picker to fail closed.
+# hook configuration, so fetch it separately and place it in the captured
+# resume argv, immediately before a resume-scoped `--` when present. An explicit
+# persisted or command-line trust decision emits nothing and remains
+# authoritative. Any helper failure likewise leaves the suffix empty, allowing
+# Codex's own trust picker to fail closed.
 cmux_codex_read_resume_args() {
     [[ -n "$CMUX_INJECT_CLI" && -x "$CMUX_INJECT_CLI" ]] || return 1
     local arg
@@ -381,10 +469,35 @@ if cmux_codex_read_inject_args; then
     # resumes receive the same suffix even though neither exposes a UUID for the
     # synthetic SessionStart rebind above.
     cmux_codex_read_resume_args || cmux_codex_resume_args=()
-    exec "$REAL_CODEX" \
-        "${cmux_codex_injected_args[@]}" \
-        "$@" \
-        "${cmux_codex_resume_args[@]}"
+    if (( ${#cmux_codex_resume_args[@]} > 0 )); then
+        cmux_codex_resume_index="$(
+            cmux_codex_resume_subcommand_index "$@"
+        )" || cmux_codex_resume_index=""
+        if [[ -n "$cmux_codex_resume_index" ]]; then
+            cmux_codex_user_args=("$@")
+            cmux_codex_resume_terminator=-1
+            for (( cmux_codex_arg_index = cmux_codex_resume_index + 1;
+                   cmux_codex_arg_index < ${#cmux_codex_user_args[@]};
+                   cmux_codex_arg_index++ )); do
+                if [[ "${cmux_codex_user_args[$cmux_codex_arg_index]}" == "--" ]]; then
+                    cmux_codex_resume_terminator=$cmux_codex_arg_index
+                    break
+                fi
+            done
+            if (( cmux_codex_resume_terminator >= 0 )); then
+                exec "$REAL_CODEX" \
+                    "${cmux_codex_injected_args[@]}" \
+                    "${cmux_codex_user_args[@]:0:$cmux_codex_resume_terminator}" \
+                    "${cmux_codex_resume_args[@]}" \
+                    "${cmux_codex_user_args[@]:$cmux_codex_resume_terminator}"
+            fi
+            exec "$REAL_CODEX" \
+                "${cmux_codex_injected_args[@]}" \
+                "$@" \
+                "${cmux_codex_resume_args[@]}"
+        fi
+    fi
+    exec "$REAL_CODEX" "${cmux_codex_injected_args[@]}" "$@"
 fi
 
 # Emit failed or returned nothing: never break codex, just pass through.

@@ -109,11 +109,16 @@ extension CMUXCLI {
         ) else {
             return []
         }
+        let configContents = codexUserConfigContents(
+            environment,
+            selectedProfile: policy.selectedProfile(arguments: arguments)
+        )
         return policy.undecidedProjectOverride(
             arguments: arguments,
             currentDirectory: currentDirectory,
             repositoryRoot: codexCommonRepositoryRoot(currentDirectory: effectiveDirectory),
-            userConfigContents: codexUserConfigContents(environment)
+            userConfigContents: configContents.base,
+            profileConfigContents: configContents.profile
         )
     }
 
@@ -130,7 +135,10 @@ extension CMUXCLI {
         return decoded.count == arguments.count ? decoded : nil
     }
 
-    private func codexUserConfigContents(_ environment: [String: String]) -> String? {
+    private func codexUserConfigContents(
+        _ environment: [String: String],
+        selectedProfile: String?
+    ) -> (base: String?, profile: String?) {
         let codexHome: URL
         if let configuredHome = normalizedHookValue(environment["CODEX_HOME"]) {
             codexHome = URL(fileURLWithPath: configuredHome, isDirectory: true)
@@ -138,10 +146,20 @@ extension CMUXCLI {
             codexHome = FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent(".codex", isDirectory: true)
         }
-        return try? String(
+        let base = try? String(
             contentsOf: codexHome.appendingPathComponent("config.toml", isDirectory: false),
             encoding: .utf8
         )
+        let profile = selectedProfile.flatMap {
+            try? String(
+                contentsOf: codexHome.appendingPathComponent(
+                    "\($0).config.toml",
+                    isDirectory: false
+                ),
+                encoding: .utf8
+            )
+        }
+        return (base, profile)
     }
 
     /// Mirrors Codex's trust lookup for linked worktrees: project decisions may

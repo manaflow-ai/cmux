@@ -18,7 +18,8 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
         arguments: [String],
         currentDirectory: String,
         repositoryRoot: String?,
-        userConfigContents: String?
+        userConfigContents: String?,
+        profileConfigContents: String? = nil
     ) -> [String] {
         guard let resumeIndex = resumeSubcommandIndex(arguments) else { return [] }
 
@@ -27,15 +28,17 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
             currentDirectory: currentDirectory
         )
         guard let currentDirectory else { return [] }
-        let candidates = Set(
-            [currentDirectory, normalizedAbsolutePath(repositoryRoot)]
-                .compactMap { $0 }
-                .map(canonicalProjectPath)
-        )
+        var candidates = Set<String>()
+        for path in [currentDirectory, repositoryRoot].compactMap({ normalizedAbsolutePath($0) }) {
+            candidates.insert(path)
+            candidates.insert(canonicalProjectPath(path))
+        }
 
         let resumeArguments = Array(arguments[arguments.index(after: resumeIndex)...])
         if argumentsContainProjectTrustDecision(resumeArguments, candidates: candidates)
-            || userConfigContainsProjectTrustDecision(userConfigContents, candidates: candidates) {
+            || [userConfigContents, profileConfigContents].contains(where: {
+                userConfigContainsProjectTrustDecision($0, candidates: candidates)
+            }) {
             return []
         }
 
@@ -52,8 +55,8 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
 
     /// Resolves Codex's effective working root, including a global or
     /// resume-scoped `-C` / `--cd`. Relative values resolve from the process
-    /// directory that Codex inherits, and the result uses Codex's canonical
-    /// filesystem spelling.
+    /// directory that Codex inherits. The result preserves the normalized
+    /// logical spelling because Codex checks it as well as the canonical path.
     public func effectiveWorkingDirectory(
         arguments: [String],
         currentDirectory: String
@@ -82,7 +85,7 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
             index += 1
         }
         guard let selectedDirectory else {
-            return canonicalProjectPath(baseDirectory)
+            return baseDirectory
         }
         let absoluteDirectory: String
         if selectedDirectory.hasPrefix("/") {
@@ -94,7 +97,56 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
         guard let normalized = normalizedAbsolutePath(absoluteDirectory) else {
             return nil
         }
-        return canonicalProjectPath(normalized)
+        return normalized
+    }
+
+    /// Returns the profile selected for the resumed invocation. Codex accepts
+    /// the option in either the global or resume argument scope and uses the
+    /// last occurrence.
+    public func selectedProfile(arguments: [String]) -> String? {
+        guard resumeSubcommandIndex(arguments) != nil else { return nil }
+        let valueOptions: Set<String> = [
+            "-c", "--config",
+            "--enable", "--disable",
+            "-i", "--image",
+            "-m", "--model",
+            "--remote", "--remote-auth-token-env",
+            "--local-provider",
+            "-s", "--sandbox",
+            "-C", "--cd",
+            "--add-dir",
+            "-a", "--ask-for-approval",
+        ]
+        var selectedProfile: String?
+        var index = executableArgumentStart(arguments)
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--" {
+                break
+            }
+            if argument == "-p" || argument == "--profile" {
+                guard index + 1 < arguments.count else { return nil }
+                selectedProfile = normalizedProfileName(arguments[index + 1])
+                index += 2
+                continue
+            }
+            if valueOptions.contains(argument) {
+                guard index + 1 < arguments.count else { return nil }
+                index += 2
+                continue
+            }
+            if argument.hasPrefix("-p=") {
+                selectedProfile = normalizedProfileName(
+                    String(argument.dropFirst("-p=".count))
+                )
+            } else if argument.hasPrefix("--profile=") {
+                selectedProfile = normalizedProfileName(
+                    String(argument.dropFirst("--profile=".count))
+                )
+            }
+            index += 1
+        }
+        return selectedProfile
     }
 
     private func resumeSubcommandIndex(_ arguments: [String]) -> Int? {
@@ -116,6 +168,7 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
             "--oss",
             "--dangerously-bypass-approvals-and-sandbox",
             "--dangerously-bypass-hook-trust",
+            "--yolo",
             "--search",
             "--no-alt-screen",
             "-h", "--help",
@@ -411,16 +464,111 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
     }
 
     private func inlineProjectDecision(_ line: String, path: String) -> Bool {
-        let basicPath = "\"\(tomlBasicStringContents(path))\""
-        let literalPath = path.contains("'") ? nil : "'\(path)'"
-        guard line.contains(basicPath) || literalPath.map(line.contains) == true else {
+        guard let (key, value) = assignmentParts(line),
+              key == "projects",
+              let projects = inlineTableEntries(value) else {
             return false
         }
-        guard line.contains("trust_level") else { return false }
-        return line.contains("\"trusted\"")
-            || line.contains("\"untrusted\"")
-            || line.contains("'trusted'")
-            || line.contains("'untrusted'")
+        for project in projects {
+            guard parseTomlQuotedString(project.key) == path,
+                  let settings = inlineTableEntries(project.value) else {
+                continue
+            }
+            if settings.contains(where: {
+                $0.key == "trust_level" && isTrustLevelValue($0.value)
+            }) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func inlineTableEntries(
+        _ rawValue: String
+    ) -> [(key: String, value: String)]? {
+        let value = rawValue.trimmingCharacters(in: .whitespaces)
+        guard value.first == "{", value.last == "}" else { return nil }
+        let inner = String(value.dropFirst().dropLast())
+        guard !inner.trimmingCharacters(in: .whitespaces).isEmpty else {
+            return []
+        }
+        guard let segments = topLevelSegments(inner, separatedBy: ",") else {
+            return nil
+        }
+        var entries: [(key: String, value: String)] = []
+        for segment in segments {
+            guard let equals = topLevelIndex(of: "=", in: segment) else {
+                return nil
+            }
+            let key = segment[..<equals].trimmingCharacters(in: .whitespaces)
+            let entryValue = segment[segment.index(after: equals)...]
+                .trimmingCharacters(in: .whitespaces)
+            guard !key.isEmpty, !entryValue.isEmpty else { return nil }
+            entries.append((key, entryValue))
+        }
+        return entries
+    }
+
+    private func topLevelSegments(
+        _ value: String,
+        separatedBy separator: Character
+    ) -> [String]? {
+        var result: [String] = []
+        var start = value.startIndex
+        var quote: Character?
+        var escaping = false
+        var braceDepth = 0
+        var bracketDepth = 0
+        var index = value.startIndex
+        while index < value.endIndex {
+            let character = value[index]
+            if let activeQuote = quote {
+                if activeQuote == "\"", escaping {
+                    escaping = false
+                } else if activeQuote == "\"", character == "\\" {
+                    escaping = true
+                } else if character == activeQuote {
+                    quote = nil
+                }
+            } else {
+                switch character {
+                case "\"", "'":
+                    quote = character
+                case "{":
+                    braceDepth += 1
+                case "}":
+                    guard braceDepth > 0 else { return nil }
+                    braceDepth -= 1
+                case "[":
+                    bracketDepth += 1
+                case "]":
+                    guard bracketDepth > 0 else { return nil }
+                    bracketDepth -= 1
+                case separator where braceDepth == 0 && bracketDepth == 0:
+                    result.append(String(value[start..<index]))
+                    start = value.index(after: index)
+                default:
+                    break
+                }
+            }
+            index = value.index(after: index)
+        }
+        guard quote == nil, !escaping, braceDepth == 0, bracketDepth == 0 else {
+            return nil
+        }
+        result.append(String(value[start...]))
+        return result
+    }
+
+    private func topLevelIndex(
+        of needle: Character,
+        in value: String
+    ) -> String.Index? {
+        guard let segments = topLevelSegments(value, separatedBy: needle),
+              segments.count == 2 else {
+            return nil
+        }
+        return value.index(value.startIndex, offsetBy: segments[0].count)
     }
 
     private func normalizedAbsolutePath(_ path: String?) -> String? {
@@ -429,6 +577,11 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
             return nil
         }
         return (path as NSString).standardizingPath
+    }
+
+    private func normalizedProfileName(_ rawValue: String) -> String? {
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
     }
 
     private func canonicalProjectPath(_ path: String) -> String {
