@@ -319,6 +319,15 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "assert \\\n"
                 '"`sleep 1`"\n'
             ),
+            "multiline-shell-sleep-argument.sh": (
+                'sleep "$(\n'
+                "prepare_one\n"
+                "prepare_two\n"
+                "prepare_three\n"
+                "prepare_four\n"
+                ')"\n'
+                'assert "$ready"\n'
+            ),
         }
 
         result = self.run_checker(fixtures)
@@ -681,6 +690,16 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "clock = fake_clock\n"
                     "check()\n"
                 ),
+                "loop-else-break-shadow.py": (
+                    "import time\n"
+                    "for item in items:\n"
+                    "    time = fake_clock\n"
+                    "    break\n"
+                    "else:\n"
+                    "    import time\n"
+                    "time.sleep(0.01)\n"
+                    "assert finished\n"
+                ),
             }
         )
 
@@ -794,6 +813,10 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "marker: (time := fake)=None): pass\n"
                     "assert finished\n"
                 ),
+                "same-f-string-assertion.py": (
+                    'rendered = f"{time.sleep(0.01)}'
+                    '{self.assertTrue(done)}"\n'
+                ),
             }
         )
 
@@ -806,6 +829,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             "f-string.py": 1,
             "default-argument.py": 1,
             "default-before-annotation.py": 1,
+            "same-f-string-assertion.py": 1,
         }
         for relative_path, line in expected_lines.items():
             self.assertIn(
@@ -1091,6 +1115,9 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "{\n"
                     '    assert "$ready"\n'
                     "}\n"
+                ),
+                "assert-case-pattern.sh": (
+                    'case "$cmd" in assert) sleep 1 ;; esac\n'
                 ),
             },
             timeout=2,
