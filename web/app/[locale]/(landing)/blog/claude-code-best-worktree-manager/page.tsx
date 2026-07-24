@@ -13,10 +13,10 @@ const superrepoTree = `~/my-superrepo/
 ├── skills/
 ├── data/
 ├── origins/
-│   └── origin-[n]/
+│   └── [repo]/
 └── worktrees/
-    └── [worktree-name]/
-        └── origin-[n]/`;
+    └── [task]/
+        └── [repo]/`;
 
 export async function generateMetadata({
   params,
