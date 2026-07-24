@@ -244,11 +244,33 @@ private func isCmuxCodexHookCommand(_ command: String, subcommand: String) -> Bo
         if normalized.contains("/.cmux/hooks/cmux-codex-hook-\(candidate).sh") {
             return true
         }
+        if isContentAddressedCmuxCodexHookScript(
+            normalizedCommand: normalized,
+            subcommand: candidate
+        ) {
+            return true
+        }
         if command.contains("cmux-codex-hook") && command.contains("hooks codex \(candidate)") {
             return true
         }
     }
     return false
+}
+
+private func isContentAddressedCmuxCodexHookScript(
+    normalizedCommand: String,
+    subcommand: String
+) -> Bool {
+    let prefix = "/.cmux/hooks/cmux-codex-hook-"
+    let suffix = "-\(subcommand).sh"
+    guard let prefixRange = normalizedCommand.range(of: prefix) else { return false }
+    let tail = normalizedCommand[prefixRange.upperBound...]
+    guard tail.hasSuffix(suffix) else { return false }
+    let contentID = tail.dropLast(suffix.count)
+    return contentID.count == 16
+        && contentID.utf8.allSatisfy { byte in
+            (48...57).contains(byte) || (97...102).contains(byte)
+        }
 }
 
 private let codexWrapperInjectedHookSubcommandAliases: [String: [String]] = [
