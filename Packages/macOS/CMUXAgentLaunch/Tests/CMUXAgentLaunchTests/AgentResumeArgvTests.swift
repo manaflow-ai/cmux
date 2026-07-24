@@ -341,5 +341,19 @@ struct AgentResumeArgvTests {
                 quote: quote
             ) == "'/Applications/cmux.app/Contents/Resources/bin/cmux' 'codex-teams' 'resume' 'SID'"
         )
+        // An option value whose basename is codex is data, not the executable.
+        #expect(
+            AgentResumeArgv.renderedPortableCodexResumeShellCommand(
+                parts: [
+                    "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                    "codex-teams",
+                    "resume",
+                    "SID",
+                    "--add-dir",
+                    "/tmp/codex",
+                ],
+                quote: quote
+            ) == "'/Applications/cmux.app/Contents/Resources/bin/cmux' 'codex-teams' 'resume' 'SID' '--add-dir' '/tmp/codex'"
+        )
     }
 }

@@ -39,7 +39,7 @@ struct RestorableCodexForkTagTests {
                             "fork",
                             "019ef275-74e3-7777-9773-9dcb118ed5ac",
                             "tag-one",
-                            "tag two",
+                            "resume",
                             "--model",
                             "gpt-5",
                         ],
@@ -57,8 +57,12 @@ struct RestorableCodexForkTagTests {
         )
         let fork = try #require(snapshot.forkCommand)
         #expect(
-            fork.contains("'fork' '\(sessionId)' 'tag-one' 'tag two' '--model' 'gpt-5'"),
+            fork.contains("'fork' '\(sessionId)' 'tag-one' 'resume' '--model' 'gpt-5'"),
             Comment(rawValue: "forking a restored forked session must preserve every prompt tag; got: \(fork)")
+        )
+        #expect(
+            !fork.contains("CMUX_CODEX_WRAPPER_SHIM"),
+            Comment(rawValue: "a prompt tag named resume must not route a fork through the resume wrapper; got: \(fork)")
         )
     }
 

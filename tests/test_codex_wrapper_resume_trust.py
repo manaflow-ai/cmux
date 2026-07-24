@@ -26,7 +26,7 @@ def make_executable(path: Path, contents: str) -> None:
 
 
 class CodexWrapperResumeTrustTests(unittest.TestCase):
-    def test_resume_trust_override_is_appended_after_resume_arguments(self) -> None:
+    def run_wrapper(self, arguments: list[str]) -> tuple[list[str], str, subprocess.CompletedProcess[str]]:
         with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as raw:
             root = Path(raw)
             wrapper = root / "cmux-codex-wrapper"
@@ -85,7 +85,7 @@ esac
             )
             try:
                 result = subprocess.run(
-                    [str(wrapper), "resume", SESSION_ID, "--yolo"],
+                    [str(wrapper), *arguments],
                     cwd=root,
                     env=env,
                     capture_output=True,
@@ -95,23 +95,47 @@ esac
             finally:
                 live_socket.close()
 
-            self.assertEqual(result.returncode, 0, result.stderr)
             args = args_log.read_bytes().rstrip(b"\0").decode().split("\0")
-            self.assertEqual(
-                args,
-                [
-                    "--enable",
-                    "hooks",
-                    "resume",
-                    SESSION_ID,
-                    "--yolo",
-                    "-c",
-                    TRUST_OVERRIDE,
-                ],
-            )
-            logged_cmux_calls = cmux_log.read_text()
-            self.assertIn("hooks codex inject-resume-args", logged_cmux_calls)
-            self.assertIn('"cmux_resume_rebind":true', logged_cmux_calls)
+            return args, cmux_log.read_text(), result
+
+    def test_resume_trust_override_is_appended_after_resume_arguments(self) -> None:
+        args, logged_cmux_calls, result = self.run_wrapper(
+            ["resume", SESSION_ID, "--yolo"]
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            args,
+            [
+                "--enable",
+                "hooks",
+                "resume",
+                SESSION_ID,
+                "--yolo",
+                "-c",
+                TRUST_OVERRIDE,
+            ],
+        )
+        self.assertIn("hooks codex inject-resume-args", logged_cmux_calls)
+        self.assertIn('"cmux_resume_rebind":true', logged_cmux_calls)
+
+    def test_last_and_named_resume_receive_trust_override(self) -> None:
+        for arguments in (["resume", "--last"], ["resume", "session-name"]):
+            with self.subTest(arguments=arguments):
+                args, logged_cmux_calls, result = self.run_wrapper(arguments)
+
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(
+                    args,
+                    [
+                        "--enable",
+                        "hooks",
+                        *arguments,
+                        "-c",
+                        TRUST_OVERRIDE,
+                    ],
+                )
+                self.assertIn("hooks codex inject-resume-args", logged_cmux_calls)
 
 
 if __name__ == "__main__":

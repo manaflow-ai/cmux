@@ -1786,8 +1786,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         defer { context.cleanup() }
 
         let sessionId = "interrupted-active-session"
-        let oldPID = 11_111
-        let resumedPID = 22_222
+        let resumedPID = Int(Darwin.getpid())
+        let oldPID = resumedPID
         let now = Date().timeIntervalSince1970
         let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
         let store: [String: Any] = [
@@ -1799,6 +1799,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                     "surfaceId": context.surfaceId,
                     "cwd": context.root.path,
                     "pid": oldPID,
+                    "pidStartSeconds": 1,
+                    "pidStartMicroseconds": 0,
                     "runtimeStatus": "running",
                     "activePromptDepth": 1,
                     "activePromptTurnId": "interrupted-turn",
@@ -1837,6 +1839,68 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(
             context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
             "The resumed process must republish its binding for another crash cycle."
+        )
+    }
+
+    func testDelayedOlderCodexResumeCannotReplaceNewerActiveProcess() throws {
+        let context = try makeClaudeHookContext(name: "codex-delayed-resume-generation")
+        defer { context.cleanup() }
+
+        let sessionId = "newer-active-session"
+        let incomingPID = Int(Darwin.getpid())
+        let newerPID = 22_222
+        let now = Date().timeIntervalSince1970
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "pid": newerPID,
+                    "pidStartSeconds": Int64(now) + 3_600,
+                    "pidStartMicroseconds": 0,
+                    "runtimeStatus": "running",
+                    "activePromptDepth": 1,
+                    "activePromptTurnId": "newer-turn",
+                    "activePromptTurnIds": ["newer-turn"],
+                    "lastPromptTurnId": "newer-turn",
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 24)
+        let result = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","cmux_resume_rebind":true}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId).merging([
+                "CMUX_CODEX_PID": String(incomingPID),
+            ], uniquingKeysWith: { _, new in new })
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(
+            record["pid"] as? Int,
+            newerPID,
+            "A delayed older resume event must not replace the newer process generation."
+        )
+        XCTAssertEqual(
+            record["activePromptDepth"] as? Int,
+            1,
+            "A delayed older resume event must not clear the newer process's active turn."
+        )
+        XCTAssertFalse(
+            context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "A rejected older resume event must not republish the session binding."
         )
     }
 
