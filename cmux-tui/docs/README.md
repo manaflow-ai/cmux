@@ -12,3 +12,4 @@
 - [Machines](machines.md): optional dual rails, static Unix/SSH targets, relay, and `npx cmux` remote setup.
 - [Control socket protocol](protocol.md): JSON-lines framing, protocol v9 layouts and events, attach streams, and compatibility rules.
 - [Browser panes](browser-panes.md): CDP-backed browser tabs, rendering, input, profiles, and current limitations.
+- [cmux tree](cmux-tree.md) ([日本語](cmux-tree.ja.md)): read-only Codex app-server machines, conversation trees, and live trajectories.

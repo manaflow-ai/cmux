@@ -1,0 +1,25 @@
+[package]
+name = "cmux-tree"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Minimal Codex conversation tree and trajectory TUI"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "cmux-tree"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+crossterm.workspace = true
+ratatui.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+textwrap.workspace = true
+tungstenite = { workspace = true, features = ["rustls-tls-native-roots"] }
+unicode-width.workspace = true
