@@ -25,9 +25,12 @@ actor TestIrohConnection: CmxIrohConnection,
     private let eventRecorder: TestIrohEventRecorder?
     private let bidirectionalStreamFailureNumber: Int?
     private let reportsClosureToWaiters: Bool
+    private let reportedCloseAttribution: CmxIrohConnectionCloseAttribution
     private var selectedPath: CmxIrohObservedConnectionPath
     private let selectedPathStream: AsyncStream<CmxIrohObservedConnectionPath>
     private let selectedPathContinuation: AsyncStream<CmxIrohObservedConnectionPath>.Continuation
+    private let pathEventStream: AsyncStream<CmxIrohConnectionPathEvent>
+    private let pathEventContinuation: AsyncStream<CmxIrohConnectionPathEvent>.Continuation
     private var incomingStreamLimits: [(
         maximumBidirectionalStreamCount: UInt64,
         maximumUnidirectionalStreamCount: UInt64
@@ -51,7 +54,12 @@ actor TestIrohConnection: CmxIrohConnection,
         eventRecorder: TestIrohEventRecorder? = nil,
         selectedPath: CmxIrohObservedConnectionPath = .unavailable,
         bidirectionalStreamFailureNumber: Int? = nil,
-        reportsClosureToWaiters: Bool = true
+        reportsClosureToWaiters: Bool = true,
+        closeAttribution: CmxIrohConnectionCloseAttribution = .init(
+            initiator: .local,
+            applicationErrorCode: 0,
+            failureKind: .cancelled
+        )
     ) {
         peerIdentity = remoteIdentity
         self.continuityID = continuityID
@@ -61,6 +69,7 @@ actor TestIrohConnection: CmxIrohConnection,
         self.eventRecorder = eventRecorder
         self.bidirectionalStreamFailureNumber = bidirectionalStreamFailureNumber
         self.reportsClosureToWaiters = reportsClosureToWaiters
+        reportedCloseAttribution = closeAttribution
         self.selectedPath = selectedPath
         let pathChanges = AsyncStream<CmxIrohObservedConnectionPath>.makeStream(
             bufferingPolicy: .bufferingNewest(1)
@@ -68,6 +77,9 @@ actor TestIrohConnection: CmxIrohConnection,
         selectedPathStream = pathChanges.stream
         selectedPathContinuation = pathChanges.continuation
         selectedPathContinuation.yield(selectedPath)
+        let pathEvents = AsyncStream<CmxIrohConnectionPathEvent>.makeStream()
+        pathEventStream = pathEvents.stream
+        pathEventContinuation = pathEvents.continuation
         let closes = AsyncStream<(code: UInt64, reason: String)>.makeStream()
         closeStream = closes.stream
         closeContinuation = closes.continuation
@@ -92,6 +104,14 @@ actor TestIrohConnection: CmxIrohConnection,
     func setObservedSelectedPath(_ path: CmxIrohObservedConnectionPath) {
         selectedPath = path
         selectedPathContinuation.yield(path)
+    }
+
+    func observedPathEvents() -> AsyncStream<CmxIrohConnectionPathEvent> {
+        pathEventStream
+    }
+
+    func emitPathEvent(_ event: CmxIrohConnectionPathEvent) {
+        pathEventContinuation.yield(event)
     }
 
     func setIncomingStreamLimits(
@@ -145,6 +165,10 @@ actor TestIrohConnection: CmxIrohConnection,
 
     func isClosed() -> Bool {
         !closeCalls.isEmpty
+    }
+
+    func closeAttribution() -> CmxIrohConnectionCloseAttribution {
+        reportedCloseAttribution
     }
 
     private func recordClose(errorCode: UInt64, reason: String) {

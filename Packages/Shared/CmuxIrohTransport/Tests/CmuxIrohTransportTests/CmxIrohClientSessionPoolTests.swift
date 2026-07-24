@@ -282,6 +282,64 @@ struct CmxIrohClientSessionPoolTests {
     }
 
     @Test
+    func remoteCloseEmitsAttributionAndPathEventsWithSessionCorrelation() async throws {
+        let fixture = try PoolFixture()
+        let connection = TestIrohConnection(
+            remoteIdentity: fixture.remoteIdentity,
+            bidirectionalStreams: [fixture.controlStream()],
+            closeAttribution: .init(
+                initiator: .remote,
+                applicationErrorCode: 71,
+                failureKind: .connectionClosed
+            )
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: fixture.localIdentity,
+            dialResults: [.connection(connection)]
+        )
+        let diagnosticLog = DiagnosticLog(capacity: 8)
+        let pool = try await fixture.pool(
+            endpoint: endpoint,
+            generation: 1,
+            diagnosticLog: diagnosticLog
+        )
+        let transport = try CmxIrohByteTransportFactory(sessionPool: pool)
+            .makeTransport(for: fixture.request)
+        try await transport.connect()
+
+        await connection.emitPathEvent(.init(
+            kind: .opened,
+            pathKind: .privateNetwork
+        ))
+        await connection.emitPathEvent(.init(
+            kind: .selected,
+            pathKind: .privateNetwork
+        ))
+        await connection.close(errorCode: 71, reason: "peer_closed")
+
+        for _ in 0 ..< 1_000 {
+            if await diagnosticLog.processedCount() >= 6 { break }
+            await Task.yield()
+        }
+        let events = await diagnosticLog.snapshot().events
+        #expect(events.map(\.code) == [
+            .transportSessionLifecycle,
+            .transportPathEvent,
+            .transportPathEvent,
+            .transportCloseAttribution,
+            .transportSessionLifecycle,
+            .sessionClosed,
+        ])
+        let sessionID = try #require(events.first?.diagnosticSessionID)
+        #expect(events.dropFirst().allSatisfy { $0.diagnosticSessionID == sessionID })
+        #expect(events[1].diagnosticPathKind == .privateNetwork)
+        #expect(events[2].a == CmxIrohConnectionPathEventKind.selected.rawValue)
+        #expect(events[3].a == CmxIrohConnectionCloseInitiator.remote.rawValue)
+        #expect(events[3].b == DiagnosticFailureKind.connectionClosed.rawValue)
+        #expect(events[3].ms == 71)
+    }
+
+    @Test
     func knownClosedCachedSessionRedialsWithoutWaitingForClosureWatcher() async throws {
         let fixture = try PoolFixture()
         let firstConnection = TestIrohConnection(
