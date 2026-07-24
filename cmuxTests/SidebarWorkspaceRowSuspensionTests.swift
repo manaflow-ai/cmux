@@ -62,7 +62,8 @@ struct SidebarWorkspaceRowSuspensionTests {
         isChecklistExpanded: Bool = false,
         editingChecklistItemId: UUID? = nil,
         isChecklistPopoverPresented: Bool = false,
-        checklistStyle: WorkspaceTodoChecklistStyle? = nil
+        checklistStyle: WorkspaceTodoChecklistStyle? = nil,
+        workspaceId: UUID = UUID()
     ) -> SidebarWorkspaceRowModel {
         let defaults = UserDefaults(suiteName: UUID().uuidString)!
         if let checklistStyle {
@@ -73,7 +74,7 @@ struct SidebarWorkspaceRowSuspensionTests {
         }
         let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
         return SidebarWorkspaceRowModel(
-            workspaceId: UUID(),
+            workspaceId: workspaceId,
             index: 0,
             snapshot: makeSnapshot(
                 manualTaskStatus: manualTaskStatus,
@@ -362,6 +363,51 @@ struct SidebarWorkspaceRowSuspensionTests {
         cell.suspendPresentation(commitEdits: true)
         #expect(additions == ["Review checklist lifecycle"])
         #expect(consumptions == 1)
+    }
+
+    @Test
+    func switchingChecklistEditorsCommitsPreviousDraft() throws {
+        let firstItem = WorkspaceChecklistItem(text: "First")
+        let secondItem = WorkspaceChecklistItem(text: "Second")
+        let workspaceId = UUID()
+        let firstModel = Self.makeModel(
+            checklistItems: [firstItem, secondItem], isChecklistExpanded: true,
+            editingChecklistItemId: firstItem.id, workspaceId: workspaceId
+        )
+        let secondModel = Self.makeModel(
+            checklistItems: [firstItem, secondItem], isChecklistExpanded: true,
+            editingChecklistItemId: secondItem.id, workspaceId: workspaceId
+        )
+        var edits: [(UUID, String)] = []
+        let actions = Self.makeActions(
+            model: firstModel,
+            onChecklistEditItem: { edits.append(($0, $1)) }
+        )
+        let cell = SidebarWorkspaceRowTableCellView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 120)
+        )
+        let window = NSWindow(contentRect: cell.bounds, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = cell
+        defer { window.close() }
+        cell.configure(
+            model: firstModel, actions: actions, isPointerHovering: false,
+            contextMenuDidOpen: {}, contextMenuDidClose: {}
+        )
+        let field = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? SidebarRowChecklistFocusField }
+                .first { $0.accessibilityIdentifier() == "SidebarChecklistEditItemField" }
+        )
+        field.stringValue = "  Updated first item  "
+
+        cell.configure(
+            model: secondModel, actions: actions, isPointerHovering: false,
+            contextMenuDidOpen: {}, contextMenuDidClose: {}
+        )
+
+        #expect(edits.count == 1)
+        #expect(edits.first?.0 == firstItem.id)
+        #expect(edits.first?.1 == "Updated first item")
     }
 
     @Test
