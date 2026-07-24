@@ -347,6 +347,79 @@ struct DockShortcutRoutingTests {
             }
         }
     }
+
+    @Test("Repeated move-to-pane shortcut does not create a missing pane")
+    @MainActor
+    func repeatedMoveToPaneDoesNotCreateMissingPane() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try Self.withHarness { harness in
+                let movedPanelId = try #require(harness.mainWorkspace.focusedPanelId)
+                let paneIdsBefore = harness.mainWorkspace.bonsplitController.allPaneIds
+                let panelIdsBefore = Set(harness.mainWorkspace.panels.keys)
+                let shortcut = Self.customShortcut(key: "y")
+                KeyboardShortcutSettings.setShortcut(
+                    shortcut,
+                    for: .moveSurfaceToPaneRight
+                )
+                harness.appDelegate.noteMainPanelKeyboardFocusIntent(
+                    workspaceId: harness.mainWorkspace.id,
+                    panelId: movedPanelId,
+                    in: harness.window
+                )
+
+                #expect(Self.dispatch(shortcut, in: harness, isARepeat: true))
+                #expect(harness.mainWorkspace.bonsplitController.allPaneIds == paneIdsBefore)
+                #expect(Set(harness.mainWorkspace.panels.keys) == panelIdsBefore)
+                #expect(harness.mainWorkspace.focusedPanelId == movedPanelId)
+            }
+        }
+    }
+
+    @Test("Repeated move-to-pane shortcut still uses an existing destination")
+    @MainActor
+    func repeatedMoveToPaneUsesExistingDestination() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try Self.withHarness { harness in
+                let movedPanelId = try #require(harness.mainWorkspace.focusedPanelId)
+                let sourcePaneId = try #require(
+                    harness.mainWorkspace.paneId(forPanelId: movedPanelId)
+                )
+                _ = try #require(
+                    harness.mainWorkspace.newTerminalSurface(
+                        inPane: sourcePaneId,
+                        focus: false
+                    )
+                )
+                let destinationPanel = try #require(
+                    harness.mainWorkspace.newTerminalSplit(
+                        from: movedPanelId,
+                        orientation: .horizontal,
+                        focus: false
+                    )
+                )
+                let destinationPaneId = try #require(
+                    harness.mainWorkspace.paneId(forPanelId: destinationPanel.id)
+                )
+                harness.mainWorkspace.focusPanel(movedPanelId)
+                let shortcut = Self.customShortcut(key: "y")
+                KeyboardShortcutSettings.setShortcut(
+                    shortcut,
+                    for: .moveSurfaceToPaneRight
+                )
+                harness.appDelegate.noteMainPanelKeyboardFocusIntent(
+                    workspaceId: harness.mainWorkspace.id,
+                    panelId: movedPanelId,
+                    in: harness.window
+                )
+
+                #expect(Self.dispatch(shortcut, in: harness, isARepeat: true))
+                #expect(
+                    harness.mainWorkspace.paneId(forPanelId: movedPanelId) ==
+                        destinationPaneId
+                )
+            }
+        }
+    }
 }
 
 private extension DockShortcutRoutingTests {
@@ -428,7 +501,11 @@ private extension DockShortcutRoutingTests {
     }
 
     @MainActor
-    static func dispatch(_ shortcut: AppStoredShortcut, in harness: Harness) -> Bool {
+    static func dispatch(
+        _ shortcut: AppStoredShortcut,
+        in harness: Harness,
+        isARepeat: Bool = false
+    ) -> Bool {
         guard !shortcut.isUnbound,
               !shortcut.hasChord,
               let keyCode = shortcut.firstStroke.resolvedKeyCode(),
@@ -441,7 +518,7 @@ private extension DockShortcutRoutingTests {
                   context: nil,
                   characters: shortcut.menuItemKeyEquivalent ?? shortcut.key,
                   charactersIgnoringModifiers: shortcut.menuItemKeyEquivalent ?? shortcut.key,
-                  isARepeat: false,
+                  isARepeat: isARepeat,
                   keyCode: keyCode
               ) else {
             return false
