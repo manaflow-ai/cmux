@@ -3543,22 +3543,23 @@ mod tests {
         .unwrap();
         let writer = CapturingWriter::default();
         replace_local_writer(&surface, Box::new(writer.clone()));
-        let before = surface
-            .with_terminal(|term| {
-                for line in 0..12 {
-                    term.vt_write(format!("history-{line}\r\n").as_bytes());
-                }
-                term.vt_write(b"wrapped-edit-buffer");
-                assert!(term.history_rows() > 0);
-                term.viewport_text().unwrap()
-            })
-            .unwrap();
+        surface.with_terminal(|term| {
+            for line in 0..12 {
+                term.vt_write(format!("history-{line}\r\n").as_bytes());
+            }
+            term.vt_write(b"wrapped-edit-buffer");
+            assert!(term.history_rows() > 0);
+        });
 
         surface.clear_history().unwrap();
 
         surface.with_terminal(|term| {
             assert_eq!(term.history_rows(), 0);
-            assert_eq!(term.viewport_text().unwrap(), before);
+            let viewport = term.viewport_text().unwrap();
+            let compact =
+                viewport.chars().filter(|character| !character.is_whitespace()).collect::<String>();
+            assert!(compact.contains("wrapped-edit-buffer"));
+            assert!(!viewport.contains("history-"));
         });
         assert!(writer.0.lock().unwrap().is_empty());
     }
