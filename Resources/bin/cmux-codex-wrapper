@@ -89,11 +89,13 @@ cmux_codex_physical_candidate() {
     printf '%s/%s' "${physical_directory%/}" "$(basename "$candidate")"
 }
 
-# Print the nearest physical ancestor that contains a Git marker. Outside a Git
-# checkout, the working directory itself is the untrusted project boundary.
+# Print the nearest physical ancestor of a directory that contains a Git
+# marker. Outside a Git checkout, the directory itself is the untrusted project
+# boundary.
 cmux_codex_untrusted_project_root() {
+    local directory="$1"
     local root
-    root="$(pwd -P 2>/dev/null)" || return 1
+    root="$(cd -P "$directory" 2>/dev/null && pwd -P)" || return 1
     local cursor="$root"
     while :; do
         if [[ -e "$cursor/.git" || -L "$cursor/.git" ]]; then
@@ -109,10 +111,17 @@ cmux_codex_untrusted_project_root() {
 
 cmux_codex_candidate_is_project_controlled() {
     local candidate="$1"
-    local project_root="$2"
-    [[ -n "$project_root" ]] || return 0
-    [[ "$project_root" == "/" ]] && return 0
-    [[ "$candidate" == "$project_root" || "$candidate" == "$project_root/"* ]]
+    shift
+    local project_root
+    for project_root in "$@"; do
+        [[ -n "$project_root" ]] || return 0
+        [[ "$project_root" == "/" ]] && return 0
+        if [[ "$candidate" == "$project_root"
+              || "$candidate" == "$project_root/"* ]]; then
+            return 0
+        fi
+    done
+    return 1
 }
 
 # Print a physical, executable candidate only when it is outside the untrusted
@@ -120,13 +129,13 @@ cmux_codex_candidate_is_project_controlled() {
 # allowing a repository-local `codex` to run before Codex asks for trust.
 cmux_codex_validated_session_candidate() {
     local candidate="$1"
-    local project_root="$2"
+    shift
     local physical_candidate
     physical_candidate="$(cmux_codex_physical_candidate "$candidate")" || return 1
     cmux_codex_candidate_is_real "$physical_candidate" || return 1
     cmux_codex_candidate_is_project_controlled \
         "$physical_candidate" \
-        "$project_root" && return 1
+        "$@" && return 1
     printf '%s' "$physical_candidate"
 }
 
@@ -135,10 +144,60 @@ cmux_codex_validated_session_candidate() {
 # with repository-local candidates rejected for session entrypoints.
 find_real_codex() {
     local session_requires_project_validation=false
-    local project_root=""
-    if [[ "${IN_CMUX:-0}" == "1" ]] && should_inject_codex_hooks "$@"; then
+    local project_roots=()
+    if [[ "${cmux_codex_inject_hooks:-0}" == "1" ]]; then
         session_requires_project_validation=true
-        project_root="$(cmux_codex_untrusted_project_root)" || return 1
+        local project_root
+        project_root="$(cmux_codex_untrusted_project_root ".")" || return 1
+        project_roots+=("$project_root")
+
+        # Codex applies -C/--cd from the inherited cwd, and accepts it in both
+        # global and resume scopes. Validate against every requested project
+        # boundary so a PATH candidate from the effective project cannot run
+        # before that project receives a trust decision.
+        local args=("$@")
+        local index=0 argument directory
+        while (( index < ${#args[@]} )); do
+            argument="${args[$index]}"
+            case "$argument" in
+                --)
+                    break
+                    ;;
+                -C|--cd)
+                    (( index + 1 < ${#args[@]} )) || return 1
+                    directory="${args[$(( index + 1 ))]}"
+                    if project_root="$(
+                        cmux_codex_untrusted_project_root "$directory"
+                    )"; then
+                        project_roots+=("$project_root")
+                    fi
+                    (( index += 2 ))
+                    continue
+                    ;;
+                -C?*)
+                    directory="${argument#-C}"
+                    if project_root="$(
+                        cmux_codex_untrusted_project_root "$directory"
+                    )"; then
+                        project_roots+=("$project_root")
+                    fi
+                    ;;
+                --cd=*)
+                    directory="${argument#--cd=}"
+                    if project_root="$(
+                        cmux_codex_untrusted_project_root "$directory"
+                    )"; then
+                        project_roots+=("$project_root")
+                    fi
+                    ;;
+            esac
+            if codex_option_consumes_value "$argument"; then
+                (( index + 1 < ${#args[@]} )) || return 1
+                (( index += 2 ))
+            else
+                (( index += 1 ))
+            fi
+        done
     fi
 
     local custom="${CMUX_CUSTOM_CODEX_PATH:-}"
@@ -148,7 +207,7 @@ find_real_codex() {
         if [[ "$session_requires_project_validation" == true ]]; then
             cmux_codex_validated_session_candidate \
                 "$custom" \
-                "$project_root" && return 0
+                "${project_roots[@]}" && return 0
         elif cmux_codex_candidate_is_real "$custom"; then
             printf '%s' "$custom"
             return 0
@@ -166,7 +225,7 @@ find_real_codex() {
         if [[ "$session_requires_project_validation" == true ]]; then
             cmux_codex_validated_session_candidate \
                 "$candidate" \
-                "$project_root" && return 0
+                "${project_roots[@]}" && return 0
         elif cmux_codex_candidate_is_real "$candidate"; then
             printf '%s' "$candidate"
             return 0
@@ -204,7 +263,7 @@ find_real_codex() {
         if [[ "$session_requires_project_validation" == true ]]; then
             cmux_codex_validated_session_candidate \
                 "$candidate" \
-                "$project_root" && return 0
+                "${project_roots[@]}" && return 0
         elif cmux_codex_candidate_is_real "$candidate"; then
             printf '%s' "$candidate"
             return 0
@@ -495,6 +554,14 @@ if [[ -n "${CMUX_SURFACE_ID:-}" ]]; then
     IN_CMUX=1
 fi
 
+cmux_codex_inject_hooks=0
+if [[ "$IN_CMUX" == "1"
+      && "${CMUX_CODEX_HOOKS_DISABLED:-}" != "1" ]] \
+    && should_inject_codex_hooks "$@" \
+    && cmux_socket_available; then
+    cmux_codex_inject_hooks=1
+fi
+
 # Resolve real codex up front; if it cannot be found we error like a missing
 # binary would (same as the claude wrapper) rather than silently succeeding.
 REAL_CODEX="$(find_real_codex "$@")" || {
@@ -519,16 +586,9 @@ exec_real_codex_passthrough() {
     exec_real_codex "$@"
 }
 
-# Opt-out, outside cmux, or stale/dead socket: pass straight through.
-if [[ "${CMUX_CODEX_HOOKS_DISABLED:-}" == "1" ]]; then
-    exec_real_codex_passthrough "$@"
-fi
-if [[ "$IN_CMUX" == "0" ]] || ! cmux_socket_available; then
-    exec_real_codex_passthrough "$@"
-fi
-
-# Not a session entrypoint (review/login/doctor/--help/...): pass through.
-if ! should_inject_codex_hooks "$@"; then
+# Opt-out, outside cmux, stale/dead socket, and non-session commands pass
+# through without project-location filtering or hook injection.
+if [[ "$cmux_codex_inject_hooks" != "1" ]]; then
     exec_real_codex_passthrough "$@"
 fi
 
