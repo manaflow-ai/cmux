@@ -32,7 +32,7 @@ def write_helper_info(path: Path, bundle_identifier: str) -> None:
     with path.open("wb") as file:
         plistlib.dump(
             {
-                "CFBundleExecutable": "cmux-cua-driver",
+                "CFBundleExecutable": "cmux Computer Use",
                 "CFBundleIdentifier": bundle_identifier,
                 "CFBundleName": "cmux Computer Use",
                 "CFBundlePackageType": "APPL",
@@ -916,7 +916,7 @@ def test_passthrough_flags_bypass_hook_injection(failures: list[str]) -> None:
 
 # --- cmux computer use MCP injection ------------------------------------------
 #
-# The wrapper attaches the bundled cmux-cua-driver MCP server via --mcp-config.
+# The wrapper attaches the bundled cmux Computer Use client via --mcp-config.
 # Source checkouts without the bundled binary may opt in through CMUX_CUA_DRIVER;
 # there is no Node/Bun MCP fallback.
 
@@ -950,7 +950,7 @@ def computer_use_sandbox(
             env["CUA_DRIVER_SOCKET_AUTH_TOKEN"] = "cmux-test-auth-token"
         if bundled_driver:
             make_executable(
-                tmp / "cmux.app" / "Contents" / "Resources" / "bin" / "cmux-cua-driver",
+                tmp / "cmux.app" / "Contents" / "Resources" / "bin" / "cmux-computer-use-client",
                 "#!/usr/bin/env bash\nexit 0\n",
             )
             helper_driver = (
@@ -961,7 +961,7 @@ def computer_use_sandbox(
                 / "cmux Computer Use.app"
                 / "Contents"
                 / "MacOS"
-                / "cmux-cua-driver"
+                / "cmux Computer Use"
             )
             helper_driver.parent.mkdir(parents=True)
             make_executable(
@@ -1087,7 +1087,7 @@ def expect_cua_driver_config(
     context: str,
     expected_name: str,
     *,
-    helper_owned: bool,
+    bundled_client: bool,
 ) -> None:
     expect(config is not None, f"{context}: expected --mcp-config=<json>", failures)
     if config is None:
@@ -1111,19 +1111,18 @@ def expect_cua_driver_config(
             f"{context}: expected short per-user daemon socket, got {args[2]!r}",
             failures,
         )
-    if helper_owned:
+    if bundled_client:
         expect(
             isinstance(command, str)
-            and Path(command).parts[-4:] == (
-                "cmux Computer Use.app",
-                "Contents",
-                "MacOS",
+            and Path(command).parts[-3:] == (
+                "Resources",
+                "bin",
                 expected_name,
             ),
-            f"{context}: proxy command must use the signed cmux Computer Use helper, got {command}",
+            f"{context}: proxy command must use the bundled cmux Computer Use client, got {command}",
             failures,
         )
-    expect_computer_use_env_scrubbed(server, failures, context, helper_owned=helper_owned)
+    expect_computer_use_env_scrubbed(server, failures, context, helper_owned=bundled_client)
 
 
 def test_live_socket_attaches_cua_driver_when_available(failures: list[str]) -> None:
@@ -1144,8 +1143,8 @@ def test_live_socket_attaches_cua_driver_when_available(failures: list[str]) -> 
         config,
         failures,
         "computer use inject",
-        "cmux-cua-driver",
-        helper_owned=True,
+        "cmux-computer-use-client",
+        bundled_client=True,
     )
     inject_index = injected_mcp_config_index(real_argv)
     expect(
@@ -1207,8 +1206,8 @@ def test_computer_use_reads_private_daemon_credential_file(failures: list[str]) 
         extract_injected_mcp_config(real_argv),
         failures,
         "computer use auth file",
-        "cmux-cua-driver",
-        helper_owned=True,
+        "cmux-computer-use-client",
+        bundled_client=True,
     )
 
 
@@ -1239,8 +1238,8 @@ def test_computer_use_driver_does_not_require_external_runtime_auth(failures: li
         config,
         failures,
         "computer use no external auth",
-        "cmux-cua-driver",
-        helper_owned=True,
+        "cmux-computer-use-client",
+        bundled_client=True,
     )
 
 
@@ -1257,7 +1256,7 @@ def test_computer_use_uses_trusted_cua_driver_override(failures: list[str]) -> N
         failures,
         "computer use override",
         "echo",
-        helper_owned=False,
+        bundled_client=False,
     )
 
 

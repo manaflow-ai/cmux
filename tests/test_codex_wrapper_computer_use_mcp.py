@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Regression tests for cmux-codex-wrapper attaching cmux's bundled cua-driver
-MCP server to Codex sessions.
+Regression tests for cmux-codex-wrapper attaching cmux's bundled Computer Use
+MCP client to Codex sessions.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ def write_helper_info(path: Path, bundle_identifier: str) -> None:
     with path.open("wb") as file:
         plistlib.dump(
             {
-                "CFBundleExecutable": "cmux-cua-driver",
+                "CFBundleExecutable": "cmux Computer Use",
                 "CFBundleIdentifier": bundle_identifier,
                 "CFBundleName": "cmux Computer Use",
                 "CFBundlePackageType": "APPL",
@@ -189,7 +189,7 @@ exit 1
 """,
         )
         if bundled_driver:
-            make_executable(wrapper_dir / "cmux-cua-driver", "#!/usr/bin/env bash\nexit 0\n")
+            make_executable(wrapper_dir / "cmux-computer-use-client", "#!/usr/bin/env bash\nexit 0\n")
             helper_driver = (
                 tmp
                 / "cmux.app"
@@ -198,7 +198,7 @@ exit 1
                 / "cmux Computer Use.app"
                 / "Contents"
                 / "MacOS"
-                / "cmux-cua-driver"
+                / "cmux Computer Use"
             )
             helper_driver.parent.mkdir(parents=True)
             make_executable(
@@ -310,15 +310,18 @@ def test_codex_gets_cmux_cua_driver(failures: list[str]) -> None:
     if cmd is not None:
         command = json.loads(cmd)
         command_path = Path(command)
-        expect(command_path.name == "cmux-cua-driver", f"expected bundled driver command, got {cmd}", failures)
         expect(
-            command_path.parts[-4:] == (
-                "cmux Computer Use.app",
-                "Contents",
-                "MacOS",
-                "cmux-cua-driver",
+            command_path.name == "cmux-computer-use-client",
+            f"expected bundled Computer Use client command, got {cmd}",
+            failures,
+        )
+        expect(
+            command_path.parts[-3:] == (
+                "Resources",
+                "bin",
+                "cmux-computer-use-client",
             ),
-            f"expected signed cmux Computer Use proxy command, got {command}",
+            f"expected bundled cmux Computer Use client command, got {command}",
             failures,
         )
     if mcp_args_raw is not None:
@@ -400,8 +403,8 @@ def test_codex_fork_gets_hooks_and_cua_driver(failures: list[str]) -> None:
     expect(cmd is not None, f"missing computer-use command config for fork in {args}", failures)
     if cmd is not None:
         expect(
-            Path(json.loads(cmd)).name == "cmux-cua-driver",
-            f"expected bundled driver command for fork, got {cmd}",
+            Path(json.loads(cmd)).name == "cmux-computer-use-client",
+            f"expected bundled Computer Use client command for fork, got {cmd}",
             failures,
         )
     first_config_index = args.index("-c") if "-c" in args else -1
@@ -514,8 +517,8 @@ def test_codex_gets_cua_driver_when_hook_injection_fails(failures: list[str]) ->
     if cmd is not None:
         command = json.loads(cmd)
         expect(
-            Path(command).name == "cmux-cua-driver",
-            f"expected bundled driver command after hook failure, got {cmd}",
+            Path(command).name == "cmux-computer-use-client",
+            f"expected bundled Computer Use client command after hook failure, got {cmd}",
             failures,
         )
     expect_scrubbed_mcp_env(args, failures, "hook-injection failure", helper_owned=True)

@@ -38,7 +38,10 @@ trusted ancestors.
 
 Every cmux app build runs `scripts/build-cua-driver.sh`, which compiles the
 pinned `manaflow-ai/cmux-cua` commit with Cargo and bundles the resulting
-binary as `Contents/Resources/bin/cmux-cua-driver`. This requires a Rust
+MCP proxy as `Contents/Resources/bin/cmux-computer-use-client`. The same
+engine is packaged as the `cmux Computer Use.app` executable so Activity
+Monitor and permission UI show the product name instead of an implementation
+name. This requires a Rust
 toolchain on the build machine:
 
 - local dev: install via [rustup](https://rustup.rs) (or

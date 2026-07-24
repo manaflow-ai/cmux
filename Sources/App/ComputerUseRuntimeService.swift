@@ -12,6 +12,7 @@ import Security
 @MainActor
 final class ComputerUseRuntimeService {
     static let helperAppName = "cmux Computer Use"
+    nonisolated private static let helperExecutableName = "cmux Computer Use"
 
     private static let systemSettingsBundleIdentifier = "com.apple.systempreferences"
 
@@ -868,8 +869,8 @@ final class ComputerUseRuntimeService {
     nonisolated private static func helperIsCurrent(nested: URL, destination: URL) -> Bool {
         guard !Task.isCancelled else { return false }
         let fileManager = FileManager.default
-        let nestedBinary = nested.appendingPathComponent("Contents/MacOS/cmux-cua-driver")
-        let destinationBinary = destination.appendingPathComponent("Contents/MacOS/cmux-cua-driver")
+        let nestedBinary = nested.appendingPathComponent("Contents/MacOS/\(helperExecutableName)")
+        let destinationBinary = destination.appendingPathComponent("Contents/MacOS/\(helperExecutableName)")
         guard fileManager.isExecutableFile(atPath: destinationBinary.path) else { return false }
         guard fileManager.contentsEqual(
             atPath: nested.appendingPathComponent("Contents/Info.plist").path,

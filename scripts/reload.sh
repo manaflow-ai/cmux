@@ -1053,9 +1053,9 @@ if [[ -d "$PWD/ghostty" ]]; then
   fi
 fi
 BIN_DIR="$APP_PATH/Contents/Resources/bin"
-CUA_DRIVER_DEST="$BIN_DIR/cmux-cua-driver"
+CUA_DRIVER_DEST="$BIN_DIR/cmux-computer-use-client"
 if [[ -x "$CUA_DRIVER_DEST" ]]; then
-  echo "Preserving Xcode-built cmux cua-driver at $CUA_DRIVER_DEST"
+  echo "Preserving Xcode-built cmux Computer Use client at $CUA_DRIVER_DEST"
 else
   mkdir -p "$BIN_DIR"
   "$PWD/scripts/build-cua-driver.sh" --output "$CUA_DRIVER_DEST"

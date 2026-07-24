@@ -5,7 +5,8 @@ description: "Drive real macOS apps from a cmux agent session via the bundled co
 
 # cmux Computer Use
 
-cmux bundles a local computer-use engine (`cmux-cua-driver`, a pinned build of
+cmux bundles a local computer-use engine (packaged as `cmux Computer Use` with
+the MCP proxy named `cmux-computer-use-client`, from a pinned build of
 the `manaflow-ai/cmux-cua` fork) and attaches it as an MCP tool server named
 `cmux-computer-use` to every agent session cmux launches (Claude Code, Codex).
 The agent can then perceive and operate real macOS apps: read the accessibility

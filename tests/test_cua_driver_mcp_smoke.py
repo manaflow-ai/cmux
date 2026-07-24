@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Optional smoke test for the bundled cmux-cua-driver MCP server.
+Optional smoke test for the bundled cmux Computer Use MCP client.
 
 The test uses a real built driver binary when present and skips otherwise.
 It performs only MCP initialize + tools/list, with no GUI actions.
@@ -34,13 +34,13 @@ def candidate_binaries() -> list[Path]:
     # it with the caller's credentials.
     candidates.extend(
         [
-            ROOT / "Resources" / "bin" / "cmux-cua-driver",
-            ROOT / "build-universal" / "Build" / "Products" / "Release" / "cmux.app" / "Contents" / "Resources" / "bin" / "cmux-cua-driver",
+            ROOT / "Resources" / "bin" / "cmux-computer-use-client",
+            ROOT / "build-universal" / "Build" / "Products" / "Release" / "cmux.app" / "Contents" / "Resources" / "bin" / "cmux-computer-use-client",
         ]
     )
     derived_data = os.environ.get("CMUX_DERIVED_DATA_PATH")
     if derived_data:
-        candidates.extend(Path(derived_data).glob("Build/Products/*/*.app/Contents/Resources/bin/cmux-cua-driver"))
+        candidates.extend(Path(derived_data).glob("Build/Products/*/*.app/Contents/Resources/bin/cmux-computer-use-client"))
     return candidates
 
 
@@ -76,7 +76,7 @@ def send(proc: subprocess.Popen[str], payload: dict) -> None:
 def main() -> int:
     driver = find_driver()
     if driver is None:
-        print("SKIP: cmux-cua-driver binary not built; run scripts/build-cua-driver.sh first")
+        print("SKIP: cmux Computer Use client not built; run scripts/build-cua-driver.sh first")
         return 0
 
     env = os.environ.copy()

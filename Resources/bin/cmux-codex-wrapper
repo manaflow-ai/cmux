@@ -209,22 +209,22 @@ cmux_computer_use_canonical_executable() {
     printf '%s' "$path"
 }
 
-cmux_computer_use_resolve_driver() {
-    local self_dir app_contents bundled_driver override driver_real
+cmux_computer_use_resolve_client() {
+    local self_dir app_contents bundled_client override client_real
     self_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
     app_contents="$(cd "$self_dir/../.." 2>/dev/null && pwd)" || return 1
-    bundled_driver="$app_contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua-driver"
-    if [[ -x "$bundled_driver" ]]; then
-        printf '%s' "$bundled_driver"
+    bundled_client="$app_contents/Resources/bin/cmux-computer-use-client"
+    if [[ -x "$bundled_client" ]]; then
+        printf '%s' "$bundled_client"
         return 0
     fi
 
     override="${CMUX_CUA_DRIVER:-}"
     [[ -n "$override" ]] || return 1
-    driver_real="$(cmux_computer_use_canonical_executable "$override")" || return 1
-    cmux_computer_use_trusted_path_ancestors "$driver_real" || return 1
-    cmux_computer_use_trusted_executable_file "$driver_real" || return 1
-    printf '%s' "$driver_real"
+    client_real="$(cmux_computer_use_canonical_executable "$override")" || return 1
+    cmux_computer_use_trusted_path_ancestors "$client_real" || return 1
+    cmux_computer_use_trusted_executable_file "$client_real" || return 1
+    printf '%s' "$client_real"
 }
 
 cmux_computer_use_auth_token() {
@@ -256,8 +256,8 @@ cmux_codex_emit_computer_use_args() {
                 ;;
         esac
     done
-    local driver default_session runtime_scope runtime_uid cua_socket state_dir auth_token
-    driver="$(cmux_computer_use_resolve_driver)" || return 1
+    local client default_session runtime_scope runtime_uid cua_socket state_dir auth_token
+    client="$(cmux_computer_use_resolve_client)" || return 1
     auth_token="$(cmux_computer_use_auth_token)" || return 1
     # Stable per-terminal session id so the branded cursor survives helper restarts.
     default_session="cmux-${CMUX_SURFACE_ID:-$$}"
@@ -271,7 +271,7 @@ cmux_codex_emit_computer_use_args() {
     # first driving call waits until that helper reports both grants.
     printf '%s\0' \
         "-c" \
-        "mcp_servers.cmux-computer-use.command=\"$(cmux_computer_use_json_escape "$driver")\"" \
+        "mcp_servers.cmux-computer-use.command=\"$(cmux_computer_use_json_escape "$client")\"" \
         "-c" \
         "mcp_servers.cmux-computer-use.args=[\"mcp\",\"--socket\",\"$(cmux_computer_use_json_escape "$cua_socket")\"]" \
         "-c" \

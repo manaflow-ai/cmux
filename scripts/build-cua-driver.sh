@@ -237,7 +237,7 @@ if [[ ! -f "$CARGO_ROOT/Cargo.toml" ]]; then
   exit 1
 fi
 
-TMPDIR_BUILD="$(mktemp -d "${TMPDIR:-/tmp}/cmux-cua-driver.XXXXXX")"
+TMPDIR_BUILD="$(mktemp -d "${TMPDIR:-/tmp}/cmux-computer-use-build.XXXXXX")"
 
 mkdir -p "$(dirname "$OUTPUT")"
 
@@ -278,7 +278,7 @@ for arch in "${ARCHS[@]}"; do
   target_dir="$SRC_ROOT/.cmux-cargo-target"
   CARGO_TARGET_DIR="$target_dir" \
     cargo build --manifest-path "$CARGO_ROOT/Cargo.toml" --locked -p cua-driver --release --target "$target"
-  arch_output="$TMPDIR_BUILD/cmux-cua-driver-$arch"
+  arch_output="$TMPDIR_BUILD/cmux-computer-use-$arch"
   cp "$target_dir/$target/release/cua-driver" "$arch_output"
   BUILT+=("$arch_output")
 done
@@ -304,13 +304,14 @@ _cua_bin_dir="$(cd "$(dirname "$OUTPUT")" && pwd)"
 _cua_contents="$(cd "$_cua_bin_dir/../.." 2>/dev/null && pwd || true)"
 if [ -n "${_cua_contents:-}" ] && [ "$(basename "$_cua_contents")" = "Contents" ]; then
   HELPER_APP="$_cua_contents/Library/cmux Computer Use.app"
+  HELPER_EXECUTABLE="cmux Computer Use"
   rm -rf "$HELPER_APP"
   mkdir -p \
     "$HELPER_APP/Contents/MacOS" \
     "$HELPER_APP/Contents/Resources/en.lproj" \
     "$HELPER_APP/Contents/Resources/ja.lproj"
-  cp "$OUTPUT" "$HELPER_APP/Contents/MacOS/cmux-cua-driver"
-  chmod 0755 "$HELPER_APP/Contents/MacOS/cmux-cua-driver"
+  cp "$OUTPUT" "$HELPER_APP/Contents/MacOS/$HELPER_EXECUTABLE"
+  chmod 0755 "$HELPER_APP/Contents/MacOS/$HELPER_EXECUTABLE"
 
   _helper_icon="$REPO_ROOT/Resources/ComputerUseHelperIcon.icns"
   if [ -f "$_helper_icon" ]; then
@@ -343,7 +344,7 @@ if [ -n "${_cua_contents:-}" ] && [ "$(basename "$_cua_contents")" = "Contents" 
   <key>CFBundleName</key><string>${HELPER_DISPLAY}</string>
   <key>CFBundleDisplayName</key><string>${HELPER_DISPLAY}</string>
   <key>CFBundleIdentifier</key><string>${HELPER_ID}</string>
-  <key>CFBundleExecutable</key><string>cmux-cua-driver</string>
+  <key>CFBundleExecutable</key><string>${HELPER_EXECUTABLE}</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
