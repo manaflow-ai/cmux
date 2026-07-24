@@ -15175,8 +15175,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
-        if !shortcutWhenClauseAllows(action: action, event: event) { return false }
-        return matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action))
+        guard matchConfiguredShortcut(
+            event: event,
+            shortcut: KeyboardShortcutSettings.shortcut(for: action)
+        ) else {
+            return false
+        }
+        return shortcutWhenClauseAllows(action: action, event: event)
     }
 
     /// Whether `action`'s effective `when` clause (its `shortcuts.when` override,
