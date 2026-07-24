@@ -204,6 +204,67 @@ struct SidebarWorkspaceTableSuspensionTests {
     }
 
     @Test
+    func transientWindowReparentingKeepsRowActionsAttached() async throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let model = SidebarWorkspaceRowSuspensionTests.makeModel()
+        var committedTitle: String?
+        let row = SidebarWorkspaceTableRowConfiguration(
+            workspaceRowModel: model,
+            actions: SidebarWorkspaceRowSuspensionTests.makeActions(
+                model: model,
+                onCommitRename: { committedTitle = $0 }
+            ),
+            groupId: nil,
+            isPinned: false,
+            environment: SidebarWorkspaceTableEnvironmentSnapshot(
+                colorScheme: .light,
+                globalFontMagnificationPercent: 100,
+                lazyContractProbe: SidebarLazyContractProbe()
+            )
+        )
+        let firstRoot = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+        container.frame = firstRoot.bounds
+        firstRoot.addSubview(container)
+        let window = NSWindow(
+            contentRect: firstRoot.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = firstRoot
+        defer { window.close() }
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(),
+            workspaceIds: [model.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        firstRoot.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+        let cell = try #require(
+            container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: false)
+                as? SidebarWorkspaceRowTableCellView
+        )
+
+        let replacementRoot = NSView(frame: firstRoot.frame)
+        window.contentView = replacementRoot
+        replacementRoot.addSubview(firstRoot)
+
+        cell.beginInlineRename()
+        let field = try #require(
+            Self.descendants(of: cell).compactMap { $0 as? SidebarRowInlineRenameField }.first
+        )
+        field.onCommit?("Reparented rename")
+        #expect(
+            committedTitle == "Reparented rename",
+            "A transient content-view reparent must not detach live row actions."
+        )
+    }
+
+    @Test
     func mutationSchedulerCancelsHiddenWorkAndFlushesRevealOnce() async {
         var appliedInputs = 0
         var viewportFlushes = 0
