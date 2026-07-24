@@ -180,6 +180,56 @@ struct CmxIrohTerminalSceneEnvelopeTests {
     }
 
     @Test
+    func streamValidatorRejectsContentSequenceRegressionBeforeRendererMutation() throws {
+        var validator = CmxIrohTerminalSceneStreamValidator(
+            presentationID: presentationID,
+            presentationGeneration: 7
+        )
+
+        try validator.accept(.configuration(try configuration()))
+        try validator.accept(.scene(try scene(
+            kind: .full,
+            contentSequence: 30,
+            presentationSequence: 1
+        )))
+        try validator.accept(.accessibility(try accessibility(
+            contentSequence: 30,
+            presentationSequence: 1
+        )))
+        try validator.accept(.scene(try scene(
+            kind: .delta,
+            contentSequence: 31,
+            presentationSequence: 2
+        )))
+        try validator.accept(.accessibility(try accessibility(
+            contentSequence: 31,
+            presentationSequence: 2
+        )))
+
+        #expect(
+            throws: CmxIrohTerminalSceneStreamValidator.ValidationError
+                .contentSequenceRegression(previous: 31, actual: 30)
+        ) {
+            try validator.accept(.scene(try scene(
+                kind: .delta,
+                contentSequence: 30,
+                presentationSequence: 3
+            )))
+        }
+
+        try validator.accept(.scene(try scene(
+            kind: .unchanged,
+            contentSequence: 31,
+            presentationSequence: 3
+        )))
+        try validator.accept(.accessibility(try accessibility(
+            contentSequence: 31,
+            presentationSequence: 3
+        )))
+        #expect(validator.isReady)
+    }
+
+    @Test
     func streamValidatorRejectsCrossTerminalAndCrossPresentationFrames() throws {
         var validator = CmxIrohTerminalSceneStreamValidator(
             presentationID: presentationID,

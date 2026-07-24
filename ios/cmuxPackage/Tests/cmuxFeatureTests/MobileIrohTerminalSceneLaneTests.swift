@@ -87,6 +87,69 @@ struct MobileIrohTerminalSceneLaneTests {
     }
 
     @Test
+    func contentSequenceRegressionIsRejectedBeforeMobileEnvelopeMapping() async throws {
+        let codec = CmxIrohTerminalSceneEnvelopeCodec()
+        let encoded = [
+            codec.encode(.configuration(try Self.configuration())),
+            codec.encode(.scene(try Self.scene(
+                kind: .full,
+                sequence: 1,
+                contentSequence: 30
+            ))),
+            codec.encode(.accessibility(try Self.accessibility(
+                sequence: 1,
+                contentSequence: 30
+            ))),
+            codec.encode(.scene(try Self.scene(
+                kind: .delta,
+                sequence: 2,
+                contentSequence: 31
+            ))),
+            codec.encode(.accessibility(try Self.accessibility(
+                sequence: 2,
+                contentSequence: 31
+            ))),
+            codec.encode(.scene(try Self.scene(
+                kind: .delta,
+                sequence: 3,
+                contentSequence: 30
+            ))),
+        ].reduce(into: Data(), +=)
+        let lane = MobileIrohTerminalSceneLane(
+            stream: CmxIrohBidirectionalStream(
+                receiveStream: TerminalSceneLaneReceiveStream(chunks: Self.split(encoded)),
+                sendStream: TerminalSceneLaneSendStream()
+            ),
+            presentationID: Self.presentationID,
+            presentationGeneration: 3
+        )
+
+        #expect(try await lane.receiveEnvelope() == .configuration(Self.mobileConfiguration()))
+        #expect(try await lane.receiveEnvelope() == .scene(Self.mobileScene(
+            kind: .full,
+            sequence: 1,
+            contentSequence: 30
+        )))
+        #expect(try await lane.receiveEnvelope() == .accessibility(
+            Self.mobileAccessibility(sequence: 1, contentSequence: 30)
+        ))
+        #expect(try await lane.receiveEnvelope() == .scene(Self.mobileScene(
+            kind: .delta,
+            sequence: 2,
+            contentSequence: 31
+        )))
+        #expect(try await lane.receiveEnvelope() == .accessibility(
+            Self.mobileAccessibility(sequence: 2, contentSequence: 31)
+        ))
+        await #expect(
+            throws: CmxIrohTerminalSceneStreamValidator.ValidationError
+                .contentSequenceRegression(previous: 31, actual: 30)
+        ) {
+            try await lane.receiveEnvelope()
+        }
+    }
+
+    @Test
     func largeInputIsSplitIntoBoundedExactByteFrames() async throws {
         let send = TerminalSceneLaneSendStream()
         let lane = MobileIrohTerminalSceneLane(
@@ -133,14 +196,29 @@ struct MobileIrohTerminalSceneLaneTests {
         )
     }
 
+    private static func mobileConfiguration() -> MobileTerminalSceneConfiguration {
+        MobileTerminalSceneConfiguration(
+            terminalID: terminalID,
+            terminalEpoch: 7,
+            presentationID: presentationID,
+            presentationGeneration: 3,
+            rendererConfigRevision: 9,
+            width: 1_170,
+            height: 2_532,
+            contentScale: 3,
+            rendererConfig: Data("font-size = 13\n".utf8)
+        )
+    }
+
     private static func scene(
         kind: CmxIrohTerminalSceneFrame.Kind,
-        sequence: UInt64
+        sequence: UInt64,
+        contentSequence: UInt64? = nil
     ) throws -> CmxIrohTerminalSceneFrame {
         try CmxIrohTerminalSceneFrame(
             terminalID: terminalID,
             terminalEpoch: 7,
-            contentSequence: 10 + sequence,
+            contentSequence: contentSequence ?? 10 + sequence,
             presentationID: presentationID,
             presentationGeneration: 3,
             presentationSequence: sequence,
@@ -151,12 +229,13 @@ struct MobileIrohTerminalSceneLaneTests {
 
     private static func mobileScene(
         kind: MobileTerminalSceneFrame.Kind,
-        sequence: UInt64
+        sequence: UInt64,
+        contentSequence: UInt64? = nil
     ) -> MobileTerminalSceneFrame {
         MobileTerminalSceneFrame(
             terminalID: terminalID,
             terminalEpoch: 7,
-            contentSequence: 10 + sequence,
+            contentSequence: contentSequence ?? 10 + sequence,
             presentationID: presentationID,
             presentationGeneration: 3,
             presentationSequence: sequence,
@@ -166,12 +245,13 @@ struct MobileIrohTerminalSceneLaneTests {
     }
 
     private static func accessibility(
-        sequence: UInt64
+        sequence: UInt64,
+        contentSequence: UInt64? = nil
     ) throws -> CmxIrohTerminalSceneAccessibility {
         try CmxIrohTerminalSceneAccessibility(
             terminalID: terminalID,
             terminalEpoch: 7,
-            contentSequence: 10 + sequence,
+            contentSequence: contentSequence ?? 10 + sequence,
             presentationID: presentationID,
             presentationGeneration: 3,
             presentationSequence: sequence,
@@ -182,12 +262,13 @@ struct MobileIrohTerminalSceneLaneTests {
     }
 
     private static func mobileAccessibility(
-        sequence: UInt64
+        sequence: UInt64,
+        contentSequence: UInt64? = nil
     ) -> MobileTerminalSceneAccessibility {
         MobileTerminalSceneAccessibility(
             terminalID: terminalID,
             terminalEpoch: 7,
-            contentSequence: 10 + sequence,
+            contentSequence: contentSequence ?? 10 + sequence,
             presentationID: presentationID,
             presentationGeneration: 3,
             presentationSequence: sequence,
