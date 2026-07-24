@@ -57,7 +57,6 @@ export function useDecodedRenderGraphicImages(
     const requestId = ++requestRef.current;
     let canceled = false;
     let worker: Worker | null = null;
-    let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
     let settled = false;
     const complete = (response: RenderGraphicsDecodeResponse) => {
       if (canceled || response.requestId !== requestId) return;
@@ -79,9 +78,9 @@ export function useDecodedRenderGraphicImages(
       settled = true;
       worker?.terminate();
       worker = null;
-      fallbackTimer = setTimeout(() => {
+      queueMicrotask(() => {
         complete({ requestId, results: decodeWithoutWorker(pending) });
-      }, 0);
+      });
     };
 
     if (typeof Worker === "undefined") {
@@ -117,7 +116,6 @@ export function useDecodedRenderGraphicImages(
     return () => {
       canceled = true;
       worker?.terminate();
-      if (fallbackTimer !== null) clearTimeout(fallbackTimer);
     };
   }, [images]);
 

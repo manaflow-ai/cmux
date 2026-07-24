@@ -308,13 +308,22 @@ mod unix {
     const HOST_FORCED_DRAIN_WINDOW: Duration = Duration::from_millis(100);
     const HOST_LAUNCH_ROLLBACK_WAIT: Duration = Duration::from_secs(4);
 
-    fn pty_size(cols: u16, rows: u16, cell_pixels: (u16, u16)) -> PtySize {
-        PtySize {
-            rows,
-            cols,
-            pixel_width: cols.saturating_mul(cell_pixels.0),
-            pixel_height: rows.saturating_mul(cell_pixels.1),
-        }
+    fn pty_size(cols: u16, rows: u16, cell_pixels: (u16, u16)) -> anyhow::Result<PtySize> {
+        let pixel_width = cols.checked_mul(cell_pixels.0).ok_or_else(|| {
+            anyhow::anyhow!(
+                "terminal pixel width exceeds {}: {cols} columns at {} pixels per cell",
+                u16::MAX,
+                cell_pixels.0
+            )
+        })?;
+        let pixel_height = rows.checked_mul(cell_pixels.1).ok_or_else(|| {
+            anyhow::anyhow!(
+                "terminal pixel height exceeds {}: {rows} rows at {} pixels per cell",
+                u16::MAX,
+                cell_pixels.1
+            )
+        })?;
+        Ok(PtySize { rows, cols, pixel_width, pixel_height })
     }
 
     struct SpawnedHostProcess {
@@ -1715,15 +1724,19 @@ mod unix {
             let mut cell_pixels = self.cell_pixels.lock().unwrap();
             let previous = *cell_pixels;
             let changed = previous != next;
+            let resize_sizes = if changed {
+                Some((pty_size(size.0, size.1, previous)?, pty_size(size.0, size.1, next)?))
+            } else {
+                None
+            };
             let mut term = self.term.lock().unwrap();
-            if changed {
+            if let Some((previous_size, next_size)) = resize_sizes {
                 let master = self.master.lock().unwrap();
-                let next_size = pty_size(size.0, size.1, next);
                 master.resize(next_size)?;
                 if let Err(error) =
                     term.resize(size.0, size.1, u32::from(next.0), u32::from(next.1))
                 {
-                    let rollback = master.resize(pty_size(size.0, size.1, previous));
+                    let rollback = master.resize(previous_size);
                     return match rollback {
                         Ok(()) => Err(error.into()),
                         Err(rollback_error) => Err(anyhow::anyhow!(
@@ -1753,8 +1766,9 @@ mod unix {
             if !queued && changed {
                 let terminal_rollback =
                     term.resize(size.0, size.1, u32::from(previous.0), u32::from(previous.1));
-                let master_rollback =
-                    self.master.lock().unwrap().resize(pty_size(size.0, size.1, previous));
+                let previous_size =
+                    resize_sizes.expect("changed cell metrics have preflighted PTY geometry").0;
+                let master_rollback = self.master.lock().unwrap().resize(previous_size);
                 match (terminal_rollback, master_rollback) {
                     (Ok(()), Ok(())) => *cell_pixels = previous,
                     (terminal, master) => {
@@ -1795,17 +1809,25 @@ mod unix {
                 ));
             }
             let previous = *size;
+            let resize_sizes = if changed {
+                Some((
+                    pty_size(previous.0, previous.1, *cell_pixels)?,
+                    pty_size(cols, rows, *cell_pixels)?,
+                ))
+            } else {
+                None
+            };
             let mut term = self.term.lock().unwrap();
             let master = self.master.lock().unwrap();
-            if changed {
+            if let Some((previous_size, next_size)) = resize_sizes {
                 term.preflight_vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES).context(
                     "could not preflight terminal-host resize replay; geometry unchanged",
                 )?;
-                master.resize(pty_size(cols, rows, *cell_pixels))?;
+                master.resize(next_size)?;
                 if let Err(error) =
                     term.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))
                 {
-                    let _ = master.resize(pty_size(previous.0, previous.1, *cell_pixels));
+                    let _ = master.resize(previous_size);
                     return Err(error.into());
                 }
             }
@@ -2280,7 +2302,7 @@ mod unix {
         launch: &HostLaunch,
         bootstrapped: &crate::terminal_host::BootstrappedHost,
     ) -> anyhow::Result<Arc<HostShared>> {
-        let initial_pty_size = pty_size(launch.cols, launch.rows, DEFAULT_CELL_PIXELS);
+        let initial_pty_size = pty_size(launch.cols, launch.rows, DEFAULT_CELL_PIXELS)?;
         let pty = native_pty_system().openpty(initial_pty_size)?;
         let mut command = CommandBuilder::new(&launch.command[0]);
         command.args(&launch.command[1..]);
@@ -3182,18 +3204,13 @@ mod unix {
         fn pty_size_rejects_pixel_dimension_overflow() {
             let maximum_cols = u16::MAX / DEFAULT_CELL_PIXELS.0;
             let boundary = pty_size(maximum_cols, 24, DEFAULT_CELL_PIXELS).unwrap();
-            assert_eq!(
-                boundary.pixel_width,
-                maximum_cols * DEFAULT_CELL_PIXELS.0
-            );
+            assert_eq!(boundary.pixel_width, maximum_cols * DEFAULT_CELL_PIXELS.0);
 
-            let width_error =
-                pty_size(maximum_cols + 1, 24, DEFAULT_CELL_PIXELS).unwrap_err();
+            let width_error = pty_size(maximum_cols + 1, 24, DEFAULT_CELL_PIXELS).unwrap_err();
             assert!(width_error.to_string().contains("pixel width"));
 
             let maximum_rows = u16::MAX / DEFAULT_CELL_PIXELS.1;
-            let height_error =
-                pty_size(80, maximum_rows + 1, DEFAULT_CELL_PIXELS).unwrap_err();
+            let height_error = pty_size(80, maximum_rows + 1, DEFAULT_CELL_PIXELS).unwrap_err();
             assert!(height_error.to_string().contains("pixel height"));
         }
 
