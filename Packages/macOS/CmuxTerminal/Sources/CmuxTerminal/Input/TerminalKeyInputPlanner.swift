@@ -26,10 +26,14 @@ public struct TerminalKeyInputPlanner: Sendable {
         let committedText = snapshot.committedText.filter {
             !shouldSuppressControlText($0, composing: composing)
         }
+        let suppressedAccumulatedControl = snapshot.committedText.contains {
+            shouldSuppressControlText($0, composing: composing)
+        }
 
         if snapshot.hadMarkedText, !snapshot.committedText.isEmpty {
             var actions = committedText.map(TerminalKeyInputAction.sendCommittedText)
-            if snapshot.event.replaysPhysicalKeyAfterPreeditCommit {
+            if !suppressedAccumulatedControl,
+               snapshot.event.replaysPhysicalKeyAfterPreeditCommit {
                 actions.append(.sendKey(text: nil, composing: false))
             }
             return actions
@@ -39,7 +43,8 @@ public struct TerminalKeyInputPlanner: Sendable {
             var actions: [TerminalKeyInputAction] = committedText.map {
                 .sendKey(text: $0, composing: false)
             }
-            if snapshot.textInputCommandPerformed {
+            if !suppressedAccumulatedControl,
+               snapshot.textInputCommandPerformed {
                 actions.append(.sendKey(text: nil, composing: false))
             }
             return actions
