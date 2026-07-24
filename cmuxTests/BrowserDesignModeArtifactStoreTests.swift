@@ -36,8 +36,9 @@ struct BrowserDesignModeArtifactStoreTests {
             artifactPaths: [first.path],
             operation: 0
         ))
-        #expect(try handoffMarkerNames(in: directory).count == 1)
-        #expect(try handoffMarkerNames(in: directory)[0].hasSuffix(first.lastPathComponent))
+        let sharedPathFailureMarkers = try handoffMarkerNames(in: directory)
+        #expect(sharedPathFailureMarkers.count == 1)
+        #expect(sharedPathFailureMarkers.first?.hasSuffix(first.lastPathComponent) == true)
 
         let failedCandidate = try await store.saveContextJSON(
             Data("failed".utf8),
@@ -53,6 +54,17 @@ struct BrowserDesignModeArtifactStoreTests {
         }
         #expect(try handoffMarkerNames(in: directory).count == 1)
         #expect(try handoffMarkerNames(in: directory)[0].hasSuffix(first.lastPathComponent))
+
+        await #expect(throws: BrowserScreenshotError.self) {
+            _ = try await controller.deliverHandoff(
+                prompt: "failed shared path",
+                artifactPaths: [first.path],
+                operation: 0
+            )
+        }
+        let markersAfterSharedPathFailure = try handoffMarkerNames(in: directory)
+        #expect(markersAfterSharedPathFailure.count == 1)
+        #expect(markersAfterSharedPathFailure.first?.hasSuffix(first.lastPathComponent) == true)
 
         let replacement = try await store.saveContextJSON(
             Data("replacement".utf8),

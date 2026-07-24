@@ -56,6 +56,22 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         }
     }
 
+    @Test func fullPageCaptureCanOutliveSingleViewportDeadline() async throws {
+        let expected = NSImage(size: NSSize(width: 20, height: 40))
+        let evaluator = BrowserDesignModeScreenshotEvaluator(
+            timeout: 0,
+            visibleViewportCapture: { _, _ in },
+            fullPageCapture: { _ in
+                await Task.yield()
+                return expected
+            }
+        )
+
+        let captured = try await evaluator.captureFullPage(from: WKWebView())
+
+        #expect(captured === expected)
+    }
+
     @Test func synthesizedClickKeepsPageRuntimeOutOfTheNativeComposerInputPath() async throws {
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
         let controller = BrowserDesignModeController(
@@ -201,6 +217,14 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         let directory = URL.temporaryDirectory
             .appendingPathComponent("cmux-design-mode-copy-test-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
+        let artifactStore = BrowserDesignModeArtifactStore(directory: directory)
+        for value in 0..<99 {
+            _ = try await artifactStore.saveScreenshot(
+                Data([UInt8(value)]),
+                surfaceID: UUID(),
+                retention: .liveContext
+            )
+        }
         var copiedPrompt: String?
         var captureCoverStates: [Bool] = []
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
@@ -210,7 +234,7 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
             surfaceID: UUID(),
             script: BrowserDesignModeScript(),
             promptFormatter: BrowserDesignModePromptFormatter(),
-            artifactStore: BrowserDesignModeArtifactStore(directory: directory),
+            artifactStore: artifactStore,
             javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator(),
             screenshotEvaluator: BrowserDesignModeScreenshotEvaluator(timeout: 1) { capturedWebView, completion in
                 captureCoverStates.append(
@@ -263,6 +287,13 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         #expect(prompt.contains("Selection 1 (tag: \"button\", selector: \"#target\"): \(directory.path)/"))
         #expect(try contextURL(from: prompt).deletingLastPathComponent() == directory)
         #expect(try requestedChange(from: prompt) == "")
+        let context = try payload(from: prompt)
+        let selections = try #require(context["selections"] as? [[String: Any]])
+        let selectionPath = try #require(selections.first?["screenshot_path"] as? String)
+        let pagePath = try #require(context["page_screenshot_path"] as? String)
+        #expect(FileManager.default.fileExists(atPath: selectionPath))
+        #expect(FileManager.default.fileExists(atPath: pagePath))
+        #expect(FileManager.default.fileExists(atPath: try contextURL(from: prompt).path))
         _ = navigationDelegate
     }
 
