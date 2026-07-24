@@ -145,6 +145,30 @@ struct CodexResumeTrustPolicyTests {
         )
     }
 
+    @Test("Working-directory parsing skips values consumed by other options")
+    func workingDirectoryParsingSkipsOptionValues() {
+        #expect(
+            policy.effectiveWorkingDirectory(
+                arguments: ["codex", "-c", "--cd", "resume", "SID"],
+                currentDirectory: "/Users/me/worktree"
+            ) == "/Users/me/worktree"
+        )
+        #expect(
+            policy.effectiveWorkingDirectory(
+                arguments: [
+                    "codex",
+                    "--model",
+                    "-C",
+                    "resume",
+                    "SID",
+                    "--cd",
+                    "/Users/me/restored",
+                ],
+                currentDirectory: "/Users/me/worktree"
+            ) == "/Users/me/restored"
+        )
+    }
+
     @Test("Effective config response extracts system and managed project decisions")
     func effectiveConfigResponseExtractsProjectDecisions() {
         let output = """
