@@ -96,6 +96,499 @@ private func debugCommandPaletteResponderSummary(_ responder: NSResponder?) -> S
 }
 #endif
 
+@MainActor
+final class WeakWindowReference {
+    weak var window: NSWindow?
+
+    init(_ window: NSWindow? = nil) {
+        self.window = window
+    }
+}
+
+@MainActor
+private final class WindowCommandPaletteOverlayController: NSObject {
+    private weak var window: NSWindow?
+    private let containerView = CommandPaletteOverlayContainerView(frame: .zero)
+    private let hostingView = NSHostingView(rootView: AnyView(EmptyView()))
+    private let chromeComposition = AppWindowChromeComposition()
+    private let interactionMonitor = CommandPaletteInteractionMonitor()
+    private var installConstraints: [NSLayoutConstraint] = []
+    private weak var installedContainerView: NSView?
+    private weak var installedReferenceView: NSView?
+    private var focusLockTimer: DispatchSourceTimer?
+    private var scheduledFocusWorkItem: DispatchWorkItem?
+    private var isPaletteVisible = false
+    private var hasMountedPaletteRootView = false
+
+    init(window: NSWindow) {
+        self.window = window
+        super.init()
+        containerView.translatesAutoresizingMaskIntoConstraints = false
+        containerView.wantsLayer = true
+        containerView.layer?.backgroundColor = NSColor.clear.cgColor
+        containerView.isHidden = true
+        containerView.alphaValue = 0
+        containerView.capturesMouseEvents = false
+        containerView.identifier = commandPaletteOverlayContainerIdentifier
+        hostingView.translatesAutoresizingMaskIntoConstraints = false
+        hostingView.wantsLayer = true
+        hostingView.layer?.backgroundColor = NSColor.clear.cgColor
+        containerView.addSubview(hostingView)
+        NSLayoutConstraint.activate([
+            hostingView.topAnchor.constraint(equalTo: containerView.topAnchor),
+            hostingView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+            hostingView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            hostingView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+        ])
+        _ = ensureInstalled()
+    }
+
+    @discardableResult
+    private func ensureInstalled() -> Bool {
+        guard let window,
+              let target = chromeComposition
+                .contentOverlayTargetResolver
+                .installationTarget(for: window) else { return false }
+
+        if containerView.superview !== target.container || installedReferenceView !== target.reference {
+            NSLayoutConstraint.deactivate(installConstraints)
+            installConstraints.removeAll()
+            containerView.removeFromSuperview()
+            target.container.addSubview(containerView, positioned: .above, relativeTo: nil)
+            installConstraints = [
+                containerView.topAnchor.constraint(equalTo: target.reference.topAnchor),
+                containerView.bottomAnchor.constraint(equalTo: target.reference.bottomAnchor),
+                containerView.leadingAnchor.constraint(equalTo: target.reference.leadingAnchor),
+                containerView.trailingAnchor.constraint(equalTo: target.reference.trailingAnchor),
+            ]
+            NSLayoutConstraint.activate(installConstraints)
+            installedContainerView = target.container
+            installedReferenceView = target.reference
+#if DEBUG
+            cmuxDebugLog(
+                "palette.overlay.install container=\(String(describing: type(of: target.container))) " +
+                "reference=\(String(describing: type(of: target.reference))) " +
+                "glass=\(chromeComposition.glassEffect.portalInstallationTarget(for: window) != nil ? 1 : 0)"
+            )
+#endif
+        }
+
+        return true
+    }
+
+    private func promoteOverlayAboveSiblingsIfNeeded() {
+        guard let container = installedContainerView,
+              containerView.superview === container else { return }
+        container.addSubview(containerView, positioned: .above, relativeTo: nil)
+    }
+
+    private func isPaletteResponder(_ responder: NSResponder?) -> Bool {
+        guard let responder else { return false }
+
+        if let view = responder as? NSView, view.isDescendant(of: containerView) {
+            return true
+        }
+
+        if let textView = responder as? NSTextView {
+            if let delegateView = textView.delegate as? NSView,
+               delegateView.isDescendant(of: containerView) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func isPaletteFieldEditor(_ textView: NSTextView) -> Bool {
+        guard textView.isFieldEditor else { return false }
+
+        if let delegateView = textView.delegate as? NSView,
+           delegateView.isDescendant(of: containerView) {
+            return true
+        }
+
+        // SwiftUI text fields can keep a field editor delegate that isn't an NSView.
+        // Fall back to validating editor ownership from the mounted palette text field.
+        if let textField = firstEditableTextField(in: hostingView),
+           textField.currentEditor() === textView {
+            return true
+        }
+
+        return false
+    }
+
+    private func isPaletteMultilineTextView(_ textView: NSTextView) -> Bool {
+        guard !textView.isFieldEditor,
+              textView.isEditable,
+              textView.isSelectable,
+              !textView.isHiddenOrHasHiddenAncestor,
+              textView.isDescendant(of: containerView) else { return false }
+        return true
+    }
+
+    private func isPaletteTextInputFirstResponder(_ responder: NSResponder?) -> Bool {
+        guard let responder else { return false }
+
+        if let textView = responder as? NSTextView {
+            return isPaletteFieldEditor(textView) || isPaletteMultilineTextView(textView)
+        }
+
+        if let textField = responder as? NSTextField {
+            return textField.isDescendant(of: containerView)
+        }
+
+        return false
+    }
+
+    private func firstEditableTextInput(in view: NSView) -> NSResponder? {
+        if let textField = view as? NSTextField,
+           textField.isEditable,
+           textField.isEnabled,
+           !textField.isHiddenOrHasHiddenAncestor {
+            return textField
+        }
+
+        if let textView = view as? NSTextView,
+           !textView.isFieldEditor,
+           textView.isEditable,
+           textView.isSelectable,
+           !textView.isHiddenOrHasHiddenAncestor {
+            return textView
+        }
+
+        for subview in view.subviews {
+            if let match = firstEditableTextInput(in: subview) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    private func firstEditableTextField(in view: NSView) -> NSTextField? {
+        if let textField = view as? NSTextField,
+           textField.isEditable,
+           textField.isEnabled,
+           !textField.isHiddenOrHasHiddenAncestor {
+            return textField
+        }
+
+        for subview in view.subviews {
+            if let match = firstEditableTextField(in: subview) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    private func focusPaletteTextInput(in window: NSWindow) -> Bool {
+        guard let input = firstEditableTextInput(in: hostingView) else {
+#if DEBUG
+            cmuxDebugLog(
+                "palette.focus.direct missingInput window={\(debugCommandPaletteWindowSummary(window))} " +
+                "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+            )
+#endif
+            return false
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "palette.focus.direct attempt window={\(debugCommandPaletteWindowSummary(window))} " +
+            "input=\(debugCommandPaletteResponderSummary(input)) " +
+            "frBefore=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+        )
+#endif
+        guard window.makeFirstResponder(input) else {
+#if DEBUG
+            cmuxDebugLog(
+                "palette.focus.direct failedMakeFirstResponder window={\(debugCommandPaletteWindowSummary(window))} " +
+                "input=\(debugCommandPaletteResponderSummary(input)) " +
+                "frAfter=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+            )
+#endif
+            return false
+        }
+
+        if let textView = input as? NSTextView, !textView.isFieldEditor {
+            let length = (textView.string as NSString).length
+            textView.setSelectedRange(NSRange(location: length, length: 0))
+        } else {
+            normalizeSelectionAfterProgrammaticFocus()
+        }
+
+        let didSettle = isPaletteTextInputFirstResponder(window.firstResponder)
+#if DEBUG
+        cmuxDebugLog(
+            "palette.focus.direct settled window={\(debugCommandPaletteWindowSummary(window))} " +
+            "didSettle=\(didSettle ? 1 : 0) frAfter=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+        )
+#endif
+        return didSettle
+    }
+
+    private func scheduleFocusIntoPalette(retries: Int = 4) {
+#if DEBUG
+        if let window {
+            cmuxDebugLog(
+                "palette.focus.schedule retries=\(retries) " +
+                "window={\(debugCommandPaletteWindowSummary(window))} " +
+                "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+            )
+        } else {
+            cmuxDebugLog("palette.focus.schedule retries=\(retries) window=nil")
+        }
+#endif
+        scheduledFocusWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.scheduledFocusWorkItem = nil
+            self?.focusIntoPalette(retries: retries)
+        }
+        scheduledFocusWorkItem = workItem
+        DispatchQueue.main.async(execute: workItem)
+    }
+
+    private func focusIntoPalette(retries: Int) {
+        guard let window else { return }
+#if DEBUG
+        cmuxDebugLog(
+            "palette.focus.retry start retries=\(retries) " +
+            "window={\(debugCommandPaletteWindowSummary(window))} " +
+            "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+        )
+#endif
+        if isPaletteTextInputFirstResponder(window.firstResponder) {
+#if DEBUG
+            cmuxDebugLog(
+                "palette.focus.retry alreadyFocused window={\(debugCommandPaletteWindowSummary(window))} " +
+                "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+            )
+#endif
+            return
+        }
+
+        if focusPaletteTextInput(in: window) {
+#if DEBUG
+            cmuxDebugLog(
+                "palette.focus.retry directSuccess retries=\(retries) " +
+                "window={\(debugCommandPaletteWindowSummary(window))}"
+            )
+#endif
+            return
+        }
+
+        let containerFocused = window.makeFirstResponder(containerView)
+#if DEBUG
+        cmuxDebugLog(
+            "palette.focus.retry containerResult retries=\(retries) " +
+            "window={\(debugCommandPaletteWindowSummary(window))} " +
+            "didFocusContainer=\(containerFocused ? 1 : 0) " +
+            "frAfterContainer=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+        )
+#endif
+        if containerFocused {
+            if focusPaletteTextInput(in: window) {
+#if DEBUG
+                cmuxDebugLog(
+                    "palette.focus.retry containerAssistedSuccess retries=\(retries) " +
+                    "window={\(debugCommandPaletteWindowSummary(window))}"
+                )
+#endif
+                return
+            }
+        }
+
+        guard retries > 0 else {
+#if DEBUG
+            cmuxDebugLog(
+                "palette.focus.retry exhausted window={\(debugCommandPaletteWindowSummary(window))} " +
+                "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+            )
+#endif
+            return
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "palette.focus.retry reschedule nextRetries=\(retries - 1) " +
+            "window={\(debugCommandPaletteWindowSummary(window))}"
+        )
+#endif
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { [weak self] in
+            self?.focusIntoPalette(retries: retries - 1)
+        }
+    }
+
+    private func updateFocusLockForWindowState() {
+        guard let window else {
+            stopFocusLockTimer()
+            return
+        }
+        guard isPaletteVisible else {
+#if DEBUG
+            cmuxDebugLog(
+                "palette.focus.lock inactive visible=0 window={\(debugCommandPaletteWindowSummary(window))}"
+            )
+#endif
+            stopFocusLockTimer()
+            return
+        }
+
+        guard window.isKeyWindow else {
+#if DEBUG
+            cmuxDebugLog(
+                "palette.focus.lock keyWindowMissing window={\(debugCommandPaletteWindowSummary(window))} " +
+                "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+            )
+#endif
+            stopFocusLockTimer()
+            if isPaletteResponder(window.firstResponder) {
+                _ = window.makeFirstResponder(nil)
+            }
+            return
+        }
+
+        startFocusLockTimer()
+        if !isPaletteTextInputFirstResponder(window.firstResponder) {
+#if DEBUG
+            cmuxDebugLog(
+                "palette.focus.lock requestRestore window={\(debugCommandPaletteWindowSummary(window))} " +
+                "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+            )
+#endif
+            scheduleFocusIntoPalette(retries: 8)
+        }
+    }
+
+    private func startFocusLockTimer() {
+        guard focusLockTimer == nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(80), leeway: .milliseconds(12))
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            guard let window = self.window else {
+                self.stopFocusLockTimer()
+                return
+            }
+            if self.isPaletteTextInputFirstResponder(window.firstResponder) {
+                return
+            }
+            self.focusIntoPalette(retries: 1)
+        }
+        focusLockTimer = timer
+        timer.resume()
+    }
+
+    private func stopFocusLockTimer() {
+        focusLockTimer?.cancel()
+        focusLockTimer = nil
+        scheduledFocusWorkItem?.cancel()
+        scheduledFocusWorkItem = nil
+    }
+
+    private func normalizeSelectionAfterProgrammaticFocus() {
+        guard let window,
+              let editor = window.firstResponder as? NSTextView,
+              editor.isFieldEditor else { return }
+
+        let text = editor.string
+        let length = (text as NSString).length
+        let selection = editor.selectedRange()
+        guard length > 0 else { return }
+        guard selection.location == 0, selection.length == length else { return }
+
+        // Keep commands-mode prefix semantics stable after focus re-assertions:
+        // if AppKit selected the entire query (e.g. ">foo"), restore caret-at-end
+        // so the next keystroke appends instead of replacing and switching modes.
+        guard text.hasPrefix(">") else { return }
+        editor.setSelectedRange(NSRange(location: length, length: 0))
+    }
+
+    func update(
+        isVisible: Bool,
+        onDismiss: @MainActor @escaping (CommandPaletteInteractionDismissal) -> Void = { _ in },
+        makeRootView: @MainActor () -> AnyView = { AnyView(EmptyView()) }
+    ) {
+        let wasVisible = isPaletteVisible
+        if !isVisible {
+            guard wasVisible || hasMountedPaletteRootView || !containerView.isHidden else { return }
+            hideOverlay()
+            return
+        }
+
+        guard ensureInstalled() else { return }
+        let shouldPromote = CommandPaletteOverlayPromotionPolicy(
+            previouslyVisible: wasVisible,
+            isVisible: isVisible
+        ).shouldPromote
+#if DEBUG
+        if let window {
+            cmuxDebugLog(
+                "palette.overlay.update visible=\(isVisible ? 1 : 0) promote=\(shouldPromote ? 1 : 0) " +
+                "window={\(debugCommandPaletteWindowSummary(window))} " +
+                "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+            )
+        } else {
+            cmuxDebugLog("palette.overlay.update visible=\(isVisible ? 1 : 0) promote=\(shouldPromote ? 1 : 0) window=nil")
+        }
+#endif
+        isPaletteVisible = true
+        hostingView.rootView = makeRootView()
+        hasMountedPaletteRootView = true
+        containerView.capturesMouseEvents = true
+        containerView.isHidden = false
+        containerView.alphaValue = 1
+        if shouldPromote {
+            promoteOverlayAboveSiblingsIfNeeded()
+        }
+        if let window {
+            interactionMonitor.activate(
+                for: window,
+                shouldDismiss: { [weak self] event in
+                    self?.shouldDismissPalette(for: event) ?? false
+                },
+                onWindowStateChange: { [weak self] in
+                    self?.updateFocusLockForWindowState()
+                },
+                onDismiss: { [weak self] dismissal in
+                    guard let self, self.isPaletteVisible else { return }
+                    self.hideOverlay()
+                    onDismiss(dismissal)
+                }
+            )
+        }
+        updateFocusLockForWindowState()
+    }
+
+    private func shouldDismissPalette(for event: CommandPalettePointerEvent) -> Bool {
+        guard window != nil else { return true }
+        return event.shouldDismissPalette(
+            panelContainsPoint: hostingView.commandPalettePanelContains(windowPoint: event.locationInWindow)
+        )
+    }
+
+    private func hideOverlay() {
+        interactionMonitor.deactivate()
+        stopFocusLockTimer()
+        if let window, isPaletteResponder(window.firstResponder) {
+            _ = window.makeFirstResponder(nil)
+        }
+        isPaletteVisible = false
+        hostingView.rootView = AnyView(EmptyView())
+        hasMountedPaletteRootView = false
+        containerView.capturesMouseEvents = false
+        containerView.alphaValue = 0
+        containerView.isHidden = true
+    }
+}
+
+@MainActor
+private func commandPaletteWindowOverlayController(for window: NSWindow) -> WindowCommandPaletteOverlayController {
+    if let existing = objc_getAssociatedObject(window, &commandPaletteWindowOverlayKey) as? WindowCommandPaletteOverlayController {
+        return existing
+    }
+    let controller = WindowCommandPaletteOverlayController(window: window)
+    objc_setAssociatedObject(window, &commandPaletteWindowOverlayKey, controller, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    return controller
+}
+
 // Lifted to `CmuxFoundation.WorkspaceMountPlan` / `MountedWorkspacePresentation`
 // (ContentView decomposition). These typealiases keep call sites short.
 typealias WorkspaceMountPlan = CmuxFoundation.WorkspaceMountPlan
@@ -350,7 +843,8 @@ struct ContentView: View {
     @State private var lastSidebarSelectionIndex: Int? = nil
     @State private var titlebarText: String = ""
     @State private var isFullScreen: Bool = false
-    @State private var observedWindow: NSWindow?
+    @State private var observedWindowReference = WeakWindowReference()
+    private var observedWindow: NSWindow? { observedWindowReference.window }
     @State private var sidebarRenderWorkerClient: RenderWorkerClient?
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
     @StateObject private var fileExplorerStore = FileExplorerStore()
@@ -369,7 +863,7 @@ struct ContentView: View {
     @State private var titlebarThemeGeneration: UInt64 = 0
     @State private var sidebarDraggedTabId: UUID?
     @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
-    @State private var sidebarResizerCursorReleaseWorkItem: DispatchWorkItem?
+    @State private var sidebarResizerCursorReleaseScheduler = SidebarResizerCursorReleaseScheduler()
     @State private var sidebarResizerPointerMonitor: Any?
     @State private var isResizerBandActive = false
     @State private var isSidebarResizerCursorActive = false
@@ -406,8 +900,7 @@ struct ContentView: View {
     @State private var cachedCommandPaletteScope: CommandPaletteListScope?
     @State private var cachedCommandPaletteFingerprint: Int?
     @State private var cachedDefaultTerminalIsDefault = DefaultTerminalRegistration.currentStatus().isDefault
-    @State private var commandPalettePendingDismissFocusTarget: CommandPaletteRestoreFocusTarget?
-    @State private var commandPaletteRestoreTimeoutWorkItem: DispatchWorkItem?
+    @State private var commandPaletteFocusRestoreCoordinator = CommandPaletteFocusRestoreCoordinator()
     @State private var commandPalettePendingTextSelectionBehavior: CommandPaletteTextSelectionBehavior?
     @State private var commandPaletteSearchTask: Task<Void, Never>?
     @State private var commandPaletteSearchRequestID: UInt64 = 0
@@ -444,28 +937,6 @@ struct ContentView: View {
     @FocusState private var isCommandPaletteRenameFocused: Bool
     private let windowChrome = AppWindowChromeComposition()
     private let sidebarResizerOcclusionResolver = SidebarResizerOcclusionResolver()
-    struct CommandPaletteRestoreFocusTarget {
-        let workspaceId: UUID
-        let panelId: UUID
-        let intent: PanelFocusIntent
-        let dockStore: DockSplitStore?
-        let sourceWindow: NSWindow?
-
-        init(
-            workspaceId: UUID,
-            panelId: UUID,
-            intent: PanelFocusIntent,
-            dockStore: DockSplitStore? = nil,
-            sourceWindow: NSWindow? = nil
-        ) {
-            self.workspaceId = workspaceId
-            self.panelId = panelId
-            self.intent = intent
-            self.dockStore = dockStore
-            self.sourceWindow = sourceWindow
-        }
-    }
-
     static func tmuxWorkspacePaneExactRect(
         for panel: any Panel,
         in contentView: NSView
@@ -874,8 +1345,7 @@ struct ContentView: View {
     }
 
     private func activateSidebarResizerCursor() {
-        sidebarResizerCursorReleaseWorkItem?.cancel()
-        sidebarResizerCursorReleaseWorkItem = nil
+        sidebarResizerCursorReleaseScheduler.cancelPendingRelease()
         isSidebarResizerCursorActive = true
         Self.fixedSidebarResizeCursor.set()
     }
@@ -890,17 +1360,9 @@ struct ContentView: View {
         NSCursor.arrow.set()
     }
 
-    private func scheduleSidebarResizerCursorRelease(force: Bool = false, delay: TimeInterval = 0) {
-        sidebarResizerCursorReleaseWorkItem?.cancel()
-        let workItem = DispatchWorkItem {
-            sidebarResizerCursorReleaseWorkItem = nil
-            releaseSidebarResizerCursorIfNeeded(force: force)
-        }
-        sidebarResizerCursorReleaseWorkItem = workItem
-        if delay > 0 {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
-        } else {
-            DispatchQueue.main.async(execute: workItem)
+    private func scheduleSidebarResizerCursorRelease(force: Bool = false, delay: Duration = .zero) {
+        sidebarResizerCursorReleaseScheduler.schedule(force: force, delay: delay) { releaseForce in
+            releaseSidebarResizerCursorIfNeeded(force: releaseForce)
         }
     }
 
@@ -1128,7 +1590,7 @@ struct ContentView: View {
                     } else {
                         // Give mouse-down + drag-start callbacks time to establish state
                         // before any cursor pop is attempted.
-                        scheduleSidebarResizerCursorRelease(delay: 0.05)
+                        scheduleSidebarResizerCursorRelease(delay: .milliseconds(50))
                     }
                 }
                 updateSidebarResizerBandState()
@@ -1209,7 +1671,7 @@ struct ContentView: View {
                     debugSource: "titlebar.hiddenNewWorkspace"
                 )
             },
-            observedWindow: observedWindow,
+            observedWindowReference: observedWindowReference,
             selection: $sidebarSelectionState.selection,
             selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, sidebarRenderWorkerClient: $sidebarRenderWorkerClient
         )
@@ -2796,7 +3258,7 @@ struct ContentView: View {
         // Track this window for fullscreen notifications
         if observedWindow !== window {
             DispatchQueue.main.async {
-                observedWindow = window
+                observedWindowReference = WeakWindowReference(window)
                 isFullScreen = window.styleMask.contains(.fullScreen)
                 let availableWidth = window.contentView?.bounds.width ?? window.contentLayoutRect.width
                 clampSidebarWidthIfNeeded(availableWidth: availableWidth)
@@ -9179,6 +9641,7 @@ struct ContentView: View {
 
     private func presentCommandPalette(initialQuery: String) {
         refreshCachedDefaultTerminalStatus(refreshSearchCorpusIfPresented: false)
+        commandPaletteFocusRestoreCoordinator.clear()
         if let requestedTarget = commandPalettePendingRequestFocusTarget {
             commandPaletteRestoreFocusTarget = requestedTarget
         } else if let panelContext = focusedPanelContext {
@@ -9339,44 +9802,40 @@ struct ContentView: View {
     }
 
     private func requestCommandPaletteFocusRestore(target: CommandPaletteRestoreFocusTarget) {
-        commandPalettePendingDismissFocusTarget = target
-        commandPaletteRestoreTimeoutWorkItem?.cancel()
-        let timeoutWork = DispatchWorkItem {
-            commandPalettePendingDismissFocusTarget = nil
-            commandPaletteRestoreTimeoutWorkItem = nil
-        }
-        commandPaletteRestoreTimeoutWorkItem = timeoutWork
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: timeoutWork)
+        commandPaletteFocusRestoreCoordinator.request(target: target)
         attemptCommandPaletteFocusRestoreIfNeeded()
     }
 
     private func attemptCommandPaletteFocusRestoreIfNeeded() {
         guard !isCommandPalettePresented else { return }
-        guard let target = commandPalettePendingDismissFocusTarget else { return }
+        guard let target = commandPaletteFocusRestoreCoordinator.pendingTarget else { return }
         if let dockStore = target.dockStore {
             guard let panel = dockStore.panels[target.panelId] else {
-                commandPalettePendingDismissFocusTarget = nil
-                commandPaletteRestoreTimeoutWorkItem?.cancel()
-                commandPaletteRestoreTimeoutWorkItem = nil
+                commandPaletteFocusRestoreCoordinator.clear()
                 return
             }
+            guard commandPaletteFocusRestoreCoordinator.claimRestoreAttempt() else { return }
+            defer { commandPaletteFocusRestoreCoordinator.finishRestoreAttempt() }
             if let sourceWindow = target.sourceWindow, !sourceWindow.isKeyWindow {
                 sourceWindow.makeKeyAndOrderFront(nil)
             }
             dockStore.focusPanel(target.panelId)
             guard dockStore.focusedPanelId == target.panelId,
                   panel.restoreFocusIntent(target.intent) else { return }
-            commandPalettePendingDismissFocusTarget = nil
-            commandPaletteRestoreTimeoutWorkItem?.cancel()
-            commandPaletteRestoreTimeoutWorkItem = nil
+            commandPaletteFocusRestoreCoordinator.clear()
             return
         }
-        guard tabManager.tabs.contains(where: { $0.id == target.workspaceId }) else {
-            commandPalettePendingDismissFocusTarget = nil
-            commandPaletteRestoreTimeoutWorkItem?.cancel()
-            commandPaletteRestoreTimeoutWorkItem = nil
+        guard let targetWorkspace = tabManager.tabs.first(where: { $0.id == target.workspaceId }) else {
+            commandPaletteFocusRestoreCoordinator.clear()
             return
         }
+        guard !commandPaletteFocusRestoreCoordinator.clearIfTargetNoLongerMatchesCurrentFocus(
+            selectedWorkspaceId: tabManager.selectedTabId,
+            focusedPanelId: targetWorkspace.focusedPanelId,
+            targetPanelExists: targetWorkspace.panels[target.panelId] != nil
+        ) else { return }
+        guard commandPaletteFocusRestoreCoordinator.claimRestoreAttempt() else { return }
+        defer { commandPaletteFocusRestoreCoordinator.finishRestoreAttempt() }
 
         if let window = observedWindow, !window.isKeyWindow {
             window.makeKeyAndOrderFront(nil)
@@ -9394,9 +9853,7 @@ struct ContentView: View {
             return
         }
         guard context.panel.restoreFocusIntent(target.intent) else { return }
-        commandPalettePendingDismissFocusTarget = nil
-        commandPaletteRestoreTimeoutWorkItem?.cancel()
-        commandPaletteRestoreTimeoutWorkItem = nil
+        commandPaletteFocusRestoreCoordinator.clear()
     }
 
 #if DEBUG
@@ -10329,7 +10786,7 @@ struct VerticalTabsSidebar: View, Equatable {
     // precedent.
     static func == (lhs: VerticalTabsSidebar, rhs: VerticalTabsSidebar) -> Bool {
         lhs.windowId == rhs.windowId
-            && lhs.observedWindow === rhs.observedWindow
+            && lhs.observedWindowReference.window === rhs.observedWindowReference.window
             && lhs.updateViewModel === rhs.updateViewModel
             && lhs.fileExplorerState === rhs.fileExplorerState
     }
@@ -10340,7 +10797,8 @@ struct VerticalTabsSidebar: View, Equatable {
     let onSendFeedback: () -> Void
     let onToggleSidebar: () -> Void
     let onNewTab: () -> Void
-    let observedWindow: NSWindow?
+    let observedWindowReference: WeakWindowReference
+    var observedWindow: NSWindow? { observedWindowReference.window }
     @EnvironmentObject var tabManager: TabManager
     // Observe the coalesced unread projection instead of the notification store
     // so notification churn (terminal/agent activity) no longer reconstructs
@@ -10384,6 +10842,10 @@ struct VerticalTabsSidebar: View, Equatable {
     @State private var expandedMetadataWorkspaceIds: Set<UUID> = []
     @State private var expandedMarkdownWorkspaceIds: Set<UUID> = []
     @State private var checklistAddFieldActivationTokens: [UUID: Int] = [:]
+    /// AppKit-table tap-to-edit sessions (workspace id → checklist item id).
+    /// Container-owned so the row model (and the height cache's prototype
+    /// measurement) sees the edit-field swap.
+    @State private var editingChecklistItemIds: [UUID: UUID] = [:]
     // Which workspace row's checklist popover is open (at most one across
     // the sidebar). Held at the container so rows stay behind the snapshot
     // boundary.
@@ -11390,11 +11852,28 @@ struct VerticalTabsSidebar: View, Equatable {
             isValidWorkspaceDrag: {
                 activateSidebarWorkspaceDragIfNeeded()
             },
-            updateWorkspaceDrag: { point, targets in
-                updateWorkspaceReorderDrop(point: point, targets: targets, renderContext: renderContext)
+            updateWorkspaceDrag: { point, targets, pasteboardWorkspaceId in
+                updateWorkspaceReorderDropForTable(
+                    point: point,
+                    targets: targets,
+                    pasteboardWorkspaceId: pasteboardWorkspaceId,
+                    renderContext: renderContext
+                )
             },
-            performWorkspaceDrop: { point, targets in
-                performWorkspaceReorderDrop(point: point, targets: targets, renderContext: renderContext)
+            performWorkspaceDrop: { point, targets, pasteboardWorkspaceId in
+                performWorkspaceReorderDrop(
+                    point: point,
+                    targets: targets,
+                    pasteboardWorkspaceId: pasteboardWorkspaceId,
+                    renderContext: renderContext
+                )
+            },
+            commitWorkspaceDropPlan: { plan in
+                defer {
+                    dragState.clearDrag()
+                    dragAutoScrollController.stop()
+                }
+                return performWorkspaceReorderPlan(plan)
             },
             clearWorkspaceDropIndicator: {
                 dragState.clearDropIndicator()
@@ -11405,10 +11884,6 @@ struct VerticalTabsSidebar: View, Equatable {
             },
             currentDropIndicatorScope: {
                 dragState.dropIndicatorScope
-            },
-            setWorkspaceDropTargetCollectionActive: { isActive in
-                guard isWorkspaceReorderDropTargetCollectionActive != isActive else { return }
-                isWorkspaceReorderDropTargetCollectionActive = isActive
             },
             canPerformBonsplitAction: { action, transfer in
                 guard let app = AppDelegate.shared else { return false }
@@ -11507,6 +11982,9 @@ struct VerticalTabsSidebar: View, Equatable {
             globalFontMagnificationPercent: environment.globalFontMagnificationPercent,
             isChecklistExpanded: input.isChecklistExpanded,
             checklistAddFieldActivationToken: input.checklistAddFieldActivationToken,
+            isChecklistPopoverPresented: input.isChecklistPopoverPresented,
+            editingChecklistItemId: editingChecklistItemIds[tab.id],
+            todoControlsEnabled: WorkspaceTodoFeature.isEnabled,
             isMetadataExpanded: expandedMetadataWorkspaceIds.contains(tab.id),
             isMarkdownExpanded: expandedMarkdownWorkspaceIds.contains(tab.id)
         )
@@ -11546,6 +12024,9 @@ struct VerticalTabsSidebar: View, Equatable {
         }
         let rowActions = SidebarAppKitRowActions(
             commands: commands,
+            onOpenStatusURL: { url in
+                NSWorkspace.shared.open(url)
+            },
             onOpenPullRequest: { [prefer = input.settings.openPullRequestLinksInCmuxBrowser] url in
                 openInBrowser(url, prefer)
             },
@@ -11588,6 +12069,50 @@ struct VerticalTabsSidebar: View, Equatable {
             },
             checklistEditItem: { [tab] itemId, text in
                 WorkspaceTodoActions.editChecklistItem(id: itemId, text: text, in: tab)
+            },
+            checklistMoveItem: { [tab] itemId, toIndex in
+                WorkspaceTodoActions.moveChecklistItem(id: itemId, toIndex: toIndex, in: tab)
+            },
+            checklistOpenPane: { [tab] in
+                WorkspaceTodoActions.openTodoPane(for: tab)
+            },
+            checklistAddAttachments: { [tab] itemId in
+                WorkspaceTodoActions.addImageAttachments(to: itemId, in: tab)
+            },
+            checklistRemoveAttachment: { [tab] itemId, attachmentId in
+                WorkspaceTodoActions.removeImageAttachment(itemId: itemId, attachmentId: attachmentId, from: tab)
+            },
+            checklistOpenAttachments: { [tab] itemId, selectedAttachmentId in
+                guard let item = tab.todoState.checklist.first(where: { $0.id == itemId }) else { return }
+                WorkspaceTodoActions.openImageAttachments(
+                    item.attachments,
+                    selectedAttachmentId: selectedAttachmentId
+                )
+            },
+            onChecklistPopoverPresentedChange: { [tabId = tab.id] presented in
+                if presented {
+                    checklistPopoverWorkspaceId = tabId
+                } else if checklistPopoverWorkspaceId == tabId {
+                    checklistPopoverWorkspaceId = nil
+                }
+            },
+            onBeginChecklistItemEdit: { [tabId = tab.id] itemId in
+                if let itemId {
+                    editingChecklistItemIds[tabId] = itemId
+                } else {
+                    editingChecklistItemIds[tabId] = nil
+                }
+            },
+            onEndChecklistItemEdit: { [tabId = tab.id] itemId in
+                if editingChecklistItemIds[tabId] == itemId {
+                    editingChecklistItemIds[tabId] = nil
+                }
+            },
+            applyTodoStatus: { [tab] status in
+                WorkspaceTodoActions.applyStatusOverride(status, to: [tab])
+            },
+            hideTodoStatus: { [tab] in
+                WorkspaceTodoActions.hideStatus(for: [tab])
             },
             commitRename: { [weak tabManager, workspaceId = tab.id] text in
                 tabManager?.setCustomTitle(tabId: workspaceId, title: text)
@@ -13048,18 +13573,37 @@ struct VerticalTabsSidebar: View, Equatable {
         )
     }
 
-    private func activateSidebarWorkspaceDragIfNeeded() -> Bool {
+    private func activateSidebarWorkspaceDragIfNeeded(pasteboardWorkspaceId: UUID? = nil) -> Bool {
         if dragState.draggedTabId != nil {
             return true
         }
-        guard let foreignId = dragState.currentWorkspaceDragId,
-              !tabManager.tabs.contains(where: { $0.id == foreignId }),
-              let sourceManager = AppDelegate.shared?.tabManagerFor(tabId: foreignId),
-              !sourceManager.workspaceGroups.contains(where: { $0.anchorWorkspaceId == foreignId }) else {
+        // The registry entry dies with clearDrag(), so a drag whose state was
+        // torn down mid-flight (app_resign_active failsafe) is only
+        // recoverable through the session's pasteboard id.
+        guard let dragId = dragState.currentWorkspaceDragId ?? pasteboardWorkspaceId else {
+#if DEBUG
+            cmuxDebugLog("sidebar.drag.activate rejected reason=noDragId")
+#endif
             return false
         }
-        dragState.foreignDraggedIsPinned = sourceManager.tabs.first { $0.id == foreignId }?.isPinned ?? false
-        dragState.draggedTabId = foreignId
+        if tabManager.tabs.contains(where: { $0.id == dragId }) {
+            // Local drag whose state was cleared while the native session
+            // kept running: the still-delivering drop callbacks prove the
+            // drag is alive, so re-arm instead of rejecting every update
+            // (which left the rest of the drag indicator-less and made the
+            // final drop a silent no-op).
+            guard !tabManager.workspaceGroups.contains(where: { $0.anchorWorkspaceId == dragId }) else {
+                return false
+            }
+            dragState.beginDragging(tabId: dragId)
+            return true
+        }
+        guard let sourceManager = AppDelegate.shared?.tabManagerFor(tabId: dragId),
+              !sourceManager.workspaceGroups.contains(where: { $0.anchorWorkspaceId == dragId }) else {
+            return false
+        }
+        dragState.foreignDraggedIsPinned = sourceManager.tabs.first { $0.id == dragId }?.isPinned ?? false
+        dragState.draggedTabId = dragId
         return true
     }
 
@@ -13082,16 +13626,48 @@ struct VerticalTabsSidebar: View, Equatable {
         return true
     }
 
+    /// AppKit-table variant of `updateWorkspaceReorderDrop` that never writes
+    /// the indicator into `dragState`: the table controller paints the two
+    /// affected cells directly, so a dragState write here would only rebuild
+    /// every sidebar row per gap change (the indicator-lags-pointer report).
+    private func updateWorkspaceReorderDropForTable(
+        point: CGPoint,
+        targets: [SidebarWorkspaceReorderDropOverlay.Target],
+        pasteboardWorkspaceId: UUID?,
+        renderContext: WorkspaceListRenderContext
+    ) -> SidebarWorkspaceTableReorderDropUpdate? {
+        guard activateSidebarWorkspaceDragIfNeeded(pasteboardWorkspaceId: pasteboardWorkspaceId),
+              let draggedWorkspaceId = dragState.draggedTabId,
+              let plan = workspaceReorderPlan(point: point, targets: targets, renderContext: renderContext) else {
+            return nil
+        }
+        dragAutoScrollController.updateFromDragLocation()
+        return SidebarWorkspaceTableReorderDropUpdate(
+            indicator: plan.indicator,
+            scope: plan.indicatorScope,
+            draggedWorkspaceId: draggedWorkspaceId,
+            indicatorRowIds: sidebarDropIndicatorRowIds(
+                draggedWorkspaceId: draggedWorkspaceId,
+                scope: plan.indicatorScope,
+                tabs: renderContext.tabs,
+                workspaceGroups: renderContext.workspaceGroups,
+                visibleWorkspaceRowIds: renderContext.visibleWorkspaceRowIds
+            ),
+            plan: plan
+        )
+    }
+
     private func performWorkspaceReorderDrop(
         point: CGPoint,
         targets: [SidebarWorkspaceReorderDropOverlay.Target],
+        pasteboardWorkspaceId: UUID? = nil,
         renderContext: WorkspaceListRenderContext
     ) -> Bool {
         defer {
             dragState.clearDrag()
             dragAutoScrollController.stop()
         }
-        guard activateSidebarWorkspaceDragIfNeeded(),
+        guard activateSidebarWorkspaceDragIfNeeded(pasteboardWorkspaceId: pasteboardWorkspaceId),
               let plan = workspaceReorderPlan(point: point, targets: targets, renderContext: renderContext) else {
             return false
         }
@@ -15590,12 +16166,12 @@ struct TabItemView: View, Equatable {
 
         let alertWindow = alert.window
         alertWindow.initialFirstResponder = input
-        DispatchQueue.main.async {
+        let response = alert.runCmuxModal(
+            presentingWindow: AppDelegate.shared?.mainWindowContainingWorkspace(workspaceId)
+        ) { _ in
             alertWindow.makeFirstResponder(input)
             input.selectText(nil)
         }
-
-        let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return }
         guard let normalized = WorkspaceTabColorSettings.addCustomColor(input.stringValue) else {
             showInvalidColorAlert(input.stringValue)
@@ -15615,7 +16191,9 @@ struct TabItemView: View, Equatable {
             alert.informativeText = String(localized: "alert.invalidColor.invalidMessage", defaultValue: "\"\(trimmed)\" is not a valid hex color. Use #RRGGBB.")
         }
         alert.addButton(withTitle: String(localized: "alert.invalidColor.ok", defaultValue: "OK"))
-        _ = alert.runModal()
+        _ = alert.runCmuxModal(
+            presentingWindow: AppDelegate.shared?.mainWindowContainingWorkspace(workspaceId)
+        )
     }
 
     func promptRename() {
@@ -15630,11 +16208,12 @@ struct TabItemView: View, Equatable {
         alert.addButton(withTitle: String(localized: "alert.renameWorkspace.cancel", defaultValue: "Cancel"))
         let alertWindow = alert.window
         alertWindow.initialFirstResponder = input
-        DispatchQueue.main.async {
+        let response = alert.runCmuxModal(
+            presentingWindow: AppDelegate.shared?.mainWindowContainingWorkspace(workspaceId)
+        ) { _ in
             alertWindow.makeFirstResponder(input)
             input.selectText(nil)
         }
-        let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return }
         actions.setCustomTitle(input.stringValue)
     }

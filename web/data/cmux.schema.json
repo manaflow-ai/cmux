@@ -451,6 +451,11 @@
           "default": true,
           "description": "When cmux is inactive, the first click can activate and focus the clicked pane."
         },
+        "focusHistoryIncludesPanesAndTabs": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, Back and Forward include focus changes between panes and tabs. When false, they navigate between workspaces only."
+        },
         "preferredEditor": {
           "type": "string",
           "default": "",

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { CmuxClient, CmuxStream } from "../src/client.js";
 import { CmuxCommandError, CmuxProtocolError } from "../src/errors.js";
-import type { TreeDeltaEvent } from "../src/protocol/index.js";
+import type { DecodedResizedEvent, TreeDeltaEvent } from "../src/protocol/index.js";
 import type { Transport, Unsubscribe } from "../src/transport.js";
 
 class ScriptedTransport implements Transport {
@@ -206,7 +206,59 @@ test("setSplitRatio accepts newer additive protocols", async () => {
   await client.close();
 });
 
+test("stable terminal resolve and close serialize process identity", async () => {
+  const terminalId = "0123456789abcdef0123456789abcdef";
+  const incarnation = "fedcba9876543210fedcba9876543210";
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "resolve-terminal") {
+      assert.deepEqual(request, {
+        id: 1,
+        cmd: "resolve-terminal",
+        terminal_id: terminalId,
+      });
+    } else {
+      assert.deepEqual(request, {
+        id: 2,
+        cmd: "close-terminal",
+        terminal_id: terminalId,
+        terminal_incarnation: incarnation,
+      });
+    }
+    connection.emit({
+      id: request.id,
+      ok: true,
+      data: {
+        surface: 7,
+        terminal_id: terminalId,
+        terminal_incarnation: incarnation,
+      },
+    });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  assert.deepEqual(await client.resolveTerminal(terminalId), {
+    surface: 7,
+    terminal_id: terminalId,
+    terminal_incarnation: incarnation,
+  });
+  assert.deepEqual(await client.closeTerminal(terminalId, incarnation), {
+    surface: 7,
+    terminal_id: terminalId,
+    terminal_incarnation: incarnation,
+  });
+  await client.close();
+});
+
 test("attachSurface decodes VT colors, output, and resized payloads", async () => {
+  const atomicColors = {
+    fg: "#010203",
+    bg: "#040506",
+    cursor: null,
+    selection_bg: null,
+    selection_fg: null,
+    cursor_style: null,
+    cursor_blink: null,
+  };
   const main = new ScriptedTransport((request, transport) => {
     assert.equal(request.cmd, "identify");
     transport.emit({ id: request.id, ok: true, data: { app: "cmux-tui", version: "0.1.2", protocol: 6, session: "main", pid: 1 } });
@@ -225,13 +277,28 @@ test("attachSurface decodes VT colors, output, and resized payloads", async () =
         cursor: "#f0f0f0",
         selection_bg: null,
         selection_fg: null,
+        palette: { "4": "#ff4f8b" },
         cursor_style: "underline",
         cursor_blink: true,
       },
     });
     transport.emit({ id: request.id, ok: true, data: {} });
-    transport.emit({ event: "output", surface: 7, data: "aGk=" });
-    transport.emit({ event: "resized", surface: 7, cols: 100, rows: 30, data: "AQID" });
+    transport.emit({ event: "output", surface: 7, data: "aGk=", colors: atomicColors });
+    transport.emit({
+      event: "resized",
+      surface: 7,
+      cols: 100,
+      rows: 30,
+      data: "AQID",
+      colors: {
+        fg: null,
+        bg: null,
+        cursor: null,
+        selection_bg: null,
+        selection_fg: null,
+        palette: { "5": "#112233" },
+      },
+    });
   });
   const client = new CmuxClient({
     transport: main,
@@ -252,16 +319,22 @@ test("attachSurface decodes VT colors, output, and resized payloads", async () =
       cursor: "#f0f0f0",
       selection_bg: null,
       selection_fg: null,
+      palette: { "4": "#ff4f8b" },
       cursor_style: "underline",
       cursor_blink: true,
     });
   }
   assert.equal(output.event, "output");
-  if (output.event === "output") assert.deepEqual(output.data, Uint8Array.from([104, 105]));
+  if (output.event === "output") {
+    assert.deepEqual(output.data, Uint8Array.from([104, 105]));
+    assert.deepEqual(output.colors, atomicColors);
+  }
   assert.equal(resized.event, "resized");
   if (resized.event === "resized") {
-    assert.deepEqual(resized.data, Uint8Array.from([1, 2, 3]));
-    assert.deepEqual(resized.replay, resized.data);
+    const decoded = resized as DecodedResizedEvent;
+    assert.deepEqual(decoded.data, Uint8Array.from([1, 2, 3]));
+    assert.deepEqual(decoded.replay, decoded.data);
+    assert.deepEqual(decoded.colors?.palette, { "5": "#112233" });
   }
   stream.close();
   await client.close();
@@ -347,6 +420,7 @@ test("attachSurface routes colors-changed events without a surface field", async
       cursor: null,
       selection_bg: "#334455",
       selection_fg: "#ffffff",
+      palette: { "4": "#ff4f8b" },
       cursor_style: "bar",
       cursor_blink: false,
     });
@@ -362,6 +436,7 @@ test("attachSurface routes colors-changed events without a surface field", async
     cursor: null,
     selection_bg: "#334455",
     selection_fg: "#ffffff",
+    palette: { "4": "#ff4f8b" },
     cursor_style: "bar",
     cursor_blink: false,
   });
@@ -377,11 +452,25 @@ test("attachSurface render mode yields render-state and render-delta from cached
     transport.emit({
       id: request.id,
       ok: true,
-      data: { app: "cmux-tui", version: "0.1.2", protocol: 7, session: "main", pid: 1 },
+      data: {
+        app: "cmux-tui",
+        version: "0.1.2",
+        protocol: 7,
+        capabilities: ["attach-initial-size"],
+        session: "main",
+        pid: 1,
+      },
     });
   });
   const attach = new ScriptedTransport((request, transport) => {
-    assert.deepEqual(request, { id: 2, cmd: "attach-surface", surface: 7, mode: "render" });
+    assert.deepEqual(request, {
+      id: 2,
+      cmd: "attach-surface",
+      surface: 7,
+      mode: "render",
+      cols: 120,
+      rows: 40,
+    });
     transport.emit({
       event: "render-state",
       surface: 7,
@@ -420,7 +509,7 @@ test("attachSurface render mode yields render-state and render-delta from cached
 
   assert.equal((await client.identify()).protocol, 7);
   assert.equal(client.protocol, 7);
-  const stream = await client.attachSurface(7, { mode: "render" });
+  const stream = await client.attachSurface(7, { mode: "render", cols: 120, rows: 40 });
   assert.equal(identifyRequests, 1);
   assert.deepEqual(await stream.next(), {
     event: "render-state",
@@ -511,16 +600,141 @@ test("protocol v6 keeps byte attach working and refuses render mode client-side"
   await client.close();
 });
 
+test("protocol v7 refuses initial attach sizing without the advertised capability", async () => {
+  let attachRequests = 0;
+  const main = new ScriptedTransport((request, transport) => {
+    assert.equal(request.cmd, "identify");
+    transport.emit({
+      id: request.id,
+      ok: true,
+      data: { app: "cmux-tui", version: "0.1.2", protocol: 7, session: "main", pid: 1 },
+    });
+  });
+  const attach = new ScriptedTransport(() => {
+    attachRequests += 1;
+  });
+  const client = new CmuxClient({
+    transport: main,
+    streamTransportFactory: () => attach,
+    timeoutMs: 100,
+  });
+
+  await assert.rejects(
+    () => client.attachSurface(7, { cols: 80, rows: 24 }),
+    (error: unknown) => error instanceof CmuxProtocolError
+      && error.message === "initial attach sizing is not supported by this server",
+  );
+  assert.equal(attachRequests, 0);
+  await client.close();
+});
+
+test("attachSurface rejects partial initial sizing before transport", async () => {
+  let requests = 0;
+  const transport = new ScriptedTransport(() => { requests += 1; });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  await assert.rejects(
+    () => client.attachSurface(7, { cols: 80 } as never),
+    (error: unknown) => error instanceof CmuxProtocolError
+      && error.message === "attach-surface cols and rows must be supplied together",
+  );
+  assert.equal(requests, 0);
+  await client.close();
+});
+
+test("protocol v7 refuses registry CAS mutations without the advertised capability", async () => {
+  let mutationRequests = 0;
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: { app: "cmux-tui", version: "0.1.2", protocol: 7, session: "main", pid: 1 },
+      });
+      return;
+    }
+    mutationRequests += 1;
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({ transport });
+
+  await assert.rejects(
+    () => client.closeWorkspaceRegistry({ key: "stable", expected_revision: 4 }),
+    (error: unknown) => error instanceof CmuxProtocolError
+      && error.message === "workspace registry is not supported by this server",
+  );
+  assert.equal(mutationRequests, 0);
+  await client.close();
+});
+
 test("generic request preserves exact wire command and typed result", async () => {
   let sent: Record<string, unknown> | undefined;
   const transport = new ScriptedTransport((request, connection) => {
     sent = request;
-    connection.emit({ id: request.id, ok: true, data: { ok: true, version: "0.1.2", protocol: 6 } });
+    connection.emit({
+      id: request.id,
+      ok: true,
+      data: {
+        ok: true,
+        version: "0.1.2",
+        build_commit: "cmux-sha",
+        ghostty_commit: "ghostty-sha",
+        protocol: 6,
+      },
+    });
   });
   const client = new CmuxClient({ transport });
   const result = await client.request({ cmd: "ping" });
   assert.equal(result.protocol, 6);
+  assert.equal(result.build_commit, "cmux-sha");
+  assert.equal(result.ghostty_commit, "ghostty-sha");
   assert.deepEqual(sent, { id: 1, cmd: "ping" });
+  await client.close();
+});
+
+test("workspace registry methods preserve keys and revisions", async () => {
+  const expected = [
+    { id: 2, cmd: "create-workspace", name: "gui", key: "stable", expected_revision: 4 },
+    { id: 3, cmd: "create-terminal", key: "stable", command: "echo ready" },
+    { id: 4, cmd: "rename-workspace", key: "stable", name: "renamed", expected_revision: 5 },
+    { id: 5, cmd: "move-workspace", key: "stable", index: 0, expected_revision: 6 },
+    { id: 6, cmd: "close-workspace", key: "stable", expected_revision: 7 },
+  ];
+  const responses = [
+    { workspace: 1, key: "stable", index: 0, workspace_revision: 5 },
+    { surface: 4, pane: 3, screen: 2, workspace: 1, key: "stable" },
+    { workspace: 1, key: "stable", workspace_revision: 6 },
+    { workspace: 1, key: "stable", workspace_revision: 7 },
+    { workspace: 1, key: "stable", workspace_revision: 8 },
+  ];
+  let index = 0;
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: {
+          app: "cmux-tui",
+          version: "0.1.2",
+          protocol: 7,
+          capabilities: ["workspace-registry-v1"],
+          session: "main",
+          pid: 1,
+        },
+      });
+      return;
+    }
+    assert.deepEqual(request, expected[index]);
+    connection.emit({ id: request.id, ok: true, data: responses[index] });
+    index += 1;
+  });
+  const client = new CmuxClient({ transport });
+
+  assert.equal((await client.createWorkspace({ name: "gui", key: "stable", expected_revision: 4 })).workspace_revision, 5);
+  assert.equal((await client.createTerminal({ key: "stable", command: "echo ready" })).surface, 4);
+  assert.equal((await client.renameWorkspaceRegistry({ key: "stable", name: "renamed", expected_revision: 5 })).workspace_revision, 6);
+  assert.equal((await client.moveWorkspaceRegistry({ key: "stable", index: 0, expected_revision: 6 })).workspace_revision, 7);
+  assert.equal((await client.closeWorkspaceRegistry({ key: "stable", expected_revision: 7 })).workspace_revision, 8);
   await client.close();
 });
 
@@ -714,11 +928,12 @@ test("subscribe deltas mode yields all protocol v7 tree lifecycle events", async
     layout: { type: "leaf" as const, pane: 3 },
     panes: [pane],
   };
-  const workspace = { id: 1, name: "sdk", active: true, screens: [screen] };
+  const workspace = { id: 1, key: "stable", name: "sdk", active: true, screens: [screen] };
   const deltas: TreeDeltaEvent[] = [
-    { event: "workspace-added", workspace: 1, index: 0, entity: workspace },
-    { event: "workspace-closed", workspace: 1, index: 0, entity: workspace },
-    { event: "workspace-renamed", workspace: 1, entity: workspace },
+    { event: "workspace-added", workspace: 1, index: 0, workspace_revision: 1, entity: workspace },
+    { event: "workspace-closed", workspace: 1, index: 0, workspace_revision: 4, entity: workspace },
+    { event: "workspace-renamed", workspace: 1, workspace_revision: 2, entity: workspace },
+    { event: "workspace-moved", workspace: 1, index: 0, workspace_revision: 3, entity: workspace },
     { event: "screen-added", workspace: 1, screen: 2, index: 0, entity: screen },
     { event: "screen-closed", workspace: 1, screen: 2, index: 0, entity: screen },
     { event: "screen-renamed", workspace: 1, screen: 2, entity: screen },

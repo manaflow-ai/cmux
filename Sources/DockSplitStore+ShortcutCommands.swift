@@ -13,6 +13,15 @@ enum DockShortcutCommand {
     case focusHistoryBack
     case focusHistoryForward
     case triggerFlash
+
+    var isFocusHistoryNavigation: Bool {
+        switch self {
+        case .focusHistoryBack, .focusHistoryForward:
+            true
+        default:
+            false
+        }
+    }
 }
 
 enum DockSurfaceCommand {

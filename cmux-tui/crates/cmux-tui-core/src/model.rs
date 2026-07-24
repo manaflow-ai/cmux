@@ -395,6 +395,8 @@ pub struct Pane {
     pub tabs: Vec<SurfaceId>,
     pub active_tab: usize,
     pub active_at: u64,
+    /// Monotonic sequence updated only when this pane receives focus.
+    pub focused_at: u64,
 }
 
 impl Pane {
@@ -421,6 +423,10 @@ pub struct Screen {
 #[derive(Debug)]
 pub struct Workspace {
     pub id: WorkspaceId,
+    /// Stable external identity used by detached frontends. Unlike `id`, this
+    /// survives snapshot/reconciliation boundaries and is safe to persist in
+    /// a frontend's richer layout state.
+    pub key: String,
     pub name: String,
     pub screens: Vec<Screen>,
     pub active_screen: usize,
@@ -436,6 +442,15 @@ impl Workspace {
 /// closures.
 pub struct State {
     pub workspaces: Vec<Workspace>,
+    pub(crate) workspace_index_by_id: HashMap<WorkspaceId, usize>,
+    pub(crate) workspace_id_by_key: HashMap<String, WorkspaceId>,
+    /// Monotonic version of the ordered workspace registry. Pane, screen, and
+    /// tab-only mutations do not advance this counter.
+    pub workspace_revision: u64,
+    /// Monotonic version of the live pane-ID set. Focus, layout, tab, screen,
+    /// and workspace selection changes do not advance this counter.
+    pub pane_revision: u64,
+    pub(crate) focus_sequence: u64,
     pub active_workspace: usize,
     pub panes: HashMap<PaneId, Pane>,
     pub surfaces: HashMap<SurfaceId, Arc<Surface>>,
@@ -443,6 +458,70 @@ pub struct State {
 }
 
 impl State {
+    pub(crate) fn next_focus_sequence(&mut self) -> u64 {
+        self.focus_sequence = self.focus_sequence.saturating_add(1);
+        self.focus_sequence
+    }
+
+    pub(crate) fn insert_pane(&mut self, pane: Pane) {
+        let id = pane.id;
+        let replaced = self.panes.insert(id, pane);
+        debug_assert!(replaced.is_none(), "pane {id} was inserted twice");
+        if replaced.is_none() {
+            self.pane_revision = self.pane_revision.saturating_add(1);
+        }
+    }
+
+    pub(crate) fn remove_pane(&mut self, pane: PaneId) -> Option<Pane> {
+        let removed = self.panes.remove(&pane);
+        if removed.is_some() {
+            self.pane_revision = self.pane_revision.saturating_add(1);
+        }
+        removed
+    }
+
+    pub(crate) fn push_workspace(&mut self, workspace: Workspace) {
+        let index = self.workspaces.len();
+        debug_assert!(!self.workspace_index_by_id.contains_key(&workspace.id));
+        debug_assert!(!self.workspace_id_by_key.contains_key(&workspace.key));
+        self.workspace_index_by_id.insert(workspace.id, index);
+        self.workspace_id_by_key.insert(workspace.key.clone(), workspace.id);
+        self.workspaces.push(workspace);
+    }
+
+    pub(crate) fn remove_workspace(&mut self, index: usize) -> Workspace {
+        let workspace = self.workspaces.remove(index);
+        self.rebuild_workspace_indexes();
+        workspace
+    }
+
+    pub(crate) fn move_workspace(&mut self, old_index: usize, new_index: usize) {
+        let workspace = self.workspaces.remove(old_index);
+        self.workspaces.insert(new_index, workspace);
+        self.rebuild_workspace_indexes();
+    }
+
+    pub(crate) fn rebuild_workspace_indexes(&mut self) {
+        self.workspace_index_by_id.clear();
+        self.workspace_id_by_key.clear();
+        for (index, workspace) in self.workspaces.iter().enumerate() {
+            self.workspace_index_by_id.insert(workspace.id, index);
+            self.workspace_id_by_key.insert(workspace.key.clone(), workspace.id);
+        }
+    }
+
+    pub(crate) fn workspace_index(&self, id: WorkspaceId) -> Option<usize> {
+        self.workspace_index_by_id.get(&id).copied()
+    }
+
+    pub(crate) fn workspace_by_id(&self, id: WorkspaceId) -> Option<&Workspace> {
+        self.workspace_index(id).and_then(|index| self.workspaces.get(index))
+    }
+
+    pub(crate) fn workspace_by_key(&self, key: &str) -> Option<&Workspace> {
+        self.workspace_id_by_key.get(key).and_then(|id| self.workspace_by_id(*id))
+    }
+
     /// Workspace and screen indices of the screen containing a pane.
     pub fn screen_of(&self, pane: PaneId) -> Option<(usize, usize)> {
         self.workspaces.iter().enumerate().find_map(|(wi, ws)| {

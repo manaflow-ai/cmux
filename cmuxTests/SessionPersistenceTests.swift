@@ -2444,6 +2444,14 @@ final class SessionPersistenceTests: XCTestCase {
                     "gemini-2.5-pro",
                 ]
             ),
+            (
+                .kimi,
+                [
+                    "/usr/local/bin/kimi",
+                    "--model",
+                    "kimi-k2",
+                ]
+            ),
         ]
 
         for scenario in scenarios {
@@ -2460,7 +2468,7 @@ final class SessionPersistenceTests: XCTestCase {
                 includeScrollback: false,
                 restorableAgentIndex: staleIndex
             )
-            let expectedKind: RestorableAgentKind = scenario.kind == .pi ? .custom("pi") : scenario.kind
+            let expectedKind: RestorableAgentKind = [.pi, .kimi].contains(scenario.kind) ? .custom(scenario.kind.rawValue) : scenario.kind
             XCTAssertEqual(initialSnapshot.panels.first?.terminal?.agent?.kind, expectedKind)
 
             workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
@@ -2616,6 +2624,8 @@ final class SessionPersistenceTests: XCTestCase {
                 resolvedEnvironment = ["CODEBUDDY_CONFIG_DIR": "/tmp/codebuddy"]
             case .qoder:
                 resolvedEnvironment = ["QODER_CONFIG_DIR": "/tmp/qoder"]
+            case .kimi:
+                resolvedEnvironment = ["KIMI_SHARE_DIR": "/tmp/kimi"]
             }
         }
         let resolvedExecutablePath = executablePath ?? arguments.first ?? "/usr/local/bin/\(kind.rawValue)"

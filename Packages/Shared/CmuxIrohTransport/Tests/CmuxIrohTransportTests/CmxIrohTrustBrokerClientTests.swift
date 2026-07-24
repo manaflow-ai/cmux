@@ -35,6 +35,28 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     @Test
+    func combinedRegistrationUsesOneGateForBothHTTPLegs() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 201,
+                body: #"{"challenge_id":"123e4567-e89b-42d3-a456-426614174000","nonce":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","expires_at":"2026-07-10T01:00:00.000Z"}"#
+            ),
+            .json(status: 201, body: Self.registrationResponse),
+        ])
+        let client = try makeClient(transport: transport)
+        let signer = try registrationSigner()
+        let prepared = try signer.prepare(payload: registrationPayload())
+
+        let response = try await client.register(prepared: prepared, signer: signer)
+
+        #expect(response.binding.tag == "stable")
+        #expect(await transport.requests().compactMap { $0.url?.path } == [
+            "/api/devices/iroh/challenge",
+            "/api/devices/iroh/register",
+        ])
+    }
+
+    @Test
     func issuedRegistrationBuildsTheExactManagedRelayFleet() async throws {
         let transport = RecordingBrokerTransport(responses: [
             .json(status: 201, body: Self.registrationResponse),

@@ -5,6 +5,44 @@ import Testing
 
 @Suite
 struct CmxIrohServerSessionTests {
+    @Test(arguments: [
+        DiagnosticFailureKind.admissionLeaseExpired,
+        .admissionDenied,
+        .admissionRevalidationFailed,
+    ])
+    func namedHostCloseOverridesTheObservedSupervisorExit(
+        failure: DiagnosticFailureKind
+    ) async throws {
+        let fixture = try ServerFixture(decision: .accepted)
+        let connection = TestIrohConnection(
+            remoteIdentity: fixture.peerID,
+            bidirectionalStreams: [fixture.controlStream]
+        )
+        let serverSession = try CmxIrohServerSession(
+            connection: connection,
+            authorizer: fixture.authorizer
+        )
+        let peer = try await serverSession.admit()
+        let session = CmxIrohAdmittedServerSession(
+            peer: peer,
+            session: serverSession
+        )
+        let observedExit = CmxIrohAdmittedConnectionExit(
+            lifecycle: .controlReadFailed,
+            failure: .connectionClosed
+        )
+
+        await serverSession.close(failure: failure)
+
+        #expect(
+            await session.connectionExit(resolving: observedExit)
+                == CmxIrohAdmittedConnectionExit(
+                    lifecycle: .explicitlyInvalidated,
+                    failure: failure
+                )
+        )
+    }
+
     @Test
     func acceptedControlPreservesPayloadAndUnlocksIndependentLanes() async throws {
         let events = TestIrohEventRecorder()
@@ -17,6 +55,13 @@ struct CmxIrohServerSessionTests {
             buffer: terminalHeader + Data("terminal-payload".utf8)
         )
         let terminalSend = TestIrohSendStream()
+        let artifactID = try CmxIrohResourceID("artifact:admitted-preview")
+        let artifactHeader = try fixture.headerCodec.encode(
+            CmxIrohStreamHeader(lane: .artifact(resourceID: artifactID, offset: 4))
+        )
+        let artifactReceive = TestIrohReceiveStream(
+            buffer: artifactHeader + Data("artifact-payload".utf8)
+        )
         let connection = TestIrohConnection(
             remoteIdentity: fixture.peerID,
             bidirectionalStreams: [
@@ -24,6 +69,10 @@ struct CmxIrohServerSessionTests {
                 CmxIrohBidirectionalStream(
                     receiveStream: terminalReceive,
                     sendStream: terminalSend
+                ),
+                CmxIrohBidirectionalStream(
+                    receiveStream: artifactReceive,
+                    sendStream: TestIrohSendStream()
                 ),
             ],
             eventRecorder: events
@@ -54,12 +103,23 @@ struct CmxIrohServerSessionTests {
             try await inbound.stream.receiveStream.receive(maximumByteCount: 64)
                 == Data("terminal-payload".utf8)
         )
+        let artifact = try await session.acceptBidirectionalLane()
+        #expect(artifact.lane == .artifact(resourceID: artifactID, offset: 4))
+        #expect(
+            try await artifact.stream.receiveStream.receive(maximumByteCount: 64)
+                == Data("artifact-payload".utf8)
+        )
         let acknowledgements = await fixture.controlSend.observedSentBuffers()
         let acceptedPending = try #require(acknowledgements.first)
         let serverReady = try #require(acknowledgements.dropFirst().first)
         #expect(acknowledgements.count == 2)
         #expect(try CmxIrohAdmissionAckCodec().decodePrefix(acceptedPending) == .accepted)
         #expect(serverReady == admissionFrame(status: 3))
+        try await session.sendControl(Data("control-after-artifact".utf8))
+        #expect(
+            await fixture.controlSend.observedSentBuffers().last
+                == Data("control-after-artifact".utf8)
+        )
         #expect(await connection.observedCloseCallCount() == 0)
     }
 

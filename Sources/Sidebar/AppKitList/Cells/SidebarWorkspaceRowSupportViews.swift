@@ -52,6 +52,7 @@ final class SidebarRowIconTextLine: NSView {
     private let iconView = NSImageView()
     private let iconLabel = NSTextField(labelWithString: "")
     private let textView = SidebarRowTextView(lines: 1)
+    private let metadataButton = SidebarRowLinkButton()
     private let secondTextView = SidebarRowTextView(lines: 1)
     private var iconSize: CGFloat = 0
     private var stacked = false
@@ -64,6 +65,9 @@ final class SidebarRowIconTextLine: NSView {
         addSubview(iconView)
         addSubview(iconLabel)
         addSubview(textView)
+        metadataButton.alignment = .left
+        metadataButton.isHidden = true
+        addSubview(metadataButton)
         secondTextView.isHidden = true
         addSubview(secondTextView)
     }
@@ -75,7 +79,8 @@ final class SidebarRowIconTextLine: NSView {
     func configureMetadataEntry(
         _ entry: SidebarStatusEntry,
         model: SidebarWorkspaceRowModel,
-        color: NSColor
+        color: NSColor,
+        onOpenURL: @escaping (URL) -> Void
     ) {
         stacked = false
         secondTextView.isHidden = true
@@ -106,9 +111,25 @@ final class SidebarRowIconTextLine: NSView {
                 }
             }
         }
-        textView.stringValue = entry.sidebarDisplayText
-        textView.font = .systemFont(ofSize: model.scaled(10))
-        textView.textColor = color
+        let font = NSFont.systemFont(ofSize: model.scaled(10))
+        if let url = entry.url {
+            textView.isHidden = true
+            metadataButton.isHidden = false
+            metadataButton.configure(
+                title: entry.sidebarDisplayText,
+                font: font,
+                color: color,
+                underlined: true,
+                toolTip: url.absoluteString,
+                onClick: { onOpenURL(url) }
+            )
+        } else {
+            metadataButton.isHidden = true
+            textView.isHidden = false
+            textView.stringValue = entry.sidebarDisplayText
+            textView.font = font
+            textView.textColor = color
+        }
         needsLayout = true
     }
 
@@ -118,6 +139,8 @@ final class SidebarRowIconTextLine: NSView {
         palette: SidebarRowPalette
     ) {
         stacked = false
+        metadataButton.isHidden = true
+        textView.isHidden = false
         secondTextView.isHidden = true
         iconLabel.isHidden = true
         let iconName: String
@@ -163,6 +186,8 @@ final class SidebarRowIconTextLine: NSView {
         model: SidebarWorkspaceRowModel,
         palette: SidebarRowPalette
     ) {
+        metadataButton.isHidden = true
+        textView.isHidden = false
         iconView.isHidden = true
         iconLabel.isHidden = true
         iconSize = 0
@@ -207,7 +232,9 @@ final class SidebarRowIconTextLine: NSView {
 
     func measuredHeight(width: CGFloat) -> CGFloat {
         resolveCandidates(width: width)
-        let first = textView.measuredHeight(width: max(10, width - iconSize))
+        let first = metadataButton.isHidden
+            ? textView.measuredHeight(width: max(10, width - iconSize))
+            : ceil(metadataButton.intrinsicContentSize.height)
         let second = secondTextView.isHidden ? 0 : secondTextView.measuredHeight(width: max(10, width - iconSize)) + 1
         return first + second
     }
@@ -240,8 +267,12 @@ final class SidebarRowIconTextLine: NSView {
             icon.frame = NSRect(x: 0, y: 1, width: side, height: side)
             x = side + 4
         }
-        let firstHeight = textView.measuredHeight(width: max(10, bounds.width - x))
-        textView.frame = NSRect(x: x, y: 0, width: max(10, bounds.width - x), height: firstHeight)
+        let availableWidth = max(10, bounds.width - x)
+        let firstHeight = metadataButton.isHidden
+            ? textView.measuredHeight(width: availableWidth)
+            : ceil(metadataButton.intrinsicContentSize.height)
+        let primaryView: NSView = metadataButton.isHidden ? textView : metadataButton
+        primaryView.frame = NSRect(x: x, y: 0, width: availableWidth, height: firstHeight)
         if !secondTextView.isHidden {
             let secondHeight = secondTextView.measuredHeight(width: max(10, bounds.width - x))
             secondTextView.frame = NSRect(x: x, y: firstHeight + 1, width: max(10, bounds.width - x), height: secondHeight)
@@ -387,389 +418,3 @@ final class SidebarRowLinkButton: NSButton {
     }
 }
 
-/// Checklist section: summary line + expanded item list + add row.
-@MainActor
-final class SidebarRowChecklistSection: NSView {
-    private let summaryButton = SidebarRowLinkButton()
-    private var itemLines: [SidebarRowChecklistItemLine] = []
-    private let addButton = SidebarRowLinkButton()
-    private let addField = SidebarRowInlineRenameField()
-    private var model: SidebarWorkspaceRowModel?
-    private var actions: SidebarAppKitRowActions?
-    private var showsExpandedList = false
-    private var isAdding = false
-    private var usesPopoverStyle = false
-    private var popover: NSPopover?
-
-    override var isFlipped: Bool { true }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        addSubview(summaryButton)
-        addSubview(addButton)
-        addField.isHidden = true
-        addSubview(addField)
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func configure(
-        model: SidebarWorkspaceRowModel,
-        palette: SidebarRowPalette,
-        actions: SidebarAppKitRowActions
-    ) {
-        self.model = model
-        self.actions = actions
-        // Keep an open popover in sync: mutations flow through this configure
-        // pass, and the popover otherwise shows its creation-time items until
-        // reopened.
-        if let popover, popover.isShown,
-           let controller = popover.contentViewController as? SidebarRowChecklistPopoverController {
-            controller.update(model: model, actions: actions)
-            popover.contentSize = controller.view.frame.size
-        }
-        let snapshot = model.snapshot
-        let mounted = !snapshot.checklistItems.isEmpty || model.checklistAddFieldActivationToken > 0
-        isHidden = !mounted
-        guard mounted else { return }
-
-        usesPopoverStyle = model.settings.workspaceTodoChecklistStyle == .popover
-        let primary = palette.secondary(0.9)
-        let secondary = palette.secondary(0.65)
-        let summaryFont = NSFont.monospacedDigitSystemFont(ofSize: model.scaled(10), weight: .semibold)
-        let itemFont = NSFont.systemFont(ofSize: model.scaled(10))
-
-        summaryButton.isHidden = snapshot.checklistTotalCount == 0
-        if !summaryButton.isHidden {
-            let allDone = snapshot.checklistCompletedCount == snapshot.checklistTotalCount
-            var summary = "\(snapshot.checklistCompletedCount)/\(snapshot.checklistTotalCount)"
-            if let first = snapshot.checklistFirstUncheckedText, !allDone {
-                summary += "  ·  \(first)"
-            }
-            summaryButton.configure(
-                title: summary, font: summaryFont, color: primary, underlined: false,
-                toolTip: usesPopoverStyle
-                    ? String(localized: "sidebar.checklist.popoverTooltip", defaultValue: "Show checklist")
-                    : (model.isChecklistExpanded
-                        ? String(localized: "sidebar.checklist.collapseTooltip", defaultValue: "Hide checklist")
-                        : String(localized: "sidebar.checklist.expandTooltip", defaultValue: "Show checklist"))
-            ) { [weak self] in
-                guard let self else { return }
-                if self.usesPopoverStyle {
-                    self.toggleChecklistPopover()
-                } else {
-                    self.actions?.onToggleChecklistExpansion()
-                }
-            }
-        }
-
-        usesPopoverStyle = model.settings.workspaceTodoChecklistStyle == .popover
-        // Popover style never expands inline; the summary opens an NSPopover.
-        showsExpandedList = !usesPopoverStyle
-            && (model.isChecklistExpanded || snapshot.checklistTotalCount == 0)
-        let items = showsExpandedList ? Array(snapshot.checklistItems.prefix(6)) : []
-        SidebarWorkspaceRowTableCellView.publicPool(&itemLines, count: items.count, parent: self) {
-            SidebarRowChecklistItemLine()
-        }
-        for (index, item) in items.enumerated() {
-            itemLines[index].configure(
-                item, font: itemFont, primary: primary, secondary: secondary, model: model,
-                onToggle: { [weak self] in
-                    let next: WorkspaceChecklistItem.State = item.state == .completed ? .pending : .completed
-                    self?.actions?.checklistSetItemState(item.id, next)
-                },
-                onRemove: { [weak self] in
-                    self?.actions?.checklistRemoveItem(item.id)
-                }
-            )
-        }
-
-        isAdding = model.checklistAddFieldActivationToken > 0
-        addButton.isHidden = !showsExpandedList || isAdding
-        if !addButton.isHidden {
-            addButton.configure(
-                title: String(localized: "sidebar.checklist.addItem", defaultValue: "Add item"),
-                font: itemFont, color: secondary, underlined: false, toolTip: nil
-            ) { [weak self] in
-                self?.beginAdding()
-            }
-        }
-        addField.isHidden = !isAdding
-        if isAdding {
-            addField.font = .systemFont(ofSize: model.scaled(11))
-            addField.placeholderString = String(localized: "sidebar.checklist.addItemPlaceholder", defaultValue: "New checklist item")
-            addField.onCommit = { [weak self] text in
-                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty {
-                    self?.actions?.checklistAddItem(trimmed)
-                }
-                self?.actions?.onConsumeChecklistAddFieldActivation()
-            }
-            addField.onCancel = { [weak self] in
-                self?.actions?.onConsumeChecklistAddFieldActivation()
-            }
-            window?.makeFirstResponder(addField)
-        }
-        needsLayout = true
-    }
-
-    private func beginAdding() {
-        guard let model else { return }
-        actions?.onConsumeChecklistAddFieldActivation()
-        _ = model
-        // Arm via the same activation-token path the context menu uses.
-        WorkspaceTodoActions.requestChecklistAddField(workspaceId: model.workspaceId)
-    }
-
-    private func toggleChecklistPopover() {
-        if let popover, popover.isShown {
-            popover.close()
-            self.popover = nil
-            return
-        }
-        guard let model, let actions else { return }
-        let content = SidebarRowChecklistPopoverController(model: model, actions: actions)
-        let popover = NSPopover()
-        popover.behavior = .transient
-        popover.contentViewController = content
-        popover.show(relativeTo: summaryButton.frame, of: self, preferredEdge: .maxY)
-        self.popover = popover
-    }
-
-    func measuredHeight(width: CGFloat) -> CGFloat {
-        guard !isHidden, let model else { return 0 }
-        var height: CGFloat = 0
-        if !summaryButton.isHidden {
-            height += ceil(summaryButton.intrinsicContentSize.height)
-        }
-        let rowHeight = 11 * model.fontScale + 4
-        let visibleItems = itemLines.filter { !$0.isHidden }
-        if showsExpandedList, !visibleItems.isEmpty {
-            height += CGFloat(visibleItems.count) * (rowHeight + 2)
-        }
-        if !addButton.isHidden || isAdding {
-            height += rowHeight + 2
-        }
-        return height
-    }
-
-    override func layout() {
-        super.layout()
-        guard let model else { return }
-        var y: CGFloat = 0
-        if !summaryButton.isHidden {
-            let size = summaryButton.intrinsicContentSize
-            summaryButton.frame = NSRect(x: 0, y: y, width: min(ceil(size.width), bounds.width), height: size.height)
-            y += ceil(size.height)
-        }
-        let rowHeight = 11 * model.fontScale + 4
-        for line in itemLines where !line.isHidden {
-            y += 2
-            line.frame = NSRect(x: 2, y: y, width: bounds.width - 2, height: rowHeight)
-            y += rowHeight
-        }
-        if !addButton.isHidden {
-            y += 2
-            let size = addButton.intrinsicContentSize
-            addButton.frame = NSRect(x: 2, y: y, width: min(ceil(size.width), bounds.width), height: rowHeight)
-        } else if isAdding {
-            y += 2
-            addField.frame = NSRect(x: 2, y: y, width: bounds.width - 2, height: rowHeight)
-        }
-    }
-}
-
-/// One checklist item row: checkbox glyph button + text + hover remove.
-@MainActor
-final class SidebarRowChecklistItemLine: NSView {
-    private let checkbox = SidebarHeaderGlyphButton()
-    private let textLabel = SidebarRowTextView(lines: 1)
-    private let removeButton = SidebarHeaderGlyphButton()
-    private var trackingArea: NSTrackingArea?
-
-    override var isFlipped: Bool { true }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        addSubview(checkbox)
-        addSubview(textLabel)
-        removeButton.isHidden = true
-        addSubview(removeButton)
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func configure(
-        _ item: WorkspaceChecklistItem,
-        font: NSFont,
-        primary: NSColor,
-        secondary: NSColor,
-        model: SidebarWorkspaceRowModel,
-        onToggle: @escaping () -> Void,
-        onRemove: @escaping () -> Void
-    ) {
-        let symbol: String
-        switch item.state {
-        case .completed: symbol = "checkmark.square.fill"
-        case .inProgress: symbol = "minus.square"
-        default: symbol = "square"
-        }
-        checkbox.glyphImage = RenderableSystemSymbol.configuredAppKitImage(
-            systemName: symbol, pointSize: model.scaled(8), weight: nil
-        )
-        checkbox.contentTintColor = item.state == .completed ? secondary : primary
-        checkbox.onClick = onToggle
-        let completed = item.state == .completed
-        if completed {
-            textLabel.attributedStringValue = NSAttributedString(
-                string: item.text,
-                attributes: [
-                    .font: font,
-                    .foregroundColor: primary.withAlphaComponent(0.6),
-                    .strikethroughStyle: NSUnderlineStyle.single.rawValue,
-                ]
-            )
-        } else {
-            textLabel.stringValue = item.text
-            textLabel.font = font
-            textLabel.textColor = primary
-        }
-        removeButton.glyphImage = RenderableSystemSymbol.configuredAppKitImage(
-            systemName: "xmark.circle.fill", pointSize: model.scaled(9), weight: nil
-        )
-        removeButton.contentTintColor = secondary
-        removeButton.onClick = onRemove
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let trackingArea {
-            removeTrackingArea(trackingArea)
-        }
-        let next = NSTrackingArea(
-            rect: bounds,
-            options: [.activeInKeyWindow, .inVisibleRect, .mouseEnteredAndExited],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(next)
-        trackingArea = next
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        removeButton.isHidden = false
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        removeButton.isHidden = true
-    }
-
-    override func layout() {
-        super.layout()
-        let side = bounds.height - 2
-        checkbox.frame = NSRect(x: 0, y: 1, width: side, height: side)
-        let removeSide = side
-        removeButton.frame = NSRect(x: bounds.width - removeSide, y: 1, width: removeSide, height: removeSide)
-        let textSize = textLabel.intrinsicContentSize
-        textLabel.frame = NSRect(
-            x: side + 4, y: (bounds.height - textSize.height) / 2,
-            width: max(10, bounds.width - side - 4 - removeSide - 4), height: textSize.height
-        )
-    }
-}
-
-extension SidebarWorkspaceRowTableCellView {
-    /// Shared pool helper exposed for the checklist section.
-    static func publicPool<View: NSView>(
-        _ views: inout [View],
-        count: Int,
-        parent: NSView,
-        make: () -> View
-    ) {
-        while views.count < count {
-            let view = make()
-            parent.addSubview(view)
-            views.append(view)
-        }
-        for (index, view) in views.enumerated() {
-            view.isHidden = index >= count
-        }
-    }
-}
-
-/// NSPopover content for popover-style checklists: the same AppKit item lines
-/// as the inline section, in a fixed-width transient panel.
-@MainActor
-final class SidebarRowChecklistPopoverController: NSViewController {
-    private var model: SidebarWorkspaceRowModel
-    private var actions: SidebarAppKitRowActions
-
-    init(model: SidebarWorkspaceRowModel, actions: SidebarAppKitRowActions) {
-        self.model = model
-        self.actions = actions
-        super.init(nibName: nil, bundle: nil)
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func loadView() {
-        view = Self.makeContent(model: model, actions: actions)
-    }
-
-    /// Live refresh while the popover is open: checklist mutations reach the
-    /// row through the normal configure pass, which forwards the fresh model
-    /// here so open popovers repaint instead of showing creation-time state.
-    func update(model: SidebarWorkspaceRowModel, actions: SidebarAppKitRowActions) {
-        let contentChanged = self.model.snapshot.checklistItems != model.snapshot.checklistItems
-            || self.model.fontScale != model.fontScale
-        self.model = model
-        self.actions = actions
-        guard isViewLoaded, contentChanged else { return }
-        view = Self.makeContent(model: model, actions: actions)
-    }
-
-    private static func makeContent(
-        model: SidebarWorkspaceRowModel,
-        actions: SidebarAppKitRowActions
-    ) -> NSView {
-        let width: CGFloat = 260
-        let rowHeight = 11 * model.fontScale + 8
-        let padding: CGFloat = 12
-        let items = model.snapshot.checklistItems
-        let container = NSView(frame: NSRect(
-            x: 0, y: 0,
-            width: width,
-            height: padding * 2 + CGFloat(max(1, items.count)) * (rowHeight + 2)
-        ))
-        var y = container.bounds.height - padding - rowHeight
-        let itemFont = NSFont.systemFont(ofSize: model.scaled(11))
-        for item in items {
-            let line = SidebarRowChecklistItemLine(frame: NSRect(
-                x: padding, y: y, width: width - padding * 2, height: rowHeight
-            ))
-            line.configure(
-                item,
-                font: itemFont,
-                primary: .labelColor,
-                secondary: .secondaryLabelColor,
-                model: model,
-                onToggle: { [actions] in
-                    let next: WorkspaceChecklistItem.State = item.state == .completed ? .pending : .completed
-                    actions.checklistSetItemState(item.id, next)
-                },
-                onRemove: { [actions] in
-                    actions.checklistRemoveItem(item.id)
-                }
-            )
-            container.addSubview(line)
-            y -= rowHeight + 2
-        }
-        return container
-    }
-}

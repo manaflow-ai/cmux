@@ -232,4 +232,79 @@ struct ControlCommandCoordinatorSurfaceTests {
 
         #expect(context.reportedPWD?.path == "/srv/work/bar ")
     }
+
+    @Test func reportGitBranchForwardsRemoteSurfaceMetadata() {
+        let (coordinator, context) = makeCoordinator()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let resolvedSurfaceID = UUID()
+        context.reportGitResolution = .recorded(surfaceID: resolvedSurfaceID)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.report_git_branch",
+            params: [
+                "workspace_id": .string(workspaceID.uuidString),
+                "surface_id": .string(surfaceID.uuidString),
+                "branch": .string("feature/mosh-parity"),
+                "status": .string("unknown"),
+            ]
+        ))
+
+        #expect(context.reportedGit?.workspaceID == workspaceID)
+        #expect(context.reportedGit?.requestedSurfaceID == surfaceID)
+        #expect(context.reportedGit?.branch == "feature/mosh-parity")
+        #expect(context.reportedGit?.isDirty == nil)
+        guard case .ok(.object(let payload)) = result else {
+            Issue.record("expected Git report success")
+            return
+        }
+        #expect(payload["surface_id"] == .string(resolvedSurfaceID.uuidString))
+        #expect(payload["branch"] == .string("feature/mosh-parity"))
+        #expect(payload["is_dirty"] == .null)
+        #expect(payload["cleared"] == .bool(false))
+    }
+
+    @Test func reportGitBranchRejectsInvalidDirtyStatus() {
+        let (coordinator, context) = makeCoordinator()
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.report_git_branch",
+            params: [
+                "workspace_id": .string(UUID().uuidString),
+                "branch": .string("main"),
+                "status": .string("maybe"),
+            ]
+        ))
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "status must be dirty, clean, or unknown",
+            data: nil
+        ))
+        #expect(context.reportedGit == nil)
+    }
+
+    @Test func clearGitBranchResolvesWorkspaceScopedTmuxSurface() {
+        let (coordinator, context) = makeCoordinator()
+        let workspaceID = UUID()
+        let resolvedSurfaceID = UUID()
+        context.reportGitResolution = .recorded(surfaceID: resolvedSurfaceID)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.clear_git_branch",
+            params: ["workspace_id": .string(workspaceID.uuidString)]
+        ))
+
+        #expect(context.clearedGit?.workspaceID == workspaceID)
+        #expect(context.clearedGit?.requestedSurfaceID == nil)
+        guard case .ok(.object(let payload)) = result else {
+            Issue.record("expected Git clear success")
+            return
+        }
+        #expect(payload["surface_id"] == .string(resolvedSurfaceID.uuidString))
+        #expect(payload["branch"] == .null)
+        #expect(payload["cleared"] == .bool(true))
+    }
 }

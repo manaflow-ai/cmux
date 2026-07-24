@@ -1,4 +1,27 @@
 {
+  "cloudBillingReturn": {
+    "eyebrow": "cmux Cloud",
+    "returnTitle": "បន្តនៅក្នុងស្ថានីយ",
+    "returnBody": "ដើម្បីបន្ត សូមត្រឡប់ទៅស្ថានីយដែលអ្នកបានដំណើរការ ssh cmux.cloud។",
+    "statuses": {
+      "checkoutSuccess": {
+        "title": "ការទូទាត់បានបញ្ចប់",
+        "body": "ការជាវរបស់អ្នកត្រូវបានបញ្ជាក់។ ដែនកំណត់ថ្មីអាចចំណាយពេលបន្តិចដើម្បីបង្ហាញ។"
+      },
+      "checkoutCanceled": {
+        "title": "ការទូទាត់ត្រូវបានបោះបង់",
+        "body": "ការទូទាត់ត្រូវបានបិទដោយមិនផ្លាស់ប្តូរគម្រោងរបស់អ្នក។"
+      },
+      "portalReturn": {
+        "title": "ត្រឡប់ពីវិបផតថលវិក្កយបត្រ",
+        "body": "ការផ្លាស់ប្តូរនៅក្នុងវិបផតថលវិក្កយបត្រអាចចំណាយពេលបន្តិចដើម្បីបង្ហាញ។"
+      },
+      "default": {
+        "title": "វិក្កយបត្របានបញ្ចប់",
+        "body": "ដំណើរការវិក្កយបត្ររបស់អ្នកបានបញ្ចប់។"
+      }
+    }
+  },
   "meta": {
     "title": "cmux — ស្ថានីយដែលបង្កើតសម្រាប់ពហុកិច្ចការ",
     "description": "ស្ថានីយ macOS ដើមកំណើតប្រភពកូដបើកចំហ និងឥតគិតថ្លៃ បង្កើតលើ Ghostty។ ដំណើរការជាមួយ Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider និងឧបករណ៍ CLI ណាមួយ។ ផ្ទាំងបញ្ឈរ, រង្វង់ជូនដំណឹង, បន្ទះបំបែក, និង socket API។",
@@ -745,6 +768,9 @@
     }
   },
   "docs": {
+    "remoteTmux": {
+      "moshContrast": "សម្រាប់ការផ្លាស់ប្តូររវាងបណ្ដាញ សូមប្រើ cmux mosh-tmux។ វាបើកស្ថានីយ Mosh ដែលបានរួមបញ្ចូលពេញលេញ និងភ្ជាប់ទៅ tmux session ដែលមានឈ្មោះ; វាមិនជំនួស native mirror នៃ workspace, tab និង split ដែលផ្ដល់ដោយ SSH tmux control mode ទេ។"
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "ចាប់ផ្ដើម",
@@ -1498,7 +1524,12 @@
       "flagPort": "ច្រក SSH (លំនាំដើម 22)",
       "flagIdentity": "ផ្លូវទៅកាន់ឯកសារអត្តសញ្ញាណ",
       "flagSshOption": "ឆ្លងកាត់ជម្រើស SSH បំពាន (ឧ. -o StrictHostKeyChecking=no)",
+      "flagTransport": "មធ្យោបាយស្ថានីយអន្តរកម្ម៖ ssh (លំនាំដើម) ឬ mosh",
       "flagNoFocus": "បង្កើតកន្លែងធ្វើការដោយមិនចាំបាច់ប្តូរទៅវា។",
+      "moshTitle": "មធ្យោបាយស្ថានីយ Mosh",
+      "moshDesc": "ប្រើ cmux ssh user@remote --transport mosh នៅពេលស្ថានីយអន្តរកម្មត្រូវបន្តដំណើរការពេលប្តូរ Wi-Fi, VPN, hotspot ឬពេលដេកនិងភ្ញាក់។ Mosh ដឹកតែ PTY របស់ស្ថានីយប៉ុណ្ណោះ ខណៈ SSH នៅតែគ្រប់គ្រងទិន្នន័យពីចម្ងាយ ការរៀបចំនិងគ្រប់គ្រងសេវា cmux ប្រូកស៊ីកម្មវិធីរុករក ការផ្ទុកឡើង និងការតភ្ជាប់ឡើងវិញ។",
+      "moshFallback": "cmux ត្រូវការ Mosh 1.4 ឬថ្មីជាងនេះនៅក្នុងម៉ាស៊ីន និងពិនិត្យ mosh-server ពីចម្ងាយមុនចាប់ផ្តើម។ បើ client បាត់ ឬមិនត្រូវគ្នា server បាត់ ឬការពិនិត្យពីចម្ងាយបរាជ័យ cmux នឹងពន្យល់មូលហេតុ ហើយបន្តតាម SSH។",
+      "moshTmux": "បង្កើត Mosh workspace ដែលបង្កើត ឬភ្ជាប់ tmux session មានឈ្មោះ (លំនាំដើម៖ main)។ tmux profile ត្រូវបានរក្សាទុកពេល reconnect និង restore app session។ វាជា tmux terminal ដែល roam បាន មិនមែន native mirror របស់ cmux ssh-tmux ទេ។ --session <name> ជ្រើស session; flags ផ្សេងទៀតដូច cmux mosh។ បើគ្មាន Mosh profile ដដែលដំណើរការតាម SSH។",
       "deepLinksTitle": "តំណភ្ជាប់ជ្រៅ SSH",
       "deepLinksDesc": "ប្រើតំណភ្ជាប់ជ្រៅ cmux SSH នៅពេលដែលគេហទំព័រ ឬឧបករណ៍ចង់ផ្តល់ប៊ូតុង Open in cmux ។ តំណបើក cmux បង្ហាញប្រអប់បញ្ជាក់ បន្ទាប់មកដំណើរការពាក្យបញ្ជា cmux ssh ដែលសមមូលបន្ទាប់ពីអ្នកប្រើប្រាស់បញ្ជាក់។",
       "deepLinksWebFallbackDesc": "ប្រើ cmux.com fallback URL សម្រាប់ប៊ូតុងគេហទំព័រ។ វាបើកតំណដើម ហើយបង្ហាញការទាញយក ប្រសិនបើ cmux មិនត្រូវបានដំឡើង។",

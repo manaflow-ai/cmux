@@ -7,12 +7,7 @@ extension AppDelegate.MainWindowContext {
     /// with a home base directory, like the app-wide Dock was on a fresh launch.
     func windowDockStore() -> DockSplitStore {
         if let existing = windowDock { return existing }
-        let store = DockSplitStore(
-            workspaceId: windowId,
-            scope: .global,
-            baseDirectoryProvider: { nil },
-            remoteBrowserSettingsProvider: { .local }
-        )
+        let store = tabManager.makeWindowDockStore(windowId: windowId)
         windowDock = store
         return store
     }

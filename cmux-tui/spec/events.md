@@ -26,6 +26,8 @@ Subscribe events belong to the `subscribe` registration. Tree lifecycle deltas b
 | `workspace-added` | subscribe (`deltas`) | `workspace` | protocol 7 |
 | `workspace-closed` | subscribe (`deltas`) | `workspace` | protocol 7 |
 | `workspace-renamed` | subscribe (`deltas`) | `workspace` | protocol 7 |
+| `workspace-moved` | subscribe (`deltas`) | `workspace` | protocol 7 |
+| `frontend-projection-changed` | subscribe | projection subject | protocol 7 |
 | `screen-added` | subscribe (`deltas`) | `screen` | protocol 7; parent `workspace` |
 | `screen-closed` | subscribe (`deltas`) | `screen` | protocol 7; parent `workspace` |
 | `screen-renamed` | subscribe (`deltas`) | `screen` | protocol 7; parent `workspace` |
@@ -174,7 +176,19 @@ Example:
 
 Protocol v7 adds typed lifecycle deltas for ordinary tree mutations, delivered only when the subscription explicitly requests `tree_events:"deltas"`. The default `"coarse"` subscription receives none of these events. `entity` is the exact `Workspace`, `Screen`, `Pane`, or `Tab` payload defined for `list-workspaces` in `commands.md`; it is not a reduced event-only projection. Added and renamed events carry the entity after the mutation. Closed events carry its last-known payload immediately before removal. This lets clients remove a subtree without having to retain a second copy for close animation or cleanup.
 
-For `*-added`, `index` is the zero-based insertion index in the parent's corresponding array. For `*-closed`, it is the former index. Workspace events use the root `workspaces` array; tab events use the pane's `tabs` array. Rename events do not carry `index` because they do not reorder the entity.
+Ordered workspace events additionally carry `workspace_revision`, stable
+`registry_id`, boot `generation`, `origin`, and `mutation_id`. A client applies
+only the exact next revision for the same registry/generation and refetches
+`list-workspaces` after a gap or generation change. The server commits the
+durable mutation before publishing this event and holds one registry writer
+through event publication, so revision order and stream order are identical.
+
+For `*-added`, `index` is the zero-based insertion index in the parent's
+corresponding array. For `*-closed`, it is the former index.
+`workspace-moved` carries the new zero-based root index. Workspace events use
+the root `workspaces` array and carry the stable key in `entity`; tab events
+use the pane's `tabs` array. Rename events do not carry `index` because they do
+not reorder the entity.
 
 One settled mutation may affect a subtree. A server may emit only the highest-level delta when its `entity` already contains the complete affected subtree; it must not also emit redundant descendant add/close deltas. If it emits multiple independent deltas, adds are parent-first and closes are child-first.
 
@@ -185,13 +199,13 @@ These lifecycle deltas do not encode every mutable tree field. Selection, reorde
 | Field | Value |
 | --- | --- |
 | event | `workspace-added` |
-| status | proposed |
+| status | implemented |
 | since | protocol 7 |
 
 Payload:
 
 ```text
-object{event:"workspace-added",workspace:Id,index:usize,entity:Workspace}
+object{event:"workspace-added",workspace:Id,index:usize,entity:Workspace,workspace_revision:uint64,registry_id:string,generation:string,origin:string,mutation_id:string}
 ```
 
 ### workspace-closed
@@ -199,13 +213,13 @@ object{event:"workspace-added",workspace:Id,index:usize,entity:Workspace}
 | Field | Value |
 | --- | --- |
 | event | `workspace-closed` |
-| status | proposed |
+| status | implemented |
 | since | protocol 7 |
 
 Payload:
 
 ```text
-object{event:"workspace-closed",workspace:Id,index:usize,entity:Workspace}
+object{event:"workspace-closed",workspace:Id,index:usize,entity:Workspace,workspace_revision:uint64,registry_id:string,generation:string,origin:string,mutation_id:string}
 ```
 
 ### workspace-renamed
@@ -213,14 +227,34 @@ object{event:"workspace-closed",workspace:Id,index:usize,entity:Workspace}
 | Field | Value |
 | --- | --- |
 | event | `workspace-renamed` |
-| status | proposed |
+| status | implemented |
 | since | protocol 7 |
 
 Payload:
 
 ```text
-object{event:"workspace-renamed",workspace:Id,entity:Workspace}
+object{event:"workspace-renamed",workspace:Id,entity:Workspace,workspace_revision:uint64,registry_id:string,generation:string,origin:string,mutation_id:string}
 ```
+
+### workspace-moved
+
+| Field | Value |
+| --- | --- |
+| event | `workspace-moved` |
+| status | implemented |
+| since | protocol 7 |
+
+```text
+object{event:"workspace-moved",workspace:Id,index:usize,entity:Workspace,workspace_revision:uint64,registry_id:string,generation:string,origin:string,mutation_id:string}
+```
+
+### frontend-projection-changed
+
+Published after a successful non-replayed projection CAS commit. The payload
+contains `frontend`, `scope`, `subject_key`, `projection_revision`, `origin`,
+and `mutation_id`. It does not contain the opaque projection; interested
+frontends fetch it with `get-frontend-projection`. Projection changes do not
+advance `workspace_revision`.
 
 ### screen-added
 
@@ -706,13 +740,14 @@ object{
     cursor:ColorHex|null,
     selection_bg:ColorHex|null,
     selection_fg:ColorHex|null,
+    palette?:object{[index:string]:ColorHex},
     cursor_style:"block"|"underline"|"bar"|null,
     cursor_blink:boolean|null
   }
 }
 ```
 
-Meaning: Initial VT replay for an attached PTY surface. Replaying `data` into a fresh Ghostty VT terminal with the supplied cell size reproduces current state. `colors` is captured with the replay and reports the surface's effective foreground, background, and cursor colors, including active OSC 10/11/12 overrides. The additive protocol-v6 `cursor_style` and `cursor_blink` fields report the surface's current DECSCUSR-derived cursor state when available, then fall back to the session's Ghostty `cursor-style` and `cursor-style-blink` defaults. A field is `null` when the server cannot determine it; the current server does not track selection colors, so `selection_bg` and `selection_fg` are `null`. Ghostty's VT replay formatter does not emit DECSCUSR, so attach clients must apply the cursor metadata instead of inferring shape or blink from `data`.
+Meaning: Initial VT replay for an attached PTY surface. Replaying `data` into a fresh Ghostty VT terminal with the supplied cell size reproduces current state. `colors` is captured with the replay and reports the surface's effective foreground, background, and cursor colors, including active OSC 10/11/12 overrides. Protocol v7 adds sparse `palette`, whose decimal string keys identify authored OSC 4 overrides; omitted indexes retain the frontend theme palette, and older servers omit the field. The additive protocol-v6 `cursor_style` and `cursor_blink` fields report the surface's current DECSCUSR-derived cursor state when available, then fall back to the session's Ghostty `cursor-style` and `cursor-style-blink` defaults. A field is `null` when the server cannot determine it; the current server does not track selection colors, so `selection_bg` and `selection_fg` are `null`. Ghostty's VT replay formatter does not emit DECSCUSR, so attach clients must apply the cursor metadata instead of inferring shape or blink from `data`.
 
 Example:
 
@@ -753,15 +788,15 @@ Example:
 Payload:
 
 ```text
-object{event:"resized",surface:Id,cols:uint16,rows:uint16,data:Base64}
+object{event:"resized",surface:Id,cols:uint16,rows:uint16,replay?:Base64,data?:Base64,colors?:TerminalColors}
 ```
 
-Meaning: Protocol v6 attach-only event indicating that the authoritative surface size changed and the existing mirror must be replaced from the supplied replay. Clients must create a fresh terminal mirror at `cols` by `rows`, replay the `data` field, then continue applying later `output` chunks. (Verified against `server.rs`: the replay is carried in `data`, matching `vt-state`; an earlier draft note called it `replay`.)
+Meaning: Protocol v6 attach-only event indicating that the authoritative surface size changed and the existing mirror must be replaced from the supplied replay. Protocol v7 sends the replay in `replay` and adds the fresh `colors` snapshot, including sparse palette overrides; protocol-v6 compatibility payloads use `data` and omit `colors`. Clients must accept either replay field, create a fresh terminal mirror at `cols` by `rows`, apply the replay, restore the supplied colors when present, then continue applying later `output` chunks.
 
 Example:
 
 ```json
-{"event":"resized","surface":1,"cols":100,"rows":30,"data":"G1s/bA=="}
+{"event":"resized","surface":1,"cols":100,"rows":30,"replay":"G1s/bA==","colors":{"fg":"#d8d9da","bg":"#131415","cursor":null,"selection_bg":null,"selection_fg":null,"palette":{"4":"#445566"},"cursor_style":"bar","cursor_blink":false}}
 ```
 
 ### colors-changed
@@ -784,12 +819,13 @@ object{
   cursor:ColorHex|null,
   selection_bg:ColorHex|null,
   selection_fg:ColorHex|null,
+  palette?:object{[index:string]:ColorHex},
   cursor_style:"block"|"underline"|"bar"|null,
   cursor_blink:boolean|null
 }
 ```
 
-Meaning: The session defaults changed through `set-default-colors`. Each live PTY byte-attach stream receives the effective colors and cursor state for its surface after applying the merged defaults. Active per-surface OSC 10/11/12 and DECSCUSR overrides remain authoritative. `cursor_style` and `cursor_blink` use the same surface-state, Ghostty-config, then `null` precedence as `vt-state.colors`; their values may be unchanged by the color update. Protocol v7 requires the explicit `surface` subject id so multiple attach streams on one connection can be routed without implicit stream state. Protocol-v6 payloads omit `surface`; v6 clients remain compatible because the new field is additive. The current server emits `null` for both selection fields because it cannot query the terminal's OSC 17/19 selection-color state.
+Meaning: The session defaults or a surface's live OSC palette state changed. Each live PTY byte-attach stream receives the effective colors for its surface. Active per-surface OSC 10/11/12 overrides remain authoritative; protocol-v7 sparse `palette` entries replace authored OSC 4 indexes while omitted indexes retain the frontend theme palette. Live palette events omit cursor metadata so the frontend preserves its current cursor; default-color events include authoritative cursor state. Protocol v7 requires the explicit `surface` subject id so multiple attach streams on one connection can be routed without implicit stream state. Protocol-v6 payloads omit `surface` and `palette`; v6 clients remain compatible because the new fields are additive. The current server emits `null` for both selection fields because it cannot query the terminal's OSC 17/19 selection-color state.
 
 Example:
 

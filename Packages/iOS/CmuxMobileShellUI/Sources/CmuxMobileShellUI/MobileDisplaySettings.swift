@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 import Observation
 
@@ -20,14 +21,20 @@ public final class MobileDisplaySettings {
     // UserDefaults is Apple-documented thread-safe; the synchronous read in
     // `init` and the write-through in `didSet` are safe nonisolated.
     private nonisolated(unsafe) let defaults: UserDefaults
+    public let haptics: MobileHapticFeedback
     private static let wrapWorkspaceTitlesKey = "cmux.mobile.wrapWorkspaceTitles"
     private static let showAltScreenNoticeKey = "cmux.mobile.showAltScreenNotice"
     private static let showMissingFilesKey = "cmux.mobile.showMissingFiles"
+    private static let terminalFolderTapEnabledKey = "cmux.mobile.terminalFolderTapEnabled"
     private static let terminalFilesChipEnabledKey = "cmux.mobile.terminalFilesChipEnabled"
+    private static let taskComposerEnabledKey = "cmux.mobile.taskComposerEnabled"
     private static let workspacePreviewLineCountKey = "cmux.mobile.workspacePreviewLineCount"
     private static let unreadIndicatorLeftShiftKey = "cmux.mobile.debug.unreadIndicatorLeftShift.v2"
     private static let profilePictureLeftShiftKey = "cmux.mobile.debug.profilePictureLeftShift"
     private static let profilePictureSizeKey = "cmux.mobile.debug.profilePictureSize"
+    #if DEBUG
+    private static let taskComposerShellIconVariantKey = "cmux.mobile.debug.taskComposerShellIconVariant.v1"
+    #endif
 
     /// The preview line counts the "Preview Lines" setting offers.
     public static let workspacePreviewLineCountRange = 1...2
@@ -67,12 +74,37 @@ public final class MobileDisplaySettings {
         didSet { defaults.set(showMissingFiles, forKey: Self.showMissingFilesKey) }
     }
 
+    /// Whether tapping a directory path in the terminal opens the folder browser.
+    /// Defaults to `true`. File-path taps remain enabled regardless of this value.
+    /// Mutating this writes through to the injected ``UserDefaults``.
+    public var terminalFolderTapEnabled: Bool {
+        didSet { defaults.set(terminalFolderTapEnabled, forKey: Self.terminalFolderTapEnabledKey) }
+    }
+
+    /// Whether cmux emits app-owned haptic feedback. Defaults to `true`.
+    /// This is the sole observed writer for the persisted preference; haptic
+    /// emitters read the same defaults store through ``haptics``.
+    public var hapticFeedbackEnabled: Bool {
+        didSet {
+            defaults.set(hapticFeedbackEnabled, forKey: MobileHapticFeedback.enabledDefaultsKey)
+        }
+    }
+
     /// Whether the beta terminal files chip and its count scan are enabled.
     /// Defaults to `false`. Mutating this writes through to the injected
     /// ``UserDefaults``.
     public var terminalFilesChipEnabled: Bool {
         didSet {
             defaults.set(terminalFilesChipEnabled, forKey: Self.terminalFilesChipEnabledKey)
+        }
+    }
+
+    /// Whether the beta New Task composer is available from the workspace list.
+    /// Defaults to `false`. Mutating this writes through to the injected
+    /// ``UserDefaults``.
+    public var taskComposerEnabled: Bool {
+        didSet {
+            defaults.set(taskComposerEnabled, forKey: Self.taskComposerEnabledKey)
         }
     }
 
@@ -117,18 +149,38 @@ public final class MobileDisplaySettings {
         }
     }
 
+    #if DEBUG
+    /// Persisted selection for the debug-only Shell icon lab.
+    var taskComposerShellIconVariant: TaskComposerShellIconVariant {
+        didSet {
+            defaults.set(
+                taskComposerShellIconVariant.rawValue,
+                forKey: Self.taskComposerShellIconVariantKey
+            )
+        }
+    }
+    #else
+    /// Production builds expose only the shipping Shell icon treatment.
+    var taskComposerShellIconVariant: TaskComposerShellIconVariant { .current }
+    #endif
+
     /// Creates the display settings, seeding stored values from `defaults`.
     /// - Parameter defaults: The store backing the persisted preferences.
     ///   Defaults to `.standard`; tests pass a scoped suite. Stored properties
     ///   are initialized from `defaults`; absent keys read as their default
-    ///   (single-line titles, hidden missing files, two preview lines) without
-    ///   a write.
+    ///   (single-line titles, enabled folder taps, hidden missing files, two
+    ///   preview lines) without a write.
     public init(defaults: UserDefaults = .standard) {
+        let haptics = MobileHapticFeedback(defaults: defaults)
         self.defaults = defaults
+        self.haptics = haptics
         self.wrapWorkspaceTitles = defaults.bool(forKey: Self.wrapWorkspaceTitlesKey)
         self.showAltScreenNotice = defaults.object(forKey: Self.showAltScreenNoticeKey) as? Bool ?? true
         self.showMissingFiles = defaults.bool(forKey: Self.showMissingFilesKey)
+        self.terminalFolderTapEnabled = defaults.object(forKey: Self.terminalFolderTapEnabledKey) as? Bool ?? true
+        self.hapticFeedbackEnabled = haptics.isEnabled
         self.terminalFilesChipEnabled = defaults.bool(forKey: Self.terminalFilesChipEnabledKey)
+        self.taskComposerEnabled = defaults.bool(forKey: Self.taskComposerEnabledKey)
         let storedPreviewLines = defaults.object(forKey: Self.workspacePreviewLineCountKey) as? Int
         self.workspacePreviewLineCount = Self.clampedWorkspacePreviewLineCount(
             storedPreviewLines ?? Self.defaultWorkspacePreviewLineCount
@@ -148,6 +200,11 @@ public final class MobileDisplaySettings {
             storedProfilePictureSize ?? Self.defaultProfilePictureSize,
             to: Self.profilePictureSizeRange
         )
+        #if DEBUG
+        self.taskComposerShellIconVariant = defaults.string(
+            forKey: Self.taskComposerShellIconVariantKey
+        ).flatMap(TaskComposerShellIconVariant.init(rawValue:)) ?? .current
+        #endif
     }
 
     /// Clamps a stored or assigned preview line count to the supported range.

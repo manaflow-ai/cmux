@@ -1,7 +1,9 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxMobileShell
 import CmuxMobileSupport
 import CmuxMobileTerminal
+import CmuxMobileToast
 import SwiftUI
 import UIKit
 
@@ -21,14 +23,16 @@ struct TerminalTextSheetView: View {
     /// workspace has no terminal; the sheet then shows its empty state.
     let surfaceID: String?
 
+    @Environment(ToastCenter.self) private var toasts
     @Environment(\.dismiss) private var dismiss
 
     /// Loaded once per presentation in `.task`; nil while the off-main surface
     /// read is in flight.
     @State private var snapshot: TerminalTextSnapshot?
     @State private var isLoading = true
-    /// Flips the Copy All label to a checkmark after a copy. Reset is the next
-    /// presentation (fresh `@State`), so no timer is needed.
+    /// Legacy fallback while the Toasts beta flag is off: flips the Copy All
+    /// label to a checkmark after a copy. Reset is the next presentation
+    /// (fresh `@State`), so no timer is needed.
     @State private var didCopy = false
 
     var body: some View {
@@ -126,8 +130,13 @@ struct TerminalTextSheetView: View {
     private func copyAll() {
         guard let text = snapshot?.text, !text.isEmpty else { return }
         UIPasteboard.general.string = text
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
-        didCopy = true
+        if toasts.isEnabled {
+            // The app-wide copy toast confirms (and supplies the haptic).
+            toasts.present(.copied())
+        } else {
+            MobileHapticFeedback().notification(.success)
+            didCopy = true
+        }
     }
 }
 #endif

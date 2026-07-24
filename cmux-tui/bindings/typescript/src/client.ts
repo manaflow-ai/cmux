@@ -30,6 +30,8 @@ import type {
   JsonObject,
   ListAgentsResult,
   ListClientsResult,
+  ListTerminalsResult,
+  MoveTerminalResult,
   NotificationLevel,
   NotifyResult,
   PaneDirection,
@@ -41,19 +43,25 @@ import type {
   ReloadConfigResult,
   ResizeSurfaceResult,
   ReportAgentResult,
+  ResolveTerminalResult,
   RunResult,
   RenderAttachEvent,
   SidebarPluginResult,
   SplitDirection,
   SubscribeEvent,
   SurfaceResult,
+  TerminalPlacement,
+  TerminalEventsResult,
   Tree,
+  WorkspacePlacement,
+  WorkspaceMutation,
   UnknownEvent,
   VtStateResult,
   WaitForResult,
   ZoomPaneResult,
   AgentReportSource,
   AgentState,
+  CloseTerminalResult,
   DeclarativeLayout,
   FocusDirectionResult,
 } from "./protocol/index.js";
@@ -74,9 +82,34 @@ export interface CmuxClientOptions {
 export const DEFAULT_MAX_BUFFERED_EVENTS = 256;
 export const DEFAULT_MAX_ATTACH_ENCODED_CHARS = 16 * 1024 * 1024;
 
+function workspaceMutationResult(result: EmptyResult | WorkspaceMutation): WorkspaceMutation {
+  if ("workspace" in result
+    && "key" in result
+    && "workspace_revision" in result
+    && typeof result.workspace === "number"
+    && typeof result.key === "string"
+    && typeof result.workspace_revision === "number") {
+    return {
+      workspace: result.workspace,
+      key: result.key,
+      workspace_revision: result.workspace_revision,
+    };
+  }
+  throw new CmuxProtocolError("server returned an invalid workspace registry mutation");
+}
+
 export type NewTabOptions = CmuxRequestParams<"new-tab">;
 export type NewBrowserTabOptions = Omit<CmuxRequestParams<"new-browser-tab">, "url">;
 export type NewWorkspaceOptions = CmuxRequestParams<"new-workspace">;
+export type CreateWorkspaceOptions = CmuxRequestParams<"create-workspace">;
+export type CreateTerminalOptions = CmuxRequestParams<"create-terminal">;
+export type CloseTerminalOptions = Omit<
+  CmuxRequestParams<"close-terminal">,
+  "terminal_id" | "terminal_incarnation"
+>;
+export type CloseWorkspaceOptions = CmuxRequestParams<"close-workspace">;
+export type RenameWorkspaceOptions = CmuxRequestParams<"rename-workspace">;
+export type MoveWorkspaceOptions = CmuxRequestParams<"move-workspace">;
 export type NewScreenOptions = CmuxRequestParams<"new-screen">;
 export type NewPaneOptions = Omit<CmuxRequestParams<"new-pane">, "pane">;
 export type SplitOptions = Omit<CmuxRequestParams<"split">, "pane" | "dir">;
@@ -92,7 +125,10 @@ export interface SendOptions {
   paste?: boolean;
 }
 export interface SubscribeOptions { treeEvents?: "coarse" | "deltas" }
-export interface AttachSurfaceOptions { mode?: "bytes" | "render" }
+export type AttachSurfaceOptions = { mode?: "bytes" | "render" } & (
+  | { cols: number; rows: number }
+  | { cols?: never; rows?: never }
+);
 
 interface PendingResponse {
   resolve: (response: CmuxResponse<unknown>) => void;
@@ -340,6 +376,7 @@ export class CmuxClient {
   private readonly streamTransportFactory?: () => Transport;
   private nextRequestId = 1;
   private identifiedProtocol: number | null = null;
+  private identifiedCapabilities = new Set<string>();
   private sharedSubscriptionActive = false;
 
   constructor(options: CmuxClientOptions) {
@@ -394,6 +431,7 @@ export class CmuxClient {
   async identify(): Promise<IdentifyResult> {
     const result = await this.request("identify");
     this.identifiedProtocol = result.protocol;
+    this.identifiedCapabilities = new Set(result.capabilities ?? []);
     return result;
   }
 
@@ -419,6 +457,10 @@ export class CmuxClient {
   setWindowTitle(title: string): Promise<EmptyResult> { return this.request("set-window-title", { title }); }
   clearWindowTitle(): Promise<EmptyResult> { return this.request("clear-window-title"); }
   listWorkspaces(): Promise<Tree> { return this.request("list-workspaces"); }
+  listTerminals(): Promise<ListTerminalsResult> { return this.request("list-terminals"); }
+  terminalEvents(afterRevision = 0): Promise<TerminalEventsResult> {
+    return this.request("terminal-events", { after_revision: afterRevision });
+  }
   exportLayout(screen?: Id | null): Promise<ExportLayoutResult> { return this.request("export-layout", { screen }); }
   applyLayout(layout: DeclarativeLayout, options: Omit<CmuxRequestParams<"apply-layout">, "layout"> = {}): Promise<ApplyLayoutResult> {
     return this.request("apply-layout", { ...options, layout });
@@ -438,11 +480,47 @@ export class CmuxClient {
     return this.request("sidebar-plugin", { cols, rows, relaunch });
   }
   vtState(surface: Id): Promise<VtStateResult> { return this.request("vt-state", { surface }); }
+  resolveTerminal(terminalId: string): Promise<ResolveTerminalResult> {
+    return this.request("resolve-terminal", { terminal_id: terminalId });
+  }
+  closeTerminal(
+    terminalId: string,
+    terminalIncarnation?: string | null,
+    options: CloseTerminalOptions = {},
+  ): Promise<CloseTerminalResult> {
+    return this.request("close-terminal", {
+      ...options,
+      terminal_id: terminalId,
+      terminal_incarnation: terminalIncarnation,
+    });
+  }
   newTab(options: NewTabOptions = {}): Promise<SurfaceResult> { return this.request("new-tab", options); }
   newBrowserTab(url: string, options: NewBrowserTabOptions = {}): Promise<SurfaceResult> {
     return this.request("new-browser-tab", { url, ...options });
   }
   newWorkspace(options: NewWorkspaceOptions = {}): Promise<SurfaceResult> { return this.request("new-workspace", options); }
+  async createWorkspace(options: CreateWorkspaceOptions = {}): Promise<WorkspacePlacement> {
+    await this.requireCapability("workspace-registry-v1", "workspace registry");
+    return this.request("create-workspace", options);
+  }
+  async createTerminal(options: CreateTerminalOptions): Promise<TerminalPlacement> {
+    await this.requireCapability("workspace-registry-v1", "workspace registry");
+    return this.request("create-terminal", options);
+  }
+  moveTerminal(
+    terminalId: string,
+    workspaceKey: string,
+    options: Omit<
+      CmuxRequestParams<"move-terminal">,
+      "terminal_id" | "workspace_key"
+    > = {},
+  ): Promise<MoveTerminalResult> {
+    return this.request("move-terminal", {
+      ...options,
+      terminal_id: terminalId,
+      workspace_key: workspaceKey,
+    });
+  }
   newScreen(options: NewScreenOptions = {}): Promise<SurfaceResult> { return this.request("new-screen", options); }
   async newPane(pane: Id, options: NewPaneOptions = {}): Promise<SurfaceResult> {
     await this.requireProtocol(9, "new-pane");
@@ -473,11 +551,25 @@ export class CmuxClient {
   closeSurface(surface: Id): Promise<EmptyResult> { return this.request("close-surface", { surface }); }
   closePane(pane: Id): Promise<EmptyResult> { return this.request("close-pane", { pane }); }
   closeScreen(screen: Id): Promise<EmptyResult> { return this.request("close-screen", { screen }); }
-  closeWorkspace(workspace: Id): Promise<EmptyResult> { return this.request("close-workspace", { workspace }); }
+  async closeWorkspace(workspace: Id): Promise<EmptyResult> {
+    await this.request("close-workspace", { workspace });
+    return {};
+  }
+  async closeWorkspaceRegistry(options: CloseWorkspaceOptions): Promise<WorkspaceMutation> {
+    await this.requireCapability("workspace-registry-v1", "workspace registry");
+    return workspaceMutationResult(await this.request("close-workspace", options));
+  }
   renamePane(pane: Id, name: string): Promise<EmptyResult> { return this.request("rename-pane", { pane, name }); }
   renameSurface(surface: Id, name: string): Promise<EmptyResult> { return this.request("rename-surface", { surface, name }); }
   renameScreen(screen: Id, name: string): Promise<EmptyResult> { return this.request("rename-screen", { screen, name }); }
-  renameWorkspace(workspace: Id, name: string): Promise<EmptyResult> { return this.request("rename-workspace", { workspace, name }); }
+  async renameWorkspace(workspace: Id, name: string): Promise<EmptyResult> {
+    await this.request("rename-workspace", { workspace, name });
+    return {};
+  }
+  async renameWorkspaceRegistry(options: RenameWorkspaceOptions): Promise<WorkspaceMutation> {
+    await this.requireCapability("workspace-registry-v1", "workspace registry");
+    return workspaceMutationResult(await this.request("rename-workspace", options));
+  }
   async resizeSurface(surface: Id, cols: number, rows: number): Promise<ResizeSurfaceResult> {
     const result = await this.request("resize-surface", { surface, cols, rows });
     return { ...result, accepted: result.accepted ?? true };
@@ -490,7 +582,14 @@ export class CmuxClient {
   selectScreen(options: SelectOptions = {}): Promise<EmptyResult> { return this.request("select-screen", options); }
   selectWorkspace(options: SelectOptions = {}): Promise<EmptyResult> { return this.request("select-workspace", options); }
   moveTab(surface: Id, pane: Id, index: number): Promise<EmptyResult> { return this.request("move-tab", { surface, pane, index }); }
-  moveWorkspace(workspace: Id, index: number): Promise<EmptyResult> { return this.request("move-workspace", { workspace, index }); }
+  async moveWorkspace(workspace: Id, index: number): Promise<EmptyResult> {
+    await this.request("move-workspace", { workspace, index });
+    return {};
+  }
+  async moveWorkspaceRegistry(options: MoveWorkspaceOptions): Promise<WorkspaceMutation> {
+    await this.requireCapability("workspace-registry-v1", "workspace registry");
+    return workspaceMutationResult(await this.request("move-workspace", options));
+  }
   scrollSurface(surface: Id, delta: number): Promise<EmptyResult> { return this.request("scroll-surface", { surface, delta }); }
 
   async subscribe(options: SubscribeOptions = {}): Promise<CmuxStream<SubscribeEvent>> {
@@ -504,8 +603,8 @@ export class CmuxClient {
     );
   }
 
-  attachSurface(surface: Id, options?: { mode?: "bytes" }): Promise<CmuxStream<DecodedAttachEvent>>;
-  attachSurface(surface: Id, options: { mode: "render" }): Promise<CmuxStream<RenderAttachEvent>>;
+  attachSurface(surface: Id, options?: AttachSurfaceOptions & { mode?: "bytes" }): Promise<CmuxStream<DecodedAttachEvent>>;
+  attachSurface(surface: Id, options: AttachSurfaceOptions & { mode: "render" }): Promise<CmuxStream<RenderAttachEvent>>;
   attachSurface(
     surface: Id,
     options: AttachSurfaceOptions,
@@ -514,6 +613,9 @@ export class CmuxClient {
     surface: Id,
     options: AttachSurfaceOptions = {},
   ): Promise<CmuxStream<DecodedAttachEvent> | CmuxStream<RenderAttachEvent>> {
+    if ((options.cols === undefined) !== (options.rows === undefined)) {
+      throw new CmuxProtocolError("attach-surface cols and rows must be supplied together");
+    }
     const mode = options.mode ?? "bytes";
     const protocol = this.identifiedProtocol ?? (await this.identify()).protocol;
     if (mode === "render" && protocol < 7) {
@@ -524,9 +626,17 @@ export class CmuxClient {
     if (mode === "bytes" && protocol > 5 && !this.allowProtocolV6Attach) {
       throw new CmuxProtocolError(`byte attach for protocol ${protocol} is disabled`);
     }
-    const request: CmuxRequest = options.mode === undefined
-      ? { cmd: "attach-surface", surface }
-      : { cmd: "attach-surface", surface, mode };
+    if ((options.cols !== undefined || options.rows !== undefined)
+      && !this.identifiedCapabilities.has("attach-initial-size")) {
+      throw new CmuxProtocolError("initial attach sizing is not supported by this server");
+    }
+    const request: CmuxRequest = {
+      cmd: "attach-surface",
+      surface,
+      ...(options.mode === undefined ? {} : { mode }),
+      ...(options.cols === undefined ? {} : { cols: options.cols }),
+      ...(options.rows === undefined ? {} : { rows: options.rows }),
+    };
     if (mode === "render") {
       return this.openStream(
         request,
@@ -546,6 +656,15 @@ export class CmuxClient {
         retainedBytes: (event) => this.attachEventRetainedBytes(event),
       },
     );
+  }
+
+  private async requireCapability(capability: string, feature: string): Promise<void> {
+    if (this.identifiedProtocol === null) {
+      await this.identify();
+    }
+    if (!this.identifiedCapabilities.has(capability)) {
+      throw new CmuxProtocolError(`${feature} is not supported by this server`);
+    }
   }
 
   private async requireProtocol(minimum: number, feature: string): Promise<void> {

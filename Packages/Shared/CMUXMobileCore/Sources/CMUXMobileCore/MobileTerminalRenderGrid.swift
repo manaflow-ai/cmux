@@ -16,6 +16,18 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     public var format: String
     public var surfaceID: String
     public var stateSeq: UInt64
+    /// Stable identifier for one producer lifetime of ``renderRevision``.
+    ///
+    /// A surface may be recreated with the same public ID after hibernation or
+    /// a Mac reconnect. Its revision counter then restarts at one under a new
+    /// epoch, so consumers can order the new stream without accepting delayed
+    /// frames from the retired producer.
+    public var renderEpoch: String
+    /// Monotonic producer capture revision for this surface.
+    ///
+    /// Unlike ``stateSeq``, this advances for every captured grid, including
+    /// geometry-only captures that share the same terminal byte sequence.
+    public var renderRevision: UInt64
     public var columns: Int
     public var rows: Int
     public var cursor: Cursor?
@@ -65,6 +77,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         format: String = Self.currentFormat,
         surfaceID: String,
         stateSeq: UInt64,
+        renderEpoch: String = "",
+        renderRevision: UInt64 = 0,
         columns: Int,
         rows: Int,
         cursor: Cursor? = nil,
@@ -144,6 +158,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         self.format = format
         self.surfaceID = surfaceID
         self.stateSeq = stateSeq
+        self.renderEpoch = renderEpoch
+        self.renderRevision = renderRevision
         self.columns = columns
         self.rows = rows
         self.cursor = cursor
@@ -168,6 +184,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         let format = try container.decode(String.self, forKey: .format)
         let surfaceID = try container.decode(String.self, forKey: .surfaceID)
         let stateSeq = try container.decode(UInt64.self, forKey: .stateSeq)
+        let renderEpoch = try container.decodeIfPresent(String.self, forKey: .renderEpoch) ?? ""
+        let renderRevision = try container.decodeIfPresent(UInt64.self, forKey: .renderRevision) ?? 0
         let columns = try container.decode(Int.self, forKey: .columns)
         let rows = try container.decode(Int.self, forKey: .rows)
         let cursor = try container.decodeIfPresent(Cursor.self, forKey: .cursor)
@@ -189,6 +207,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             format: format,
             surfaceID: surfaceID,
             stateSeq: stateSeq,
+            renderEpoch: renderEpoch,
+            renderRevision: renderRevision,
             columns: columns,
             rows: rows,
             cursor: cursor,
@@ -212,6 +232,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     public static func fromPlainRows(
         surfaceID: String,
         stateSeq: UInt64,
+        renderEpoch: String = "",
+        renderRevision: UInt64 = 0,
         columns: Int,
         rows: Int,
         text: String,
@@ -237,6 +259,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         return try MobileTerminalRenderGridFrame(
             surfaceID: surfaceID,
             stateSeq: stateSeq,
+            renderEpoch: renderEpoch,
+            renderRevision: renderRevision,
             columns: columns,
             rows: rows,
             cursor: cursor,
@@ -313,6 +337,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         try MobileTerminalRenderGridFrame(
             surfaceID: surfaceID,
             stateSeq: stateSeq,
+            renderEpoch: renderEpoch,
+            renderRevision: renderRevision,
             columns: columns,
             rows: rows,
             cursor: cursor,
