@@ -3,6 +3,15 @@ import SwiftUI
 
 struct SimulatorCameraTools: View {
     let coordinator: SimulatorPaneCoordinator
+
+    var body: some View {
+        SimulatorCameraToolsContent(coordinator: coordinator)
+            .id(coordinator.selectedDeviceID)
+    }
+}
+
+private struct SimulatorCameraToolsContent: View {
+    let coordinator: SimulatorPaneCoordinator
     @State private var targetBundleIdentifier = ""
     @State private var mirrorMode: SimulatorCameraMirrorMode = .auto
     @State private var hostCameraID = ""
@@ -60,6 +69,12 @@ struct SimulatorCameraTools: View {
         }
         .onChange(of: coordinator.cameraStatus) { _, status in
             synchronize(from: status)
+        }
+        .onChange(of: coordinator.userInstalledApplications) { _, applications in
+            targetBundleIdentifier = simulatorCameraTargetBundleIdentifier(
+                current: targetBundleIdentifier,
+                applications: applications
+            )
         }
     }
 
@@ -137,4 +152,12 @@ struct SimulatorCameraTools: View {
             nil
         }
     }
+}
+
+func simulatorCameraTargetBundleIdentifier(
+    current: String,
+    applications: [SimulatorInstalledApplication]
+) -> String {
+    guard !current.isEmpty else { return "" }
+    return applications.contains(where: { $0.id == current }) ? current : ""
 }

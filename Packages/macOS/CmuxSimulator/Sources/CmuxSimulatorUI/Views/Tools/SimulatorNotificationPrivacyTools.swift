@@ -3,6 +3,15 @@ import SwiftUI
 
 struct SimulatorNotificationPrivacyTools: View {
     let coordinator: SimulatorPaneCoordinator
+
+    var body: some View {
+        SimulatorNotificationPrivacyToolsContent(coordinator: coordinator)
+            .id(coordinator.selectedDeviceID)
+    }
+}
+
+private struct SimulatorNotificationPrivacyToolsContent: View {
+    let coordinator: SimulatorPaneCoordinator
     @State private var bundleIdentifier = ""
     @State private var service: SimulatorPrivacyService = .all
 

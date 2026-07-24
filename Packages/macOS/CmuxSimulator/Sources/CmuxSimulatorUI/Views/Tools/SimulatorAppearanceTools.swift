@@ -3,6 +3,15 @@ import SwiftUI
 
 struct SimulatorAppearanceTools: View {
     let coordinator: SimulatorPaneCoordinator
+
+    var body: some View {
+        SimulatorAppearanceToolsContent(coordinator: coordinator)
+            .id(coordinator.selectedDeviceID)
+    }
+}
+
+private struct SimulatorAppearanceToolsContent: View {
+    let coordinator: SimulatorPaneCoordinator
     @State private var appearance: SimulatorInterfaceSetting.Appearance = .light
     @State private var contentSize: SimulatorInterfaceSetting.ContentSize = .large
     @State private var increaseContrast = false
