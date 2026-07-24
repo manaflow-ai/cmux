@@ -1715,7 +1715,9 @@ fn kitty_replay_bounded(
 ) -> KittyReplay {
     let mut bytes = Vec::new();
     let mut aliases = Vec::new();
-    for image in &snapshot.images {
+    let mut images = snapshot.images.iter().collect::<Vec<_>>();
+    images.sort_by_key(|image| (image.generation, image.id));
+    for image in images {
         let placements = snapshot
             .placements
             .iter()
