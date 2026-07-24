@@ -124,7 +124,7 @@ struct RemoteTmuxCredentialPromptAttachTests {
     /// host map. Latching on the view was not enough — whoever asks has to find the verdict anyway.
     @Test func theVerdictOutlivesTheViewBeingDiscarded() {
         let host = RemoteTmuxHost(destination: "user@host", transport: .et, transportPort: 2039)
-        RemoteTmuxController.hostsAwaitingCredentials.remove(host.connectionHash)
+        RemoteTmuxController.hostAuth.retire(host)
 
         let view = RemoteTmuxViewConnection(host: host, ownerId: "test-owner")
         var noted = false
@@ -136,16 +136,15 @@ struct RemoteTmuxCredentialPromptAttachTests {
         view.stop()
         #expect(noted, "the verdict has to be published before the view can be discarded")
 
-        RemoteTmuxController.hostsAwaitingCredentials.insert(host.connectionHash)
+        RemoteTmuxController.hostAuth.note(host)
         #expect(
             RemoteTmuxController.mirrorFailure(
                 destination: host.destination,
-                awaitingCredentials: RemoteTmuxController.hostsAwaitingCredentials
-                    .contains(host.connectionHash)
+                awaitingCredentials: RemoteTmuxController.hostAuth.isAwaiting(host)
             ) == .authenticationRequired(host.destination),
             "with no view and no connection left, the host-level note is the only thing that knows"
         )
-        RemoteTmuxController.hostsAwaitingCredentials.remove(host.connectionHash)
+        RemoteTmuxController.hostAuth.retire(host)
     }
 
     /// A flushed line alone is enough. Measured in the product: a prompt arrives as a flushed preamble
@@ -165,28 +164,26 @@ struct RemoteTmuxCredentialPromptAttachTests {
     @Test func theHostNoteIsRetiredOnceTheHostConnects() {
         let host = RemoteTmuxHost(destination: "user@host", transport: .et, transportPort: 2039)
         let controller = RemoteTmuxController()
-        RemoteTmuxController.hostsAwaitingCredentials.remove(host.connectionHash)
+        RemoteTmuxController.hostAuth.retire(host)
 
         controller.noteAwaitingCredentials(host: host)
         #expect(
             RemoteTmuxController.mirrorFailure(
                 destination: host.destination,
-                awaitingCredentials: RemoteTmuxController.hostsAwaitingCredentials
-                    .contains(host.connectionHash)
+                awaitingCredentials: RemoteTmuxController.hostAuth.isAwaiting(host)
             ) == .authenticationRequired(host.destination)
         )
 
         controller.noteMirrorConnected(host: host)
 
         #expect(
-            !RemoteTmuxController.hostsAwaitingCredentials.contains(host.connectionHash),
+            !RemoteTmuxController.hostAuth.isAwaiting(host),
             "a host that connected is no longer waiting for a login"
         )
         #expect(
             RemoteTmuxController.mirrorFailure(
                 destination: host.destination,
-                awaitingCredentials: RemoteTmuxController.hostsAwaitingCredentials
-                    .contains(host.connectionHash)
+                awaitingCredentials: RemoteTmuxController.hostAuth.isAwaiting(host)
             ) == .unreachable("could not mirror any tmux session on \(host.destination)"),
             "a later failure on a host that authenticated is not a login problem"
         )
