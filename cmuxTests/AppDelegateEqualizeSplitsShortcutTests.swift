@@ -396,6 +396,17 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         XCTAssertEqual(change, .resetThen(0))
     }
 
+    func testPendingWorkspaceTerminalFontSizeChangePreservesOppositeDirections() {
+        var change = PendingWorkspaceTerminalFontSizeChange.relative(1)
+        change.appendAdjustment(-1)
+
+        XCTAssertNotEqual(
+            change,
+            .relative(0),
+            "Opposite runs cannot cancel before each terminal applies native bounds"
+        )
+    }
+
     func testExplicitWorkspaceFontSizeBindingWinsOverAnotherImplicitFontSizeDefault() {
         withIsolatedShortcutFileStore {
             withDefaultShortcutFallback(action: .increaseWorkspaceTerminalFontSize) {

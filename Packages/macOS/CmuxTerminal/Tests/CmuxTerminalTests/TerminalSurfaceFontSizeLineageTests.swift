@@ -120,6 +120,26 @@ private func surfaceWasUpdated(_ surface: ghostty_surface_t) -> Bool
         #expect(surface.runtimeCreationConfigTemplate().fontSizeLineage == nil)
     }
 
+    @Test func alreadyConfiguredSurfaceSkipsRedundantReset() {
+        let dormantSurface = makeSurface(configTemplate: CmuxSurfaceConfigTemplate())
+        #expect(!dormantSurface.resetFontSize(toConfiguredRuntimePoints: 12))
+
+        let registry = FakeSurfaceRegistry()
+        let liveSurface = makeSurface(
+            configTemplate: CmuxSurfaceConfigTemplate(),
+            registry: registry
+        )
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 1, alignment: 1)
+        registry.registerRuntimeSurface(runtimeSurface, ownerId: liveSurface.id)
+        liveSurface.installRuntimeSurfaceForTesting(runtimeSurface)
+        defer {
+            liveSurface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+        }
+
+        #expect(!liveSurface.resetFontSize(toConfiguredRuntimePoints: 12))
+    }
+
     @Test func deferredSurfaceCanZoomAgainAfterReset() throws {
         var template = CmuxSurfaceConfigTemplate()
         template.setFontSize(6, isExplicitOverride: true)
