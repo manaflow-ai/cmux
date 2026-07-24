@@ -282,7 +282,11 @@ extension CMUXCLIErrorOutputRegressionTests {
         processEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         processEnvironment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
         let result = runProcess(executablePath: cliPath, arguments: ["sessions", "list", "--agent", agent, "--session", sessionId, "--json"], environment: processEnvironment, timeout: 5)
-        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        // Require rather than expect: a non-zero exit means stdout holds an error message, and
+        // letting that fall through makes every caller fail on JSON parsing instead of on the real
+        // reason. That is how an unknown-agent fixture read as a decoding problem for a week.
+        try #require(!result.timedOut, Comment(rawValue: result.stdout))
+        try #require(result.status == 0, Comment(rawValue: result.stdout))
         let outputData = try #require(result.stdout.data(using: .utf8))
         let object = try #require(JSONSerialization.jsonObject(with: outputData) as? [String: Any])
         let sessions = try #require(object["sessions"] as? [[String: Any]])
@@ -319,7 +323,11 @@ extension CMUXCLIErrorOutputRegressionTests {
 
     @Test func testSessionsListDoesNotInferPiFamilyFromBasenameWhenStructuredIdentityDisagrees() throws {
         let session = try sessionsListDiagnosticSession(
-            agent: "project-agent",
+            // Any non-pi-family catalog agent serves here; the property under test is that a
+            // /tmp/pi basename must not promote this record into the pi family. "project-agent"
+            // is not in the catalog at all, so the CLI rejected it before emitting any JSON and
+            // this test could never have run its assertions.
+            agent: "grok",
             launcher: "omo",
             executablePath: "/tmp/pi",
             arguments: ["/tmp/pi", "omo"]
