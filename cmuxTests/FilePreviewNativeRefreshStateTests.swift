@@ -1,4 +1,5 @@
 import AppKit
+import AVFAudio
 import AVKit
 import Foundation
 import Testing
@@ -68,6 +69,47 @@ struct FilePreviewNativeRefreshStateTests {
         #expect(player.currentItem !== refreshedItem)
     }
 
+    @Test("Media refresh does not overwrite user transport changes")
+    func mediaRefreshPreservesUserTransportChanges() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-file-preview-media-transport-\(UUID().uuidString).wav")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try writeSilentAudio(to: fileURL)
+
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: fileURL.path,
+            startFileWatcher: false
+        )
+        defer { panel.close() }
+        #expect(panel.previewMode == .media)
+
+        let session = panel.nativeViewSessions.media
+        let view = session.view(
+            panel: panel,
+            revision: panel.previewRevision,
+            isVisibleInUI: true,
+            backgroundColor: .textBackgroundColor,
+            drawsBackground: true
+        )
+        let player = try #require(view.player)
+        player.playImmediately(atRate: 1.25)
+
+        session.update(
+            view,
+            panel: panel,
+            revision: panel.previewRevision + 1,
+            isVisibleInUI: true,
+            backgroundColor: .textBackgroundColor,
+            drawsBackground: true
+        )
+        let restoreTask = try #require(session.playbackRestoreTask)
+        player.playImmediately(atRate: 0.5)
+        await restoreTask.value
+
+        #expect(player.rate == 0.5)
+    }
+
     @Test("Quick Look refresh keeps its preview item")
     func quickLookRefreshKeepsPreviewItem() throws {
         let fileURL = FileManager.default.temporaryDirectory
@@ -118,6 +160,30 @@ struct FilePreviewNativeRefreshStateTests {
 
         #expect(preview.refreshCount == 1)
         #expect(preview.displayState as AnyObject? === displayState)
+    }
+
+    private func writeSilentAudio(to url: URL) throws {
+        let sampleRate = 8_000.0
+        let frameCount = AVAudioFrameCount(sampleRate)
+        let format = try #require(
+            AVAudioFormat(
+                standardFormatWithSampleRate: sampleRate,
+                channels: 1
+            )
+        )
+        let file = try AVAudioFile(forWriting: url, settings: format.settings)
+        let buffer = try #require(
+            AVAudioPCMBuffer(
+                pcmFormat: format,
+                frameCapacity: frameCount
+            )
+        )
+        buffer.frameLength = frameCount
+        buffer.floatChannelData?[0].update(
+            repeating: 0,
+            count: Int(frameCount)
+        )
+        try file.write(from: buffer)
     }
 }
 

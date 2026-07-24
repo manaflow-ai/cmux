@@ -21,7 +21,7 @@ final class FilePreviewMediaSession {
     private var currentURL: URL?
     private var currentRevision: Int?
     private var player: AVPlayer?
-    private var playbackRestoreTask: Task<Void, Never>?
+    var playbackRestoreTask: Task<Void, Never>?
     private var pendingPlaybackSnapshot: PlaybackSnapshot?
 
     deinit {
