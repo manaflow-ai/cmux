@@ -313,7 +313,6 @@ printf '%s\\0' "$@" > "$FAKE_CODEX_ARGS_LOG"
     ) -> None:
         for option in (
             "-cmodel=gpt-5.6",
-            "-iimage.png",
             "-mgpt-5.6",
             "-pdogfood",
             "-sread-only",
@@ -343,6 +342,33 @@ printf '%s\\0' "$@" > "$FAKE_CODEX_ARGS_LOG"
                     logged_cmux_calls,
                 )
                 self.assertIn(
+                    '"cmux_resume_rebind":true',
+                    logged_cmux_calls,
+                )
+
+    def test_attached_image_options_do_not_query_resume_trust(self) -> None:
+        for option in ("-iimage.png", "--image=image.png"):
+            with self.subTest(option=option):
+                args, logged_cmux_calls, result = self.run_wrapper(
+                    [option, "resume", SESSION_ID]
+                )
+
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(
+                    args,
+                    [
+                        "--enable",
+                        "hooks",
+                        option,
+                        "resume",
+                        SESSION_ID,
+                    ],
+                )
+                self.assertNotIn(
+                    "hooks codex inject-resume-args",
+                    logged_cmux_calls,
+                )
+                self.assertNotIn(
                     '"cmux_resume_rebind":true',
                     logged_cmux_calls,
                 )

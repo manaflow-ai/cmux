@@ -106,7 +106,6 @@ struct CodexResumeTrustPolicyTests {
             "-mgpt-5.6",
             "-anever",
             "-sread-only",
-            "-iimage.png",
             "resume",
             "SID",
             "-prestored",
@@ -127,6 +126,25 @@ struct CodexResumeTrustPolicyTests {
                 arguments: arguments,
                 currentDirectory: "/Users/me/original"
             ) == "/Users/me/restored"
+        )
+    }
+
+    @Test(
+        "Attached image options make a later resume token ambiguous",
+        arguments: ["-iimage.png", "--image=image.png"]
+    )
+    func attachedImageOptionsFailClosed(_ imageOption: String) {
+        let arguments = ["codex", imageOption, "resume", "SID"]
+
+        #expect(policy.isResumeInvocation(arguments: arguments) == false)
+        #expect(policy.appServerConfigurationArguments(arguments: arguments) == nil)
+        #expect(
+            policy.undecidedProjectOverride(
+                arguments: arguments,
+                currentDirectory: "/Users/me/worktree",
+                repositoryRoot: "/Users/me/repo",
+                effectiveProjectDecisionPaths: []
+            ).isEmpty
         )
     }
 
