@@ -610,12 +610,25 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(oldStop.timedOut, oldStop.stderr)
         XCTAssertEqual(oldStop.status, 0, oldStop.stderr)
 
+        let newStartCommandIndex = context.state.commands.count
         let newStart = runHook(
             "session-start",
             standardInput: #"{"session_id":"new-session","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
         )
         XCTAssertFalse(newStart.timedOut, newStart.stderr)
         XCTAssertEqual(newStart.status, 0, newStart.stderr)
+        let newStartCommands = Array(context.state.commands.dropFirst(newStartCommandIndex))
+        let replacementClear = try XCTUnwrap(newStartCommands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.clear" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }.first)
+        XCTAssertNil(
+            replacementClear["checkpoint_id"],
+            "The replacement SessionStart must clear the prior session's agent-hook binding."
+        )
 
         let newPromptStart = context.state.commands.count
         let newPrompt = runHook(
@@ -631,17 +644,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
             },
             "Expected a new Claude session to replace a stopped idle owner on prompt-submit, saw \(newPromptCommands)"
-        )
-        let replacementClear = try XCTUnwrap(newPromptCommands.compactMap { command -> [String: Any]? in
-            guard let payload = jsonObject(command),
-                  payload["method"] as? String == "surface.resume.clear" else {
-                return nil
-            }
-            return payload["params"] as? [String: Any]
-        }.first)
-        XCTAssertNil(
-            replacementClear["checkpoint_id"],
-            "An accepted prompt replacement must clear the prior session's agent-hook binding."
         )
     }
 
