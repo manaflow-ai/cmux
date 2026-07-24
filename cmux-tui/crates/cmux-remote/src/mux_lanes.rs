@@ -120,6 +120,19 @@ mod tests {
     }
 
     #[test]
+    fn terminal_render_events_use_the_bulk_lane() {
+        let tracker = MuxLaneTracker::default();
+        for event in ["render-state", "render-delta"] {
+            let line = format!(r#"{{"event":"{event}","surface":1}}"#);
+            assert_eq!(
+                tracker.classify_server_line(line.as_bytes()),
+                Some(Lane::Bulk),
+                "{event} must not consume control-lane replay capacity"
+            );
+        }
+    }
+
+    #[test]
     fn one_way_input_response_is_drained_once() {
         let tracker = MuxLaneTracker::default();
         tracker.suppress_response(9);
