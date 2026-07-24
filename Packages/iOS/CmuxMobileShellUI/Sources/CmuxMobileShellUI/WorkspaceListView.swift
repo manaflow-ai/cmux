@@ -112,6 +112,7 @@ struct WorkspaceListView: View {
     @State private var showingSettings = false
     @State private var settingsPairingScannerHandoff = SettingsPairingScannerHandoff()
     @State private var showingDeviceTree = false
+    @State private var showingVoiceMode = false
     /// The active row filter (All / Unread), shared-model state behind the
     /// toolbar ``WorkspaceListFilterMenu``. Session-transient like a search.
     @State var filter: MobileWorkspaceListFilter = .all
@@ -399,6 +400,11 @@ struct WorkspaceListView: View {
                 )
             }
         }
+        .fullScreenCover(isPresented: $showingVoiceMode) {
+            if let store {
+                VoiceModeView(store: store, connectedHostName: host)
+            }
+        }
         .sheet(isPresented: workspaceRenameIsPresented) {
             if let workspaceID = workspacePendingRenameID,
                let workspace = workspaces.first(where: { $0.id == workspaceID }) {
@@ -588,6 +594,22 @@ struct WorkspaceListView: View {
         .accessibilityLabel(L10n.string("mobile.computers.title", defaultValue: "Computers"))
         .accessibilityIdentifier("MobileWorkspaceDevicesButton")
     }
+
+    var voiceModeMenuItem: some View {
+        Button {
+            showingVoiceMode = true
+        } label: {
+            Label(
+                L10n.string("mobile.voiceMode.title", defaultValue: "Voice Mode"),
+                systemImage: "mic"
+            )
+        }
+        .accessibilityIdentifier("MobileWorkspaceVoiceModeMenuItem")
+    }
+
+    var showsVoiceModeButton: Bool {
+        store?.supportsVoiceMode == true
+    }
     #endif
 
     /// Flat presentation: pinned-first rows when groups are unavailable or while searching.
@@ -697,10 +719,19 @@ struct WorkspaceListView: View {
 
     var settingsMenu: some View {
         #if os(iOS)
-        // Open the full Settings page (account, terminal shortcuts,
-        // notifications, paired Mac) rather than a transient menu.
-        Button {
-            showingSettings = true
+        Menu {
+            if showsVoiceModeButton {
+                voiceModeMenuItem
+            }
+            Button {
+                showingSettings = true
+            } label: {
+                Label(
+                    L10n.string("mobile.workspaces.settings", defaultValue: "Settings"),
+                    systemImage: "gearshape"
+                )
+            }
+            .accessibilityIdentifier("MobileWorkspaceSettingsMenuItem")
         } label: {
             MobileWorkspaceSettingsIcon()
         }

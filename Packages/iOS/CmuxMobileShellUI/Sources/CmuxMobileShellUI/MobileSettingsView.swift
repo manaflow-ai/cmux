@@ -37,6 +37,7 @@ struct MobileSettingsView: View {
     /// directly in `body` would not re-render when it flips.
     @State private var notificationsEnabled = false
     @State private var showingHostPicker = false
+    @State private var showingVoiceMode = false
     @State private var showingOnboarding = false
     @State private var showingSetupHelp = false
     #if DEBUG
@@ -184,6 +185,21 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalShortcuts")
+                }
+
+                Section(L10n.string("mobile.settings.voice", defaultValue: "Voice")) {
+                    NavigationLink {
+                        MobileVoiceSettingsPage(
+                            canOpenVoiceMode: store?.supportsVoiceMode == true && !connectedHostName.isEmpty,
+                            openVoiceMode: { showingVoiceMode = true }
+                        )
+                    } label: {
+                        Label(
+                            L10n.string("mobile.settings.voice", defaultValue: "Voice"),
+                            systemImage: "mic"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsVoiceRow")
                 }
 
                 Section {
@@ -451,6 +467,11 @@ struct MobileSettingsView: View {
             .sheet(isPresented: $showingHostPicker) {
                 if let store {
                     MobileHostPickerView(store: store)
+                }
+            }
+            .fullScreenCover(isPresented: $showingVoiceMode) {
+                if let store {
+                    VoiceModeView(store: store, connectedHostName: connectedHostName)
                 }
             }
             .sheet(isPresented: $showingOnboarding) {

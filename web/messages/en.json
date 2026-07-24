@@ -336,7 +336,8 @@
     "assets": "Assets",
     "openSource": "Open source",
     "guides": "Guides",
-    "compare": "Compare"
+    "compare": "Compare",
+    "support": "Support"
   },
   "pricing": {
     "metaTitle": "Pricing — cmux",
@@ -4755,5 +4756,19 @@
         "action": "Manage plan"
       }
     }
+  },
+  "support": {
+    "metaTitle": "Support — cmux",
+    "metaDescription": "Get help with cmux, report issues, and find documentation.",
+    "title": "Support",
+    "intro": "Need help with cmux? Start with email, GitHub issues, or the docs.",
+    "emailHeading": "Email support",
+    "emailPrefix": "For account, billing, or private support questions, email",
+    "issuesHeading": "Report a bug",
+    "issuesPrefix": "For reproducible bugs and feature requests, open or follow an issue on",
+    "issuesLink": "GitHub Issues",
+    "docsHeading": "Read the docs",
+    "docsPrefix": "Setup, configuration, and feature guides are available in the",
+    "docsLink": "cmux docs"
   }
 }

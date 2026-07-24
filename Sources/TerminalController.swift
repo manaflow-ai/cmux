@@ -121,6 +121,7 @@ class TerminalController {
     /// One process-wide admission budget shared by every mobile connection.
     nonisolated let mobileTaskFilesystemJobQuota: MobileTaskFilesystemJobQuota
     var tabManager: TabManager?
+    private var didEmitEmptyMobileFocusSnapshot = false
     let workspaceCreateIdempotencyCache = WorkspaceCreateIdempotencyCache(capacity: 256)
     /// Auth coordinator and browser flow are injected by `attachAuth` before socket startup.
     @MainActor private(set) var authCoordinator: AuthCoordinator?
@@ -748,14 +749,30 @@ class TerminalController {
 
     /// Update which window's TabManager receives socket commands.
     /// This is used when the user switches between multiple terminal windows.
+    static let activeTabManagerDidChangeNotification = Notification.Name("cmux.activeTabManagerDidChange")
+
     func setActiveTabManager(_ tabManager: TabManager?) {
+        let previous = self.tabManager
         if let tabManager {
             AppDelegate.shared?.ensureMobileWorkspaceListObserver(for: tabManager)
         }
         self.tabManager = tabManager
+        guard previous !== tabManager else { return }
+        if tabManager == nil {
+            emitEmptyMobileFocusSnapshotIfNeeded()
+        } else {
+            didEmitEmptyMobileFocusSnapshot = false
+        }
+        NotificationCenter.default.post(name: Self.activeTabManagerDidChangeNotification, object: tabManager)
     }
 
     func activeTabManagerForCallerNotification() -> TabManager? { tabManager }
+
+    private func emitEmptyMobileFocusSnapshotIfNeeded() {
+        guard !didEmitEmptyMobileFocusSnapshot else { return }
+        didEmitEmptyMobileFocusSnapshot = true
+        MobileHostService.shared.emitEvent(topic: "focus.updated", payload: MobileFocusSnapshotPayload.empty.jsonObject())
+    }
 
     // MARK: - Process Ancestry Check
 
@@ -13983,6 +14000,10 @@ class TerminalController {
             result = v2MobileTerminalCreate(params: request.params)
         case "mobile.terminal.input", "terminal.input":
             result = v2MobileTerminalInput(params: request.params)
+        case "mobile.focus.get":
+            result = v2MobileFocusGet(params: request.params)
+        case "mobile.voice.input":
+            result = v2MobileVoiceInput(params: request.params)
         case "mobile.terminal.paste", "terminal.paste":
             result = v2MobileTerminalPaste(params: request.params)
         case "mobile.terminal.paste_image", "terminal.paste_image":

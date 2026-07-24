@@ -1,0 +1,315 @@
+#if os(iOS)
+import CmuxMobileRPC
+import CmuxMobileShell
+import CmuxMobileSupport
+import CmuxVoice
+import SwiftUI
+
+/// Full-screen iPhone microphone mode for sending transcribed speech to the focused Mac terminal.
+struct VoiceModeView: View {
+    @Environment(VoiceSettingsStore.self) private var voiceSettings
+    @Environment(VoiceVocabularyStore.self) private var voiceVocabulary
+    @Environment(ParakeetModelCatalogStore.self) private var modelCatalog
+    @Environment(ParakeetVocabularyBoostStore.self) private var vocabularyBoostStore
+    @Environment(\.dismiss) private var dismiss
+
+    let store: CMUXMobileShellStore
+    let connectedHostName: String
+
+    @State private var audioEngine = ComposerDictationAudioEngine()
+    @State private var session: (any VoiceTranscriptionSession)?
+    @State private var updateTask: Task<Void, Never>?
+    /// Monotonic token for the current listening attempt. The audio engine
+    /// reports ready ~100-300ms later on its own queue; a stop, failure, or a
+    /// newer start in that window bumps this so the stale callback is discarded
+    /// instead of flipping `isListening` back on (same pattern as
+    /// `ComposerDictationController.startToken`).
+    @State private var sessionGeneration = 0
+    @State private var isListening = false
+    @State private var isStarting = false
+    @State private var partialTranscript = ""
+    @State private var utteranceHistory = VoiceUtteranceHistory()
+    @State private var errorMessage: String?
+    @State private var showingHostPicker = false
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 20) {
+                VoiceModeDestinationView(
+                    workspaceTitle: store.voiceFocusSnapshot?.workspaceTitle,
+                    surfaceTitle: store.voiceFocusSnapshot?.surfaceTitle,
+                    hasTerminal: hasVoiceTarget
+                )
+                VoiceModeTranscriptView(
+                    finalizedTranscripts: utteranceHistory.utterances.map(\.text),
+                    partialTranscript: partialTranscript
+                )
+                Spacer(minLength: 0)
+                VoiceModeMicrophoneControl(
+                    isListening: isListening,
+                    isStarting: isStarting,
+                    isEnabled: hasVoiceTarget || isListening || isStarting
+                ) {
+                    if isListening || isStarting {
+                        stopListening()
+                    } else {
+                        Task { await startListening() }
+                    }
+                }
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
+                        .accessibilityIdentifier("MobileVoiceModeError")
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            .padding(.bottom, 24)
+            .navigationTitle(connectedHostName.isEmpty ? L10n.string("mobile.voiceMode.title", defaultValue: "Voice Mode") : connectedHostName)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        showingHostPicker = true
+                    } label: {
+                        Image(systemName: "macbook.and.iphone")
+                    }
+                    .accessibilityLabel(L10n.string("mobile.settings.switchMac", defaultValue: "Switch Computer"))
+                    .accessibilityIdentifier("MobileVoiceModeSwitchMac")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(L10n.string("mobile.settings.done", defaultValue: "Done")) {
+                        // `onDisappear` hard-cancels the session; no graceful
+                        // stop here, so dismissal can never leave work behind.
+                        dismiss()
+                    }
+                    .accessibilityIdentifier("MobileVoiceModeDone")
+                }
+            }
+            .task {
+                await store.startVoiceFocusUpdates()
+            }
+            .sheet(isPresented: $showingHostPicker) {
+                MobileHostPickerView(store: store)
+            }
+            .onDisappear {
+                // Leaving the screen is a hard cancel, not a graceful stop: a
+                // graceful finish waits on the recognizer's final result, so a
+                // stalled recognizer would keep the unstructured update task and
+                // the ASR/CoreML session retained past the view lifetime.
+                // Dropping the unfinalized tail on navigation matches composer
+                // dictation's navigation semantics.
+                clearListeningSession(cancelSession: true, cancelUpdateTask: true)
+            }
+        }
+        .accessibilityIdentifier("MobileVoiceModeView")
+    }
+
+    /// Whether the Mac currently offers a valid Voice Mode target, independent
+    /// of this view's own start-in-progress state.
+    private var hasVoiceTarget: Bool {
+        store.supportsVoiceMode && store.voiceFocusSnapshot?.isTerminal == true
+    }
+
+    private var canStartListening: Bool {
+        hasVoiceTarget && !isStarting
+    }
+
+    @MainActor
+    private func startListening() async {
+        guard canStartListening else { return }
+        // A quick stop-then-start can land while the previous session is still
+        // finalizing gracefully. Hard-cancel it first so two transcription
+        // sessions (and their audio taps) can never be live at once.
+        if session != nil || updateTask != nil {
+            clearListeningSession(cancelSession: true, cancelUpdateTask: true)
+        }
+        sessionGeneration += 1
+        let generation = sessionGeneration
+        errorMessage = nil
+        isStarting = true
+        let engine = voiceSettings.effectiveEngine(installedEngines: modelCatalog.installedEngineIDs)
+        let vocabularyTerms = voiceVocabulary.recognitionTerms(
+            screenStrings: Self.screenVocabularyStrings(from: store.voiceFocusSnapshot)
+        )
+        let permitted = await VoicePermissionRequester().requestPermissions(for: engine)
+        // A stop (or a newer start) may have superseded this attempt while the
+        // permission prompt was up; it must not spin up a session.
+        guard generation == sessionGeneration, isStarting else { return }
+        // The focus target can also change while the prompt is up (Mac focus
+        // moved off a terminal, host switched, capabilities dropped); starting
+        // anyway would record against no valid target.
+        guard hasVoiceTarget else {
+            isStarting = false
+            return
+        }
+        guard permitted else {
+            isStarting = false
+            errorMessage = L10n.string("mobile.voiceMode.permissionDenied", defaultValue: "Microphone or speech recognition permission is not available.")
+            return
+        }
+
+        let session: any VoiceTranscriptionSession
+        switch engine {
+        case .apple:
+            session = AppleVoiceTranscriptionSession(contextualStrings: vocabularyTerms)
+        case .parakeetV3, .parakeetV3Int4, .parakeetV2:
+            guard let modelStore = modelCatalog.store(for: engine) else {
+                isStarting = false
+                errorMessage = L10n.string("mobile.voiceMode.audioUnavailable", defaultValue: "The microphone could not start.")
+                return
+            }
+            session = ParakeetTranscriptionSession(
+                modelStore: modelStore,
+                vocabularyTerms: vocabularyTerms,
+                vocabularyBoostDirectory: vocabularyBoostStore.installedDirectoryForRecognition
+            )
+        }
+        self.session = session
+        updateTask = Task { @MainActor in
+            for await update in session.updates {
+                handle(update)
+            }
+            handleUpdateStreamEnded(for: session)
+        }
+
+        nonisolated(unsafe) let capturedSession: any VoiceTranscriptionSession = session
+        audioEngine.start(tapBlock: { buffer, _ in
+            capturedSession.streamAudio(buffer)
+        }) { started in
+            Task { @MainActor in
+                // A stop, failure, or newer start superseded this attempt while
+                // the engine spun up off-main; its result must not flip state back.
+                guard generation == sessionGeneration else { return }
+                isStarting = false
+                isListening = started
+                if !started {
+                    errorMessage = L10n.string("mobile.voiceMode.audioUnavailable", defaultValue: "The microphone could not start.")
+                    stopListening()
+                }
+            }
+        }
+    }
+
+    private func stopListening() {
+        guard isListening || isStarting || session != nil else { return }
+        // Invalidate any in-flight engine-ready callback for the stopped attempt.
+        sessionGeneration += 1
+        isListening = false
+        isStarting = false
+        audioEngine.stop()
+        session?.finish()
+    }
+
+    private func handle(_ update: VoiceTranscriptionUpdate) {
+        switch update {
+        case .partial(let text):
+            partialTranscript = text
+        case .final(let text):
+            partialTranscript = ""
+            let id = utteranceHistory.appendFinal(text: text)
+            sendUtterance(id: id, text: text)
+        case .failed(let message):
+            errorMessage = message
+            clearListeningSession(cancelSession: true, cancelUpdateTask: true)
+        }
+    }
+
+    private func handleUpdateStreamEnded(for endedSession: any VoiceTranscriptionSession) {
+        guard let currentSession = session, currentSession === endedSession else { return }
+        clearListeningSession(cancelSession: true, cancelUpdateTask: false)
+    }
+
+    private func clearListeningSession(cancelSession: Bool, cancelUpdateTask: Bool) {
+        // Invalidate any in-flight engine-ready callback so it cannot set
+        // `isListening` after this teardown.
+        sessionGeneration += 1
+        isListening = false
+        isStarting = false
+        partialTranscript = ""
+        audioEngine.stop()
+        if cancelSession {
+            session?.cancel()
+        }
+        session = nil
+        if cancelUpdateTask {
+            updateTask?.cancel()
+        }
+        updateTask = nil
+    }
+
+    private func sendUtterance(id: VoiceUtterance.ID, text: String) {
+        let expectedFocusSnapshot = store.voiceFocusSnapshot
+        Task { @MainActor in
+            do {
+                let response = try await store.sendVoiceInput(
+                    text: text,
+                    submit: voiceSettings.voiceModeAutoSubmit,
+                    expectedFocusSnapshot: expectedFocusSnapshot
+                )
+                let title = response.surfaceTitle ?? L10n.string("mobile.voiceMode.terminal", defaultValue: "Terminal")
+                utteranceHistory.markSent(id: id, targetTitle: title)
+                errorMessage = nil
+            } catch {
+                utteranceHistory.markFailed(
+                    id: id,
+                    message: Self.sendErrorMessage(error),
+                    isTargetChanged: Self.isTargetChanged(error)
+                )
+            }
+        }
+    }
+
+    /// User-facing copy for a failed voice send. Mac-authored RPC and auth
+    /// messages are already localized UI copy and pass through; anything else
+    /// (transport, decode) is internal detail and maps to generic copy.
+    private static func sendErrorMessage(_ error: any Error) -> String {
+        if let connectionError = error as? MobileShellConnectionError {
+            switch connectionError {
+            case .rpcError(let code, let message):
+                if code == "target_changed" {
+                    return L10n.string(
+                        "mobile.voiceMode.targetChanged",
+                        defaultValue: "The focused pane changed. Check the target and speak again."
+                    )
+                }
+                return message
+            case .authorizationFailed(let message),
+                 .accountMismatch(let message):
+                return message
+            default:
+                break
+            }
+        }
+        return L10n.string(
+            "mobile.voiceMode.sendFailed",
+            defaultValue: "Couldn't send to the Mac. Check the connection and try again."
+        )
+    }
+
+    private static func isTargetChanged(_ error: any Error) -> Bool {
+        guard let connectionError = error as? MobileShellConnectionError,
+              case .rpcError(let code, _) = connectionError else {
+            return false
+        }
+        return code == "target_changed"
+    }
+
+    private static func screenVocabularyStrings(from snapshot: MobileFocusSnapshot?) -> [String] {
+        guard let snapshot else { return [] }
+        var values = [String]()
+        if let workspaceTitle = snapshot.workspaceTitle {
+            values.append(workspaceTitle)
+        }
+        if let surfaceTitle = snapshot.surfaceTitle {
+            values.append(surfaceTitle)
+        }
+        if let layout = snapshot.layout {
+            values.append(contentsOf: layout.panes.compactMap(\.title))
+        }
+        return values
+    }
+}
+#endif

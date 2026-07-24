@@ -336,7 +336,8 @@
     "assets": "アセット",
     "openSource": "オープンソース",
     "guides": "ガイド",
-    "compare": "比較"
+    "compare": "比較",
+    "support": "サポート"
   },
   "pricing": {
     "metaTitle": "料金 — cmux",
@@ -4665,5 +4666,19 @@
         "action": "プランを管理"
       }
     }
+  },
+  "support": {
+    "metaTitle": "サポート — cmux",
+    "metaDescription": "cmuxのヘルプ、問題報告、ドキュメントへのリンクです。",
+    "title": "サポート",
+    "intro": "cmuxについてサポートが必要な場合は、メール、GitHub Issues、またはドキュメントをご利用ください。",
+    "emailHeading": "メールサポート",
+    "emailPrefix": "アカウント、請求、非公開のサポートに関する質問は、こちらにメールしてください:",
+    "issuesHeading": "バグを報告",
+    "issuesPrefix": "再現可能なバグや機能リクエストは、こちらでIssueを作成または確認してください:",
+    "issuesLink": "GitHub Issues",
+    "docsHeading": "ドキュメントを読む",
+    "docsPrefix": "セットアップ、設定、機能ガイドは、こちらで確認できます:",
+    "docsLink": "cmuxドキュメント"
   }
 }

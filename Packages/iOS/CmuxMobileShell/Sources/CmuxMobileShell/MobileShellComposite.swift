@@ -100,6 +100,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let dogfoodFeedbackCapability = "dogfood.v1"
     static let workspaceGroupsCapability = "workspace.groups.v1"
     static let notificationFeedCapability = "notification.feed.v1"
+    private static let voiceInputCapability = "voice.input.v1"
+    private static let focusEventsCapability = "focus.events.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
     /// How long the render-grid stream may stay silent (no event of any topic)
     /// before the liveness watchdog suspects the push subscription is dead and
@@ -140,6 +142,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // does not fire for the in-init assignment, so this only observes
             // real transitions. The throttle's `outageOpen` is the per-outage gate.
             guard oldValue != connectionState else { return }
+            signalVoiceFocusConnectionChanged()
             if connectionState == .connected {
                 restartTerminalLanesForMountedSurfaces()
             } else {
@@ -365,7 +368,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
     /// computed from this set so version-skew checks cannot drift from the raw
     /// host payload.
-    public internal(set) var supportedHostCapabilities: Set<String> = []
+    public internal(set) var supportedHostCapabilities: Set<String> = [] {
+        didSet {
+            guard oldValue != supportedHostCapabilities else { return }
+            signalVoiceFocusConnectionChanged()
+        }
+    }
+    /// Whether the Mac supports iPhone Voice Mode input and focus streaming.
+    public var supportsVoiceMode: Bool {
+        supportedHostCapabilities.contains(Self.voiceInputCapability)
+            && supportedHostCapabilities.contains(Self.focusEventsCapability)
+    }
+    /// Current Mac focus target for Voice Mode.
+    public private(set) var voiceFocusSnapshot: MobileFocusSnapshot?
     @ObservationIgnored var terminalThemeState = MobileTerminalThemeState()
     /// The selected surface's effective theme and iOS chrome source of truth.
     public internal(set) var activeTerminalTheme: TerminalTheme = .monokai
@@ -694,6 +709,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public let diagnosticLog: DiagnosticLog?
     package var remoteClient: MobileCoreRPCClient? {
         didSet {
+            if oldValue !== remoteClient {
+                signalVoiceFocusConnectionChanged()
+            }
             if remoteClient == nil {
                 stopTerminalRefreshPolling()
                 cancelRemoteOperationTasks()
@@ -819,6 +837,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var createTerminalTaskID: UUID?
     var connectionGeneration: UUID
     var connectionAttemptGeneration: UUID
+    @ObservationIgnored private var voiceFocusConnectionWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
     @ObservationIgnored var macSwitchAttemptID: UUID?
     @ObservationIgnored var macSwitchAttemptSignInGeneration: Int?
     @ObservationIgnored var macSwitchRestorePreviousOnCancelAttemptIDs: Set<UUID> = []
@@ -6412,6 +6431,168 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         await sendRemoteTerminalInput(text, workspaceID: workspaceID, terminalID: terminalID)
+    }
+
+    /// Fetch the Mac's current focused pane for Voice Mode.
+    @discardableResult
+    public func fetchVoiceFocus() async -> MobileFocusSnapshot? {
+        guard supportsVoiceMode, let client = remoteClient else { return nil }
+        let generation = connectionGeneration
+        do {
+            let responseData = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(method: "mobile.focus.get", params: [:])
+            )
+            guard isCurrentRemoteOperation(client: client, generation: generation) else { return nil }
+            let snapshot = try MobileFocusSnapshot.decode(responseData)
+            voiceFocusSnapshot = snapshot
+            return snapshot
+        } catch {
+            guard generation == connectionGeneration else { return nil }
+            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return nil }
+            markMacConnectionUnavailableIfNeeded(after: error)
+            return nil
+        }
+    }
+
+    /// Subscribe to Mac focus updates until the caller's task is cancelled.
+    public func startVoiceFocusUpdates() async {
+        while !Task.isCancelled {
+            guard connectionState == .connected, supportsVoiceMode, let client = remoteClient else {
+                voiceFocusSnapshot = nil
+                await waitForVoiceFocusConnectionChange()
+                continue
+            }
+            let generation = connectionGeneration
+            let subscribed = await runVoiceFocusSubscription(client: client, generation: generation)
+            guard !Task.isCancelled else { return }
+            guard !subscribed, isCurrentRemoteOperation(client: client, generation: generation) else {
+                continue
+            }
+            await waitForVoiceFocusConnectionChange()
+        }
+    }
+
+    private func runVoiceFocusSubscription(client: MobileCoreRPCClient, generation: UUID) async -> Bool {
+        let streamID = "ios-focus-\(UUID().uuidString)"
+        let stream = await client.subscribe(to: ["focus.updated"])
+        do {
+            _ = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(
+                    method: "mobile.events.subscribe",
+                    params: ["stream_id": streamID, "topics": ["focus.updated"]]
+                )
+            )
+        } catch {
+            guard generation == connectionGeneration else { return false }
+            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return false }
+            markMacConnectionUnavailableIfNeeded(after: error)
+            return false
+        }
+
+        // Seed AFTER the subscription is installed, not before: a focus change
+        // during the subscribe round-trip would otherwise be lost and the card
+        // would stay stale until the next change on the Mac.
+        _ = await fetchVoiceFocus()
+        guard !Task.isCancelled, isCurrentRemoteOperation(client: client, generation: generation) else {
+            await unsubscribeVoiceFocus(client: client, streamID: streamID, generation: generation)
+            return false
+        }
+
+        await withTaskCancellationHandler {
+            for await event in stream {
+                guard !Task.isCancelled else { break }
+                guard isCurrentRemoteOperation(client: client, generation: generation) else { break }
+                guard event.topic == "focus.updated", event.streamID == nil || event.streamID == streamID else {
+                    continue
+                }
+                guard let payloadJSON = event.payloadJSON,
+                      let snapshot = try? MobileFocusSnapshot.decode(payloadJSON) else {
+                    continue
+                }
+                voiceFocusSnapshot = snapshot
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                await self?.unsubscribeVoiceFocus(client: client, streamID: streamID, generation: generation)
+            }
+        }
+        await unsubscribeVoiceFocus(client: client, streamID: streamID, generation: generation)
+        return true
+    }
+
+    /// Best-effort unsubscribe. Skipped when the connection generation moved on:
+    /// `sendRequest` dials through `ensureConnected`, so an unconditional send
+    /// after a disconnect or Mac switch would reconnect a stale Mac just to
+    /// unsubscribe a stream it already dropped.
+    private func unsubscribeVoiceFocus(client: MobileCoreRPCClient, streamID: String, generation: UUID) async {
+        guard isCurrentRemoteOperation(client: client, generation: generation) else { return }
+        guard let request = try? MobileCoreRPCClient.requestData(
+            method: "mobile.events.unsubscribe",
+            params: ["stream_id": streamID]
+        ) else { return }
+        _ = try? await client.sendRequest(request)
+    }
+
+    private func signalVoiceFocusConnectionChanged() {
+        let waiters = voiceFocusConnectionWaiters.values
+        voiceFocusConnectionWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+    }
+
+    private func waitForVoiceFocusConnectionChange() async {
+        guard !Task.isCancelled else { return }
+        let waiterID = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                voiceFocusConnectionWaiters[waiterID] = continuation
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.resumeVoiceFocusConnectionWaiter(waiterID)
+            }
+        }
+    }
+
+    private func resumeVoiceFocusConnectionWaiter(_ waiterID: UUID) {
+        guard let continuation = voiceFocusConnectionWaiters.removeValue(forKey: waiterID) else { return }
+        continuation.resume()
+    }
+
+    /// Insert finalized Voice Mode text into the Mac's currently focused terminal.
+    public func sendVoiceInput(
+        text: String,
+        submit: Bool,
+        expectedFocusSnapshot: MobileFocusSnapshot?
+    ) async throws -> MobileVoiceInputResponse {
+        guard let expectedFocusSnapshot,
+              expectedFocusSnapshot.isTerminal,
+              let expectedWorkspaceID = expectedFocusSnapshot.workspaceID,
+              let expectedSurfaceID = expectedFocusSnapshot.surfaceID else {
+            throw MobileShellConnectionError.rpcError(
+                "no_focused_terminal",
+                L10n.string("mobile.voiceMode.clickTerminal", defaultValue: "Click a terminal pane on your Mac.")
+            )
+        }
+        guard let client = remoteClient else {
+            throw MobileShellConnectionError.connectionClosed
+        }
+        let generation = connectionGeneration
+        let responseData = try await client.sendRequest(
+            MobileCoreRPCClient.requestData(
+                method: "mobile.voice.input",
+                params: [
+                    "text": text,
+                    "submit": submit,
+                    "client_id": clientID,
+                    "expected_workspace_id": expectedWorkspaceID,
+                    "expected_surface_id": expectedSurfaceID,
+                ]
+            )
+        )
+        guard isCurrentRemoteOperation(client: client, generation: generation) else {
+            throw MobileShellConnectionError.connectionClosed
+        }
+        return try MobileVoiceInputResponse.decode(responseData)
     }
 
     private func sendRemoteTerminalInput(

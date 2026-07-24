@@ -12,6 +12,8 @@ import CmuxMobileSupport
 /// ``MobileBrowserView`` carries those into the web view. A close action
 /// returns the workspace to its terminal.
 public struct MobileBrowserPane: View {
+    @Environment(MobileBrowserSettings.self) private var browserSettings
+
     /// The browser surface state this pane drives and reflects.
     @State private var state: BrowserSurfaceState
 
@@ -93,7 +95,9 @@ public struct MobileBrowserPane: View {
             state.isAddressEditing = focused
         }
         .onSubmit {
-            if state.submitAddress() {
+            if state.submitAddress(using: { input in
+                BrowserURLResolver.resolve(input, searchTemplate: browserSettings.searchTemplate)
+            }) {
                 isAddressFocused = false
             }
         }

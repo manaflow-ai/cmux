@@ -10,6 +10,11 @@ import SwiftUI
 /// their position is customizable too. Backed by ``TerminalAccessoryConfiguration``,
 /// so edits apply to the live bar immediately.
 struct TerminalShortcutsSettingsView: View {
+    enum Presentation {
+        case sheet
+        case pushed
+    }
+
     // TRANSITIONAL: TerminalAccessoryConfiguration.shared is also read by the
     // off-limits typing-latency render path (TerminalInputTextView); inverting it
     // to an injected store requires threading it through that path, which is
@@ -17,69 +22,89 @@ struct TerminalShortcutsSettingsView: View {
     // singleton reach-in so behavior stays identical.
     private var configuration: TerminalAccessoryConfiguration { .shared }
     private let scope: TerminalShortcutsSettingsScope
+    private let presentation: Presentation
     @Environment(\.dismiss) private var dismiss
     @State private var isAddingAction = false
     @State private var editingAction: CustomToolbarAction?
 
-    init(scope: TerminalShortcutsSettingsScope = .terminal) {
+    init(scope: TerminalShortcutsSettingsScope = .terminal, presentation: Presentation = .sheet) {
         self.scope = scope
+        self.presentation = presentation
     }
 
+    @ViewBuilder
     var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    ForEach(displayedItems) { item in
-                        row(for: item)
+        switch presentation {
+        case .sheet:
+            NavigationStack {
+                content
+                    .toolbar {
+                        editToolbar
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button(L10n.string("mobile.common.done", defaultValue: "Done")) {
+                                dismiss()
+                            }
+                            .accessibilityIdentifier("TerminalShortcutsDoneButton")
+                        }
                     }
-                    .onMove(perform: moveDisplayedItems)
-                } header: {
-                    Text(L10n.string("mobile.shortcuts.header", defaultValue: "Shortcut Buttons"))
-                } footer: {
-                    Text(scope.footer)
+            }
+        case .pushed:
+            content
+                .toolbar {
+                    editToolbar
                 }
+        }
+    }
 
-                Section {
-                    Button {
-                        isAddingAction = true
-                    } label: {
-                        Label(
-                            L10n.string("mobile.shortcuts.addAction", defaultValue: "Add Custom Action"),
-                            systemImage: "plus"
-                        )
-                    }
-                    .accessibilityIdentifier("TerminalShortcutsAddActionButton")
+    private var content: some View {
+        List {
+            Section {
+                ForEach(displayedItems) { item in
+                    row(for: item)
                 }
+                .onMove(perform: moveDisplayedItems)
+            } header: {
+                Text(L10n.string("mobile.shortcuts.header", defaultValue: "Shortcut Buttons"))
+            } footer: {
+                Text(scope.footer)
+            }
 
-                Section {
-                    Button(role: .destructive) {
-                        configuration.resetToDefaults()
-                    } label: {
-                        Text(L10n.string("mobile.shortcuts.reset", defaultValue: "Reset to Defaults"))
-                    }
-                    .accessibilityIdentifier("TerminalShortcutsResetButton")
+            Section {
+                Button {
+                    isAddingAction = true
+                } label: {
+                    Label(
+                        L10n.string("mobile.shortcuts.addAction", defaultValue: "Add Custom Action"),
+                        systemImage: "plus"
+                    )
                 }
+                .accessibilityIdentifier("TerminalShortcutsAddActionButton")
             }
-            .navigationTitle(scope.navigationTitle)
-            .mobileInlineNavigationTitle()
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    EditButton()
-                        .accessibilityIdentifier("TerminalShortcutsEditButton")
+
+            Section {
+                Button(role: .destructive) {
+                    configuration.resetToDefaults()
+                } label: {
+                    Text(L10n.string("mobile.shortcuts.reset", defaultValue: "Reset to Defaults"))
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(L10n.string("mobile.common.done", defaultValue: "Done")) {
-                        dismiss()
-                    }
-                    .accessibilityIdentifier("TerminalShortcutsDoneButton")
-                }
+                .accessibilityIdentifier("TerminalShortcutsResetButton")
             }
-            .sheet(isPresented: $isAddingAction) {
-                CustomToolbarActionEditorView(action: nil) { configuration.addCustomAction($0) }
-            }
-            .sheet(item: $editingAction) { action in
-                CustomToolbarActionEditorView(action: action) { configuration.updateCustomAction($0) }
-            }
+        }
+        .navigationTitle(scope.navigationTitle)
+        .mobileInlineNavigationTitle()
+        .sheet(isPresented: $isAddingAction) {
+            CustomToolbarActionEditorView(action: nil) { configuration.addCustomAction($0) }
+        }
+        .sheet(item: $editingAction) { action in
+            CustomToolbarActionEditorView(action: action) { configuration.updateCustomAction($0) }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var editToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            EditButton()
+                .accessibilityIdentifier("TerminalShortcutsEditButton")
         }
     }
 
