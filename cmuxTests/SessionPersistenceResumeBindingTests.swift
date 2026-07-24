@@ -232,6 +232,31 @@ import Testing
         #expect(!startupInput.contains(staleExecutablePath), "\(startupInput)")
     }
 
+    @Test func agentHookCodexBindingWithShellOperatorUsesSystemEnv() throws {
+        let staleExecutablePath = Self.homeManagedExecutablePath(
+            executableName: "codex",
+            ".nvm",
+            "versions",
+            "node",
+            "cmux-missing-\(UUID().uuidString)",
+            "bin"
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "'\(staleExecutablePath)' 'resume' 'session-operator-cli' 2>/tmp/codex.log && echo done",
+            checkpointId: "session-operator-cli",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        let startupInput = try #require(binding.startupInput)
+
+        #expect(startupInput.contains("/bin/sh -c"), "\(startupInput)")
+        #expect(startupInput.contains("'/usr/bin/env'"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CODEX_WRAPPER_SHIM"), "\(startupInput)")
+        #expect(startupInput.contains("session-operator-cli 2>/tmp/codex.log && echo done"), "\(startupInput)")
+    }
+
     @Test func localAgentHookBindingRoutesRemoteLookingCodexPathThroughWrapper() throws {
         let remoteExecutablePath = "/home/me/.nvm/versions/node/v24.2.0/bin/codex"
         let binding = SurfaceResumeBindingSnapshot(
