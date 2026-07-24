@@ -2937,12 +2937,8 @@ struct TextBoxInputContainer: View {
         _ = surface.sendNamedKey("ctrl-\(key)")
     }
 
-    private func handlePaste(_ pasteboard: NSPasteboard, into textView: TextBoxInputTextView) -> Bool {
-        let preparedContent = TerminalImageTransferPlanner.prepare(
-            pasteboard: pasteboard,
-            mode: .paste
-        )
-        return insertPreparedContent(preparedContent, into: textView)
+    func ownsTextView(_ textView: TextBoxInputTextView) -> Bool {
+        textViewReference.textView === textView
     }
 
     private func insertPreparedContent(
@@ -2994,15 +2990,26 @@ struct TextBoxInputContainer: View {
         }
     }
 
-    private func uploadFileAttachments(
+    func uploadFileAttachments(
         _ fileURLs: [URL],
         remoteTarget: TerminalRemoteUploadTarget,
-        focusing textView: TextBoxInputTextView
+        focusing textView: TextBoxInputTextView,
+        replacingPlaceholderID existingPlaceholderID: UUID? = nil,
+        validationToken existingValidationToken: UInt64? = nil,
+        preparedAttachments: [TextBoxPreparedAttachment] = []
     ) {
-        let placeholderID = UUID()
-        textView.insertPendingAttachmentUploadPlaceholder(id: placeholderID)
+        let placeholderID = existingPlaceholderID ?? UUID()
+        if existingPlaceholderID == nil {
+            textView.insertPendingAttachmentUploadPlaceholder(id: placeholderID)
+        }
         let operation = TerminalImageTransferOperation()
-        let uploadValidationToken = textView.pendingAttachmentUploadValidationToken()
+        let uploadValidationToken = existingValidationToken
+            ?? textView.pendingAttachmentUploadValidationToken()
+        let preparedAttachmentsByPath = Dictionary(
+            uniqueKeysWithValues: preparedAttachments.map {
+                ($0.fileURL.standardizedFileURL.path, $0)
+            }
+        )
         surface.hostedView.beginImageTransferIndicator(
             for: operation,
             onCancel: { _ = operation.cancel() }
@@ -3036,6 +3043,18 @@ struct TextBoxInputContainer: View {
                     }
                     let newAttachments = fileURLs.enumerated().compactMap { index, fileURL -> TextBoxAttachment? in
                         guard remotePaths.indices.contains(index) else { return nil }
+                        if let preparedAttachment = preparedAttachmentsByPath[
+                            fileURL.standardizedFileURL.path
+                        ] {
+                            return TextBoxAttachment(
+                                preparedAttachment: preparedAttachment,
+                                submissionText: TextBoxAttachment.submissionText(
+                                    forPath: remotePaths[index]
+                                ),
+                                submissionPath: remotePaths[index],
+                                cleanupLocalURLWhenDisposed: true
+                            )
+                        }
                         return TextBoxAttachment(
                             localURL: fileURL,
                             submissionText: TextBoxAttachment.submissionText(forPath: remotePaths[index]),
@@ -3479,6 +3498,7 @@ final class TextBoxInputTextView: NSTextView {
     private var attachmentKeyDownMonitor: Any?
     private var preserveAttachmentFocusOnNextResign = false
     private var attachmentUploadInvalidationGeneration: UInt64 = 0
+    var activePastePreparationTasks: [UUID: Task<Void, Never>] = [:]
     private var mentionCompletionPanel: TextBoxMentionCompletionPanel?
     private var mentionCompletionPanelHost: NSHostingView<TextBoxMentionCompletionPopoverView>?
     private var mentionCompletionControllerStorage: TextBoxMentionCompletionController?
@@ -3839,6 +3859,41 @@ final class TextBoxInputTextView: NSTextView {
                 selectedRangeBeforeReplacement,
                 replacing: placeholderRange,
                 insertedLength: inserted.length
+            )
+        )
+        normalizeTextBaselineOffsets()
+        recenterSingleLineTextContainer()
+        didChangeText()
+        return true
+    }
+
+    @discardableResult
+    func replacePendingAttachmentUploadPlaceholder(
+        id: UUID,
+        withText insertedText: String
+    ) -> Bool {
+        guard !insertedText.isEmpty,
+              let textStorage,
+              let placeholderRange = pendingAttachmentUploadPlaceholderRange(
+                id: id
+              ) else {
+            return false
+        }
+
+        let selectedRangeBeforeReplacement = selectedRange()
+        let attributedText = NSAttributedString(
+            string: insertedText,
+            attributes: currentTextAttributes()
+        )
+        textStorage.replaceCharacters(
+            in: placeholderRange,
+            with: attributedText
+        )
+        setSelectedRange(
+            adjustedSelectionRange(
+                selectedRangeBeforeReplacement,
+                replacing: placeholderRange,
+                insertedLength: attributedText.length
             )
         )
         normalizeTextBaselineOffsets()
@@ -4793,6 +4848,7 @@ final class TextBoxInputTextView: NSTextView {
 
     func invalidatePendingAttachmentUploads() {
         attachmentUploadInvalidationGeneration &+= 1
+        cancelActivePastePreparations()
     }
 
     func submitIfAllowed() {

@@ -4,7 +4,7 @@ import AppKit
 import CmuxRemoteSession
 import UniformTypeIdentifiers
 
-enum TerminalImageTransferMode {
+enum TerminalImageTransferMode: Sendable {
     case paste
     case drop
 }
@@ -26,7 +26,7 @@ enum TerminalImageTransferPlan: Equatable {
     case reject
 }
 
-enum TerminalImageTransferPreparedContent: Equatable {
+enum TerminalImageTransferPreparedContent: Equatable, Sendable {
     case insertText(String)
     case fileURLs([URL])
     case reject
@@ -175,7 +175,7 @@ enum TerminalImageTransferPlanner {
         target: TerminalImageTransferTarget
     ) -> TerminalImageTransferPlan {
         plan(
-            preparedContent: prepare(pasteboard: pasteboard, mode: mode),
+            preparedContent: prepareSynchronously(pasteboard: pasteboard, mode: mode),
             target: target,
             mode: mode
         )
@@ -186,7 +186,7 @@ enum TerminalImageTransferPlanner {
         mode: TerminalImageTransferMode,
         resolveTarget: () -> TerminalImageTransferTarget
     ) -> TerminalImageTransferPlan {
-        let preparedContent = prepare(pasteboard: pasteboard, mode: mode)
+        let preparedContent = prepareSynchronously(pasteboard: pasteboard, mode: mode)
         switch preparedContent {
         case .insertText, .reject:
             return plan(preparedContent: preparedContent, target: .local, mode: mode)
@@ -195,7 +195,19 @@ enum TerminalImageTransferPlanner {
         }
     }
 
+    @MainActor
     static func prepare(
+        pasteboard: NSPasteboard,
+        mode: TerminalImageTransferMode
+    ) async -> TerminalImageTransferPreparedContent {
+        let request = TerminalPasteboardReadRequest(pasteboard: pasteboard)
+        return await TerminalImageTransferPreparationService().prepare(
+            request: request,
+            mode: mode
+        )
+    }
+
+    static func prepareSynchronously(
         pasteboard: NSPasteboard,
         mode: TerminalImageTransferMode
     ) -> TerminalImageTransferPreparedContent {
