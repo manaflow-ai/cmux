@@ -893,10 +893,13 @@ async fn run_registration_loop(
             &mut first_ready,
         )
         .await;
-        if result.is_err()
-            && let Some(sender) = first_ready.take()
+        if let Err(error) = result
+            && first_ready.is_some()
+            && !error.is_retryable_carrier_failure()
         {
-            let _ = sender.send(Err(ProviderError::Transport(result.unwrap_err().to_string())));
+            if let Some(sender) = first_ready.take() {
+                let _ = sender.send(Err(error));
+            }
             return;
         }
         if *shutdown.borrow() {
@@ -1133,7 +1136,9 @@ fn relay_connect_error(error: WebSocketError) -> ProviderError {
         WebSocketError::Http(response) => format!("HTTP status {}", response.status()),
         WebSocketError::HttpFormat(_) => "invalid HTTP handshake".into(),
     };
-    ProviderError::Transport(format!("relay WebSocket connection failed: {detail}"))
+    ProviderError::Link(LinkError::Transport(format!(
+        "relay WebSocket connection failed: {detail}"
+    )))
 }
 
 fn bearer_header(credential: &RelayCredential) -> Result<HeaderValue, ProviderError> {

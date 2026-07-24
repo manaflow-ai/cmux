@@ -65,6 +65,39 @@ impl Default for ReconnectPolicy {
     }
 }
 
+impl ReconnectPolicy {
+    pub fn validate(self) -> Result<(), ConnectionError> {
+        if self.initial_delay.is_zero()
+            || self.maximum_delay < self.initial_delay
+            || self.attempt_timeout.is_zero()
+        {
+            return Err(ConnectionError::Protocol(
+                "reconnect delays and attempt timeout must be positive, with max delay at least initial"
+                    .into(),
+            ));
+        }
+        if self.maximum_attempts == Some(0) {
+            return Err(ConnectionError::Protocol(
+                "reconnect maximum attempts must be positive or unlimited".into(),
+            ));
+        }
+        if self.heartbeat_interval.is_some_and(|interval| interval.is_zero())
+            || (self.heartbeat_interval.is_some() && self.heartbeat_timeout.is_zero())
+        {
+            return Err(ConnectionError::Protocol(
+                "heartbeat interval and timeout must be positive when heartbeats are enabled"
+                    .into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Applies this policy's jitter setting to the current backoff ceiling.
+    pub fn retry_delay(self, ceiling: Duration) -> Duration {
+        jittered_delay(ceiling, self.full_jitter)
+    }
+}
+
 /// Supplies a fresh transport group after the current route fails. The
 /// authentication/session layer stays above this interface, so cycling from a
 /// direct socket to Iroh or a relay cannot change daemon authority.
@@ -180,7 +213,7 @@ impl ClientConnection {
         config: ClientConnectionConfig,
         reconnect_groups: Option<Arc<dyn ReconnectGroupSource>>,
     ) -> Result<Arc<Self>, ConnectionError> {
-        validate_reconnect_policy(config.reconnect)?;
+        config.reconnect.validate()?;
         let (link, daemon_public_key, _) =
             establish_physical_links(group.clone(), &config, 0, BTreeMap::new()).await?;
         let session = ReliableSession::new(config.session, Arc::new(link), config.limits);
@@ -566,8 +599,7 @@ impl ClientConnection {
                     {
                         group = next;
                     }
-                    tokio::time::sleep(jittered_delay(delay, self.config.reconnect.full_jitter))
-                        .await;
+                    tokio::time::sleep(self.config.reconnect.retry_delay(delay)).await;
                     delay = (delay * 2).min(self.config.reconnect.maximum_delay);
                 }
                 Err(error) => return Err(error),
@@ -651,31 +683,6 @@ async fn wait_for_close(mut state: watch::Receiver<CloseState>) -> Result<(), Co
             .await
             .map_err(|_| ConnectionError::Protocol("connection shutdown state stopped".into()))?;
     }
-}
-
-fn validate_reconnect_policy(policy: ReconnectPolicy) -> Result<(), ConnectionError> {
-    if policy.initial_delay.is_zero()
-        || policy.maximum_delay < policy.initial_delay
-        || policy.attempt_timeout.is_zero()
-    {
-        return Err(ConnectionError::Protocol(
-            "reconnect delays and attempt timeout must be positive, with max delay at least initial"
-                .into(),
-        ));
-    }
-    if policy.maximum_attempts == Some(0) {
-        return Err(ConnectionError::Protocol(
-            "reconnect maximum attempts must be positive or unlimited".into(),
-        ));
-    }
-    if policy.heartbeat_interval.is_some_and(|interval| interval.is_zero())
-        || (policy.heartbeat_interval.is_some() && policy.heartbeat_timeout.is_zero())
-    {
-        return Err(ConnectionError::Protocol(
-            "heartbeat interval and timeout must be positive when heartbeats are enabled".into(),
-        ));
-    }
-    Ok(())
 }
 
 async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout: Duration) {
@@ -854,6 +861,24 @@ pub enum ConnectionError {
     Closed,
 }
 
+impl ConnectionError {
+    /// Whether the error represents an unavailable carrier rather than a
+    /// rejected identity, invalid configuration, or protocol violation.
+    pub fn is_retryable_carrier_failure(&self) -> bool {
+        match self {
+            Self::Provider(error) => error.is_retryable_carrier_failure(),
+            Self::Crypto(CryptoError::LinkError(LinkError::Closed | LinkError::Transport(_)))
+            | Self::Crypto(CryptoError::UnexpectedEof)
+            | Self::Link(LinkError::Closed | LinkError::Transport(_))
+            | Self::Session(SessionError::Link(LinkError::Closed | LinkError::Transport(_)))
+            | Self::Session(SessionError::LinkMessage(_))
+            | Self::Session(SessionError::SchedulerClosed)
+            | Self::ReconnectAttemptTimedOut { .. } => true,
+            _ => false,
+        }
+    }
+}
+
 impl fmt::Display for ConnectionError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -886,21 +911,15 @@ fn reconnectable_session_error(error: &SessionError) -> bool {
 }
 
 fn retryable_connection_error(error: &ConnectionError) -> bool {
-    matches!(
-        error,
-        ConnectionError::Provider(ProviderError::Transport(_))
-            | ConnectionError::Provider(ProviderError::Link(
-                LinkError::Closed | LinkError::Transport(_)
-            ))
-            | ConnectionError::Crypto(CryptoError::LinkError(_))
-            | ConnectionError::Crypto(CryptoError::Link(_))
-            | ConnectionError::Crypto(CryptoError::UnexpectedEof)
-            | ConnectionError::Link(_)
-            | ConnectionError::Session(SessionError::Link(_))
-            | ConnectionError::Session(SessionError::LinkMessage(_))
-            | ConnectionError::Session(SessionError::SchedulerClosed)
-            | ConnectionError::ReconnectAttemptTimedOut { .. }
-    )
+    error.is_retryable_carrier_failure()
+        || matches!(
+            error,
+            ConnectionError::Provider(ProviderError::Transport(_))
+                | ConnectionError::Crypto(CryptoError::LinkError(_))
+                | ConnectionError::Crypto(CryptoError::Link(_))
+                | ConnectionError::Link(_)
+                | ConnectionError::Session(SessionError::Link(_))
+        )
 }
 
 impl std::error::Error for ConnectionError {}

@@ -399,6 +399,29 @@ impl fmt::Display for BootstrapError {
 
 impl std::error::Error for BootstrapError {}
 
+impl BootstrapError {
+    pub fn is_retryable_carrier_failure(&self) -> bool {
+        match self {
+            Self::Timeout
+            | Self::Remote { status: 255, .. }
+            | Self::Install { status: 255, .. } => true,
+            Self::Io(error) => matches!(
+                error.kind(),
+                std::io::ErrorKind::ConnectionRefused
+                    | std::io::ErrorKind::ConnectionReset
+                    | std::io::ErrorKind::ConnectionAborted
+                    | std::io::ErrorKind::NotConnected
+                    | std::io::ErrorKind::BrokenPipe
+                    | std::io::ErrorKind::TimedOut
+                    | std::io::ErrorKind::Interrupted
+                    | std::io::ErrorKind::WouldBlock
+                    | std::io::ErrorKind::UnexpectedEof
+            ),
+            _ => false,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -424,6 +447,23 @@ mod tests {
 
         assert!(bootstrapper.compatible(&probe(Some("0.9.4"))));
         assert!(!bootstrapper.compatible(&probe(Some("0.9.3"))));
+    }
+
+    #[test]
+    fn bootstrap_retryability_separates_carrier_loss_from_terminal_setup() {
+        assert!(BootstrapError::Timeout.is_retryable_carrier_failure());
+        assert!(
+            BootstrapError::Remote { status: 255, stderr: "network unreachable".into() }
+                .is_retryable_carrier_failure()
+        );
+        assert!(
+            !BootstrapError::Configuration("bad command".into()).is_retryable_carrier_failure()
+        );
+        assert!(!BootstrapError::Missing.is_retryable_carrier_failure());
+        assert!(
+            !BootstrapError::Remote { status: 2, stderr: "usage".into() }
+                .is_retryable_carrier_failure()
+        );
     }
 
     #[test]

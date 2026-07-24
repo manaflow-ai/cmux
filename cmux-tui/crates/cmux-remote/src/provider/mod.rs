@@ -272,6 +272,15 @@ pub enum ProviderError {
     Transport(String),
 }
 
+impl ProviderError {
+    /// Whether a provider failed because its current carrier path disappeared
+    /// or could not be established. Configuration, authentication, and
+    /// protocol failures remain terminal.
+    pub fn is_retryable_carrier_failure(&self) -> bool {
+        matches!(self, Self::Link(LinkError::Closed | LinkError::Transport(_)))
+    }
+}
+
 impl fmt::Display for ProviderError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -313,6 +322,26 @@ mod tests {
     use crate::crypto::AuthKind;
 
     use super::*;
+
+    #[test]
+    fn carrier_retryability_excludes_configuration_authentication_and_protocol_failures() {
+        assert!(ProviderError::Link(LinkError::Closed).is_retryable_carrier_failure());
+        assert!(
+            ProviderError::Link(LinkError::Transport("edge unavailable".into()))
+                .is_retryable_carrier_failure()
+        );
+        assert!(
+            !ProviderError::Link(LinkError::Protocol("bad frame".into()))
+                .is_retryable_carrier_failure()
+        );
+        assert!(
+            !ProviderError::Configuration("bad endpoint".into()).is_retryable_carrier_failure()
+        );
+        assert!(
+            !ProviderError::Transport("authentication rejected".into())
+                .is_retryable_carrier_failure()
+        );
+    }
 
     struct CountingProvider {
         calls: AtomicUsize,

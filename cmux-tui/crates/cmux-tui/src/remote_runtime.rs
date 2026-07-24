@@ -35,7 +35,7 @@ use cmux_remote::provider::{
 use cmux_remote::service::{EndpointRole, ServiceMultiplexer};
 use cmux_remote::services::DaemonServices;
 use cmux_remote::session::SessionLimits;
-use cmux_remote::ssh_bootstrap::{SshBootstrapConfig, SshBootstrapper};
+use cmux_remote::ssh_bootstrap::{BootstrapError, SshBootstrapConfig, SshBootstrapper};
 use cmux_remote::workspace::WorkspaceService;
 use cmux_remote_protocol::{LanePolicy, SessionId};
 use serde::{Deserialize, Serialize};
@@ -412,6 +412,7 @@ pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<Cli
     if options.startup_timeout.is_zero() {
         return Err(anyhow!("remote startup timeout must be positive"));
     }
+    options.reconnect.validate()?;
     let startup_timeout = options.startup_timeout;
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
@@ -520,28 +521,74 @@ async fn run_client(
 
 async fn connect_first_available(
     options: &ClientRuntimeOptions,
-    shutdown: watch::Receiver<bool>,
+    mut shutdown: watch::Receiver<bool>,
 ) -> anyhow::Result<(Arc<ClientConnection>, String)> {
-    let mut attempt = RuntimeInitialRouteAttempt { options, shutdown };
-    select_initial_route(
-        &options.routes,
-        options.session,
-        options.lane_policy,
-        client_auth_kind(&options.auth),
-        options.ssh_bootstrap.upgrade,
-        &mut attempt,
-    )
-    .await
+    let mut attempts = 0_u32;
+    let mut delay = options.reconnect.initial_delay;
+    loop {
+        attempts = attempts.saturating_add(1);
+        let mut attempt = RuntimeInitialRouteAttempt { options, shutdown: shutdown.clone() };
+        match select_initial_route(
+            &options.routes,
+            options.session,
+            options.lane_policy,
+            client_auth_kind(&options.auth),
+            options.ssh_bootstrap.upgrade,
+            &mut attempt,
+        )
+        .await
+        {
+            Ok(connection) => return Ok(connection),
+            Err(error)
+                if error.retryable
+                    && options
+                        .reconnect
+                        .maximum_attempts
+                        .is_none_or(|maximum| attempts < maximum) =>
+            {
+                tokio::select! {
+                    _ = tokio::time::sleep(options.reconnect.retry_delay(delay)) => {}
+                    _ = wait_for_shutdown(&mut shutdown) => {
+                        return Err(anyhow!("remote client startup was cancelled"));
+                    }
+                }
+                delay = (delay * 2).min(options.reconnect.maximum_delay);
+            }
+            Err(error) => return Err(error.error),
+        }
+    }
 }
 
 enum InitialRouteAttemptError {
-    Route(anyhow::Error),
+    Route { error: anyhow::Error, retryable: bool },
     Fatal(anyhow::Error),
+}
+
+#[derive(Debug)]
+struct InitialRouteSelectionError {
+    error: anyhow::Error,
+    retryable: bool,
+}
+
+impl InitialRouteSelectionError {
+    fn terminal(error: anyhow::Error) -> Self {
+        Self { error, retryable: false }
+    }
+}
+
+impl fmt::Display for InitialRouteSelectionError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.error.fmt(formatter)
+    }
 }
 
 #[async_trait]
 trait InitialRouteAttempt<T: Send> {
-    async fn bootstrap_ssh(&mut self, endpoint: &Url, upgrade: bool) -> anyhow::Result<()>;
+    async fn bootstrap_ssh(
+        &mut self,
+        endpoint: &Url,
+        upgrade: bool,
+    ) -> Result<(), InitialRouteAttemptError>;
     async fn connect(
         &mut self,
         index: usize,
@@ -556,14 +603,19 @@ async fn select_initial_route<T: Send>(
     auth: AuthKind,
     upgrade: bool,
     attempt: &mut impl InitialRouteAttempt<T>,
-) -> anyhow::Result<T> {
+) -> Result<T, InitialRouteSelectionError> {
     if routes.is_empty() {
-        return Err(anyhow!("remote connection has no route candidates"));
+        return Err(InitialRouteSelectionError::terminal(anyhow!(
+            "remote connection has no route candidates"
+        )));
     }
     if upgrade && routes[0].endpoint.scheme() != "ssh" {
-        return Err(anyhow!("--upgrade requires SSH to be the initial route"));
+        return Err(InitialRouteSelectionError::terminal(anyhow!(
+            "--upgrade requires SSH to be the initial route"
+        )));
     }
     let mut failures = Vec::new();
+    let mut retryable = false;
     for (index, candidate) in routes.iter().enumerate() {
         let display_endpoint = sanitized_route(&candidate.endpoint);
         if !candidate.supports_client_auth(auth) {
@@ -576,32 +628,48 @@ async fn select_initial_route<T: Send>(
             ));
             continue;
         }
-        let request = connect_request(candidate, session, lane_policy)?;
+        let request = connect_request(candidate, session, lane_policy)
+            .map_err(InitialRouteSelectionError::terminal)?;
         let endpoint = request.endpoint.clone();
         let upgrade_candidate = upgrade && index == 0;
-        if endpoint.scheme() == "ssh"
-            && let Err(error) = attempt.bootstrap_ssh(&endpoint, upgrade_candidate).await
-        {
-            if upgrade_candidate {
-                return Err(anyhow!("SSH bootstrap failed for {display_endpoint}: {error:#}"));
+        if endpoint.scheme() == "ssh" {
+            match attempt.bootstrap_ssh(&endpoint, upgrade_candidate).await {
+                Ok(()) => {}
+                Err(InitialRouteAttemptError::Route { error, retryable: route_retryable }) => {
+                    if upgrade_candidate {
+                        return Err(InitialRouteSelectionError::terminal(anyhow!(
+                            "SSH bootstrap failed for {display_endpoint}: {error:#}"
+                        )));
+                    }
+                    retryable |= route_retryable;
+                    failures.push(format!("{display_endpoint}: SSH bootstrap failed: {error:#}"));
+                    continue;
+                }
+                Err(InitialRouteAttemptError::Fatal(error)) => {
+                    return Err(InitialRouteSelectionError::terminal(error));
+                }
             }
-            failures.push(format!("{display_endpoint}: SSH bootstrap failed: {error:#}"));
-            continue;
         }
         match attempt.connect(index, request).await {
             Ok(result) => return Ok(result),
-            Err(InitialRouteAttemptError::Route(error)) => {
+            Err(InitialRouteAttemptError::Route { error, retryable: route_retryable }) => {
                 if upgrade_candidate {
-                    return Err(anyhow!(
+                    return Err(InitialRouteSelectionError::terminal(anyhow!(
                         "upgraded SSH route failed for {display_endpoint}: {error:#}"
-                    ));
+                    )));
                 }
+                retryable |= route_retryable;
                 failures.push(format!("{display_endpoint}: {error:#}"));
             }
-            Err(InitialRouteAttemptError::Fatal(error)) => return Err(error),
+            Err(InitialRouteAttemptError::Fatal(error)) => {
+                return Err(InitialRouteSelectionError::terminal(error));
+            }
         }
     }
-    Err(anyhow!("all remote route candidates failed: {}", failures.join("; ")))
+    Err(InitialRouteSelectionError {
+        error: anyhow!("all remote route candidates failed: {}", failures.join("; ")),
+        retryable,
+    })
 }
 
 struct RuntimeInitialRouteAttempt<'a> {
@@ -611,7 +679,11 @@ struct RuntimeInitialRouteAttempt<'a> {
 
 #[async_trait]
 impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRouteAttempt<'_> {
-    async fn bootstrap_ssh(&mut self, endpoint: &Url, upgrade: bool) -> anyhow::Result<()> {
+    async fn bootstrap_ssh(
+        &mut self,
+        endpoint: &Url,
+        upgrade: bool,
+    ) -> Result<(), InitialRouteAttemptError> {
         bootstrap_initial_ssh_route(
             endpoint,
             &self.options.ssh,
@@ -620,6 +692,10 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRout
             Some(self.shutdown.clone()),
         )
         .await
+        .map_err(|error| InitialRouteAttemptError::Route {
+            retryable: !upgrade && ssh_bootstrap_failure_is_retryable(&error),
+            error,
+        })
     }
 
     async fn connect(
@@ -632,7 +708,10 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRout
             .providers
             .connect(request, client_auth_kind(&self.options.auth))
             .await
-            .map_err(|error| InitialRouteAttemptError::Route(error.into()))?;
+            .map_err(|error| InitialRouteAttemptError::Route {
+                retryable: error.is_retryable_carrier_failure(),
+                error: error.into(),
+            })?;
         let route = group.description().to_string();
         let reconnect_groups: Arc<dyn ReconnectGroupSource> =
             Arc::new(RuntimeReconnectGroups::with_shutdown(
@@ -659,7 +738,10 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRout
             Ok(connection) => Ok((connection, route)),
             Err(error) if route_failure_allows_fallback(&error) => {
                 let _ = group.close().await;
-                Err(InitialRouteAttemptError::Route(error.into()))
+                Err(InitialRouteAttemptError::Route {
+                    retryable: error.is_retryable_carrier_failure(),
+                    error: error.into(),
+                })
             }
             Err(error) => Err(InitialRouteAttemptError::Fatal(error.into())),
         }
@@ -692,16 +774,17 @@ async fn bootstrap_initial_ssh_route(
             } else {
                 bootstrap.ensure_installed().await?;
             }
-            Ok::<(), cmux_remote::ssh_bootstrap::BootstrapError>(())
+            Ok::<(), BootstrapError>(())
         }) => {
-            result.map_err(|_| anyhow!(
-                "SSH bootstrap timed out after {}s",
-                options.attempt_timeout.as_secs()
-            ))??;
+            result.map_err(|_| BootstrapError::Timeout)??;
             Ok(())
         }
         () = wait_for_shutdown_request(shutdown) => Err(anyhow!("SSH bootstrap interrupted")),
     }
+}
+
+fn ssh_bootstrap_failure_is_retryable(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<BootstrapError>().is_some_and(BootstrapError::is_retryable_carrier_failure)
 }
 
 async fn wait_for_shutdown_request(mut shutdown: Option<watch::Receiver<bool>>) {
@@ -1404,10 +1487,21 @@ mod tests {
 
     #[async_trait]
     impl InitialRouteAttempt<String> for FakeInitialRouteAttempt {
-        async fn bootstrap_ssh(&mut self, endpoint: &Url, upgrade: bool) -> anyhow::Result<()> {
+        async fn bootstrap_ssh(
+            &mut self,
+            endpoint: &Url,
+            upgrade: bool,
+        ) -> Result<(), InitialRouteAttemptError> {
             self.events
                 .push(FakeInitialRouteEvent::Bootstrap { endpoint: endpoint.to_string(), upgrade });
-            if self.fail_ssh_bootstrap { Err(anyhow!("fake SSH is unreachable")) } else { Ok(()) }
+            if self.fail_ssh_bootstrap {
+                Err(InitialRouteAttemptError::Route {
+                    error: anyhow!("fake SSH is unreachable"),
+                    retryable: true,
+                })
+            } else {
+                Ok(())
+            }
         }
 
         async fn connect(
@@ -1418,7 +1512,10 @@ mod tests {
             let endpoint = request.endpoint.to_string();
             self.events.push(FakeInitialRouteEvent::Provider(request));
             if self.fail_provider_index == Some(index) {
-                Err(InitialRouteAttemptError::Route(anyhow!("fake provider is unreachable")))
+                Err(InitialRouteAttemptError::Route {
+                    error: anyhow!("fake provider is unreachable"),
+                    retryable: true,
+                })
             } else {
                 Ok(endpoint)
             }
@@ -1427,6 +1524,7 @@ mod tests {
 
     struct TransientStartupProvider {
         calls: Arc<AtomicUsize>,
+        transient_failures: usize,
         unix_path: PathBuf,
         unix: UnixProvider,
     }
@@ -1449,7 +1547,7 @@ mod tests {
             &self,
             mut request: ConnectRequest,
         ) -> Result<Arc<dyn LinkGroup>, ProviderError> {
-            if self.calls.fetch_add(1, Ordering::AcqRel) == 0 {
+            if self.calls.fetch_add(1, Ordering::AcqRel) < self.transient_failures {
                 return Err(ProviderError::Link(cmux_remote::link::LinkError::Transport(
                     "transient startup carrier failure".into(),
                 )));
@@ -2128,6 +2226,7 @@ mod tests {
         providers
             .register(Arc::new(TransientStartupProvider {
                 calls: calls.clone(),
+                transient_failures: 1,
                 unix_path,
                 unix: UnixProvider::new(MAX_CARRIER_FRAME_BYTES),
             }))
@@ -2181,6 +2280,40 @@ mod tests {
         assert_eq!(calls.load(Ordering::Acquire), 2);
         connection.close().await.unwrap();
         server.shutdown().await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn initial_client_connection_respects_one_attempt_policy() {
+        let directory = tempfile::tempdir().unwrap();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut providers = cmux_remote::provider::ProviderRegistry::default();
+        providers
+            .register(Arc::new(TransientStartupProvider {
+                calls: calls.clone(),
+                transient_failures: usize::MAX,
+                unix_path: directory.path().join("unused.sock"),
+                unix: UnixProvider::new(MAX_CARRIER_FRAME_BYTES),
+            }))
+            .unwrap();
+        let providers = Arc::new(providers);
+        let route = ResolvedRouteCandidate::resolve(
+            Url::parse("transient-startup://daemon").unwrap(),
+            BTreeMap::new(),
+            &providers,
+        )
+        .unwrap();
+        let mut options = reconnect_test_options(vec![route]);
+        options.providers = providers;
+        options.auth = ClientAuthMode::Carrier;
+        options.reconnect.maximum_attempts = Some(1);
+        options.reconnect.full_jitter = false;
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+
+        let error = connect_first_available(&options, shutdown_rx).await.unwrap_err();
+
+        assert!(error.to_string().contains("transient startup carrier failure"), "{error:#}");
+        assert_eq!(calls.load(Ordering::Acquire), 1);
     }
 
     #[tokio::test]
