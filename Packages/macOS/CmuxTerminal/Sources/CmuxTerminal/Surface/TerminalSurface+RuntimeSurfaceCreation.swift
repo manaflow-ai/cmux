@@ -270,9 +270,6 @@ extension TerminalSurface {
             }
             return baseConfig.initialInput
         }()
-        runtimeWaitAfterCommand =
-            surfaceConfig.wait_after_command || resolvedCommand?.isEmpty == false
-
         let createdSurface = withOptionalCString(resolvedCommand) { cCommand in
             surfaceConfig.command = cCommand
             return withOptionalCString(resolvedWorkingDirectory) { cWorkingDir in

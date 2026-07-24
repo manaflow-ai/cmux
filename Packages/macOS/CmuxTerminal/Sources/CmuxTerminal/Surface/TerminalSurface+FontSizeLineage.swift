@@ -67,10 +67,10 @@ extension TerminalSurface {
 
     /// Resets this terminal to the current configured runtime font size.
     ///
-    /// A live surface first adopts the engine's current configuration as its
-    /// native reset baseline, then runs Ghostty's reset action. Suspended or
-    /// deferred surfaces clear their durable override so future runtimes keep
-    /// following terminal configuration.
+    /// Live surfaces use Ghostty's font-only reset action. Ghostty refreshes
+    /// that action's baseline during normal config reloads, so reset does not
+    /// need a full surface-config update. Suspended or deferred surfaces clear
+    /// their durable override so future runtimes follow terminal configuration.
     ///
     /// - Parameter configuredRuntimePoints: Current configured size after
     ///   global magnification.
@@ -91,27 +91,7 @@ extension TerminalSurface {
             isExplicitOverride: false
         )
 
-        if let runtimeSurface = liveSurfaceForGhosttyAccess(reason: "fontSize.reset") {
-            guard let runtimeConfig = engine.runtimeConfig else { return false }
-            // Surface updates replace Ghostty's full derived config, so restore
-            // any creation-only override before changing the reset baseline.
-            guard let resetConfig = ghostty_config_clone(runtimeConfig) else { return false }
-            defer { ghostty_config_free(resetConfig) }
-            if runtimeWaitAfterCommand {
-                let directive = "wait-after-command = true"
-                directive.withCString { contents in
-                    "/__cmux_font_reset__/config".withCString { path in
-                        ghostty_config_load_string(
-                            resetConfig,
-                            contents,
-                            UInt(directive.utf8.count),
-                            path
-                        )
-                    }
-                }
-            }
-            ghostty_config_finalize(resetConfig)
-            ghostty_surface_update_config(runtimeSurface, resetConfig)
+        if liveSurfaceForGhosttyAccess(reason: "fontSize.reset") != nil {
             guard performExplicitInputBindingAction("reset_font_size") else { return false }
             followsConfiguredFontSize = true
             recordCurrentFontSizeLineage(targetLineage)

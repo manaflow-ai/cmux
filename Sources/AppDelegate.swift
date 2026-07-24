@@ -13875,21 +13875,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let routedManager = routedContext?.tabManager ?? tabManager
             let routedWindowDock = routedContext?.existingWindowDock()
                 ?? routedManager.flatMap { existingWindowDock(for: $0) }
+            let selectedWorkspace = routedManager?.selectedWorkspace
             let additionalTerminalPanels = routedWindowDock?.panels.values.compactMap {
                 $0 as? TerminalPanel
             } ?? []
             if workspaceTerminalFontSizeAction == .resetWorkspaceTerminalFontSize {
-                routedManager?.selectedWorkspace?.resetTerminalFontSizes(
+                selectedWorkspace?.resetTerminalFontSizes(
                     additionalTerminalPanels: additionalTerminalPanels
                 )
             } else {
                 let delta: Float32 =
                     workspaceTerminalFontSizeAction == .increaseWorkspaceTerminalFontSize ? 1 : -1
-                routedManager?.selectedWorkspace?.adjustTerminalFontSizes(
+                selectedWorkspace?.adjustTerminalFontSizes(
                     byRuntimePoints: delta,
                     additionalTerminalPanels: additionalTerminalPanels
                 )
             }
+            routedWindowDock?.rememberTerminalFontSizeLineageForNewTerminals(
+                fallback: selectedWorkspace?
+                    .lastRememberedTerminalFontSizeLineageForConfigInheritance()
+            )
             return true
         }
         if equalizeSplitsMatches && !matchingExplicitActionShouldPreemptEqualizeDefault {

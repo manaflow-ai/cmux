@@ -12,7 +12,6 @@ typedef struct {
 typedef struct {
     GhosttyRuntimeTestColor foreground;
     bool has_foreground;
-    bool wait_after_command;
     uint32_t diagnostics_count;
 } GhosttyRuntimeTestConfig;
 
@@ -26,7 +25,6 @@ static bool cmux_test_renderer_realized_result = true;
 static bool cmux_test_renderer_occlusion_visible = true;
 static bool cmux_test_renderer_release_was_occluded = false;
 static void* cmux_test_last_updated_surface = NULL;
-static bool cmux_test_last_update_wait_after_command = false;
 
 void cmux_test_ghostty_runtime_stubs_reset(void) {
     cmux_test_needs_confirm_quit = false;
@@ -82,20 +80,8 @@ void *ghostty_config_new(void) {
     return calloc(1, sizeof(GhosttyRuntimeTestConfig));
 }
 
-void *ghostty_config_clone(void *raw_config) {
-    GhosttyRuntimeTestConfig *config = raw_config;
-    if (config == NULL) return NULL;
-    GhosttyRuntimeTestConfig *clone = malloc(sizeof(GhosttyRuntimeTestConfig));
-    if (clone != NULL) *clone = *config;
-    return clone;
-}
-
 void ghostty_config_free(void *config) {
     free(config);
-}
-
-void ghostty_config_finalize(void *config) {
-    (void)config;
 }
 
 void ghostty_config_load_string(
@@ -110,11 +96,6 @@ void ghostty_config_load_string(
     const char *value = strchr(contents, '=');
     if (config == NULL || value == NULL) return;
     do { value++; } while (*value == ' ' || *value == '\t');
-
-    if (strncmp(contents, "wait-after-command", strlen("wait-after-command")) == 0) {
-        config->wait_after_command = strncasecmp(value, "true", 4) == 0;
-        return;
-    }
 
     if (strcasecmp(value, "black") == 0) {
         config->foreground = (GhosttyRuntimeTestColor){0, 0, 0};
@@ -218,10 +199,8 @@ void ghostty_surface_size(void) {}
 void ghostty_surface_text(void) {}
 void ghostty_surface_text_input(void) {}
 void ghostty_surface_update_config(void *surface, void *raw_config) {
-    GhosttyRuntimeTestConfig *config = raw_config;
+    (void)raw_config;
     cmux_test_last_updated_surface = surface;
-    cmux_test_last_update_wait_after_command =
-        config != NULL && config->wait_after_command;
 }
 ghostty_string_s ghostty_surface_tty_name(void *surface) {
     (void)surface;
@@ -229,11 +208,6 @@ ghostty_string_s ghostty_surface_tty_name(void *surface) {
         return (ghostty_string_s){0};
     }
     return (ghostty_string_s){.ptr = cmux_test_tty_name, .len = strlen(cmux_test_tty_name), .sentinel = false};
-}
-
-bool cmux_test_ghostty_surface_last_update_wait_after_command(void *surface) {
-    return surface == cmux_test_last_updated_surface
-        && cmux_test_last_update_wait_after_command;
 }
 
 bool cmux_test_ghostty_surface_was_updated(void *surface) {

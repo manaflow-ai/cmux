@@ -124,15 +124,11 @@ private func surfaceWasUpdated(_ surface: ghostty_surface_t) -> Bool
     }
 
     @Test func liveResetDoesNotReloadFullSurfaceConfig() throws {
-        let runtimeConfig = try #require(ghostty_config_new())
-        defer { ghostty_config_free(runtimeConfig) }
-
         var template = CmuxSurfaceConfigTemplate()
         template.setFontSize(6, isExplicitOverride: true)
         let registry = FakeSurfaceRegistry()
         let surface = makeSurface(
             configTemplate: template,
-            engine: FakeTerminalEngine(runtimeConfig: runtimeConfig),
             registry: registry
         )
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 1, alignment: 1)

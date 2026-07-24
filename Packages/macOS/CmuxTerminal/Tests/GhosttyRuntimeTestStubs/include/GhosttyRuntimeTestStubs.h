@@ -18,9 +18,7 @@ typedef struct {
 bool ghostty_surface_clear_selection(void *surface);
 
 void *ghostty_config_new(void);
-void *ghostty_config_clone(void *config);
 void ghostty_config_free(void *config);
-void ghostty_config_finalize(void *config);
 void ghostty_config_load_string(
     void *config,
     const char *contents,
@@ -80,6 +78,5 @@ bool cmux_test_ghostty_renderer_realized_call_value(uint32_t index);
 void cmux_test_ghostty_renderer_realized_set_result(bool result);
 bool cmux_test_ghostty_renderer_release_was_occluded(void);
 bool cmux_test_ghostty_surface_was_updated(void *surface);
-bool cmux_test_ghostty_surface_last_update_wait_after_command(void *surface);
 
 #endif
