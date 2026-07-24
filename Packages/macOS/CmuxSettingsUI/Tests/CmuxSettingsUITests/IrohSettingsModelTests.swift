@@ -7,6 +7,35 @@ import Testing
 @MainActor
 @Suite
 struct IrohSettingsModelTests {
+    @Test func hostPrivateNetworkSnapshotRefreshesWithTheModel() throws {
+        let initialAddress = try #require(CmxPrivateNetworkAddress.classify(
+            interfaceName: "en0",
+            address: "192.168.1.4"
+        ))
+        let refreshedAddress = try #require(CmxPrivateNetworkAddress.classify(
+            interfaceName: "utun4",
+            address: "10.8.0.1"
+        ))
+        let hostSnapshot = HostSnapshot(
+            addresses: [initialAddress],
+            port: 49_152
+        )
+        let model = IrohSettingsModel(
+            controller: nil,
+            privateNetworkAddressProvider: { hostSnapshot.addresses },
+            mobileDirectPortProvider: { hostSnapshot.port }
+        )
+        #expect(model.localPrivateNetworkAddresses == [initialAddress])
+        #expect(model.mobileDirectPort == 49_152)
+
+        hostSnapshot.addresses = [refreshedAddress]
+        hostSnapshot.port = 49_153
+        model.refresh()
+
+        #expect(model.localPrivateNetworkAddresses == [refreshedAddress])
+        #expect(model.mobileDirectPort == 49_153)
+    }
+
     @Test func successfulCustomRelaySaveForwardsMetadataAndDeviceSecret() async {
         let controller = IrohSettingsControllerDouble(snapshot: .unavailable)
         let model = IrohSettingsModel(controller: controller)
@@ -242,6 +271,16 @@ struct IrohSettingsModelTests {
                 ),
             ]
         )
+    }
+
+    private final class HostSnapshot {
+        var addresses: [CmxPrivateNetworkAddress]
+        var port: Int
+
+        init(addresses: [CmxPrivateNetworkAddress], port: Int) {
+            self.addresses = addresses
+            self.port = port
+        }
     }
 }
 

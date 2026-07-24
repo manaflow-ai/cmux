@@ -142,6 +142,12 @@ public protocol SettingsHostActions: AnyObject {
     /// the host app. `nil` in previews and hosts without the Iroh runtime.
     func irohSettingsController() -> (any CmxIrohSettingsControlling)?
 
+    /// Safe local VPN and LAN address suggestions discovered on this Mac.
+    func localPrivateNetworkAddresses() -> [CmxPrivateNetworkAddress]
+
+    /// The configured Iroh direct-connection UDP port.
+    func mobileDirectPort() -> Int
+
     /// The Mac's system name (e.g. `Host.current().localizedName`) used as the
     /// iOS pairing display name when the user sets no override. The Mobile
     /// section shows it as the display-name field placeholder. Empty when
@@ -223,6 +229,12 @@ public extension SettingsHostActions {
     }
 
     func irohSettingsController() -> (any CmxIrohSettingsControlling)? { nil }
+
+    /// Default: no discovered addresses for previews and package-only hosts.
+    func localPrivateNetworkAddresses() -> [CmxPrivateNetworkAddress] { [] }
+
+    /// Default: no configured host port for previews and package-only hosts.
+    func mobileDirectPort() -> Int { 0 }
 
     /// Default: empty, for hosts that cannot resolve the Mac's system name.
     func mobilePairingDefaultDisplayName() -> String { "" }

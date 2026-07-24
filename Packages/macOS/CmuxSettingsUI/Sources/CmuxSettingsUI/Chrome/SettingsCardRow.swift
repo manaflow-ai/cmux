@@ -19,6 +19,7 @@ public struct SettingsCardRow<Trailing: View>: View {
     let subtitle: String?
     let controlWidth: CGFloat?
     let searchAnchorID: String?
+    let titleFontDesign: Font.Design?
     @ViewBuilder let trailing: Trailing
 
     // The settings root injects the built search index so each row can
@@ -48,6 +49,7 @@ public struct SettingsCardRow<Trailing: View>: View {
         _ title: String,
         subtitle: String? = nil,
         controlWidth: CGFloat? = nil,
+        titleFontDesign: Font.Design? = nil,
         @ViewBuilder trailing: () -> Trailing
     ) {
         self.configurationReview = configurationReview
@@ -55,6 +57,7 @@ public struct SettingsCardRow<Trailing: View>: View {
         self.title = title
         self.subtitle = subtitle
         self.controlWidth = controlWidth
+        self.titleFontDesign = titleFontDesign
         self.trailing = trailing()
     }
 
@@ -63,6 +66,7 @@ public struct SettingsCardRow<Trailing: View>: View {
             VStack(alignment: .leading, spacing: subtitle == nil ? 0 : 3) {
                 Text(title)
                     .cmuxFont(size: 13, weight: .medium)
+                    .fontDesign(titleFontDesign)
                 if let subtitle {
                     Text(subtitle)
                         .cmuxFont(.caption)
