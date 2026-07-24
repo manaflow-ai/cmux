@@ -60,7 +60,7 @@ final class CmuxFeatureFlags {
     private static let releaseControlDistinctIDKey = "cmux.flags.releaseControlDistinctID"
     private static let releaseControlDistinctIDPrefix =
         releaseControlProductWideDistinctID + "-"
-    private static let maximumPostHogControlPlaneResponseBytes = 1_048_576
+    private nonisolated static let maximumPostHogControlPlaneResponseBytes = 1_048_576
 
     // Order is load-bearing for the typed accessors below. A keyed lookup would
     // repeat flag-key literals and violate the feature-flag lint's single

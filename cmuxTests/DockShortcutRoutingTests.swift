@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Combine
+import CmuxSimulatorUI
 import CmuxSettings
 import Testing
 
