@@ -1709,12 +1709,32 @@ final class CmuxSettingsFileStore {
 
     private func saveImportedManagedDefaults(_ imported: [String: ManagedSettingsValue]) {
         let defaults = UserDefaults.standard
-        defaults.removeObject(forKey: SidebarMatchTerminalBackgroundSettings.legacyAppliedSettingsFileDefaultKey)
+        // Only write on a real change. UserDefaults posts didChangeNotification even when the
+        // value is unchanged and even when the key being removed is absent, and observers of that
+        // notification registered with `queue: .main` run synchronously on the posting thread. One
+        // of them re-registers the system-wide hotkeys, which reads the whole shortcut table back
+        // through this very store -- while this store may still be inside its own initializer.
+        // Reload runs on every settings load and on every file-watcher edit, so an unconditional
+        // write also wakes every UserDefaults observer and walks the action table twice for
+        // nothing. `restoreUserDefaultsBackup` already follows this rule.
+        let legacyKey = SidebarMatchTerminalBackgroundSettings.legacyAppliedSettingsFileDefaultKey
+        if defaults.object(forKey: legacyKey) != nil {
+            defaults.removeObject(forKey: legacyKey)
+        }
         guard !imported.isEmpty else {
-            defaults.removeObject(forKey: Self.importedManagedDefaultsDefaultsKey)
+            if defaults.object(forKey: Self.importedManagedDefaultsDefaultsKey) != nil {
+                defaults.removeObject(forKey: Self.importedManagedDefaultsDefaultsKey)
+            }
             return
         }
-        guard let data = try? JSONEncoder().encode(imported) else { return }
+        // Sorted keys matter here, not just tidiness: a Swift dictionary's encoding order follows
+        // the per-process hash seed, so without this the first reload after a relaunch can encode
+        // identical content to different bytes, fail the comparison, and write anyway -- firing
+        // exactly the notification cascade this guard exists to avoid.
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        guard let data = try? encoder.encode(imported),
+              defaults.data(forKey: Self.importedManagedDefaultsDefaultsKey) != data else { return }
         defaults.set(data, forKey: Self.importedManagedDefaultsDefaultsKey)
     }
 
@@ -1729,11 +1749,19 @@ final class CmuxSettingsFileStore {
 
     private func saveBackups(_ backups: [String: BackupValue]) {
         let defaults = UserDefaults.standard
+        // Same rule as saveImportedManagedDefaults: an unchanged write still posts.
         if backups.isEmpty {
-            defaults.removeObject(forKey: Self.backupsDefaultsKey)
+            if defaults.object(forKey: Self.backupsDefaultsKey) != nil {
+                defaults.removeObject(forKey: Self.backupsDefaultsKey)
+            }
             return
         }
-        guard let data = try? JSONEncoder().encode(backups) else { return }
+        // Sorted keys for the same reason as saveImportedManagedDefaults: an unsorted encoding is
+        // not stable across process launches, so the comparison would spuriously miss.
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        guard let data = try? encoder.encode(backups),
+              defaults.data(forKey: Self.backupsDefaultsKey) != data else { return }
         defaults.set(data, forKey: Self.backupsDefaultsKey)
     }
 
