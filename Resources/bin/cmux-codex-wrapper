@@ -449,17 +449,40 @@ cmux_codex_read_inject_args() {
 # Codex's own trust picker to fail closed.
 cmux_codex_read_resume_args() {
     [[ -n "$CMUX_INJECT_CLI" && -x "$CMUX_INJECT_CLI" ]] || return 1
-    local arg
+    local arg=""
+    local output_file
+    local parsed_args=()
+    output_file="$(
+        mktemp "${TMPDIR:-/tmp}/cmux-codex-resume-args.XXXXXX"
+    )" || return 1
     if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
-        while IFS= read -r -d '' arg; do
-            cmux_codex_resume_args+=("$arg")
-        done < <("$CMUX_INJECT_CLI" --socket "$CMUX_SOCKET_PATH" hooks codex inject-resume-args 2>/dev/null)
+        if ! "$CMUX_INJECT_CLI" --socket "$CMUX_SOCKET_PATH" \
+            hooks codex inject-resume-args >"$output_file" 2>/dev/null; then
+            rm -f "$output_file"
+            return 1
+        fi
     else
-        while IFS= read -r -d '' arg; do
-            cmux_codex_resume_args+=("$arg")
-        done < <("$CMUX_INJECT_CLI" hooks codex inject-resume-args 2>/dev/null)
+        if ! "$CMUX_INJECT_CLI" hooks codex inject-resume-args \
+            >"$output_file" 2>/dev/null; then
+            rm -f "$output_file"
+            return 1
+        fi
     fi
-    (( ${#cmux_codex_resume_args[@]} > 0 )) || return 1
+    while IFS= read -r -d '' arg; do
+        parsed_args+=("$arg")
+        arg=""
+    done < "$output_file"
+    rm -f "$output_file"
+    # The helper contract is either no output or one complete `-c value` pair.
+    # Reject a truncated final token or any partial/unknown shape so a killed
+    # helper can never turn the unattended resume into a malformed Codex argv.
+    if [[ -n "$arg" ]] \
+        || (( ${#parsed_args[@]} != 2 )) \
+        || [[ "${parsed_args[0]:-}" != "-c" ]] \
+        || [[ -z "${parsed_args[1]:-}" ]]; then
+        return 1
+    fi
+    cmux_codex_resume_args=("${parsed_args[@]}")
     return 0
 }
 
