@@ -15764,6 +15764,22 @@ mod tests {
     }
 
     #[test]
+    fn provider_settings_replaces_inline_scope_and_action_rows() {
+        let mux = Mux::new("provider-settings-layout-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_controls_ui());
+        app.sync_layout((100, 16));
+        let mut terminal = Terminal::new(TestBackend::new(100, 16)).unwrap();
+
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(!text.contains("team · Acme"), "{text}");
+        assert!(!text.lines().any(|line| line.trim() == "actions"), "{text}");
+        assert!(text.contains("settings"), "{text}");
+    }
+
+    #[test]
     fn provider_scope_row_switches_team_with_keyboard_menu() {
         let mux = Mux::new("provider-scope-keyboard-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
