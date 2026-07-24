@@ -134,6 +134,25 @@ mod tests {
     }
 
     #[test]
+    fn surface_stream_terminal_cannot_overtake_its_bulk_tail() {
+        let tracker = MuxLaneTracker::default();
+        let render_lane = tracker
+            .classify_server_line(br#"{"event":"render-delta","surface":1}"#)
+            .unwrap();
+
+        for terminal in [
+            br#"{"event":"detached","surface":1}"#.as_slice(),
+            br#"{"event":"overflow","scope":"surface","surface":1}"#.as_slice(),
+        ] {
+            assert_eq!(
+                tracker.classify_server_line(terminal),
+                Some(render_lane),
+                "surface stream termination must stay ordered behind its bulk tail"
+            );
+        }
+    }
+
+    #[test]
     fn one_way_input_response_is_drained_once() {
         let tracker = MuxLaneTracker::default();
         tracker.suppress_response(9);
