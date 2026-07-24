@@ -1,6 +1,14 @@
 import { createHmac } from "node:crypto";
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  setSystemTime,
+  test,
+} from "bun:test";
 
 // Route-level coverage for /api/stripe/founders-welcome. The webhook must send
 // the identical welcome email for BOTH qualifying checkout shapes — Founder's
@@ -40,10 +48,22 @@ mock.module("resend", () => ({
 
 const { POST } = await import("../app/api/stripe/founders-welcome/route");
 
+// Freeze the clock so the test's signature timestamps and the route's
+// freshness check (Date.now inside POST) share one virtual time. Signature
+// tolerance can then be exercised deterministically at the exact five-minute
+// boundary instead of racing the real clock.
+const FROZEN_NOW_MS = Date.UTC(2026, 6, 24, 12, 0, 0);
+const FROZEN_NOW_SECONDS = Math.floor(FROZEN_NOW_MS / 1000);
+
 beforeEach(() => {
+  setSystemTime(FROZEN_NOW_MS);
   resendSend.mockClear();
   sentEmails.length = 0;
   resendError = null;
+});
+
+afterAll(() => {
+  setSystemTime();
 });
 
 type SessionOverrides = {
@@ -67,10 +87,13 @@ function checkoutCompletedEvent(overrides: SessionOverrides = {}): string {
   });
 }
 
-function signedRequest(body: string, signature?: string): Request {
-  const timestamp = Math.floor(Date.now() / 1000);
+function signedRequest(
+  body: string,
+  options: { signature?: string; timestamp?: number } = {},
+): Request {
+  const timestamp = options.timestamp ?? FROZEN_NOW_SECONDS;
   const v1 =
-    signature ??
+    options.signature ??
     createHmac("sha256", WEBHOOK_SECRET)
       .update(`${timestamp}.${body}`)
       .digest("hex");
@@ -84,11 +107,33 @@ function signedRequest(body: string, signature?: string): Request {
 describe("founders welcome route", () => {
   test("rejects an invalid Stripe signature", async () => {
     const response = await POST(
-      signedRequest(checkoutCompletedEvent(), "00".repeat(32)),
+      signedRequest(checkoutCompletedEvent(), { signature: "00".repeat(32) }),
     );
 
     expect(response.status).toBe(400);
     expect(resendSend).not.toHaveBeenCalled();
+  });
+
+  test("rejects a validly-signed payload older than the replay tolerance", async () => {
+    const response = await POST(
+      signedRequest(checkoutCompletedEvent(), {
+        timestamp: FROZEN_NOW_SECONDS - 5 * 60 - 1,
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(resendSend).not.toHaveBeenCalled();
+  });
+
+  test("accepts a validly-signed payload exactly at the replay tolerance", async () => {
+    const response = await POST(
+      signedRequest(checkoutCompletedEvent(), {
+        timestamp: FROZEN_NOW_SECONDS - 5 * 60,
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, sent: true });
   });
 
   test("acknowledges but skips non-checkout events", async () => {
