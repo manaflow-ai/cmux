@@ -178,7 +178,7 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
             )
 
             try withTemporaryShortcut(action: .newTab, shortcut: optionQShortcut) {
-                let event = try #require(NSEvent.keyEvent(
+                let keyDown = try #require(NSEvent.keyEvent(
                     with: .keyDown,
                     location: .zero,
                     modifierFlags: [.option],
@@ -190,15 +190,31 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
                     isARepeat: false,
                     keyCode: 12
                 ))
+                let keyUp = try #require(NSEvent.keyEvent(
+                    with: .keyUp,
+                    location: .zero,
+                    modifierFlags: [.option],
+                    timestamp: keyDown.timestamp + 0.01,
+                    windowNumber: testWindow.windowNumber,
+                    context: nil,
+                    characters: "@",
+                    charactersIgnoringModifiers: "q",
+                    isARepeat: false,
+                    keyCode: 12
+                ))
 
                 #expect(
-                    appDelegate.debugHandleCustomShortcut(event: event),
+                    appDelegate.debugHandleShortcutMonitorEvent(event: keyDown),
                     "An exact Option+Q binding must route before unmatched Option text reaches AppKit"
                 )
                 RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
                 #expect(
                     manager.tabs.count == workspaceCountBefore + 1,
                     "The configured cmux shortcut must win even when the layout gives Option+Q printable text"
+                )
+                #expect(
+                    appDelegate.debugHandleShortcutMonitorEvent(event: keyUp),
+                    "A shortcut-owned key press must also own its matching physical key release"
                 )
             }
         }
