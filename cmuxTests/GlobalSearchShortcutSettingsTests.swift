@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -48,6 +49,37 @@ final class GlobalSearchShortcutSettingsTests {
 
     @Test func globalSearchUsesApplicationBareKeyPolicy() {
         #expect(!KeyboardShortcutSettings.Action.globalSearch.allowsBareFirstStroke)
+    }
+
+    @Test func optionOnlyGlobalSearchRoutesBeforePrintableOptionTextBypass() throws {
+        let shortcut = StoredShortcut(
+            key: "q",
+            command: false,
+            shift: false,
+            option: true,
+            control: false
+        )
+        KeyboardShortcutSettings.setShortcut(shortcut, for: .globalSearch)
+
+        let event = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.option],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: 0,
+                context: nil,
+                characters: "@",
+                charactersIgnoringModifiers: "q",
+                isARepeat: false,
+                keyCode: 12
+            )
+        )
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+
+        #expect(shortcutRoutingShouldBypassForPrintableOptionText(event: event))
+        #expect(!shortcut.matches(event: event))
+        #expect(appDelegate.matchConfiguredShortcut(event: event, action: .globalSearch))
     }
 
     @Test func globalSearchRejectsConfiguredShowHideHotkeyConflict() {
