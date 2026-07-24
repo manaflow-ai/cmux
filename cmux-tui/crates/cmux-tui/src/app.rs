@@ -11023,14 +11023,15 @@ mod tests {
         OrderedSession, OuterCursorSpec, PaneArea, PaneEdge, PaneFocusHistory,
         PendingSessionMutation, PendingSessionMutationState, PromptTarget, PtyFailureIngress,
         PtyMousePressResult, RailKind, RenderAction, Selection, SessionCompletion,
-        SessionCompletionAction, SessionEventSender, SidebarLayout, SidebarPluginSyncClaim,
-        SidebarPluginSyncState, SurfaceResizeDecision, SurfaceResizeOwnership,
-        WorkspaceRailSelection, browser_content_size_for_rect, browser_hover_forward_allowed,
-        canonical_terminal_content, clamp_split_ratio_for_tab_bars, client_menu_item,
-        forward_mux_event, forward_mux_events, outer_cursor_escape, outer_cursor_escape_if_changed,
-        pane_context_menu_groups, pane_parts_for_rect, prepare_ordered_session,
-        preserve_client_view, rail_drag_width, record_surface_resize_dispatch_result,
-        sidebar_layout_for, sidebar_plugin_status_settles_passive_claim, start_ordered_session,
+        SessionCompletionAction, SessionEventSender, ShortcutHelp, SidebarLayout,
+        SidebarPluginSyncClaim, SidebarPluginSyncState, SurfaceResizeDecision,
+        SurfaceResizeOwnership, WorkspaceRailSelection, browser_content_size_for_rect,
+        browser_hover_forward_allowed, canonical_terminal_content, clamp_split_ratio_for_tab_bars,
+        client_menu_item, forward_mux_event, forward_mux_events, outer_cursor_escape,
+        outer_cursor_escape_if_changed, pane_context_menu_groups, pane_parts_for_rect,
+        prepare_ordered_session, preserve_client_view, rail_drag_width,
+        record_surface_resize_dispatch_result, sidebar_layout_for,
+        sidebar_plugin_status_settles_passive_claim, start_ordered_session,
     };
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -11083,7 +11084,7 @@ mod tests {
     #[test]
     fn zero_width_startup_hides_sidebar_without_panicking() {
         let config = Config::default();
-        let layout = sidebar_layout_for(&config, true, false, (0, 24), None, None);
+        let layout = sidebar_layout_for(&config, true, false, false, (0, 24), None, None);
         assert!(layout.workspace.is_none());
         assert_eq!(layout.content.width, 0);
     }
