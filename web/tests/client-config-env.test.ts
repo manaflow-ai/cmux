@@ -43,15 +43,21 @@ describe("client config env validation", () => {
     expect(result.stderr).not.toContain("CMUX_CLIENT_CONFIG_RATE_LIMIT_ID is required");
   });
 
-  test("requires the limiter id in explicit Vercel production deployments", () => {
+  test("allows explicit Vercel production deployments with all rate-limit ids unset", () => {
+    // Rate limiting is opt-in: production deploys must survive every
+    // rate-limit id being deleted from the environment.
+    const { CMUX_RELAY_TOKEN_RATE_LIMIT_ID: _relay, ...relayEnv } = requiredRelayProductionEnv;
+    const { CMUX_FEEDBACK_RATE_LIMIT_ID: _feedback, ...baseEnv } = requiredEnv;
     const result = importEnv({
-      ...requiredEnv,
+      ...baseEnv,
       VERCEL: "1",
       VERCEL_ENV: "production",
+      ...requiredIrohProductionEnv,
+      ...relayEnv,
     });
 
-    expect(result.exitCode).not.toBe(0);
-    expect(result.stderr).toContain("CMUX_CLIENT_CONFIG_RATE_LIMIT_ID is required");
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).not.toContain("RATE_LIMIT_ID");
   });
 
   test("accepts explicit Vercel production deployments with both limiter ids", () => {
@@ -80,7 +86,7 @@ describe("client config env validation", () => {
     expect(result.exitCode).toBe(0);
   });
 
-  test("requires the analytics limiter id in explicit Vercel production deployments", () => {
+  test("allows explicit Vercel production deployments without the analytics limiter id", () => {
     const result = importEnv({
       ...requiredEnv,
       VERCEL: "1",
@@ -90,8 +96,8 @@ describe("client config env validation", () => {
       ...requiredRelayProductionEnv,
     });
 
-    expect(result.exitCode).not.toBe(0);
-    expect(result.stderr).toContain("CMUX_ANALYTICS_RATE_LIMIT_ID is required");
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).not.toContain("CMUX_ANALYTICS_RATE_LIMIT_ID");
   });
 
   test("allows Vercel development without the analytics limiter id", () => {
