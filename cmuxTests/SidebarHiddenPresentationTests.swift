@@ -5,7 +5,7 @@ import SwiftUI
 import Testing
 @testable import cmux_DEV
 
-@Suite
+@Suite(.serialized)
 @MainActor
 struct SidebarHiddenPresentationTests {
     @Test

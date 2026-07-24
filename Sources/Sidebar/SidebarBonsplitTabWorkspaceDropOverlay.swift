@@ -137,6 +137,15 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { false }
 
+    /// Retires drag state before a retained presentation is hidden or disconnected.
+    func suspendPresentation() {
+        pendingDrop = nil
+        isRequestingWorkspaceDropTargets = false
+        setWorkspaceDropTargetCollectionActive(false)
+        setDropIndicator(nil)
+        targetBridge?.clearTargets()
+    }
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         registerForDraggedTypes([Self.pasteboardType])

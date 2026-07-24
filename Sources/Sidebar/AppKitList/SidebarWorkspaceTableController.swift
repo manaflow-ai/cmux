@@ -1356,6 +1356,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     private func clearDropViewActions(in container: SidebarWorkspaceTableContainerView) {
         let bonsplit = container.bonsplitDropView
+        bonsplit.suspendPresentation()
         bonsplit.canPerformAction = { _, _ in false }
         bonsplit.updateAutoscroll = {}
         bonsplit.setWorkspaceDropTargetCollectionActive = { _ in }
