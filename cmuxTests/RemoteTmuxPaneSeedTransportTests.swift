@@ -1071,6 +1071,55 @@ import Testing
         #expect(seeds.last?.snapshot == expectedPrimary)
     }
 
+    @Test func reseedSelectsScreenAndResetsScrollRegionBeforeCapturePaint() {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+
+        var rendered: [Data] = []
+        let token = fixture.connection.addObserver(onPaneOutput: { paneID, data in
+            guard paneID == 7 else { return }
+            rendered.append(data)
+        })
+        defer { fixture.connection.removeObserver(token) }
+
+        for (iteration, alternateOn) in ["1", "0"].enumerated() {
+            fixture.connection.capturePane(paneId: 7, clearScrollback: true)
+            let capturedRow = iteration == 0 ? "ALTERNATE_RESEED" : "PRIMARY_RESEED"
+            let paneState = Self.paneStateLine(cursorX: 0, cursorY: 0)
+            var stream = Data()
+            var commandNumber = 80 + iteration * 10
+            for kind in fixture.connection.pendingCommandKindsForTesting {
+                let lines: [String]
+                switch kind {
+                case .paneAltScreen:
+                    lines = [alternateOn]
+                case .capturePane:
+                    lines = [capturedRow]
+                case .paneState:
+                    lines = [paneState]
+                default:
+                    lines = []
+                }
+                stream.append(Self.commandResultBlock(number: commandNumber, lines: lines))
+                commandNumber += 1
+            }
+            deliverRechunked(stream, to: fixture.connection)
+
+            let screenSelection = alternateOn == "1"
+                ? RemoteTmuxControlConnection.altScreenEnterSequence
+                : RemoteTmuxControlConnection.altScreenExitSequence
+            var expected = Data("\u{1b}[H\u{1b}[2J\u{1b}[3J".utf8)
+            expected.append(screenSelection)
+            expected.append(Data("\u{1b}[r\u{1b}[H\u{1b}[2J\(capturedRow)".utf8))
+            expected.append(
+                RemoteTmuxControlMessageDecoding().paneStateSeedSequence(from: paneState)
+            )
+            #expect(rendered.last == expected)
+        }
+
+        #expect(rendered.count == 2)
+    }
+
     /// A visible-screen repair after a verified pane-height grow must not turn
     /// rows already represented in primary-screen history into a second copy.
     /// This drives the real Ghostty manual-I/O parser because observer-byte
