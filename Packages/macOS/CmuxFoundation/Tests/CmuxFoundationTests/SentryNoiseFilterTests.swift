@@ -21,6 +21,10 @@ final class SentryNoiseFilterTests: XCTestCase {
             stage: "socket_connect",
             message: "Socket not found at /tmp/cmux.sock"
         ))
+        XCTAssertTrue(filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_connect",
+            message: "Failed to connect to socket at /tmp/cmux.sock (Operation not permitted, errno 1)"
+        ))
     }
 
     func testKeepsActionableSocketFailures() {
