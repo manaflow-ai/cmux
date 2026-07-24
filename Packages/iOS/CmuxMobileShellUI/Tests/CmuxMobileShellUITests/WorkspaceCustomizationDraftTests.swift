@@ -160,4 +160,35 @@ import Testing
             field: \.customColorHex
         ) == .conflict)
     }
+
+    @Test func rebaseKeepsFailedDirtyFieldsRetryableAfterPartialSuccess() {
+        let initial = WorkspaceCustomizationDraft(
+            name: "Original",
+            customDescription: "Old description",
+            customColorHex: "#111111",
+            isPinned: false
+        )
+        let submitted = WorkspaceCustomizationDraft(
+            name: "Renamed",
+            customDescription: "Pending description",
+            customColorHex: "#222222",
+            isPinned: true
+        )
+        let authoritativeAfterDescriptionFailure = WorkspaceCustomizationDraft(
+            name: "Renamed",
+            customDescription: "Old description",
+            customColorHex: "#111111",
+            isPinned: false
+        )
+
+        let rebased = submitted.rebasingUntouchedFields(
+            from: authoritativeAfterDescriptionFailure,
+            comparedTo: initial
+        )
+
+        #expect(rebased.name == "Renamed")
+        #expect(rebased.customDescription == "Pending description")
+        #expect(rebased.customColorHex == "#222222")
+        #expect(rebased.isPinned)
+    }
 }

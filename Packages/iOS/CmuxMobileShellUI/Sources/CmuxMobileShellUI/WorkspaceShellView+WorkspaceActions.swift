@@ -89,7 +89,7 @@ extension WorkspaceShellView {
                 let refreshedDraft = store.workspaces
                     .first(where: { $0.id == id })
                     .map(WorkspaceCustomizationDraft.init(workspace:)) ?? landedDraft
-                let authoritativeDraft = landedDraft.rebasingUntouchedFields(
+                let authoritativeDraft = submittedDraft.rebasingUntouchedFields(
                     from: refreshedDraft,
                     comparedTo: initialDraft
                 )
