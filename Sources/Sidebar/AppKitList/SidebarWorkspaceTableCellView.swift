@@ -56,9 +56,9 @@ final class SidebarWorkspaceTableCellView: NSTableCellView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if window == nil { clearRetainedPayload() }
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        clearRetainedPayload()
     }
 
     @discardableResult

@@ -8,6 +8,7 @@ import SwiftUI
 @MainActor
 final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     private weak var containerView: SidebarWorkspaceTableContainerView?
+    private let createdCellViews = NSHashTable<NSView>.weakObjects()
     private var rows: [SidebarWorkspaceTableRowConfiguration] = []
     private var actions: SidebarWorkspaceTableActions?
     private var hoveredRowId: SidebarWorkspaceRenderItemID?
@@ -219,10 +220,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     private func detachLoadedCells() -> [@MainActor () -> Void] {
-        guard let table = containerView?.tableView else { return [] }
         var postUpdateActions: [@MainActor () -> Void] = []
-        for row in 0..<table.numberOfRows {
-            switch table.view(atColumn: 0, row: row, makeIfNecessary: false) {
+        for cell in createdCellViews.allObjects {
+            switch cell {
             case let cell as SidebarWorkspaceRowTableCellView:
                 postUpdateActions.append(contentsOf: cell.detachPresentation(commitEdits: true))
             case let cell as SidebarGroupHeaderTableCellView:
@@ -527,6 +527,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 withIdentifier: SidebarGroupHeaderTableCellView.reuseIdentifier,
                 owner: self
             ) as? SidebarGroupHeaderTableCellView ?? SidebarGroupHeaderTableCellView()
+            createdCellViews.add(cell)
             configure(headerCell: cell, at: row)
             return cell
         }
@@ -535,6 +536,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 withIdentifier: SidebarWorkspaceRowTableCellView.reuseIdentifier,
                 owner: self
             ) as? SidebarWorkspaceRowTableCellView ?? SidebarWorkspaceRowTableCellView()
+            createdCellViews.add(cell)
             configure(workspaceCell: cell, at: row)
             return cell
         }
@@ -542,6 +544,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             withIdentifier: SidebarWorkspaceTableCellView.reuseIdentifier,
             owner: self
         ) as? SidebarWorkspaceTableCellView ?? SidebarWorkspaceTableCellView()
+        createdCellViews.add(cell)
         configure(cell: cell, at: row)
         return cell
     }

@@ -423,25 +423,7 @@ final class SidebarRowChecklistSection: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        guard window != nil else {
-            // Detached without a configure pass (workspace deleted, row
-            // unmounted, cell enqueued for reuse): the legacy host's
-            // dismantle closes the popover and writes presentation state
-            // back; leaving it armed re-presented on the row's return and
-            // kept actions targeting an unmounted row alive.
-            if popoverPresenter.isShown {
-                popoverPresenter.close()
-                activePopoverDismissContext?()
-            }
-            activePopoverDismissContext = nil
-            awaitingPopoverDismissAck = false
-            lastAddFieldToken = 0
-            lastPopoverModel = nil
-            pendingPopoverPresentation = false
-            lastConfigureKey = nil
-            return
-        }
-        if pendingPopoverPresentation {
+        if window != nil, pendingPopoverPresentation {
             needsLayout = true
         }
     }
