@@ -13,12 +13,14 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The submodule pinned by this branch is
-`d3265f4c5ea9985de34e488319e7fb2d0b2693c8`, the current
+`98288feb22e7625f3ec0856573107b814686ab5f`, the current
 `manaflow-ai/ghostty` `main`. The complete renderer scheduling hardening landed
 through https://github.com/manaflow-ai/ghostty/pull/136 after the initial
 bounded-turn fix in https://github.com/manaflow-ai/ghostty/pull/135. Reliable
 external redraw delivery and surface lifetime retention landed through
-https://github.com/manaflow-ai/ghostty/pull/139. The
+https://github.com/manaflow-ai/ghostty/pull/139. Embedder userdata ownership
+and callback lifetime hardening landed through
+https://github.com/manaflow-ai/ghostty/pull/140. The
 cumulative external frontend integration landed through
 https://github.com/manaflow-ai/ghostty/pull/128, and the earlier stacked PRs
 https://github.com/manaflow-ai/ghostty/pull/127,
@@ -34,7 +36,7 @@ renderer mailbox drain turn so continuous producers cannot starve lifecycle
 processing or rendering.
 
 Its universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-d3265f4c5ea9985de34e488319e7fb2d0b2693c8-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-98288feb22e7625f3ec0856573107b814686ab5f-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Bounded renderer mailbox turns and continuation recovery
@@ -93,6 +95,35 @@ and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
     ownership, generation checks, enqueue-failure retry ownership, and the app
     action lifetime lease. A raw surface pointer is not a sufficient delivery
     identity across asynchronous dispatch.
+
+### Embedder userdata ownership and callback lifetime
+
+- Commits:
+  - `289097387` (fix: bind embedder userdata to surface lifetime)
+  - `76c8b03d8` (fix: retain userdata across every host callback)
+  - `365fe1d2c` (fix: lease setter-installed PTY tee callbacks)
+  - `98288feb2` (merge the owned-userdata lifetime fix)
+- Files:
+  - `include/ghostty.h`
+  - `src/apprt/embedded.zig`
+- Summary:
+  - Adds `ghostty_surface_new_with_owned_userdata` without changing
+    `ghostty_surface_config_s`, preserving the existing C ABI for borrowed
+    callers.
+  - Tracks embedder userdata through explicit borrowed, owned, and released
+    states. A successful owned construction transfers the host reference to
+    Ghostty; failed construction leaves ownership with the caller.
+  - Leases owned userdata across surface-targeted app actions and every host
+    callback, including PTY tee callbacks installed both during and after
+    construction.
+  - Defers the exactly-once final release until surface teardown and all
+    in-flight callbacks have quiesced, preventing host bridge destruction while
+    Ghostty can still call through its userdata.
+  - Conflict note: future embedder callback or teardown changes must acquire a
+    userdata lease before leaving Ghostty-owned synchronization, and must retain
+    the failed-creation ownership contract. Do not restore split host/Ghostty
+    release ownership or release the owned userdata directly from surface-free
+    call sites.
 
 ### Nonblocking renderer lifecycle state
 
