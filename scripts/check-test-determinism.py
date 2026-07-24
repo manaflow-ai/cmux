@@ -545,14 +545,11 @@ def _javascript_real_sleep_positions(
             else "sleep"
         )
         sleep_offset = match.start() + match.group().rfind(token)
-        if token == "setTimeout" and match.group().lstrip().startswith(
-            "setTimeout"
-        ):
-            previous = sleep_offset - 1
-            while previous >= 0 and text[previous].isspace():
-                previous -= 1
-            if previous >= 0 and text[previous] == ".":
-                continue
+        previous = match.start() - 1
+        while previous >= 0 and text[previous].isspace():
+            previous -= 1
+        if previous >= 0 and text[previous] == ".":
+            continue
         line = text.count("\n", 0, sleep_offset)
         line_start = text.rfind("\n", 0, sleep_offset) + 1
         positions.setdefault(line, set()).add(sleep_offset - line_start)
@@ -1438,6 +1435,7 @@ def _python_real_sleep_lines(
     assertion_causal_sleep_positions: Optional[
         dict[int, set[int]]
     ] = None,
+    assertion_lines: Optional[set[int]] = None,
 ) -> set[int]:
     """Locate direct trusted Python sleep APIs with lexical AST resolution."""
     try:
@@ -1458,6 +1456,8 @@ def _python_real_sleep_lines(
         deferred_binding_collector.deferred_bindings(),
     )
     visitor.visit(tree)
+    if assertion_lines is not None:
+        assertion_lines.update(visitor.assertion_positions)
     if positions is not None or assertion_causal_sleep_positions is not None:
         source_lines = text.splitlines()
 
@@ -1546,6 +1546,7 @@ class _ShellExpansionFrame:
 def _mask_shell_heredoc_expansions(
     line: str,
     frames: list[_ShellExpansionFrame],
+    case_state: list[bool],
 ) -> str:
     """Expose executable heredoc substitutions, preserving multiline state."""
     masked = [" "] * len(line)
@@ -1557,7 +1558,12 @@ def _mask_shell_heredoc_expansions(
                 continue
             if line.startswith("$(", index):
                 masked[index : index + 2] = "$("
-                frames.append(_ShellExpansionFrame("paren"))
+                frames.append(
+                    _ShellExpansionFrame(
+                        "paren",
+                        case_depth_at_open=len(case_state),
+                    )
+                )
                 index += 2
                 continue
             if line[index] == "`":
@@ -1583,7 +1589,12 @@ def _mask_shell_heredoc_expansions(
                 continue
             if line.startswith("$(", index):
                 masked[index : index + 2] = "$("
-                frames.append(_ShellExpansionFrame("paren"))
+                frames.append(
+                    _ShellExpansionFrame(
+                        "paren",
+                        case_depth_at_open=len(case_state),
+                    )
+                )
                 index += 2
                 continue
             if char == "`":
@@ -1603,7 +1614,12 @@ def _mask_shell_heredoc_expansions(
             continue
         if line.startswith("$(", index):
             masked[index : index + 2] = "$("
-            frames.append(_ShellExpansionFrame("paren"))
+            frames.append(
+                _ShellExpansionFrame(
+                    "paren",
+                    case_depth_at_open=len(case_state),
+                )
+            )
             index += 2
             continue
         if char == "`":
@@ -1619,12 +1635,25 @@ def _mask_shell_heredoc_expansions(
         if frame.kind == "paren":
             if char == "(":
                 frame.depth += 1
-            elif char == ")":
+            elif char == ")" and not (
+                _shell_parenthesis_is_case_arm_boundary(
+                    "".join(masked),
+                    index,
+                    tuple(case_state),
+                    frame.case_depth_at_open,
+                )
+            ):
                 frame.depth -= 1
                 if frame.depth == 0:
                     frames.pop()
         index += 1
-    return "".join(masked)
+    masked_line = "".join(masked)
+    case_state[:] = _shell_case_state_after_prefix(
+        masked_line,
+        len(masked_line),
+        tuple(case_state),
+    )
+    return masked_line
 
 
 def _parse_shell_heredoc_word(
@@ -2804,6 +2833,7 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
     shell_interpolations: list[tuple[str, int]] = []
     shell_heredocs: list[tuple[str, bool, bool]] = []
     shell_heredoc_expansions: list[_ShellExpansionFrame] = []
+    shell_heredoc_case_state: list[bool] = []
     shell_arithmetic_depth = 0
     shell_case_state: tuple[bool, ...] = ()
     hash_comments = path_suffix in (".py", ".sh")
@@ -2823,12 +2853,14 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
             if candidate == delimiter:
                 shell_heredocs.pop(0)
                 shell_heredoc_expansions.clear()
+                shell_heredoc_case_state.clear()
                 masked_lines.append(" " * len(line))
             elif allow_expansions:
                 masked_lines.append(
                     _mask_shell_heredoc_expansions(
                         line,
                         shell_heredoc_expansions,
+                        shell_heredoc_case_state,
                     )
                 )
             else:
@@ -3110,6 +3142,7 @@ def detect_sleep_then_assert(
         dict[int, list[tuple[int, int]]]
     ] = None,
     assertion_enclosed_sleep_positions: Optional[dict[int, set[int]]] = None,
+    known_assertion_lines: Optional[set[int]] = None,
 ) -> bool:
     """Sleep on lines[idx] followed by an assertion within 3 non-blank lines."""
     line = masked_lines[idx]
@@ -3198,7 +3231,13 @@ def detect_sleep_then_assert(
             # following assert is inside a poll, not gated solely by the sleep.
             if _LOOP_HEADER.search(nxt):
                 break
-            if _is_executable_assertion_line(nxt, path_suffix):
+            if (
+                _is_executable_assertion_line(nxt, path_suffix)
+                or (
+                    known_assertion_lines is not None
+                    and j in known_assertion_lines
+                )
+            ):
                 return True
     return False
 
@@ -3245,14 +3284,17 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
         dict[int, list[tuple[int, int]]]
     ] = None
     assertion_enclosed_sleep_positions: Optional[dict[int, set[int]]] = None
+    known_assertion_lines: Optional[set[int]] = None
     known_sleep_lines: Optional[set[int]] = None
     if suffix == ".py" and has_sleep_candidate:
         known_sleep_positions = {}
         assertion_enclosed_sleep_positions = {}
+        known_assertion_lines = set()
         known_sleep_lines = _python_real_sleep_lines(
             text,
             known_sleep_positions,
             assertion_enclosed_sleep_positions,
+            known_assertion_lines,
         )
     elif suffix == ".swift" and has_sleep_candidate:
         known_sleep_positions = _swift_real_sleep_positions(masked_lines)
@@ -3324,6 +3366,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
                 known_sleep_positions,
                 known_sleep_end_positions,
                 assertion_enclosed_sleep_positions,
+                known_assertion_lines,
             )
         ):
             findings.append(Finding(rel_posix, line_no, RULE_SLEEP_THEN_ASSERT, snippet))
