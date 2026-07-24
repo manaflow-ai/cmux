@@ -305,6 +305,15 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
     }
     @discardableResult func pastePane(paneId: Int, text: String) -> Bool { underlying.pastePane(paneId: paneId, text: text) }
 
+    /// Records into the shared stream's ring, tagged with this session so the one
+    /// buffer stays readable when several sessions write to it. The tag is the tmux
+    /// session id when known, because it survives a rename, while the name moves
+    /// under ``setSessionName(_:)`` and would split one session's events in two.
+    func record(_ event: String) {
+        let identity = scopedSessionId.map { "$\($0)" } ?? scopedSessionName
+        underlying.record("\(event) session=\(identity)")
+    }
+
     // MARK: - RemoteTmuxSessionSource: sizing (per-window, in band)
 
     func setWindowSize(windowId: Int, columns: Int, rows: Int) {
@@ -348,6 +357,14 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
             onPaneOutput: { [weak self] paneId, data in
                 guard let self, self.ownsPane(paneId) else { return }
                 for o in self.observers.values { o.onPaneOutput?(paneId, data) }
+            },
+            // Filtered by the same ownership test as `%output`, and it has to be:
+            // a seed carries a pane's whole screen plus its live cutover, so
+            // handing one to a mirror that does not own the pane would paint
+            // another session's content into that mirror's surface.
+            onPaneSeed: { [weak self] paneId, seed in
+                guard let self, self.ownsPane(paneId) else { return }
+                for o in self.observers.values { o.onPaneSeed?(paneId, seed) }
             },
             onPaneCwd: { [weak self] paneId, path in
                 guard let self, self.ownsPane(paneId) else { return }
