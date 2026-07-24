@@ -410,6 +410,11 @@ private extension MobileIrohSettingsView {
                 "mobile.iroh.diagnostics.failure.connectionClosed",
                 defaultValue: "Connection Closed"
             )
+        case .some(.sendQueueOverflow):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.sendQueueOverflow",
+                defaultValue: "Send Queue Overflow"
+            )
         case .some(.superseded):
             L10n.string(
                 "mobile.iroh.diagnostics.failure.superseded",

@@ -317,6 +317,7 @@ import Testing
 
         #expect(pinnedContext.isCurrent(
             macDeviceID: store.foregroundMacDeviceID,
+            instanceTag: store.activeMacInstanceTag,
             client: store.remoteClient,
             generation: store.connectionGeneration
         ))
@@ -326,6 +327,7 @@ import Testing
 
         #expect(!pinnedContext.isCurrent(
             macDeviceID: store.foregroundMacDeviceID,
+            instanceTag: store.activeMacInstanceTag,
             client: store.remoteClient,
             generation: store.connectionGeneration
         ))

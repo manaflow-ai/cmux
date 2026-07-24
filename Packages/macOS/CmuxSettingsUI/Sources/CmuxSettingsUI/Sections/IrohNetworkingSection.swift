@@ -588,6 +588,11 @@ private struct IrohDiagnosticsReportRows: View {
                 localized: "settings.networking.diagnostics.failure.connectionClosed",
                 defaultValue: "Connection Closed"
             )
+        case .some(.sendQueueOverflow):
+            String(
+                localized: "settings.networking.diagnostics.failure.sendQueueOverflow",
+                defaultValue: "Send Queue Overflow"
+            )
         case .some(.superseded):
             String(
                 localized: "settings.networking.diagnostics.failure.superseded",
