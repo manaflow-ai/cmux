@@ -172,6 +172,11 @@ def test_automatic_lane_stays_on_cmux_internal_identity() -> None:
     assert upload.count(f"IOS_BETA_BUNDLE_ID: {bundle_choice}") == 2
     assert upload.count(f"IOS_BETA_DISPLAY_NAME: {display_name_choice}") == 2
     assert (
+        "CMUX_TESTFLIGHT_ASSIGN_EXTERNAL_GROUP: "
+        f'{override_choice("1", "0")}'
+        in upload
+    )
+    assert (
         "UPLOAD_BUNDLE_ID: "
         f"{summary_choice('dev.cmux.app.beta', 'dev.cmux.app.demo', 'dev.cmux.app.internal')}"
         in upload
@@ -199,6 +204,13 @@ def test_automatic_lane_stays_on_cmux_internal_identity() -> None:
     )
     assert f"ASSIGN_BUNDLE_ID: {bundle_choice}" in assignment
     assert f"CMUX_TESTFLIGHT_INTERNAL_GROUP_ID: {group_choice}" in assignment
+    assert assignment.count("needs: [decide, upload]") == 1
+    assert (
+        "if: github.ref == 'refs/heads/main' "
+        "&& needs.upload.result == 'success' "
+        "&& github.event.inputs.marketing_version_override == ''"
+        in assignment
+    )
 
 
 if __name__ == "__main__":
