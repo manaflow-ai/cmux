@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxControlSocket
 import Foundation
 import Testing
 
@@ -11,8 +12,8 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct FocusedPanelFlashShortcutTests {
-    @Test("Cmd-Shift-H flashes the focused panel when another panel is unread")
-    func explicitFocusedPanelFlashSurvivesCompetingUnreadIndicator() throws {
+    @Test("Explicit focused-panel flashes survive a competing unread indicator")
+    func explicitFocusedPanelFlashesSurviveCompetingUnreadIndicator() throws {
         let originalAppDelegate = AppDelegate.shared
         let appDelegate = originalAppDelegate ?? AppDelegate()
         let originalTabManager = appDelegate.tabManager
@@ -23,8 +24,12 @@ struct FocusedPanelFlashShortcutTests {
         let originalExperimentEnabled = defaults.object(forKey: TmuxOverlayExperimentSettings.enabledKey)
         let originalExperimentTarget = defaults.object(forKey: TmuxOverlayExperimentSettings.targetKey)
         let originalPaneFlashEnabled = defaults.object(forKey: NotificationPaneFlashSettings.enabledKey)
+        var registeredWindowID: UUID?
 
         defer {
+            if let registeredWindowID {
+                appDelegate.unregisterMainWindowContextForTesting(windowId: registeredWindowID)
+            }
             notificationStore.replaceNotificationsForTesting([])
             notificationStore.resetNotificationDeliveryHandlerForTesting()
             appDelegate.tabManager = originalTabManager
@@ -37,6 +42,7 @@ struct FocusedPanelFlashShortcutTests {
         }
 
         let manager = TabManager()
+        registeredWindowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         notificationStore.replaceNotificationsForTesting([])
         notificationStore.configureNotificationDeliveryHandlerForTesting { _, _ in }
         appDelegate.tabManager = manager
@@ -71,6 +77,29 @@ struct FocusedPanelFlashShortcutTests {
         manager.triggerFocusFlash()
 
         #expect(workspace.tmuxWorkspaceFlashToken == flashTokenBeforeShortcut + 1)
+        #expect(workspace.tmuxWorkspaceFlashPanelId == focusedPanel.id)
+
+        let flashTokenBeforeSocket = workspace.tmuxWorkspaceFlashToken
+        let windowID = try #require(registeredWindowID)
+        let socketFlash = TerminalController.shared.controlSurfaceTriggerFlash(
+            routing: ControlRoutingSelectors(
+                hasWindowIDParam: true,
+                windowID: windowID,
+                groupID: nil,
+                workspaceID: workspace.id,
+                surfaceID: focusedPanel.id,
+                paneID: nil
+            ),
+            surfaceID: focusedPanel.id
+        )
+
+        guard case .flashed(_, let workspaceID, let surfaceID) = socketFlash else {
+            Issue.record("Socket flash did not resolve the focused panel: \(socketFlash)")
+            return
+        }
+        #expect(workspaceID == workspace.id)
+        #expect(surfaceID == focusedPanel.id)
+        #expect(workspace.tmuxWorkspaceFlashToken == flashTokenBeforeSocket + 1)
         #expect(workspace.tmuxWorkspaceFlashPanelId == focusedPanel.id)
     }
 
