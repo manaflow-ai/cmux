@@ -50,7 +50,12 @@ enum ShareSessionAPIError: Error, CustomStringConvertible, Sendable {
     }
 }
 
-actor ShareSessionAPI {
+protocol ShareSessionAPIProviding: Sendable {
+    func createSession() async throws -> ShareSessionCreateResult
+    func hostToken(code: String) async throws -> ShareTokenResult
+}
+
+actor ShareSessionAPI: ShareSessionAPIProviding {
     private static let maximumResponseBytes = 64 * 1_024
     private let session: URLSession
     private let auth: AuthCoordinator

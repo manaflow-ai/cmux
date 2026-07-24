@@ -66,8 +66,9 @@ export class TerminalGridModel {
       return false;
     }
     for (const style of frame.styles ?? []) this.styles.set(style.id, style);
+    const clearedRows = new Set(frame.cleared_rows ?? []);
     if (!full) {
-      for (const row of frame.cleared_rows ?? []) {
+      for (const row of clearedRows) {
         if (row >= 0 && row < this.rows) this.spansByRow[row] = [];
       }
     }
@@ -76,7 +77,7 @@ export class TerminalGridModel {
       if (span.row < 0 || span.row >= this.rows) continue;
       // A row's spans are replaced wholesale the first time this frame
       // touches it (full frames start from empty rows anyway).
-      if (!full && !touched.has(span.row) && !(frame.cleared_rows ?? []).includes(span.row)) {
+      if (!full && !touched.has(span.row) && !clearedRows.has(span.row)) {
         this.spansByRow[span.row] = [];
       }
       touched.add(span.row);

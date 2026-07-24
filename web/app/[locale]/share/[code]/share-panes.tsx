@@ -36,6 +36,33 @@ export function createPaneRectRegistry(): PaneRectRegistry {
   };
 }
 
+export interface AnimationFrameScheduler {
+  schedule(): void;
+  cancel(): void;
+}
+
+export function createAnimationFrameScheduler(
+  requestFrame: (callback: () => void) => number,
+  cancelFrame: (id: number) => void,
+  paint: () => void,
+): AnimationFrameScheduler {
+  let pendingFrame: number | null = null;
+  return {
+    schedule() {
+      if (pendingFrame !== null) return;
+      pendingFrame = requestFrame(() => {
+        pendingFrame = null;
+        paint();
+      });
+    },
+    cancel() {
+      if (pendingFrame === null) return;
+      cancelFrame(pendingFrame);
+      pendingFrame = null;
+    },
+  };
+}
+
 const PaneRegistryContext = createContext<PaneRectRegistry | null>(null);
 export const PaneRegistryProvider = PaneRegistryContext.Provider;
 
@@ -151,7 +178,7 @@ function TerminalPane({
       cleanupRef.current = null;
       if (!canvas) return;
       const model = client.gridFor(ws, pane);
-      const paint = (): void => {
+      const paintNow = (): void => {
         const box = canvas.parentElement;
         if (!box) return;
         const dpr = window.devicePixelRatio || 1;
@@ -168,13 +195,19 @@ function TerminalPane({
         const context = canvas.getContext("2d");
         if (context) paintGrid(context, model, cssW, cssH, dpr);
       };
-      const unsubscribeGrid = client.subscribeGrid(ws, pane, paint);
-      const resizeObserver = new ResizeObserver(paint);
+      const scheduler = createAnimationFrameScheduler(
+        (callback) => window.requestAnimationFrame(() => callback()),
+        (id) => window.cancelAnimationFrame(id),
+        paintNow,
+      );
+      const unsubscribeGrid = client.subscribeGrid(ws, pane, scheduler.schedule);
+      const resizeObserver = new ResizeObserver(scheduler.schedule);
       if (canvas.parentElement) resizeObserver.observe(canvas.parentElement);
-      paint();
+      scheduler.schedule();
       cleanupRef.current = () => {
         unsubscribeGrid();
         resizeObserver.disconnect();
+        scheduler.cancel();
       };
     },
     [client, pane, ws],

@@ -273,7 +273,7 @@ export class ShareClient {
   private connectionGeneration = 0;
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private pendingCursor: CursorPos | null | undefined;
+  private pendingCursorResolver: (() => CursorPos | null) | undefined;
   private cursorTimer: ReturnType<typeof setTimeout> | null = null;
   private bubbleTimer: ReturnType<typeof setTimeout> | null = null;
   private acceptingPayload: DeferredOutboundBatch | null = null;
@@ -300,7 +300,7 @@ export class ShareClient {
     this.bubbleTimer = null;
     this.acceptingPayload = null;
     this.pendingPayload = null;
-    this.pendingCursor = undefined;
+    this.pendingCursorResolver = undefined;
     this.reconnectAttempt = 0;
     const socket = this.ws;
     this.ws = null;
@@ -531,6 +531,9 @@ export class ShareClient {
     ) {
       return;
     }
+    if (this.cursorTimer !== null) clearTimeout(this.cursorTimer);
+    this.cursorTimer = null;
+    this.pendingCursorResolver = undefined;
     this.session.update({ reconnecting: true });
     const delay =
       requestedDelay ??
@@ -668,7 +671,7 @@ export class ShareClient {
     this.reconnectTimer = null;
     this.cursorTimer = null;
     this.bubbleTimer = null;
-    this.pendingCursor = undefined;
+    this.pendingCursorResolver = undefined;
     this.subs.clear();
     this.grids.clear();
     this.gridListeners.clear();
@@ -719,8 +722,22 @@ export class ShareClient {
       next.delete(oldest);
     }
     this.cursors.set(next);
+    this.scheduleBubbleExpiry();
+  }
+
+  private scheduleBubbleExpiry(): void {
     if (this.bubbleTimer !== null) clearTimeout(this.bubbleTimer);
-    this.bubbleTimer = setTimeout(() => this.expireBubbles(), BUBBLE_VISIBLE_MS + 50);
+    this.bubbleTimer = null;
+    let earliest = Number.POSITIVE_INFINITY;
+    for (const cursor of this.cursors.get().values()) {
+      if (cursor.bubble) earliest = Math.min(earliest, cursor.bubble.until);
+    }
+    if (!this.stopped && Number.isFinite(earliest)) {
+      this.bubbleTimer = setTimeout(
+        () => this.expireBubbles(),
+        Math.max(1, earliest - Date.now() + 50),
+      );
+    }
   }
 
   private expireBubbles(): void {
@@ -739,12 +756,7 @@ export class ShareClient {
       }
     }
     if (changed) this.cursors.set(next);
-    if (!this.stopped && Number.isFinite(nextExpiry)) {
-      this.bubbleTimer = setTimeout(
-        () => this.expireBubbles(),
-        Math.max(1, nextExpiry - Date.now() + 50),
-      );
-    }
+    if (!this.stopped && Number.isFinite(nextExpiry)) this.scheduleBubbleExpiry();
   }
 
   private pruneCursors(participants: readonly Participant[]): void {
@@ -758,7 +770,7 @@ export class ShareClient {
   // -------------------------------------------------------------------------
   // Outbound
 
-  private send(message: GuestMessage): void {
+  private send(message: GuestMessage): boolean {
     const deferred =
       this.acceptingPayload?.socket === this.ws
         ? this.acceptingPayload
@@ -767,9 +779,9 @@ export class ShareClient {
           : null;
     if (deferred && this.ws?.readyState === WebSocket.OPEN) {
       deferred.messages.push(message);
-      return;
+      return true;
     }
-    this.sendImmediate(message);
+    return this.sendImmediate(message);
   }
 
   private sendImmediate(message: GuestMessage): boolean {
@@ -807,35 +819,47 @@ export class ShareClient {
 
   /** Throttled pane-relative cursor updates; `null` hides the cursor. */
   sendCursor(pos: CursorPos | null): void {
-    if (this.session.get().status !== "active") return;
-    if (pos === null) {
-      this.pendingCursor = null;
-    } else {
-      const layout = this.session.get().activeWs
-        ? this.session.get().layouts[this.session.get().activeWs ?? ""]
-        : undefined;
-      const allowed = this.session.get().activeWs
-        ? collectPaneKeys(this.session.get().activeWs ?? "", layout?.tree)
-        : new Set<string>();
-      const normalized = normalizeOutboundCursor(pos, this.session.get().activeWs);
-      if (!normalized || !allowed.has(paneKey(normalized.ws, normalized.pane))) return;
-      this.pendingCursor = normalized;
-    }
+    this.sendCursorSample(() => pos);
+  }
+
+  /**
+   * Throttles raw pointer samples and resolves pane geometry only for the
+   * latest sample when its send slot becomes available.
+   */
+  sendCursorSample(resolve: () => CursorPos | null): void {
+    const session = this.session.get();
+    if (session.status !== "active" || session.reconnecting) return;
+    this.pendingCursorResolver = resolve;
     if (this.cursorTimer !== null) return;
     this.cursorTimer = setTimeout(() => {
       this.cursorTimer = null;
-      if (this.pendingCursor !== undefined) {
-        this.send({ t: "cursor", pos: this.pendingCursor });
-        this.pendingCursor = undefined;
+      const resolver = this.pendingCursorResolver;
+      this.pendingCursorResolver = undefined;
+      if (!resolver) return;
+      const current = this.session.get();
+      if (current.status !== "active" || current.reconnecting) return;
+      const candidate = resolver();
+      if (candidate === null) {
+        this.send({ t: "cursor", pos: null });
+        return;
       }
+      const normalized = normalizeOutboundCursor(candidate, current.activeWs);
+      const layout = current.activeWs ? current.layouts[current.activeWs] : undefined;
+      const allowed = current.activeWs
+        ? collectPaneKeys(current.activeWs, layout?.tree)
+        : new Set<string>();
+      if (!normalized || !allowed.has(paneKey(normalized.ws, normalized.pane))) return;
+      this.send({ t: "cursor", pos: normalized });
     }, CURSOR_SEND_INTERVAL_MS);
   }
 
-  sendChat(text: string, bubble?: CursorPos): void {
+  sendChat(text: string, bubble?: CursorPos): boolean {
     const session = this.session.get();
-    if (session.status !== "active" || !session.you) return;
+    if (session.status !== "active" || session.reconnecting || !session.you) {
+      return false;
+    }
     const trimmed = truncateUtf8(text.trim(), MAX_CHAT_TEXT_BYTES).trim();
-    if (!trimmed) return;
+    if (!trimmed) return false;
     const normalizedBubble = bubble
       ? normalizeOutboundCursor(bubble, session.activeWs)
       : null;
@@ -847,25 +871,26 @@ export class ShareClient {
       normalizedBubble && allowed.has(paneKey(normalizedBubble.ws, normalizedBubble.pane))
         ? normalizedBubble
         : null;
-    this.send(
+    return this.send(
       bubbleInLayout
         ? { t: "chat", text: trimmed, bubble: bubbleInLayout }
         : { t: "chat", text: trimmed },
     );
   }
 
-  sendInput(ws: string, pane: string, data: string): void {
+  sendInput(ws: string, pane: string, data: string): boolean {
     const session = this.session.get();
     if (
       session.status !== "active" ||
+      session.reconnecting ||
       session.you?.role !== "editor" ||
       ws !== session.activeWs ||
       !this.subs.has(paneKey(ws, pane)) ||
       data.length === 0
     ) {
-      return;
+      return false;
     }
-    this.send({
+    return this.send({
       t: "input",
       ws,
       pane,

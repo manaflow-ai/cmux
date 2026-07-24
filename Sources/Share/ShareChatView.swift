@@ -62,12 +62,14 @@ struct ShareChatView: View {
                 Text(String(localized: "share.chat.copyLink", defaultValue: "Copy Link"))
             }
             .controlSize(.small)
+            .disabled(controller.shareUrl == nil)
             Button(role: .destructive) {
                 controller.stopSharing()
             } label: {
                 Text(String(localized: "share.chat.stopSharing", defaultValue: "Stop Sharing"))
             }
             .controlSize(.small)
+            .disabled(!controller.isSharing)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -170,21 +172,37 @@ struct ShareChatView: View {
                 text: $draft
             )
             .textFieldStyle(.roundedBorder)
+            .disabled(controller.status != .active)
             .onSubmit(sendDraft)
             Button(action: sendDraft) {
                 Image(systemName: "arrow.up.circle.fill")
             }
             .buttonStyle(.borderless)
-            .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .disabled(
+                controller.status != .active
+                    || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            )
             .accessibilityLabel(Text(String(localized: "share.chat.send", defaultValue: "Send")))
         }
         .padding(10)
     }
 
     private func sendDraft() {
-        let text = draft
-        draft = ""
-        controller.sendChat(text)
+        var nextDraft = draft
+        Self.submitDraft(&nextDraft) { controller.sendChat($0) }
+        draft = nextDraft
+    }
+
+    static func submitDraft(
+        _ draft: inout String,
+        send: (String) -> Bool
+    ) {
+        guard !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return
+        }
+        if send(draft) {
+            draft = ""
+        }
     }
 }
 

@@ -46,6 +46,9 @@ final class ShareCursorOverlayController {
     private var bubbleGenerations: [String: UInt64] = [:]
     private var nextBubbleGeneration: UInt64 = 1
     private var mouseMonitor: Any?
+    private var geometryObservers: [NSObjectProtocol] = []
+    private var pendingHostEvent: NSEvent?
+    private var hostSendTask: Task<Void, Never>?
     private var lastHostSendUptime: TimeInterval = 0
     private var lastHostSendWasNil = true
     private static let hostSendMinInterval: TimeInterval = 1.0 / 30.0
@@ -234,6 +237,20 @@ final class ShareCursorOverlayController {
     /// last send are dropped.
     func installMouseMonitor() {
         guard mouseMonitor == nil else { return }
+        for name in [
+            NSWindow.didResizeNotification,
+            NSSplitView.didResizeSubviewsNotification,
+        ] {
+            geometryObservers.append(NotificationCenter.default.addObserver(
+                forName: name,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.refreshAll()
+                }
+            })
+        }
         mouseMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged]
         ) { [weak self] event in
@@ -249,22 +266,53 @@ final class ShareCursorOverlayController {
             NSEvent.removeMonitor(mouseMonitor)
         }
         mouseMonitor = nil
+        for observer in geometryObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        geometryObservers.removeAll()
+        hostSendTask?.cancel()
+        hostSendTask = nil
+        pendingHostEvent = nil
+        lastHostSendUptime = 0
         lastHostSendWasNil = true
     }
 
     private func handleHostMouseEvent(_ event: NSEvent) {
+        pendingHostEvent = event
+        let elapsed = ProcessInfo.processInfo.systemUptime - lastHostSendUptime
+        if elapsed >= Self.hostSendMinInterval {
+            flushPendingHostEvent()
+            return
+        }
+        guard hostSendTask == nil else { return }
+        let delayMilliseconds = max(
+            1,
+            Int(ceil((Self.hostSendMinInterval - elapsed) * 1_000))
+        )
+        hostSendTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(delayMilliseconds))
+            } catch {
+                return
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.hostSendTask = nil
+            self.flushPendingHostEvent()
+        }
+    }
+
+    private func flushPendingHostEvent() {
+        guard let event = pendingHostEvent else { return }
+        pendingHostEvent = nil
+        lastHostSendUptime = ProcessInfo.processInfo.systemUptime
         let pos = hostCursorPosition?(event)
         if pos == nil {
-            // Leaving the shared area is a state change, not a stream; send it
-            // once regardless of the throttle window.
+            // Leaving the shared area is a state change, not a stream.
             guard !lastHostSendWasNil else { return }
             lastHostSendWasNil = true
             sendHostCursor?(nil)
             return
         }
-        let now = ProcessInfo.processInfo.systemUptime
-        guard now - lastHostSendUptime >= Self.hostSendMinInterval else { return }
-        lastHostSendUptime = now
         lastHostSendWasNil = false
         sendHostCursor?(pos)
     }

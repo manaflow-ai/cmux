@@ -122,31 +122,67 @@ function StatusScreen({
 
 function ActiveViewer({ client }: { client: ShareClient }): ReactNode {
   const session = useStoreValue(client.session);
-  const cursors = useStoreValue(client.cursors);
   const t = useTranslations("share");
+  const canInteract = !session.reconnecting;
   const [registry] = useState(createPaneRectRegistry);
   const [workspaceEl, setWorkspaceEl] = useState<HTMLElement | null>(null);
+  const [cursorLayoutRevision, setCursorLayoutRevision] = useState(0);
   const [bubbleDraft, setBubbleDraft] = useState<{
     pos: CursorPos;
     clientX: number;
     clientY: number;
   } | null>(null);
   const bubbleDraftRef = useRef(bubbleDraft);
-  const lastPointer = useRef<{ pos: CursorPos; clientX: number; clientY: number } | null>(
-    null,
-  );
+  const lastPointer = useRef<{
+    target: HTMLElement;
+    paneKey: string;
+    clientX: number;
+    clientY: number;
+  } | null>(null);
   const shortcutCleanupRef = useRef<(() => void) | null>(null);
+  const resizeCleanupRef = useRef<(() => void) | null>(null);
+
+  const resolvePointer = useCallback((): {
+    pos: CursorPos;
+    clientX: number;
+    clientY: number;
+  } | null => {
+    const pointer = lastPointer.current;
+    if (!pointer) return null;
+    const paneRef = paneRefFromKey(pointer.paneKey);
+    if (!paneRef) return null;
+    const rect = pointer.target.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    return {
+      pos: {
+        ws: paneRef[0],
+        pane: paneRef[1],
+        x: Math.min(1, Math.max(0, (pointer.clientX - rect.left) / rect.width)),
+        y: Math.min(1, Math.max(0, (pointer.clientY - rect.top) / rect.height)),
+      },
+      clientX: pointer.clientX,
+      clientY: pointer.clientY,
+    };
+  }, []);
 
   const mountWorkspace = useCallback(
     (element: HTMLElement | null): void => {
       shortcutCleanupRef.current?.();
       shortcutCleanupRef.current = null;
+      resizeCleanupRef.current?.();
+      resizeCleanupRef.current = null;
       setWorkspaceEl(element);
       if (!element) return;
       const ownerWindow = element.ownerDocument.defaultView;
       if (!ownerWindow) return;
+      const resizeObserver = new ResizeObserver(() => {
+        setCursorLayoutRevision((revision) => revision + 1);
+      });
+      resizeObserver.observe(element);
+      resizeCleanupRef.current = () => resizeObserver.disconnect();
       shortcutCleanupRef.current = installKeydownListener(ownerWindow, (event) => {
-        const pointer = lastPointer.current;
+        if (!canInteract) return;
+        const pointer = resolvePointer();
         const paneElement = pointer
           ? registry.get(paneKeyOf(pointer.pos.ws, pointer.pos.pane))
           : null;
@@ -179,11 +215,11 @@ function ActiveViewer({ client }: { client: ShareClient }): ReactNode {
         setBubbleDraft(draft);
       });
     },
-    [registry],
+    [canInteract, registry, resolvePointer],
   );
 
   const activeLayout = session.activeWs ? (session.layouts[session.activeWs] ?? null) : null;
-  const canType = session.you?.role === "editor";
+  const canType = session.you?.role === "editor" && canInteract;
   const host = session.participants.find((participant) => participant.isHost);
 
   return (
@@ -222,27 +258,13 @@ function ActiveViewer({ client }: { client: ShareClient }): ReactNode {
             }
             return;
           }
-          const paneRef = paneRefFromKey(key);
-          if (!paneRef) {
-            if (lastPointer.current) {
-              lastPointer.current = null;
-              client.sendCursor(null);
-            }
-            return;
-          }
-          const [ws, pane] = paneRef;
-          const rect = target.getBoundingClientRect();
           lastPointer.current = {
-            pos: {
-              ws,
-              pane,
-              x: Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)),
-              y: Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height)),
-            },
+            target,
+            paneKey: key,
             clientX: event.clientX,
             clientY: event.clientY,
           };
-          client.sendCursor(lastPointer.current.pos);
+          client.sendCursorSample(() => resolvePointer()?.pos ?? null);
         }}
         onPointerLeave={() => {
           lastPointer.current = null;
@@ -265,13 +287,14 @@ function ActiveViewer({ client }: { client: ShareClient }): ReactNode {
           </div>
         )}
 
-        <CursorLayer
-          cursors={cursors}
+        <CursorStoreLayer
+          client={client}
           participants={session.participants}
           selfUser={session.you?.user ?? null}
           activeWs={session.activeWs}
           registry={registry}
           container={workspaceEl}
+          layoutRevision={cursorLayoutRevision}
         />
 
         {bubbleDraft ? (
@@ -279,10 +302,14 @@ function ActiveViewer({ client }: { client: ShareClient }): ReactNode {
             x={bubbleDraft.clientX}
             y={bubbleDraft.clientY}
             color={participantColor(session.you?.color ?? 0)}
+            disabled={!canInteract}
             onSubmit={(text) => {
-              client.sendChat(text, bubbleDraft.pos);
-              bubbleDraftRef.current = null;
-              setBubbleDraft(null);
+              const admitted = client.sendChat(text, bubbleDraft.pos);
+              if (admitted) {
+                bubbleDraftRef.current = null;
+                setBubbleDraft(null);
+              }
+              return admitted;
             }}
             onCancel={() => {
               bubbleDraftRef.current = null;
@@ -296,9 +323,41 @@ function ActiveViewer({ client }: { client: ShareClient }): ReactNode {
           participants={session.participants}
           selfUser={session.you?.user ?? null}
           onSend={(text) => client.sendChat(text)}
+          disabled={!canInteract}
         />
       </main>
     </div>
+  );
+}
+
+function CursorStoreLayer({
+  client,
+  participants,
+  selfUser,
+  activeWs,
+  registry,
+  container,
+  layoutRevision,
+}: {
+  client: ShareClient;
+  participants: Participant[];
+  selfUser: string | null;
+  activeWs: string | null;
+  registry: ReturnType<typeof createPaneRectRegistry>;
+  container: HTMLElement | null;
+  layoutRevision: number;
+}): ReactNode {
+  const cursors = useStoreValue(client.cursors);
+  void layoutRevision;
+  return (
+    <CursorLayer
+      cursors={cursors}
+      participants={participants}
+      selfUser={selfUser}
+      activeWs={activeWs}
+      registry={registry}
+      container={container}
+    />
   );
 }
 
@@ -325,13 +384,15 @@ function BubbleComposer({
   x,
   y,
   color,
+  disabled,
   onSubmit,
   onCancel,
 }: {
   x: number;
   y: number;
   color: string;
-  onSubmit: (text: string) => void;
+  disabled: boolean;
+  onSubmit: (text: string) => boolean;
   onCancel: () => void;
 }): ReactNode {
   const t = useTranslations("share");
@@ -341,12 +402,15 @@ function BubbleComposer({
       <input
         ref={(element) => element?.focus()}
         value={text}
+        readOnly={disabled}
+        aria-disabled={disabled}
         maxLength={MAX_CHAT_TEXT_CHARS}
         onChange={(event) => setText(event.target.value)}
         onBlur={onCancel}
         onKeyDown={(event) => {
           if (event.key === "Enter") {
             event.preventDefault();
+            if (disabled) return;
             if (text.trim()) onSubmit(text);
             else onCancel();
           } else if (event.key === "Escape") {
@@ -356,7 +420,7 @@ function BubbleComposer({
           event.stopPropagation();
         }}
         placeholder={t("bubblePlaceholder")}
-        className="w-56 rounded-2xl rounded-tl-sm border-0 px-3 py-2 text-xs text-white shadow-xl outline-none placeholder:text-white/60"
+        className="w-56 rounded-2xl rounded-tl-sm border-0 px-3 py-2 text-xs text-white shadow-xl outline-none placeholder:text-white/60 read-only:cursor-not-allowed read-only:opacity-60"
         style={{ backgroundColor: color }}
       />
     </div>

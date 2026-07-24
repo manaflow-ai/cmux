@@ -29,6 +29,17 @@ extension ContentView {
                 when: { !$0.bool(CommandPaletteContextKeys.shareSessionActive) }
             ),
             CommandPaletteCommandContribution(
+                commandId: "palette.showShareSession",
+                title: constant(String(
+                    localized: "share.chat.title",
+                    defaultValue: "Share Session"
+                )),
+                subtitle: constant(String(localized: "command.share.subtitle", defaultValue: "Share")),
+                keywords: ["share", "multiplayer", "chat", "session", "participants"],
+                when: { $0.bool(CommandPaletteContextKeys.shareSessionActive) },
+                enablement: { $0.bool(CommandPaletteContextKeys.shareSessionActive) }
+            ),
+            CommandPaletteCommandContribution(
                 commandId: "palette.stopSharing",
                 title: constant(String(
                     localized: "command.stopSharing.title",
@@ -57,6 +68,10 @@ extension ContentView {
         registry.register(commandId: "palette.stopSharing") {
             guard CmuxFeatureFlags.shared.isMultiplayerShareUIEnabled else { return }
             shareSessionController.stopSharing()
+        }
+        registry.register(commandId: "palette.showShareSession") {
+            guard CmuxFeatureFlags.shared.isMultiplayerShareUIEnabled else { return }
+            shareSessionController.showSessionPanel()
         }
     }
 }

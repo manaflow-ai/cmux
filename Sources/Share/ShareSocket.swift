@@ -88,11 +88,12 @@ actor ShareSocket {
         refresh: @escaping @Sendable () async throws -> Endpoint,
         lifecycle: WorkspaceShareSessionLifecycle = WorkspaceShareSessionLifecycle(),
         maximumPendingMessages: Int = 256,
-        maximumPendingBytes: Int = 4 * 1_024 * 1_024
+        maximumPendingBytes: Int = 4 * 1_024 * 1_024,
+        maximumBufferedEvents: Int = 512
     ) {
         let eventPair = AsyncStream.makeStream(
             of: Event.self,
-            bufferingPolicy: .bufferingNewest(512)
+            bufferingPolicy: .bufferingOldest(max(1, maximumBufferedEvents))
         )
         let wakePair = AsyncStream.makeStream(
             of: Void.self,
@@ -160,9 +161,28 @@ actor ShareSocket {
         urlSession?.invalidateAndCancel()
         urlSession = nil
         resumeDiscarded(outboundMailbox.stop())
-        eventContinuation.yield(.connectionStateChanged(false))
+        enqueueEvent(.connectionStateChanged(false))
         eventContinuation.finish()
     }
+
+    @discardableResult
+    private nonisolated func enqueueEvent(_ event: Event) -> Bool {
+        switch eventContinuation.yield(event) {
+        case .enqueued:
+            return true
+        case .dropped, .terminated:
+            return false
+        @unknown default:
+            return false
+        }
+    }
+
+#if DEBUG
+    @discardableResult
+    nonisolated func enqueueEventForTesting(_ event: Event) -> Bool {
+        enqueueEvent(event)
+    }
+#endif
 
     @discardableResult
     nonisolated func send(_ message: ShareHostMessage) -> SendResult {
@@ -409,14 +429,25 @@ actor ShareSocket {
             let connection = nextConnectionGeneration
             nextConnectionGeneration &+= 1
             activeConnectionGeneration = connection
-            eventContinuation.yield(.connectionStateChanged(true))
-            eventContinuation.yield(.opened(connection: connection))
+            guard enqueueEvent(.connectionStateChanged(true)),
+                  enqueueEvent(.opened(connection: connection)) else {
+                shareSocketLogger.error(
+                    "Closing a share socket whose event consumer fell behind"
+                )
+                socketTask.cancel(with: .goingAway, reason: nil)
+                closeCurrentConnection(session: session, task: socketTask)
+                guard !isStopped else { return }
+                await lifecycle.connectionFailed(
+                    .webSocketClosed(code: 1_001, reason: nil)
+                )
+                return
+            }
             startSendTaskIfNeeded()
             let failure = await receiveLoop(
                 socketTask,
                 connection: connection
             )
-            eventContinuation.yield(.connectionStateChanged(false))
+            enqueueEvent(.connectionStateChanged(false))
             closeCurrentConnection(session: session, task: socketTask)
             guard !isStopped else { return }
             await lifecycle.connectionFailed(failure)
@@ -453,11 +484,17 @@ actor ShareSocket {
                             reason: nil
                         )
                     }
-                    eventContinuation.yield(.text(
+                    guard enqueueEvent(.text(
                         text,
                         connection: connection,
                         sequence: sequence
-                    ))
+                    )) else {
+                        shareSocketLogger.error(
+                            "Closing a share socket whose event consumer fell behind"
+                        )
+                        task.cancel(with: .goingAway, reason: nil)
+                        return .webSocketClosed(code: 1_001, reason: nil)
+                    }
                 case .data(let data):
                     guard data.count < ShareProtocolConstants.binaryFrameByteLimit else {
                         shareSocketLogger.warning(
@@ -520,8 +557,8 @@ actor ShareSocket {
     }
 
     private func emitPermanentStop() {
-        eventContinuation.yield(.connectionStateChanged(false))
-        eventContinuation.yield(.stopped)
+        enqueueEvent(.connectionStateChanged(false))
+        enqueueEvent(.stopped)
         eventContinuation.finish()
     }
 

@@ -68,9 +68,10 @@ final class ShareSessionController {
     private(set) var sharedWorkspaceIDs: Set<UUID> = []
     private(set) weak var tabManager: TabManager?
     @ObservationIgnored
-    private let authCoordinator: @MainActor () -> AuthCoordinator?
+    private let apiProvider:
+        @MainActor () -> (any ShareSessionAPIProviding)?
     @ObservationIgnored
-    private var api: ShareSessionAPI?
+    private var api: (any ShareSessionAPIProviding)?
     @ObservationIgnored
     private(set) var socket: ShareSocket?
     @ObservationIgnored
@@ -113,6 +114,10 @@ final class ShareSessionController {
     private var retainedChatIDs = Set<String>()
     @ObservationIgnored
     private var retainedChatCount = 0
+    @ObservationIgnored
+    private var nextStartGeneration: UInt64 = 1
+    @ObservationIgnored
+    private var activeStartGeneration: UInt64?
     private static let layoutThrottleMilliseconds = 100
     private static let maximumFeedItems =
         ShareProtocolConstants.maximumChatMessages
@@ -120,8 +125,17 @@ final class ShareSessionController {
     private let inputAuthorizer = WorkspaceShareInputAuthorizer()
 
     init(authCoordinator: @escaping @MainActor () -> AuthCoordinator?) {
-        self.authCoordinator = authCoordinator
+        self.apiProvider = {
+            guard let coordinator = authCoordinator() else { return nil }
+            return ShareSessionAPI(auth: coordinator)
+        }
     }
+
+#if DEBUG
+    init(testingAPI: any ShareSessionAPIProviding) {
+        self.apiProvider = { testingAPI }
+    }
+#endif
 
     // MARK: - Lifecycle
 
@@ -140,7 +154,7 @@ final class ShareSessionController {
             )
             return
         }
-        guard let coordinator = authCoordinator() else {
+        guard let api = apiProvider() else {
             lastErrorText = String(
                 localized: "share.error.notSignedIn",
                 defaultValue: "Sign in to cmux to share a workspace."
@@ -151,15 +165,27 @@ final class ShareSessionController {
         sharedWorkspaceIDs = [focusedWorkspace.id]
         lastErrorText = nil
         status = .starting
-        let api = ShareSessionAPI(auth: coordinator)
         self.api = api
+        let generation = nextStartGeneration
+        nextStartGeneration &+= 1
+        activeStartGeneration = generation
         startTask = Task { @MainActor [weak self] in
             do {
                 let created = try await api.createSession()
-                guard let self, self.status == .starting else { return }
+                guard let self,
+                      self.status == .starting,
+                      self.activeStartGeneration == generation else {
+                    return
+                }
+                self.activeStartGeneration = nil
                 self.activate(created: created, api: api)
             } catch {
-                guard let self, self.status == .starting else { return }
+                guard let self,
+                      self.status == .starting,
+                      self.activeStartGeneration == generation else {
+                    return
+                }
+                self.activeStartGeneration = nil
                 self.status = .idle
                 self.startTask = nil
                 self.api = nil
@@ -210,7 +236,10 @@ final class ShareSessionController {
     }
 #endif
 
-    private func activate(created: ShareSessionCreateResult, api: ShareSessionAPI) {
+    private func activate(
+        created: ShareSessionCreateResult,
+        api: any ShareSessionAPIProviding
+    ) {
         guard let tabManager, sharedWorkspace(in: tabManager) != nil else {
             lastErrorText = String(
                 localized: "share.error.noWorkspaceContext",
@@ -272,6 +301,13 @@ final class ShareSessionController {
                     }
                 }
             }
+            guard let self,
+                  !Task.isCancelled,
+                  self.socket === socket,
+                  self.isSharing else {
+                return
+            }
+            self.teardownSession()
         }
         showChatWindow()
     }
@@ -282,6 +318,7 @@ final class ShareSessionController {
     ) {
         startTask?.cancel()
         startTask = nil
+        activeStartGeneration = nil
         socketEventTask?.cancel()
         socketEventTask = nil
         socketStopTask?.cancel()
@@ -332,6 +369,10 @@ final class ShareSessionController {
         window.show()
     }
 
+    func showSessionPanel() {
+        showChatWindow()
+    }
+
     func copyShareLink() {
         guard let shareUrl else { return }
         let pasteboard = NSPasteboard.general
@@ -339,12 +380,13 @@ final class ShareSessionController {
         pasteboard.setString(shareUrl, forType: .string)
     }
 
-    func sendChat(_ text: String) {
+    @discardableResult
+    func sendChat(_ text: String) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard status == .active, !trimmed.isEmpty else { return false }
         // The DO echoes chat back to every active connection (including the
         // sender), so the echo is the single append path.
-        socket?.send(.chat(text: trimmed, bubble: nil))
+        return socket?.send(.chat(text: trimmed, bubble: nil)) == .admitted
     }
 
     func approve(user: String, role: ShareRole) {

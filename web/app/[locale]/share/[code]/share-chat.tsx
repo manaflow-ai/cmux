@@ -13,16 +13,26 @@ import {
   type Participant,
 } from "./share-protocol";
 
+export function submitChatDraft(
+  draft: string,
+  send: (text: string) => boolean,
+): string {
+  if (!draft.trim()) return draft;
+  return send(draft) ? "" : draft;
+}
+
 export function ChatPanel({
   chat,
   participants,
   selfUser,
   onSend,
+  disabled = false,
 }: {
   chat: ChatMessage[];
   participants: Participant[];
   selfUser: string | null;
-  onSend: (text: string) => void;
+  onSend: (text: string) => boolean;
+  disabled?: boolean;
 }): ReactNode {
   const t = useTranslations("share");
   const [open, setOpen] = useState(true);
@@ -60,10 +70,7 @@ export function ChatPanel({
   }
 
   const submit = (): void => {
-    if (draft.trim()) {
-      onSend(draft);
-      setDraft("");
-    }
+    setDraft((current) => submitChatDraft(current, onSend));
   };
 
   return (
@@ -114,10 +121,11 @@ export function ChatPanel({
       >
         <input
           value={draft}
+          disabled={disabled}
           maxLength={MAX_CHAT_TEXT_CHARS}
           onChange={(e) => setDraft(e.target.value)}
           placeholder={t("chatPlaceholder")}
-          className="w-full rounded border border-border bg-transparent px-2 py-1.5 text-xs outline-none placeholder:text-muted focus:border-[#2d8cff]/60"
+          className="w-full rounded border border-border bg-transparent px-2 py-1.5 text-xs outline-none placeholder:text-muted focus:border-[#2d8cff]/60 disabled:cursor-not-allowed disabled:opacity-50"
         />
       </form>
     </div>
