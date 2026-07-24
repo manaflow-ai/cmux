@@ -18,9 +18,6 @@ const superrepoTree = `~/my-superrepo/
     └── [worktree-name]/
         └── origin-[n]/`;
 
-const launchCommand = `cd ~/fun/cmux-hq
-codex --yolo "fix subrouter xyz issues, might relate to cmux in xyz way"`;
-
 export async function generateMetadata({
   params,
 }: {
@@ -118,7 +115,7 @@ export default function ClaudeCodeBestWorktreeManagerPage() {
           hq: (chunks) => <code>{chunks}</code>,
         })}
       </p>
-      <CodeBlock lang="bash">{launchCommand}</CodeBlock>
+      <CodeBlock lang="bash">{t("launchCommand")}</CodeBlock>
       <p>
         {t.rich("agentP2", {
           code: (chunks) => <code>{chunks}</code>,

@@ -51,6 +51,15 @@ describe("search discovery", () => {
     expect(feed).toContain("<link>https://cmux.com/ja/blog</link>");
     expect(feed).toContain('href="https://cmux.com/ja/feed.xml"');
     expect(feed).toContain("<title>cmux Forkの紹介</title>");
+    expect(feed).toContain(
+      "<title>スーパーリポとClaude Codeが最良のワークツリー管理ツールである理由</title>",
+    );
+    expect(feed).toContain(
+      "<description>cmuxにまだワークツリーマネージャーがない理由をよく聞かれます。",
+    );
+    expect(feed).not.toContain(
+      "<title>Superrepos and Why Claude Code Is the Best Worktree Manager</title>",
+    );
     expect(feed).not.toContain("/ja/blog/cmux-omo");
   });
 
