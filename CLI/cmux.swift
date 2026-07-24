@@ -4648,7 +4648,7 @@ struct CMUXCLI {
             let type = optionValue(commandArgs, name: "--type")
             let direction = optionValue(commandArgs, name: "--direction") ?? "right"
             let url = optionValue(commandArgs, name: "--url")
-            let profile = optionValue(commandArgs, name: "--profile")
+            let profile = try parseBrowserProfileOption(commandArgs).selector
             let placement = optionValue(commandArgs, name: "--placement")
             let focusOpt = optionValue(commandArgs, name: "--focus")
             var params: [String: Any] = ["direction": direction]
@@ -4659,20 +4659,13 @@ struct CMUXCLI {
             if let type { params["type"] = type }
             if let url { params["url"] = url }
             if let profile {
-                let selector = profile.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !selector.isEmpty else {
-                    throw CLIError(message: String(
-                        localized: "cli.browser.profile.error.emptySelector",
-                        defaultValue: "--profile requires a non-empty profile name or UUID"
-                    ))
-                }
                 guard type?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "browser" else {
                     throw CLIError(message: String(
                         localized: "browser.profile.automation.error.profileRequiresBrowserPane",
                         defaultValue: "Browser profiles can only be used when creating a browser pane"
                     ))
                 }
-                params["profile"] = selector
+                params["profile"] = profile
             }
             if let placement { params["placement"] = placement }
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
@@ -13403,20 +13396,7 @@ struct CMUXCLI {
             let (workspaceOpt, argsAfterWorkspace) = parseOption(subArgs, name: "--workspace")
             let (windowOpt, argsAfterWindow) = parseOption(argsAfterWorkspace, name: "--window")
             let (focusOpt, argsAfterFocus) = parseOption(argsAfterWindow, name: "--focus")
-            let (profileOpt, urlArgs) = parseOption(argsAfterFocus, name: "--profile")
-            let profileSelector: String?
-            if let profileOpt {
-                let selector = profileOpt.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !selector.isEmpty else {
-                    throw CLIError(message: String(
-                        localized: "cli.browser.profile.error.emptySelector",
-                        defaultValue: "--profile requires a non-empty profile name or UUID"
-                    ))
-                }
-                profileSelector = selector
-            } else {
-                profileSelector = nil
-            }
+            let (profileSelector, urlArgs) = try parseBrowserProfileOption(argsAfterFocus)
             // Reject unrecognized flags instead of folding them into the URL, where they
             // would silently produce an unparseable URL (blank page) or a search query.
             if let strayFlag = urlArgs.first(where: { $0.hasPrefix("--") }) {
@@ -17033,6 +17013,49 @@ struct CMUXCLI {
             remaining.append(arg)
         }
         return (value, remaining)
+    }
+
+    func parseBrowserProfileOption(_ args: [String]) throws -> (selector: String?, remaining: [String]) {
+        var remaining: [String] = []
+        var selector: String?
+        var index = 0
+        var pastTerminator = false
+        while index < args.count {
+            let arg = args[index]
+            if pastTerminator || arg == "--" {
+                pastTerminator = true
+                remaining.append(arg)
+                index += 1
+                continue
+            }
+            if arg == "--profile" {
+                guard index + 1 < args.count, !args[index + 1].hasPrefix("-") else {
+                    throw CLIError(message: String(
+                        localized: "cli.browser.profile.error.emptySelector",
+                        defaultValue: "--profile requires a non-empty profile name or UUID"
+                    ))
+                }
+                selector = args[index + 1]
+                index += 2
+                continue
+            }
+            if arg.hasPrefix("--profile=") {
+                selector = String(arg.dropFirst("--profile=".count))
+                index += 1
+                continue
+            }
+            remaining.append(arg)
+            index += 1
+        }
+        guard let selector else { return (nil, remaining) }
+        let normalized = selector.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            throw CLIError(message: String(
+                localized: "cli.browser.profile.error.emptySelector",
+                defaultValue: "--profile requires a non-empty profile name or UUID"
+            ))
+        }
+        return (normalized, remaining)
     }
 
     func parseRepeatedOption(_ args: [String], name: String) -> ([String], [String]) {
