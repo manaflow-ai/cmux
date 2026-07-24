@@ -98,6 +98,7 @@ extension Workspace {
         ) -> Self {
             Self(
                 sourceWorkspaceId: sourceWorkspaceId,
+                sessionRestoreSourceWorkspaceId: sessionRestoreSourceWorkspaceId,
                 panelId: panelId,
                 panel: panel,
                 title: title,
