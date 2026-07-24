@@ -298,6 +298,31 @@ struct SidebarWorkspaceTableSuspensionTests {
     }
 
     @Test
+    func groupHeaderReconfigureAfterSuspensionRestoresAuthoritativePaint() throws {
+        let cell = SidebarGroupHeaderTableCellView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 44)
+        )
+        let model = makeGroupHeaderModel()
+        let actions = makeGroupHeaderActions {}
+        cell.configure(
+            model: model, actions: actions, isPointerHovering: false,
+            contextMenuDidOpen: {}, contextMenuDidClose: {}
+        )
+        let background = try #require(cell.subviews.first)
+        cell.showOptimisticAnchorActive()
+        let optimisticAlpha = NSColor(cgColor: try #require(background.layer?.backgroundColor))?.alphaComponent
+        #expect((optimisticAlpha ?? 0) > 0)
+
+        cell.suspendPresentation()
+        cell.configure(
+            model: model, actions: actions, isPointerHovering: false,
+            contextMenuDidOpen: {}, contextMenuDidClose: {}
+        )
+        let restoredAlpha = NSColor(cgColor: try #require(background.layer?.backgroundColor))?.alphaComponent
+        #expect((restoredAlpha ?? 1) == 0)
+    }
+
+    @Test
     func mutationSchedulerCancelsHiddenWorkAndFlushesRevealOnce() async {
         var appliedInputs = 0
         var viewportFlushes = 0
