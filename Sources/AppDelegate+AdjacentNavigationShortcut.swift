@@ -28,10 +28,12 @@ extension AppDelegate {
         }
         for movement in SurfacePaneMovement.allCases
         where matchesSurfacePaneMovementShortcut(event: event, movement: movement) {
+            // Repeats may traverse existing panes but must not recursively create splits.
             if !performSurfacePaneMovement(
                 movement,
                 tabManager: routedTabs,
-                preferredWindow: event.window
+                preferredWindow: event.window,
+                allowMissingDestinationSplit: !event.isARepeat
             ) {
                 NSSound.beep()
             }
@@ -54,12 +56,16 @@ extension AppDelegate {
     func performSurfacePaneMovement(
         _ movement: SurfacePaneMovement,
         tabManager: TabManager?,
-        preferredWindow: NSWindow?
+        preferredWindow: NSWindow?,
+        allowMissingDestinationSplit: Bool = true
     ) -> Bool {
         guard focusedDockStoreForShortcut(preferredWindow: preferredWindow) == nil else {
             return false
         }
-        return tabManager?.selectedWorkspace?.moveFocusedSurface(to: movement) == true
+        return tabManager?.selectedWorkspace?.moveFocusedSurface(
+            to: movement,
+            allowMissingDestinationSplit: allowMissingDestinationSplit
+        ) == true
     }
 
     private func matchesSurfacePaneMovementShortcut(

@@ -4,18 +4,29 @@ import Foundation
 
 /// Surface navigation and sidebar status helpers extracted from `Workspace.swift`, which sits at its file-length budget.
 extension Workspace {
-    /// Moves the focused surface into another pane, creating a directional
-    /// split when no adjacent pane exists.
+    /// Moves the focused surface into another pane, optionally creating a
+    /// directional split when no adjacent pane exists.
     @discardableResult
-    func moveFocusedSurface(to movement: SurfacePaneMovement) -> Bool {
+    func moveFocusedSurface(
+        to movement: SurfacePaneMovement,
+        allowMissingDestinationSplit: Bool = true
+    ) -> Bool {
         guard let panelId = focusedPanelId else { return false }
-        return moveSurface(panelId: panelId, to: movement)
+        return moveSurface(
+            panelId: panelId,
+            to: movement,
+            allowMissingDestinationSplit: allowMissingDestinationSplit
+        )
     }
 
     /// Moves a surface through the same ownership-transfer path used by
     /// same-workspace drag and drop.
     @discardableResult
-    func moveSurface(panelId: UUID, to movement: SurfacePaneMovement) -> Bool {
+    func moveSurface(
+        panelId: UUID,
+        to movement: SurfacePaneMovement,
+        allowMissingDestinationSplit: Bool = true
+    ) -> Bool {
         guard layoutMode != .canvas,
               !isRemoteTmuxMirror,
               panels[panelId] != nil,
@@ -27,7 +38,9 @@ extension Workspace {
             from: sourcePaneId,
             for: movement
         )
-        let directionalSplit = directionalSplit(for: movement)
+        let directionalSplit = allowMissingDestinationSplit
+            ? directionalSplit(for: movement)
+            : nil
         guard destinationPaneId != nil || directionalSplit != nil else {
             return false
         }
