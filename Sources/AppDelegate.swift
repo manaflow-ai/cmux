@@ -3565,7 +3565,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ClosedItemHistoryStore.shared.remapWorkspaceWindowIds(from: originalWindowId, to: context.windowId)
             ClosedItemHistoryStore.shared.flushPendingSaves()
         }
-        context.sidebarState.isVisible = snapshot.sidebar.isVisible
+        context.sidebarState.setVisible(snapshot.sidebar.isVisible)
         context.sidebarState.persistedWidth = CGFloat(
             SessionPersistencePolicy.sanitizedSidebarWidth(snapshot.sidebar.width)
         )
@@ -10770,7 +10770,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
             }
             if startWithHiddenSidebar {
-                context.sidebarState.isVisible = false
+                context.sidebarState.setVisible(false)
             }
             if showRightSidebar {
                 guard let fileExplorerState = context.fileExplorerState else {
