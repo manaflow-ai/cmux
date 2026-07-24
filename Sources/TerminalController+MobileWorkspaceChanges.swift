@@ -1,7 +1,6 @@
 import CmuxGit
 import Foundation
 // MARK: - Mobile workspace changes
-
 extension TerminalController {
     /// Returns cached change totals for 1...64 explicit workspaces.
     ///
@@ -32,7 +31,6 @@ extension TerminalController {
                 data: nil
             )
         }
-
         let requests = workspaceIDs.map { workspaceID in
             (
                 workspaceID,
@@ -42,7 +40,6 @@ extension TerminalController {
         var summariesByDirectory: [String: WorkspaceChangesSummary] = [:]
         var payloads: [[String: Any]] = []
         payloads.reserveCapacity(requests.count)
-
         for (workspaceID, resolution) in requests {
             guard case .local(let directory) = resolution else {
                 payloads.append(mobileWorkspaceNotARepositoryPayload(workspaceID: workspaceID))
@@ -63,7 +60,6 @@ extension TerminalController {
         }
         return .ok(["summaries": payloads])
     }
-
     /// Returns the changed-file snapshot for one explicit workspace.
     ///
     /// Explicit multi-window routing never falls back to a selected workspace.
@@ -84,7 +80,6 @@ extension TerminalController {
                 "workspace_id": workspaceID.uuidString,
             ])
         }
-
         return .ok([
             "workspace_id": workspaceID.uuidString,
             "repo_root": repoRoot,
@@ -97,7 +92,6 @@ extension TerminalController {
             "truncated": changed.truncated,
         ])
     }
-
     /// Returns a bounded unified diff for one explicit workspace path.
     ///
     /// Explicit workspace resolution rejects remote provenance before the
@@ -124,7 +118,6 @@ extension TerminalController {
         let maxLines = v2Int(params, "max_lines").map {
             min(max($0, 6_000), 1_000_000)
         }
-
         do {
             let diff = try await MobileHostService.shared.workspaceChangesService.fileDiff(
                 forDirectory: directory,
@@ -144,6 +137,9 @@ extension TerminalController {
             if let totalLineCount = diff.totalLineCount {
                 payload["diff_total_lines"] = totalLineCount
             }
+            if let contentFingerprint = diff.contentFingerprint {
+                payload["content_fingerprint"] = contentFingerprint
+            }
             return .ok(payload)
         } catch let error as WorkspaceChangesServiceError {
             return mobileWorkspaceChangesErrorResult(error, path: path)
@@ -151,7 +147,6 @@ extension TerminalController {
             return .err(code: "internal_error", message: Self.mobileWorkspaceChangesReadFailed, data: nil)
         }
     }
-
     /// Returns artifact-compatible metadata for one changed file revision.
     ///
     /// Remote provenance is rejected before repository containment and
@@ -175,14 +170,16 @@ extension TerminalController {
                 path: context.path,
                 revision: context.revision
             )
-            return mobileWorkspaceChangesWireResult(stat)
+            return mobileWorkspaceChangesWireResult(
+                stat.artifactStat,
+                contentFingerprint: stat.contentFingerprint
+            )
         } catch let error as WorkspaceChangesServiceError {
             return mobileWorkspaceChangesContentErrorResult(error, path: context.path)
         } catch {
             return .err(code: "internal_error", message: Self.mobileWorkspaceChangesReadFailed, data: nil)
         }
     }
-
     /// Returns one bounded byte chunk for one changed file revision.
     ///
     /// The same provenance, containment, authorization, and 3 MiB chunk gates
@@ -210,20 +207,21 @@ extension TerminalController {
                 offset: offset,
                 length: length
             )
-            return mobileWorkspaceChangesWireResult(chunk)
+            return mobileWorkspaceChangesWireResult(
+                chunk.artifactChunk,
+                contentFingerprint: chunk.contentFingerprint
+            )
         } catch let error as WorkspaceChangesServiceError {
             return mobileWorkspaceChangesContentErrorResult(error, path: context.path)
         } catch {
             return .err(code: "internal_error", message: Self.mobileWorkspaceChangesReadFailed, data: nil)
         }
     }
-
     @MainActor
     private func explicitMobileWorkspaceChangesID(params: [String: Any]) -> UUID? {
         guard v2HasNonNullParam(params, "workspace_id") else { return nil }
         return v2UUID(params, "workspace_id")
     }
-
     @MainActor
     private func mobileWorkspaceChangesDirectoryResolution(
         workspaceID: UUID
@@ -238,7 +236,6 @@ extension TerminalController {
             usesRemoteDirectoryProvenance: workspace.usesRemoteDirectoryProvenance
         )
     }
-
     private func mobileWorkspaceChangesDirectoryErrorResult(
         _ resolution: MobileWorkspaceChangesDirectoryResolution,
         workspaceID: UUID
@@ -252,7 +249,6 @@ extension TerminalController {
             data: ["workspace_id": workspaceID.uuidString]
         )
     }
-
     private func mobileWorkspaceChangesSummaryPayload(
         workspaceID: UUID,
         summary: WorkspaceChangesSummary
@@ -271,11 +267,9 @@ extension TerminalController {
             "deletions": summary.deletions,
         ]
     }
-
     private func mobileWorkspaceNotARepositoryPayload(workspaceID: UUID) -> [String: Any] {
         ["workspace_id": workspaceID.uuidString, "is_repo": false]
     }
-
     private func mobileWorkspaceChangedFilePayload(_ file: WorkspaceChangedFile) -> [String: Any] {
         var payload: [String: Any] = [
             "path": file.path,
@@ -289,7 +283,6 @@ extension TerminalController {
         }
         return payload
     }
-
     private func mobileWorkspaceChangesErrorResult(
         _ error: WorkspaceChangesServiceError,
         path: String
@@ -354,10 +347,16 @@ extension TerminalController {
         }
     }
 
-    private func mobileWorkspaceChangesWireResult<T: Encodable>(_ value: T) -> V2CallResult {
+    private func mobileWorkspaceChangesWireResult<T: Encodable>(
+        _ value: T,
+        contentFingerprint: String? = nil
+    ) -> V2CallResult {
         guard let data = try? JSONEncoder().encode(value),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+              var object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return .err(code: "internal_error", message: Self.mobileWorkspaceChangesReadFailed, data: nil)
+        }
+        if let contentFingerprint {
+            object["content_fingerprint"] = contentFingerprint
         }
         return .ok(object)
     }

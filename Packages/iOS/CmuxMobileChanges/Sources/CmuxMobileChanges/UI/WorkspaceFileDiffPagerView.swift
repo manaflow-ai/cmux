@@ -40,6 +40,10 @@ public struct WorkspaceFileDiffPagerView: View {
             pager
         }
         .accessibilityIdentifier("MobileChangesDiffPager")
+        .onAppear(perform: recordSelectedPresentationAccess)
+        .onChange(of: selection) {
+            recordSelectedPresentationAccess()
+        }
     }
 
     private var topBar: some View {
@@ -95,5 +99,11 @@ public struct WorkspaceFileDiffPagerView: View {
     private var currentFile: ChangedFileItem? {
         guard files.indices.contains(selection) else { return nil }
         return files[selection]
+    }
+
+    @MainActor
+    private func recordSelectedPresentationAccess() {
+        guard let currentFile else { return }
+        actions.onPresentationAccess(currentFile.path)
     }
 }

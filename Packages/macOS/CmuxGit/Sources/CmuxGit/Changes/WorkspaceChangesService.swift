@@ -1,4 +1,4 @@
-public import CmuxAgentChat
+internal import CmuxAgentChat
 import Foundation
 
 /// Reads committed, staged, unstaged, and untracked changes for a workspace directory.
@@ -19,6 +19,7 @@ public struct WorkspaceChangesService: Sendable {
     private let authorizedPathCache: WorkspaceChangesAuthorizedPathCache
     private let baseContentCache: WorkspaceChangesBaseContentCache
     private let pathValidator = WorkspaceChangesPathValidator()
+    private let contentReader = WorkspaceChangesContentReader()
 
     /// Creates a production workspace-changes service.
     public init() {
@@ -126,7 +127,11 @@ public struct WorkspaceChangesService: Sendable {
                 file: file,
                 unifiedDiff: "",
                 truncated: false,
-                totalLineCount: 0
+                totalLineCount: 0,
+                contentFingerprint: currentContentFingerprint(
+                    repoRoot: scope.repoRoot,
+                    path: normalizedPath
+                )
             )
         }
 
@@ -152,7 +157,11 @@ public struct WorkspaceChangesService: Sendable {
             file: file,
             unifiedDiff: bounded.text,
             truncated: bounded.truncated || result.standardOutputWasTruncated,
-            totalLineCount: result.standardOutputWasTruncated ? nil : bounded.totalLineCount
+            totalLineCount: result.standardOutputWasTruncated ? nil : bounded.totalLineCount,
+            contentFingerprint: currentContentFingerprint(
+                repoRoot: scope.repoRoot,
+                path: normalizedPath
+            )
         )
     }
 
@@ -172,14 +181,14 @@ public struct WorkspaceChangesService: Sendable {
         forDirectory directory: String,
         path: String,
         revision: WorkspaceChangesFileRevision
-    ) async throws -> ChatArtifactStat {
+    ) async throws -> WorkspaceChangesFileStat {
         let fileURL = try await authorizedFileURL(
             forDirectory: directory,
             path: path,
             revision: revision
         )
         do {
-            return try ArtifactByteReader().stat(path: fileURL.path)
+            return try contentReader.stat(path: fileURL.path)
         } catch ArtifactByteReader.Error.fileNotFound {
             throw WorkspaceChangesServiceError.fileNotFound
         } catch {
@@ -207,7 +216,7 @@ public struct WorkspaceChangesService: Sendable {
         revision: WorkspaceChangesFileRevision,
         offset: Int64,
         length: Int
-    ) async throws -> ChatArtifactChunk {
+    ) async throws -> WorkspaceChangesFileChunk {
         let fileURL = try await authorizedFileURL(
             forDirectory: directory,
             path: path,
@@ -215,7 +224,7 @@ public struct WorkspaceChangesService: Sendable {
         )
         let clampedLength = ChatArtifactTransferPolicy.defaultPolicy.clampedChunkLength(length)
         do {
-            return try ArtifactByteReader().fetch(
+            return try contentReader.fetch(
                 path: fileURL.path,
                 offset: max(0, offset),
                 length: clampedLength
@@ -335,7 +344,8 @@ public struct WorkspaceChangesService: Sendable {
         file: WorkspaceChangedFile,
         unifiedDiff: String,
         truncated: Bool,
-        totalLineCount: Int?
+        totalLineCount: Int?,
+        contentFingerprint: String?
     ) -> WorkspaceFileDiff {
         WorkspaceFileDiff(
             path: file.path,
@@ -346,8 +356,18 @@ public struct WorkspaceChangesService: Sendable {
             deletions: file.deletions,
             unifiedDiff: unifiedDiff,
             truncated: truncated,
-            totalLineCount: totalLineCount
+            totalLineCount: totalLineCount,
+            contentFingerprint: contentFingerprint
         )
+    }
+
+    private nonisolated func currentContentFingerprint(
+        repoRoot: String,
+        path: String
+    ) -> String? {
+        let fileURL = URL(fileURLWithPath: repoRoot, isDirectory: true)
+            .appendingPathComponent(path, isDirectory: false)
+        return contentReader.contentFingerprint(path: fileURL.path)
     }
 
     private nonisolated func run(

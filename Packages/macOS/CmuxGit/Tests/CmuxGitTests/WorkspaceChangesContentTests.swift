@@ -20,6 +20,7 @@ import Testing
             revision: .current
         )
         #expect(stat.size == 3)
+        #expect(stat.contentFingerprint != nil)
 
         await #expect(throws: WorkspaceChangesServiceError.forbidden) {
             try await service.fileStat(
@@ -28,6 +29,37 @@ import Testing
                 revision: .current
             )
         }
+    }
+
+    @Test func diffStatAndFetchShareTheCurrentFileFingerprint() async throws {
+        let repo = try WorkspaceChangesGitRepositoryFixture()
+        try repo.write("changed.txt", Data("before\n".utf8))
+        try repo.git(["add", "changed.txt"])
+        try repo.commit("baseline")
+        try repo.write("changed.txt", Data("after\n".utf8))
+        let service = WorkspaceChangesService()
+
+        let diff = try await service.fileDiff(
+            forDirectory: repo.root.path,
+            path: "changed.txt"
+        )
+        let stat = try await service.fileStat(
+            forDirectory: repo.root.path,
+            path: "changed.txt",
+            revision: .current
+        )
+        let chunk = try await service.fileFetch(
+            forDirectory: repo.root.path,
+            path: "changed.txt",
+            revision: .current,
+            offset: 0,
+            length: 1_024
+        )
+
+        let fingerprint = try #require(diff.contentFingerprint)
+        #expect(stat.contentFingerprint == fingerprint)
+        #expect(chunk.contentFingerprint == fingerprint)
+        #expect(chunk.data == Data("after\n".utf8))
     }
 
     @Test func renameOldPathIsAuthorizedOnlyAtBase() async throws {

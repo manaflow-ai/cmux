@@ -18,7 +18,7 @@ public struct WorkspaceChangesSheet: View {
     @State private var totals = ChangesTotals(filesChanged: 0, additions: 0, deletions: 0)
     @State private var files: [ChangedFileItem] = []
     @State private var listState: WorkspaceChangesListState = .loading
-    @State private var cachedPresentations: [String: FileDiffPresentation] = [:]
+    @State private var presentationCache = FileDiffPresentationCache()
     @State private var fontSize: Double
     @State private var navigationPath: [WorkspaceChangesNavigationRoute] = []
     @State private var inlineActionHost = ChatArtifactInlineActionHost()
@@ -49,7 +49,7 @@ public struct WorkspaceChangesSheet: View {
             totals: totals,
             files: files,
             listState: listState,
-            cachedPresentations: cachedPresentations,
+            cachedPresentations: presentationCache.presentations,
             fontSize: fontSize,
             listActions: listActions,
             pagerActions: pagerActions,
@@ -81,8 +81,11 @@ public struct WorkspaceChangesSheet: View {
                 maxLines: maxLines
             )
         }
-        let loadCurrentLines: @MainActor @Sendable (String) async throws -> [String] =
+        let loadCurrentLines: @MainActor @Sendable (String) async throws -> DiffExpansionCurrentFile =
             store.workspaceChangesCurrentFileLinesLoader(workspaceID: workspaceID)
+        let presentationAccess: @MainActor @Sendable (String) -> Void = { path in
+            presentationCache.touch(path: path)
+        }
         let persistFontSize: @MainActor @Sendable (Double) -> Void = { pointSize in
             fontSize = pointSize
             fontPreference.pointSize = pointSize
@@ -98,6 +101,7 @@ public struct WorkspaceChangesSheet: View {
         return WorkspaceFileDiffPagerActions(
             onLoad: loadDocument,
             onLoadCurrentLines: loadCurrentLines,
+            onPresentationAccess: presentationAccess,
             onPersistFontSize: persistFontSize,
             onCopy: copy,
             inlinePreview: inlinePreview
@@ -132,7 +136,7 @@ public struct WorkspaceChangesSheet: View {
 
     @MainActor
     private func loadChangedFiles(invalidateCache: Bool) async {
-        if invalidateCache { cachedPresentations = [:] }
+        if invalidateCache { presentationCache.removeAll() }
         listState = .loading
         do {
             let response = try await store.fetchChangedFiles(workspaceID: workspaceID)
@@ -176,7 +180,7 @@ public struct WorkspaceChangesSheet: View {
     ) async throws -> FileDiffPresentation {
         if maxLines == nil,
            !forceRefresh,
-           let cached = cachedPresentations[path] {
+           let cached = presentationCache.presentation(forPath: path) {
             return cached
         }
         let response = try await store.fetchFileDiff(
@@ -189,12 +193,12 @@ public struct WorkspaceChangesSheet: View {
             truncated: response.truncated,
             isBinary: response.isBinary,
             totalLineCount: response.diffTotalLines,
-            fileKind: response.status.fileChangeKind,
-            fontSize: fontSize
+            contentFingerprint: response.contentFingerprint,
+            fileKind: response.status.fileChangeKind
         )
         try Task.checkCancellation()
         if maxLines == nil {
-            cachedPresentations[path] = presentation
+            presentationCache.insert(presentation, forPath: path)
         }
         return presentation
     }

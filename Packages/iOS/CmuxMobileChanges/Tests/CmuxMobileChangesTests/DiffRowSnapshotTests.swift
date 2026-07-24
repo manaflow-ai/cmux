@@ -39,18 +39,14 @@ import Testing
         #expect(rows.last?.hunkCopyText == document.hunks[1].copyText)
     }
 
-    @Test func parsingWorkerPublishesRowsAndGutterAsOnePresentation() async {
+    @Test func parsingWorkerPublishesFontIndependentRowsAndMaximumLineNumber() async {
         let presentation = await UnifiedDiffParser().parsePresentationOffMain(
             "@@ -9 +1234 @@\n-old\n+new",
-            fileKind: .modified,
-            fontSize: 14
+            fileKind: .modified
         )
-        let expectedGutterWidth = DiffGutterLayout(maximumLineNumber: 1_234)
-            .measuredWidth(fontSize: 14)
 
         #expect(presentation.rows.compactMap(\.line).count == presentation.document.lines.count)
-        #expect(presentation.gutterWidth == expectedGutterWidth)
-        #expect(presentation.fontSize == 14)
+        #expect(presentation.maximumLineNumber == 1_234)
     }
 
     @Test func derivesLeadingInnerAndUnresolvedTrailingGaps() {

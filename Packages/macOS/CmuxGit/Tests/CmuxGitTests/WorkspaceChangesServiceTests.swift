@@ -101,11 +101,17 @@ import Testing
         try repo.commit("delete baseline")
         try repo.remove("delete-me.txt")
 
-        let result = await WorkspaceChangesService().changedFiles(forDirectory: repo.root.path)
+        let service = WorkspaceChangesService()
+        let result = await service.changedFiles(forDirectory: repo.root.path)
         let file = try #require(result.files.first)
+        let diff = try await service.fileDiff(
+            forDirectory: repo.root.path,
+            path: "delete-me.txt"
+        )
 
         #expect(file.status == .deleted)
         #expect(file.deletions == 2)
+        #expect(diff.contentFingerprint == nil)
     }
 
     @Test func notARepositoryReturnsSentinels() async throws {

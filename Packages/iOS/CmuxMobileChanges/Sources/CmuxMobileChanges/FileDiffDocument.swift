@@ -12,6 +12,8 @@ public struct FileDiffDocument: Sendable, Equatable {
     public let loadedLineCount: Int
     /// Number of lines in the full raw unified diff, when known.
     public let totalLineCount: Int?
+    /// Working-file revision fingerprint associated with the diff, when reported.
+    public let contentFingerprint: String?
 
     /// Creates a file diff document.
     /// - Parameters:
@@ -20,12 +22,14 @@ public struct FileDiffDocument: Sendable, Equatable {
     ///   - isBinary: Whether the file is binary.
     ///   - loadedLineCount: Number of lines in the loaded raw diff window.
     ///   - totalLineCount: Number of lines in the full raw diff, when known.
+    ///   - contentFingerprint: Working-file revision fingerprint, when reported.
     public init(
         hunks: [DiffHunk],
         truncated: Bool,
         isBinary: Bool,
         loadedLineCount: Int? = nil,
-        totalLineCount: Int? = nil
+        totalLineCount: Int? = nil,
+        contentFingerprint: String? = nil
     ) {
         self.hunks = hunks
         lines = hunks.flatMap(\.flattenedLines)
@@ -33,5 +37,6 @@ public struct FileDiffDocument: Sendable, Equatable {
         self.isBinary = isBinary
         self.loadedLineCount = loadedLineCount ?? lines.count
         self.totalLineCount = totalLineCount
+        self.contentFingerprint = contentFingerprint
     }
 }

@@ -8,17 +8,8 @@ struct FileDiffContinuationFooter: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            if continuation.canShowMore,
-               let totalLineCount = continuation.totalLineCount {
-                Text(String(
-                    format: String(
-                        localized: "changes.diff.progress",
-                        defaultValue: "Showing %1$@ of %2$@ diff lines",
-                        bundle: .module
-                    ),
-                    continuation.shownLineCount.formatted(),
-                    totalLineCount.formatted()
-                ))
+            if continuation.canShowMore {
+                Text(progressText)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 
@@ -62,5 +53,27 @@ struct FileDiffContinuationFooter: View {
         .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
         .padding(16)
+    }
+
+    private var progressText: String {
+        if let totalLineCount = continuation.totalLineCount {
+            return String(
+                format: String(
+                    localized: "changes.diff.progress",
+                    defaultValue: "Showing %1$@ of %2$@ diff lines",
+                    bundle: .module
+                ),
+                continuation.shownLineCount.formatted(),
+                totalLineCount.formatted()
+            )
+        }
+        return String(
+            format: String(
+                localized: "changes.diff.progress_loaded_only",
+                defaultValue: "Showing the first %@ diff lines",
+                bundle: .module
+            ),
+            continuation.shownLineCount.formatted()
+        )
     }
 }

@@ -46,29 +46,29 @@ public struct UnifiedDiffParser: Sendable {
     ///   - truncated: Whether the host truncated the raw diff.
     ///   - isBinary: Whether the file is binary.
     ///   - totalLineCount: Number of lines in the full raw diff, when reported.
+    ///   - contentFingerprint: Working-file revision fingerprint, when reported.
     ///   - fileKind: Change kind controlling hidden-context expansion.
-    ///   - fontSize: Monospaced diff font size used to measure the gutter.
     /// - Returns: A parsed document and display projection ready for publication.
     public nonisolated func parsePresentationOffMain(
         _ unifiedDiff: String,
         truncated: Bool = false,
         isBinary: Bool = false,
         totalLineCount: Int? = nil,
-        fileKind: FileChangeKind,
-        fontSize: Double
+        contentFingerprint: String? = nil,
+        fileKind: FileChangeKind
     ) async -> FileDiffPresentation {
         let document = parse(
             unifiedDiff,
             truncated: truncated,
             isBinary: isBinary,
-            totalLineCount: totalLineCount
+            totalLineCount: totalLineCount,
+            contentFingerprint: contentFingerprint
         )
         return FileDiffPresentation.make(
             document: document,
             expansionState: DiffExpansionState(),
             currentFileLines: nil,
-            fileKind: fileKind,
-            fontSize: fontSize
+            fileKind: fileKind
         )
     }
 
@@ -78,12 +78,14 @@ public struct UnifiedDiffParser: Sendable {
     ///   - truncated: Whether the host truncated the raw diff.
     ///   - isBinary: Whether the file is binary.
     ///   - totalLineCount: Number of lines in the full raw diff, when reported.
+    ///   - contentFingerprint: Working-file revision fingerprint, when reported.
     /// - Returns: A display-ready document. Empty and rename-only diffs contain no hunks.
     public func parse(
         _ unifiedDiff: String,
         truncated: Bool = false,
         isBinary: Bool = false,
-        totalLineCount: Int? = nil
+        totalLineCount: Int? = nil,
+        contentFingerprint: String? = nil
     ) -> FileDiffDocument {
         let loadedLineCount = unifiedDiff.isEmpty
             ? 0
@@ -94,7 +96,8 @@ public struct UnifiedDiffParser: Sendable {
                 truncated: truncated,
                 isBinary: isBinary,
                 loadedLineCount: loadedLineCount,
-                totalLineCount: totalLineCount
+                totalLineCount: totalLineCount,
+                contentFingerprint: contentFingerprint
             )
         }
 
@@ -174,7 +177,8 @@ public struct UnifiedDiffParser: Sendable {
             truncated: truncated,
             isBinary: isBinary,
             loadedLineCount: loadedLineCount,
-            totalLineCount: totalLineCount
+            totalLineCount: totalLineCount,
+            contentFingerprint: contentFingerprint
         )
     }
 

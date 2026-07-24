@@ -8111,7 +8111,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         _ response: MobileSyncWorkspaceListResponse,
         preferActiveTicketTarget: Bool = false,
         mergeExistingWorkspaces: Bool = false,
-        groupsAreAuthoritative: Bool = true
+        groupsAreAuthoritative: Bool = true,
+        changesSummaryRefreshScope: WorkspaceChangesSummaryRefreshScope = .fullSnapshot
     ) {
         let remoteWorkspaces = remoteWorkspacesPreservingSnapshots(from: response)
         // Write the foreground Mac's per-Mac state; `workspaces` / `workspaceGroups`
@@ -8129,9 +8130,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
         setForegroundWorkspaceState(
             workspaces: remoteWorkspaces, groups: groups, merge: mergeExistingWorkspaces)
-        scheduleWorkspaceChangesSummaryRefresh(
-            workspaceIDs: response.workspaces.map(\.id)
+        let changesSummaryWorkspaceIDs = changesSummaryRefreshScope.workspaceIDs(
+            fullSnapshotWorkspaceIDs: response.workspaces.map(\.id)
         )
+        if !changesSummaryWorkspaceIDs.isEmpty {
+            scheduleWorkspaceChangesSummaryRefresh(
+                workspaceIDs: changesSummaryWorkspaceIDs
+            )
+        }
         if preferActiveTicketTarget, selectActiveTicketTargetIfAvailable() {
             return
         }

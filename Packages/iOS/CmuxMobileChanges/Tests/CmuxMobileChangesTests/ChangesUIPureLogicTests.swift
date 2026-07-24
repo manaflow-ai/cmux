@@ -138,7 +138,7 @@ import Testing
         let legacyContinuation = FileDiffContinuation(lineBudget: 6_000, document: legacy)
         #expect(legacyContinuation.shownLineCount == 5_998)
         #expect(legacyContinuation.totalLineCount == nil)
-        #expect(!legacyContinuation.canShowMore)
+        #expect(legacyContinuation.canShowMore)
         #expect(legacyContinuation.shouldShowFooter)
 
         let completeContinuation = FileDiffContinuation(lineBudget: 24_000, document: complete)
@@ -190,5 +190,67 @@ import Testing
         )
         #expect(exhausted.shouldShowFooter)
         #expect(!exhausted.canShowMore)
+    }
+
+    @Test func continuationWithoutTotalStopsAtClientOrNoGrowthCeiling() {
+        let unknownTotal = FileDiffDocument(
+            hunks: [],
+            truncated: true,
+            isBinary: false,
+            loadedLineCount: 24_000
+        )
+
+        #expect(FileDiffContinuation(
+            lineBudget: 24_000,
+            document: unknownTotal
+        ).canShowMore)
+        #expect(!FileDiffContinuation(
+            lineBudget: 96_000,
+            document: unknownTotal
+        ).canShowMore)
+        #expect(!FileDiffContinuation(
+            lineBudget: 24_000,
+            document: unknownTotal,
+            reachedTransportCeiling: true
+        ).canShowMore)
+    }
+
+    @Test func presentationCacheEvictsLeastRecentlyUsedBeyondSevenPages() async {
+        let presentation = await FileDiffPresentation.prepareOffMain(
+            document: FileDiffDocument(hunks: [], truncated: false, isBinary: false),
+            fileKind: .modified
+        )
+        var cache = FileDiffPresentationCache()
+        for index in 0..<7 {
+            cache.insert(presentation, forPath: "file-\(index)")
+        }
+        _ = cache.presentation(forPath: "file-0")
+        cache.insert(presentation, forPath: "file-7")
+
+        #expect(cache.presentations.count == 7)
+        #expect(cache.presentations["file-0"] != nil)
+        #expect(cache.presentations["file-1"] == nil)
+        #expect(cache.presentations["file-7"] != nil)
+    }
+
+    @Test func expansionRevisionPolicyReloadsOnlyForKnownMismatches() {
+        let policy = DiffExpansionRevisionPolicy()
+
+        #expect(policy.decision(
+            diffContentFingerprint: "10:1:2",
+            fetchedContentFingerprints: ["10:1:2", "10:1:2"]
+        ) == .accept)
+        #expect(policy.decision(
+            diffContentFingerprint: "10:1:2",
+            fetchedContentFingerprints: ["10:1:3"]
+        ) == .reloadDiff)
+        #expect(policy.decision(
+            diffContentFingerprint: nil,
+            fetchedContentFingerprints: ["10:1:3"]
+        ) == .accept)
+        #expect(policy.decision(
+            diffContentFingerprint: "10:1:2",
+            fetchedContentFingerprints: []
+        ) == .accept)
     }
 }

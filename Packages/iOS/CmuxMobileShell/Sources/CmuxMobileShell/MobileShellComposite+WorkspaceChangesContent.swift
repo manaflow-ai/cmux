@@ -1,5 +1,5 @@
 public import CmuxAgentChat
-internal import CmuxMobileChanges
+public import CmuxMobileChanges
 internal import CmuxMobileDiagnostics
 public import Foundation
 internal import CmuxMobileRPC
@@ -21,6 +21,18 @@ extension MobileShellComposite {
         path: String,
         revision: WorkspaceChangesFileRevision
     ) async throws -> ChatArtifactStat {
+        try await workspaceChangesFileStatResponse(
+            workspaceID: workspaceID,
+            path: path,
+            revision: revision
+        ).value
+    }
+
+    private func workspaceChangesFileStatResponse(
+        workspaceID: String,
+        path: String,
+        revision: WorkspaceChangesFileRevision
+    ) async throws -> WorkspaceChangesContentResponse<ChatArtifactStat> {
         let request = WorkspaceChangesContentRequest.stat(
             workspaceID: workspaceID,
             path: path,
@@ -46,6 +58,22 @@ extension MobileShellComposite {
         offset: Int64,
         length: Int
     ) async throws -> ChatArtifactChunk {
+        try await workspaceChangesFileFetchResponse(
+            workspaceID: workspaceID,
+            path: path,
+            revision: revision,
+            offset: offset,
+            length: length
+        ).value
+    }
+
+    private func workspaceChangesFileFetchResponse(
+        workspaceID: String,
+        path: String,
+        revision: WorkspaceChangesFileRevision,
+        offset: Int64,
+        length: Int
+    ) async throws -> WorkspaceChangesContentResponse<ChatArtifactChunk> {
         let request = WorkspaceChangesContentRequest.fetch(
             workspaceID: workspaceID,
             path: path,
@@ -90,25 +118,62 @@ extension MobileShellComposite {
     /// - Returns: A closure that fetches and splits one current file.
     public func workspaceChangesCurrentFileLinesLoader(
         workspaceID: String
-    ) -> @MainActor @Sendable (String) async throws -> [String] {
+    ) -> @MainActor @Sendable (String) async throws -> DiffExpansionCurrentFile {
         { path in
-            let stat = try await self.workspaceChangesFileStat(
+            let statResponse = try await self.workspaceChangesFileStatResponse(
                 workspaceID: workspaceID,
                 path: path,
                 revision: .current
             )
-            guard stat.size <= Self.workspaceChangesExpansionByteLimit else {
+            guard statResponse.value.size <= Self.workspaceChangesExpansionByteLimit else {
                 throw DiffExpansionContentError.tooLarge
             }
-            let data = try await self.workspaceChangesFileData(
+            let content = try await self.workspaceChangesCurrentFileContent(
+                workspaceID: workspaceID,
+                path: path
+            )
+            guard content.data.count <= Self.workspaceChangesExpansionByteLimit else {
+                throw DiffExpansionContentError.tooLarge
+            }
+            let rawFingerprints: [String?] =
+                [statResponse.contentFingerprint] + content.fingerprints
+            let fingerprints: [String] = rawFingerprints
+                .compactMap { $0 }
+                .filter { !$0.isEmpty }
+            return DiffExpansionCurrentFile(
+                lines: Self.workspaceChangesLines(from: content.data),
+                contentFingerprints: fingerprints
+            )
+        }
+    }
+
+    private func workspaceChangesCurrentFileContent(
+        workspaceID: String,
+        path: String
+    ) async throws -> (data: Data, fingerprints: [String?]) {
+        var offset: Int64 = 0
+        var result = Data()
+        var fingerprints: [String?] = []
+        while true {
+            try Task.checkCancellation()
+            let response = try await workspaceChangesFileFetchResponse(
                 workspaceID: workspaceID,
                 path: path,
-                revision: .current
+                revision: .current,
+                offset: offset,
+                length: ChatArtifactTransferPolicy.defaultPolicy.maxRawChunkBytes
             )
-            guard data.count <= Self.workspaceChangesExpansionByteLimit else {
-                throw DiffExpansionContentError.tooLarge
+            let chunk = response.value
+            fingerprints.append(response.contentFingerprint)
+            if result.isEmpty, chunk.totalSize > 0, chunk.totalSize <= Int64(Int.max) {
+                result.reserveCapacity(Int(chunk.totalSize))
             }
-            return Self.workspaceChangesLines(from: data)
+            result.append(chunk.data)
+            offset = chunk.offset + Int64(chunk.data.count)
+            if chunk.eof { return (result, fingerprints) }
+            guard !chunk.data.isEmpty else {
+                throw ChatArtifactError.macUnreachable
+            }
         }
     }
 
@@ -136,9 +201,9 @@ extension MobileShellComposite {
         )
     }
 
-    private func workspaceChangesContentCall<T: Decodable>(
+    private func workspaceChangesContentCall<T: Decodable & Sendable>(
         _ request: WorkspaceChangesContentRequest
-    ) async throws -> T {
+    ) async throws -> WorkspaceChangesContentResponse<T> {
         do {
             let client = try workspaceChangesClient()
             let requestData = try MobileCoreRPCClient.requestData(
@@ -149,7 +214,10 @@ extension MobileShellComposite {
             guard remoteClient === client, connectionState == .connected else {
                 throw CancellationError()
             }
-            return try ChatWireCoding().decode(T.self, from: response)
+            return try ChatWireCoding().decode(
+                WorkspaceChangesContentResponse<T>.self,
+                from: response
+            )
         } catch is CancellationError {
             throw CancellationError()
         } catch {

@@ -48,10 +48,9 @@ public struct FileDiffContinuation: Sendable, Equatable {
         isTruncated
     }
 
-    /// Whether the host supplied enough metadata to request a larger window.
+    /// Whether another bounded request can grow the transported diff window.
     public var canShowMore: Bool {
         isTruncated
-            && totalLineCount != nil
             && !reachedTransportCeiling
             && nextLineBudget > lineBudget
     }

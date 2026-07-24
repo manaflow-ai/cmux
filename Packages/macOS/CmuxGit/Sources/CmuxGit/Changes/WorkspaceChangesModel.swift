@@ -201,6 +201,8 @@ public struct WorkspaceFileDiff: Sendable, Equatable {
     public let truncated: Bool
     /// Number of lines in the full diff, or `nil` when bounded reading stopped early.
     public let totalLineCount: Int?
+    /// Size-and-modification-time fingerprint for the current working file.
+    public let contentFingerprint: String?
 
     /// Creates a bounded file-diff value.
     ///
@@ -214,6 +216,7 @@ public struct WorkspaceFileDiff: Sendable, Equatable {
     ///   - unifiedDiff: Raw, bounded unified-diff output.
     ///   - truncated: Whether a size cap omitted complete hunks.
     ///   - totalLineCount: Number of lines in the full diff, when known.
+    ///   - contentFingerprint: Filesystem fingerprint for the current working file.
     public init(
         path: String,
         oldPath: String?,
@@ -223,7 +226,8 @@ public struct WorkspaceFileDiff: Sendable, Equatable {
         deletions: Int,
         unifiedDiff: String,
         truncated: Bool,
-        totalLineCount: Int?
+        totalLineCount: Int?,
+        contentFingerprint: String?
     ) {
         self.path = path
         self.oldPath = oldPath
@@ -234,6 +238,7 @@ public struct WorkspaceFileDiff: Sendable, Equatable {
         self.unifiedDiff = unifiedDiff
         self.truncated = truncated
         self.totalLineCount = totalLineCount
+        self.contentFingerprint = contentFingerprint
     }
 }
 

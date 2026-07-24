@@ -106,15 +106,18 @@ public struct ChangesPreviewView: View {
             let fileKind = fixture.files.first(where: { $0.path == path })?.kind ?? .unknown
             let presentation = await FileDiffPresentation.prepareOffMain(
                 document: document,
-                fileKind: fileKind,
-                fontSize: fontSize
+                fileKind: fileKind
             )
             cachedPresentations[path] = presentation
             return presentation
         }
-        let loadCurrentLines: @MainActor @Sendable (String) async throws -> [String] = { _ in
-            (1...80).map { "preview line \($0)" }
+        let loadCurrentLines: @MainActor @Sendable (String) async throws -> DiffExpansionCurrentFile = { _ in
+            DiffExpansionCurrentFile(
+                lines: (1...80).map { "preview line \($0)" },
+                contentFingerprints: []
+            )
         }
+        let presentationAccess: @MainActor @Sendable (String) -> Void = { _ in }
         let persistFontSize: @MainActor @Sendable (Double) -> Void = { pointSize in
             fontSize = pointSize
             fontPreference.pointSize = pointSize
@@ -125,6 +128,7 @@ public struct ChangesPreviewView: View {
         return WorkspaceFileDiffPagerActions(
             onLoad: loadDocument,
             onLoadCurrentLines: loadCurrentLines,
+            onPresentationAccess: presentationAccess,
             onPersistFontSize: persistFontSize,
             onCopy: copy,
             inlinePreview: nil
