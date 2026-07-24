@@ -33,6 +33,19 @@ import Testing
         try pipe.fileHandleForWriting.close()
         #expect(channel.receiveMessage() == nil)
     }
+
+    @Test func closedPeerReportsWriteFailureWithoutSIGPIPE() {
+        let pipe = Pipe()
+        let channel = LengthPrefixedMessageChannel(
+            readFD: pipe.fileHandleForReading.fileDescriptor,
+            writeFD: pipe.fileHandleForWriting.fileDescriptor
+        )
+        try? pipe.fileHandleForReading.close()
+
+        #expect(throws: ChannelError.self) {
+            try channel.sendMessage(Data("peer exited".utf8))
+        }
+    }
 }
 
 @Suite struct LengthPrefixedFrameGuardTests {

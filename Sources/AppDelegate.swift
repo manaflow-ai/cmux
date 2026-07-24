@@ -3306,6 +3306,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     private func attemptStartupSessionRestoreIfNeeded(primaryWindow: NSWindow) -> Bool {
         guard !didAttemptStartupSessionRestore else { return false }
+        guard SurfaceResumeApprovalStore.signingSecretIsReady else {
+            SurfaceResumeApprovalStore.whenSigningSecretReady { [weak self, weak primaryWindow] in
+                DispatchQueue.main.async {
+                    guard let self, let primaryWindow else { return }
+                    _ = self.attemptStartupSessionRestoreIfNeeded(primaryWindow: primaryWindow)
+                }
+            }
+            return false
+        }
         didAttemptStartupSessionRestore = true
         // Flush deferred navigation links unless additional restored windows remain pending.
         defer {
@@ -4034,9 +4043,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     nonisolated static func shouldSaveSessionSnapshotAfterMainWindowRegistration(
         isTerminatingApp: Bool,
         didApplyStartupSessionRestore: Bool,
-        isApplyingSessionRestore: Bool
+        isApplyingSessionRestore: Bool,
+        isStartupSessionRestorePending: Bool
     ) -> Bool {
-        !isTerminatingApp && !didApplyStartupSessionRestore && !isApplyingSessionRestore
+        !isTerminatingApp
+            && !didApplyStartupSessionRestore
+            && !isApplyingSessionRestore
+            && !isStartupSessionRestorePending
     }
 
     nonisolated static func shouldRunSessionAutosaveTick(isTerminatingApp: Bool) -> Bool {
@@ -4602,7 +4615,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if Self.shouldSaveSessionSnapshotAfterMainWindowRegistration(
             isTerminatingApp: isTerminatingApp,
             didApplyStartupSessionRestore: didApplyStartupSessionRestore,
-            isApplyingSessionRestore: isApplyingSessionRestore
+            isApplyingSessionRestore: isApplyingSessionRestore,
+            isStartupSessionRestorePending: !didAttemptStartupSessionRestore
         ) {
             saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
         }

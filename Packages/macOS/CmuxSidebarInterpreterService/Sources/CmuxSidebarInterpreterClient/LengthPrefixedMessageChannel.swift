@@ -24,6 +24,12 @@ public struct LengthPrefixedMessageChannel: Sendable {
     public init(readFD: Int32, writeFD: Int32) {
         self.readFD = readFD
         self.writeFD = writeFD
+#if canImport(Darwin)
+        // A worker watchdog can close the read end while this descriptor is
+        // blocked in write(2). Report that race as EPIPE to the supervisor
+        // instead of delivering process-wide SIGPIPE to the cmux host.
+        _ = fcntl(writeFD, F_SETNOSIGPIPE, 1)
+#endif
     }
 
     /// Frames larger than this are protocol violations: real traffic is JSON

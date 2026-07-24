@@ -132,8 +132,6 @@ import Testing
     /// later scene has filled the pipe; otherwise the actor is parked in
     /// write(2), and the watchdog can never enter it to recover.
     @Test func ackWatchdogFiresWhileWorkerInputPipeIsFull() async {
-        let previousSIGPIPEHandler = signal(SIGPIPE, SIG_IGN)
-        defer { signal(SIGPIPE, previousSIGPIPEHandler) }
         let stopReadingMarker = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-render-worker-stop-reading-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: stopReadingMarker) }

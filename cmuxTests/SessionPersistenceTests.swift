@@ -769,28 +769,40 @@ final class SessionPersistenceTests: XCTestCase {
             AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
                 isTerminatingApp: false,
                 didApplyStartupSessionRestore: false,
-                isApplyingSessionRestore: false
+                isApplyingSessionRestore: false,
+                isStartupSessionRestorePending: false
             )
         )
         XCTAssertFalse(
             AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
                 isTerminatingApp: true,
                 didApplyStartupSessionRestore: false,
-                isApplyingSessionRestore: false
+                isApplyingSessionRestore: false,
+                isStartupSessionRestorePending: false
             )
         )
         XCTAssertFalse(
             AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
                 isTerminatingApp: false,
                 didApplyStartupSessionRestore: true,
-                isApplyingSessionRestore: false
+                isApplyingSessionRestore: false,
+                isStartupSessionRestorePending: false
             )
         )
         XCTAssertFalse(
             AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
                 isTerminatingApp: false,
                 didApplyStartupSessionRestore: false,
-                isApplyingSessionRestore: true
+                isApplyingSessionRestore: true,
+                isStartupSessionRestorePending: false
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
+                isTerminatingApp: false,
+                didApplyStartupSessionRestore: false,
+                isApplyingSessionRestore: false,
+                isStartupSessionRestorePending: true
             )
         )
     }

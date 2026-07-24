@@ -22,9 +22,16 @@ import Testing
         #expect(loader.callCount == 0, "main-thread reads must not run the Keychain loader")
         #expect(scheduler.count == 1, "concurrent autosave panels must share one pending load")
 
+        let completion = LockedResultRecorder()
+        cache.preload { completion.record($0) }
+        #expect(!cache.isReady)
+        #expect(completion.values.isEmpty, "in-flight loads must not publish a terminal nil result")
+
         scheduler.runNext()
 
         #expect(cache.value(isMainThread: true) == expected)
+        #expect(cache.isReady)
+        #expect(completion.values == [expected])
         #expect(loader.callCount == 1)
         #expect(scheduler.count == 0)
     }
@@ -40,6 +47,30 @@ import Testing
         state.recordHeartbeat(at: 110)
         #expect(!state.shouldCapture(at: 117.999))
         #expect(state.shouldCapture(at: 118), "a heartbeat starts a new starvation episode")
+    }
+
+    @Test func hangWatchdogCaptureRetentionKeepsNewestBoundedSet() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hang-retention-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        for (index, name) in ["oldest", "middle", "newest"].enumerated() {
+            for suffix in [".metadata.txt", ".sample.txt"] {
+                let file = directory.appendingPathComponent(name + suffix)
+                try Data(name.utf8).write(to: file)
+                try FileManager.default.setAttributes(
+                    [.modificationDate: Date(timeIntervalSince1970: TimeInterval(index + 1))],
+                    ofItemAtPath: file.path
+                )
+            }
+        }
+
+        MainThreadHangCaptureRetentionPolicy(maximumCaptureCount: 2)
+            .prepareForNewCapture(in: directory)
+
+        let remaining = try Set(FileManager.default.contentsOfDirectory(atPath: directory.path))
+        #expect(remaining == ["newest.metadata.txt", "newest.sample.txt"])
     }
 }
 
@@ -83,5 +114,20 @@ private final class LockedJobScheduler: @unchecked Sendable {
             jobs.isEmpty ? nil : jobs.removeFirst()
         }
         job?()
+    }
+}
+
+private final class LockedResultRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [Data] = []
+
+    var values: [Data] {
+        lock.withLock { recorded }
+    }
+
+    func record(_ value: Data?) {
+        if let value {
+            lock.withLock { recorded.append(value) }
+        }
     }
 }

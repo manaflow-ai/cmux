@@ -25,6 +25,53 @@ struct MainThreadHangWatchdogState {
     }
 }
 
+struct MainThreadHangCaptureRetentionPolicy {
+    let maximumCaptureCount: Int
+
+    func prepareForNewCapture(in directory: URL, fileManager: FileManager = .default) {
+        guard maximumCaptureCount > 0,
+              let files = try? fileManager.contentsOfDirectory(
+                  at: directory,
+                  includingPropertiesForKeys: [.contentModificationDateKey],
+                  options: [.skipsHiddenFiles]
+              ) else {
+            return
+        }
+
+        var newestDateByCapture: [String: Date] = [:]
+        for file in files {
+            guard let capture = captureIdentifier(for: file.lastPathComponent) else { continue }
+            let values = try? file.resourceValues(forKeys: [.contentModificationDateKey])
+            let date = values?.contentModificationDate ?? .distantPast
+            newestDateByCapture[capture] = max(newestDateByCapture[capture] ?? .distantPast, date)
+        }
+
+        let keepExistingCount = maximumCaptureCount - 1
+        let staleCaptures = Set(newestDateByCapture
+            .sorted { lhs, rhs in
+                if lhs.value != rhs.value { return lhs.value > rhs.value }
+                return lhs.key > rhs.key
+            }
+            .dropFirst(keepExistingCount)
+            .map(\.key))
+        guard !staleCaptures.isEmpty else { return }
+        for file in files {
+            guard let capture = captureIdentifier(for: file.lastPathComponent),
+                  staleCaptures.contains(capture) else {
+                continue
+            }
+            try? fileManager.removeItem(at: file)
+        }
+    }
+
+    private func captureIdentifier(for name: String) -> String? {
+        for suffix in [".sample.txt", ".metadata.txt"] where name.hasSuffix(suffix) {
+            return String(name.dropLast(suffix.count))
+        }
+        return nil
+    }
+}
+
 /// Detects main-queue starvation from a background timer and captures a stack
 /// sample without asking the blocked main thread to participate.
 final class MainThreadHangWatchdog: @unchecked Sendable {
@@ -32,6 +79,7 @@ final class MainThreadHangWatchdog: @unchecked Sendable {
 
     private static let stallThreshold: TimeInterval = 8
     private static let heartbeatInterval: TimeInterval = 1
+    private static let captureRetention = MainThreadHangCaptureRetentionPolicy(maximumCaptureCount: 8)
 
     private let monitorQueue = DispatchQueue(
         label: "com.cmuxterm.main-thread-hang-watchdog",
@@ -102,10 +150,11 @@ final class MainThreadHangWatchdog: @unchecked Sendable {
         }
 
         let identifier = UUID()
+        Self.captureRetention.prepareForNewCapture(in: directory)
         let stamp = ISO8601DateFormatter()
             .string(from: Date())
             .replacingOccurrences(of: ":", with: "")
-        let baseName = "cmux-hang-\(stamp)-\(ProcessInfo.processInfo.processIdentifier)"
+        let baseName = "cmux-hang-\(stamp)-\(ProcessInfo.processInfo.processIdentifier)-\(identifier.uuidString.lowercased())"
         let sampleURL = directory.appendingPathComponent("\(baseName).sample.txt")
         let metadataURL = directory.appendingPathComponent("\(baseName).metadata.txt")
         writeMetadata(
