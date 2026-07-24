@@ -42,6 +42,42 @@ import Testing
         #expect(!result.contains("<cmux_design_mode>"))
     }
 
+    @Test func formatsSelectionHandoffWhenPageOverviewIsUnavailable() throws {
+        let selection = BrowserDesignModeSelection(
+            selector: "#save",
+            selectors: ["#save"],
+            tagName: "button",
+            domSnippet: "<button id=\"save\">Save</button>",
+            textContent: "Save",
+            textEditable: true,
+            bounds: BrowserDesignModeRect(x: 20, y: 30, width: 120, height: 40),
+            viewport: BrowserDesignModeViewport(width: 1280, height: 720),
+            computedStyles: [:]
+        )
+        let context = BrowserDesignModePromptContext(
+            pageURL: "https://example.com",
+            snapshot: BrowserDesignModeSnapshot(
+                revision: 1,
+                enabled: true,
+                selection: selection,
+                edits: [],
+                cssDiff: ""
+            ),
+            screenshotPath: "/tmp/cmux-browser-design-mode/save.png",
+            requestedChange: "Keep the selection readable."
+        )
+
+        let result = BrowserDesignModePromptFormatter().format(
+            context,
+            contextJSONPath: "/tmp/cmux-browser-design-mode/context.json"
+        )
+
+        #expect(result.contains("Selection 1"))
+        #expect(result.contains("/tmp/cmux-browser-design-mode/save.png"))
+        #expect(result.contains("Full context JSON: /tmp/cmux-browser-design-mode/context.json"))
+        #expect(!result.contains("Full-page screenshot:"))
+    }
+
     @Test func formatsCompleteContextDeterministically() throws {
         let snapshot = BrowserDesignModeSnapshot(
             revision: 4,

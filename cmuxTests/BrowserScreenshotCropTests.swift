@@ -92,6 +92,32 @@ struct BrowserScreenshotCropTests {
         try expectColor(.yellow, atX: 175, y: 75, in: bitmap)
     }
 
+    @Test
+    func pngEncodingBoundsLargeImagePixelCount() throws {
+        let width = 2_050
+        let height = 2_050
+        let bitmap = try #require(NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: width,
+            pixelsHigh: height,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ))
+        bitmap.size = NSSize(width: width, height: height)
+        let image = NSImage(size: bitmap.size)
+        image.addRepresentation(bitmap)
+
+        let pngData = try BrowserScreenshotPasteboardWriter.pngData(for: image)
+        let encoded = try #require(NSBitmapImageRep(data: pngData))
+
+        #expect(encoded.pixelsWide * encoded.pixelsHigh <= 4_194_304)
+    }
+
     /// Makes the legacy `NSImage.lockFocus()` path deterministically rasterize
     /// at Retina scale while forwarding unrelated threads to AppKit unchanged.
     private func withImageFocusBackingScale<T>(

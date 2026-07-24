@@ -10,6 +10,90 @@ import Testing
 
 @Suite(.serialized)
 struct BrowserDesignModeArtifactStoreTests {
+    @Test func separateProcessesCannotPruneEachOthersArtifacts() async throws {
+        let rootDirectory = URL.temporaryDirectory.appendingPathComponent(
+            "cmux-design-mode-process-isolation-test-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: rootDirectory) }
+        let firstProcessStore = BrowserDesignModeArtifactStore(
+            directory: rootDirectory,
+            liveContextSessionID: "first-process"
+        )
+        let secondProcessStore = BrowserDesignModeArtifactStore(
+            directory: rootDirectory,
+            liveContextSessionID: "second-process"
+        )
+        let firstProcessArtifact = try await firstProcessStore.saveContextJSON(
+            Data("first".utf8),
+            surfaceID: UUID()
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 0)],
+            ofItemAtPath: firstProcessArtifact.path
+        )
+        let firstProcessLease = await firstProcessStore.beginHandoff()
+        #expect(await firstProcessStore.retainHandoffArtifacts(
+            at: [firstProcessArtifact.path],
+            lease: firstProcessLease
+        ))
+
+        for value in 0...100 {
+            _ = try await secondProcessStore.saveScreenshot(
+                Data([UInt8(value)]),
+                surfaceID: UUID()
+            )
+        }
+
+        #expect(FileManager.default.fileExists(atPath: firstProcessArtifact.path))
+    }
+
+    @Test func deadProcessDirectoriesAreRemovedOnFirstSave() async throws {
+        let rootDirectory = URL.temporaryDirectory.appendingPathComponent(
+            "cmux-design-mode-stale-process-test-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: rootDirectory) }
+        let staleDirectory = rootDirectory.appendingPathComponent(
+            "process-2147483647-stale-session",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: staleDirectory,
+            withIntermediateDirectories: true
+        )
+        try Data("stale".utf8).write(
+            to: staleDirectory.appendingPathComponent("surface-stale-context.json")
+        )
+        let store = BrowserDesignModeArtifactStore(
+            directory: rootDirectory,
+            liveContextSessionID: "current-process"
+        )
+
+        _ = try await store.saveContextJSON(Data("current".utf8), surfaceID: UUID())
+
+        #expect(!FileManager.default.fileExists(atPath: staleDirectory.path))
+    }
+
+    @Test @MainActor func closingBrowserPanelDropsItsDeliveredHandoffLease() async throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let controller = panel.designModeController
+        let artifact = try await controller.artifactStore.saveContextJSON(
+            Data("panel".utf8),
+            surfaceID: panel.id
+        )
+        let lease = await controller.artifactStore.beginHandoff()
+        #expect(await controller.artifactStore.retainHandoffArtifacts(
+            at: [artifact.path],
+            lease: lease
+        ))
+        controller.deliveredHandoffLease = (controller.artifactStore, lease)
+
+        panel.close()
+
+        #expect(controller.deliveredHandoffLease == nil)
+    }
+
     @Test @MainActor func browserPanelsRetainIndependentHandoffs() async throws {
         let directory = URL.temporaryDirectory.appendingPathComponent(
             "cmux-design-mode-independent-handoff-test-\(UUID().uuidString)",
