@@ -314,12 +314,24 @@ actor ShareSocket {
 
     /// Drops queued work and forces a fresh connection after critical
     /// flow-control work cannot enter the bounded mailbox.
-    func reconnectAfterOutboundBackpressure() -> Bool {
+    func reconnectAfterOutboundBackpressure() async -> Bool {
         setConnectionAdmission(false)
         let discarded = outboundMailbox.discardAll()
         resumeDiscarded(discarded)
-        guard !isStopped, let webSocketTask else {
+        guard !isStopped else {
             return false
+        }
+        switch await lifecycle.state {
+        case .connecting, .connected, .reconnecting:
+            break
+        case .idle, .stopped:
+            return false
+        }
+        guard let webSocketTask else {
+            shareSocketLogger.info(
+                "Critical outbound backpressure joined an existing reconnect"
+            )
+            return true
         }
         shareSocketLogger.error(
             "Reconnecting after critical outbound share backpressure"
