@@ -14,6 +14,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let codexHome = root.appendingPathComponent("codex-home", isDirectory: true)
         try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
+        let modelsCache = codexHome.appendingPathComponent(
+            "models_cache.json",
+            isDirectory: false
+        )
+        try Data("{}".utf8).write(to: modelsCache)
 
         let codexArgumentsLog = root.appendingPathComponent("codex-arguments.log", isDirectory: false)
         let fakeCodex = root.appendingPathComponent("codex", isDirectory: false)
@@ -45,14 +50,24 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         try """
         #!/bin/sh
-        printf '%s\n' "$@" > "\(codexArgumentsLog.path)"
+        printf '%s\n' BEGIN "$@" >> "\(codexArgumentsLog.path)"
+        static_catalog=false
+        for argument in "$@"; do
+          if [ "$argument" = 'model_catalog_json=\(modelsCache.path)' ]; then
+            static_catalog=true
+          fi
+        done
         while IFS= read -r line; do
           case "$line" in
             *'"method":"initialize"'*)
               printf '%s\n' '{"id":1,"result":{"userAgent":"test","codexHome":"\(codexHome.path)","platformFamily":"unix","platformOs":"macos"}}'
               ;;
             *'"method":"config/read"'*)
-              printf '%s\n' '\(response)'
+              if [ "$static_catalog" = true ] && [ "${CMUX_TEST_REJECT_STATIC_CATALOG:-0}" = 1 ]; then
+                printf '%s\n' '{"id":2,"error":{"code":-32602,"message":"managed catalog rejects override"}}'
+              else
+                printf '%s\n' '\(response)'
+              fi
               ;;
           esac
         done
@@ -87,7 +102,47 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stdout.isEmpty, result.stdout)
         XCTAssertEqual(
             try String(contentsOf: codexArgumentsLog, encoding: .utf8),
-            "--profile\ndogfood\napp-server\n--stdio\n"
+            """
+            BEGIN
+            --profile
+            dogfood
+            -c
+            model_catalog_json=\(modelsCache.path)
+            app-server
+            --stdio
+
+            """
+        )
+
+        try Data().write(to: codexArgumentsLog)
+        environment["CMUX_TEST_REJECT_STATIC_CATALOG"] = "1"
+        let fallbackResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "inject-resume-args"],
+            environment: environment,
+            timeout: 2
+        )
+
+        XCTAssertFalse(fallbackResult.timedOut, fallbackResult.stderr)
+        XCTAssertEqual(fallbackResult.status, 0, fallbackResult.stderr)
+        XCTAssertTrue(fallbackResult.stdout.isEmpty, fallbackResult.stdout)
+        XCTAssertEqual(
+            try String(contentsOf: codexArgumentsLog, encoding: .utf8),
+            """
+            BEGIN
+            --profile
+            dogfood
+            -c
+            model_catalog_json=\(modelsCache.path)
+            app-server
+            --stdio
+            BEGIN
+            --profile
+            dogfood
+            app-server
+            --stdio
+
+            """
         )
     }
 
