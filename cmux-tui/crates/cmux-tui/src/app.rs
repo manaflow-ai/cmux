@@ -13336,6 +13336,42 @@ mod tests {
     }
 
     #[test]
+    fn retiring_surface_does_not_swallow_attach_transport_failure() {
+        let surface = 77;
+        let reached = Arc::new(Barrier::new(2));
+        let release = Arc::new(Barrier::new(2));
+        let session = crate::session::test_remote_session_with_blocked_attach_transport_failure(
+            reached.clone(),
+            release.clone(),
+        );
+        assert!(session.take_remote_tree_stale());
+        let (mut app, events) = test_app_with_events(session);
+        app.replace_tree(notify_tree(surface, false));
+
+        app.session.attach_surface(surface, Some((80, 24)));
+        reached.wait();
+        app.session.forget_surface(surface);
+        app.session.reconcile_exited_surfaces(&TreeView::default());
+        release.wait();
+
+        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            &settled,
+            AppEvent::SessionMutationSettled {
+                outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+                    surface: 77,
+                    operation: "attach",
+                    error,
+                    ..
+                },
+                ..
+            } if error.contains("remote transport write failed")
+        ));
+        app.handle(settled).unwrap();
+        assert!(app.session.surface_attach_failures.lock().unwrap().contains_key(&surface));
+    }
+
+    #[test]
     fn unrelated_stale_tree_before_queued_attach_preserves_the_sync_failure() {
         let session = crate::session::test_remote_session_without_provider_authority();
         assert!(session.take_remote_tree_stale());

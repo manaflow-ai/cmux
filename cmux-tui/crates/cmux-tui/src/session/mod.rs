@@ -1484,6 +1484,14 @@ pub(crate) fn test_remote_session_with_provider_authority_without_guard() -> Ses
 }
 
 #[cfg(test)]
+pub(crate) fn test_remote_session_with_blocked_attach_transport_failure(
+    reached: Arc<std::sync::Barrier>,
+    release: Arc<std::sync::Barrier>,
+) -> Session {
+    Session::Remote(remote::test_session_with_blocked_attach_transport_failure(reached, release))
+}
+
+#[cfg(test)]
 mod tests {
     use cmux_tui_core::{Mux, SurfaceOptions};
 
