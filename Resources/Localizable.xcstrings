@@ -242398,7 +242398,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用法: cmux __herdr-compat <command> [options]\n\nインストール済みの Herdr CLI への非表示の互換ブリッジです。\nコマンド: %@"
+            "value": "使用法: cmux __herdr-compat <command> [options]\n\nインストール済みのプロバイダー CLI への非表示の互換ブリッジです。\nコマンド: %@\n\n注記:\n  - `status` は cmux の `--json` を受け付けます（プロバイダーの `status --json` に変換されます）。\n  - `snapshot`、`list-workspaces`、`list-tabs`、`list-panes` は常に JSON を返します。\n    これらのエイリアスでは cmux の `--json` は受け付けられますが無視されます。"
           }
         }
       }
