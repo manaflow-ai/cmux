@@ -16,6 +16,7 @@ public struct WorkspaceColorsSection: View {
     @State private var indicator: DefaultsValueModel<WorkspaceIndicatorStyle>
     @State private var selectionHex: DefaultsValueModel<String>
     @State private var badgeHex: DefaultsValueModel<String>
+    @State private var paneFlashHex: DefaultsValueModel<String>
     @State private var paletteModel: DefaultsValueModel<[String: String]>
     @State private var paletteReconcileTracker = WorkspacePaletteColorReconcileTracker()
 
@@ -55,6 +56,7 @@ public struct WorkspaceColorsSection: View {
         _indicator = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.indicatorStyle))
         _selectionHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.selectionColorHex))
         _badgeHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.notificationBadgeColorHex))
+        _paneFlashHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlashColorHex))
         _paletteModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.palette))
     }
 
@@ -77,6 +79,7 @@ public struct WorkspaceColorsSection: View {
             indicator,
             selectionHex,
             badgeHex,
+            paneFlashHex,
             paletteModel,
         ]
         models.forEach { $0.startObserving() }
@@ -114,6 +117,14 @@ public struct WorkspaceColorsSection: View {
                 json: "workspaceColors.notificationBadgeColor",
                 resetLabel: String(localized: "settings.workspaceColors.notificationBadgeColor.reset", defaultValue: "Reset"),
                 model: badgeHex
+            )
+            SettingsCardDivider()
+            colorRow(
+                title: String(localized: "settings.workspaceColors.paneFlashColor", defaultValue: "Pane Flash"),
+                subtitle: String(localized: "settings.workspaceColors.paneFlashColor.subtitle", defaultValue: "Color of the attention ring and pane flash when a pane needs input."),
+                json: "notifications.paneFlashColor",
+                resetLabel: String(localized: "settings.workspaceColors.paneFlashColor.reset", defaultValue: "Reset"),
+                model: paneFlashHex
             )
             SettingsCardDivider()
 

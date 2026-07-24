@@ -561,6 +561,16 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[NotificationSoundSettings.key] = .string(raw)
         }
         applyStringSettings(NotificationSettingsFileMapping.stringSettings, from: section, snapshot: &snapshot)
+        if section.keys.contains("paneFlashColor") {
+            guard let value = parseNullableHex(
+                section["paneFlashColor"],
+                path: "notifications.paneFlashColor",
+                sourcePath: sourcePath
+            ) else { return }
+            snapshot.managedUserDefaults[
+                NotificationsCatalogSection().paneFlashColorHex.userDefaultsKey
+            ] = .nullableString(value)
+        }
         if let raw = jsonString(section["agentTurnComplete"]) {
             if AgentTurnCompleteMode(rawValue: raw) != nil {
                 snapshot.managedUserDefaults[NotificationsCatalogSection().agentTurnComplete.userDefaultsKey] = .string(raw)

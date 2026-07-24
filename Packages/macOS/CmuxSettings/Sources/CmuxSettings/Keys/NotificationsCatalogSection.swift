@@ -26,6 +26,14 @@ public struct NotificationsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "notificationPaneFlashEnabled"
     )
 
+    /// Stroke color of the attention ring and pane flash, as a `#RRGGBB` hex.
+    /// Empty (the default) keeps the built-in `systemBlue`.
+    public let paneFlashColorHex = DefaultsKey<String>(
+        id: "notifications.paneFlashColor",
+        defaultValue: "",
+        userDefaultsKey: "notificationPaneFlashColorHex"
+    )
+
     public let sound = DefaultsKey<String>(
         id: "notifications.sound",
         defaultValue: "default",

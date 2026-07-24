@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import AppKit
+import CmuxFoundation
 
 /// Type of panel content
 public enum PanelType: String, Codable, Sendable {
@@ -103,13 +104,31 @@ public enum WorkspaceAttentionFlashReason: String, Equatable, Sendable {
 }
 
 enum WorkspaceAttentionFlashAccent: Equatable, Sendable {
+    /// The attention accent. Resolves to `notifications.paneFlashColor` when the
+    /// user set a valid `#RRGGBB` hex, and falls back to `systemBlue` otherwise,
+    /// so the default appearance is unchanged.
     case notificationBlue
 
     var strokeColor: NSColor {
         switch self {
         case .notificationBlue:
-            return .systemBlue
+            return WorkspaceAttentionFlashColorSettings.resolvedColor()
         }
+    }
+}
+
+enum WorkspaceAttentionFlashColorSettings {
+    static let colorHexKey = "notificationPaneFlashColorHex"
+    static let defaultColor = NSColor.systemBlue
+
+    static func resolvedColor(defaults: UserDefaults = .standard) -> NSColor {
+        guard
+            let hex = defaults.string(forKey: colorHexKey),
+            let color = NSColor(hex: hex)
+        else {
+            return defaultColor
+        }
+        return color
     }
 }
 
