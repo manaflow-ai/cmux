@@ -1787,49 +1787,53 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
-        let mut runtime = pty.runtime.lock().unwrap();
         #[cfg(unix)]
-        match &mut *runtime {
-            PtyRuntime::Hosted(host) => {
-                if host.send_clear_history(fallback_key)? {
-                    return Ok(());
-                }
-                anyhow::bail!("terminal host does not support clear-history");
-            }
-            PtyRuntime::ExitedHosted => {
-                anyhow::bail!("terminal host has exited");
-            }
-            PtyRuntime::Local { .. } => {}
-        }
-        let PtyRuntime::Local { writer, .. } = &mut *runtime else {
-            unreachable!("hosted clear-history returned above")
-        };
-        let scroll_changed = {
-            let mut term = pty.term.lock().unwrap();
-            let before = terminal_scroll_position(&term);
-            match apply_clear_history_transition(&mut term, fallback_key)? {
-                ClearHistoryTransition::EncodedFallback(encoded) => {
-                    drop(term);
-                    return writer
-                        .write_all(&encoded)
-                        .and_then(|()| writer.flush())
-                        .map_err(Into::into);
-                }
-                ClearHistoryTransition::Noop => return Ok(()),
-                ClearHistoryTransition::Cleared(clear) => {
-                    pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
-                    pty.broadcast_attach_output(&clear);
-                    let after = terminal_scroll_position(&term);
-                    if before != after {
-                        broadcast_render_scroll_locked(pty, after);
+        {
+            let runtime = pty.runtime.lock().unwrap();
+            match &*runtime {
+                PtyRuntime::Hosted(host) => {
+                    if host.send_clear_history(fallback_key)? {
+                        return Ok(());
                     }
-                    let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
-                    let _ = pty.build_frame_locked(&mut term, generation, false);
-                    (before != after).then_some(after)
+                    anyhow::bail!("terminal host does not support clear-history");
                 }
+                PtyRuntime::ExitedHosted => {
+                    anyhow::bail!("terminal host has exited");
+                }
+                PtyRuntime::Local { .. } => {}
+            }
+        }
+
+        // Local resize takes terminal before runtime. Keep the same order for
+        // alternate-screen fallback so resize and Command-K cannot deadlock.
+        let mut term = pty.term.lock().unwrap();
+        let before = terminal_scroll_position(&term);
+        let scroll_changed = match apply_clear_history_transition(&mut term, fallback_key)? {
+            ClearHistoryTransition::EncodedFallback(encoded) => {
+                let mut runtime = pty.runtime.lock().unwrap();
+                let PtyRuntime::Local { writer, .. } = &mut *runtime else {
+                    unreachable!("a local PTY runtime cannot become hosted")
+                };
+                drop(term);
+                return writer
+                    .write_all(&encoded)
+                    .and_then(|()| writer.flush())
+                    .map_err(Into::into);
+            }
+            ClearHistoryTransition::Noop => return Ok(()),
+            ClearHistoryTransition::Cleared(clear) => {
+                pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+                pty.broadcast_attach_output(&clear);
+                let after = terminal_scroll_position(&term);
+                if before != after {
+                    broadcast_render_scroll_locked(pty, after);
+                }
+                let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
+                let _ = pty.build_frame_locked(&mut term, generation, false);
+                (before != after).then_some(after)
             }
         };
-        drop(runtime);
+        drop(term);
         if let Some((offset, at_bottom)) = scroll_changed
             && let Some(mux) = pty.mux.upgrade()
         {
@@ -3402,6 +3406,33 @@ mod tests {
             .unwrap();
 
         assert_eq!(&*written.lock().unwrap(), b"\x1b[107;9u");
+    }
+
+    #[test]
+    fn clear_history_does_not_hold_runtime_while_waiting_for_terminal() {
+        let mux = Mux::new_for_test("clear-history-lock-order", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let pty = surface.as_pty().unwrap();
+        let terminal = pty.term.lock().unwrap();
+        let runtime = pty.runtime.lock().unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+        let clear_surface = surface.clone();
+        std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            let _ = finished_tx.send(clear_surface.clear_history());
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        drop(runtime);
+        std::thread::sleep(Duration::from_millis(25));
+        assert!(
+            pty.runtime.try_lock().is_ok(),
+            "clear-history held runtime while blocked on terminal, inverting resize lock order"
+        );
+        drop(terminal);
+        finished_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
     }
 
     #[test]
