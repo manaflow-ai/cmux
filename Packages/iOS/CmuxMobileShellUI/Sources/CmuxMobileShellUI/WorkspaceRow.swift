@@ -6,9 +6,6 @@ struct WorkspaceRow: View {
     private static let unreadDotRailVisualGap: CGFloat = 8
     private static let railTextVisualGap: CGFloat = 10
     private static let railVerticalInset: CGFloat = 5
-    /// Preserve the original iOS unread-dot vertical center after replacing the
-    /// large leading circle with a Mac-style color rail.
-    private static let unreadDotAlignmentHeight: CGFloat = 48
 
     let workspace: MobileWorkspacePreview
     let connectionStatus: MobileMacConnectionStatus
@@ -23,13 +20,12 @@ struct WorkspaceRow: View {
     var unreadIndicatorLeftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift
 
     var body: some View {
-        HStack(alignment: .top, spacing: 0) {
+        HStack(alignment: .center, spacing: 0) {
             // Unread is JUST this dot, left of the workspace rail. The
             // gutter is always present (hidden dot when read) so read and
-            // unread rows line up. The height keeps the dot centered where the
-            // old iOS leading circle centered it.
+            // unread rows line up. Center alignment keeps it centered in the
+            // actual row height as descriptions and previews wrap.
             WorkspaceUnreadDot(isUnread: workspace.hasUnread, leftShift: unreadIndicatorLeftShift)
-                .frame(height: Self.unreadDotAlignmentHeight)
 
             Spacer()
                 .frame(width: unreadDotRailLayoutGap)
