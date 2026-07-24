@@ -138,15 +138,10 @@ struct DisconnectedWorkspaceShellView: View {
         store.map { MacComputerSnapshot.snapshots(from: $0) } ?? []
     }
 
-    var showsHiddenComputers: Bool {
-        store?.hasHiddenComputers == true
-    }
-
     var shouldAutoPresentAddDeviceAfterLoadingSavedMacs: Bool {
         guard let store else { return false }
         return store.pairedMacLoadState == .loaded
             && store.pairedMacs.isEmpty
-            && !showsHiddenComputers
     }
 
     @ViewBuilder
@@ -182,9 +177,6 @@ struct DisconnectedWorkspaceShellView: View {
                     "mobile.disconnected.listFooter",
                     defaultValue: "Tap a computer to reconnect. Swipe left to hide one."
                 ))
-            }
-            if showsHiddenComputers, let store {
-                hiddenComputersSection(store: store)
             }
             Section {
                 Button(action: showAddDevice) {
@@ -229,29 +221,12 @@ struct DisconnectedWorkspaceShellView: View {
                 defaultValue: "Add a computer to start syncing terminal workspaces."
             ))
         } actions: {
-            if showsHiddenComputers, let store {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(HiddenComputersCopy.title)
-                        .font(.headline)
-                    hiddenComputersRows(store: store)
-                    Text(HiddenComputersCopy.footer)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: 320)
-                Button(action: showAddDevice) {
-                    Text(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
-                }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("MobileShowAddDeviceButton")
-            } else {
-                Button(action: showAddDevice) {
-                    Text(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.blue)
-                .accessibilityIdentifier("MobileShowAddDeviceButton")
+            Button(action: showAddDevice) {
+                Text(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
             }
+            .buttonStyle(.borderedProminent)
+            .tint(.blue)
+            .accessibilityIdentifier("MobileShowAddDeviceButton")
             Button {
                 isShowingSetupHelp = true
             } label: {
@@ -260,44 +235,6 @@ struct DisconnectedWorkspaceShellView: View {
             .font(.callout)
             .accessibilityIdentifier("MobileDisconnectedSetupHelpButton")
         }
-    }
-
-    private func hiddenComputersSection(store: CMUXMobileShellStore) -> some View {
-        HiddenComputersSection(
-            computers: store.hiddenComputers,
-            isRecoveringLegacyComputer: store.isRecoveringHiddenComputer,
-            unhide: { computer in
-                await store.unhideMacDeviceID(
-                    computer.macDeviceID,
-                    instanceTag: computer.instanceTag
-                )
-            },
-            recoverLegacyComputer: { computer in
-                await store.recoverHiddenIrohMacFromAccount(
-                    macDeviceID: computer.macDeviceID,
-                    instanceTag: computer.instanceTag
-                )
-            }
-        )
-    }
-
-    private func hiddenComputersRows(store: CMUXMobileShellStore) -> some View {
-        HiddenComputersRows(
-            computers: store.hiddenComputers,
-            isRecoveringLegacyComputer: store.isRecoveringHiddenComputer,
-            unhide: { computer in
-                await store.unhideMacDeviceID(
-                    computer.macDeviceID,
-                    instanceTag: computer.instanceTag
-                )
-            },
-            recoverLegacyComputer: { computer in
-                await store.recoverHiddenIrohMacFromAccount(
-                    macDeviceID: computer.macDeviceID,
-                    instanceTag: computer.instanceTag
-                )
-            }
-        )
     }
 
     /// Reconnect this row's computer. `switchToMac` promotes a live secondary
