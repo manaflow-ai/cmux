@@ -3,32 +3,32 @@ import Testing
 
 @Suite struct MaintenanceCommandTests {
     @Test func buildsPerProviderVerbs() {
-        #expect(SubrouterMaintenanceCommand.addAccount(provider: .codex) == "sr add")
-        #expect(SubrouterMaintenanceCommand.addAccount(provider: .claude) == "sr claude add")
+        #expect(SubrouterMaintenanceCommand.addAccount(provider: .codex) == "cmux sr add")
+        #expect(SubrouterMaintenanceCommand.addAccount(provider: .claude) == "cmux sr claude add")
         #expect(SubrouterMaintenanceCommand.addAccount(provider: SubrouterProvider(rawValue: "gemini")) == nil)
         #expect(
             SubrouterMaintenanceCommand.removeAccount(provider: .codex, accountID: "a@b.com")
-                == "sr remove 'a@b.com'"
+                == "cmux sr remove 'a@b.com'"
         )
         #expect(
             SubrouterMaintenanceCommand.removeAccount(provider: .claude, accountID: "work")
-                == "sr claude remove 'work'"
+                == "cmux sr claude remove 'work'"
         )
-        #expect(SubrouterMaintenanceCommand.signIn(provider: .codex, accountID: "a@b.com") == "sr add")
+        #expect(SubrouterMaintenanceCommand.signIn(provider: .codex, accountID: "a@b.com") == "cmux sr add")
         #expect(
             SubrouterMaintenanceCommand.signIn(provider: .claude, accountID: "work")
-                == "sr claude add 'work'"
+                == "cmux sr claude add 'work'"
         )
     }
 
     @Test func remoteAddChainsTheServerUpload() {
         #expect(
             SubrouterMaintenanceCommand.addAccount(provider: .codex, serverName: "cmux-mac-mini")
-                == "sr add && sr server sync 'cmux-mac-mini' --yes"
+                == "cmux sr add && cmux sr server sync 'cmux-mac-mini' --yes"
         )
         #expect(
             SubrouterMaintenanceCommand.addAccount(provider: .claude, serverName: "cmux-mac-mini")
-                == "sr claude add && sr claude push"
+                == "cmux sr claude add && cmux sr claude push"
         )
         #expect(
             SubrouterMaintenanceCommand.addAccount(
@@ -43,7 +43,7 @@ import Testing
         #expect(SubrouterMaintenanceCommand.shellQuoted("a'b; rm -rf ~") == "'a'\\''b; rm -rf ~'")
         #expect(
             SubrouterMaintenanceCommand.removeAccount(provider: .claude, accountID: "a'b")
-                == "sr claude remove 'a'\\''b'"
+                == "cmux sr claude remove 'a'\\''b'"
         )
     }
 }

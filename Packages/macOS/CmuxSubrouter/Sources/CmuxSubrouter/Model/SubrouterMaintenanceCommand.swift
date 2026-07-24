@@ -16,11 +16,11 @@ public enum SubrouterMaintenanceCommand {
     ) -> String? {
         switch provider {
         case .codex:
-            guard let serverName else { return "sr add" }
-            return "sr add && sr server sync \(shellQuoted(serverName)) --yes"
+            guard let serverName else { return "cmux sr add" }
+            return "cmux sr add && cmux sr server sync \(shellQuoted(serverName)) --yes"
         case .claude:
-            guard serverName != nil else { return "sr claude add" }
-            return "sr claude add && sr claude push"
+            guard serverName != nil else { return "cmux sr claude add" }
+            return "cmux sr claude add && cmux sr claude push"
         default:
             return nil
         }
@@ -32,9 +32,9 @@ public enum SubrouterMaintenanceCommand {
     public static func signIn(provider: SubrouterProvider, accountID: String) -> String? {
         switch provider {
         case .codex:
-            return "sr add"
+            return "cmux sr add"
         case .claude:
-            return "sr claude add \(shellQuoted(accountID))"
+            return "cmux sr claude add \(shellQuoted(accountID))"
         default:
             return nil
         }
@@ -46,9 +46,9 @@ public enum SubrouterMaintenanceCommand {
     public static func removeAccount(provider: SubrouterProvider, accountID: String) -> String? {
         switch provider {
         case .codex:
-            return "sr remove \(shellQuoted(accountID))"
+            return "cmux sr remove \(shellQuoted(accountID))"
         case .claude:
-            return "sr claude remove \(shellQuoted(accountID))"
+            return "cmux sr claude remove \(shellQuoted(accountID))"
         default:
             return nil
         }

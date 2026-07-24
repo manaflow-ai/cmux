@@ -4191,6 +4191,12 @@ struct CMUXCLI {
         case "subrouter":
             try runSubrouterNamespace(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
 
+        case "sr":
+            // Pure passthrough to the subrouter CLI (PATH install first,
+            // else the binary bundled with the app), replacing this process
+            // so interactive logins own the TTY.
+            try execSubrouter(persona: "sr", arguments: commandArgs)
+
         case "mobile":
             let sub = commandArgs.first?.lowercased()
             let rest = Array(commandArgs.dropFirst())

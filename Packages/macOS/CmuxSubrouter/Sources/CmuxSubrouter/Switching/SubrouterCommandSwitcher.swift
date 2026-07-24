@@ -28,7 +28,14 @@ public struct SubrouterCommandSwitcher: SubrouterAccountSwitching {
     ) {
         self.commandRunner = commandRunner ?? CommandRunner(
             fallbackSearchDirectories: CommandRunner.defaultFallbackSearchDirectories
-                + [(NSHomeDirectory() as NSString).appendingPathComponent("bin")]
+                + [
+                    (NSHomeDirectory() as NSString).appendingPathComponent("bin"),
+                    // Where the cmux CLI extracts the app-bundled subrouter
+                    // binary (CLI/CMUXCLI+BundledSubrouter.swift), so
+                    // switching works without a separately installed sr.
+                    (NSHomeDirectory() as NSString)
+                        .appendingPathComponent("Library/Application Support/cmux/bin"),
+                ]
         )
         self.workingDirectory = workingDirectory
     }

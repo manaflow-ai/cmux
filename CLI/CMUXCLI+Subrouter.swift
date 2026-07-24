@@ -135,7 +135,10 @@ extension CMUXCLI {
             print("Reloaded \(accounts) account(s), \(refreshed) usage score(s) refreshed.")
 
         default:
-            throw CLIError(message: "Unknown subrouter subcommand: \(sub). Try: status, accounts, usage, switch, sessions, reload")
+            // Anything else is an sr verb (add, list, pick, server, claude,
+            // …): hand the whole invocation to the subrouter binary — the
+            // user's PATH install when present, else the bundled one.
+            try execSubrouter(persona: "sr", arguments: [sub] + rest)
         }
     }
 
@@ -147,8 +150,14 @@ extension CMUXCLI {
         print("cmux ⨯ subrouter — route agents across subscription accounts")
         print("")
 
-        // 1. The sr CLI (installs to ~/bin; the daemon and switching use it).
+        // 1. The sr CLI. Prefer installing from the app's own bundled
+        // binary (offline, pinned to the submodule the app shipped with);
+        // the remote installer is only the fallback for builds without it.
         var srPath = resolveSubrouterBinary()
+        if srPath == nil, let installed = installBundledSubrouterIntoHomeBin() {
+            srPath = installed
+            print("✓ Installed the bundled sr CLI (\(installed))")
+        }
         if srPath == nil {
             print("subrouter is not installed. Installing from github.com/manaflow-ai/subrouter…")
             let install = CLIProcessRunner.runProcess(
@@ -211,7 +220,7 @@ extension CMUXCLI {
     }
 
     /// Mirrors the app's sr resolution order: explicit places first.
-    private func resolveSubrouterBinary() -> String? {
+    func resolveSubrouterBinary() -> String? {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         var candidates = ["\(home)/bin/sr", "\(home)/bin/subrouter", "/opt/homebrew/bin/sr", "/usr/local/bin/sr"]
         if let pathVariable = ProcessInfo.processInfo.environment["PATH"] {
