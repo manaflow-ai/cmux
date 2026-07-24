@@ -255,6 +255,29 @@ impl RemoteSurface {
         }
     }
 
+    pub(super) fn encode_mouse_if_semantics(
+        &self,
+        expected: TerminalPointerSemanticSnapshot,
+        input: MouseInput,
+        output: &mut Vec<u8>,
+    ) -> Option<ghostty_vt::Result<()>> {
+        let term = match self.term.try_lock() {
+            Ok(term) => term,
+            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return None,
+        };
+        if term.pointer_semantic_snapshot() != expected {
+            return None;
+        }
+        let mut encoders = match self.mouse_encoders.try_lock() {
+            Ok(encoders) => encoders,
+            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return None,
+        };
+        encoders.sync_from_terminal(&term);
+        Some(encoders.encode(input, output))
+    }
+
     pub(super) fn encode_mouse_release(
         &self,
         input: MouseInput,
@@ -285,6 +308,31 @@ impl RemoteSurface {
             ),
             Err(std::sync::TryLockError::WouldBlock) => None,
         }
+    }
+
+    pub(super) fn encode_mouse_press_pair_if_semantics(
+        &self,
+        expected: TerminalPointerSemanticSnapshot,
+        press: MouseInput,
+        release: MouseInput,
+        press_output: &mut Vec<u8>,
+        release_output: &mut Vec<u8>,
+    ) -> Option<ghostty_vt::Result<()>> {
+        let term = match self.term.try_lock() {
+            Ok(term) => term,
+            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return None,
+        };
+        if term.pointer_semantic_snapshot() != expected {
+            return None;
+        }
+        let mut encoders = match self.mouse_encoders.try_lock() {
+            Ok(encoders) => encoders,
+            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return None,
+        };
+        encoders.sync_from_terminal(&term);
+        Some(encoders.encode_press_pair(press, release, press_output, release_output))
     }
 
     pub(super) fn reset_mouse_motion_dedupe(&self) {

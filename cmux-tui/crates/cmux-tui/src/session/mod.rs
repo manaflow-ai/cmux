@@ -1161,6 +1161,23 @@ impl SurfaceHandle {
         }
     }
 
+    pub fn encode_mouse_if_semantics(
+        &self,
+        expected: TerminalPointerSemanticSnapshot,
+        input: MouseInput,
+        output: &mut Vec<u8>,
+    ) -> Option<ghostty_vt::Result<()>> {
+        match self {
+            SurfaceHandle::Local(surface, _) => {
+                surface.encode_mouse_if_semantics(expected, input, output)
+            }
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
+                surface.encode_mouse_if_semantics(expected, input, output)
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
+        }
+    }
+
     pub fn encode_mouse_release(
         &self,
         input: MouseInput,
@@ -1189,6 +1206,34 @@ impl SurfaceHandle {
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
                 surface.encode_mouse_press_pair(press, release, press_output, release_output)
             }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
+        }
+    }
+
+    pub fn encode_mouse_press_pair_if_semantics(
+        &self,
+        expected: TerminalPointerSemanticSnapshot,
+        press: MouseInput,
+        release: MouseInput,
+        press_output: &mut Vec<u8>,
+        release_output: &mut Vec<u8>,
+    ) -> Option<ghostty_vt::Result<()>> {
+        match self {
+            SurfaceHandle::Local(surface, _) => surface.encode_mouse_press_pair_if_semantics(
+                expected,
+                press,
+                release,
+                press_output,
+                release_output,
+            ),
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => surface
+                .encode_mouse_press_pair_if_semantics(
+                    expected,
+                    press,
+                    release,
+                    press_output,
+                    release_output,
+                ),
             SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
         }
     }

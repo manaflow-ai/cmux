@@ -855,6 +855,7 @@ pub struct OrderedSession {
     pending_pointer_mutations: Arc<AtomicUsize>,
     cancellation_pending: Arc<AtomicBool>,
     committed_mutation_generation: Arc<AtomicU64>,
+    pointer_map_generation: Arc<AtomicU64>,
     destination_mutation_started: Arc<AtomicU64>,
     destination_mutation_committed: Arc<AtomicU64>,
     remote_refresh_queued: Arc<AtomicBool>,
@@ -895,6 +896,7 @@ impl OrderedSession {
             pending_pointer_mutations: Arc::new(AtomicUsize::new(0)),
             cancellation_pending: Arc::new(AtomicBool::new(false)),
             committed_mutation_generation: Arc::new(AtomicU64::new(0)),
+            pointer_map_generation: Arc::new(AtomicU64::new(0)),
             destination_mutation_started: Arc::new(AtomicU64::new(0)),
             destination_mutation_committed: Arc::new(AtomicU64::new(0)),
             remote_refresh_queued: Arc::new(AtomicBool::new(false)),
@@ -923,6 +925,7 @@ impl OrderedSession {
         self.pending_mutations.fetch_add(1, Ordering::AcqRel);
         if impact.blocks_pointer() {
             self.pending_pointer_mutations.fetch_add(1, Ordering::AcqRel);
+            self.pointer_map_generation.fetch_add(1, Ordering::AcqRel);
         }
         PendingSessionMutation(Arc::new(PendingSessionMutationState {
             events: self.events.clone(),
@@ -1205,6 +1208,10 @@ impl OrderedSession {
 
     fn has_pending_pointer_mutations(&self) -> bool {
         self.pending_pointer_mutations.load(Ordering::Acquire) > 0
+    }
+
+    fn pointer_map_generation(&self) -> u64 {
+        self.pointer_map_generation.load(Ordering::Acquire)
     }
 
     fn destination_mutation_started(&self) -> u64 {
@@ -2915,6 +2922,12 @@ struct PtyInputForwardResult {
     reservation_id: Option<u64>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TerminalPointerAdmission {
+    surface: SurfaceId,
+    semantics: TerminalPointerSemanticSnapshot,
+}
+
 enum PtyMouseReleaseCapture {
     Bytes(PtyInputBytes),
     NotReported,
@@ -2941,7 +2954,7 @@ enum PromptPointerRegion {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum MenuPointerRegion {
-    Item { depth: usize, index: usize, item: MenuItem },
+    Item { depth: usize, index: usize },
     Chrome { depth: usize },
     Outside,
 }
@@ -2959,6 +2972,23 @@ struct RenderedMenuLevel {
     rect: Rect,
     scroll_offset: usize,
     items: Vec<MenuItem>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum PointerHitIdentity {
+    MachineContext(Option<MachineKey>),
+    RecoverableWorkspace(String),
+    SidebarFile(PathBuf),
+    SidebarFilter(PathBuf),
+    NewScreen(WorkspaceId),
+    Tab(SurfaceId),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct RenderedHitRoute {
+    rect: Rect,
+    hit: Hit,
+    identity: Option<Arc<PointerHitIdentity>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2993,7 +3023,7 @@ enum PointerRouteIdentity {
         region: PromptPointerRegion,
     },
     Menu {
-        rects: Vec<Rect>,
+        levels: Arc<[RenderedMenuLevel]>,
         region: MenuPointerRegion,
     },
     Omnibar {
@@ -3005,6 +3035,7 @@ enum PointerRouteIdentity {
     },
     SidebarPlugin {
         rect: Rect,
+        surface: Option<SurfaceId>,
         column: u16,
         row: u16,
     },
@@ -3017,6 +3048,7 @@ enum PointerRouteIdentity {
     Hit {
         rect: Rect,
         hit: Hit,
+        identity: Option<Arc<PointerHitIdentity>>,
         column: u16,
         row: u16,
     },
@@ -3044,14 +3076,15 @@ impl PointerRouteIdentity {
 struct RenderedPointerFrame {
     pairing: Option<(u64, Rect, Rect, Rect)>,
     prompt: Option<(PromptTarget, Rect, Rect, Rect, Rect, Rect)>,
-    menu: Option<Vec<RenderedMenuLevel>>,
+    menu: Option<Arc<[RenderedMenuLevel]>>,
     omnibar: Option<(PaneId, SurfaceId)>,
-    sidebar_plugin: Option<Rect>,
+    sidebar_plugin: Option<(Rect, Option<SurfaceId>)>,
     machine_rail: Option<Rect>,
     workspace_rail: Option<Rect>,
-    hits: Vec<(Rect, Hit)>,
+    hits: Vec<RenderedHitRoute>,
     panes: Vec<RenderedPaneRoute>,
     terminal_pointer_semantics: HashMap<SurfaceId, TerminalPointerSemanticSnapshot>,
+    pointer_map_generation: u64,
 }
 
 impl RenderedPointerFrame {
@@ -3086,7 +3119,6 @@ impl RenderedPointerFrame {
             return PointerRouteIdentity::Prompt { target, rect, input, clear, ok, cancel, region };
         }
         if let Some(levels) = &self.menu {
-            let rects = levels.iter().map(|level| level.rect).collect::<Vec<_>>();
             let region = levels
                 .iter()
                 .enumerate()
@@ -3099,15 +3131,12 @@ impl RenderedPointerFrame {
                         return MenuPointerRegion::Chrome { depth };
                     }
                     let index = level.scroll_offset + (y - level.rect.y - 1) as usize;
-                    level
-                        .items
-                        .get(index)
-                        .filter(|item| item.selectable())
-                        .map_or(MenuPointerRegion::Chrome { depth }, |item| {
-                            MenuPointerRegion::Item { depth, index, item: item.clone() }
-                        })
+                    level.items.get(index).filter(|item| item.selectable()).map_or(
+                        MenuPointerRegion::Chrome { depth },
+                        |_| MenuPointerRegion::Item { depth, index },
+                    )
                 });
-            return PointerRouteIdentity::Menu { rects, region };
+            return PointerRouteIdentity::Menu { levels: levels.clone(), region };
         }
         for pane in &self.panes {
             let Some(rect) = pane.omnibar else { continue };
@@ -3127,19 +3156,21 @@ impl RenderedPointerFrame {
                 };
             }
         }
-        if let Some(rect) = self.sidebar_plugin.filter(|rect| rect.contains(x, y)) {
+        if let Some((rect, surface)) = self.sidebar_plugin.filter(|(rect, _)| rect.contains(x, y)) {
             return PointerRouteIdentity::SidebarPlugin {
                 rect,
+                surface,
                 column: x.saturating_sub(rect.x),
                 row: y.saturating_sub(rect.y),
             };
         }
-        if let Some((rect, hit)) = self.hits.iter().find(|(rect, _)| rect.contains(x, y)).copied() {
+        if let Some(route) = self.hits.iter().find(|route| route.rect.contains(x, y)) {
             return PointerRouteIdentity::Hit {
-                rect,
-                hit,
-                column: x.saturating_sub(rect.x),
-                row: y.saturating_sub(rect.y),
+                rect: route.rect,
+                hit: route.hit,
+                identity: route.identity.clone(),
+                column: x.saturating_sub(route.rect.x),
+                row: y.saturating_sub(route.rect.y),
             };
         }
         for (kind, rect) in
@@ -3186,6 +3217,7 @@ impl RenderedPointerFrame {
 #[derive(Clone, Debug, PartialEq)]
 struct DeferredPointerInput {
     focus_generation: u64,
+    pointer_map_generation: u64,
     route: Option<PointerRouteIdentity>,
 }
 
@@ -5183,6 +5215,48 @@ impl App {
         self.pointer_route_phase = self.pointer_route_phase.with_action(action);
     }
 
+    fn pointer_hit_identity(&self, hit: Hit) -> Option<PointerHitIdentity> {
+        match hit {
+            Hit::NewVm
+            | Hit::ConnectMachine
+            | Hit::ProviderScope
+            | Hit::ProviderActions
+            | Hit::CreateWorkspace { .. } => Some(PointerHitIdentity::MachineContext(
+                self.machine_ui.as_ref().and_then(|ui| ui.snapshot.active),
+            )),
+            Hit::RecoverableWorkspace { index } => self
+                .machine_ui
+                .as_ref()
+                .and_then(|ui| ui.recoverable_workspaces().get(index).copied())
+                .map(|workspace| PointerHitIdentity::RecoverableWorkspace(workspace.id.clone())),
+            Hit::SidebarFile { index } => self
+                .sidebar_files
+                .visible_entry(index)
+                .map(|entry| PointerHitIdentity::SidebarFile(entry.path.clone())),
+            Hit::SidebarFilterInput => Some(PointerHitIdentity::SidebarFilter(
+                self.sidebar_files.current_dir().to_path_buf(),
+            )),
+            Hit::NewScreen => self
+                .tree
+                .active_workspace()
+                .map(|workspace| PointerHitIdentity::NewScreen(workspace.id)),
+            Hit::Tab { pane, index } => self
+                .tree
+                .pane(pane)
+                .and_then(|pane| pane.tabs.get(index))
+                .map(|tab| PointerHitIdentity::Tab(tab.surface)),
+            Hit::Machine { .. }
+            | Hit::Workspace { .. }
+            | Hit::ScreenEntry { .. }
+            | Hit::NewTab { .. }
+            | Hit::Clients { .. }
+            | Hit::Scrollbar { .. }
+            | Hit::RailResize(_)
+            | Hit::PaneResize { .. }
+            | Hit::TabScroll { .. } => None,
+        }
+    }
+
     fn commit_rendered_pointer_frame(&mut self) {
         let pairing = self
             .pairing_dialog
@@ -5192,18 +5266,20 @@ impl App {
             (prompt.target, prompt.rect, prompt.input_rect, prompt.clear, prompt.ok, prompt.cancel)
         });
         let menu = self.menu.as_ref().map(|menu| {
-            menu.levels
-                .iter()
-                .map(|level| RenderedMenuLevel {
-                    rect: level.rect,
-                    scroll_offset: level.scroll_offset,
-                    items: level.items.clone(),
-                })
-                .collect()
+            Arc::from(
+                menu.levels
+                    .iter()
+                    .map(|level| RenderedMenuLevel {
+                        rect: level.rect,
+                        scroll_offset: level.scroll_offset,
+                        items: level.items.clone(),
+                    })
+                    .collect::<Vec<_>>(),
+            )
         });
         let omnibar = self.omnibar.as_ref().map(|state| (state.pane, state.surface));
         let sidebar_plugin = (self.config.sidebar.plugin.is_some() && self.sidebar_visible)
-            .then(|| self.sidebar_plugin_rect());
+            .then(|| (self.sidebar_plugin_rect(), self.sidebar_plugin_surface));
         let machine_rail = self.sidebar_layout.machine;
         let workspace_rail = self.sidebar_layout.workspace;
         let panes = self
@@ -5229,9 +5305,18 @@ impl App {
             sidebar_plugin,
             machine_rail,
             workspace_rail,
-            hits: self.hits.clone(),
+            hits: self
+                .hits
+                .iter()
+                .map(|(rect, hit)| RenderedHitRoute {
+                    rect: *rect,
+                    hit: *hit,
+                    identity: self.pointer_hit_identity(*hit).map(Arc::new),
+                })
+                .collect(),
             panes,
             terminal_pointer_semantics: self.rendered_terminal_pointer_semantics.clone(),
+            pointer_map_generation: self.session.pointer_map_generation(),
         };
     }
 
@@ -5301,6 +5386,9 @@ impl App {
                     Some(ReplayedInputContext {
                         pointer: Some(DeferredPointerInput {
                             focus_generation: pointer.focus_generation,
+                            pointer_map_generation: self
+                                .rendered_pointer_frame
+                                .pointer_map_generation,
                             route: None,
                         }),
                         admission: None,
@@ -6255,6 +6343,7 @@ impl App {
             AppEvent::Input(input) => self.missing_input_surface(input),
             _ => None,
         };
+        let mut terminal_pointer_admission = None;
         if let AppEvent::Input(input) = &event {
             let pointer_has_capture = match input {
                 Event::Mouse(mouse) => self.pointer_has_capture(mouse.kind),
@@ -6267,16 +6356,19 @@ impl App {
                 let replayed_route_changed = replay_context
                     .as_ref()
                     .and_then(|context| context.pointer.as_ref())
-                    .and_then(|pointer| pointer.route.as_ref())
-                    .is_some_and(|expected| expected != &rendered_route);
-                if replayed_route_changed
-                    || !self.pointer_route_matches_live_terminal_semantics(
-                        &rendered_route,
-                        missing_surface,
-                    )
-                {
+                    .is_some_and(|pointer| {
+                        pointer.route.as_ref().is_some_and(|expected| {
+                            pointer.pointer_map_generation
+                                != self.rendered_pointer_frame.pointer_map_generation
+                                || expected != &rendered_route
+                        })
+                    });
+                let admission =
+                    self.terminal_pointer_admission_for_route(&rendered_route, missing_surface);
+                if replayed_route_changed || admission.is_err() {
                     return Ok(RenderAction::None);
                 }
+                terminal_pointer_admission = admission.unwrap();
             }
             if let Some(admission) =
                 replay_context.as_ref().and_then(|context| context.admission.as_ref())
@@ -6726,7 +6818,7 @@ impl App {
             }
             AppEvent::Input(Event::Key(key)) => self.handle_key(key),
             AppEvent::Input(Event::Mouse(mouse)) => {
-                self.handle_mouse_with_sequence(mouse, input_sequence)
+                self.handle_mouse_with_sequence(mouse, input_sequence, terminal_pointer_admission)
             }
             AppEvent::Input(Event::Paste(text)) => {
                 self.status_message = None;
@@ -6863,6 +6955,7 @@ impl App {
         } else if let Event::Mouse(mouse) = &input {
             Some(DeferredPointerInput {
                 focus_generation: self.pointer_focus_generation,
+                pointer_map_generation: self.rendered_pointer_frame.pointer_map_generation,
                 route: Self::mouse_requires_rendered_route(mouse.kind)
                     .then(|| self.rendered_pointer_frame.route_for_mouse(mouse)),
             })
@@ -6999,24 +7092,33 @@ impl App {
         }
     }
 
-    fn pointer_route_matches_live_terminal_semantics(
+    fn terminal_pointer_admission_for_route(
         &self,
         rendered_route: &PointerRouteIdentity,
         missing_surface: Option<SurfaceId>,
-    ) -> bool {
+    ) -> Result<Option<TerminalPointerAdmission>, ()> {
         let Some((surface, expected_semantics)) = rendered_route.terminal_pointer_semantics()
         else {
-            return true;
+            return Ok(None);
         };
         let Some(expected_semantics) = expected_semantics else {
-            return missing_surface == Some(surface);
+            return if missing_surface == Some(surface) { Ok(None) } else { Err(()) };
         };
+        let admission = TerminalPointerAdmission { surface, semantics: expected_semantics };
+        if missing_surface == Some(surface) {
+            return Ok(Some(admission));
+        }
         let Some(surface_handle) = self.session.surface(surface) else {
-            return missing_surface == Some(surface);
+            return Err(());
         };
-        surface_handle
+        if surface_handle
             .try_pointer_semantics()
             .is_some_and(|live_semantics| live_semantics == expected_semantics)
+        {
+            Ok(Some(admission))
+        } else {
+            Err(())
+        }
     }
 
     fn input_destination(&self, input: &Event) -> Option<SurfaceId> {
@@ -9262,13 +9364,14 @@ impl App {
 
     #[cfg(test)]
     fn handle_mouse(&mut self, mouse: MouseEvent) -> anyhow::Result<RenderAction> {
-        self.handle_mouse_with_sequence(mouse, None)
+        self.handle_mouse_with_sequence(mouse, None, None)
     }
 
     fn handle_mouse_with_sequence(
         &mut self,
         mouse: MouseEvent,
         replay_sequence: Option<u64>,
+        terminal_admission: Option<TerminalPointerAdmission>,
     ) -> anyhow::Result<RenderAction> {
         // A live physical sample supersedes retained motion. Replayed input
         // only supersedes motion that was retained earlier in the same
@@ -9321,9 +9424,12 @@ impl App {
             _ => {}
         }
         match mouse.kind {
-            MouseEventKind::Down(MouseButton::Left) => {
-                self.handle_left_down(mouse.column, mouse.row, mouse.modifiers)
-            }
+            MouseEventKind::Down(MouseButton::Left) => self.handle_left_down_with_admission(
+                mouse.column,
+                mouse.row,
+                mouse.modifiers,
+                terminal_admission,
+            ),
             MouseEventKind::Drag(MouseButton::Left) => {
                 if self.forward_pty_mouse_drag(
                     mouse.column,
@@ -9353,11 +9459,12 @@ impl App {
                     self.shake_frames = 6;
                     return Ok(RenderAction::Draw);
                 }
-                if self.begin_pty_mouse_drag(
+                if self.begin_pty_mouse_drag_with_admission(
                     mouse.column,
                     mouse.row,
                     MouseButton::Right,
                     mouse.modifiers,
+                    terminal_admission,
                 ) != PtyMousePressResult::NotOwned
                 {
                     return Ok(RenderAction::Draw);
@@ -9390,11 +9497,12 @@ impl App {
                 }
             }
             MouseEventKind::Down(MouseButton::Middle) => Ok(
-                if self.begin_pty_mouse_drag(
+                if self.begin_pty_mouse_drag_with_admission(
                     mouse.column,
                     mouse.row,
                     MouseButton::Middle,
                     mouse.modifiers,
+                    terminal_admission,
                 ) != PtyMousePressResult::NotOwned
                 {
                     RenderAction::Draw
@@ -9423,27 +9531,51 @@ impl App {
                     RenderAction::None
                 },
             ),
-            MouseEventKind::Moved => self.handle_hover(mouse.column, mouse.row, mouse.modifiers),
+            MouseEventKind::Moved => self.handle_hover_with_admission(
+                mouse.column,
+                mouse.row,
+                mouse.modifiers,
+                terminal_admission,
+            ),
             MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
                 let down = matches!(mouse.kind, MouseEventKind::ScrollDown);
-                self.handle_scroll(mouse.column, mouse.row, down, mouse.modifiers)
+                self.handle_scroll_with_admission(
+                    mouse.column,
+                    mouse.row,
+                    down,
+                    mouse.modifiers,
+                    terminal_admission,
+                )
             }
             MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight => self
-                .handle_horizontal_scroll(
+                .handle_horizontal_scroll_with_admission(
                     mouse.column,
                     mouse.row,
                     matches!(mouse.kind, MouseEventKind::ScrollRight),
                     mouse.modifiers,
+                    terminal_admission,
                 ),
         }
     }
 
+    #[cfg(test)]
     fn begin_pty_mouse_drag(
         &mut self,
         x: u16,
         y: u16,
         button: MouseButton,
         modifiers: KeyModifiers,
+    ) -> PtyMousePressResult {
+        self.begin_pty_mouse_drag_with_admission(x, y, button, modifiers, None)
+    }
+
+    fn begin_pty_mouse_drag_with_admission(
+        &mut self,
+        x: u16,
+        y: u16,
+        button: MouseButton,
+        modifiers: KeyModifiers,
+        terminal_admission: Option<TerminalPointerAdmission>,
     ) -> PtyMousePressResult {
         if modifiers.contains(KeyModifiers::SHIFT)
             || self.menu.is_some()
@@ -9469,11 +9601,15 @@ impl App {
         let (release_capture, forwarded) = self.prepare_pty_mouse_press(
             (area.surface, handle.clone()),
             content,
-            x,
-            y,
+            (x, y),
             button,
             modifiers,
+            terminal_admission,
         );
+        if matches!(release_capture, PtyMouseReleaseCapture::Failed) {
+            self.active_pointer_buttons.remove(&button);
+            return PtyMousePressResult::Consumed;
+        }
         if !forwarded.owned {
             return PtyMousePressResult::NotOwned;
         }
@@ -9482,9 +9618,6 @@ impl App {
         }
         self.leave_workspace_sidebar();
         self.selection = None;
-        if matches!(release_capture, PtyMouseReleaseCapture::Failed) {
-            return PtyMousePressResult::Consumed;
-        }
         if !forwarded.accepted {
             return PtyMousePressResult::Consumed;
         }
@@ -9513,12 +9646,13 @@ impl App {
         &mut self,
         route: (SurfaceId, SurfaceHandle),
         content: Rect,
-        x: u16,
-        y: u16,
+        position: (u16, u16),
         button: MouseButton,
         modifiers: KeyModifiers,
+        terminal_admission: Option<TerminalPointerAdmission>,
     ) -> (PtyMouseReleaseCapture, PtyInputForwardResult) {
         let (surface_id, surface) = route;
+        let (x, y) = position;
         let failed =
             || PtyInputForwardResult { owned: true, accepted: false, reservation_id: None };
         let cell_width = u32::from(self.cell_pixels.0.max(1));
@@ -9544,9 +9678,24 @@ impl App {
             MouseInput { action: MouseAction::Release, any_button_pressed: false, ..press };
         let mut release_output = Vec::new();
         let mut press_output = Vec::new();
-        let Some(encoded) =
-            surface.encode_mouse_press_pair(press, release, &mut press_output, &mut release_output)
-        else {
+        let encoded = match terminal_admission {
+            Some(admission) if admission.surface == surface_id => surface
+                .encode_mouse_press_pair_if_semantics(
+                    admission.semantics,
+                    press,
+                    release,
+                    &mut press_output,
+                    &mut release_output,
+                ),
+            Some(_) => None,
+            None => surface.encode_mouse_press_pair(
+                press,
+                release,
+                &mut press_output,
+                &mut release_output,
+            ),
+        };
+        let Some(encoded) = encoded else {
             return (PtyMouseReleaseCapture::Failed, failed());
         };
         self.encode_buf = press_output;
@@ -9596,12 +9745,12 @@ impl App {
             *stored_modifiers = modifiers;
         }
         let _ = self.forward_pty_mouse_motion_if_uncontended(
-            surface,
-            content,
+            (surface, content),
             (x, y),
             Some(Self::ghostty_mouse_button(active_button)),
             modifiers,
             true,
+            None,
         );
         true
     }
@@ -9780,6 +9929,7 @@ impl App {
         }
     }
 
+    #[cfg(test)]
     fn forward_pty_mouse_at(
         &mut self,
         x: u16,
@@ -9789,24 +9939,45 @@ impl App {
         modifiers: KeyModifiers,
         any_button_pressed: bool,
     ) -> bool {
+        self.forward_pty_mouse_at_with_admission(
+            (x, y),
+            action,
+            button,
+            modifiers,
+            any_button_pressed,
+            None,
+        )
+        .unwrap_or(true)
+    }
+
+    fn forward_pty_mouse_at_with_admission(
+        &mut self,
+        position: (u16, u16),
+        action: MouseAction,
+        button: Option<GhosttyMouseButton>,
+        modifiers: KeyModifiers,
+        any_button_pressed: bool,
+        terminal_admission: Option<TerminalPointerAdmission>,
+    ) -> Option<bool> {
+        let (x, y) = position;
         if modifiers.contains(KeyModifiers::SHIFT) || self.menu.is_some() || self.prompt.is_some() {
-            return false;
+            return Some(false);
         }
-        let Some(area) = self.pane_area_at(x, y).copied() else { return false };
+        let Some(area) = self.pane_area_at(x, y).copied() else { return Some(false) };
         if !area.content.contains(x, y) || self.surface_kind(area.surface) != Some(SurfaceKind::Pty)
         {
-            return false;
+            return Some(false);
         }
         let content = self.canonical_pty_content(area.surface, area.content);
         if action == MouseAction::Motion {
             let inside = content.contains(x, y);
             let owned = self.forward_pty_mouse_motion_if_uncontended(
-                area.surface,
-                content,
+                (area.surface, content),
                 (x, y),
                 None,
                 modifiers,
                 any_button_pressed,
+                terminal_admission,
             );
             // A no-button motion outside the canonical viewport is
             // intentionally suppressed by Ghostty. Reset dedupe so re-entering
@@ -9817,10 +9988,10 @@ impl App {
             {
                 surface.reset_mouse_motion_dedupe();
             }
-            return owned;
+            return Some(owned);
         }
         if !content.contains(x, y) {
-            return false;
+            return Some(false);
         }
         self.forward_pty_mouse_to_surface(
             area.surface,
@@ -9831,19 +10002,21 @@ impl App {
             button,
             modifiers,
             any_button_pressed,
+            terminal_admission,
         )
-        .owned
+        .map(|forwarded| forwarded.owned)
     }
 
     fn forward_pty_mouse_motion_if_uncontended(
         &mut self,
-        surface_id: SurfaceId,
-        content: Rect,
+        route: (SurfaceId, Rect),
         position: (u16, u16),
         button: Option<GhosttyMouseButton>,
         modifiers: KeyModifiers,
         any_button_pressed: bool,
+        terminal_admission: Option<TerminalPointerAdmission>,
     ) -> bool {
+        let (surface_id, content) = route;
         let Some(surface) = self.session.surface(surface_id) else { return false };
         let (x, y) = position;
         let cell_width = u32::from(self.cell_pixels.0.max(1));
@@ -9865,7 +10038,14 @@ impl App {
         };
 
         let mut output = Vec::new();
-        let Some(encoded) = surface.encode_mouse(input, &mut output) else {
+        let encoded = match terminal_admission {
+            Some(admission) if admission.surface == surface_id => {
+                surface.encode_mouse_if_semantics(admission.semantics, input, &mut output)
+            }
+            Some(_) => None,
+            None => surface.encode_mouse(input, &mut output),
+        };
+        let Some(encoded) = encoded else {
             // The first sample can race terminal initialization. Motion is
             // coalescible, so consume it without parking the UI loop.
             return true;
@@ -9892,9 +10072,14 @@ impl App {
         button: Option<GhosttyMouseButton>,
         modifiers: KeyModifiers,
         any_button_pressed: bool,
-    ) -> PtyInputForwardResult {
+        terminal_admission: Option<TerminalPointerAdmission>,
+    ) -> Option<PtyInputForwardResult> {
         let Some(surface) = self.session.surface(surface_id) else {
-            return PtyInputForwardResult { owned: false, accepted: false, reservation_id: None };
+            return Some(PtyInputForwardResult {
+                owned: false,
+                accepted: false,
+                reservation_id: None,
+            });
         };
         let cell_width = u32::from(self.cell_pixels.0.max(1));
         let cell_height = u32::from(self.cell_pixels.1.max(1));
@@ -9916,18 +10101,31 @@ impl App {
         };
 
         let mut output = Vec::new();
-        let Some(encoded) = surface.encode_mouse(input, &mut output) else {
-            return PtyInputForwardResult { owned: true, accepted: false, reservation_id: None };
+        let encoded = match terminal_admission {
+            Some(admission) if admission.surface == surface_id => {
+                surface.encode_mouse_if_semantics(admission.semantics, input, &mut output)
+            }
+            Some(_) => None,
+            None => surface.encode_mouse(input, &mut output),
         };
+        let encoded = encoded?;
         self.encode_buf = output;
         if encoded.is_err() {
-            return PtyInputForwardResult { owned: true, accepted: false, reservation_id: None };
+            return Some(PtyInputForwardResult {
+                owned: true,
+                accepted: false,
+                reservation_id: None,
+            });
         }
         if self.encode_buf.is_empty() {
             if action == MouseAction::Release {
                 self.cancel_pty_release_reservation();
             }
-            return PtyInputForwardResult { owned: false, accepted: true, reservation_id: None };
+            return Some(PtyInputForwardResult {
+                owned: false,
+                accepted: true,
+                reservation_id: None,
+            });
         }
         let kind = match action {
             MouseAction::Press
@@ -9948,7 +10146,7 @@ impl App {
         };
         let mut forwarded = self.write_encoded_pty_bytes(surface_id, surface, kind);
         forwarded.owned = true;
-        forwarded
+        Some(forwarded)
     }
 
     fn write_encoded_pty_bytes(
@@ -10220,11 +10418,12 @@ impl App {
     /// item, and track the mouse position so tab-bar controls (+, ‹, ›)
     /// and the scrollbar render a hover state. Only redraws when the
     /// hovered element actually changes.
-    fn handle_hover(
+    fn handle_hover_with_admission(
         &mut self,
         x: u16,
         y: u16,
         modifiers: KeyModifiers,
+        terminal_admission: Option<TerminalPointerAdmission>,
     ) -> anyhow::Result<RenderAction> {
         self.sync_pointer_shape(x, y);
         if let Some(menu) = self.menu.as_mut()
@@ -10236,7 +10435,14 @@ impl App {
             return Ok(RenderAction::None);
         }
         if self.menu.is_none() && self.prompt.is_none() && self.drag.is_none() {
-            let _ = self.forward_pty_mouse_at(x, y, MouseAction::Motion, None, modifiers, false);
+            let _ = self.forward_pty_mouse_at_with_admission(
+                (x, y),
+                MouseAction::Motion,
+                None,
+                modifiers,
+                false,
+                terminal_admission,
+            );
             let mut over_browser = false;
             if let Some(area) = self
                 .pane_areas
@@ -10328,11 +10534,22 @@ impl App {
         Ok(RenderAction::Draw)
     }
 
+    #[cfg(test)]
     fn handle_left_down(
         &mut self,
         x: u16,
         y: u16,
         modifiers: KeyModifiers,
+    ) -> anyhow::Result<RenderAction> {
+        self.handle_left_down_with_admission(x, y, modifiers, None)
+    }
+
+    fn handle_left_down_with_admission(
+        &mut self,
+        x: u16,
+        y: u16,
+        modifiers: KeyModifiers,
+        terminal_admission: Option<TerminalPointerAdmission>,
     ) -> anyhow::Result<RenderAction> {
         self.selection = None;
         self.drag = None;
@@ -10574,8 +10791,13 @@ impl App {
                         content: area.content,
                         position: (x, y),
                     });
-                } else if self.begin_pty_mouse_drag(x, y, MouseButton::Left, modifiers)
-                    != PtyMousePressResult::NotOwned
+                } else if self.begin_pty_mouse_drag_with_admission(
+                    x,
+                    y,
+                    MouseButton::Left,
+                    modifiers,
+                    terminal_admission,
+                ) != PtyMousePressResult::NotOwned
                 {
                     return Ok(RenderAction::Draw);
                 } else {
@@ -11129,12 +11351,24 @@ impl App {
         }
     }
 
+    #[cfg(test)]
     fn handle_scroll(
         &mut self,
         x: u16,
         y: u16,
         down: bool,
         modifiers: KeyModifiers,
+    ) -> anyhow::Result<RenderAction> {
+        self.handle_scroll_with_admission(x, y, down, modifiers, None)
+    }
+
+    fn handle_scroll_with_admission(
+        &mut self,
+        x: u16,
+        y: u16,
+        down: bool,
+        modifiers: KeyModifiers,
+        terminal_admission: Option<TerminalPointerAdmission>,
     ) -> anyhow::Result<RenderAction> {
         if self.menu.is_some() || self.prompt.is_some() {
             return Ok(RenderAction::None);
@@ -11222,10 +11456,9 @@ impl App {
         if !canonical_content.contains(x, y) {
             return Ok(RenderAction::None);
         }
-        if area.content.contains(x, y)
-            && self.forward_pty_mouse_at(
-                x,
-                y,
+        if area.content.contains(x, y) {
+            let forwarded = self.forward_pty_mouse_at_with_admission(
+                (x, y),
                 MouseAction::Press,
                 Some(if down {
                     GhosttyMouseButton::WheelDown
@@ -11234,14 +11467,27 @@ impl App {
                 }),
                 modifiers,
                 false,
-            )
-        {
-            return Ok(RenderAction::Draw);
+                terminal_admission,
+            );
+            match forwarded {
+                None => return Ok(RenderAction::None),
+                Some(true) => return Ok(RenderAction::Draw),
+                Some(false) => {}
+            }
         }
-        let Some(sent_arrows) = surface.with_terminal(|term| {
-            term.active_screen() == Screen::Alternate && !term.mouse_tracking()
-        }) else {
-            return Ok(RenderAction::None);
+        let sent_arrows = if let Some(admission) = terminal_admission {
+            if admission.surface != surface_id {
+                return Ok(RenderAction::None);
+            }
+            admission.semantics.active_screen == Screen::Alternate
+                && !admission.semantics.mouse_tracking
+        } else {
+            let Some(sent_arrows) = surface.with_terminal(|term| {
+                term.active_screen() == Screen::Alternate && !term.mouse_tracking()
+            }) else {
+                return Ok(RenderAction::None);
+            };
+            sent_arrows
         };
         if sent_arrows {
             let _ = surface.scroll_to_bottom();
@@ -11260,12 +11506,24 @@ impl App {
         Ok(RenderAction::Draw)
     }
 
+    #[cfg(test)]
     fn handle_horizontal_scroll(
         &mut self,
         x: u16,
         y: u16,
         right: bool,
         modifiers: KeyModifiers,
+    ) -> anyhow::Result<RenderAction> {
+        self.handle_horizontal_scroll_with_admission(x, y, right, modifiers, None)
+    }
+
+    fn handle_horizontal_scroll_with_admission(
+        &mut self,
+        x: u16,
+        y: u16,
+        right: bool,
+        modifiers: KeyModifiers,
+        terminal_admission: Option<TerminalPointerAdmission>,
     ) -> anyhow::Result<RenderAction> {
         if self.menu.is_some() || self.prompt.is_some() {
             return Ok(RenderAction::None);
@@ -11287,10 +11545,9 @@ impl App {
         {
             return Ok(RenderAction::None);
         }
-        if area.content.contains(x, y)
-            && self.forward_pty_mouse_at(
-                x,
-                y,
+        if area.content.contains(x, y) {
+            let forwarded = self.forward_pty_mouse_at_with_admission(
+                (x, y),
                 MouseAction::Press,
                 Some(if right {
                     GhosttyMouseButton::WheelRight
@@ -11299,9 +11556,12 @@ impl App {
                 }),
                 modifiers,
                 false,
-            )
-        {
-            return Ok(RenderAction::Draw);
+                terminal_admission,
+            );
+            return Ok(match forwarded {
+                Some(true) => RenderAction::Draw,
+                Some(false) | None => RenderAction::None,
+            });
         }
         Ok(RenderAction::None)
     }
@@ -12747,20 +13007,20 @@ mod tests {
 
         let mut app = test_app(Session::Local(mux.clone()));
         assert!(app.forward_pty_mouse_motion_if_uncontended(
-            surface.id,
-            Rect { x: 2, y: 3, width: 20, height: 8 },
+            (surface.id, Rect { x: 2, y: 3, width: 20, height: 8 }),
             (6, 5),
             None,
             KeyModifiers::NONE,
             false,
+            None,
         ));
         assert!(app.forward_pty_mouse_motion_if_uncontended(
-            surface.id,
-            Rect { x: 2, y: 3, width: 20, height: 8 },
+            (surface.id, Rect { x: 2, y: 3, width: 20, height: 8 }),
             (7, 5),
             Some(GhosttyMouseButton::Left),
             KeyModifiers::NONE,
             true,
+            None,
         ));
 
         release_tx.send(()).unwrap();

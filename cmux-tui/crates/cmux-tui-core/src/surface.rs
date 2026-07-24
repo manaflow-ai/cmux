@@ -1640,6 +1640,33 @@ impl Surface {
         }
     }
 
+    /// Encode only when the terminal still matches the semantics captured
+    /// with the rendered frame. The terminal and encoder locks stay held
+    /// across comparison and encoding so parser updates cannot interleave.
+    pub fn encode_mouse_if_semantics(
+        &self,
+        expected: TerminalPointerSemanticSnapshot,
+        input: MouseInput,
+        output: &mut Vec<u8>,
+    ) -> Option<ghostty_vt::Result<()>> {
+        let pty = self.as_pty()?;
+        let term = match pty.term.try_lock() {
+            Ok(term) => term,
+            Err(TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(TryLockError::WouldBlock) => return None,
+        };
+        if term.pointer_semantic_snapshot() != expected {
+            return None;
+        }
+        let mut encoders = match pty.mouse_encoders.try_lock() {
+            Ok(encoders) => encoders,
+            Err(TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(TryLockError::WouldBlock) => return None,
+        };
+        encoders.sync_from_terminal(&term);
+        Some(encoders.encode(input, output))
+    }
+
     pub fn encode_mouse_release(
         &self,
         input: MouseInput,
@@ -1675,6 +1702,35 @@ impl Surface {
             )),
             Err(TryLockError::WouldBlock) => None,
         }
+    }
+
+    /// Encode a press and its matching release against one rendered terminal
+    /// semantic snapshot, without a parser update between validation and
+    /// encoding either half.
+    pub fn encode_mouse_press_pair_if_semantics(
+        &self,
+        expected: TerminalPointerSemanticSnapshot,
+        press: MouseInput,
+        release: MouseInput,
+        press_output: &mut Vec<u8>,
+        release_output: &mut Vec<u8>,
+    ) -> Option<ghostty_vt::Result<()>> {
+        let pty = self.as_pty()?;
+        let term = match pty.term.try_lock() {
+            Ok(term) => term,
+            Err(TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(TryLockError::WouldBlock) => return None,
+        };
+        if term.pointer_semantic_snapshot() != expected {
+            return None;
+        }
+        let mut encoders = match pty.mouse_encoders.try_lock() {
+            Ok(encoders) => encoders,
+            Err(TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(TryLockError::WouldBlock) => return None,
+        };
+        encoders.sync_from_terminal(&term);
+        Some(encoders.encode_press_pair(press, release, press_output, release_output))
     }
 
     pub fn reset_mouse_motion_dedupe(&self) {
