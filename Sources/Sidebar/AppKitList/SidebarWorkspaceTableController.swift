@@ -1312,14 +1312,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     private func clearDropViewActions(in container: SidebarWorkspaceTableContainerView) {
-        let reorder = container.reorderDropView
-        reorder.isValidDrag = nil
-        reorder.updateDrag = nil
-        reorder.performDropAtPoint = nil
-        reorder.clearDropIndicator = nil
-        reorder.setWorkspaceDropTargetCollectionActive = nil
-        reorder.targets = []
-
         let bonsplit = container.bonsplitDropView
         bonsplit.canPerformAction = { _, _ in false }
         bonsplit.updateAutoscroll = {}
