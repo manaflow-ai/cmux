@@ -132,9 +132,22 @@ def test_main_push_runs_are_preserved_and_uploaded_in_order() -> None:
 def test_automatic_lane_stays_on_cmux_internal_identity() -> None:
     text = workflow_text()
 
-    assert "IOS_BETA_BUNDLE_ID: dev.cmux.app.internal" in text
-    assert "IOS_BETA_DISPLAY_NAME: cmux INTERNAL" in text
-    assert "--bundle-id dev.cmux.app.internal" in text
+    assert (
+        "IOS_BETA_BUNDLE_ID: ${{ github.event.inputs.variant == 'demo' "
+        "&& 'dev.cmux.app.demo' || 'dev.cmux.app.internal' }}"
+        in text
+    )
+    assert (
+        "IOS_BETA_DISPLAY_NAME: ${{ github.event.inputs.variant == 'demo' "
+        "&& 'cmux DEMO' || 'cmux INTERNAL' }}"
+        in text
+    )
+    assert (
+        "ASSIGN_BUNDLE_ID: ${{ github.event.inputs.variant == 'demo' "
+        "&& 'dev.cmux.app.demo' || 'dev.cmux.app.internal' }}"
+        in text
+    )
+    assert '--bundle-id "$ASSIGN_BUNDLE_ID"' in text
 
 
 if __name__ == "__main__":
