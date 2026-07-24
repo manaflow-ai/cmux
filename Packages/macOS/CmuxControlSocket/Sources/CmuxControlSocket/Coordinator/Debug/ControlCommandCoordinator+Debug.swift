@@ -34,6 +34,8 @@ extension ControlCommandCoordinator {
             return debugTextBoxInteract(request.params)
         case "debug.app.activate":
             return debugActivateApp()
+        case "debug.appkit_signal_lab.show":
+            return debugShowAppKitSignalLab()
         case "debug.workspace_todo.checklist_add_field":
             return debugWorkspaceTodoChecklistAddField()
         case "debug.pro_welcome_checklist.show":
@@ -221,6 +223,14 @@ extension ControlCommandCoordinator {
             return .err(code: "unavailable", message: "Control context unavailable", data: nil)
         }
         debugContext.controlDebugShowProWelcomeChecklist()
+        return .ok(.object(["shown": .bool(true)]))
+    }
+
+    /// `debug.appkit_signal_lab.show` — present the AppKit-only signals experiment.
+    func debugShowAppKitSignalLab() -> ControlCallResult {
+        guard debugContext?.controlDebugShowAppKitSignalLab() == true else {
+            return .err(code: "unavailable", message: "AppKit Signals Lab unavailable", data: nil)
+        }
         return .ok(.object(["shown": .bool(true)]))
     }
 

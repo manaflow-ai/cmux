@@ -407,11 +407,15 @@ extension ControlCommandCoordinator {
 
     // MARK: - debug.window.screenshot
 
-    /// `debug.window.screenshot` — capture a window screenshot (shared v1
-    /// body; the coordinator parses its 2-field response line).
+    /// `debug.window.screenshot` — capture a window screenshot, optionally
+    /// targeting an auxiliary window by its AppKit identifier.
     func debugScreenshot(_ params: [String: JSONValue]) -> ControlCallResult {
         let label = string(params, "label") ?? ""
-        let resp = debugContext?.controlDebugCaptureScreenshot(label: label)
+        let windowIdentifier = string(params, "window_identifier")
+        let resp = debugContext?.controlDebugCaptureScreenshot(
+            label: label,
+            windowIdentifier: windowIdentifier
+        )
             ?? Self.debugContextUnavailableResponse
         guard resp.hasPrefix("OK ") else {
             return .err(code: "internal_error", message: resp, data: nil)

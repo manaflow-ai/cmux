@@ -12964,8 +12964,11 @@ class TerminalController {
     }
 
     func captureScreenshot(_ args: String) -> String {
-        // Parse optional label from args
         let label = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        return captureScreenshot(label: label, windowIdentifier: nil)
+    }
+
+    func captureScreenshot(label: String, windowIdentifier: String?) -> String {
 
         // Generate unique ID for this screenshot
         let timestamp = ISO8601DateFormatter().string(from: Date())
@@ -12982,7 +12985,7 @@ class TerminalController {
         let filename = label.isEmpty ? "\(screenshotId).png" : "\(label)_\(screenshotId).png"
         let outputPath = outputDir.appendingPathComponent(filename)
 
-        // Capture the main window on main thread
+        // Capture the requested or foreground window on the main thread.
         var captureError: String?
         v2MainSync {
             let candidateWindows = NSApp.windows.filter { window in
@@ -12991,10 +12994,13 @@ class TerminalController {
                 window.contentView != nil &&
                 !window.frame.isEmpty
             }
+            let explicitlyTargetedWindow = windowIdentifier.flatMap { identifier in
+                candidateWindows.first { $0.identifier?.rawValue == identifier }
+            }
             let preferredWindow = [NSApp.keyWindow, NSApp.mainWindow]
                 .compactMap { $0 }
                 .first { candidateWindows.contains($0) }
-            let window = preferredWindow ?? candidateWindows.max { lhs, rhs in
+            let window = explicitlyTargetedWindow ?? preferredWindow ?? candidateWindows.max { lhs, rhs in
                 (lhs.frame.width * lhs.frame.height) < (rhs.frame.width * rhs.frame.height)
             } ?? NSApp.mainWindow ?? NSApp.windows.first
 
