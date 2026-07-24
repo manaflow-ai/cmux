@@ -148,6 +148,46 @@ struct TextBoxPendingPasteReservationTests {
         #expect(!textView.hasPendingAttachmentUploadPlaceholder())
     }
 
+    @Test("backspace over a pending paste restores selected content")
+    func backspaceOverPendingPasteRestoresSelectedContent() {
+        let (window, textView) = makeTextView()
+        defer { close(window) }
+        selectMiddleWord(in: textView)
+
+        let pasteID = UUID()
+        textView.insertPendingAttachmentUploadPlaceholder(id: pasteID)
+        textView.deleteBackward(nil)
+
+        #expect(textView.string == "before selected after")
+        #expect(textView.pendingPasteReservations.isEmpty)
+        #expect(!textView.hasPendingAttachmentUploadPlaceholder())
+    }
+
+    @Test("replacement over a pending paste applies to restored selection")
+    func replacementOverPendingPasteAppliesToRestoredSelection() throws {
+        let (window, textView) = makeTextView()
+        defer { close(window) }
+        selectMiddleWord(in: textView)
+
+        let pasteID = UUID()
+        textView.insertPendingAttachmentUploadPlaceholder(id: pasteID)
+        let markerRange = try #require(
+            textView.pendingAttachmentUploadPlaceholderRange(id: pasteID)
+        )
+        textView.insertText("replacement", replacementRange: markerRange)
+
+        #expect(textView.string == "before replacement after")
+        #expect(textView.pendingPasteReservations.isEmpty)
+        #expect(!textView.hasPendingAttachmentUploadPlaceholder())
+        #expect(
+            !textView.replacePendingAttachmentUploadPlaceholder(
+                id: pasteID,
+                withText: "late result"
+            )
+        )
+        #expect(textView.string == "before replacement after")
+    }
+
     private func makeTextView() -> (NSWindow, TextBoxInputTextView) {
         let textView = TextBoxInputTextView(
             frame: NSRect(x: 0, y: 0, width: 320, height: 30)
