@@ -6741,7 +6741,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func shouldRouteRightSidebarModeShortcut(in window: NSWindow?) -> Bool {
         guard let window else { return false }
         let sidebarIntentActive = keyboardFocusCoordinator(for: window)?.activeRightSidebarMode != nil
-        guard let responder = window.firstResponder else { return sidebarIntentActive }
+        // makeFirstResponder(nil) parks firstResponder on the window itself, so responder === window
+        // means there is no real responder, so treat it like nil and route on the active sidebar intent.
+        guard let responder = window.firstResponder, responder !== window else { return sidebarIntentActive }
         if isRightSidebarFocusResponder(responder, in: window) { return true }
         if sidebarIntentActive, responder is NSWindow { return true }
         if terminalKeyboardFocusRequest(for: responder) != nil { return false }
