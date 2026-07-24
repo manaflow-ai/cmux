@@ -85,7 +85,7 @@ struct MacComputerRow: View {
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                     if let buildLabel = computer.buildLabel {
-                        buildBadge(buildLabel)
+                        ComputerBuildBadge(label: buildLabel)
                     }
                 }
                 Text(connectionLine)
@@ -152,27 +152,6 @@ struct MacComputerRow: View {
                 .accessibilityLabel(primaryStatusPhrase)
                 .accessibilityIdentifier("MobileComputerStatus-\(computer.deviceId)-\(statusIdentifierSuffix)")
         }
-    }
-
-    /// A small build-channel pill (e.g. "DEV · teams", "Nightly"). DEV/RC/Staging
-    /// are tinted orange (pre-release), Nightly blue, Stable secondary, so a glance
-    /// tells you what kind of build a host runs.
-    private func buildBadge(_ label: String) -> some View {
-        Text(label)
-            .font(.caption2.weight(.semibold))
-            .lineLimit(1)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(buildBadgeTint(label).opacity(0.18), in: Capsule())
-            .foregroundStyle(buildBadgeTint(label))
-            .accessibilityLabel(
-                "\(L10n.string("mobile.computers.buildLabelPrefix", defaultValue: "Build:")) \(label)")
-    }
-
-    private func buildBadgeTint(_ label: String) -> Color {
-        if label.hasPrefix("DEV") || label == "RC" || label == "Staging" { return .orange }
-        if label == "Nightly" { return .blue }
-        return .secondary
     }
 
     private var dotColor: Color {

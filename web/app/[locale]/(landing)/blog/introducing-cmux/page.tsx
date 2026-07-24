@@ -4,6 +4,7 @@ import { buildAlternates, openGraphDefaults, twitterSummary } from "@/i18n/seo";
 import { blogPostSeoCopy } from "@/i18n/audited-seo";
 import { BlogSchema } from "../blog-schema";
 import { Link } from "@/i18n/navigation";
+import { BlogPostMeta } from "@/app/[locale]/components/blog-author";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -44,7 +45,7 @@ export default function IntroducingCmuxPage() {
       </div>
 
       <h1>{t("title")}</h1>
-      <time dateTime="2026-02-12" className="text-sm text-muted">{t("date")}</time>
+      <BlogPostMeta date={t("date")} dateTime="2026-02-12" />
 
       <p className="mt-6">{t("p1")}</p>
 

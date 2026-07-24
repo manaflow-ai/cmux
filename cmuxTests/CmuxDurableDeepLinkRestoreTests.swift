@@ -26,12 +26,12 @@ private final class DurableDeepLinkDockTestPanel: Panel, ObservableObject {
 
 /// Regression coverage for https://github.com/manaflow-ai/cmux/issues/5486:
 /// a copied `cmux://` deep link must keep resolving to the same logical
-/// workspace/tab after the session is persisted and restored with re-minted
-/// runtime UUIDs (what happens across an app restart).
+/// workspace/tab after the session is persisted and restored across an app
+/// restart.
 @MainActor
 @Suite("Durable deep link restore")
 struct CmuxDurableDeepLinkRestoreTests {
-    private let scheme = "cmux"
+    private let scheme = AuthEnvironment.callbackScheme
 
     private func parsedTarget(_ link: String) throws -> CmuxNavigationURLRequest.Target {
         let url = try #require(URL(string: link))
@@ -43,7 +43,18 @@ struct CmuxDurableDeepLinkRestoreTests {
         }
     }
 
-    @Test func workspaceLinkResolvesAfterRestoreWithRemintedIds() throws {
+    private func makeMainWindow(id: UUID) -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
+        return window
+    }
+
+    @Test func workspaceLinkResolvesAfterRestore() throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
         workspace.setCustomTitle("Linked workspace")
@@ -59,9 +70,8 @@ struct CmuxDurableDeepLinkRestoreTests {
         let restoredWorkspace = try #require(
             restored.tabs.first(where: { $0.customTitle == "Linked workspace" })
         )
-        // The restart breakage this feature fixes: runtime ids are re-minted…
-        #expect(restoredWorkspace.id != workspace.id)
-        // …while the persisted stable id survives.
+        // Runtime and stable workspace identities both survive ordinary session restore.
+        #expect(restoredWorkspace.id == workspace.id)
         #expect(restoredWorkspace.stableId == workspace.stableId)
 
         let resolver = CmuxNavigationTargetResolver(
@@ -284,6 +294,169 @@ struct CmuxDurableDeepLinkRestoreTests {
         )
         #expect(restoredWorkspace.stableId != liveStableWorkspaceId)
         #expect(!restoredWorkspace.panels.values.contains { $0.stableSurfaceId == liveStableSurfaceId })
+    }
+
+    @Test func closedWorkspaceRestoreThroughAppDelegateExcludesOtherWindowWorkspaceIds() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let appDelegate = AppDelegate()
+            AppDelegate.shared = appDelegate
+            ClosedItemHistoryStore.shared.removeAll()
+            defer {
+                for context in Array(appDelegate.mainWindowContexts.values) {
+                    appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
+                }
+                ClosedItemHistoryStore.shared.removeAll()
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            let liveManager = TabManager()
+            let liveWorkspace = try #require(liveManager.selectedWorkspace)
+            liveWorkspace.setCustomTitle("Live workspace in another window")
+            let liveWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: liveManager)
+
+            let targetManager = TabManager()
+            let targetWorkspace = try #require(targetManager.selectedWorkspace)
+            targetWorkspace.setCustomTitle("Target window workspace")
+            let targetWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: targetManager)
+
+            var snapshot = liveWorkspace.sessionSnapshot(includeScrollback: false)
+            snapshot.customTitle = "Restored cross-window workspace"
+            let panelSnapshot = try #require(snapshot.panels.first)
+            let panelRecordId = UUID()
+            ClosedItemHistoryStore.shared.push(ClosedItemHistoryRecord(
+                id: panelRecordId,
+                closedAt: Date(),
+                entry: .panel(ClosedPanelHistoryEntry(
+                    workspaceId: liveWorkspace.id,
+                    paneId: UUID(),
+                    tabIndex: 0,
+                    snapshot: panelSnapshot
+                ))
+            ))
+            let recordId = UUID()
+            ClosedItemHistoryStore.shared.push(ClosedItemHistoryRecord(
+                id: recordId,
+                closedAt: Date(),
+                entry: .workspace(ClosedWorkspaceHistoryEntry(
+                    workspaceId: liveWorkspace.id,
+                    windowId: targetWindowId,
+                    workspaceIndex: targetManager.tabs.count,
+                    snapshot: snapshot
+                ))
+            ))
+
+            #expect(appDelegate.reopenClosedHistoryItem(id: recordId, shouldActivate: false))
+
+            let restoredWorkspace = try #require(
+                targetManager.tabs.first { $0.customTitle == "Restored cross-window workspace" }
+            )
+            #expect(restoredWorkspace.id != liveWorkspace.id)
+            #expect(restoredWorkspace.stableId != liveWorkspace.stableId)
+            let allWorkspaceIds = appDelegate.mainWindowContexts.values.flatMap { context in
+                context.tabManager.tabs.map(\.id)
+            }
+            #expect(Set(allWorkspaceIds).count == allWorkspaceIds.count)
+            let panelRecord = try #require(ClosedItemHistoryStore.shared.removeRecord(id: panelRecordId)?.record)
+            guard case .panel(let panelEntry) = panelRecord.entry else {
+                Issue.record("Expected closed panel history record")
+                return
+            }
+            #expect(panelEntry.workspaceId == liveWorkspace.id)
+            #expect(panelEntry.workspaceId != restoredWorkspace.id)
+            #expect(appDelegate.mainWindowContexts.values.contains { $0.windowId == liveWindowId })
+        }
+    }
+
+    @Test func closedWorkspaceRestoreThroughAppDelegateExcludesRecoverableRouteWorkspaceIds() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            _ = NSApplication.shared
+            let previousAppDelegate = AppDelegate.shared
+            let appDelegate = AppDelegate()
+            AppDelegate.shared = appDelegate
+            ClosedItemHistoryStore.shared.removeAll()
+
+            let recoverableWindowId = UUID()
+            let recoverableWindow = makeMainWindow(id: recoverableWindowId)
+            defer {
+                for context in Array(appDelegate.mainWindowContexts.values) {
+                    appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
+                }
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: recoverableWindowId)
+                recoverableWindow.orderOut(nil)
+                TerminalController.shared.setActiveTabManager(nil)
+                ClosedItemHistoryStore.shared.removeAll()
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            let recoverableManager = TabManager()
+            let recoverableWorkspace = try #require(recoverableManager.selectedWorkspace)
+            recoverableWorkspace.setCustomTitle("Recoverable route workspace")
+            let recoverablePanel = try #require(recoverableWorkspace.focusedTerminalPanel)
+            appDelegate.registerMainWindow(
+                recoverableWindow,
+                windowId: recoverableWindowId,
+                tabManager: recoverableManager,
+                sidebarState: SidebarState(),
+                sidebarSelectionState: SidebarSelectionState(),
+                fileExplorerState: FileExplorerState()
+            )
+            recoverableWindow.makeKeyAndOrderFront(nil)
+            TerminalController.shared.setActiveTabManager(recoverableManager)
+            #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: recoverablePanel.id) === recoverablePanel.surface)
+
+            appDelegate.unregisterMainWindowContextForTesting(windowId: recoverableWindowId)
+            #expect(!appDelegate.mainWindowContexts.values.contains { $0.windowId == recoverableWindowId })
+            #expect(appDelegate.recoverableMainWindowRoute(windowId: recoverableWindowId)?.tabManager === recoverableManager)
+            #expect(appDelegate.liveWorkspaceIdSet().contains(recoverableWorkspace.id))
+
+            let targetManager = TabManager()
+            let targetWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: targetManager)
+            var snapshot = recoverableWorkspace.sessionSnapshot(includeScrollback: false)
+            snapshot.customTitle = "Restored recoverable-route workspace"
+            let panelSnapshot = try #require(snapshot.panels.first)
+            let panelRecordId = UUID()
+            ClosedItemHistoryStore.shared.push(ClosedItemHistoryRecord(
+                id: panelRecordId,
+                closedAt: Date(),
+                entry: .panel(ClosedPanelHistoryEntry(
+                    workspaceId: recoverableWorkspace.id,
+                    paneId: UUID(),
+                    tabIndex: 0,
+                    snapshot: panelSnapshot
+                ))
+            ))
+            let recordId = UUID()
+            ClosedItemHistoryStore.shared.push(ClosedItemHistoryRecord(
+                id: recordId,
+                closedAt: Date(),
+                entry: .workspace(ClosedWorkspaceHistoryEntry(
+                    workspaceId: recoverableWorkspace.id,
+                    windowId: targetWindowId,
+                    workspaceIndex: targetManager.tabs.count,
+                    snapshot: snapshot
+                ))
+            ))
+
+            #expect(appDelegate.reopenClosedHistoryItem(id: recordId, shouldActivate: false))
+
+            let restoredWorkspace = try #require(
+                targetManager.tabs.first { $0.customTitle == "Restored recoverable-route workspace" }
+            )
+            #expect(restoredWorkspace.id != recoverableWorkspace.id)
+            #expect(restoredWorkspace.stableId != recoverableWorkspace.stableId)
+            let allWorkspaceIds = appDelegate.liveWorkspaceIdentityTabManagers().flatMap { manager in
+                manager.tabs.map(\.id)
+            }
+            #expect(Set(allWorkspaceIds).count == allWorkspaceIds.count)
+            let panelRecord = try #require(ClosedItemHistoryStore.shared.removeRecord(id: panelRecordId)?.record)
+            guard case .panel(let panelEntry) = panelRecord.entry else {
+                Issue.record("Expected closed panel history record")
+                return
+            }
+            #expect(panelEntry.workspaceId == recoverableWorkspace.id)
+            #expect(panelEntry.workspaceId != restoredWorkspace.id)
+        }
     }
 
     @Test func closedWindowRestoreWithLiveIdentityMintsFreshStableIds() async throws {

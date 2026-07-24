@@ -23,7 +23,7 @@ extension IrohError: @retroactive DiagnosticFailureProviding {
         if message.contains("ConnectionLost(LocallyClosed)") {
             return .cancelled
         }
-        if message.contains("ConnectionLost(TransportError(")
+        if message.contains("TransportError(")
             && (message.contains("Code::crypto(")
                 || message.contains("TLS error:")) {
             return .secureChannelFailed
@@ -44,6 +44,31 @@ extension IrohError: @retroactive DiagnosticFailureProviding {
             || message.contains("Resolve failed, IPv4:")
             || message.contains("Failed to resolve") {
             return .dnsFailed
+        }
+        // Connection-level operations (`accept_bi`, `open_bi`, `accept_uni`,
+        // `open_uni`) surface `iroh::endpoint::ConnectionError` Debug-formatted
+        // WITHOUT the `ConnectionLost(...)` wrapper that stream read/write
+        // errors carry (noq `ConnectionError` at manaflow-ai/noq@2271bbc, via
+        // iroh-ffi 1.0.2-cmux.4). Host rings from the 2026-07-23 WiFi
+        // path-flap loop showed admitted sessions dying `applicationLaneFailed`
+        // with these bare tokens classified `unknown`.
+        if message.contains("TimedOut") {
+            return .transportIdleTimedOut
+        }
+        if message.contains("LocallyClosed") {
+            return .cancelled
+        }
+        if message.contains("VersionMismatch") {
+            return .protocolViolation
+        }
+        if message.contains("CidsExhausted") {
+            return .endpointUnavailable
+        }
+        if message.contains("ApplicationClosed(")
+            || message.contains("ConnectionClosed(")
+            || message.contains("TransportError(")
+            || message.contains("Reset") {
+            return .connectionClosed
         }
         if message.contains("timed out")
             || message.contains("Timed out")
