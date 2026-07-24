@@ -328,6 +328,12 @@ extension TerminalController {
         case let .ready(ready):
             execution = ready
         }
+        // Working-directory validation can suspend while the target window
+        // closes. Reject before durably accepting the operation so the caller
+        // can retry against a live window with the same operation ID.
+        guard !preparation.tabManager.isFinalizedForWindowClose else {
+            return .err(code: "internal_error", message: "Failed to create workspace", data: nil)
+        }
         var operationAlreadyAccepted = false
         switch await v2ReserveMobileWorkspaceCreate(preparation: preparation) {
         case .notRequired:
