@@ -9,6 +9,7 @@ import { enrollTester } from "../asc/testflight";
 
 export const DEFAULT_PRO_FROM_EMAIL = "pro@cmux.com";
 export const PRO_REPLY_TO_EMAIL = "founders@manaflow.com";
+export const PRO_TESTFLIGHT_SIGNUP_URL = "https://cmux.com/dashboard/testflight";
 
 type ProWelcomeLocale = "en" | "ja";
 
@@ -42,6 +43,7 @@ export type ProWelcomeEmail = {
   replyTo: string;
   subject: string;
   text: string;
+  html: string;
   headers: Record<string, string>;
 };
 
@@ -92,6 +94,10 @@ export function buildProWelcomeEmail(input: {
     : enMessages.emails.proWelcome;
   const name = firstName(input.customerName) ?? copy.fallbackName;
   const greeting = copy.greeting.replace("{name}", name);
+  const testflightLink = copy.testflightLink.replace(
+    "{url}",
+    PRO_TESTFLIGHT_SIGNUP_URL,
+  );
   return {
     from: input.from,
     to: [input.to],
@@ -106,8 +112,18 @@ export function buildProWelcomeEmail(input: {
       "",
       copy.currentBenefit,
       "",
+      testflightLink,
+      "",
       copy.signoff,
     ].join("\n"),
+    html: [
+      `<p>${escapeHtml(greeting)}</p>`,
+      `<p>${escapeHtml(copy.thanks)}</p>`,
+      `<p>${escapeHtml(copy.cloudStatus)}</p>`,
+      `<p>${escapeHtml(copy.currentBenefit)}</p>`,
+      `<p><a href="${PRO_TESTFLIGHT_SIGNUP_URL}">${escapeHtml(copy.testflightLinkLabel)}</a></p>`,
+      `<p>${escapeHtml(copy.signoff).replaceAll("\n", "<br>")}</p>`,
+    ].join(""),
     headers: { "X-Entity-Ref-ID": `pro-welcome/${input.sessionRef}` },
   };
 }
@@ -157,6 +173,15 @@ function firstName(name: string | null | undefined): string | null {
 
 function formatFromAddress(email: string): string {
   return `cmux Pro <${email}>`;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 function errorMessage(error: unknown): string {

@@ -4736,6 +4736,8 @@
       "thanks": "Thanks for joining cmux Pro! We’re still building out the full Pro experience, and cloud access is coming soon.",
       "cloudStatus": "When cloud launches, we’ll add usage credits to your account based on how many months you’ve been subscribed, so your early support counts.",
       "currentBenefit": "For now, Pro gets you into the cmux iOS beta through TestFlight. Apple will send a separate invite to this email, so keep an eye on your inbox!",
+      "testflightLink": "Ready to try it? Sign up for TestFlight here: {url}",
+      "testflightLinkLabel": "Sign up for TestFlight",
       "signoff": "Thanks for being early,\nThe cmux team"
     }
   },

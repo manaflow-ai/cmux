@@ -40,6 +40,9 @@ describe("app pro welcome page", () => {
     expect(html).toContain("cmux iOS app");
     expect(html).toContain('href="/dashboard/testflight"');
     expect(html).toContain('href="/dashboard/billing"');
+    expect(html).toContain(
+      'class="mt-2 text-sm leading-5 text-muted">See your plan, invoices, and cancellation.',
+    );
     expect(html).not.toContain('href="/dashboard/subrouter"');
     expect(html).not.toContain('href="/dashboard/ai-accounts"');
     expect(html).toContain('data-app-pro-welcome-appearance="dark"');

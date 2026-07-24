@@ -4,6 +4,7 @@ import type Stripe from "stripe";
 import {
   buildProWelcomeEmail,
   fulfillProCheckout,
+  PRO_TESTFLIGHT_SIGNUP_URL,
 } from "../services/billing/proFulfillment";
 
 describe("cmux Pro checkout fulfillment", () => {
@@ -51,6 +52,12 @@ describe("cmux Pro checkout fulfillment", () => {
     expect(payload.text).toContain("still building out the full Pro experience");
     expect(payload.text).toContain("based on how many months you’ve been subscribed");
     expect(payload.text).toContain("cmux iOS beta through TestFlight");
+    expect(payload.text).toContain(
+      `Sign up for TestFlight here: ${PRO_TESTFLIGHT_SIGNUP_URL}`,
+    );
+    expect(payload.html).toContain(
+      `<a href="${PRO_TESTFLIGHT_SIGNUP_URL}">Sign up for TestFlight</a>`,
+    );
     expect(options).toEqual({ idempotencyKey: "pro-welcome/cs_pro_1" });
   });
 
@@ -68,6 +75,10 @@ describe("cmux Pro checkout fulfillment", () => {
     expect(email.text).toContain("購読いただいた月数に応じて利用クレジット");
     expect(email.text).toContain("TestFlight を通じた cmux iOS ベータ");
     expect(email.text).toContain("別の招待メール");
+    expect(email.text).toContain(PRO_TESTFLIGHT_SIGNUP_URL);
+    expect(email.html).toContain(
+      `<a href="${PRO_TESTFLIGHT_SIGNUP_URL}">TestFlight に登録する</a>`,
+    );
   });
 
   test("fails the checkout event when TestFlight is unavailable", async () => {
