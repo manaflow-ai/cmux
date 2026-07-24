@@ -47,8 +47,15 @@ final class FilePreviewMediaSession {
     private var player: AVPlayer?
     var playbackRestoreTask: Task<Void, Never>?
     private var pendingPlaybackSnapshot: PlaybackSnapshot?
+    private var playbackRateObserver: NSObjectProtocol?
+    private var playbackTransportCommandGeneration = 0
 
     deinit {
+        playbackRestoreTask?.cancel()
+        player?.currentItem?.cancelPendingSeeks()
+        if let playbackRateObserver {
+            NotificationCenter.default.removeObserver(playbackRateObserver)
+        }
         // AppKit teardown is performed explicitly by close() on the main actor.
     }
 
@@ -166,14 +173,16 @@ final class FilePreviewMediaSession {
 
         player.pause()
         player.replaceCurrentItem(with: nextItem)
+        let transportCommandGeneration = beginPlaybackTransportObservation(for: player)
         let transportState = PlaybackTransportState(player: player)
         let canContinue: @MainActor () -> Bool = { [weak self, weak player, weak nextItem] in
             guard let self, let player, let nextItem else { return false }
-            return self.canRestorePlayback(
-                in: player,
-                item: nextItem,
-                revision: revision
-            )
+            return self.playbackTransportCommandGeneration == transportCommandGeneration &&
+                self.canRestorePlayback(
+                    in: player,
+                    item: nextItem,
+                    revision: revision
+                )
         }
         playbackRestoreTask = Task { [weak self, weak player, weak nextItem] in
             defer {
@@ -212,9 +221,34 @@ final class FilePreviewMediaSession {
     }
 
     private func cancelPlaybackRestore(in item: AVPlayerItem?) {
+        endPlaybackTransportObservation()
         playbackRestoreTask?.cancel()
         playbackRestoreTask = nil
         item?.cancelPendingSeeks()
+    }
+
+    private func beginPlaybackTransportObservation(for player: AVPlayer) -> Int {
+        endPlaybackTransportObservation()
+        playbackTransportCommandGeneration &+= 1
+        let generation = playbackTransportCommandGeneration
+        playbackRateObserver = NotificationCenter.default.addObserver(
+            forName: AVPlayer.rateDidChangeNotification,
+            object: player,
+            queue: .main
+        ) { [weak self] _ in
+            // OperationQueue.main delivery keeps the callback on this session's actor.
+            MainActor.assumeIsolated {
+                self?.playbackTransportCommandGeneration &+= 1
+            }
+        }
+        return generation
+    }
+
+    private func endPlaybackTransportObservation() {
+        if let playbackRateObserver {
+            NotificationCenter.default.removeObserver(playbackRateObserver)
+            self.playbackRateObserver = nil
+        }
     }
 
     private func finishPlaybackRestore(
@@ -225,6 +259,7 @@ final class FilePreviewMediaSession {
         guard self.player === player,
               player.currentItem === item,
               currentRevision == revision else { return }
+        endPlaybackTransportObservation()
         playbackRestoreTask = nil
         pendingPlaybackSnapshot = nil
     }
