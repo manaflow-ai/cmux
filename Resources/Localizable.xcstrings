@@ -241452,40 +241452,6 @@
         }
       }
     },
-    "subrouter.sessions.header": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sessions"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "セッション"
-          }
-        }
-      }
-    },
-    "subrouter.sessions.pinnedTo": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "→ %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "→ %@"
-          }
-        }
-      }
-    },
     "subrouter.panel.noAccounts": {
       "extractionState": "manual",
       "localizations": {
@@ -241622,23 +241588,6 @@
         }
       }
     },
-    "subrouter.sessions.older": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "and %lld older"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "他に古いセッション %lld 件"
-          }
-        }
-      }
-    },
     "subrouter.switchError.remoteServer": {
       "extractionState": "manual",
       "localizations": {
@@ -241669,40 +241618,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "サーバー %@ を監視中。セッションごとにアカウントを自動割り当てします。"
-          }
-        }
-      }
-    },
-    "subrouter.activity.header": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Activity (7 days)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アクティビティ（7日間）"
-          }
-        }
-      }
-    },
-    "subrouter.activity.accessibility": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@: %2$lld sessions"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@: %2$lld セッション"
           }
         }
       }

@@ -21,7 +21,7 @@ struct SidebarAccountSwitcherButton: View {
         Button {
             isPopoverPresented.toggle()
         } label: {
-            CmuxSystemSymbolImage(magnified: "person.2", pointSize: 12, weight: .medium)
+            CmuxSystemSymbolImage(magnified: "arrow.triangle.branch", pointSize: 12, weight: .medium)
                 .foregroundStyle(Color(nsColor: .secondaryLabelColor))
                 .frame(width: 22, height: 22, alignment: .center)
                 .overlay(alignment: .bottomTrailing) {

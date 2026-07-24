@@ -62,7 +62,9 @@ import Testing
         #expect(store.snapshot.lastUpdatedAt != nil)
         #expect(await clock.lastRecordedDuration == 20)
         #expect(await client.usageCallCount == 1)
-        #expect(await client.sessionsCallCount == 1)
+        // No UI surface renders sessions, so even the panel's own refresh
+        // must not pay the whole-history sessions transfer.
+        #expect(await client.sessionsCallCount == 0)
     }
 
     @Test func footerOnlyVisibilityArmsBackgroundCadence() async {
@@ -201,7 +203,7 @@ import Testing
         }
     }
 
-    @Test func footerOnlyRefreshSkipsSessionsAndKeepsPreviousOnes() async {
+    @Test func uiRefreshesSkipSessionsAndFreshRefreshFetchesThem() async {
         let client = FakeSubrouterClient()
         await client.setUsageResult(.success([Self.usageRow()]))
         let session = SubrouterSessionAssignment(
@@ -216,23 +218,22 @@ import Testing
         let clock = ManualSubrouterPollClock()
         let store = makeStore(client: client, clock: clock)
 
-        // A full panel refresh fetches sessions once.
+        // UI refreshes (panel or footer) never pay the sessions transfer:
+        // no surface renders sessions and the endpoint returns the
+        // daemon's whole routing history.
         store.setSurfaceVisible(.agentsPanel, true)
         await clock.waitForSleeper()
-        #expect(await client.sessionsCallCount == 1)
+        #expect(await client.sessionsCallCount == 0)
 
-        // Footer-only refreshes must not pay the sessions transfer (the
-        // footer never renders them and the endpoint returns the daemon's
-        // whole routing history), and the previous sessions stay put.
         store.setSurfaceVisible(.agentsPanel, false)
         store.setSurfaceVisible(.footerSwitcher, true)
         store.refresh(reason: "test")
+        // performFreshRefresh is the full path (socket verbs need live
+        // sessions); only it fetches, and the result lands in the snapshot.
         await store.performFreshRefresh(reason: "flush")
         #expect(await client.usageCallCount >= 2)
         #expect(store.snapshot.sessions.map(\.sessionID) == ["s1"])
-        // performFreshRefresh is the full path (socket verbs need live
-        // sessions); only the plain footer refresh skipped the fetch.
-        #expect(await client.sessionsCallCount == 2)
+        #expect(await client.sessionsCallCount == 1)
     }
 
     @Test func sessionsFailureKeepsFreshUsage() async {
@@ -244,6 +245,9 @@ import Testing
 
         store.setSurfaceVisible(.agentsPanel, true)
         await clock.waitForSleeper()
+        // UI refreshes skip sessions entirely; only the full path (socket
+        // verbs) hits the failing endpoint.
+        await store.performFreshRefresh(reason: "verb")
 
         // Sessions are ancillary: their failure must not discard freshly
         // fetched usage or flip the daemon state.

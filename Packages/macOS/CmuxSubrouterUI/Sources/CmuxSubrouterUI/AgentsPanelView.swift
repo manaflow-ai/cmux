@@ -1,8 +1,8 @@
 public import SwiftUI
 public import CmuxSubrouter
 
-/// The right-sidebar Agents panel: daemon status, per-provider account
-/// sections with usage bars and Switch actions, and live session pins.
+/// The right-sidebar Agents panel: daemon status and per-provider account
+/// sections with usage bars and Switch actions.
 ///
 /// Holds the `@Observable` store at the top; everything below the section
 /// boundary receives value snapshots plus closures only. Visibility drives
@@ -83,16 +83,6 @@ public struct AgentsPanelView: View {
                 }
                 if snapshot.daemonState.isHealthy && snapshot.usageStatuses.isEmpty {
                     emptyAccountsState(configuration: configuration)
-                }
-                SubrouterActivityChartView(
-                    activity: SubrouterSessionStats.accountActivity(
-                        sessions: snapshot.sessions,
-                        window: SubrouterActivityChartView.window,
-                        now: Date()
-                    )
-                )
-                if !snapshot.sessions.isEmpty {
-                    SubrouterSessionsSectionView(sessions: snapshot.sessions)
                 }
             }
             .padding(.horizontal, 10)

@@ -93,7 +93,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .automation:
             return "wand.and.sparkles"
         case .subrouter:
-            return "person.2"
+            return "arrow.triangle.branch"
         case .browser:
             return "globe"
         case .browserImport:

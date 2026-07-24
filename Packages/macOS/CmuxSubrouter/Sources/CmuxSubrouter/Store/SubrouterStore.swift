@@ -225,18 +225,16 @@ public final class SubrouterStore {
     /// master setting: callers (timer, visibility, switch, socket verbs) are
     /// themselves the gate against background work.
     ///
-    /// Sessions are fetched only while the Agents panel is visible: the
-    /// footer switcher never renders sessions, and `/_subrouter/sessions`
-    /// returns the daemon's entire routing history, so a footer-cadence
-    /// poll must not pay that transfer. ``performFreshRefresh(reason:)``
-    /// (switches, socket verbs) always fetches the full set.
+    /// Sessions are never fetched here: no UI surface renders them (the
+    /// Agents panel shows accounts only, the footer switcher never did),
+    /// and `/_subrouter/sessions` returns the daemon's entire routing
+    /// history, so a UI-cadence poll must not pay that transfer. The
+    /// socket verbs that do read sessions (`status`, `sessions`) go
+    /// through ``performFreshRefresh(reason:includingSessions:)``.
     ///
     /// - Parameter reason: A short diagnostic tag.
     public func refresh(reason: String) {
-        startRefresh(
-            reason: reason,
-            includeSessions: visibleSurfaces.contains(.agentsPanel)
-        )
+        startRefresh(reason: reason, includeSessions: false)
     }
 
     private func startRefresh(reason: String, includeSessions: Bool) {

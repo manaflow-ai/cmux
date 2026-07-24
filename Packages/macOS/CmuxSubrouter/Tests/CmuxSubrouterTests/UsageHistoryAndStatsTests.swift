@@ -173,64 +173,6 @@ import Testing
     }
 }
 
-@Suite struct SessionStatsTests {
-    private func session(
-        _ account: String,
-        agedSeconds: TimeInterval,
-        now: Date,
-        agentType: String = "codex"
-    ) -> SubrouterSessionAssignment {
-        SubrouterSessionAssignment(
-            agentType: agentType,
-            sessionID: UUID().uuidString,
-            accountID: account,
-            userEmail: nil,
-            createdAt: now.addingTimeInterval(-agedSeconds - 60),
-            updatedAt: now.addingTimeInterval(-agedSeconds)
-        )
-    }
-
-    @Test func countsWithinWindowSortedByActivity() {
-        let now = Date(timeIntervalSince1970: 4_000_000)
-        let sessions = [
-            session("a", agedSeconds: 100, now: now),
-            session("a", agedSeconds: 200, now: now),
-            session("b", agedSeconds: 50, now: now),
-            session("stale", agedSeconds: 9 * 24 * 3600, now: now),
-        ]
-        let activity = SubrouterSessionStats.accountActivity(
-            sessions: sessions,
-            window: 7 * 24 * 3600,
-            now: now
-        )
-        #expect(activity.map(\.accountID) == ["a", "b"])
-        #expect(activity[0].sessionCount == 2)
-        #expect(activity[1].sessionCount == 1)
-    }
-
-    @Test func scopesActivityByAgentType() {
-        // The same account ID under two agent types must stay two rows
-        // (same identity rule as the provider-scoped usage-history keys).
-        let now = Date(timeIntervalSince1970: 4_100_000)
-        let sessions = [
-            session("a", agedSeconds: 100, now: now, agentType: "codex"),
-            session("a", agedSeconds: 90, now: now, agentType: "codex"),
-            session("a", agedSeconds: 80, now: now, agentType: "claude"),
-        ]
-        let activity = SubrouterSessionStats.accountActivity(
-            sessions: sessions,
-            window: 7 * 24 * 3600,
-            now: now
-        )
-        #expect(activity.count == 2)
-        #expect(activity[0].agentType == "codex")
-        #expect(activity[0].sessionCount == 2)
-        #expect(activity[1].agentType == "claude")
-        #expect(activity[1].sessionCount == 1)
-        #expect(Set(activity.map(\.id)).count == 2)
-    }
-}
-
 @Suite struct HeadroomOrderingTests {
     private func account(id: String, usedPercents: [Double]) -> SubrouterAccountUsageStatus {
         SubrouterAccountUsageStatus(

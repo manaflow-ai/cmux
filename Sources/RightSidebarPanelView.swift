@@ -41,7 +41,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .sessions: return "books.vertical"
         case .feed: return "dot.radiowaves.left.and.right"
         case .dock: return "dock.rectangle"
-        case .agents: return "person.2"
+        case .agents: return "arrow.triangle.branch"
         case .customSidebar: return "wand.and.stars"
         }
     }
@@ -150,12 +150,6 @@ struct RightSidebarPanelView: View {
         FeedCoordinator.shared.store?.pending.count ?? 0
     }
 
-    // Observable read so the badge updates live when polling flags an
-    // active account as cooked or nearly exhausted.
-    private var agentsAttentionCount: Int {
-        SubrouterAppRuntime.shared.store.snapshot.attentionCount
-    }
-
     private var availableModes: [RightSidebarMode] {
         RightSidebarMode.availableModes(
             feedEnabled: feedEnabled,
@@ -171,9 +165,11 @@ struct RightSidebarPanelView: View {
     }
 
     private func modeBarBadgeCount(for mode: RightSidebarMode?) -> Int {
+        // The Subrouter tab shows no count: attention state already reads
+        // from the footer switcher's status dot, and a persistent number
+        // on the mode bar was noise.
         switch mode {
         case .feed: return feedPendingCount
-        case .agents: return agentsAttentionCount
         default: return 0
         }
     }
