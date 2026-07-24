@@ -21,7 +21,19 @@ extension TerminalSurface {
     ) -> Bool {
         guard deltaRuntimePoints.isFinite, deltaRuntimePoints != 0 else { return false }
 
-        if liveSurfaceForGhosttyAccess(reason: "fontSize.adjust") != nil {
+        if let runtimeSurface = liveSurfaceForGhosttyAccess(reason: "fontSize.adjust") {
+            if let currentRuntimePoints =
+                    GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(runtimeSurface),
+               currentRuntimePoints.isFinite {
+                if deltaRuntimePoints < 0,
+                   currentRuntimePoints <= TerminalFontSizePolicy.minimumRuntimePoints {
+                    return false
+                }
+                if deltaRuntimePoints > 0,
+                   currentRuntimePoints >= TerminalFontSizePolicy.maximumRuntimePoints {
+                    return false
+                }
+            }
             let verb = deltaRuntimePoints > 0 ? "increase_font_size" : "decrease_font_size"
             let action = "\(verb):\(abs(deltaRuntimePoints))"
             guard performExplicitInputBindingAction(action) else { return false }
@@ -52,6 +64,7 @@ extension TerminalSurface {
         let adjustedRuntimePoints = TerminalFontSizePolicy().clampedRuntimePoints(
             currentRuntimePoints + deltaRuntimePoints
         )
+        guard adjustedRuntimePoints != currentRuntimePoints else { return false }
         followsConfiguredFontSize = false
         recordCurrentFontSizeLineage(
             TerminalFontSizeLineage(

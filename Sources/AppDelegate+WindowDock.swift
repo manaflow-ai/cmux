@@ -8,6 +8,10 @@ extension AppDelegate.MainWindowContext {
     func windowDockStore() -> DockSplitStore {
         if let existing = windowDock { return existing }
         let store = tabManager.makeWindowDockStore(windowId: windowId)
+        store.rememberTerminalFontSizeLineageForNewTerminals(
+            fallback: pendingWindowDockTerminalFontSizeLineage
+        )
+        pendingWindowDockTerminalFontSizeLineage = nil
         windowDock = store
         return store
     }
@@ -19,6 +23,7 @@ extension AppDelegate.MainWindowContext {
     /// Tears down this context's Dock, closing any live terminals/browsers and
     /// their portals, so no Dock panel outlives its window.
     func teardownWindowDock() {
+        pendingWindowDockTerminalFontSizeLineage = nil
         guard let dock = windowDock else { return }
         windowDock = nil
         dock.closeAllPanels()
