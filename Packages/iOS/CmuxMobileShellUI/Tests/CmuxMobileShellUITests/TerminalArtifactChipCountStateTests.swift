@@ -40,6 +40,34 @@ struct TerminalArtifactChipCountStateTests {
         #expect(zeroCompletion.outcome == .reported(.init(count: 6, surfaceGeneration: 3)))
     }
 
+    @Test("a failed scan holds the last session total instead of regressing to the local count")
+    func failedScanHoldsLastSessionTotal() throws {
+        var state = TerminalArtifactChipCountState()
+        let first = try request(from: state.trigger(
+            localCount: 3,
+            surfaceGeneration: 7,
+            supportsSessionCount: true
+        ))
+        #expect(state.complete(
+            first,
+            sessionTotal: 12,
+            currentSurfaceGeneration: 7,
+            freshestLocalCount: 3
+        ).outcome == .reported(.init(count: 12, surfaceGeneration: 7)))
+
+        let second = try request(from: state.trigger(
+            localCount: 1,
+            surfaceGeneration: 7,
+            supportsSessionCount: true
+        ))
+        #expect(state.complete(
+            second,
+            sessionTotal: nil,
+            currentSurfaceGeneration: 7,
+            freshestLocalCount: 1
+        ).outcome == .reported(.init(count: 12, surfaceGeneration: 7)))
+    }
+
     @Test("responses from an old state or surface generation are dropped")
     func staleResponses() throws {
         var resetState = TerminalArtifactChipCountState()
