@@ -4,7 +4,8 @@ import Foundation
 
 /// Surface navigation and sidebar status helpers extracted from `Workspace.swift`, which sits at its file-length budget.
 extension Workspace {
-    /// Moves the focused surface into another existing pane.
+    /// Moves the focused surface into another pane, creating a directional
+    /// split when no adjacent pane exists.
     @discardableResult
     func moveFocusedSurface(to movement: SurfacePaneMovement) -> Bool {
         guard let panelId = focusedPanelId else { return false }
@@ -18,25 +19,50 @@ extension Workspace {
         guard layoutMode != .canvas,
               !isRemoteTmuxMirror,
               panels[panelId] != nil,
-              let sourcePaneId = paneId(forPanelId: panelId),
-              let destinationPaneId = destinationPane(
-                  from: sourcePaneId,
-                  for: movement
-              ) else {
+              let sourcePaneId = paneId(forPanelId: panelId) else {
             return false
         }
 
-        let insertionIndex = insertionIndexAfterSelectedSurface(in: destinationPaneId)
+        let destinationPaneId = destinationPane(
+            from: sourcePaneId,
+            for: movement
+        )
+        let directionalSplit = directionalSplit(for: movement)
+        guard destinationPaneId != nil || directionalSplit != nil else {
+            return false
+        }
+
         let zoomedPaneId = bonsplitController.zoomedPaneId
         if zoomedPaneId != nil {
             clearSplitZoom()
         }
-        let didMove = moveSurface(
-            panelId: panelId,
-            toPane: destinationPaneId,
-            atIndex: insertionIndex,
-            focus: true
-        )
+
+        let didMove: Bool
+        if let destinationPaneId {
+            didMove = moveSurface(
+                panelId: panelId,
+                toPane: destinationPaneId,
+                atIndex: insertionIndexAfterSelectedSurface(in: destinationPaneId),
+                focus: true
+            )
+        } else if let directionalSplit,
+                  let tabId = surfaceIdFromPanelId(panelId),
+                  let newPaneId = bonsplitController.splitPane(
+                      sourcePaneId,
+                      orientation: directionalSplit.orientation,
+                      movingTab: tabId,
+                      insertFirst: directionalSplit.insertFirst
+                  ) {
+            bonsplitController.focusPane(newPaneId)
+            bonsplitController.selectTab(tabId)
+            focusPanel(panelId)
+            scheduleMovedTerminalRefresh(panelId: panelId)
+            scheduleTerminalGeometryReconcile()
+            didMove = true
+        } else {
+            didMove = false
+        }
+
         if !didMove, let zoomedPaneId {
             _ = bonsplitController.togglePaneZoom(inPane: zoomedPaneId)
         }
@@ -47,14 +73,7 @@ extension Workspace {
         from sourcePaneId: PaneID,
         for movement: SurfacePaneMovement
     ) -> PaneID? {
-        let direction: NavigationDirection? = switch movement {
-        case .left: .left
-        case .right: .right
-        case .up: .up
-        case .down: .down
-        case .previous, .next: nil
-        }
-        if let direction {
+        if let direction = directionalSplit(for: movement)?.direction {
             return bonsplitController.adjacentPane(
                 to: sourcePaneId,
                 direction: direction
@@ -72,6 +91,22 @@ extension Workspace {
         ) % orderedPaneIds.count
         let destinationID = orderedPaneIds[destinationIndex]
         return bonsplitController.allPaneIds.first { $0.id == destinationID }
+    }
+
+    private func directionalSplit(
+        for movement: SurfacePaneMovement
+    ) -> (
+        direction: NavigationDirection,
+        orientation: SplitOrientation,
+        insertFirst: Bool
+    )? {
+        switch movement {
+        case .left: (.left, .horizontal, true)
+        case .right: (.right, .horizontal, false)
+        case .up: (.up, .vertical, true)
+        case .down: (.down, .vertical, false)
+        case .previous, .next: nil
+        }
     }
 
     private func insertionIndexAfterSelectedSurface(in paneId: PaneID) -> Int {

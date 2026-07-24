@@ -1,6 +1,6 @@
 import Foundation
 
-/// A destination for moving the active surface into an existing pane.
+/// A destination for moving the active surface between panes.
 enum SurfacePaneMovement: CaseIterable, Hashable, Sendable {
     case previous
     case next
