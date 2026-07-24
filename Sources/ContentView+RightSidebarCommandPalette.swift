@@ -58,6 +58,18 @@ extension ContentView {
             return .nextSurface
         case "palette.previousTabInPane":
             return .prevSurface
+        case "palette.moveSurfaceToPreviousPane":
+            return .moveSurfaceToPreviousPane
+        case "palette.moveSurfaceToNextPane":
+            return .moveSurfaceToNextPane
+        case "palette.moveSurfaceToPaneLeft":
+            return .moveSurfaceToPaneLeft
+        case "palette.moveSurfaceToPaneRight":
+            return .moveSurfaceToPaneRight
+        case "palette.moveSurfaceToPaneUp":
+            return .moveSurfaceToPaneUp
+        case "palette.moveSurfaceToPaneDown":
+            return .moveSurfaceToPaneDown
         case "palette.browserToggleDevTools":
             return .toggleBrowserDeveloperTools
         case "palette.browserConsole":

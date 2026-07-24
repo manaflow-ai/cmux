@@ -7476,6 +7476,52 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) }
             )
         )
+        let paneMoveSubtitle = constant(
+            String(localized: "shortcutDiscovery.section.navigation", defaultValue: "Navigation")
+        )
+        let paneMoveCommands: [(id: String, title: String, keywords: [String])] = [
+            (
+                "palette.moveSurfaceToPreviousPane",
+                String(localized: "shortcut.moveSurfaceToPreviousPane.label", defaultValue: "Move Surface to Previous Pane"),
+                ["move", "surface", "tab", "previous", "pane"]
+            ),
+            (
+                "palette.moveSurfaceToNextPane",
+                String(localized: "shortcut.moveSurfaceToNextPane.label", defaultValue: "Move Surface to Next Pane"),
+                ["move", "surface", "tab", "next", "pane"]
+            ),
+            (
+                "palette.moveSurfaceToPaneLeft",
+                String(localized: "shortcut.moveSurfaceToPaneLeft.label", defaultValue: "Move Surface to Pane on Left"),
+                ["move", "surface", "tab", "left", "pane"]
+            ),
+            (
+                "palette.moveSurfaceToPaneRight",
+                String(localized: "shortcut.moveSurfaceToPaneRight.label", defaultValue: "Move Surface to Pane on Right"),
+                ["move", "surface", "tab", "right", "pane"]
+            ),
+            (
+                "palette.moveSurfaceToPaneUp",
+                String(localized: "shortcut.moveSurfaceToPaneUp.label", defaultValue: "Move Surface to Pane Above"),
+                ["move", "surface", "tab", "up", "above", "upper", "pane"]
+            ),
+            (
+                "palette.moveSurfaceToPaneDown",
+                String(localized: "shortcut.moveSurfaceToPaneDown.label", defaultValue: "Move Surface to Pane Below"),
+                ["move", "surface", "tab", "down", "below", "lower", "pane"]
+            ),
+        ]
+        for command in paneMoveCommands {
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: command.id,
+                    title: constant(command.title),
+                    subtitle: paneMoveSubtitle,
+                    keywords: command.keywords,
+                    when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) }
+                )
+            )
+        }
 
         contributions.append(
             CommandPaletteCommandContribution(
@@ -8456,6 +8502,42 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.previousTabInPane") {
             tabManager.selectPreviousSurface()
+        }
+        registry.register(commandId: "palette.moveSurfaceToPreviousPane") {
+            guard tabManager.moveSelectedSurfaceToPane(offset: -1) else {
+                NSSound.beep()
+                return
+            }
+        }
+        registry.register(commandId: "palette.moveSurfaceToNextPane") {
+            guard tabManager.moveSelectedSurfaceToPane(offset: 1) else {
+                NSSound.beep()
+                return
+            }
+        }
+        registry.register(commandId: "palette.moveSurfaceToPaneLeft") {
+            guard tabManager.moveSelectedSurfaceToAdjacentPane(.left) else {
+                NSSound.beep()
+                return
+            }
+        }
+        registry.register(commandId: "palette.moveSurfaceToPaneRight") {
+            guard tabManager.moveSelectedSurfaceToAdjacentPane(.right) else {
+                NSSound.beep()
+                return
+            }
+        }
+        registry.register(commandId: "palette.moveSurfaceToPaneUp") {
+            guard tabManager.moveSelectedSurfaceToAdjacentPane(.up) else {
+                NSSound.beep()
+                return
+            }
+        }
+        registry.register(commandId: "palette.moveSurfaceToPaneDown") {
+            guard tabManager.moveSelectedSurfaceToAdjacentPane(.down) else {
+                NSSound.beep()
+                return
+            }
         }
         registry.register(commandId: "palette.openWorkspacePullRequests") {
             DispatchQueue.main.async {
