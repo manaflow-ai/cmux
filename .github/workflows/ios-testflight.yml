@@ -238,7 +238,7 @@ jobs:
       ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
       CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID: ${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP_ID }}
       CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME: ${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP_NAME }}
-      CMUX_TESTFLIGHT_ASSIGN_EXTERNAL_GROUP: "0"
+      CMUX_TESTFLIGHT_ASSIGN_EXTERNAL_GROUP: ${{ github.event.inputs.marketing_version_override != '' && '1' || '0' }}
       # Internal builds use separate bundle ID and display name (set here so
       # provisioning profile step can use it). The manual demo variant ships the
       # same main head as a separate app so demos are isolated from the internal
@@ -553,7 +553,7 @@ jobs:
   assign-internal-group:
     name: Assign build to internal TestFlight group
     needs: [decide, upload]
-    if: github.ref == 'refs/heads/main' && needs.upload.result == 'success'
+    if: github.ref == 'refs/heads/main' && needs.upload.result == 'success' && github.event.inputs.marketing_version_override == ''
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     env:
