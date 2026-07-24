@@ -8,7 +8,7 @@ import SwiftUI
 /// Lets the user switch which paired Mac this device controls, and pair another.
 ///
 /// Lists every Mac paired with this device (from the on-device store), marks the
-/// one the live connection targets, switches on tap, forgets on swipe, and pairs
+/// one the live connection targets, switches on tap, hides on swipe, and pairs
 /// a new Mac by scanning its QR code without dropping the others.
 struct MobileHostPickerView: View {
     @Bindable var store: CMUXMobileShellStore
@@ -20,7 +20,7 @@ struct MobileHostPickerView: View {
             List {
                 Section {
                     if store.pairedMacs.isEmpty {
-                        Text(L10n.string("mobile.hostPicker.empty", defaultValue: "No paired computers yet."))
+                        Text(L10n.string("mobile.hostPicker.empty", defaultValue: "No computers yet. Sign in to cmux on your computer with this account and it appears here automatically. If it does not, tap Pair Another Computer and scan its QR code."))
                             .foregroundStyle(.secondary)
                     }
                     ForEach(store.pairedMacs) { mac in
@@ -31,7 +31,7 @@ struct MobileHostPickerView: View {
                 } footer: {
                     Text(L10n.string(
                         "mobile.hostPicker.footer",
-                        defaultValue: "Switch which computer this device controls. Pairing another computer keeps the others, so you can hop between them."
+                        defaultValue: "Switch which computer this device controls. A computer joins this list automatically the first time this phone connects to it. Pair Another Computer adds more without removing the ones you have."
                     ))
                 }
 
@@ -145,17 +145,20 @@ struct MobileHostPickerView: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier("MobileHostPickerRow-\(mac.id)")
         .swipeActions(edge: .trailing) {
-            Button(role: .destructive) {
+            Button {
                 Task {
-                    await store.forgetStoredMac(
+                    await store.hideStoredMac(
                         macDeviceID: mac.macDeviceID,
                         instanceTag: mac.instanceTag
                     )
                 }
             } label: {
-                Label(L10n.string("mobile.hostPicker.forget", defaultValue: "Forget"), systemImage: "trash")
+                Label(
+                    L10n.string("mobile.hostPicker.hide", defaultValue: "Hide"),
+                    systemImage: "eye.slash"
+                )
             }
-            .accessibilityIdentifier("MobileHostPickerForget-\(mac.id)")
+            .accessibilityIdentifier("MobileHostPickerHide-\(mac.id)")
         }
     }
 

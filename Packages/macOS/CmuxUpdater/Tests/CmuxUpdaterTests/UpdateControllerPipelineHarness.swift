@@ -24,4 +24,9 @@ struct Harness {
             updaterFactory: { _, _ in updater }
         )
     }
+
+    func finishSparkleCycle(error: (any Error)? = nil) {
+        updater.sessionInProgress = false
+        controller.driver.handleDidFinishUpdateCycle(.updates, error: error)
+    }
 }

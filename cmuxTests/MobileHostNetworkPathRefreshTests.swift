@@ -184,3 +184,107 @@ import Testing
         #expect(!tailscaleHosts(in: afterStaleStore).contains("stale-old-net.tail1234.ts.net"))
     }
 }
+
+@Suite(.serialized)
+@MainActor
+struct MobileHostIrohStartupRetryTests {
+    @Test
+    func sameAccountAuthObservationDoesNotSupersedeActivationInFlight() {
+        #expect(!MobileHostIrohRuntime.shouldReconcileAuthObservation(
+            accountID: "same-account",
+            previousAccountID: "same-account",
+            activeAccountID: nil,
+            hasRuntime: false,
+            transitionInFlight: true,
+            preparedSignOutNeedsPersistence: false
+        ))
+    }
+
+    @Test
+    func sameAccountAuthObservationDoesNotRestartActiveRuntime() {
+        #expect(!MobileHostIrohRuntime.shouldReconcileAuthObservation(
+            accountID: "same-account",
+            previousAccountID: "same-account",
+            activeAccountID: "same-account",
+            hasRuntime: true,
+            transitionInFlight: false,
+            preparedSignOutNeedsPersistence: false
+        ))
+    }
+
+    @Test
+    func sameAccountAuthObservationRetriesAfterFailedActivation() {
+        #expect(MobileHostIrohRuntime.shouldReconcileAuthObservation(
+            accountID: "same-account",
+            previousAccountID: "same-account",
+            activeAccountID: nil,
+            hasRuntime: false,
+            transitionInFlight: false,
+            preparedSignOutNeedsPersistence: false
+        ))
+    }
+
+    @Test
+    func accountChangeStillSupersedesActivationInFlight() {
+        #expect(MobileHostIrohRuntime.shouldReconcileAuthObservation(
+            accountID: "next-account",
+            previousAccountID: "previous-account",
+            activeAccountID: nil,
+            hasRuntime: false,
+            transitionInFlight: true,
+            preparedSignOutNeedsPersistence: false
+        ))
+    }
+
+    @Test
+    func networkPathRetryDoesNotSupersedeActivationInFlight() async {
+        let runtime = MobileHostIrohRuntime.shared
+        let originalDesiredActive = runtime.desiredActive
+        let originalObservedAccountID = runtime.observedAccountID
+        let originalPreparedSignOut = runtime.preparedSignOut
+        let originalSignOutIntentActive = runtime.signOutIntentActive
+        let originalRuntime = runtime.runtime
+        let originalTransitionTask = runtime.transitionTask
+        let originalRevision = runtime.lifecycleRevision
+        let gate = MobileHostIrohStartupRetryGate()
+        let activation = Task { await gate.suspend() }
+        runtime.desiredActive = true
+        runtime.observedAccountID = "network-path-race-account"
+        runtime.preparedSignOut = nil
+        runtime.signOutIntentActive = false
+        runtime.runtime = nil
+        runtime.transitionTask = activation
+
+        runtime.retryIfNeeded()
+
+        #expect(runtime.lifecycleRevision == originalRevision)
+
+        let scheduled = runtime.transitionTask
+        scheduled?.cancel()
+        await gate.resume()
+        await scheduled?.value
+        runtime.transitionTask = originalTransitionTask
+        runtime.runtime = originalRuntime
+        runtime.desiredActive = originalDesiredActive
+        runtime.observedAccountID = originalObservedAccountID
+        runtime.preparedSignOut = originalPreparedSignOut
+        runtime.signOutIntentActive = originalSignOutIntentActive
+        runtime.lifecycleRevision = originalRevision
+    }
+}
+
+private actor MobileHostIrohStartupRetryGate {
+    private var isOpen = false
+    private var waiter: CheckedContinuation<Void, Never>?
+
+    func suspend() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { waiter = $0 }
+    }
+
+    func resume() {
+        isOpen = true
+        waiter?.resume()
+        waiter = nil
+    }
+}

@@ -5,7 +5,7 @@ public import Foundation
 /// The attachment stores only file identity and lightweight metadata. Image
 /// bytes remain user-owned at ``filePath`` and are never copied or deleted by
 /// checklist value operations.
-nonisolated public struct WorkspaceChecklistAttachment: Codable, Sendable, Identifiable, Hashable {
+public struct WorkspaceChecklistAttachment: Codable, Sendable, Identifiable, Hashable {
     /// Stable identity for this attachment reference.
     public var id: UUID
     /// Name to show in compact UI.

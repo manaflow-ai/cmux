@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression: CLI defaults to refs output; UUIDs only when requested."""
+"""Regression: refs-first defaults retain stable workspace inspection UUIDs."""
 
 import glob
 import json
@@ -149,10 +149,11 @@ def main() -> int:
             _has_any_key(ws_default, lambda k: k.endswith("_ref") or k == "ref"),
             f"list-workspaces default should include refs: {ws_default}",
         )
-        _must(
-            len(_id_ref_pairs(ws_default)) == 0,
-            f"list-workspaces default should suppress id when ref exists; pairs={_id_ref_pairs(ws_default)}",
-        )
+        for workspace in workspaces:
+            _must(
+                isinstance(workspace, dict) and bool(workspace.get("id")) and bool(workspace.get("ref")),
+                f"Every listed workspace should retain a stable id alongside its ref; workspace={workspace} payload={ws_default}",
+            )
 
     # surface-health
     health_default = _run_cli_json(cli, ["surface-health"])

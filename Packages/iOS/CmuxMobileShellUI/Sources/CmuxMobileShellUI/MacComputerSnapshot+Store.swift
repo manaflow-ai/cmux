@@ -8,7 +8,7 @@ import Foundation
 extension MacComputerSnapshot {
     /// The user's computers as immutable snapshots, sourced from the paired-Mac
     /// backup (`displayPairedMacs`) — the coalesced set the Computers screen
-    /// shows and the one ``CMUXMobileShellStore/forgetMac`` actually removes.
+    /// shows and the one ``CMUXMobileShellStore/hideMac`` filters locally.
     /// Shared by the Computers screen and the disconnected reconnect list so
     /// both surfaces show the same deduplicated computers with the same
     /// presence, color, and customization data.

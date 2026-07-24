@@ -1,9 +1,6 @@
 name: cmux-tui publish pypi
 
 on:
-  push:
-    tags:
-      - "cmux-tui-v*"
   workflow_dispatch:
     inputs:
       version:
@@ -18,45 +15,67 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  version:
-    name: derive package version
+  validate-version:
+    name: validate release source
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
     outputs:
-      version: ${{ steps.version.outputs.version }}
+      release_sha: ${{ steps.release.outputs.release_sha }}
+      tag: ${{ steps.release.outputs.tag }}
     steps:
-      - name: Derive package version
-        id: version
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Require protected main and resolve release tag
+        id: release
         env:
           DISPATCH_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
-            [[ "$GITHUB_REF_NAME" =~ ^cmux-tui-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
-              echo "tag must match cmux-tui-vX.Y.Z" >&2
-              exit 1
-            }
-            version="${GITHUB_REF_NAME#cmux-tui-v}"
-          else
-            version="$DISPATCH_VERSION"
-            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
-              echo "workflow_dispatch version must match X.Y.Z" >&2
-              exit 1
-            }
+          [[ "$DISPATCH_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "workflow_dispatch version must match X.Y.Z" >&2
+            exit 1
+          }
+          git fetch --force origin main --tags
+          tag="cmux-tui-v$DISPATCH_VERSION"
+          expected_ref="refs/tags/$tag"
+          if [[ "$GITHUB_REF" != "$expected_ref" ]]; then
+            echo "Refusing to publish PyPI from $GITHUB_REF; dispatch this workflow on $expected_ref." >&2
+            exit 1
           fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          release_sha="$(git rev-parse "refs/tags/$tag^{commit}")" || {
+            echo "release tag does not exist: $tag" >&2
+            exit 1
+          }
+          git merge-base --is-ancestor "$release_sha" origin/main || {
+            echo "release tag $tag is not an ancestor of protected main" >&2
+            exit 1
+          }
+          if [[ "$release_sha" != "$GITHUB_SHA" ]]; then
+            echo "release tag $tag resolves to $release_sha, but package provenance would identify workflow commit $GITHUB_SHA" >&2
+            echo "Dispatch from main only while the release tag points at the current main commit." >&2
+            exit 1
+          fi
+          {
+            echo "tag=$tag"
+            echo "release_sha=$release_sha"
+          } >> "$GITHUB_OUTPUT"
 
   build-package:
-    needs: version
+    needs: validate-version
     permissions:
       contents: read
     uses: ./.github/workflows/cmux-tui-build-package.yml
     with:
-      version: ${{ needs.version.outputs.version }}
+      version: ${{ inputs.version }}
       package_npm: false
       package_pypi: true
       include_windows: false
+      checkout_ref: ${{ needs.validate-version.outputs.release_sha }}
 
   publish:
     needs: build-package

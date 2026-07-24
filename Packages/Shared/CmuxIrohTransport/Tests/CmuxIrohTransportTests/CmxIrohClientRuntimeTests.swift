@@ -21,7 +21,10 @@ struct CmxIrohClientRuntimeTests {
             configuration: fixture.configuration,
             pendingRevocations: fixture.pendingRevocations(),
             now: { fixture.now },
-            handleBinding: { _, _ in await recorder.recordBinding() },
+            handleBinding: { _, _ in
+                await recorder.recordBinding()
+                return true
+            },
             handleRelayCredential: { _, _ in await recorder.recordRelay() }
         )
 
@@ -43,6 +46,283 @@ struct CmxIrohClientRuntimeTests {
         #expect(await recorder.observedRelayCount() == 1)
         #expect(runtime.transportFactory.supportedKinds == [.iroh])
         await runtime.stop()
+    }
+
+    @Test
+    func liveDiscoveryRefreshReturnsTrueOnlyAfterNewVerifiedSnapshot() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let broker = TestIrohClientBroker(
+            binding: fixture.binding,
+            discovery: fixture.discovery,
+            relay: fixture.relayResponse()
+        )
+        let recorder = ClientRuntimeTestRecorder()
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [
+                TestIrohEndpoint(identity: fixture.endpointID),
+            ]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { fixture.now },
+            handleBinding: { _, _ in
+                await recorder.recordBinding()
+                return true
+            }
+        )
+        try await runtime.start()
+
+        let initialProvider = try #require(await runtime.registryContextProvider)
+        #expect(await runtime.refreshLiveDiscovery())
+        let refreshedProvider = try #require(await runtime.registryContextProvider)
+        #expect(await broker.observedRegistrations().count == 2)
+        #expect(await recorder.observedBindingCount() == 2)
+        #expect(initialProvider === refreshedProvider)
+        await runtime.stop()
+    }
+
+    @Test
+    func unavailableBrokerReportsOfflineWithoutReusingStaleDiscovery() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let broker = TestIrohClientBroker(
+            binding: fixture.binding,
+            discovery: fixture.discovery,
+            relay: fixture.relayResponse()
+        )
+        let recorder = ClientRuntimeTestRecorder()
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [
+                TestIrohEndpoint(identity: fixture.endpointID),
+            ]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { fixture.now },
+            handleBinding: { _, _ in
+                await recorder.recordBinding()
+                return true
+            }
+        )
+        try await runtime.start()
+        await broker.setRegistrationError(CmxIrohTrustBrokerClientError.connectivity)
+
+        #expect(
+            await runtime.refreshLiveDiscoveryOutcome()
+                == .failed(.offline)
+        )
+        #expect(await runtime.snapshot().state == .active)
+        #expect(await recorder.observedBindingCount() == 1)
+        await runtime.stop()
+    }
+
+    @Test
+    func rateLimitedBrokerReportsPolicyUnavailableWithoutDroppingRuntime() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let broker = TestIrohClientBroker(
+            binding: fixture.binding,
+            discovery: fixture.discovery,
+            relay: fixture.relayResponse()
+        )
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [
+                TestIrohEndpoint(identity: fixture.endpointID),
+            ]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { fixture.now }
+        )
+        try await runtime.start()
+        await broker.setRegistrationError(
+            CmxIrohTrustBrokerClientError.rateLimited(
+                code: nil,
+                retryAfterSeconds: 15
+            )
+        )
+
+        #expect(
+            await runtime.refreshLiveDiscoveryOutcome()
+                == .failed(.policyUnavailable)
+        )
+        #expect(await runtime.snapshot().state == .active)
+        await runtime.stop()
+    }
+
+    @Test
+    func rateLimitedRegistrationStartsFromFreshAuthenticatedDiscovery() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let broker = TestIrohClientBroker(
+            binding: fixture.binding,
+            discovery: fixture.discovery,
+            relay: fixture.relayResponse(),
+            registrationError: CmxIrohTrustBrokerClientError.rateLimited(
+                code: "device_registration_hour_quota",
+                retryAfterSeconds: 600
+            )
+        )
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { fixture.now }
+        )
+
+        try await runtime.start()
+
+        let snapshot = await runtime.snapshot()
+        #expect(snapshot.state == .active)
+        #expect(snapshot.endpointID == fixture.endpointID)
+        #expect(snapshot.bindingID == fixture.binding.bindingID)
+        #expect(await broker.observedRegistrations().count == 1)
+        #expect(await broker.observedDiscoveryCount() == 1)
+        #expect(await endpoint.observedCloseCallCount() == 0)
+        await runtime.stop()
+    }
+
+    @Test
+    func rateLimitedRegistrationRejectsMissingOrSubstitutedDiscoveryBinding() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let cases = [
+            (
+                "missing",
+                try ClientRuntimeTestFixture.discovery(
+                    binding: fixture.binding,
+                    includeBinding: false
+                )
+            ),
+            (
+                "substituted",
+                try ClientRuntimeTestFixture.discovery(
+                    binding: fixture.binding,
+                    overrideAppInstanceID: "123e4567-e89b-42d3-a456-426614174099"
+                )
+            ),
+        ]
+
+        for (name, discovery) in cases {
+            let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+            let broker = TestIrohClientBroker(
+                binding: fixture.binding,
+                discovery: discovery,
+                relay: fixture.relayResponse(),
+                registrationError: CmxIrohTrustBrokerClientError.rateLimited(
+                    code: "device_registration_hour_quota",
+                    retryAfterSeconds: 600
+                )
+            )
+            let runtime = try CmxIrohClientRuntime(
+                factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+                broker: broker,
+                configuration: fixture.configuration,
+                pendingRevocations: fixture.pendingRevocations(),
+                now: { fixture.now }
+            )
+
+            do {
+                try await runtime.start()
+                Issue.record("Expected \(name) local binding to fail closed")
+                await runtime.stop()
+            } catch {
+                #expect(
+                    error as? CmxIrohClientRuntimeError
+                        == .localBindingMissingFromDiscovery,
+                    Comment(rawValue: name)
+                )
+            }
+            #expect(
+                await endpoint.observedCloseCallCount() == 1,
+                Comment(rawValue: name)
+            )
+            #expect(
+                await broker.observedDiscoveryCount() == 1,
+                Comment(rawValue: name)
+            )
+        }
+    }
+
+    @Test
+    func rateLimitedRegistrationAndDiscoveryConnectivityNeverReadOfflineCache() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let store = TestSecureCredentialStore()
+        let connectivity = CmxIrohTrustBrokerClientError.connectivity
+        let broker = TestIrohClientBroker(
+            binding: fixture.binding,
+            discovery: fixture.discovery,
+            relay: fixture.relayResponse(),
+            registrationError: CmxIrohTrustBrokerClientError.rateLimited(
+                code: "device_registration_hour_quota",
+                retryAfterSeconds: 600
+            ),
+            discoveryErrorsByCount: [1: connectivity]
+        )
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            offlinePolicyCache: CmxIrohClientOfflinePolicyCache(secureStore: store),
+            now: { fixture.now }
+        )
+
+        await #expect(throws: connectivity) {
+            try await runtime.start()
+        }
+
+        #expect(await store.readCount() == 0)
+        #expect(await broker.observedDiscoveryCount() == 1)
+        #expect(await endpoint.observedCloseCallCount() == 1)
+    }
+
+    @Test
+    func rejectedCatalogPublicationCannotAdvanceLiveDiscoveryGeneration() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [
+                TestIrohEndpoint(identity: fixture.endpointID),
+            ]),
+            broker: TestIrohClientBroker(
+                binding: fixture.binding,
+                discovery: fixture.discovery,
+                relay: fixture.relayResponse()
+            ),
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { fixture.now },
+            handleBinding: { _, _ in false }
+        )
+
+        try await runtime.start()
+        #expect(await runtime.liveDiscoverySnapshotGeneration() == 0)
+        #expect(
+            await runtime.refreshLiveDiscoveryOutcome()
+                == .failed(.superseded)
+        )
+        #expect(await runtime.liveDiscoverySnapshotGeneration() == 0)
+        await runtime.stop()
+    }
+
+    @Test
+    func inactiveRuntimeReportsEndpointUnavailable() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: []),
+            broker: TestIrohClientBroker(
+                binding: fixture.binding,
+                discovery: fixture.discovery,
+                relay: fixture.relayResponse()
+            ),
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { fixture.now }
+        )
+
+        #expect(
+            await runtime.refreshLiveDiscoveryOutcome()
+                == .failed(.endpointUnavailable)
+        )
     }
 
     @Test

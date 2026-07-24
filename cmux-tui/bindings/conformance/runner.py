@@ -216,6 +216,7 @@ def dispatch(client: CmuxClient, cmd: str, params: Dict[str, Any]) -> Any:
         "new-screen": client.new_screen,
         "split": client.split,
         "set-ratio": client.set_ratio,
+        "set-split-ratio": client.set_split_ratio,
         "pane-neighbor": client.pane_neighbor,
         "focus-direction": client.focus_direction,
         "swap-pane": client.swap_pane,

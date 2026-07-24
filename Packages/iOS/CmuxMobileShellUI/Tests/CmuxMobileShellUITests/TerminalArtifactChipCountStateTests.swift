@@ -21,7 +21,8 @@ struct TerminalArtifactChipCountStateTests {
         let completion = state.complete(
             nilTotalRequest,
             sessionTotal: nil,
-            currentSurfaceGeneration: 2
+            currentSurfaceGeneration: 2,
+            freshestLocalCount: 5
         )
         #expect(completion.outcome == .reported(.init(count: 5, surfaceGeneration: 2)))
 
@@ -33,7 +34,8 @@ struct TerminalArtifactChipCountStateTests {
         let zeroCompletion = state.complete(
             zeroRequest,
             sessionTotal: 0,
-            currentSurfaceGeneration: 3
+            currentSurfaceGeneration: 3,
+            freshestLocalCount: 6
         )
         #expect(zeroCompletion.outcome == .reported(.init(count: 6, surfaceGeneration: 3)))
     }
@@ -50,7 +52,8 @@ struct TerminalArtifactChipCountStateTests {
         #expect(resetState.complete(
             resetRequest,
             sessionTotal: 20,
-            currentSurfaceGeneration: 10
+            currentSurfaceGeneration: 10,
+            freshestLocalCount: 2
         ) == .stale)
 
         var surfaceState = TerminalArtifactChipCountState()
@@ -62,7 +65,8 @@ struct TerminalArtifactChipCountStateTests {
         let completion = surfaceState.complete(
             surfaceRequest,
             sessionTotal: 30,
-            currentSurfaceGeneration: 12
+            currentSurfaceGeneration: 12,
+            freshestLocalCount: 7
         )
         #expect(completion.outcome == .droppedForSurfaceGenerationMismatch)
         #expect(completion.nextRequest?.surfaceGeneration == 12)
@@ -80,16 +84,18 @@ struct TerminalArtifactChipCountStateTests {
         let dropped = state.complete(
             request,
             sessionTotal: 30,
-            currentSurfaceGeneration: 12
+            currentSurfaceGeneration: 12,
+            freshestLocalCount: 8
         )
         let rearmed = try #require(dropped.nextRequest)
-        #expect(rearmed.localCount == 3)
+        #expect(rearmed.localCount == 8)
         #expect(rearmed.surfaceGeneration == 12)
 
         let reported = state.complete(
             rearmed,
             sessionTotal: 30,
-            currentSurfaceGeneration: 12
+            currentSurfaceGeneration: 12,
+            freshestLocalCount: 8
         )
         #expect(reported.outcome == .reported(.init(count: 30, surfaceGeneration: 12)))
         #expect(reported.nextRequest == nil)
@@ -108,7 +114,8 @@ struct TerminalArtifactChipCountStateTests {
             let completion = state.complete(
                 request,
                 sessionTotal: 40,
-                currentSurfaceGeneration: UInt64(20 + offset)
+                currentSurfaceGeneration: UInt64(20 + offset),
+                freshestLocalCount: 4 + offset
             )
             request = try #require(completion.nextRequest)
         }
@@ -116,7 +123,8 @@ struct TerminalArtifactChipCountStateTests {
         let bounded = state.complete(
             request,
             sessionTotal: 40,
-            currentSurfaceGeneration: 100
+            currentSurfaceGeneration: 100,
+            freshestLocalCount: 100
         )
         #expect(bounded.outcome == .droppedForSurfaceGenerationMismatch)
         #expect(bounded.nextRequest == nil)
@@ -140,12 +148,14 @@ struct TerminalArtifactChipCountStateTests {
         #expect(state.complete(
             stale,
             sessionTotal: 10,
-            currentSurfaceGeneration: 31
+            currentSurfaceGeneration: 31,
+            freshestLocalCount: 2
         ) == .stale)
         #expect(state.complete(
             current,
             sessionTotal: 20,
-            currentSurfaceGeneration: 31
+            currentSurfaceGeneration: 31,
+            freshestLocalCount: 2
         ).outcome == .reported(.init(count: 20, surfaceGeneration: 31)))
     }
 
@@ -171,7 +181,8 @@ struct TerminalArtifactChipCountStateTests {
         let completion = state.complete(
             first,
             sessionTotal: 10,
-            currentSurfaceGeneration: 22
+            currentSurfaceGeneration: 22,
+            freshestLocalCount: 3
         )
         #expect(completion.outcome == .droppedForSurfaceGenerationMismatch)
         #expect(completion.nextRequest?.localCount == 3)

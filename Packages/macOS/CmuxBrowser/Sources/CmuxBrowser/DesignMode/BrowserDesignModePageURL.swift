@@ -1,7 +1,7 @@
 import Foundation
 
 /// Keeps URL structure while redacting route and value content before agent handoff.
-nonisolated struct BrowserDesignModePageURL {
+struct BrowserDesignModePageURL {
     private static let maxInputUTF8Bytes = 8_192
     private static let maxOutputUTF8Bytes = 4_096
     private let rawValue: String

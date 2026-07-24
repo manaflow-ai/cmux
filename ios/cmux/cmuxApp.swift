@@ -1,8 +1,12 @@
 import CMUXMobileCore
+import CmuxMobileShell
 import CmuxMobileTransport
 import Foundation
 import SwiftUI
 import cmuxFeature
+#if DEBUG
+import CmuxIrohReleaseGateSupport
+#endif
 
 @main
 struct cmuxApp: App {
@@ -15,9 +19,18 @@ struct cmuxApp: App {
         let reachability = ReachabilityService()
         let auth = MobileAuthComposition(reachability: reachability)
         auth.start()
+        let diagnosticLog = DiagnosticLog(
+            buildStamp: AppCompositionRoot.diagnosticBuildStamp,
+            role: .iosClient
+        )
+        let buildCompatibilityPolicy = MobileMacBuildCompatibilityPolicy.current(
+            buildScope: MobileIOSBuildScope.current()
+        )
         let iroh = MobileIrohRuntimeComposition(
             apiBaseURL: auth.config.apiBaseURL,
-            reachability: reachability
+            reachability: reachability,
+            discoveryCompatibilityPolicy: buildCompatibilityPolicy,
+            diagnosticLog: diagnosticLog
         )
         iroh.configure(auth: auth.coordinator)
 
@@ -64,6 +77,13 @@ struct cmuxApp: App {
                     surfaceID: surfaceUUID,
                     cursor: cursor
                 )
+            },
+            artifactLaneProvider: { request, resourceID, offset in
+                try await iroh.openArtifactLane(
+                    for: request,
+                    resourceID: resourceID,
+                    offset: offset
+                )
             }
         )
 
@@ -71,7 +91,8 @@ struct cmuxApp: App {
             runtime: runtime,
             auth: auth,
             iroh: iroh,
-            reachability: reachability
+            reachability: reachability,
+            diagnosticLog: diagnosticLog
         )
     }()
 
@@ -97,7 +118,26 @@ struct cmuxApp: App {
 
     @ViewBuilder
     private var rootScene: some View {
-        #if DEBUG
+        Group {
+            #if DEBUG
+            MobileIrohReleaseGateScene(
+                root: mobileRootScene,
+                iroh: Self.root.iroh
+            )
+            #else
+            mobileRootScene
+            #endif
+        }
+        .environment(\.irohSettingsController, Self.root.iroh)
+        .environment(
+            \.dogfoodAttachPreparation,
+            DogfoodAttachPreparation {
+                await Self.root.iroh.prepareForConnection()
+            }
+        )
+    }
+
+    private var mobileRootScene: CMUXMobileRootScene {
         CMUXMobileRootScene(
             runtime: Self.root.runtime,
             auth: Self.root.auth,
@@ -108,36 +148,9 @@ struct cmuxApp: App {
             onboardingStore: Self.root.onboardingStore,
             tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
             personalIrohRouteCatalog: Self.root.iroh.routeCatalog,
+            personalIrohDiscovery: Self.root.iroh,
             signOutHook: Self.root.signOutHook,
             diagnosticLog: Self.root.diagnosticLog
         )
-        .environment(\.irohSettingsController, Self.root.iroh)
-        .environment(
-            \.dogfoodAttachPreparation,
-            DogfoodAttachPreparation {
-                await Self.root.iroh.prepareForConnection()
-            }
-        )
-        #else
-        CMUXMobileRootScene(
-            runtime: Self.root.runtime,
-            auth: Self.root.auth,
-            reachability: Self.root.reachability,
-            analytics: Self.root.analytics.emitter,
-            pushCoordinator: Self.root.pushCoordinator,
-            displaySettings: Self.root.displaySettings,
-            onboardingStore: Self.root.onboardingStore,
-            tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
-            personalIrohRouteCatalog: Self.root.iroh.routeCatalog,
-            signOutHook: Self.root.signOutHook
-        )
-        .environment(\.irohSettingsController, Self.root.iroh)
-        .environment(
-            \.dogfoodAttachPreparation,
-            DogfoodAttachPreparation {
-                await Self.root.iroh.prepareForConnection()
-            }
-        )
-        #endif
     }
 }

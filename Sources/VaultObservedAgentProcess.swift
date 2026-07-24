@@ -6,6 +6,18 @@ struct VaultObservedAgentProcess: Sendable {
     let arguments: [String]
     let environment: [String: String]
 
+    init(
+        processName: String,
+        processPath: String?,
+        arguments: [String],
+        environment: [String: String]
+    ) {
+        self.processName = processName
+        self.processPath = processPath
+        self.arguments = arguments
+        self.environment = environment
+    }
+
     var executableBasenames: [String] {
         var names: [String] = []
         if !processName.isEmpty { names.append(processName) }

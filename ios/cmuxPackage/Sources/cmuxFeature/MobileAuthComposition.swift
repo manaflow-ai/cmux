@@ -28,8 +28,8 @@ public struct MobileAuthComposition {
     /// development and Release to production, but an ``authEnvironmentOverrideKey``
     /// entry (from `LocalConfig.plist`, or the Info.plist value
     /// `ios/scripts/reload.sh --prod-auth` bakes) flips it, so a sideloaded
-    /// dev build can run production auth and pair with a release Mac
-    /// (https://github.com/manaflow-ai/cmux/issues/7145). Exposed so the
+    /// dev build can test production account behavior. Build compatibility is
+    /// enforced separately and remains exact-tag DEV to DEV. Exposed so the
     /// identity provider can label the channel its user ids belong to.
     public let authEnvironment: CMUXAuthEnvironment
 

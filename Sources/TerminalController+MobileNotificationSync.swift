@@ -4,6 +4,65 @@ import Foundation
 /// `notification.dismiss` and `notification.reconcile` RPC handlers dispatched
 /// from `mobileHostHandleRPC(_:)`.
 extension TerminalController {
+    /// Returns the Mac-owned notification history, newest first. The paired
+    /// phone merges snapshots from all connected Macs into its global feed.
+    func v2MobileNotificationFeedList(params _: [String: Any]) -> V2CallResult {
+        let store = TerminalNotificationStore.shared
+        store.notificationFeedHistory.reconcileActiveNotifications(store.notifications)
+        let snapshot = store.notificationFeedHistory.snapshot
+        return .ok([
+            "revision": snapshot.revision,
+            "notifications": snapshot.notifications.map(mobileNotificationFeedPayload),
+        ])
+    }
+
+    /// Marks the supplied feed records read and mirrors matching active
+    /// notifications through the desktop store's existing mutation path.
+    func v2MobileNotificationFeedMarkRead(params: [String: Any]) -> V2CallResult {
+        guard let ids = mobileNotificationFeedIDs(params: params) else {
+            return .err(
+                code: "invalid_params",
+                message: "Missing or invalid notification_ids",
+                data: nil
+            )
+        }
+        let store = TerminalNotificationStore.shared
+        let marked = store.markNotificationFeedRead(ids: ids)
+        return .ok([
+            "marked": marked,
+            "revision": store.notificationFeedHistory.revision,
+        ])
+    }
+
+    /// Marks the supplied feed records unread and mirrors matching active
+    /// notifications without redelivering their system banners.
+    func v2MobileNotificationFeedMarkUnread(params: [String: Any]) -> V2CallResult {
+        guard let ids = mobileNotificationFeedIDs(params: params) else {
+            return .err(
+                code: "invalid_params",
+                message: "Missing or invalid notification_ids",
+                data: nil
+            )
+        }
+        let store = TerminalNotificationStore.shared
+        let marked = store.markNotificationFeedUnread(ids: ids)
+        return .ok([
+            "marked": marked,
+            "revision": store.notificationFeedHistory.revision,
+        ])
+    }
+
+    /// Marks every feed record read while preserving the chronological history.
+    func v2MobileNotificationFeedMarkAllRead(params _: [String: Any]) -> V2CallResult {
+        let store = TerminalNotificationStore.shared
+        let marked = store.notificationFeedHistory.notifications.lazy.filter { !$0.isRead }.count
+        store.markAllRead()
+        return .ok([
+            "marked": marked,
+            "revision": store.notificationFeedHistory.revision,
+        ])
+    }
+
     /// Mark notifications read on the Mac in response to the user dismissing the
     /// mirrored banner on a paired phone. Accepts either a single `notification_id`
     /// or a `notification_ids` array; ignores unknown/malformed ids.
@@ -88,19 +147,79 @@ extension TerminalController {
         ])
     }
 
+    private func mobileNotificationFeedPayload(
+        _ record: NotificationFeedHistoryRecord
+    ) -> [String: Any] {
+        let targetSurfaceID = record.panelId ?? record.surfaceId
+        var targetWorkspaceID = record.tabId
+        if record.retargetsToLiveSurfaceOwner,
+           let targetSurfaceID,
+           let liveTarget = AppDelegate.shared?.agentNotificationDeliveryTarget(
+               claimedTabId: record.tabId,
+               surfaceId: targetSurfaceID
+           ) {
+            targetWorkspaceID = liveTarget.tabId
+        }
+        var payload: [String: Any] = [
+            "id": record.id.uuidString,
+            "workspace_id": targetWorkspaceID.uuidString,
+            "title": record.title,
+            "subtitle": record.subtitle,
+            "body": record.body,
+            "created_at": record.createdAt.timeIntervalSince1970,
+            "is_read": record.isRead,
+            "retargets_to_live_surface_owner": record.retargetsToLiveSurfaceOwner,
+        ]
+        if let targetSurfaceID {
+            payload["surface_id"] = targetSurfaceID.uuidString
+        }
+        if let workspace = AppDelegate.shared?
+            .tabManagerFor(tabId: targetWorkspaceID)?
+            .workspacesById[targetWorkspaceID] {
+            payload["workspace_title"] = workspace.title
+            if let targetSurfaceID,
+               let surfaceTitle = workspace.panelTitle(panelId: targetSurfaceID) {
+                payload["surface_title"] = surfaceTitle
+            }
+        }
+        return payload
+    }
+
+    private func mobileNotificationFeedIDs(params: [String: Any]) -> Set<UUID>? {
+        let maxNotificationIDs = 2_000
+        guard let rawIDs = params["notification_ids"] as? [Any] else { return nil }
+        let ids = Set(rawIDs.prefix(maxNotificationIDs).compactMap { value -> UUID? in
+            guard let rawID = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                return nil
+            }
+            return UUID(uuidString: rawID)
+        })
+        return ids.isEmpty ? nil : ids
+    }
+
     /// The `workspace.action` sub-actions the mobile data plane may invoke.
     ///
-    /// Mobile gets pin/unpin/rename/read-state only. The other sub-actions of
-    /// ``v2WorkspaceAction(params:)`` reorder the global sidebar or destroy
-    /// sibling workspaces, so they stay on the Mac/automation socket. The action
-    /// is normalized exactly as ``v2ActionKey(_:_:)`` so this gate and the
-    /// handler can never disagree on which action runs.
+    /// Mobile gets workspace identity and read-state mutations. The other
+    /// sub-actions of ``v2WorkspaceAction(params:)`` reorder the global sidebar
+    /// or destroy sibling workspaces, so they stay on the Mac/automation socket.
+    /// The action is normalized exactly as ``v2ActionKey(_:_:)`` so this gate and
+    /// the handler can never disagree on which action runs.
     /// - Parameter rawAction: The raw `action` param value.
     /// - Returns: `true` when the normalized action is mobile-allowed.
     nonisolated static func mobileAllowsWorkspaceAction(_ rawAction: String?) -> Bool {
+        guard let normalized = mobileWorkspaceActionKey(rawAction) else { return false }
+        return [
+            "pin", "unpin", "rename",
+            "set_description", "clear_description",
+            "set_color", "clear_color",
+            "mark_read", "mark_unread",
+        ].contains(normalized)
+    }
+
+    /// Normalized mobile workspace-action key.
+    nonisolated static func mobileWorkspaceActionKey(_ rawAction: String?) -> String? {
         guard let trimmed = rawAction?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else { return false }
-        let normalized = trimmed.lowercased().replacingOccurrences(of: "-", with: "_")
-        return ["pin", "unpin", "rename", "mark_read", "mark_unread"].contains(normalized)
+              !trimmed.isEmpty else { return nil }
+        return trimmed.lowercased().replacingOccurrences(of: "-", with: "_")
     }
 }

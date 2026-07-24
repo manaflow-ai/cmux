@@ -259,17 +259,9 @@ enum SurfaceResumeApprovalPolicy: String, Codable, CaseIterable, Sendable {
 
 struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
-        case name
-        case kind
-        case command
-        case cwd
-        case checkpointId
-        case source
-        case environment
-        case autoResume
-        case approvalPolicy
-        case approvalRecordId
-        case updatedAt
+        case name, kind, command, cwd, checkpointId, source
+        case environment, autoResume, approvalPolicy, approvalRecordId
+        case launchFlavor, updatedAt
     }
 
     var name: String?
@@ -282,6 +274,9 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     var autoResume: Bool?
     var approvalPolicy: SurfaceResumeApprovalPolicy?
     var approvalRecordId: String?
+    var launchFlavor: SurfaceResumeLaunchFlavor
+    /// Whether decoding observed a legacy binding without an execution location.
+    private(set) var wasDecodedWithoutLaunchFlavor = false
     var updatedAt: TimeInterval
 
     init(
@@ -295,6 +290,7 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         autoResume: Bool? = nil,
         approvalPolicy: SurfaceResumeApprovalPolicy? = nil,
         approvalRecordId: String? = nil,
+        launchFlavor: SurfaceResumeLaunchFlavor = .local,
         updatedAt: TimeInterval = Date().timeIntervalSince1970
     ) {
         let normalizedCwd = Self.normalized(cwd)
@@ -314,11 +310,13 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         self.autoResume = autoResume
         self.approvalPolicy = approvalPolicy
         self.approvalRecordId = Self.normalized(approvalRecordId)
+        self.launchFlavor = launchFlavor
         self.updatedAt = updatedAt
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedLaunchFlavor = try container.decodeIfPresent(SurfaceResumeLaunchFlavor.self, forKey: .launchFlavor)
         self.init(
             name: try container.decodeIfPresent(String.self, forKey: .name),
             kind: try container.decodeIfPresent(String.self, forKey: .kind),
@@ -330,9 +328,11 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
             autoResume: try container.decodeIfPresent(Bool.self, forKey: .autoResume),
             approvalPolicy: try container.decodeIfPresent(SurfaceResumeApprovalPolicy.self, forKey: .approvalPolicy),
             approvalRecordId: try container.decodeIfPresent(String.self, forKey: .approvalRecordId),
+            launchFlavor: decodedLaunchFlavor ?? .local,
             updatedAt: try container.decodeIfPresent(TimeInterval.self, forKey: .updatedAt)
                 ?? Date().timeIntervalSince1970
         )
+        wasDecodedWithoutLaunchFlavor = decodedLaunchFlavor == nil
     }
 
     var isProcessDetected: Bool {
@@ -374,10 +374,10 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
             autoResume: autoResume,
             approvalPolicy: approvalPolicy,
             approvalRecordId: approvalRecordId,
+            launchFlavor: launchFlavor,
             updatedAt: updatedAt
         )
     }
-
     static let maxInlineStartupInputBytes = SessionRestorableAgentSnapshot.maxInlineStartupInputBytes
 
     var startupInput: String? {
@@ -707,6 +707,14 @@ enum SurfaceResumeApprovalStore {
     private static let settingsRecordsKey = "resumeCommands"
     private static let keychainService = "com.cmuxterm.app.surface-resume-approvals"
     private static let keychainAccount = "hmac-secret-v1"
+    private static let signingSecretCache = SurfaceResumeApprovalSigningSecretCache(
+        loader: {
+            SurfaceResumeApprovalStore.loadOrCreateSigningSecret(fileManager: .default)
+        },
+        schedule: { job in
+            DispatchQueue.global(qos: .utility).async(execute: job)
+        }
+    )
 
     struct StoredFile: Codable {
         var version: Int
@@ -1018,12 +1026,45 @@ enum SurfaceResumeApprovalStore {
     }
 
     static func defaultSigningSecret(fileManager: FileManager = .default) -> Data? {
-        let env = ProcessInfo.processInfo.environment
-        if let encoded = env["CMUX_SURFACE_RESUME_APPROVAL_SECRET_B64"],
-           let data = Data(base64Encoded: encoded),
-           !data.isEmpty {
+        if let data = environmentSigningSecret() {
             return data
         }
+        if fileManager === FileManager.default {
+            return signingSecretCache.value(isMainThread: Thread.isMainThread)
+        }
+        guard !Thread.isMainThread else { return nil }
+        return loadOrCreateSigningSecret(fileManager: fileManager)
+    }
+
+    /// Starts the one-time Keychain/file lookup early while preserving the
+    /// nonblocking contract for the app's main thread.
+    static func preloadSigningSecret() {
+        guard environmentSigningSecret() == nil else { return }
+        signingSecretCache.preload { _ in }
+    }
+
+    static var signingSecretIsReady: Bool {
+        environmentSigningSecret() != nil || signingSecretCache.isReady
+    }
+
+    static func whenSigningSecretReady(_ action: @escaping @Sendable () -> Void) {
+        guard environmentSigningSecret() == nil else {
+            action()
+            return
+        }
+        signingSecretCache.preload { _ in action() }
+    }
+
+    private static func environmentSigningSecret() -> Data? {
+        guard let encoded = ProcessInfo.processInfo.environment["CMUX_SURFACE_RESUME_APPROVAL_SECRET_B64"],
+              let data = Data(base64Encoded: encoded),
+              !data.isEmpty else {
+            return nil
+        }
+        return data
+    }
+
+    private static func loadOrCreateSigningSecret(fileManager: FileManager) -> Data? {
         if let data = keychainSecret(), !data.isEmpty {
             return data
         }
@@ -1378,6 +1419,8 @@ enum SurfaceResumeBindingScriptStore {
 
 struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var workingDirectory: String?
+    /// Explicit, unscaled surface font override. Nil follows the current config.
+    var fontSize: Float?
     var scrollback: String?
     var agent: SessionRestorableAgentSnapshot?
     var tmuxStartCommand: String?
@@ -1392,6 +1435,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
 
     init(
         workingDirectory: String? = nil,
+        fontSize: Float? = nil,
         scrollback: String? = nil,
         agent: SessionRestorableAgentSnapshot? = nil,
         tmuxStartCommand: String? = nil,
@@ -1403,6 +1447,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         wasAgentRunning: Bool? = nil
     ) {
         self.workingDirectory = workingDirectory
+        self.fontSize = fontSize
         self.scrollback = scrollback
         self.agent = agent
         self.tmuxStartCommand = tmuxStartCommand
@@ -1738,10 +1783,11 @@ struct SessionCanvasPaneSnapshot: Codable, Equatable, Sendable {
 
 struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// Original workspace ID captured when the snapshot comes from a live workspace.
-    /// Restore uses this to remap closed-panel history onto the new workspace IDs;
-    /// legacy or externally-created snapshots can leave it nil.
+    /// Restore reuses this identity when it is present and non-colliding; legacy,
+    /// externally-created, or duplicate snapshots can leave it nil or force a fresh ID.
     var workspaceId: UUID? = nil
     var stableId: UUID? = nil
+    var taskCreateOperationID: UUID? = nil
     var processTitle: String
     var customTitle: String?
     /// Provenance of `customTitle`; absent provenance restores as user-set for compatibility.
@@ -1769,8 +1815,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var progress: SessionProgressSnapshot?
     var gitBranch: SessionGitBranchSnapshot?
     var remote: SessionRemoteWorkspaceSnapshot?
-    /// User-defined per-workspace environment variables (issue #5995). Optional
-    /// with a `nil` default so manifests written before this field decode cleanly.
+    /// Optional so manifests written before this field decode cleanly.
     var environment: [String: String]? = nil
     /// Manual task-status override raw values and the persisted checklist. Optional-with-nil-default
     /// (the `groupId` back-compat pattern); bridging to/from live `WorkspaceTodoState` lives in `SessionPersistence+Todos.swift`.
@@ -1779,22 +1824,22 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// `true` when the workspace opted out of the status feature (None); absent for the default (feature engaged), so old manifests decode unchanged.
     var taskStatusHidden: Bool? = nil
     var checklist: [SessionChecklistItemSnapshot]? = nil
+    var dock: SessionSplitContainerSnapshot? = nil // Missing legacy fields continue to seed from dock.json.
 }
-
 extension SessionWorkspaceSnapshot: WorkspaceSessionRemoteRestoreSnapshot {}
 
 struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
     var id: UUID
     var name: String
     var isCollapsed: Bool
-    /// The workspace whose close dissolves the group. Only meaningful within a single
-    /// app run; on restore, each workspace gets a fresh UUID. The loader prefers
-    /// `anchorMemberIndex` (restore-stable) and treats this field as a hint for in-process round-trips.
+    /// The workspace whose close dissolves the group. The loader prefers
+    /// `anchorMemberIndex` (restore-stable) and treats this field as a hint when
+    /// duplicate/corrupt snapshots force a workspace to mint a fresh UUID.
     var anchorWorkspaceId: UUID? = nil
     /// 0-based index of the anchor among the group's members in tab order. Restore-stable:
     /// tab order is preserved across restore, so the same index resolves to the same
-    /// logical anchor even though workspace UUIDs change. Older snapshots that omit
-    /// this field fall back to "first member by tab order".
+    /// logical anchor even when a workspace UUID cannot be reused. Older snapshots
+    /// that omit this field fall back to "first member by tab order".
     var anchorMemberIndex: Int? = nil
     var isPinned: Bool? = nil
     var customColor: String? = nil
@@ -1803,13 +1848,13 @@ struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
 
 extension SessionWorkspaceSnapshot {
     var hasRestorablePanels: Bool {
-        !panels.isEmpty
+        !panels.isEmpty || dock != nil
     }
 }
 
 extension SessionWindowSnapshot {
     var hasRestorablePanels: Bool {
-        tabManager.workspaces.contains { $0.hasRestorablePanels }
+        dock != nil || tabManager.workspaces.contains { $0.hasRestorablePanels }
     }
 }
 
@@ -1828,8 +1873,8 @@ struct SessionWindowSnapshot: Codable, Sendable {
     /// Per-display-configuration remembered frames (LRU ring). Optional and
     /// additive so older persisted snapshots decode unchanged.
     var configFrames: [SessionConfigFrameEntry]? = nil
+    var dock: SessionSplitContainerSnapshot? = nil // Missing legacy fields continue to seed from dock.json.
 }
-
 struct AppSessionSnapshot: Codable, Sendable {
     var version: Int
     var createdAt: TimeInterval

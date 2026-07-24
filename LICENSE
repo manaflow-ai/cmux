@@ -1,12 +1,18 @@
 Copyright (c) 2024-present Manaflow, Inc.
 
-This software is dual-licensed:
+Other contributors and third parties retain copyright in their material.
 
-1. Open source: GNU General Public License v3.0 or later (GPL-3.0-or-later).
-   See the full text below.
+Except where a file or accompanying notice states otherwise, material
+contributed under the cmux project license is licensed under the GNU General
+Public License v3.0 or later (GPL-3.0-or-later). See the full text below.
 
-2. Commercial: For organizations that cannot comply with GPL, a commercial license
-   is available. Contact founders@manaflow.com for details.
+Manaflow may separately offer commercial terms only for material for which it
+controls the necessary rights. Those terms do not relicense third-party
+material or outside contributions for which Manaflow lacks a separate grant.
+A product that combines cmux material with third-party material remains subject
+to every applicable third-party license and notice. See
+THIRD_PARTY_LICENSES.md and file-level notices. Contact founders@manaflow.com
+for details about the eligible scope.
 
 --------------------------------------------------------------------------------
 

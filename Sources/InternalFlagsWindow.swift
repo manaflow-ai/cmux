@@ -49,9 +49,8 @@ private struct InternalFlagsView: View {
         CmuxFeatureFlags.allFlags.map { definition in
             InternalFlagRowSnapshot(
                 definition: definition,
-                effectiveValue: flags.effectiveValue(for: definition),
-                overrideValue: flags.overrideValue(for: definition),
-                remoteValue: flags.remoteValue(for: definition)
+                resolution: flags.resolution(for: definition),
+                overrideValue: flags.overrideValue(for: definition)
             )
         }
     }
@@ -94,7 +93,7 @@ private struct InternalFlagsView: View {
             HStack(alignment: .center, spacing: 16) {
                 Text(String(
                     localized: "featureFlags.footer.note",
-                    defaultValue: "Overrides are local to this Mac and take precedence over remote flags."
+                    defaultValue: "Local overrides apply only when no remote value is available."
                 ))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -139,18 +138,22 @@ private struct InternalFlagRowSnapshot: Identifiable, Equatable {
     var id: String { definition.key }
 
     let definition: CmuxFeatureFlagDefinition
-    let effectiveValue: Bool
+    let resolution: CmuxFeatureFlagResolution
     let overrideValue: Bool?
-    let remoteValue: Bool?
 
-    var source: InternalFlagValueSource {
-        if overrideValue != nil {
-            return .override
+    var isRemoteControlled: Bool {
+        resolution.source == .remote
+    }
+
+    var sourceTitle: String {
+        switch resolution.source {
+        case .remote:
+            return String(localized: "featureFlags.source.remote", defaultValue: "Remote")
+        case .override:
+            return String(localized: "featureFlags.source.override", defaultValue: "Override")
+        case .default:
+            return String(localized: "featureFlags.source.default", defaultValue: "Default")
         }
-        if remoteValue != nil {
-            return .remote
-        }
-        return .default
     }
 
     var overrideChoice: InternalFlagOverrideChoice {
@@ -160,7 +163,7 @@ private struct InternalFlagRowSnapshot: Identifiable, Equatable {
         case .some(false):
             return .off
         case .none:
-            return .remote
+            return .noOverride
         }
     }
 }
@@ -186,27 +189,39 @@ private struct InternalFlagRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            InternalFlagValueBadge(isOn: snapshot.effectiveValue)
+            InternalFlagValueBadge(isOn: snapshot.resolution.effectiveValue)
                 .frame(width: 96, alignment: .leading)
 
-            Text(snapshot.source.title)
+            Text(snapshot.sourceTitle)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .frame(width: 96, alignment: .leading)
 
-            Picker(
-                String(localized: "featureFlags.override.pickerLabel", defaultValue: "Override"),
-                selection: Binding(
-                    get: { snapshot.overrideChoice },
-                    set: { choice in setOverride(choice.overrideValue) }
-                )
-            ) {
-                ForEach(InternalFlagOverrideChoice.allCases) { choice in
-                    Text(choice.title).tag(choice)
+            VStack(alignment: .leading, spacing: 4) {
+                Picker(
+                    String(localized: "featureFlags.override.pickerLabel", defaultValue: "Override"),
+                    selection: Binding(
+                        get: { snapshot.overrideChoice },
+                        set: { choice in setOverride(choice.overrideValue) }
+                    )
+                ) {
+                    ForEach(InternalFlagOverrideChoice.allCases) { choice in
+                        Text(choice.title).tag(choice)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .disabled(snapshot.isRemoteControlled)
+
+                if snapshot.isRemoteControlled {
+                    Text(String(
+                        localized: "featureFlags.override.remoteControlledNote",
+                        defaultValue: "Controlled remotely; local override inactive."
+                    ))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
                 }
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
             .frame(width: 240)
         }
         .padding(.horizontal, 24)
@@ -234,27 +249,10 @@ private struct InternalFlagValueBadge: View {
     }
 }
 
-private enum InternalFlagValueSource {
-    case override
-    case remote
-    case `default`
-
-    var title: String {
-        switch self {
-        case .override:
-            return String(localized: "featureFlags.source.override", defaultValue: "Override")
-        case .remote:
-            return String(localized: "featureFlags.source.remote", defaultValue: "Remote")
-        case .default:
-            return String(localized: "featureFlags.source.default", defaultValue: "Default")
-        }
-    }
-}
-
 private enum InternalFlagOverrideChoice: CaseIterable, Hashable, Identifiable {
     case on
     case off
-    case remote
+    case noOverride
 
     var id: Self { self }
 
@@ -264,8 +262,8 @@ private enum InternalFlagOverrideChoice: CaseIterable, Hashable, Identifiable {
             return String(localized: "featureFlags.override.on", defaultValue: "On")
         case .off:
             return String(localized: "featureFlags.override.off", defaultValue: "Off")
-        case .remote:
-            return String(localized: "featureFlags.override.remote", defaultValue: "Remote")
+        case .noOverride:
+            return String(localized: "featureFlags.override.none", defaultValue: "No override")
         }
     }
 
@@ -275,7 +273,7 @@ private enum InternalFlagOverrideChoice: CaseIterable, Hashable, Identifiable {
             return true
         case .off:
             return false
-        case .remote:
+        case .noOverride:
             return nil
         }
     }

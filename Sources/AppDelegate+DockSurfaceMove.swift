@@ -136,6 +136,11 @@ extension AppDelegate {
             reattachSurfaceToContainer(detached, source)
             return false
         }
+        notificationStore?.rebindSurfaceNotifications(
+            fromTabId: detached.sourceWorkspaceId,
+            toTabId: destinationDock.workspaceId,
+            surfaceId: detached.panelId
+        )
         destinationDock.scheduleDockPortalReconcile(reason: "dock.moveSurfaceIntoDock")
 
         // The surface was attached into the Dock with focus, so record Dock focus

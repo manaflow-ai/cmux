@@ -27,9 +27,20 @@ jobs:
     # `npx cmux` user (nightlies publish via cmux-tui-nightly.yml with --tag nightly).
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
-    permissions: {}
+    permissions:
+      contents: read
+    outputs:
+      release_sha: ${{ steps.release.outputs.release_sha }}
+      tag: ${{ steps.release.outputs.tag }}
     steps:
-      - name: Require strict stable version
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Require protected main and resolve release tag
+        id: release
         env:
           DISPATCH_VERSION: ${{ inputs.version }}
         run: |
@@ -38,6 +49,30 @@ jobs:
             echo "workflow_dispatch version must match stable X.Y.Z (no prerelease); nightlies go through cmux-tui-nightly.yml" >&2
             exit 1
           }
+          git fetch --force origin main --tags
+          tag="cmux-tui-v$DISPATCH_VERSION"
+          expected_ref="refs/tags/$tag"
+          if [[ "$GITHUB_REF" != "$expected_ref" ]]; then
+            echo "Refusing to publish npm from $GITHUB_REF; dispatch this workflow on $expected_ref." >&2
+            exit 1
+          fi
+          release_sha="$(git rev-parse "refs/tags/$tag^{commit}")" || {
+            echo "release tag does not exist: $tag" >&2
+            exit 1
+          }
+          git merge-base --is-ancestor "$release_sha" origin/main || {
+            echo "release tag $tag is not an ancestor of protected main" >&2
+            exit 1
+          }
+          if [[ "$release_sha" != "$GITHUB_SHA" ]]; then
+            echo "release tag $tag resolves to $release_sha, but npm provenance would identify workflow commit $GITHUB_SHA" >&2
+            echo "Dispatch from main only while the release tag points at the current main commit." >&2
+            exit 1
+          fi
+          {
+            echo "tag=$tag"
+            echo "release_sha=$release_sha"
+          } >> "$GITHUB_OUTPUT"
 
   build-package:
     needs: validate-version
@@ -49,9 +84,12 @@ jobs:
       package_npm: true
       package_pypi: false
       include_windows: false
+      checkout_ref: ${{ needs.validate-version.outputs.release_sha }}
 
   publish:
-    needs: build-package
+    needs:
+      - validate-version
+      - build-package
     runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner
     permissions:
       contents: read
@@ -69,12 +107,19 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ needs.validate-version.outputs.release_sha }}
 
       - name: Download npm package directories
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: npm-packages
-          path: dist/npm-packages
+          path: dist
+
+      - name: Restore npm package executable modes
+        run: |
+          python3 cmux-tui/dist/scripts/package_npm_artifact.py extract \
+            --archive dist/npm-packages.tar.gz \
+            --out dist
 
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -83,7 +128,7 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Install npm with OIDC support
-        run: npm install -g npm@^11.5.1
+        run: npm install -g npm@11.5.1
 
       - name: Publish platform packages
         run: |

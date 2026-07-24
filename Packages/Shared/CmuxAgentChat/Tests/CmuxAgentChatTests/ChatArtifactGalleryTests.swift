@@ -13,6 +13,8 @@ struct ChatArtifactGalleryTests {
             size: 42,
             modifiedAt: Date(timeIntervalSince1970: 123),
             exists: false,
+            childCount: 500,
+            childCountIsCapped: true,
             provenance: .created
         )
         let page = ChatArtifactGalleryPage(
@@ -26,8 +28,13 @@ struct ChatArtifactGalleryTests {
         let data = try coding.encode(page)
         let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect(json["session_id"] as? String == "session-1")
+        #expect(json["created_total"] as? Int == 1)
+        #expect(json["attached_total"] as? Int == 0)
         #expect(json["referenced_total"] as? Int == 7)
         #expect(json["next_cursor"] as? String == "cursor")
+        let created = try #require(json["created"] as? [[String: Any]])
+        #expect(created.first?["child_count"] as? Int == 500)
+        #expect(created.first?["child_count_is_capped"] as? Bool == true)
         #expect(try coding.decode(ChatArtifactGalleryPage.self, from: data) == page)
 
         let scan = TerminalArtifactScanResponse(artifacts: [], sessionID: "session-1")
@@ -41,6 +48,8 @@ struct ChatArtifactGalleryTests {
         let itemData = Data(#"{"path":"/tmp/old.txt","kind":"text","display_name":"old.txt"}"#.utf8)
         let item = try coding.decode(ChatArtifactGalleryItem.self, from: itemData)
         #expect(item.exists)
+        #expect(item.childCount == nil)
+        #expect(!item.childCountIsCapped)
         #expect(item.provenance == .referenced)
 
         let scanData = Data(#"{"artifacts":[]}"#.utf8)
@@ -48,6 +57,220 @@ struct ChatArtifactGalleryTests {
         #expect(scan.sessionID == nil)
         #expect(scan.sessionArtifactTotal == nil)
         #expect(scan.artifacts.isEmpty)
+    }
+
+    @Test("directory rows and child counts require folder capability")
+    func directoryRowsAreCapabilityGated() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-gallery-\(UUID().uuidString)", isDirectory: true)
+        let folder = root.appendingPathComponent("folder", isDirectory: true)
+        let nested = folder.appendingPathComponent("nested", isDirectory: true)
+        let file = root.appendingPathComponent("notes.txt")
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        #expect(FileManager.default.createFile(
+            atPath: folder.appendingPathComponent("child.txt").path,
+            contents: Data()
+        ))
+        #expect(FileManager.default.createFile(atPath: file.path, contents: Data()))
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let references = [
+            ChatArtifactIndexedReference(
+                path: folder.path,
+                provenance: .referenced,
+                lastReferencedSeq: 2
+            ),
+            ChatArtifactIndexedReference(
+                path: file.path,
+                provenance: .referenced,
+                lastReferencedSeq: 1
+            ),
+        ]
+        let builder = ChatArtifactGalleryBuilder()
+        let legacy = builder.page(
+            sessionID: "session",
+            items: references,
+            generation: "generation",
+            cursor: nil,
+            pageSize: 10,
+            query: nil
+        )
+        #expect(legacy.referenced.map(\.path) == [file.path])
+        #expect(legacy.referencedTotal == 2)
+
+        let folders = builder.page(
+            sessionID: "session",
+            items: references,
+            generation: "generation",
+            cursor: nil,
+            pageSize: 10,
+            query: nil,
+            includeDirectories: true
+        )
+        #expect(folders.referenced.map(\.path) == [folder.path, file.path])
+        let folderItem = try #require(folders.referenced.first)
+        #expect(folderItem.kind == .directory)
+        #expect(folderItem.childCount == 2)
+        #expect(!folderItem.childCountIsCapped)
+
+        let oldHostPage = ChatArtifactGalleryPage(
+            sessionID: "session",
+            created: [folderItem],
+            referenced: [folderItem],
+            referencedTotal: 1
+        ).excludingDirectories()
+        #expect(oldHostPage.created.isEmpty)
+        #expect(oldHostPage.referenced.isEmpty)
+        #expect(oldHostPage.referencedTotal == 0)
+    }
+
+    @Test("pages fill sections sequentially so loads only extend the list bottom")
+    func allSectionsPageLazily() throws {
+        let items = (1...3).flatMap { index in
+            [
+                ChatArtifactIndexedReference(
+                    path: "/missing/created-\(index).txt",
+                    provenance: .created,
+                    lastReferencedSeq: index
+                ),
+                ChatArtifactIndexedReference(
+                    path: "/missing/attached-\(index).txt",
+                    provenance: .attached,
+                    lastReferencedSeq: index
+                ),
+                ChatArtifactIndexedReference(
+                    path: "/missing/referenced-\(index).txt",
+                    provenance: .referenced,
+                    lastReferencedSeq: index
+                ),
+            ]
+        }
+        let builder = ChatArtifactGalleryBuilder()
+
+        let first = builder.page(
+            sessionID: "session",
+            items: items,
+            generation: "generation",
+            cursor: nil,
+            pageSize: 2,
+            query: nil,
+            includeDirectories: true
+        )
+        let cursor = try #require(first.nextCursor.flatMap(ChatArtifactGalleryCursor.init(token:)))
+        let second = builder.page(
+            sessionID: "session",
+            items: items,
+            generation: "generation",
+            cursor: cursor,
+            pageSize: 2,
+            query: nil,
+            includeDirectories: true
+        )
+        let snapshot = ChatArtifactGallerySnapshot(page: first).appending(second)
+
+        // Sequential fill: the first page is created rows only, and every
+        // later page extends the grouped list strictly at its bottom, so a
+        // scroll-triggered load never inserts rows into an earlier group.
+        #expect(first.created.count == 2)
+        #expect(first.attached.isEmpty)
+        #expect(first.referenced.isEmpty)
+        #expect(first.createdTotal == 3)
+        #expect(first.attachedTotal == 3)
+        #expect(first.referencedTotal == 3)
+        #expect(second.created.count == 1)
+        #expect(second.attached.count == 1)
+        #expect(second.referenced.isEmpty)
+
+        var accumulated = snapshot
+        var nextToken = second.nextCursor
+        var guardCounter = 0
+        while let token = nextToken, guardCounter < 8 {
+            let cursor = try #require(ChatArtifactGalleryCursor(token: token))
+            let page = builder.page(
+                sessionID: "session",
+                items: items,
+                generation: "generation",
+                cursor: cursor,
+                pageSize: 2,
+                query: nil,
+                includeDirectories: true
+            )
+            if !accumulated.attached.isEmpty {
+                #expect(page.created.isEmpty)
+            }
+            if !accumulated.referenced.isEmpty {
+                #expect(page.created.isEmpty)
+                #expect(page.attached.isEmpty)
+            }
+            accumulated = accumulated.appending(page)
+            nextToken = page.nextCursor
+            guardCounter += 1
+        }
+
+        #expect(nextToken == nil)
+        #expect(accumulated.created.count == 3)
+        #expect(accumulated.attached.count == 3)
+        #expect(accumulated.referenced.count == 3)
+    }
+
+    @Test("a cursor from another generation requests a fresh paging restart")
+    func staleGenerationCursor() throws {
+        let staleCursor = ChatArtifactGalleryCursor(
+            generation: "old",
+            seq: 10,
+            path: "/old"
+        )
+
+        let page = ChatArtifactGalleryBuilder().page(
+            sessionID: "session",
+            items: [ChatArtifactIndexedReference(
+                path: "/new",
+                provenance: .referenced,
+                lastReferencedSeq: 20
+            )],
+            generation: "new",
+            cursor: staleCursor,
+            pageSize: 10,
+            query: nil
+        )
+
+        #expect(page.requiresPagingRestart)
+        #expect(page.generation == "new")
+        #expect(page.created.isEmpty)
+        #expect(page.attached.isEmpty)
+        #expect(page.referenced.isEmpty)
+        #expect(page.nextCursor == nil)
+    }
+
+    @Test("directory child counts stop at the listing cap")
+    func directoryChildCountCap() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-gallery-cap-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        for index in 0...ArtifactByteReader.maximumDirectoryEntryCount {
+            #expect(FileManager.default.createFile(
+                atPath: root.appendingPathComponent("item-\(index)").path,
+                contents: Data()
+            ))
+        }
+
+        let page = ChatArtifactGalleryBuilder().page(
+            sessionID: "session",
+            items: [ChatArtifactIndexedReference(
+                path: root.path,
+                provenance: .referenced,
+                lastReferencedSeq: 1
+            )],
+            generation: "generation",
+            cursor: nil,
+            pageSize: 10,
+            query: nil,
+            includeDirectories: true
+        )
+        let folder = try #require(page.referenced.first)
+        #expect(folder.childCount == ArtifactByteReader.maximumDirectoryEntryCount)
+        #expect(folder.childCountIsCapped)
     }
 
     @Test("count-only scan matches every Session section without stat filtering")

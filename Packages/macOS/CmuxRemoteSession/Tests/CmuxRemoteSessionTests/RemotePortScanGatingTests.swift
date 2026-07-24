@@ -327,6 +327,7 @@ struct RemotePortScanGatingTests {
             host: host,
             configuration: configuration,
             proxyBroker: UnusedRemoteProxyBroker(),
+            connectionBroker: NativeSSHConnectionBroker(),
             manifestRepository: RemoteDaemonManifestRepository(
                 homeDirectory: FileManager.default.temporaryDirectory
             ),

@@ -2,6 +2,23 @@
 
 Global app preferences live in `~/.config/cmux/cmux.json`.
 
+## `mobile.artifactFolderAccess`
+
+Controls which files and folders cmux on iOS may browse after a chat references a directory or a directory path appears in a terminal.
+
+```json
+{
+  "mobile": {
+    "artifactFolderAccess": "subtree"
+  }
+}
+```
+
+- `subtree` (default): authorize the referenced directory and its full subtree.
+- `oneLevel`: preserve the previous rule, authorizing only immediate children and listing only the referenced directory itself.
+
+Authorization compares canonical paths after resolving symlinks. A symlink inside an authorized folder cannot grant access to a target outside that folder.
+
 ## `paneBorderColor` and `activePaneBorderColor`
 
 Customize split-workspace pane boundaries controlled by cmux.

@@ -75,11 +75,17 @@ export default function App() {
       />
       <TerminalPane
         client={connection.client}
+        clients={connection.clients}
         screen={connection.active}
+        onRefreshClients={connection.refreshClients}
+        onSetClientSizing={connection.mutations.setClientSizing}
+        onUseOnlyClientSizing={connection.mutations.useOnlyClientSizing}
+        onUseAllClientSizing={connection.mutations.useAllClientSizing}
+        onDetachClient={connection.mutations.detachClient}
         onSelectTab={connection.selectTab}
         onNewTab={connection.mutations.newTab}
         onSplit={connection.mutations.split}
-        onSetRatio={connection.mutations.setRatio}
+        onSetSplitRatio={connection.mutations.setSplitRatio}
         onSelectPane={connection.selectPane}
         onZoomPane={connection.mutations.zoomPane}
         onClosePane={connection.mutations.closePane}

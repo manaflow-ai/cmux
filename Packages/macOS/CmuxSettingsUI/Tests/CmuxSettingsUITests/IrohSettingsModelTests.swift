@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import Foundation
 import Testing
 
 @testable import CmuxSettingsUI
@@ -117,17 +118,73 @@ struct IrohSettingsModelTests {
         #expect(model.snapshot == .unavailable)
     }
 
-    #if DEBUG
-    @Test func relayOnlyMutationUsesTheDebugControllerBoundary() async {
+    @Test func observationLoadsSafeDiagnosticReportAndExportText() async {
+        let controller = IrohSettingsControllerDouble(snapshot: .unavailable)
+        let report = diagnosticReport()
+        controller.report = report
+        controller.exportData = Data("cmuxdiag v1\n25,1,,,1,,7".utf8)
+        let model = IrohSettingsModel(controller: controller)
+
+        let observation = Task { await model.observe() }
+        await waitUntil { model.diagnosticReport == report }
+        observation.cancel()
+        await observation.value
+
+        #expect(model.diagnosticExportText == String(decoding: report.compactExport(), as: UTF8.self))
+        #expect(model.diagnosticReport.events.count == 2)
+        #expect(model.diagnosticReport.lastFailureKind == .timedOut)
+    }
+
+    @Test func clearDiagnosticReportClearsControllerAndReloadsModel() async {
+        let controller = IrohSettingsControllerDouble(snapshot: .unavailable)
+        controller.report = diagnosticReport()
+        controller.exportData = Data("cmuxdiag v1\n25,1,,,1,,7".utf8)
+        let model = IrohSettingsModel(controller: controller)
+        let observation = Task { await model.observe() }
+        await waitUntil { !model.diagnosticReport.events.isEmpty }
+        observation.cancel()
+        await observation.value
+
+        await model.clearDiagnosticReport()
+
+        #expect(controller.diagnosticClearCount == 1)
+        #expect(model.diagnosticReport == .empty)
+        #expect(model.diagnosticExportText.isEmpty)
+        #expect(!model.isMutating)
+    }
+
+    @Test func stalePreClearDiagnosticReloadCannotRestoreClearedReport() async {
+        let controller = IrohSettingsControllerDouble(snapshot: .unavailable)
+        controller.holdsDiagnosticReportReads = true
+        let model = IrohSettingsModel(controller: controller)
+
+        let observation = Task { await model.observe() }
+        await waitUntil { controller.pendingDiagnosticReportRequestIDs == [0] }
+
+        let clear = Task { await model.clearDiagnosticReport() }
+        await waitUntil { controller.pendingDiagnosticReportRequestIDs == [0, 1] }
+        #expect(model.isMutating)
+
+        controller.resumeDiagnosticReportRequest(1, returning: .empty)
+        await clear.value
+        controller.resumeDiagnosticReportRequest(0, returning: diagnosticReport())
+        await waitUntil { controller.streamCreations == 1 }
+
+        #expect(model.diagnosticReport == .empty)
+        #expect(model.diagnosticExportText.isEmpty)
+        observation.cancel()
+        await observation.value
+    }
+
+    @Test func relayOnlyMutationForwardsThePathPreference() async {
         let controller = IrohSettingsControllerDouble(snapshot: .unavailable)
         let model = IrohSettingsModel(controller: controller)
 
-        model.setDebugRelayOnly(true)
-        await waitUntil { controller.debugRelayOnlyMutations == [true] }
+        model.setPathPreference(.relayOnly)
+        await waitUntil { controller.pathPreferenceMutations == [.relayOnly] }
 
         #expect(!model.showsSaveError)
     }
-    #endif
 
     private func waitUntil(_ predicate: () -> Bool) async {
         var spins = 0
@@ -159,12 +216,36 @@ struct IrohSettingsModelTests {
             policySequence: sequence
         )
     }
+
+    private func diagnosticReport() -> DiagnosticReport {
+        DiagnosticReport(
+            role: .macHost,
+            generatedAt: Date(timeIntervalSince1970: 200),
+            anchorWallNanos: 100_000_000_000,
+            anchorMonotonicNanos: 1_000,
+            buildStamp: "test",
+            events: [
+                DiagnosticEvent(
+                    code: .transportDialConnected,
+                    tNanos: 2_000,
+                    a: Int(DiagnosticTransportKind.iroh.rawValue),
+                    c: 7
+                ),
+                DiagnosticEvent(
+                    code: .transportDialFailed,
+                    tNanos: 3_000,
+                    a: Int(DiagnosticTransportKind.iroh.rawValue),
+                    b: Int(DiagnosticFailureKind.timedOut.rawValue),
+                    c: 8
+                ),
+            ]
+        )
+    }
 }
 
 @MainActor
 private final class IrohSettingsControllerDouble:
-    CmxIrohSettingsControlling,
-    CmxIrohDebugSettingsControlling
+    CmxIrohSettingsControlling
 {
     struct CustomRelayMutation: Equatable {
         let relay: CmxIrohCustomRelayDraft
@@ -173,12 +254,20 @@ private final class IrohSettingsControllerDouble:
 
     var snapshot: CmxIrohSettingsSnapshot
     var preferenceMutations: [CmxIrohRelayPreferenceDraft] = []
+    var pathPreferenceMutations: [CmxIrohPathPreference] = []
     var customRelayMutations: [CustomRelayMutation] = []
     var customRelayError: Error?
     var snapshotAfterCustomRelayError: CmxIrohSettingsSnapshot?
-    var debugRelayOnlyMutations: [Bool] = []
     var streamCreations = 0
     var streamTerminated = false
+    var report = DiagnosticReport.empty
+    var exportData = Data()
+    var diagnosticClearCount = 0
+    var holdsDiagnosticReportReads = false
+    private(set) var nextDiagnosticReportRequestID = 0
+    private var pendingDiagnosticReportReads: [
+        Int: CheckedContinuation<DiagnosticReport, Never>
+    ] = [:]
     let continuation: AsyncStream<CmxIrohSettingsSnapshot>.Continuation
     private let stream: AsyncStream<CmxIrohSettingsSnapshot>
 
@@ -201,6 +290,10 @@ private final class IrohSettingsControllerDouble:
         preferenceMutations.append(preference)
     }
 
+    func setIrohPathPreference(_ preference: CmxIrohPathPreference) async throws {
+        pathPreferenceMutations.append(preference)
+    }
+
     func upsertIrohCustomRelay(
         _ relay: CmxIrohCustomRelayDraft,
         deviceSecret: String?
@@ -218,9 +311,31 @@ private final class IrohSettingsControllerDouble:
     func testIrohCustomRelay(id: String) async -> CmxIrohRelayTestResult { .failed }
     func refreshIrohSettings() async {}
 
-    func setIrohDebugRelayOnly(_ enabled: Bool) async throws {
-        debugRelayOnlyMutations.append(enabled)
+    func irohDiagnosticReport() async -> DiagnosticReport {
+        guard holdsDiagnosticReportReads else { return report }
+        let requestID = nextDiagnosticReportRequestID
+        nextDiagnosticReportRequestID += 1
+        return await withCheckedContinuation { continuation in
+            pendingDiagnosticReportReads[requestID] = continuation
+        }
     }
+
+    var pendingDiagnosticReportRequestIDs: [Int] {
+        pendingDiagnosticReportReads.keys.sorted()
+    }
+
+    func resumeDiagnosticReportRequest(_ id: Int, returning report: DiagnosticReport) {
+        pendingDiagnosticReportReads.removeValue(forKey: id)?.resume(returning: report)
+    }
+
+    func exportIrohDiagnosticReport() async -> Data { exportData }
+
+    func clearIrohDiagnosticReport() async {
+        diagnosticClearCount += 1
+        report = .empty
+        exportData = Data()
+    }
+
 }
 
 private enum TestFailure: Error {

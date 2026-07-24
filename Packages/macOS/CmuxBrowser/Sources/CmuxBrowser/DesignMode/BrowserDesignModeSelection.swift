@@ -1,7 +1,7 @@
 import Foundation
 
 /// The selected DOM element and the context needed to implement its visual edits in source.
-public nonisolated struct BrowserDesignModeSelection: Codable, Equatable, Sendable {
+public struct BrowserDesignModeSelection: Codable, Equatable, Sendable {
     /// The primary robust CSS selector.
     public let selector: String
     /// Ordered fallback selectors used when an SPA replaces the selected node.

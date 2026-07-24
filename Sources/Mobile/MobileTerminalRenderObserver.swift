@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxTerminal
 import Foundation
+import os
 
 /// Pushes terminal render events only while a mobile client is actively subscribed.
 /// Ghostty notification demand is tied to subscriptions so the desktop terminal
@@ -256,6 +257,7 @@ final class MobileTerminalRenderObserver {
 
     private func emitRenderGrid(surfaceID: UUID, forceIncludeTheme: Bool) {
         let stateSeq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceID) ?? 0
+        let renderCapture = MobileTerminalByteTee.shared.nextRenderCaptureIdentity(surfaceID: surfaceID)
         guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID),
               surface.surface != nil else {
             clearRenderGridCache(surfaceID: surfaceID)
@@ -272,6 +274,8 @@ final class MobileTerminalRenderObserver {
             || didReplaceRuntimeSurface
         guard let snapshot = surface.mobileRenderGridFrame(
                 stateSeq: stateSeq,
+                renderEpoch: renderCapture.epoch,
+                renderRevision: renderCapture.revision,
                 full: true,
                 includeTheme: includeTheme
               ) else {
@@ -310,12 +314,17 @@ final class MobileTerminalRenderObserver {
         ) else { return }
         let frame = emission.frame
         renderGridStatesBySurfaceID[surfaceID] = emission.state
-        guard let payload = try? frame.jsonObject() else { return }
-        MobileHostService.emitEvent(topic: "terminal.render_grid", payload: payload)
+        guard let payloadJSON = try? JSONEncoder().encode(frame) else { return }
+        MobileHostService.emitRenderGridEvent(
+            payloadJSON: payloadJSON,
+            surfaceID: frame.surfaceID,
+            isFullFrame: frame.full
+        )
         #if DEBUG
         cmuxDebugLog(
             "mobile.render_grid surface=\(surfaceID.uuidString.prefix(8)) full=\(frame.full) " +
-                "cleared=\(frame.clearedRows.count) spans=\(frame.rowSpans.count) seq=\(frame.stateSeq)"
+                "cleared=\(frame.clearedRows.count) spans=\(frame.rowSpans.count) " +
+                "seq=\(frame.stateSeq) revision=\(frame.renderRevision)"
         )
         #endif
     }
@@ -368,6 +377,48 @@ final class MobileTerminalRenderObserver {
         // Store the revision read before enumeration. If topology changed during
         // the snapshot, the next flush observes a newer value and reconciles again.
         reconciledSurfaceTopologyGeneration = generation
+    }
+
+    /// Requests that the producer re-emit a full render-grid frame for each
+    /// surface, because a connection's bounded queue had to shed one of that
+    /// surface's frames (issue #8842). A full frame re-bases every
+    /// subscriber's delta chain, so the shed frames are unobservable beyond a
+    /// briefly stale paint. Callable from any thread; hops to the main actor
+    /// are coalesced so a stalled connection cannot flood it.
+    nonisolated static func requestRenderGridFullResync(surfaceIDStrings: Set<String>) {
+        guard !surfaceIDStrings.isEmpty else { return }
+        let shouldSchedule = pendingRenderGridResyncSurfaceIDs.withLock { pending in
+            let wasEmpty = pending.isEmpty
+            pending.formUnion(surfaceIDStrings)
+            return wasEmpty
+        }
+        guard shouldSchedule else { return }
+        Task { @MainActor in
+            let drainedSurfaceIDStrings = pendingRenderGridResyncSurfaceIDs.withLock { pending in
+                let drained = pending
+                pending.removeAll()
+                return drained
+            }
+            shared.performRenderGridFullResync(surfaceIDStrings: drainedSurfaceIDStrings)
+        }
+    }
+
+    nonisolated private static let pendingRenderGridResyncSurfaceIDs =
+        OSAllocatedUnfairLock<Set<String>>(initialState: [])
+
+    private func performRenderGridFullResync(surfaceIDStrings: Set<String>) {
+        guard MobileHostService.hasEventSubscribers(topic: "terminal.render_grid") else {
+            return
+        }
+        var didInvalidate = false
+        for surfaceIDString in surfaceIDStrings {
+            guard let surfaceID = UUID(uuidString: surfaceIDString) else { continue }
+            clearRenderGridCache(surfaceID: surfaceID)
+            pendingSurfaceIDs.insert(surfaceID)
+            didInvalidate = true
+        }
+        guard didInvalidate else { return }
+        scheduleTerminalUpdateFlush()
     }
 
     private func clearRenderGridCache(surfaceID: UUID) {

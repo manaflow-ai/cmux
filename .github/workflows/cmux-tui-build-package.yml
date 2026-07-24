@@ -103,17 +103,27 @@ jobs:
         if: matrix.cross == false
         working-directory: cmux-tui
         shell: bash
-        env:
-          CMUX_TUI_BUILD_COMMIT: ${{ github.sha }}
-        run: cargo build -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.target }}
+        run: |
+          # Package artifacts must build and stamp the checked-out submodule,
+          # independent of any self-hosted runner source override.
+          unset CMUX_GHOSTTY_SRC
+          CMUX_TUI_BUILD_COMMIT="$(git -C .. rev-parse HEAD)"
+          CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty rev-parse HEAD)"
+          export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT
+          cargo build -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.target }}
 
       - name: Build cmux-tui (cross)
         if: matrix.cross == true
         working-directory: cmux-tui
         shell: bash
-        env:
-          CMUX_TUI_BUILD_COMMIT: ${{ github.sha }}
-        run: cargo zigbuild -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.target }}
+        run: |
+          # Package artifacts must build and stamp the checked-out submodule,
+          # independent of any self-hosted runner source override.
+          unset CMUX_GHOSTTY_SRC
+          CMUX_TUI_BUILD_COMMIT="$(git -C .. rev-parse HEAD)"
+          CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty rev-parse HEAD)"
+          export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT
+          cargo zigbuild -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.target }}
 
       - name: Stage binary
         shell: bash
@@ -167,9 +177,13 @@ jobs:
 
       - name: Build libghostty-vt + cmux-tui (Windows GNU)
         shell: bash
-        env:
-          CMUX_TUI_BUILD_COMMIT: ${{ github.sha }}
         run: |
+          # Keep the manual Zig build and Cargo's build script on the same
+          # checked-out Ghostty source whose revision is stamped below.
+          unset CMUX_GHOSTTY_SRC
+          CMUX_TUI_BUILD_COMMIT="$(git rev-parse HEAD)"
+          CMUX_TUI_GHOSTTY_COMMIT="$(git -C ghostty rev-parse HEAD)"
+          export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT
           cd ghostty
           zig build -Demit-lib-vt=true -Demit-xcframework=false -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu --prefix "$RUNNER_TEMP/ghostty-vt-win-gnu"
           cd ../cmux-tui
@@ -292,6 +306,13 @@ jobs:
           dist/binaries/cmux-tui-x86_64-unknown-linux-gnu --version >/tmp/cmux-tui-version.txt 2>&1 || \
             dist/binaries/cmux-tui-x86_64-unknown-linux-gnu --help >/tmp/cmux-tui-version.txt 2>&1
 
+      - name: Archive npm package directories with executable modes
+        if: inputs.package_npm
+        run: |
+          python3 cmux-tui/dist/scripts/package_npm_artifact.py create \
+            --packages-dir dist/npm-packages \
+            --archive dist/npm-packages.tar.gz
+
       - name: Smoke verify PyPI wheels
         if: inputs.package_pypi
         run: |
@@ -312,7 +333,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: npm-packages
-          path: dist/npm-packages
+          path: dist/npm-packages.tar.gz
           if-no-files-found: error
 
       - name: Upload PyPI wheels

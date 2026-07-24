@@ -1,3 +1,4 @@
+import CMUXMobileCore
 public import Foundation
 
 /// An admitted Mac-side multistream session over one TLS-authenticated Iroh connection.
@@ -21,6 +22,7 @@ public actor CmxIrohServerSession {
     private var admissionInProgress = false
     private var admitted = false
     private var closed = false
+    private var explicitCloseFailure: DiagnosticFailureKind?
 
     public init(
         connection: any CmxIrohConnection,
@@ -211,10 +213,14 @@ public actor CmxIrohServerSession {
                     sendStream: stream.sendStream
                 )
             )
+        } catch is CancellationError {
+            await stream.sendStream.reset(errorCode: 1)
+            await stream.receiveStream.stop(errorCode: 1)
+            throw CancellationError()
         } catch {
             await stream.sendStream.reset(errorCode: 1)
             await stream.receiveStream.stop(errorCode: 1)
-            throw error
+            throw CmxIrohServerSessionError.applicationLaneRejected
         }
     }
 
@@ -244,6 +250,24 @@ public actor CmxIrohServerSession {
     }
 
     public func close() async {
+        await closeConnection()
+    }
+
+    /// Closes the session while retaining the host-side failure that initiated the close.
+    func close(failure: DiagnosticFailureKind) async {
+        guard !closed else { return }
+        if explicitCloseFailure == nil {
+            explicitCloseFailure = failure
+        }
+        await closeConnection()
+    }
+
+    /// Returns a named host-side close cause after an explicit policy invalidation.
+    func explicitCloseFailureKind() -> DiagnosticFailureKind? {
+        explicitCloseFailure
+    }
+
+    private func closeConnection() async {
         guard !closed else { return }
         closed = true
         if let controlStream {

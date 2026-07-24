@@ -332,9 +332,6 @@ extension CMUXCLI {
         if let trimmedOneTimeCommand, !trimmedOneTimeCommand.isEmpty {
             scriptLines.append("trap 'cmux_ssh_cleanup_password' EXIT")
             scriptLines += ["cmux_ssh_foreground_auth() {", trimmedOneTimeCommand, "}"]
-            if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty {
-                scriptLines.append("cmux_ssh_preflight_control_path")
-            }
             scriptLines += ["( cmux_ssh_foreground_auth )", "cmux_ssh_auth_status=$?", "if [ \"$cmux_ssh_auth_status\" -ne 0 ]; then exit \"$cmux_ssh_auth_status\"; fi", "trap - EXIT"]
         }
         let reconnectConfiguration = retryPTYAttachStatus ? [
@@ -374,9 +371,6 @@ extension CMUXCLI {
         ]
         if hasOneTimeCommand {
             scriptLines.append("  if [ \"$cmux_ssh_reauth_required\" -eq 1 ]; then")
-            if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty {
-                scriptLines.append("    cmux_ssh_preflight_control_path")
-            }
             scriptLines += ["    ( cmux_ssh_foreground_auth )", "    cmux_ssh_status=$?", "    if [ \"$cmux_ssh_status\" -eq 0 ]; then cmux_ssh_reauth_required=0; elif [ \"$cmux_ssh_status\" -ne 255 ]; then break; fi", "  fi", "  if [ \"$cmux_ssh_reauth_required\" -eq 0 ]; then"]
         }
         if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty,

@@ -127,6 +127,8 @@ extension CMUXCLI {
         "mark-notification-read",
         "memory",
         "mobile",
+        "mosh",
+        "mosh-tmux",
         "move-surface",
         "move-tab-to-new-workspace",
         "move-workspace-to-window",

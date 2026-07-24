@@ -467,6 +467,14 @@ function publicBinding(
     identity_generation: binding.identityGeneration,
     pairing_enabled: binding.pairingEnabled,
     capabilities: binding.capabilities,
+    ...(binding.directPortV4 === null && binding.directPortV6 === null
+      ? {}
+      : {
+          direct_ports: {
+            ...(binding.directPortV4 === null ? {} : { ipv4: binding.directPortV4 }),
+            ...(binding.directPortV6 === null ? {} : { ipv6: binding.directPortV6 }),
+          },
+        }),
     path_hints: accountPrivateIrohPathHints(binding.pathHints.flatMap((hint): IrohPathHint[] => {
       try {
         return [parseIrohPathHint(hint, now)];

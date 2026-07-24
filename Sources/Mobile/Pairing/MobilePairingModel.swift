@@ -105,8 +105,9 @@ final class MobilePairingModel {
 
     private let host: MobileHostService
     private let ticketTTL: TimeInterval
-    /// Observes the host's connection status while a code is shown, flipping the
-    /// render state between `.ready` and `.connected`. Cancelled on each refresh.
+    /// Observes host status while a code is shown. It upgrades an early
+    /// compatibility code when Iroh publishes and tracks new connections.
+    /// Cancelled on each refresh.
     private var connectionObservationTask: Task<Void, Never>?
     /// Bumped on each ``refresh()`` so a slower in-flight run (the UI fires
     /// refresh from several places) can't overwrite a newer result with a stale
@@ -269,6 +270,17 @@ final class MobilePairingModel {
             for await status in self.host.statusUpdates() {
                 if Task.isCancelled { return }
                 guard generation == self.refreshGeneration else { return }
+                if Self.shouldUpgradePrimaryTransport(
+                    from: self.state,
+                    routes: status.routes
+                ) {
+                    Task { @MainActor [weak self] in
+                        guard let self,
+                              generation == self.refreshGeneration else { return }
+                        await self.refresh()
+                    }
+                    return
+                }
                 self.state = Self.connectionTransition(
                     from: self.state,
                     activeConnectionCount: status.activeConnectionCount,
@@ -276,6 +288,25 @@ final class MobilePairingModel {
                 )
             }
         }
+    }
+
+    /// Returns whether a displayed legacy compatibility code should be
+    /// replaced now that an authenticated Iroh identity is available.
+    static func shouldUpgradePrimaryTransport(
+        from current: State,
+        routes: [CmxAttachRoute]
+    ) -> Bool {
+        let ready: Ready
+        switch current {
+        case let .ready(value), let .connected(value):
+            ready = value
+        default:
+            return false
+        }
+        guard ready.primaryTransport == .tailscaleCompatibility else {
+            return false
+        }
+        return PairingRoutePlan.make(routes: routes)?.primaryTransport == .iroh
     }
 
     /// Automatically replaces the temporary no-route state when asynchronous

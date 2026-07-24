@@ -4,6 +4,27 @@ import Foundation
 
 @MainActor
 extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
+    func setIrohPathPreference(_ preference: CmxIrohPathPreference) async throws {
+        let hadStoredChange = CmxIrohPathPreference.stored(in: .standard) != preference
+        let hadEffectiveChange = transportVerificationMode != preference.transportVerificationMode
+        UserDefaults.standard.set(
+            preference.rawValue,
+            forKey: CmxIrohPathPreference.defaultsKey
+        )
+        #if DEBUG
+        UserDefaults.standard.removeObject(
+            forKey: CmxIrohTransportVerificationMode.debugDefaultsKey
+        )
+        UserDefaults.standard.removeObject(forKey: Self.debugRelayOnlyDefaultsKey)
+        #endif
+        guard hadStoredChange || hadEffectiveChange else { return }
+        publishIrohSettingsUpdate()
+        await scheduleReconcile(
+            eraseAccountState: false,
+            restartActiveRuntime: true
+        ).value
+    }
+
     func irohSettingsUpdates() -> AsyncStream<CmxIrohSettingsSnapshot> {
         let id = UUID()
         return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
@@ -147,6 +168,7 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
             publishIrohSettingsUpdate()
             return
         }
+        diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshStarted))
         do {
             let effective = try await context.service.refresh(
                 endpointID: context.endpointID,
@@ -155,10 +177,28 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                 now: Date()
             )
             try await applyRelayPolicy(effective)
+            diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
         } catch {
+            diagnosticLog.record(DiagnosticEvent(
+                .relayPolicyRefreshFailed,
+                b: Self.diagnosticFailureKind(for: error).rawValue
+            ))
             relayPolicyDiagnostics = await context.service.diagnosticsSnapshot()
             publishIrohSettingsUpdate()
         }
+    }
+
+    func irohDiagnosticReport() async -> DiagnosticReport {
+        await diagnosticLog.snapshot()
+    }
+
+    func exportIrohDiagnosticReport() async -> Data {
+        await diagnosticLog.export()
+    }
+
+    func clearIrohDiagnosticReport() async {
+        await diagnosticLog.clear()
+        publishIrohSettingsUpdate()
     }
 
     func observeRelayPolicyDiagnostics(
@@ -196,6 +236,13 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                       revision == self.lifecycleRevision,
                       self.activeAccountID == accountID,
                       self.runtime === runtime else { return }
+                let selectedPath = await runtime.selectedTransportPath(
+                    relayPolicy: self.relayPolicyEffective
+                )
+                self.diagnosticLog.record(DiagnosticEvent(
+                    .selectedPathChanged,
+                    a: DiagnosticPathKind(selectedPath).rawValue
+                ))
                 self.publishIrohSettingsUpdate()
             }
         }
@@ -263,6 +310,7 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                       revision == self.lifecycleRevision,
                       self.activeAccountID == accountID,
                       self.relayPolicyService === service else { return }
+                self.diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshStarted))
                 do {
                     let effective = try await service.refresh(
                         endpointID: endpointID,
@@ -274,7 +322,12 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                     retryAt = nil
                     failureCount = 0
                     relayAuthorityExpired = false
+                    self.diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
                 } catch {
+                    self.diagnosticLog.record(DiagnosticEvent(
+                        .relayPolicyRefreshFailed,
+                        b: Self.diagnosticFailureKind(for: error).rawValue
+                    ))
                     let failureDate = Date()
                     if Self.shouldDeactivateRelayPolicy(
                         policyExpiresAt: snapshot.policyExpiresAt,
@@ -293,12 +346,17 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                     }
                     let retryDelay = CmxIrohRetrySchedule().delay(
                         failureCount: failureCount,
-                        retryAfterSeconds: (error as? CmxIrohTrustBrokerClientError)?
+                        retryAfterSeconds: (error as? any CmxRetryAfterProviding)?
                             .retryAfterSeconds,
                         jitterUnitInterval: Double.random(in: 0 ... 1)
                     )
                     failureCount = min(failureCount + 1, 20)
                     retryAt = failureDate.addingTimeInterval(retryDelay)
+                    self.diagnosticLog.record(DiagnosticEvent(
+                        .retryScheduled,
+                        ms: UInt32(clamping: Int(retryDelay * 1_000)),
+                        a: DiagnosticTransportKind.iroh.rawValue
+                    ))
                 }
             }
         }

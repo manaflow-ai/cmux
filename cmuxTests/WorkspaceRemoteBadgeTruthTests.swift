@@ -92,9 +92,6 @@ final class WorkspaceRemoteBadgeTruthTests: XCTestCase {
     @MainActor
     private func endSeededLegacyTerminalSession(in workspace: Workspace) throws {
         let surfaceId = try seededTerminalSurfaceID(in: workspace)
-        Workspace.runSSHControlMasterCommandOverrideForTesting = { _ in }
-        defer { Workspace.runSSHControlMasterCommandOverrideForTesting = nil }
-
         workspace.markRemoteTerminalSessionEnded(surfaceId: surfaceId, relayPort: 64007)
 
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)

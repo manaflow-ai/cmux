@@ -1,3 +1,4 @@
+internal import CMUXMobileCore
 import Foundation
 
 /// `{ macDeviceID, deleted?, record? }` matching the server's parse.
@@ -11,7 +12,7 @@ struct PairedMacBackupOpWire: Encodable {
     init(op: PairedMacBackupOp, routeDisclosureDate: Date = Date()) {
         switch op {
         case .upsert(let record, let instanceAuthority):
-            self.macDeviceID = record.macDeviceID
+            self.macDeviceID = cmxCanonicalDeviceID(record.macDeviceID)
             self.instanceTag = record.instanceTag
             self.deleted = nil
             self.reviveDeleted = nil
@@ -22,7 +23,7 @@ struct PairedMacBackupOpWire: Encodable {
                 instanceAuthority: instanceAuthority
             )
         case .upsertPreservingCustomizations(let record, let instanceAuthority):
-            self.macDeviceID = record.macDeviceID
+            self.macDeviceID = cmxCanonicalDeviceID(record.macDeviceID)
             self.instanceTag = record.instanceTag
             self.deleted = nil
             self.reviveDeleted = nil
@@ -33,7 +34,7 @@ struct PairedMacBackupOpWire: Encodable {
                 instanceAuthority: instanceAuthority
             )
         case .revive(let record, let instanceAuthority):
-            self.macDeviceID = record.macDeviceID
+            self.macDeviceID = cmxCanonicalDeviceID(record.macDeviceID)
             self.instanceTag = record.instanceTag
             self.deleted = nil
             self.reviveDeleted = true
@@ -44,7 +45,7 @@ struct PairedMacBackupOpWire: Encodable {
                 instanceAuthority: instanceAuthority
             )
         case .revivePreservingCustomizations(let record, let instanceAuthority):
-            self.macDeviceID = record.macDeviceID
+            self.macDeviceID = cmxCanonicalDeviceID(record.macDeviceID)
             self.instanceTag = record.instanceTag
             self.deleted = nil
             self.reviveDeleted = true
@@ -55,13 +56,13 @@ struct PairedMacBackupOpWire: Encodable {
                 instanceAuthority: instanceAuthority
             )
         case .delete(let macDeviceID):
-            self.macDeviceID = macDeviceID
+            self.macDeviceID = cmxCanonicalDeviceID(macDeviceID)
             self.instanceTag = nil
             self.deleted = true
             self.reviveDeleted = nil
             self.record = nil
         case .deleteInstance(let macDeviceID, let instanceTag):
-            self.macDeviceID = macDeviceID
+            self.macDeviceID = cmxCanonicalDeviceID(macDeviceID)
             self.instanceTag = instanceTag
             self.deleted = true
             self.reviveDeleted = nil

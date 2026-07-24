@@ -13,14 +13,14 @@ final class BrowserDesignModeController {
     static let messageHandlerName = BrowserDesignModeMessageHandler.name
     private static let maximumRequestedChangeCharacters = 4_000
 
-    private(set) var phase: BrowserDesignModePhase = .inactive {
+    var phase: BrowserDesignModePhase = .inactive {
         didSet {
             guard oldValue != phase else { return }
             onActivityChanged()
         }
     }
     private(set) var snapshot: BrowserDesignModeSnapshot?
-    private(set) var errorMessage: String?
+    var errorMessage: String?
     var isComposerPresented = false
     /// Exclusive interaction mode: element selection or freehand region draw.
     private(set) var interactionMode: BrowserDesignModeInteractionMode = .select
@@ -46,29 +46,33 @@ final class BrowserDesignModeController {
     private(set) var isCopying = false
     private(set) var didCopy = false
 
-    @ObservationIgnored private let surfaceID: UUID
+    @ObservationIgnored let surfaceID: UUID
     @ObservationIgnored private let script: BrowserDesignModeScript
     @ObservationIgnored private let promptFormatter: BrowserDesignModePromptFormatter
-    @ObservationIgnored private let screenshotStore: BrowserDesignModeScreenshotStore
+    @ObservationIgnored let screenshotStore: BrowserDesignModeScreenshotStore
     @ObservationIgnored private let javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator
-    @ObservationIgnored private let screenshotEvaluator: BrowserDesignModeScreenshotEvaluator
+    @ObservationIgnored let screenshotEvaluator: BrowserDesignModeScreenshotEvaluator
     @ObservationIgnored private let canEnable: @MainActor @Sendable () -> Bool
     @ObservationIgnored private let clipboardWriter: ClipboardWriter
     @ObservationIgnored private let onActivityChanged: @MainActor @Sendable () -> Void
-    @ObservationIgnored private weak var webView: WKWebView?
+    @ObservationIgnored weak var webView: WKWebView?
     @ObservationIgnored private var messageHandler: BrowserDesignModeMessageHandler?
-    @ObservationIgnored private var operationRevision: UInt = 0
+    @ObservationIgnored var operationRevision: UInt = 0
     @ObservationIgnored private var activePageURL: URL?
     @ObservationIgnored private var copyTask: Task<Void, Never>?
     @ObservationIgnored private var copyTaskID: UUID?
-    var isActive: Bool { phase == .active || phase == .activating }
+    @ObservationIgnored var annotationCaptureTask: Task<Void, Never>?
+    @ObservationIgnored var annotationCaptureTaskID: UUID?
+    @ObservationIgnored var annotationScreenshotPaths: [String: String] = [:]
+    var isActive: Bool { phase.isEnabled || phase == .activating }
     var protectsFromDiscard: Bool { phase != .inactive }
     var canToggle: Bool {
-        guard phase != .activating, phase != .deactivating else { return false }
-        return phase == .active || canEnable()
+        guard !phase.isTransitioning else { return false }
+        return phase.isEnabled || canEnable()
     }
     var canCopy: Bool {
-        phase == .active
+        phase.isEnabled
+            && phase.annotation?.permitsHandoff == true
             && snapshot?.selections.isEmpty == false
             && copyTask == nil
             && !isCopying
@@ -128,6 +132,18 @@ final class BrowserDesignModeController {
                 self.promptResetGeneration &+= 1
                 self.didCopy = false
                 self.errorMessage = nil
+            },
+            onInteractionModeChanged: { [weak self] mode in
+                self?.adoptInteractionModeFromRuntime(mode)
+            },
+            onAnnotationDrawing: { [weak self] id in
+                self?.beginAnnotationDrawing(id: id)
+            },
+            onAnnotationCancelled: { [weak self] id in
+                self?.cancelAnnotationDrawing(id: id)
+            },
+            onAnnotationCaptureRequested: { [weak self] data in
+                self?.receiveAnnotationCaptureRequestData(data)
             }
         )
         messageHandler = handler
@@ -171,9 +187,9 @@ final class BrowserDesignModeController {
     @discardableResult
     func setEnabled(_ enabled: Bool, reason: String) async -> Bool {
         _ = reason
-        guard phase != .activating, phase != .deactivating else { return false }
+        guard !phase.isTransitioning else { return false }
         if enabled {
-            guard phase != .active else { return true }
+            guard !phase.isEnabled else { return true }
             guard canEnable(), let webView else {
                 errorMessage = String(
                     localized: "browser.designMode.error.noPage",
@@ -199,7 +215,7 @@ final class BrowserDesignModeController {
                 guard operation == operationRevision else { return false }
                 let next = try BrowserDesignModeSupport.decodeSnapshot(value)
                 apply(next)
-                phase = .active
+                phase = .active(annotation: .idle)
                 // The composer docks bottom-center from the moment Design
                 // Mode activates and stays until Escape or deactivation.
                 isComposerPresented = true
@@ -228,7 +244,7 @@ final class BrowserDesignModeController {
                 if cleanupSucceeded {
                     resetNativeState()
                 } else {
-                    phase = .active
+                    phase = .active(annotation: .idle)
                 }
                 BrowserDesignModeSupport.record(enableError, operation: "enable")
                 errorMessage = String(
@@ -252,7 +268,7 @@ final class BrowserDesignModeController {
             return true
         } catch let disableError {
             guard operation == operationRevision else { return false }
-            phase = .active
+            phase = .active(annotation: .idle)
             BrowserDesignModeSupport.record(disableError, operation: "disable")
             errorMessage = String(
                 localized: "browser.designMode.error.disable",
@@ -289,8 +305,11 @@ final class BrowserDesignModeController {
     /// or typed text, reset the whole prompt; with a clean slate, leave
     /// Design Mode.
     func handleEscape() async {
-        guard phase == .active else { return }
-        let hasContent = snapshot?.selections.isEmpty == false || !requestedChange.isEmpty
+        guard phase.isEnabled else { return }
+        let hasInFlightAnnotation = phase.annotation?.permitsHandoff == false
+        let hasContent = snapshot?.selections.isEmpty == false
+            || !requestedChange.isEmpty
+            || hasInFlightAnnotation
         if hasContent {
             requestedChange = ""
             promptRuns = []
@@ -313,7 +332,7 @@ final class BrowserDesignModeController {
     /// Clears the page-side hover highlight (used when the pointer enters the
     /// native composer card, which the page cannot observe).
     func clearPageHover() async {
-        guard phase == .active, let webView else { return }
+        guard phase.isEnabled, let webView else { return }
         _ = try? await evaluate(
             "return globalThis.__cmuxDesignMode?.clearHover();",
             arguments: [:],
@@ -339,7 +358,7 @@ final class BrowserDesignModeController {
     func updateComposerFrame(_ frame: CGRect) {
         guard frame != lastPublishedComposerFrame else { return }
         lastPublishedComposerFrame = frame
-        guard phase == .active, let webView else { return }
+        guard phase.isEnabled, let webView else { return }
         Task { @MainActor in
             _ = try? await self.evaluate(
                 "return globalThis.__cmuxDesignMode?.setComposerFrame(x, y, w, h);",
@@ -357,7 +376,7 @@ final class BrowserDesignModeController {
 
     /// Flashes the outline of the selection at `index` on the page.
     func revealSelection(at index: Int) async {
-        guard phase == .active,
+        guard phase.isEnabled,
               snapshot?.selections.indices.contains(index) == true,
               let webView else { return }
         _ = try? await evaluate(
@@ -367,35 +386,73 @@ final class BrowserDesignModeController {
         )
     }
 
-    func setInteractionMode(_ mode: BrowserDesignModeInteractionMode) async {
-        guard phase == .active, mode != interactionMode, let webView else { return }
+    /// Keeps page emphasis aligned with the token currently under the pointer.
+    func setSelectionHover(identity: String?) async {
+        guard phase.isEnabled, let webView else { return }
+        if let identity,
+           snapshot?.selections.contains(where: { $0.selector == identity }) != true { return }
+        _ = try? await evaluate(
+            "return globalThis.__cmuxDesignMode?.setSelectionHover(identity);",
+            arguments: ["identity": identity ?? NSNull()],
+            in: webView
+        )
+    }
+
+    /// Mirrors an automatic page-side mode transition before its drawing event arrives.
+    func adoptInteractionModeFromRuntime(_ rawValue: String) {
+        guard phase.isEnabled,
+              let mode = BrowserDesignModeInteractionMode(rawValue: rawValue) else { return }
         interactionMode = mode
+    }
+
+    func setInteractionMode(_ mode: BrowserDesignModeInteractionMode) async {
+        guard phase.isEnabled, mode != interactionMode, let webView else { return }
         do {
             let value = try await evaluate(
                 "return globalThis.__cmuxDesignMode?.setMode(mode);",
                 arguments: ["mode": mode.rawValue],
                 in: webView
             )
-            apply(try BrowserDesignModeSupport.decodeSnapshot(value))
+            let next = try BrowserDesignModeSupport.decodeSnapshot(value)
+            guard phase.isEnabled else { return }
+            interactionMode = mode
+            if mode == .select {
+                // The page runtime has now abandoned its annotation. Mirror
+                // that authoritative transition and prevent an older native
+                // capture continuation from committing afterward.
+                operationRevision &+= 1
+                if annotationCaptureTask != nil {
+                    annotationCaptureTask?.cancel()
+                    annotationCaptureTask = nil
+                    annotationCaptureTaskID = nil
+                    screenshotEvaluator.cancelAll()
+                }
+                phase = .active(annotation: .idle)
+            }
+            apply(next)
         } catch {
             BrowserDesignModeSupport.record(error, operation: "setMode")
         }
     }
 
-    func removeSelection(at index: Int) async {
-        guard phase == .active,
-              snapshot?.selections.indices.contains(index) == true,
-              let webView else { return }
+    @discardableResult
+    func removeSelection(at index: Int) async -> Bool {
+        guard phase.isEnabled,
+              let selections = snapshot?.selections,
+              selections.indices.contains(index),
+              let webView else { return false }
+        let identity = selections[index].selector
         do {
             let value = try await evaluate(
-                "return globalThis.__cmuxDesignMode?.removeSelection(index);",
-                arguments: ["index": index],
+                "return globalThis.__cmuxDesignMode?.removeSelection(identity);",
+                arguments: ["identity": identity],
                 in: webView
             )
             let next = try BrowserDesignModeSupport.decodeSnapshot(value)
             apply(next)
             didCopy = false
             errorMessage = nil
+            return true
         } catch {
             BrowserDesignModeSupport.record(error, operation: "removeSelection")
             errorMessage = BrowserDesignModeSupport.productMessage(
@@ -406,6 +463,7 @@ final class BrowserDesignModeController {
                 )
             )
             isComposerPresented = true
+            return false
         }
     }
 
@@ -420,7 +478,7 @@ final class BrowserDesignModeController {
 
     private func performCopySelection() async {
         let requestedChange = requestedChange.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard phase == .active,
+        guard phase.isEnabled,
               snapshot?.selections.isEmpty == false,
               let webView else { return }
         let operation = beginOperation()
@@ -435,6 +493,10 @@ final class BrowserDesignModeController {
             }
             var screenshotPaths: [String?] = []
             for selection in capture.snapshot.selections {
+                if let annotationPath = annotationScreenshotPaths[selection.selector] {
+                    screenshotPaths.append(annotationPath)
+                    continue
+                }
                 do {
                     let crop = try BrowserScreenshotCrop.croppedImage(
                         from: capture.image,
@@ -489,65 +551,11 @@ final class BrowserDesignModeController {
         }
     }
 
-    private func captureStableSelection(
-        in webView: WKWebView
-    ) async throws -> (snapshot: BrowserDesignModeSnapshot, image: NSImage, viewBounds: NSRect) {
-        for _ in 0..<2 {
-            let candidate = try await captureCandidate(in: webView)
-            if BrowserDesignModeSupport.captureMatches(
-                before: candidate.before,
-                after: candidate.after,
-                beforeViewBounds: candidate.beforeViewBounds,
-                afterViewBounds: candidate.afterViewBounds
-            ) {
-                return (candidate.after, candidate.image, candidate.afterViewBounds)
-            }
-        }
-        throw BrowserDesignModeError.captureChanged
-    }
-
-    private func captureCandidate(
-        in webView: WKWebView
-    ) async throws -> (
-        before: BrowserDesignModeSnapshot,
-        after: BrowserDesignModeSnapshot,
-        image: NSImage,
-        beforeViewBounds: NSRect,
-        afterViewBounds: NSRect
-    ) {
-        do {
-            let prepared = try await evaluate("return globalThis.__cmuxDesignMode?.prepareCapture();", in: webView)
-            let before = try BrowserDesignModeSupport.decodeSnapshot(prepared)
-            let beforeViewBounds = webView.bounds
-            let image = try await screenshotEvaluator.captureVisibleViewport(from: webView)
-            let after = try BrowserDesignModeSupport.decodeSnapshot(
-                try await evaluate("return globalThis.__cmuxDesignMode?.snapshot();", in: webView)
-            )
-            let afterViewBounds = webView.bounds
-            try await finishCapture(in: webView)
-            return (before, after, image, beforeViewBounds, afterViewBounds)
-        } catch {
-            let cleanup = Task { @MainActor [weak self, weak webView] in
-                guard let self, let webView else { return }
-                _ = try? await self.evaluate(
-                    "return globalThis.__cmuxDesignMode?.finishCapture();",
-                    in: webView
-                )
-            }
-            await cleanup.value
-            throw error
-        }
-    }
-
-    private func finishCapture(in webView: WKWebView) async throws {
-        _ = try await evaluate("return globalThis.__cmuxDesignMode?.finishCapture();", in: webView)
-    }
-
     private func destroyRuntime(in webView: WKWebView) async throws {
         _ = try await evaluate("return globalThis.__cmuxDesignMode?.destroy();", in: webView)
     }
 
-    private func evaluate(
+    func evaluate(
         _ body: String,
         arguments: [String: Any] = [:],
         in webView: WKWebView
@@ -561,11 +569,11 @@ final class BrowserDesignModeController {
     }
 
     private func receiveSnapshotData(_ data: Data) {
-        guard phase == .active || phase == .activating else { return }
+        guard phase.isEnabled || phase == .activating else { return }
         guard let next = try? JSONDecoder().decode(BrowserDesignModeSnapshot.self, from: data) else { return }
         let previousSelectors = snapshot?.selections.map(\.selector)
         apply(next)
-        if next.enabled { phase = .active }
+        if next.enabled, !phase.isEnabled { phase = .active(annotation: .idle) }
         if next.selections.map(\.selector) != previousSelectors {
             errorMessage = nil
             didCopy = false
@@ -575,9 +583,25 @@ final class BrowserDesignModeController {
         }
     }
 
-    private func apply(_ next: BrowserDesignModeSnapshot) {
+    func apply(_ next: BrowserDesignModeSnapshot) {
         guard next.revision >= (snapshot?.revision ?? -1) else { return }
         snapshot = next
+        let liveSelectors = Set(next.selections.map(\.selector))
+        let releasedPaths = annotationScreenshotPaths.compactMap { selector, path in
+            liveSelectors.contains(selector) ? nil : path
+        }
+        annotationScreenshotPaths = annotationScreenshotPaths.filter { liveSelectors.contains($0.key) }
+        if !releasedPaths.isEmpty {
+            Task { [screenshotStore] in
+                for path in releasedPaths {
+                    await screenshotStore.release(URL(fileURLWithPath: path))
+                }
+            }
+        }
+        if case .captured(_, let selector)? = phase.annotation,
+           !liveSelectors.contains(selector) {
+            phase = .active(annotation: .idle)
+        }
     }
 
     private func uninstall(from webView: WKWebView) {
@@ -620,6 +644,18 @@ final class BrowserDesignModeController {
         // leaves the reset state untouched.
         copyTask = nil
         copyTaskID = nil
+        annotationCaptureTask?.cancel()
+        annotationCaptureTask = nil
+        annotationCaptureTaskID = nil
+        let releasedPaths = Array(annotationScreenshotPaths.values)
+        annotationScreenshotPaths.removeAll()
+        if !releasedPaths.isEmpty {
+            Task { [screenshotStore] in
+                for path in releasedPaths {
+                    await screenshotStore.release(URL(fileURLWithPath: path))
+                }
+            }
+        }
     }
 
     private func beginOperation() -> UInt {
@@ -630,6 +666,9 @@ final class BrowserDesignModeController {
     private func invalidateOperation() {
         operationRevision &+= 1
         copyTask?.cancel()
+        annotationCaptureTask?.cancel()
+        annotationCaptureTask = nil
+        annotationCaptureTaskID = nil
         javaScriptEvaluator.cancelAll()
         screenshotEvaluator.cancelAll()
     }

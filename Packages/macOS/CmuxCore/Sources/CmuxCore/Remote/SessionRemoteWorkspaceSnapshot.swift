@@ -1,3 +1,5 @@
+public import CmuxFoundation
+
 /// The durable, codable subset of a remote-workspace configuration persisted
 /// in session snapshots so a remote workspace can be restored across launches.
 ///
@@ -6,6 +8,10 @@
 public struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable {
     /// The transport the workspace used when the snapshot was taken.
     public var transport: WorkspaceRemoteTransport
+    /// The interactive terminal protocol, absent in snapshots written before Mosh support.
+    public var terminalTransport: WorkspaceRemoteTerminalTransport? = nil
+    /// Durable terminal program intent, absent in snapshots written before terminal profiles.
+    public var terminalProfile: WorkspaceRemoteTerminalProfile? = nil
     /// SSH destination (`user@host` or `host`).
     public var destination: String
     /// Explicit SSH port, when one was configured.
@@ -28,6 +34,8 @@ public struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable {
     /// Creates a snapshot value; mirrors the synthesized memberwise initializer.
     public init(
         transport: WorkspaceRemoteTransport,
+        terminalTransport: WorkspaceRemoteTerminalTransport? = nil,
+        terminalProfile: WorkspaceRemoteTerminalProfile? = nil,
         destination: String,
         port: Int? = nil,
         identityFile: String? = nil,
@@ -39,6 +47,8 @@ public struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable {
         managedCloudVMID: String? = nil
     ) {
         self.transport = transport
+        self.terminalTransport = terminalTransport
+        self.terminalProfile = terminalProfile
         self.destination = destination
         self.port = port
         self.identityFile = identityFile

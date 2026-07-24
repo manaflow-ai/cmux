@@ -4,6 +4,8 @@
 /// ``MobileTerminalRenderGridFrame`` so the hot render path can diff row
 /// signatures without retaining complete viewport snapshots.
 public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
+    /// Producer lifetime that owns the revision sequence.
+    public let renderEpoch: String
     /// Number of columns in the frame that produced this state.
     public let columns: Int
     /// Number of rows in the frame that produced this state.
@@ -31,6 +33,7 @@ public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
     ///   - rowSignatures: Per-row text/style signatures for the source frame.
     ///     The count must match `rows`.
     public init(
+        renderEpoch: String = "",
         columns: Int,
         rows: Int,
         stateSeq: UInt64,
@@ -42,6 +45,7 @@ public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
         precondition(columns >= 0, "columns must be non-negative")
         precondition(rows >= 0, "rows must be non-negative")
         precondition(rowSignatures.count == rows, "rowSignatures count must match rows")
+        self.renderEpoch = renderEpoch
         self.columns = columns
         self.rows = rows
         self.stateSeq = stateSeq

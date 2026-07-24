@@ -29,6 +29,16 @@ case "$FUZZ_HOST_NAME" in
 esac
 DEFAULT_TMUX_TMPDIR="$HOME/Library/Caches/cmux/remote-tmux-fuzz/${FUZZ_HOST_NAME}-tmux"
 TMPDIR_REMOTE="${CMUX_FUZZ_TMUX_TMPDIR:-$DEFAULT_TMUX_TMPDIR}"
+# tmux ignores a TMUX_TMPDIR that does not exist and falls back to /tmp/tmux-$UID
+# — the user's own default server, which this harness kills and resizes freely.
+# The isolation is only real while the directory is there, so refuse to run
+# rather than take the fallback silently.
+[ -d "$TMPDIR_REMOTE" ] || {
+  echo "ERROR: tmux socket dir does not exist: $TMPDIR_REMOTE" >&2
+  echo "  tmux would silently fall back to the DEFAULT server (/tmp/tmux-$(id -u))." >&2
+  echo "  Run scripts/remote-tmux-fuzz-host.sh first, or set CMUX_FUZZ_TMUX_TMPDIR." >&2
+  exit 2
+}
 DEBUG_LOG="${CMUX_FUZZ_DEBUG_LOG:-/tmp/cmux-debug-${CMUX_TAG}.log}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 CLI="$HERE/cmux-debug-cli.sh"
@@ -55,10 +65,12 @@ FUZZ_SERVER_OWNED=0
 cleanup() {
   local status=$?
   trap - EXIT
-  if [ "$DRY" != 1 ] && [ -n "$WORKSPACE_REF" ]; then
+  # FUZZ_KEEP_STATE=1 leaves the workspace and remote server up so a failed
+  # run's final state can be probed live (rpc pane_surfaces etc.) postmortem.
+  if [ "$DRY" != 1 ] && [ -n "$WORKSPACE_REF" ] && [ "${FUZZ_KEEP_STATE:-0}" != 1 ]; then
     "$CLI" workspace close "$WORKSPACE_REF" >/dev/null 2>&1
   fi
-  if [ "$FUZZ_SERVER_OWNED" = 1 ]; then
+  if [ "$FUZZ_SERVER_OWNED" = 1 ] && [ "${FUZZ_KEEP_STATE:-0}" != 1 ]; then
     t kill-server >/dev/null 2>&1 || true
   fi
   cmux_fuzz_lock_release
@@ -87,6 +99,10 @@ fi
 
 t() { TMUX_TMPDIR="$TMPDIR_REMOTE" tmux "$@"; }
 fail=0
+# Successful mirror->mirror switches. A seed that never managed one has not
+# exercised the reveal path, and a green run would be reporting coverage it never
+# delivered — the exact way this class stayed invisible.
+OP10_SWITCHES=0
 EVIDENCE_DIR="${CMUX_FUZZ_EVIDENCE_DIR:-}"
 
 # The end-of-seed debug-log capture cannot cover a mid-seed failure: later
@@ -113,6 +129,33 @@ settlement_has_schema() {
   printf '%s' "$1" | jq -e '
     (.connected | type == "boolean") and (.windows | type == "array")
   ' >/dev/null 2>&1
+}
+
+# The reason a window is unsettled lives in its `why` terms, and the payload
+# arrives pretty-printed: keeping its first few hundred characters spends the
+# whole budget on indentation and stops inside the first window, which is how a
+# settle failure came to be reported with no usable cause. Compact it and keep
+# every window whole.
+settlement_digest() {
+  local digest
+  # Keep the UNSETTLED windows, whole. The failure is "nothing settled in 8s", so
+  # those windows are the entire cause, and bounding by window instead of by
+  # character is what keeps the output parsable — a character cap cuts mid-token,
+  # can drop the failing window's `why` outright depending on dictionary order,
+  # and leaves behind something that is no longer JSON.
+  # jq's status is honored: a payload of one valid value followed by garbage makes
+  # jq print and then exit non-zero, which a discarded status would report as a
+  # clean digest.
+  if digest=$(printf '%s' "$1" | jq -ce '
+        {connected, counters, windows: [.windows[]? | select(.settled != true)]}
+      ' 2>/dev/null) && [ -n "$digest" ]; then
+    printf '%s' "$digest"
+    return
+  fi
+  # Reachable and worth distinguishing: an RPC that times out at second 8 arrives
+  # here empty, and jq prints nothing for empty input. "The app stopped answering"
+  # is a different failure from "the app answered, unsettled".
+  printf 'unparsable or empty payload: %s' "$(printf '%s' "$1" | tr -d '\n' | cut -c1-300)"
 }
 
 settlement_has_reported_windows() {
@@ -142,7 +185,8 @@ settlement_clean() {
 
 settlement_has_render_mismatch() {
   printf '%s' "$1" | jq -e '
-    any(.windows[]?; ((.mismatches // []) | any(.[]; test("rendered=|misplaced"))))
+    any(.windows[]?; ((.mismatches // []) | any(.[];
+      test("rendered=|misplaced"))))
   ' >/dev/null 2>&1
 }
 
@@ -154,7 +198,8 @@ settlement_is_unsettled() {
 
 settlement_mismatch_lines() {
   printf '%s' "$1" | jq -r '
-    [.windows[]?.mismatches[]? | select(test("rendered=|misplaced"))][0:4][]
+    [.windows[]?.mismatches[]?
+      | select(test("rendered=|misplaced"))][0:4][]
   '
 }
 
@@ -249,19 +294,112 @@ check_screen_oracle() {
   # The app chooses which panes it is presenting, so it also chooses this
   # oracle's coverage — a pane the app quietly omitted would drop out of the
   # comparison and the run would still read green. Hold the app to tmux's own
-  # census: every window with an on-screen pane is the VISIBLE window, so tmux's
-  # full pane list for it must be on screen. A missing pane is the app failing to
-  # render a pane of the visible window, which is a defect, not less coverage.
-  for window in $(printf '%s' "$PANE_SURFACES_JSON" | jq -r '
-    [.panes[]? | select(.on_screen == true) | .window_id] | unique[]
-  ' 2>/dev/null); do
-    tmux_panes=$(t list-panes -t "$window" -F '#{pane_id}' 2>/dev/null | sort) || continue
+  # One workspace presents one tmux window at a time, so surfaces from two
+  # windows on screen at once is a hidden tab drawing over the selected one.
+  # The per-window census below cannot see this: each window individually
+  # matches tmux while both are visible.
+  on_screen_windows=$(printf '%s' "$PANE_SURFACES_JSON" | jq -r '
+    [.panes[]? | select(.on_screen == true) | .window_id] | unique | join(" ")
+  ' 2>/dev/null)
+  if [ "$(printf '%s\n' $on_screen_windows | grep -c .)" -gt 1 ]; then
+    # Same re-read discipline as every other judge: a probe can land inside
+    # the one-frame handoff of a tab switch, and only a state that persists
+    # through a fresh census is a defect.
+    # Judging the stale snapshot again would just repeat the first read, so
+    # a failed refresh defers the verdict to the next iteration entirely.
+    if ! refresh_pane_surfaces; then
+      return
+    fi
+    panes=$(on_screen_panes)
+    [ -n "$panes" ] || return
+    on_screen_windows=$(printf '%s' "$PANE_SURFACES_JSON" | jq -r '
+      [.panes[]? | select(.on_screen == true) | .window_id] | unique | join(" ")
+    ' 2>/dev/null)
+    if [ "$(printf '%s\n' $on_screen_windows | grep -c .)" -gt 1 ]; then
+      note_fail "$iter" "overlay: surfaces from multiple windows on screen at once [$on_screen_windows]"
+    fi
+  fi
+  # census: a window with an on-screen pane is the one the app is showing, so
+  # every pane tmux DRAWS for it must be on screen too. A missing pane is the app
+  # failing to render a pane of the visible window, which is a defect, not less
+  # coverage.
+  #
+  # "Draws" is the load-bearing word, and `list-panes` cannot answer it. Zoom
+  # hides panes without closing them, so list-panes reports the whole base tree
+  # for a zoomed window just as it does for an unzoomed one. tmux draws only the
+  # zoomed pane, and the app matches that by design (renderedLayout is
+  # visibleLayout ?? layout, so only the zoomed leaf reaches the bonsplit tree
+  # while its siblings stay alive and unrendered). Taking list-panes as the
+  # expected set therefore reports every sibling of a zoomed pane as dropped
+  # coverage — all panes but one, on every iteration a zoomed window is visible.
+  # Gate on window_zoomed_flag and expect the zoomed pane by itself.
+  for window in $on_screen_windows; do
+    window_panes=$(t list-panes -t "$window" \
+      -F '#{window_zoomed_flag} #{pane_active} #{pane_id}' 2>/dev/null)
+    if [ -z "$window_panes" ]; then
+      # The app says it is SHOWING this window and tmux does not have it. Skipping
+      # here was the quiet path: another visible window's successful comparison
+      # keeps `checked` non-zero, so the iteration passes while the window whose
+      # panes are stale on screen is compared against nothing at all. If the app
+      # shows a window tmux has closed, that is the finding.
+      note_fail "$iter" "visible $window: the app shows it but tmux has no panes for it (window gone, mirror still on screen)"
+      continue
+    fi
+    zoom_state=off
+    if printf '%s\n' "$window_panes" | grep -q '^1 '; then
+      zoom_state=on
+      tmux_panes=$(printf '%s\n' "$window_panes" | awk '$2 == 1 { print $3 }' | sort)
+    else
+      tmux_panes=$(printf '%s\n' "$window_panes" | awk '{ print $3 }' | sort)
+    fi
     app_panes=$(printf '%s' "$PANE_SURFACES_JSON" | jq -r --arg w "$window" '
       .panes[]? | select(.window_id == $w and .on_screen == true) | .pane_id
     ' 2>/dev/null | sort)
+    # BOTH directions. Panes tmux draws that the app lacks drop coverage; panes the
+    # app shows that tmux does not draw are overdraw — and the zoom gate narrows the
+    # expected set precisely in that direction, so checking only the first half turns
+    # "the app kept painting a zoomed pane's siblings" into a silent pass. Same fault
+    # the one-sided census had, just pointed the other way.
     missing=$(comm -23 <(printf '%s\n' "$tmux_panes") <(printf '%s\n' "$app_panes") | tr '\n' ' ')
-    if [ -n "${missing// /}" ]; then
-      note_fail "$iter" "visible $window: tmux panes [$missing] are not on screen in the app (coverage would silently drop them)"
+    unexpected=$(comm -13 <(printf '%s\n' "$tmux_panes") <(printf '%s\n' "$app_panes") | tr '\n' ' ')
+    if [ -n "${missing// /}${unexpected// /}" ]; then
+      # The app census came from the earlier pane_surfaces snapshot; a zoom
+      # toggle between that snapshot and the reads above manufactures a
+      # difference out of two individually consistent states. Confirm against
+      # fresh state on BOTH sides before recording a defect; only a difference
+      # that survives the re-read is one.
+      if ! refresh_pane_surfaces; then
+        return
+      fi
+      panes=$(on_screen_panes)
+      [ -n "$panes" ] || return
+      window_still_on_screen=$(printf '%s' "$PANE_SURFACES_JSON" | jq -r --arg w "$window" '
+        any(.panes[]?; .window_id == $w and .on_screen == true)
+      ' 2>/dev/null)
+      if [ "$window_still_on_screen" != "true" ]; then
+        continue
+      fi
+      window_panes=$(t list-panes -t "$window" \
+        -F '#{window_zoomed_flag} #{pane_active} #{pane_id}' 2>/dev/null) || continue
+      zoom_state=off
+      if printf '%s\n' "$window_panes" | grep -q '^1 '; then
+        zoom_state=on
+        tmux_panes=$(printf '%s\n' "$window_panes" | awk '$2 == 1 { print $3 }' | sort)
+      else
+        tmux_panes=$(printf '%s\n' "$window_panes" | awk '{ print $3 }' | sort)
+      fi
+      app_panes=$(printf '%s' "$PANE_SURFACES_JSON" | jq -r --arg w "$window" '
+        .panes[]? | select(.window_id == $w and .on_screen == true) | .pane_id
+      ' 2>/dev/null | sort)
+      missing=$(comm -23 <(printf '%s\n' "$tmux_panes") <(printf '%s\n' "$app_panes") | tr '\n' ' ')
+      unexpected=$(comm -13 <(printf '%s\n' "$tmux_panes") <(printf '%s\n' "$app_panes") | tr '\n' ' ')
+      if [ -n "${missing// /}${unexpected// /}" ]; then
+        # Both sides and the zoom flag, not just the difference: whether a pane is
+        # expected on screen turns entirely on zoom, so naming the odd pane alone
+        # accuses the app in a sentence that reads identically when the harness is the
+        # one that is wrong.
+        note_fail "$iter" "visible $window: pane census differs missing=[$missing] unexpected=[$unexpected] zoom=$zoom_state expected=[$(printf '%s' "$tmux_panes" | tr '\n' ' ')] app_on_screen=[$(printf '%s' "$app_panes" | tr '\n' ' ')]"
+      fi
     fi
   done
   checked=0
@@ -446,7 +584,7 @@ check_iter() {
   done
   echo "  settle $((SECONDS - settle_start))s (iter $iter)"
   if [ "$settled" != 1 ]; then
-    note_fail "$iter" "settle exceeded ${budget}s budget (healthy baseline ~0.4s): $(printf '%s' "$settled_json" | tr -d '\n' | cut -c1-300)"
+    note_fail "$iter" "settle exceeded ${budget}s budget (healthy baseline ~0.4s): $(settlement_digest "$settled_json")"
   elif settlement_has_render_mismatch "$settled_json"; then
     # Mismatch WHILE settled: re-read twice before failing, so a probe that
     # raced the last frame of a transition cannot manufacture a defect.
@@ -527,15 +665,117 @@ app_resize() {
     "{\"window_id\":\"$WINDOW_ID\",\"width\":$width,\"height\":$height}" >/dev/null 2>&1
 }
 
+# Switch the cmux TAB to a different mirrored window.
+#
+# Op 1's `select-window` cannot reach this: cmux never follows tmux's current
+# window, so a tmux-side switch changes nothing about which tab is on screen.
+# Until this op existed the fuzz had never once switched a mirror tab — which is
+# exactly where the workspace reuses the mounted view and swaps the mirror
+# underneath it, so every change-gated visibility edge is dead and the newly
+# selected window must re-derive its own container. That whole class was
+# unreachable from here while the marathon read green.
+#
+# `surface.focus` is the same route a user's click takes
+# (ControlCommandCoordinator -> Workspace.focusPanel -> bonsplitController.selectTab);
+# a back-door that reconstructed the view would fire the very edge under test.
+switch_mirror_tab() {
+  local iter=$1
+  refresh_pane_surfaces || return 0
+  # MIRRORED windows only. pane_surfaces lists single-pane windows too, and those
+  # have no mirror — focusing one exercises mirror->ordinary-panel, not the
+  # mirror->mirror reveal this op exists for, and would report success for it.
+  # pane_grids lists exactly the mirrored windows.
+  local grids mirrored shown target
+  grids=$("$TIMEOUT_BIN" 8 "$CLI" rpc remote.tmux.pane_grids \
+    "{\"host\":\"$HOST\",\"session\":\"$SESSION\"}" 2>/dev/null) || return 0
+  mirrored=$(printf '%s' "$grids" | jq -r '[.windows[]?.window_id] | join(" ")' 2>/dev/null)
+  [ -n "$mirrored" ] || return 0
+  # Demand exactly one on-screen window, not panes[0]'s window: during an
+  # overlapping tab handoff two windows are briefly on screen at once and [0]
+  # could name either of them.
+  shown=$(printf '%s' "$PANE_SURFACES_JSON" | jq -r '
+    [.panes[] | select(.on_screen == true) | .window_id] | unique
+    | if length == 1 then .[0] else empty end' 2>/dev/null)
+  # A vacuous landing check is worse than none: without a single shown window,
+  # any window appearing later "differs" and the op would claim it proved a
+  # switch it cannot attribute.
+  if [ -z "$shown" ]; then
+    echo "  (op10 skipped: zero or several windows on screen; no clean start state)"
+    return 0
+  fi
+  case " $mirrored " in *" $shown "*) : ;; *)
+    echo "  (op10 skipped: shown window @$shown is not mirrored)"; return 0 ;;
+  esac
+  # Take the target's WINDOW beside its surface. "Some other mirrored window is
+  # shown now" is not proof this op switched to the one it asked for: with a third
+  # mirrored window in play, or any concurrent selection, the shown window can
+  # differ from where it started without the target ever being selected, and the
+  # counter would bank a switch that never landed — a coverage number reporting
+  # more than it delivered, which is the fault this op exists to remove.
+  # Exact membership, not `inside`: jq's `inside` compares strings by containment,
+  # so ["@3"] | inside(["@30","@1"]) is true — once tmux hands out @10 and up
+  # (routine across a marathon) @1 would pass as mirrored on the strength of @10,
+  # and the op would "switch" to a window it never verified was a mirror.
+  local target_window mirrored_json
+  mirrored_json=$(printf '%s' "$grids" | jq -c '[.windows[]?.window_id]' 2>/dev/null) || return 0
+  target=$(printf '%s' "$PANE_SURFACES_JSON" | jq -r \
+    --arg shown "$shown" --argjson mir "$mirrored_json" '
+    [.panes[]
+       | select(.on_screen == false)
+       | select((.window_id | tostring) != $shown)
+       | select(.window_id | IN($mir[]))][0]
+    | "\(.surface_id // "") \(.window_id // "")"' 2>/dev/null)
+  target_window=${target#* }
+  target=${target%% *}
+  if [ -z "$target" ] || [ -z "$target_window" ] || [ "$target" = "null" ]; then
+    echo "  (op10 skipped: no second MIRRORED window to switch to)"
+    return 0
+  fi
+  "$TIMEOUT_BIN" 8 "$CLI" rpc surface.focus "{\"surface_id\":\"$target\"}" >/dev/null 2>&1 || {
+    note_fail "$iter" "op10: surface.focus rejected $target (mirror->mirror switch never attempted)"
+    return 0
+  }
+  # Prove the TARGET window is the one now shown. Bounded tightly: a wedged
+  # socket must reach the hang detector, not idle here for a minute. Probe before
+  # sleeping so an immediate switch costs nothing.
+  local after
+  for _ in 1 2 3 4 5 6; do
+    if "$TIMEOUT_BIN" 3 "$CLI" rpc remote.tmux.pane_surfaces \
+      "{\"host\":\"$HOST\",\"session\":\"$SESSION\"}" > "$RUN_DIR/op10.json" 2>/dev/null; then
+      # Same singleton rule as the start state: the landing only counts once
+      # the target is the ONLY on-screen window. Mid-handoff, target-plus-old
+      # is still on screen and must keep polling, not bank the switch early.
+      after=$(jq -r '
+        [.panes[] | select(.on_screen == true) | .window_id] | unique
+        | if length == 1 then .[0] else "\(length) windows: \(join(","))" end' \
+        "$RUN_DIR/op10.json" 2>/dev/null)
+      if [ -n "$after" ] && [ "$after" = "$target_window" ]; then
+        OP10_SWITCHES=$((OP10_SWITCHES + 1))
+        rm -f "$RUN_DIR/op10.json"
+        return 0
+      fi
+    fi
+    sleep 0.5
+  done
+  rm -f "$RUN_DIR/op10.json"
+  note_fail "$iter" "op10: focused $target but the shown window is ${after:-none}, not solely the target @$target_window (was @$shown) — the mirror tab never switched to it"
+}
+
 do_op() {
+  local iter=${1:-0}
   local w
   random_window; w="$RW"
-  rand 10
+  rand 11
   # Reconnect-during-churn (op 9) exercises the control-mode reconnect
   # concurrency, a separate subsystem from sizing. CMUX_FUZZ_NO_RECONNECT
   # remaps it to a benign op so a run can isolate steady-state sizing
   # correctness from reconnect-race robustness. Default keeps op 9.
   if [ "${CMUX_FUZZ_NO_RECONNECT:-0}" = 1 ] && [ "$R" = 9 ]; then R=1; fi
+  # Record the op behind each iteration. Without it a failure names an iteration
+  # and nothing else, and the first question about any fuzz failure — which
+  # operation produced this state — can only be answered by re-running the seed
+  # and counting by hand.
+  OPS_THIS_ITER="${OPS_THIS_ITER:+$OPS_THIS_ITER,}op$R"
   case $R in
     0) # pane resize, including starvation sizes down to 1 cell
       local pane; random_pane "$w"; pane="$RP"
@@ -569,13 +809,39 @@ do_op() {
         1) t set-option -t $SESSION pane-border-status bottom 2>/dev/null ;;
         *) t set-option -t $SESSION pane-border-status off 2>/dev/null ;;
       esac ;;
-    6) # window churn: create a window or kill one (keep at least one)
-      local wins; wins=$(t list-windows -t $SESSION | wc -l | tr -d ' ')
+    6) # window churn: create a window or kill one.
+       #
+       # Biases toward keeping TWO MULTI-pane windows alive, because only
+       # multi-pane windows get a mirror: with fewer than two of them op 10 has no
+       # mirror->mirror switch to make and silently tests nothing, which is how the
+       # reveal path stayed unexercised while this harness reported green. A fresh
+       # window is split immediately for the same reason — an unsplit one is not
+       # mirrored.
+       #
+       # This is a BIAS, not a guarantee, and the difference matters: op 2 kills
+       # panes and can collapse both mirrors to single panes on its own, so a run
+       # can still reach multi<2 between op-6 draws. op 10 says so out loud when it
+       # skips rather than reporting silent coverage — that log line is the real
+       # safeguard here, not this arithmetic.
+      local multi; multi=$(t list-windows -t $SESSION -F '#{window_panes}' 2>/dev/null \
+        | awk '$1 > 1' | wc -l | tr -d ' ')
       rand 2
-      if [ "$wins" -gt 2 ] || { [ "$wins" -gt 1 ] && [ "$R" = 0 ]; }; then
+      if [ "${multi:-0}" -gt 2 ] && [ "$R" = 0 ]; then
         random_window; t kill-window -t "$RW" 2>/dev/null
       else
+        # Re-split an existing single-pane window when we are short of mirrors,
+        # rather than only ever adding new windows: op 2 flattens the ones we have.
+        if [ "${multi:-0}" -lt 2 ]; then
+          local flat
+          flat=$(t list-windows -t $SESSION -F '#{window_panes} #{window_id}' 2>/dev/null \
+            | awk '$1 == 1 { print $2; exit }')
+          if [ -n "$flat" ]; then
+            t split-window -h -t "$flat" "$RULER_COMMAND" 2>/dev/null
+            return 0
+          fi
+        fi
         t new-window -t $SESSION "$RULER_COMMAND" 2>/dev/null
+        t split-window -h -t $SESSION "$RULER_COMMAND" 2>/dev/null
       fi ;;
     7) # container and assignment changing in the same instant
       local pane; random_pane "$w"; pane="$RP"
@@ -591,6 +857,8 @@ do_op() {
       rand 50; t resize-pane -t "$pane" -x $(( 10 + R )) 2>/dev/null ;;
     9) # drop and re-establish the control connection (reseed + re-impose)
       "$CLI" workspace reconnect --workspace "$WORKSPACE_REF" >/dev/null 2>&1 ;;
+    10) # switch the cmux TAB (mirror->mirror), which op 1 cannot do
+      switch_mirror_tab "$iter" ;;
   esac
 }
 
@@ -638,8 +906,9 @@ for i in $(seq 1 "$ITERS"); do
   ops=1
   rand 3
   if [ "$R" = 0 ]; then rand 2; ops=$(( 2 + R )); fi
-  for _ in $(seq 1 "$ops"); do do_op; done
-  echo "iter=$i/$ITERS ops=$ops panes=$(t list-panes -s -t $SESSION 2>/dev/null | wc -l | tr -d ' ') windows=$(t list-windows -t $SESSION 2>/dev/null | wc -l | tr -d ' ') fails=$fail"
+  OPS_THIS_ITER=""
+  for _ in $(seq 1 "$ops"); do do_op "$i"; done
+  echo "iter=$i/$ITERS ops=$ops [$OPS_THIS_ITER] panes=$(t list-panes -s -t $SESSION 2>/dev/null | wc -l | tr -d ' ') windows=$(t list-windows -t $SESSION 2>/dev/null | wc -l | tr -d ' ') fails=$fail"
   if [ "$DRY" = 1 ]; then
     t list-windows -t $SESSION -F "iter=$i win=#{window_name} #{window_width}x#{window_height} panes=#{window_panes} zoom=#{window_zoomed_flag} layout=#{window_layout}" 2>/dev/null
     continue
@@ -661,7 +930,23 @@ for i in $(seq 1 "$ITERS"); do
   last_size=$size
 done
 
-echo "FUZZ DONE seed=$SEED iters=$ITERS failures=$fail"
+# A seed that never switched a mirror tab did not exercise the reveal path, so its
+# green says nothing about the class this op exists for — and silent zero coverage
+# reading as a pass is exactly how a real mirror bug survived 125 "clean"
+# iterations. But whether a seed DRAWS op 10 is a property of the RNG, not of the
+# code under test: with one op in eleven and about 37 draws in a 25-iteration seed,
+# roughly one seed in thirty never draws it at all, and a shorter run far more
+# often. Counting that as a defect would file "the dice went another way" next to
+# real failures, and a gate that cries wolf gets ignored.
+#
+# So it is not a `fail`. It reports on its own line, and the marathon asserts the
+# floor across seeds, where the draw actually has room to even out.
+echo "FUZZ COVERAGE seed=$SEED op10_switches=${OP10_SWITCHES:-0}"
+if [ "${OP10_SWITCHES:-0}" -eq 0 ]; then
+  echo "FUZZ UNCOVERED seed=$SEED: no mirror->mirror tab switch landed in $ITERS iterations" \
+    "(op10 never drew, or never had two mirrored windows) — this seed says nothing about the reveal path"
+fi
+echo "FUZZ DONE seed=$SEED iters=$ITERS failures=$fail op10_switches=${OP10_SWITCHES:-0}"
 # Boolean exit: a raw count could wrap past 255 or collide with the
 # reserved sentinel codes (97 inert, 98 setup, 99 hang). The count itself
 # is in the FUZZ DONE line.

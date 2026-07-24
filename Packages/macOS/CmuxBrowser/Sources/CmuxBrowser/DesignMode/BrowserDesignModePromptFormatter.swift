@@ -1,7 +1,7 @@
 import Foundation
 
 /// Formats design-mode context into a prompt block that can be copied into a coding agent.
-public nonisolated struct BrowserDesignModePromptFormatter: Sendable {
+public struct BrowserDesignModePromptFormatter: Sendable {
     /// One selected element or region with its screenshot, encoded flat and
     /// with empty fields omitted so the payload stays small.
     private struct PayloadSelection: Encodable {

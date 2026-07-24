@@ -7,7 +7,7 @@
         {
           "type": "command",
           "request": { "id": 1, "cmd": "identify" },
-          "expect": { "id": 1, "ok": true, "data": { "app": "cmux-tui", "protocol": 7 } },
+          "expect": { "id": 1, "ok": true, "data": { "app": "cmux-tui", "protocol": 9 } },
           "match": "partial"
         }
       ]
@@ -18,7 +18,7 @@
         {
           "type": "command",
           "request": { "id": 1, "cmd": "ping" },
-          "expect": { "id": 1, "ok": true, "data": { "ok": true, "protocol": 7 } },
+          "expect": { "id": 1, "ok": true, "data": { "ok": true, "protocol": 9 } },
           "match": "partial"
         },
         {
@@ -52,7 +52,9 @@
           "match": "partial",
           "bind": {
             "workspace0": "data.workspaces[0].id",
-            "pane0": "data.workspaces[0].screens[0].panes[0].id"
+            "pane0": "data.workspaces[0].screens[0].panes[0].id",
+            "focused0": "data.workspaces[0].screens[0].panes[0].focused_at",
+            "pane_revision0": "data.pane_revision"
           }
         },
         {
@@ -111,7 +113,7 @@
     },
     {
       "name": "window-manager-layout-ops",
-      "requires": { "commands": ["export-layout", "pane-neighbor", "zoom-pane"] },
+      "requires": { "commands": ["export-layout", "set-split-ratio", "pane-neighbor", "zoom-pane"] },
       "steps": [
         {
           "type": "command",
@@ -137,7 +139,10 @@
           "request": { "id": 4, "cmd": "list-workspaces" },
           "expect": { "id": 4, "ok": true },
           "match": "partial",
-          "bind": { "pane1": "data.workspaces[2].screens[0].panes[1].id" }
+          "bind": {
+            "pane1": "data.workspaces[2].screens[0].panes[1].id",
+            "split0": "data.workspaces[2].screens[0].layout.split"
+          }
         },
         {
           "type": "command",
@@ -146,7 +151,7 @@
             "id": 5,
             "ok": true,
             "data": {
-              "layout": { "type": "split", "dir": "right", "ratio": 0.5 },
+              "layout": { "type": "split", "split": "$split0", "dir": "right", "ratio": 0.5 },
               "panes": [{ "pane": "$pane0" }, { "pane": "$pane1" }]
             }
           },
@@ -154,14 +159,26 @@
         },
         {
           "type": "command",
-          "request": { "id": 6, "cmd": "pane-neighbor", "pane": "$pane0", "dir": "right" },
-          "expect": { "id": 6, "ok": true, "data": { "pane": "$pane1" } },
+          "request": { "id": 6, "cmd": "set-split-ratio", "split": "$split0", "ratio": 0.75 },
+          "expect": { "id": 6, "ok": true, "data": {} },
           "match": "partial"
         },
         {
           "type": "command",
-          "request": { "id": 7, "cmd": "zoom-pane", "pane": "$pane1", "mode": "toggle" },
-          "expect": { "id": 7, "ok": true, "data": { "pane": "$pane1", "zoomed": true, "zoomed_pane": "$pane1" } },
+          "request": { "id": 7, "cmd": "export-layout" },
+          "expect": { "id": 7, "ok": true, "data": { "layout": { "split": "$split0", "ratio": 0.75 } } },
+          "match": "partial"
+        },
+        {
+          "type": "command",
+          "request": { "id": 8, "cmd": "pane-neighbor", "pane": "$pane0", "dir": "right" },
+          "expect": { "id": 8, "ok": true, "data": { "pane": "$pane1" } },
+          "match": "partial"
+        },
+        {
+          "type": "command",
+          "request": { "id": 9, "cmd": "zoom-pane", "pane": "$pane1", "mode": "toggle" },
+          "expect": { "id": 9, "ok": true, "data": { "pane": "$pane1", "zoomed": true, "zoomed_pane": "$pane1" } },
           "match": "partial"
         }
       ]

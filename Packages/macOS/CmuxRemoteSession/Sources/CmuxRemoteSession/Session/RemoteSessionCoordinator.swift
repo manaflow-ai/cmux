@@ -55,6 +55,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     let host: any RemoteSessionHosting
     let configuration: WorkspaceRemoteConfiguration
     let proxyBroker: any RemoteProxyBrokering
+    let connectionBroker: NativeSSHConnectionBroker
     let manifestRepository: RemoteDaemonManifestRepository
     let processRunner: any RemoteSessionProcessRunning
     let reachabilityProbe: any RemoteHostReachabilityProbing
@@ -114,6 +115,8 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var reconnectRetryCount = 0
     var reconnectTask: Task<Void, Never>?
     var reconnectToken: UUID?
+    var connectionAttemptTask: Task<Void, Never>?
+    var connectionAttemptToken: UUID?
     var consecutiveUnreachableProbeCount = 0
     var reconnectSuspended = false
     var isSystemSleeping = false
@@ -140,6 +143,8 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     ///     this coordinator's lifetime; reconnects construct a fresh one).
     ///   - proxyBroker: Process-wide proxy-tunnel broker (one shared tunnel
     ///     per remote transport), injected from the app hub.
+    ///   - connectionBroker: Process-wide native SSH ownership and per-host
+    ///     connection-attempt broker.
     ///   - manifestRepository: cmuxd-remote manifest/binary-cache repository.
     ///   - processRunner: Blocking subprocess seam (ssh/scp/dev go build).
     ///   - reachabilityProbe: SSH endpoint reachability seam for the
@@ -154,6 +159,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         host: any RemoteSessionHosting,
         configuration: WorkspaceRemoteConfiguration,
         proxyBroker: any RemoteProxyBrokering,
+        connectionBroker: NativeSSHConnectionBroker,
         manifestRepository: RemoteDaemonManifestRepository,
         processRunner: any RemoteSessionProcessRunning,
         reachabilityProbe: any RemoteHostReachabilityProbing,
@@ -166,6 +172,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         self.host = host
         self.configuration = configuration
         self.proxyBroker = proxyBroker
+        self.connectionBroker = connectionBroker
         self.manifestRepository = manifestRepository
         self.processRunner = processRunner
         self.reachabilityProbe = reachabilityProbe
@@ -205,7 +212,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         queue.async { [weak self] in
             guard let self else { return }
             guard !self.isStopping else { return }
-            self.beginConnectionAttemptLocked()
+            self.requestConnectionAttemptLocked()
         }
     }
 
@@ -533,55 +540,6 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
             ])
         }
         return message.isEmpty ? "remote daemon bootstrap failed" : message
-    }
-
-    // MARK: - Subprocess execution (through the runner seam)
-
-    func sshExec(arguments: [String], stdin: Data? = nil, timeout: TimeInterval = 15) throws -> RemoteCommandResult {
-        try runProcess(
-            executable: "/usr/bin/ssh",
-            arguments: arguments,
-            environment: configuration.sshProcessEnvironment,
-            stdin: stdin,
-            timeout: timeout
-        )
-    }
-
-    func scpExec(
-        arguments: [String],
-        timeout: TimeInterval = 30,
-        operation: (any RemoteTransferCancelling)? = nil
-    ) throws -> RemoteCommandResult {
-        try runProcess(
-            executable: "/usr/bin/scp",
-            arguments: arguments,
-            environment: configuration.sshProcessEnvironment,
-            stdin: nil,
-            timeout: timeout,
-            operation: operation
-        )
-    }
-
-    func runProcess(
-        executable: String,
-        arguments: [String],
-        environment: [String: String]? = nil,
-        currentDirectory: URL? = nil,
-        stdin: Data?,
-        timeout: TimeInterval,
-        operation: (any RemoteTransferCancelling)? = nil
-    ) throws -> RemoteCommandResult {
-        try processRunner.run(
-            RemoteProcessRequest(
-                executable: executable,
-                arguments: arguments,
-                environment: environment,
-                currentDirectory: currentDirectory,
-                stdin: stdin,
-                timeout: timeout
-            ),
-            operation: operation
-        )
     }
 
     // MARK: - Debug logging

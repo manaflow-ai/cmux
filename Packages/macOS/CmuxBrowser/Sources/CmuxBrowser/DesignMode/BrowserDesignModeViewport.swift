@@ -1,7 +1,7 @@
 import Foundation
 
 /// The CSS viewport size associated with a design-mode selection.
-public nonisolated struct BrowserDesignModeViewport: Codable, Equatable, Sendable {
+public struct BrowserDesignModeViewport: Codable, Equatable, Sendable {
     /// The viewport width.
     public let width: Double
     /// The viewport height.

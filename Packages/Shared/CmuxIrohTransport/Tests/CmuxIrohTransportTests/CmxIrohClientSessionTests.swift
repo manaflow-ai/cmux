@@ -41,6 +41,7 @@ struct CmxIrohClientSessionTests {
         )
 
         try await session.connect()
+        #expect(await session.connectionContinuityID() == 1)
 
         // Admission must not grant peer-initiated stream credit before a
         // production owner is installed. The dedicated server-events receiver
@@ -67,6 +68,33 @@ struct CmxIrohClientSessionTests {
             "control.send",
         ])
         #expect(try await session.receiveControl() == Data("rpc".utf8))
+    }
+
+    @Test
+    func closedNativeConnectionDoesNotReportContinuityIdentity() async throws {
+        let control = controlStream(decision: .accepted)
+        let connection = TestIrohConnection(
+            remoteIdentity: remoteIdentity,
+            continuityID: 42,
+            bidirectionalStreams: [control.stream]
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: [.connection(connection)]
+        )
+        let session = try CmxIrohClientSession(
+            endpoint: endpoint,
+            targetIdentity: remoteIdentity,
+            dialPlan: try testIrohDialPlan(),
+            credential: credential
+        )
+
+        try await session.connect()
+        #expect(await session.connectionContinuityID() == 42)
+
+        await connection.close(errorCode: 0, reason: "expired")
+
+        #expect(await session.connectionContinuityID() == nil)
     }
 
     @Test
@@ -169,6 +197,62 @@ struct CmxIrohClientSessionTests {
 
         let dialed = await endpoint.observedDialedAddresses()
         #expect(dialed.map(\.pathHints) == [[publicHint], [privateHint]])
+        #expect(await validator.observedAuthorizations() == [authorization])
+    }
+
+    @Test
+    func emptyPublicPlanFailsTypedWithoutCallingTheNativeDialer() async throws {
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: [.failure(.unsupported)]
+        )
+        let session = try CmxIrohClientSession(
+            endpoint: endpoint,
+            targetIdentity: remoteIdentity,
+            dialPlan: try testIrohDialPlan(publicPaths: [], privateFallbackPaths: []),
+            credential: credential
+        )
+
+        await #expect(throws: CmxIrohRegistryContextError.dialPlanUnavailable) {
+            try await session.connect()
+        }
+        #expect(await endpoint.observedDialedAddresses().isEmpty)
+    }
+
+    @Test
+    func emptyPublicPlanResolvesAndValidatesPrivateFallbackBeforeDialing() async throws {
+        let control = controlStream(decision: .accepted)
+        let connection = TestIrohConnection(
+            remoteIdentity: remoteIdentity,
+            bidirectionalStreams: [control.stream]
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: [.connection(connection)]
+        )
+        let privateHint = try tailscaleHint()
+        let authorization = try privateFallbackAuthorization(for: [privateHint])
+        let validator = TestPrivateFallbackValidator()
+        let fallbackContext = CmxIrohClientContext(
+            dialPlan: try testIrohDialPlan(
+                publicPaths: [],
+                privateFallbackPaths: [privateHint]
+            ),
+            credential: credential,
+            privateFallbackAuthorization: authorization
+        )
+        let session = try CmxIrohClientSession(
+            endpoint: endpoint,
+            targetIdentity: remoteIdentity,
+            dialPlan: try testIrohDialPlan(publicPaths: [], privateFallbackPaths: []),
+            credential: credential,
+            privateFallbackValidator: validator,
+            privateFallbackContextProvider: { fallbackContext }
+        )
+
+        try await session.connect()
+
+        #expect(await endpoint.observedDialedAddresses().map(\.pathHints) == [[privateHint]])
         #expect(await validator.observedAuthorizations() == [authorization])
     }
 

@@ -77,20 +77,25 @@ enum CmxIrohRelayPolicyResolution {
             )
         case let .custom(definitions):
             let tokens: [String: String]
-            do {
-                tokens = try await credentialStore.staticTokens(
-                    for: definitions,
-                    accountID: accountID
-                )
-            } catch {
-                return unavailableResolution(
-                    configuration: configuration,
-                    revision: revision,
-                    source: .customUnavailable,
-                    policy: policy,
-                    usedCachedPolicy: usedCachedPolicy,
-                    failure: .customCredentialUnavailable
-                )
+            let authenticatedDefinitions = definitions.filter { $0.authMode == .staticToken }
+            if authenticatedDefinitions.isEmpty {
+                tokens = [:]
+            } else {
+                do {
+                    tokens = try await credentialStore.staticTokens(
+                        for: authenticatedDefinitions,
+                        accountID: accountID
+                    )
+                } catch {
+                    return unavailableResolution(
+                        configuration: configuration,
+                        revision: revision,
+                        source: .customUnavailable,
+                        policy: policy,
+                        usedCachedPolicy: usedCachedPolicy,
+                        failure: .customCredentialUnavailable
+                    )
+                }
             }
             let missing = Set(definitions.compactMap { definition in
                 definition.authMode == .staticToken && tokens[definition.id] == nil
@@ -292,7 +297,7 @@ enum CmxIrohRelayPolicyResolution {
             policyExpiresAt: policy.map { Date(timeIntervalSince1970: TimeInterval($0.expiresAt)) },
             preferenceRevision: effective.preferenceRevision,
             selectedRelayIDs: selectedIDs,
-            selectedRelayURLs: effective.endpointRelayProfile.allowedRelayURLs.sorted(),
+            selectedRelayCount: effective.endpointRelayProfile.allowedRelayURLs.count,
             staleRelayIDs: effective.staleRelayIDs.sorted(),
             missingCredentialRelayIDs: effective.missingCredentialRelayIDs.sorted(),
             failure: failure

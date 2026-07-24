@@ -45,7 +45,7 @@ jobs:
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Compute next TUI version
@@ -148,20 +148,22 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
         run: git push origin "refs/tags/$TAG"
 
-      - name: Dispatch downstream build and PyPI publish
+      - name: Dispatch release workflows
         # The tag push above was made with the default GITHUB_TOKEN, which
-        # never triggers other workflows' tag-push events. Dispatch them
-        # explicitly against the new tag so the release actually builds and
-        # publishes. npm stays a deliberate manual dispatch (confirm gate).
+        # never triggers other workflows' tag-push events. Dispatch the
+        # release workflows explicitly against the new tag. This keeps registry
+        # OIDC identities on their top-level workflow files and binds provenance
+        # to the exact immutable release commit. Failed runs retain that ref.
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          gh workflow run cmux-tui-release.yml --repo "$GITHUB_REPOSITORY" --ref "refs/tags/$TAG" -f version="$VERSION"
-          gh workflow run tui-publish-pypi.yml --repo "$GITHUB_REPOSITORY" --ref "refs/tags/$TAG" -f version="$VERSION"
+          gh workflow run cmux-tui-release.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" -f version="$VERSION"
+          gh workflow run tui-publish-pypi.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" -f version="$VERSION"
+          gh workflow run tui-publish-npm.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" -f version="$VERSION" -f confirm_tui_cmux=true
           {
-            echo "- Dispatched cmux-tui-release.yml and tui-publish-pypi.yml on $TAG"
-            echo "- npm publish: dispatch tui-publish-npm.yml with version=$VERSION and confirm_tui_cmux=true"
+            echo "- Dispatched cmux-tui-release.yml on $TAG"
+            echo "- Dispatched npm and PyPI publishers on $TAG"
           } >> "$GITHUB_STEP_SUMMARY"
