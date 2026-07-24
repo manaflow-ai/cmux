@@ -9,6 +9,7 @@ private enum PDFPreviewChromeDebugAction {
     case zoomToFit
     case rotateLeft
     case rotateRight
+    case refresh
 
     var title: String {
         switch self {
@@ -24,6 +25,8 @@ private enum PDFPreviewChromeDebugAction {
             String(localized: "filePreview.pdf.rotateLeft", defaultValue: "Rotate Left")
         case .rotateRight:
             String(localized: "filePreview.pdf.rotateRight", defaultValue: "Rotate Right")
+        case .refresh:
+            String(localized: "filePreview.refresh", defaultValue: "Refresh")
         }
     }
 
@@ -41,6 +44,8 @@ private enum PDFPreviewChromeDebugAction {
             "rotate.left"
         case .rotateRight:
             "rotate.right"
+        case .refresh:
+            "arrow.clockwise"
         }
     }
 }
@@ -225,7 +230,8 @@ private struct PDFPreviewChromeDebugSample: View {
             zoomIn: { model.record(.zoomIn) },
             zoomToFit: { model.record(.zoomToFit) },
             rotateLeft: { model.record(.rotateLeft) },
-            rotateRight: { model.record(.rotateRight) }
+            rotateRight: { model.record(.rotateRight) },
+            refresh: { model.record(.refresh) }
         )
     }
 }

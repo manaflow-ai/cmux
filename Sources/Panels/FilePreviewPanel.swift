@@ -1,6 +1,5 @@
 import CmuxFoundation
 import AppKit
-import AVKit
 import Bonsplit
 import Combine
 import Foundation
@@ -693,10 +692,9 @@ enum FilePreviewKindResolver {
         }
     }
 
+    @concurrent
     static func resolveMode(url: URL) async -> FilePreviewMode {
-        await Task.detached(priority: .userInitiated) {
-            mode(for: url)
-        }.value
+        mode(for: url)
     }
 
     static func tabIconName(for url: URL) -> String {
@@ -912,10 +910,9 @@ enum FilePreviewTextLoader {
         case unavailable
     }
 
+    @concurrent
     static func load(url: URL) async -> Result {
-        await Task.detached(priority: .userInitiated) {
-            loadSynchronously(url: url)
-        }.value
+        loadSynchronously(url: url)
     }
 
     static func loadSynchronously(url: URL) -> Result {
@@ -959,19 +956,18 @@ enum FilePreviewTextSaver {
         case failed(fileExists: Bool)
     }
 
+    @concurrent
     static func save(content: String, to url: URL, encoding: String.Encoding) async -> Result {
-        await Task.detached(priority: .userInitiated) {
-            guard let data = content.data(using: encoding) else {
-                return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
-            }
+        guard let data = content.data(using: encoding) else {
+            return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
+        }
 
-            do {
-                try data.write(to: url, options: [])
-                return .saved
-            } catch {
-                return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
-            }
-        }.value
+        do {
+            try data.write(to: url, options: [])
+            return .saved
+        } catch {
+            return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
+        }
     }
 }
 
@@ -990,28 +986,48 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     @Published private(set) var isSaving = false
     @Published private(set) var focusFlashToken = 0
     @Published private(set) var previewMode: FilePreviewMode
+    let previewRevisionState = FilePreviewRevision()
 
     let nativeViewSessions = FilePreviewNativeViewSessions()
 
     private var originalTextContent = ""
     private var textEncoding: String.Encoding = .utf8
-    private var previewModeGeneration = 0
-    private var textLoadGeneration = 0
     private var saveGeneration = 0
     private var activeSaveGeneration: Int?
+    var fileChangeWatcher: FileWatcher?
+    var fileChangeTask: Task<Void, Never>?
+    var fileChangeReloadTask: Task<Void, Never>?
+    var lastObservedFileState: FilePreviewFileState?
+    var isClosed = false
     weak var textView: NSTextView?
     let focusCoordinator: FilePreviewFocusCoordinator
     private let textLoader: @Sendable (URL) async -> FilePreviewTextLoader.Result
+    private let textSaver: @Sendable (String, URL, String.Encoding) async -> FilePreviewTextSaver.Result
+    private let modeResolver: @Sendable (URL) async -> FilePreviewMode
+    private let textLoadCoordinator = FilePreviewLatestLoadCoordinator<FilePreviewTextLoader.Result>()
+    private let modeLoadCoordinator = FilePreviewLatestLoadCoordinator<FilePreviewMode>()
 
     var fileURL: URL {
         URL(fileURLWithPath: filePath)
     }
 
+    var previewRevision: Int {
+        previewRevisionState.value
+    }
+
     init(
         workspaceId: UUID,
         filePath: String,
+        startFileWatcher: Bool = true,
         textLoader: @escaping @Sendable (URL) async -> FilePreviewTextLoader.Result = { url in
             await FilePreviewTextLoader.load(url: url)
+        },
+        textSaver: @escaping @Sendable (String, URL, String.Encoding) async -> FilePreviewTextSaver.Result = {
+            content, url, encoding in
+            await FilePreviewTextSaver.save(content: content, to: url, encoding: encoding)
+        },
+        modeResolver: @escaping @Sendable (URL) async -> FilePreviewMode = { url in
+            await FilePreviewKindResolver.resolveMode(url: url)
         }
     ) {
         self.id = UUID()
@@ -1019,6 +1035,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         self.filePath = filePath
         self.displayTitle = URL(fileURLWithPath: filePath).lastPathComponent
         self.textLoader = textLoader
+        self.textSaver = textSaver
+        self.modeResolver = modeResolver
         let fileURL = URL(fileURLWithPath: filePath)
         let initialPreviewMode = FilePreviewKindResolver.initialMode(for: fileURL)
         self.previewMode = initialPreviewMode
@@ -1026,9 +1044,13 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         self.focusCoordinator = FilePreviewFocusCoordinator(
             preferredIntent: Self.defaultFocusIntent(for: initialPreviewMode)
         )
+        self.lastObservedFileState = .capture(path: filePath)
 
         prepareContentForPreviewMode()
         resolvePreviewModeIfNeeded(for: fileURL)
+        if startFileWatcher {
+            startWatchingForFileChanges()
+        }
     }
 
     func focus() {
@@ -1040,6 +1062,10 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     }
 
     func close() {
+        isClosed = true
+        stopWatchingForFileChanges()
+        textLoadCoordinator.cancel()
+        modeLoadCoordinator.cancel()
         nativeViewSessions.closeAll()
         textView = nil
         focusCoordinator.unregisterAll()
@@ -1142,39 +1168,75 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         isDirty = nextContent != originalTextContent
     }
 
-    private func prepareContentForPreviewMode() {
+    /// Re-resolves and reloads the current path. Toolbar actions and filesystem
+    /// events share this path so every renderer observes the same revision.
+    @discardableResult
+    func reloadFromDisk() -> Task<Void, Never> {
+        lastObservedFileState = .capture(path: filePath)
+        let fileURL = fileURL
+        let modeResolver = modeResolver
+
+        return modeLoadCoordinator.submit(load: {
+            await modeResolver(fileURL)
+        }) { [weak self] resolvedMode in
+            guard let self, !self.isClosed else { return }
+
+            if resolvedMode != self.previewMode {
+                if self.previewMode == .text, self.isDirty {
+                    await self.loadTextContent(replacingDirtyContent: false).value
+                    return
+                }
+                await self.applyResolvedPreviewMode(resolvedMode)?.value
+                return
+            }
+
+            if resolvedMode == .text {
+                await self.loadTextContent(replacingDirtyContent: false).value
+            } else {
+                self.isFileUnavailable = !FileManager.default.fileExists(atPath: self.filePath)
+                if !self.isFileUnavailable {
+                    self.previewRevisionState.increment()
+                }
+            }
+        }
+    }
+
+    @discardableResult
+    private func prepareContentForPreviewMode() -> Task<Void, Never>? {
         if previewMode == .text {
-            loadTextContent(replacingDirtyContent: false)
+            return loadTextContent(replacingDirtyContent: false)
         } else {
             isFileUnavailable = !FileManager.default.fileExists(atPath: filePath)
+            return nil
         }
     }
 
     private func resolvePreviewModeIfNeeded(for fileURL: URL) {
         let initialMode = previewMode
         let initialIcon = displayIcon
-        previewModeGeneration += 1
-        let generation = previewModeGeneration
+        let modeResolver = modeResolver
 
-        Task { [weak self, fileURL, initialMode, initialIcon, generation] in
-            let resolvedMode = await FilePreviewKindResolver.resolveMode(url: fileURL)
-            guard let self, self.previewModeGeneration == generation else { return }
+        modeLoadCoordinator.submit(load: {
+            await modeResolver(fileURL)
+        }) { [weak self] resolvedMode in
+            guard let self else { return }
             let resolvedIcon = FilePreviewKindResolver.iconName(for: resolvedMode)
             guard resolvedMode != initialMode || resolvedIcon != initialIcon else { return }
-            self.applyResolvedPreviewMode(resolvedMode)
+            await self.applyResolvedPreviewMode(resolvedMode)?.value
         }
     }
 
-    private func applyResolvedPreviewMode(_ mode: FilePreviewMode) {
-        guard previewMode != mode else { return }
+    @discardableResult
+    private func applyResolvedPreviewMode(_ mode: FilePreviewMode) -> Task<Void, Never>? {
+        guard previewMode != mode else { return nil }
         if mode != .text {
-            textLoadGeneration += 1
+            textLoadCoordinator.cancel()
         }
         previewMode = mode
         displayIcon = FilePreviewKindResolver.iconName(for: mode)
         focusCoordinator.notePreferredIntent(Self.defaultFocusIntent(for: mode))
         nativeViewSessions.closeInactive(except: mode)
-        prepareContentForPreviewMode()
+        return prepareContentForPreviewMode()
     }
 
     @discardableResult
@@ -1182,16 +1244,13 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         guard previewMode == .text else {
             return Task {}
         }
-        textLoadGeneration += 1
-        let generation = textLoadGeneration
         let fileURL = fileURL
         let textLoader = textLoader
 
-        return Task { [weak self, fileURL, generation, replacingDirtyContent, textLoader] in
-            let result = await textLoader(fileURL)
-            guard let self,
-                  self.textLoadGeneration == generation,
-                  self.previewMode == .text else { return }
+        return textLoadCoordinator.submit(load: {
+            await textLoader(fileURL)
+        }) { [weak self] result in
+            guard let self, self.previewMode == .text else { return }
             self.applyTextLoadResult(result, replacingDirtyContent: replacingDirtyContent)
         }
     }
@@ -1215,6 +1274,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             if !replacingDirtyContent && isDirty {
                 originalTextContent = content
                 textEncoding = encoding
+                isDirty = textContent != originalTextContent
                 isFileUnavailable = false
                 return
             }
@@ -1237,7 +1297,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             return nil
         }
 
-        textLoadGeneration += 1
+        textLoadCoordinator.cancel()
         saveGeneration += 1
         let generation = saveGeneration
         textContent = currentContent
@@ -1245,19 +1305,24 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         activeSaveGeneration = generation
         let fileURL = fileURL
         let encoding = textEncoding
-        return Task { [weak self, currentContent, fileURL, encoding, generation] in
-            let result = await FilePreviewTextSaver.save(content: currentContent, to: fileURL, encoding: encoding)
+        let textSaver = textSaver
+        return Task { [weak self, currentContent, fileURL, encoding, generation, textSaver] in
+            let result = await textSaver(currentContent, fileURL, encoding)
             guard let self, self.activeSaveGeneration == generation else { return }
             self.activeSaveGeneration = nil
             self.isSaving = false
+            let reconciliationTask: Task<Void, Never>?
             switch result {
             case .saved:
                 self.originalTextContent = currentContent
                 self.isDirty = self.textContent != currentContent
                 self.isFileUnavailable = false
+                reconciliationTask = self.reloadFromDisk()
             case .failed(let fileExists):
                 self.isFileUnavailable = !fileExists
+                reconciliationTask = self.handleObservedFileChange()
             }
+            await reconciliationTask?.value
         }
     }
 
@@ -1299,11 +1364,11 @@ struct FilePreviewPanelView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if panel.previewMode != .pdf {
+            if panel.previewMode != .pdf || panel.isFileUnavailable {
                 header
                 Divider()
             }
-            content
+            content(previewRevision: panel.previewRevisionState.value)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: contentBackgroundColor))
@@ -1342,12 +1407,18 @@ struct FilePreviewPanelView: View {
                 )
             }
 
+            PanelHeaderIconButton(
+                systemName: "arrow.clockwise",
+                label: String(localized: "filePreview.refresh", defaultValue: "Refresh"),
+                action: { panel.reloadFromDisk() }
+            )
+
             FileExternalOpenMenu(fileURL: panel.fileURL, isDisabled: panel.isFileUnavailable)
         }
     }
 
     @ViewBuilder
-    private var content: some View {
+    private func content(previewRevision: Int) -> some View {
         if panel.isFileUnavailable {
             fileUnavailableView
         } else {
@@ -1364,6 +1435,7 @@ struct FilePreviewPanelView: View {
             case .pdf:
                 FilePreviewPDFView(
                     panel: panel,
+                    revision: previewRevision,
                     isVisibleInUI: isVisibleInUI,
                     backgroundColor: contentBackgroundColor,
                     drawsBackground: appearance.drawsContentBackground
@@ -1371,6 +1443,7 @@ struct FilePreviewPanelView: View {
             case .image:
                 FilePreviewImageView(
                     panel: panel,
+                    revision: previewRevision,
                     isVisibleInUI: isVisibleInUI,
                     backgroundColor: contentBackgroundColor,
                     drawsBackground: appearance.drawsContentBackground
@@ -1378,6 +1451,7 @@ struct FilePreviewPanelView: View {
             case .media:
                 FilePreviewMediaView(
                     panel: panel,
+                    revision: previewRevision,
                     isVisibleInUI: isVisibleInUI,
                     backgroundColor: contentBackgroundColor,
                     drawsBackground: appearance.drawsContentBackground
@@ -1385,6 +1459,7 @@ struct FilePreviewPanelView: View {
             case .quickLook:
                 QuickLookPreviewView(
                     panel: panel,
+                    revision: previewRevision,
                     isVisibleInUI: isVisibleInUI,
                     backgroundColor: contentBackgroundColor,
                     drawsBackground: appearance.drawsContentBackground
@@ -1436,32 +1511,6 @@ struct FilePreviewPanelView: View {
         case .easeOut:
             return .easeOut(duration: duration)
         }
-    }
-}
-
-private struct FilePreviewPDFView: NSViewRepresentable {
-    let panel: FilePreviewPanel
-    let isVisibleInUI: Bool
-    let backgroundColor: NSColor
-    let drawsBackground: Bool
-
-    func makeNSView(context: Context) -> FilePreviewPDFContainerView {
-        panel.nativeViewSessions.pdf.view(
-            panel: panel,
-            isVisibleInUI: isVisibleInUI,
-            backgroundColor: backgroundColor,
-            drawsBackground: drawsBackground
-        )
-    }
-
-    func updateNSView(_ nsView: FilePreviewPDFContainerView, context: Context) {
-        panel.nativeViewSessions.pdf.update(
-            nsView,
-            panel: panel,
-            isVisibleInUI: isVisibleInUI,
-            backgroundColor: backgroundColor,
-            drawsBackground: drawsBackground
-        )
     }
 }
 
@@ -1669,138 +1718,7 @@ private struct FilePreviewPDFSidebarChromeView: View {
     }
 }
 
-struct FilePreviewPDFZoomChromeView: View {
-    let chromeStyleVariant: FilePreviewPDFChromeStyleVariant
-    let fileURL: URL?
-    let zoomOut: () -> Void
-    let actualSize: () -> Void
-    let zoomIn: () -> Void
-    let zoomToFit: () -> Void
-    let rotateLeft: () -> Void
-    let rotateRight: () -> Void
-
-    var body: some View {
-        if chromeStyleVariant == .systemControlGroup {
-            ControlGroup {
-                zoomButtons(includeDividers: false)
-                secondaryButtons(includeDividers: false)
-                if let fileURL {
-                    FileExternalOpenMenu(fileURL: fileURL, style: .chrome)
-                }
-            } label: {
-                Label(
-                    String(localized: "filePreview.pdf.zoomControls", defaultValue: "Zoom Controls"),
-                    systemImage: "magnifyingglass"
-                )
-            }
-            .controlSize(.regular)
-        } else {
-            HStack(spacing: 10) {
-                HStack(spacing: 0) {
-                    zoomButtons(includeDividers: true)
-                }
-                .frame(height: chromeStyleVariant == .liquidGlass ? 40 : 36)
-                .modifier(FilePreviewPDFChromeStyleModifier(variant: chromeStyleVariant))
-
-                HStack(spacing: 0) {
-                    secondaryButtons(includeDividers: true)
-                }
-                .frame(height: chromeStyleVariant == .liquidGlass ? 40 : 36)
-                .modifier(FilePreviewPDFChromeStyleModifier(variant: chromeStyleVariant))
-
-                if let fileURL {
-                    HStack(spacing: 0) {
-                        FileExternalOpenMenu(fileURL: fileURL, style: .chrome)
-                    }
-                    .frame(width: 40, height: 40)
-                    .modifier(FilePreviewPDFStandaloneChromeStyleModifier(variant: chromeStyleVariant))
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func zoomButtons(includeDividers: Bool) -> some View {
-        chromeButton(
-            systemName: "minus.magnifyingglass",
-            label: String(localized: "filePreview.pdf.zoomOut", defaultValue: "Zoom Out"),
-            action: zoomOut
-        )
-        if includeDividers {
-            chromeDivider
-        }
-        chromeButton(
-            systemName: "1.magnifyingglass",
-            label: String(localized: "filePreview.pdf.actualSize", defaultValue: "Actual Size"),
-            action: actualSize
-        )
-        if includeDividers {
-            chromeDivider
-        }
-        chromeButton(
-            systemName: "plus.magnifyingglass",
-            label: String(localized: "filePreview.pdf.zoomIn", defaultValue: "Zoom In"),
-            action: zoomIn
-        )
-    }
-
-    @ViewBuilder
-    private func secondaryButtons(includeDividers: Bool) -> some View {
-        chromeButton(
-            systemName: "arrow.up.left.and.arrow.down.right",
-            label: String(localized: "filePreview.pdf.zoomToFit", defaultValue: "Zoom to Fit"),
-            action: zoomToFit
-        )
-        if includeDividers {
-            chromeDivider
-        }
-        chromeButton(
-            systemName: "rotate.left",
-            label: String(localized: "filePreview.pdf.rotateLeft", defaultValue: "Rotate Left"),
-            action: rotateLeft
-        )
-        if includeDividers {
-            chromeDivider
-        }
-        chromeButton(
-            systemName: "rotate.right",
-            label: String(localized: "filePreview.pdf.rotateRight", defaultValue: "Rotate Right"),
-            action: rotateRight
-        )
-    }
-
-    @ViewBuilder
-    private func chromeButton(
-        systemName: String,
-        label: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        if chromeStyleVariant == .liquidGlass {
-            FilePreviewChromeIconButton(systemName: systemName, label: label, action: action)
-        } else {
-            Button(action: action) {
-                Image(systemName: systemName)
-                    .cmuxFont(size: 16, weight: .regular)
-                    .frame(width: 38, height: 36)
-                    .contentShape(Rectangle())
-            }
-            .accessibilityLabel(label)
-            .help(label)
-        }
-    }
-
-    private var chromeDivider: some View {
-        Divider()
-            .frame(width: 1, height: 20)
-            .overlay(
-                chromeStyleVariant == .liquidGlass
-                    ? Color.white.opacity(0.18)
-                    : Color.clear
-            )
-    }
-}
-
-private struct FilePreviewChromeIconButton: View {
+struct FilePreviewChromeIconButton: View {
     let systemName: String
     let label: String
     let action: () -> Void
@@ -2414,12 +2332,13 @@ private final class FilePreviewPDFThumbnailItemView: NSView {
 }
 
 final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineViewDataSource, NSOutlineViewDelegate {
+    private let visiblePageResolver = FilePreviewPDFVisiblePageResolver()
     private enum Metrics {
         static let defaultSidebarWidth = FilePreviewPDFSizing.defaultSidebarWidth
         static let minimumSidebarWidth = FilePreviewPDFSizing.minimumSidebarWidth
         static let maximumSidebarWidth = FilePreviewPDFSizing.maximumSidebarWidth
         static let floatingChromeHeight: CGFloat = 40
-        static let floatingControlsWidth: CGFloat = 344
+        static let floatingControlsWidth: CGFloat = 394
         static let floatingChromeCornerRadius: CGFloat = 20
     }
 
@@ -2438,6 +2357,11 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     private let pageLabel = NSTextField(labelWithString: "")
     private weak var panel: FilePreviewPanel?
     private var currentURL: URL?
+    private var currentRevision: Int?
+    private var loadGeneration = 0
+    private var pendingReloadViewport: FilePreviewPDFViewportSnapshot?
+    private var pendingReloadWasAutoScaled: Bool?
+    private var pendingReloadScale: CGFloat?
     private var outlineRoot: PDFOutline?
     private var sidebarMode: FilePreviewPDFSidebarMode = .thumbnails
     private var displayMode: FilePreviewPDFDisplayMode = .continuousScroll
@@ -2454,14 +2378,12 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     private var activePDFRegion: FilePreviewPanelFocusIntent?
     private weak var observedPDFClipView: NSClipView?
     private var rotationAccumulator: CGFloat = 0
+    private var pageRotationState = FilePreviewPDFPageRotationState()
     private var previewBackgroundColor = NSColor.textBackgroundColor
     private var drawsPreviewBackground = true
     private var lastAppliedPDFScrollBackgroundAppearance: PDFScrollBackgroundAppearance?
     private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
-    private static let documentLoadQueue = DispatchQueue(
-        label: "com.cmux.file-preview.pdf-document-load",
-        qos: .userInitiated
-    )
+    private let documentLoader = FilePreviewLatestLoadCoordinator<FilePreviewPDFLoadResult>()
 
     private struct PDFScrollBackgroundAppearance {
         let hostIdentifiers: Set<ObjectIdentifier>
@@ -2535,6 +2457,12 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         thumbnailView.setDocument(nil)
         outlineRoot = nil
         currentURL = nil
+        currentRevision = nil
+        loadGeneration &+= 1
+        documentLoader.cancel()
+        pendingReloadViewport = nil
+        pendingReloadWasAutoScaled = nil
+        pendingReloadScale = nil
         panel = nil
     }
 
@@ -2546,24 +2474,41 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         applyBackgroundAppearance()
     }
 
-    func setURL(_ url: URL) {
-        guard currentURL != url else {
+    func setURL(_ url: URL, revision: Int) {
+        guard currentURL != url || currentRevision != revision else {
             applyPreferredSidebarWidthIfNeeded()
             updatePageControls()
             refreshPDFSmartFitPreservingVisibleTop()
             return
         }
+        let isReload = currentURL == url
+        if isReload, pendingReloadViewport == nil {
+            preparePDFViewportSnapshot()
+            pendingReloadViewport = FilePreviewPDFViewportSnapshot.capture(
+                in: pdfView,
+                scrollView: pdfScrollView(),
+                anchor: .top
+            )
+            pendingReloadWasAutoScaled = pdfView.autoScales
+            pendingReloadScale = pdfView.scaleFactor
+        }
         currentURL = url
+        currentRevision = revision
+        loadGeneration &+= 1
+        let generation = loadGeneration
         updateChromeRootViews()
         pdfView.document = nil
         thumbnailView.setDocument(nil)
         outlineRoot = nil
         titleLabel.stringValue = url.lastPathComponent
-        rotationAccumulator = 0
-        didUserResizeSidebar = false
-        lastSidebarWidth = preferredSidebarWidthForCurrentMode()
-        pdfView.autoScales = true
-        applyDisplayMode()
+        if !isReload {
+            rotationAccumulator = 0
+            pageRotationState.reset()
+            didUserResizeSidebar = false
+            lastSidebarWidth = preferredSidebarWidthForCurrentMode()
+            pdfView.autoScales = true
+            applyDisplayMode()
+        }
         outlineView.reloadData()
         updateSidebarContent()
         applyPreferredSidebarWidthIfNeeded()
@@ -2571,22 +2516,36 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         refreshPDFSmartFitWithoutViewportRestore()
 
         let loadURL = url
-        Self.documentLoadQueue.async { [weak self] in
-            let document = PDFDocument(url: loadURL)
-            DispatchQueue.main.async { [weak self] in
-                guard let self, self.currentURL == loadURL else { return }
-                self.applyLoadedPDFDocument(document, for: loadURL)
-            }
+        documentLoader.submit(load: { await FilePreviewPDFLoadResult.load(url: loadURL) }) { [weak self] result in
+            guard let self,
+                  self.currentURL == loadURL,
+                  self.loadGeneration == generation else { return }
+            self.applyLoadedPDFDocument(result.document, for: loadURL)
         }
     }
 
     private func applyLoadedPDFDocument(_ document: PDFDocument?, for url: URL) {
+        let reloadViewport = pendingReloadViewport
+        let reloadWasAutoScaled = pendingReloadWasAutoScaled
+        let reloadScale = pendingReloadScale
+        pendingReloadViewport = nil
+        pendingReloadWasAutoScaled = nil
+        pendingReloadScale = nil
+
+        pageRotationState.apply(to: document)
         pdfView.document = document
         thumbnailView.setDocument(document)
         outlineRoot = document?.outlineRoot
         titleLabel.stringValue = url.lastPathComponent
-        pdfView.autoScales = true
         applyDisplayMode()
+        if let reloadWasAutoScaled {
+            pdfView.autoScales = reloadWasAutoScaled
+            if !reloadWasAutoScaled, let reloadScale {
+                pdfView.scaleFactor = min(max(reloadScale, pdfView.minScaleFactor), pdfView.maxScaleFactor)
+            }
+        } else {
+            pdfView.autoScales = true
+        }
         updatePDFScrollObserver()
         outlineView.reloadData()
         updateSidebarContent()
@@ -2595,6 +2554,12 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         invalidatePDFScrollBackgroundAppearance()
         applyBackgroundAppearance()
         refreshPDFSmartFitWithoutViewportRestore()
+        if let reloadViewport {
+            withSuppressedPDFPageChangeNotifications {
+                reloadViewport.restore(in: pdfView, scrollView: pdfScrollView())
+            }
+            updatePageControls(scrollThumbnailToVisible: false)
+        }
     }
 
     private func setupView() {
@@ -2880,7 +2845,8 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
             zoomIn: { [weak self] in self?.zoomIn() },
             zoomToFit: { [weak self] in self?.zoomToFit() },
             rotateLeft: { [weak self] in self?.rotateLeft() },
-            rotateRight: { [weak self] in self?.rotateRight() }
+            rotateRight: { [weak self] in self?.rotateRight() },
+            refresh: { [weak panel] in panel?.reloadFromDisk() }
         ))
     }
 
@@ -3022,11 +2988,11 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     }
 
     private func selectedVisiblePDFPage() -> PDFPage? {
-        FilePreviewPDFVisiblePageResolver.selectedVisiblePage(in: pdfView, scrollView: pdfScrollView())
+        visiblePageResolver.selectedVisiblePage(in: pdfView, scrollView: pdfScrollView())
     }
 
     private func topVisiblePDFPage() -> PDFPage? {
-        FilePreviewPDFVisiblePageResolver.topVisiblePage(in: pdfView, scrollView: pdfScrollView())
+        visiblePageResolver.topVisiblePage(in: pdfView, scrollView: pdfScrollView())
     }
 
     private func updateSidebarVisibility() {
@@ -3334,6 +3300,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         pdfView.layoutDocumentView()
         pdfView.setNeedsDisplay(pdfView.bounds)
         if let document = pdfView.document {
+            pageRotationState.record(page: page, in: document, rotationBy: degrees)
             thumbnailView.reloadPage(at: document.index(for: page))
         }
     }
@@ -3493,7 +3460,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     }
 
     private func debugSnapshot(_ snapshot: FilePreviewPDFViewportSnapshot?) -> String {
-        snapshot?.debugSummary(document: pdfView.document) ?? "nil"
+        snapshot == nil ? "nil" : "captured"
     }
 
     private func debugAnchor(_ anchor: FilePreviewPDFViewportAnchor) -> String {
@@ -3607,32 +3574,6 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     }
 }
 
-private struct FilePreviewImageView: NSViewRepresentable {
-    let panel: FilePreviewPanel
-    let isVisibleInUI: Bool
-    let backgroundColor: NSColor
-    let drawsBackground: Bool
-
-    func makeNSView(context: Context) -> FilePreviewImageContainerView {
-        panel.nativeViewSessions.image.view(
-            panel: panel,
-            isVisibleInUI: isVisibleInUI,
-            backgroundColor: backgroundColor,
-            drawsBackground: drawsBackground
-        )
-    }
-
-    func updateNSView(_ nsView: FilePreviewImageContainerView, context: Context) {
-        panel.nativeViewSessions.image.update(
-            nsView,
-            panel: panel,
-            isVisibleInUI: isVisibleInUI,
-            backgroundColor: backgroundColor,
-            drawsBackground: drawsBackground
-        )
-    }
-}
-
 private struct FilePreviewImageChromeView: View {
     let zoomOut: () -> Void
     let zoomIn: () -> Void
@@ -3697,11 +3638,18 @@ private struct FilePreviewImageChromeView: View {
 }
 
 final class FilePreviewImageContainerView: NSView {
+    private let viewport = FilePreviewViewport()
     private let scrollView = FilePreviewImageScrollView()
     private let documentView = FilePreviewImageDocumentView()
     private let chromeHost = FilePreviewPDFChromeHostingView(rootView: AnyView(EmptyView()))
     private weak var panel: FilePreviewPanel?
     private var currentURL: URL?
+    private var currentRevision: Int?
+    private var loadGeneration = 0
+    private var pendingReloadAnchorRatio: CGPoint?
+    private var pendingReloadWasFitMode: Bool?
+    private var pendingReloadScale: CGFloat?
+    private var pendingReloadRotationDegrees: Int?
     private var imageSize = CGSize(width: 1, height: 1)
     private var scale: CGFloat = 1
     private var isFitMode = true
@@ -3709,10 +3657,7 @@ final class FilePreviewImageContainerView: NSView {
     private var rotationAccumulator: CGFloat = 0
     private var previewBackgroundColor = NSColor.textBackgroundColor
     private var drawsPreviewBackground = true
-    private static let imageLoadQueue = DispatchQueue(
-        label: "com.cmux.file-preview.image-load",
-        qos: .userInitiated
-    )
+    private let imageLoader = FilePreviewLatestLoadCoordinator<FilePreviewImageLoadResult>()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -3762,6 +3707,10 @@ final class FilePreviewImageContainerView: NSView {
         removeFromSuperview()
         documentView.imageView.image = nil
         currentURL = nil
+        currentRevision = nil
+        loadGeneration &+= 1
+        imageLoader.cancel()
+        clearPendingReloadState()
         panel = nil
     }
 
@@ -3772,37 +3721,99 @@ final class FilePreviewImageContainerView: NSView {
         applyBackgroundAppearance()
     }
 
-    func setURL(_ url: URL) {
+    func setURL(_ url: URL, revision: Int) {
         assert(Thread.isMainThread, "AppKit image updates must run on the main thread")
-        guard currentURL != url else { return }
+        guard currentURL != url || currentRevision != revision else { return }
+        let isReload = currentURL == url
+        if isReload, pendingReloadAnchorRatio == nil {
+            captureReloadState()
+        }
         currentURL = url
+        currentRevision = revision
+        loadGeneration &+= 1
+        let generation = loadGeneration
         documentView.imageView.image = nil
-        imageSize = normalizedSize(.zero)
-        isFitMode = true
-        rotationDegrees = 0
-        rotationAccumulator = 0
-        scale = fitScale()
-        applyScale()
+        if !isReload {
+            imageSize = normalizedSize(.zero)
+            isFitMode = true
+            rotationDegrees = 0
+            rotationAccumulator = 0
+            scale = fitScale()
+            applyScale()
+        }
 
         let loadURL = url
-        Self.imageLoadQueue.async { [weak self] in
-            let image = NSImage(contentsOf: loadURL)
-            DispatchQueue.main.async { [weak self] in
-                guard let self, self.currentURL == loadURL else { return }
-                self.applyLoadedImage(image)
-            }
+        imageLoader.submit(load: { await FilePreviewImageLoadResult.load(url: loadURL) }) { [weak self] result in
+            guard let self,
+                  self.currentURL == loadURL,
+                  self.loadGeneration == generation else { return }
+            self.applyLoadedImage(result.image)
         }
     }
 
     private func applyLoadedImage(_ image: NSImage?) {
         assert(Thread.isMainThread, "AppKit image updates must run on the main thread")
+        let reloadAnchorRatio = pendingReloadAnchorRatio
+        let reloadWasFitMode = pendingReloadWasFitMode
+        let reloadScale = pendingReloadScale
+        let reloadRotationDegrees = pendingReloadRotationDegrees
+        clearPendingReloadState()
+
         documentView.imageView.image = image
         imageSize = normalizedSize(image?.size ?? .zero)
-        isFitMode = true
-        rotationDegrees = 0
+        isFitMode = reloadWasFitMode ?? true
+        rotationDegrees = reloadRotationDegrees ?? 0
         rotationAccumulator = 0
-        scale = fitScale()
+        scale = isFitMode ? fitScale() : (reloadScale ?? 1)
         applyScale()
+        if let reloadAnchorRatio {
+            restoreReloadAnchor(reloadAnchorRatio)
+        }
+    }
+
+    private func captureReloadState() {
+        let clipBounds = scrollView.contentView.bounds
+        let documentBounds = documentView.bounds
+        pendingReloadAnchorRatio = CGPoint(
+            x: viewport.normalizedAnchorRatio(
+                clipBounds.midX - documentBounds.minX,
+                length: documentBounds.width
+            ),
+            y: viewport.normalizedAnchorRatio(
+                clipBounds.midY - documentBounds.minY,
+                length: documentBounds.height
+            )
+        )
+        pendingReloadWasFitMode = isFitMode
+        pendingReloadScale = scale
+        pendingReloadRotationDegrees = rotationDegrees
+    }
+
+    private func restoreReloadAnchor(_ anchorRatio: CGPoint) {
+        layoutSubtreeIfNeeded()
+        scrollView.layoutSubtreeIfNeeded()
+        let clipView = scrollView.contentView
+        let documentBounds = documentView.bounds
+        let documentPoint = CGPoint(
+            x: documentBounds.minX + (documentBounds.width * anchorRatio.x),
+            y: documentBounds.minY + (documentBounds.height * anchorRatio.y)
+        )
+        let anchorOffset = CGPoint(x: clipView.bounds.width * 0.5, y: clipView.bounds.height * 0.5)
+        let nextOrigin = viewport.clampedClipOrigin(
+            documentPoint: documentPoint,
+            anchorOffsetInClip: anchorOffset,
+            documentBounds: documentBounds,
+            clipSize: clipView.bounds.size
+        )
+        clipView.scroll(to: nextOrigin)
+        scrollView.reflectScrolledClipView(clipView)
+    }
+
+    private func clearPendingReloadState() {
+        pendingReloadAnchorRatio = nil
+        pendingReloadWasFitMode = nil
+        pendingReloadScale = nil
+        pendingReloadRotationDegrees = nil
     }
 
     private func registerFocusEndpoint() {
@@ -3969,11 +3980,11 @@ final class FilePreviewImageContainerView: NSView {
         let oldImageFrame = documentView.imageView.frame
         let anchorInDocument = documentView.convert(anchorInClip, from: scrollView.contentView)
         let anchorRatio = CGPoint(
-            x: FilePreviewViewport.normalizedAnchorRatio(
+            x: viewport.normalizedAnchorRatio(
                 anchorInDocument.x - oldImageFrame.minX,
                 length: oldImageFrame.width
             ),
-            y: FilePreviewViewport.normalizedAnchorRatio(
+            y: viewport.normalizedAnchorRatio(
                 anchorInDocument.y - oldImageFrame.minY,
                 length: oldImageFrame.height
             )
@@ -4356,79 +4367,6 @@ private final class FilePreviewMagnifyingImageView: NSImageView {
             width: max(1, imageSize.width * scale),
             height: max(1, imageSize.height * scale)
         )
-    }
-}
-
-private struct FilePreviewMediaView: NSViewRepresentable {
-    let panel: FilePreviewPanel
-    let isVisibleInUI: Bool
-    let backgroundColor: NSColor
-    let drawsBackground: Bool
-
-    func makeNSView(context: Context) -> AVPlayerView {
-        panel.nativeViewSessions.media.view(
-            panel: panel,
-            isVisibleInUI: isVisibleInUI,
-            backgroundColor: backgroundColor,
-            drawsBackground: drawsBackground
-        )
-    }
-
-    func updateNSView(_ nsView: AVPlayerView, context: Context) {
-        panel.nativeViewSessions.media.update(
-            nsView,
-            panel: panel,
-            isVisibleInUI: isVisibleInUI,
-            backgroundColor: backgroundColor,
-            drawsBackground: drawsBackground
-        )
-    }
-}
-
-private struct QuickLookPreviewView: NSViewRepresentable {
-    let panel: FilePreviewPanel
-    let isVisibleInUI: Bool
-    let backgroundColor: NSColor
-    let drawsBackground: Bool
-
-    final class Coordinator {
-        var quickLook: FilePreviewQuickLookSession?
-
-        init(panel: FilePreviewPanel) {
-            quickLook = panel.nativeViewSessions.quickLook
-        }
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(panel: panel)
-    }
-
-    func makeNSView(context: Context) -> NSView {
-        let quickLook = panel.nativeViewSessions.quickLook
-        context.coordinator.quickLook = quickLook
-        return quickLook.view(
-            panel: panel,
-            isVisibleInUI: isVisibleInUI,
-            backgroundColor: backgroundColor,
-            drawsBackground: drawsBackground
-        )
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        let quickLook = panel.nativeViewSessions.quickLook
-        context.coordinator.quickLook = quickLook
-        quickLook.update(
-            nsView,
-            panel: panel,
-            isVisibleInUI: isVisibleInUI,
-            backgroundColor: backgroundColor,
-            drawsBackground: drawsBackground
-        )
-    }
-
-    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
-        coordinator.quickLook?.dismantle(nsView)
-        coordinator.quickLook = nil
     }
 }
 
