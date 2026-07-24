@@ -9,7 +9,7 @@ import Testing
 #endif
 
 @Suite struct SessionPersistenceResumeBindingTests {
-    @Test func agentHookSurfaceResumeStartupInputPreservesCustomAbsoluteAgentExecutable() throws {
+    @Test func agentHookSurfaceResumeStartupInputRoutesCustomAbsoluteAgentExecutableThroughWrapper() throws {
         let binding = SurfaceResumeBindingSnapshot(
             kind: "codex",
             command: "'/opt/company/bin/codex' 'resume' 'session-custom-cli'",
@@ -20,7 +20,8 @@ import Testing
 
         let startupInput = try #require(binding.startupInput)
 
-        #expect(startupInput.contains("'/opt/company/bin/codex'"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CODEX_WRAPPER_SHIM"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CUSTOM_CODEX_PATH=/opt/company/bin/codex"), "\(startupInput)")
     }
 
     @Test func decodingAgentHookBindingRewritesPersistedPATHManagedAgentExecutable() throws {
@@ -76,8 +77,9 @@ import Testing
 
         #expect(binding.kind == nil)
         #expect(binding.command.contains(executablePath), "\(binding.command)")
-        #expect(startupInput.contains("codex 'resume' 'session-legacy-cli'"), "\(startupInput)")
-        #expect(!startupInput.contains(executablePath), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CODEX_WRAPPER_SHIM"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CUSTOM_CODEX_PATH=\(executablePath)"), "\(startupInput)")
+        #expect(startupInput.contains("session-legacy-cli"), "\(startupInput)")
     }
 
     @Test func agentHookBindingRewritesSupportedLocalManagedExecutablePaths() throws {
@@ -123,8 +125,9 @@ import Testing
             )
 
             let startupInput = try #require(binding.startupInput)
-            #expect(startupInput.contains("codex 'resume' 'session-managed-cli'"), "\(startupInput)")
-            #expect(!startupInput.contains(executablePath), "\(startupInput)")
+            #expect(startupInput.contains("CMUX_CODEX_WRAPPER_SHIM"), "\(startupInput)")
+            #expect(startupInput.contains("CMUX_CUSTOM_CODEX_PATH=\(executablePath)"), "\(startupInput)")
+            #expect(startupInput.contains("session-managed-cli"), "\(startupInput)")
         }
     }
 
@@ -147,8 +150,10 @@ import Testing
 
         let startupInput = try #require(binding.startupInput)
 
-        #expect(startupInput.contains("CMUX_TRACE=1 codex 'resume' 'session-env-cli'"), "\(startupInput)")
-        #expect(!startupInput.contains(staleExecutablePath), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_TRACE="), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CODEX_WRAPPER_SHIM"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CUSTOM_CODEX_PATH=\(staleExecutablePath)"), "\(startupInput)")
+        #expect(startupInput.contains("session-env-cli"), "\(startupInput)")
     }
 
     @Test func agentHookBindingWithQuotedEnvAssignmentRewritesMovedExecutable() throws {
@@ -169,8 +174,10 @@ import Testing
         )
         let startupInput = try #require(binding.startupInput)
 
-        #expect(startupInput.contains("env 'CMUX_TRACE=1' codex 'resume' 'session-quoted-env-cli'"), "\(startupInput)")
-        #expect(!startupInput.contains(staleExecutablePath), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_TRACE=1"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CODEX_WRAPPER_SHIM"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CUSTOM_CODEX_PATH=\(staleExecutablePath)"), "\(startupInput)")
+        #expect(startupInput.contains("session-quoted-env-cli"), "\(startupInput)")
     }
 
     @Test func agentHookClaudeBindingWithDirectEnvironmentAssignmentPreservesAssignmentSyntax() throws {
@@ -225,7 +232,7 @@ import Testing
         #expect(!startupInput.contains(staleExecutablePath), "\(startupInput)")
     }
 
-    @Test func agentHookBindingPreservesRemoteManagedExecutablePath() throws {
+    @Test func localAgentHookBindingRoutesRemoteLookingCodexPathThroughWrapper() throws {
         let remoteExecutablePath = "/home/me/.nvm/versions/node/v24.2.0/bin/codex"
         let binding = SurfaceResumeBindingSnapshot(
             kind: "codex",
@@ -236,7 +243,9 @@ import Testing
         )
 
         let startupInput = try #require(binding.startupInput)
-        #expect(startupInput.contains("'\(remoteExecutablePath)' 'resume' 'session-remote-cli'"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CODEX_WRAPPER_SHIM"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CUSTOM_CODEX_PATH=\(remoteExecutablePath)"), "\(startupInput)")
+        #expect(startupInput.contains("session-remote-cli"), "\(startupInput)")
     }
 
     @Test func remoteStartupInputPreservesLocalLookingManagedExecutablePaths() throws {
@@ -387,7 +396,7 @@ import Testing
         #expect(!codexOutput.contains(staleExecutablePath), "\(codexOutput)")
     }
 
-    @Test func agentHookSurfaceResumeStartupInputPreservesExistingPATHManagedAgentExecutable() throws {
+    @Test func agentHookSurfaceResumeStartupInputRoutesExistingPATHManagedAgentExecutableThroughWrapper() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-surface-resume-existing-agent-\(UUID().uuidString)", isDirectory: true)
@@ -412,7 +421,65 @@ import Testing
         )
 
         let startupInput = try #require(binding.startupInput)
-        #expect(startupInput.contains("'\(executable.path)'"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CODEX_WRAPPER_SHIM"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CUSTOM_CODEX_PATH=\(executable.path)"), "\(startupInput)")
+    }
+
+    @Test func legacyCodexShellFallbackExecutesCapturedBinaryWhenWrapperShimIsMissing() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-codex-captured-shell-fallback-\(UUID().uuidString)", isDirectory: true)
+        let capturedBin = root.appendingPathComponent("captured", isDirectory: true)
+        let pathBin = root.appendingPathComponent("path", isDirectory: true)
+        let capturedCodex = capturedBin.appendingPathComponent("codex", isDirectory: false)
+        let pathCodex = pathBin.appendingPathComponent("codex", isDirectory: false)
+        let outputURL = root.appendingPathComponent("codex-output.txt", isDirectory: false)
+        try fileManager.createDirectory(at: capturedBin, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: pathBin, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try """
+        #!/bin/sh
+        printf 'captured|%s\\n' "$*" > "$CMUX_FAKE_CODEX_OUTPUT"
+        """.write(to: capturedCodex, atomically: true, encoding: .utf8)
+        try """
+        #!/bin/sh
+        printf 'path|%s\\n' "$*" > "$CMUX_FAKE_CODEX_OUTPUT"
+        """.write(to: pathCodex, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: capturedCodex.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: pathCodex.path)
+
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "'\(capturedCodex.path)' 'resume' 'session-captured-fallback' 2>/dev/null",
+            checkpointId: "session-captured-fallback",
+            source: "agent-hook",
+            autoResume: true
+        )
+        let startupInput = try #require(binding.startupInput)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-fc", startupInput]
+        process.environment = [
+            "PATH": "\(pathBin.path):/usr/bin:/bin",
+            "CMUX_CODEX_WRAPPER_SHIM": root.appendingPathComponent("missing-wrapper").path,
+            "CMUX_FAKE_CODEX_OUTPUT": outputURL.path,
+        ]
+        let stderr = Pipe()
+        process.standardError = stderr
+
+        try runWithBoundedWait(process, shellDescription: "zsh -fc")
+
+        let errorText = String(
+            data: stderr.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+        #expect(process.terminationStatus == 0, "\(errorText)")
+        let output = try String(contentsOf: outputURL, encoding: .utf8)
+        #expect(
+            output == "captured|resume session-captured-fallback -c check_for_update_on_startup=false\n",
+            "\(startupInput)\n\(output)"
+        )
     }
 
     @Test func agentHookSurfaceResumeStartupInputFallsBackWhenRecordedAgentExecutableMoved() throws {
@@ -472,7 +539,8 @@ import Testing
 
         let output = try String(contentsOf: outputURL, encoding: .utf8)
         #expect(output == "\(cwd.path)|resume session-moved-cli -c check_for_update_on_startup=false --yolo\n")
-        #expect(!startupInput.contains(movedExecutable.path), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CODEX_WRAPPER_SHIM"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CUSTOM_CODEX_PATH=\(movedExecutable.path)"), "\(startupInput)")
     }
 
     private struct ResumeShellTimeout: Error, CustomStringConvertible {

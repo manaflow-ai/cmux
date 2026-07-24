@@ -7,6 +7,145 @@ import Darwin
 #endif
 
 final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
+    func testCodexResumeTrustReadsCodexEffectiveConfig() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-profile-trust-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent("codex-home", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let modelsCache = codexHome.appendingPathComponent(
+            "models_cache.json",
+            isDirectory: false
+        )
+        try Data("{}".utf8).write(to: modelsCache)
+
+        let codexArgumentsLog = root.appendingPathComponent("codex-arguments.log", isDirectory: false)
+        let fakeCodex = root.appendingPathComponent("codex", isDirectory: false)
+        let canonicalRoot = root.resolvingSymlinksInPath().path
+        let response = try XCTUnwrap(
+            String(
+                data: JSONSerialization.data(withJSONObject: [
+                    "id": 2,
+                    "result": [
+                        "config": [
+                            "projects": [
+                                canonicalRoot: ["trust_level": "trusted"],
+                            ],
+                        ],
+                        "origins": [
+                            "projects.\(canonicalRoot).trust_level": [
+                                "name": [
+                                    "type": "system",
+                                    "file": "/etc/codex/config.toml",
+                                ],
+                                "version": "test",
+                            ],
+                        ],
+                        "layers": NSNull(),
+                    ],
+                ]),
+                encoding: .utf8
+            )
+        )
+        try """
+        #!/bin/sh
+        printf '%s\n' BEGIN "$@" >> "\(codexArgumentsLog.path)"
+        static_catalog=false
+        for argument in "$@"; do
+          if [ "$argument" = 'model_catalog_json=\(modelsCache.path)' ]; then
+            static_catalog=true
+          fi
+        done
+        while IFS= read -r line; do
+          case "$line" in
+            *'"method":"initialize"'*)
+              printf '%s\n' '{"id":1,"result":{"userAgent":"test","codexHome":"\(codexHome.path)","platformFamily":"unix","platformOs":"macos"}}'
+              ;;
+            *'"method":"config/read"'*)
+              if [ "$static_catalog" = true ] && [ "${CMUX_TEST_REJECT_STATIC_CATALOG:-0}" = 1 ]; then
+                printf '%s\n' '{"id":2,"error":{"code":-32602,"message":"managed catalog rejects override"}}'
+              else
+                printf '%s\n' '\(response)'
+              fi
+              ;;
+          esac
+        done
+        """.write(to: fakeCodex, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: fakeCodex.path
+        )
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
+        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated([
+            fakeCodex.path,
+            "resume",
+            "session-name",
+            "--profile",
+            "dogfood",
+        ])
+        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = fakeCodex.path
+        environment["CODEX_HOME"] = codexHome.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "inject-resume-args"],
+            environment: environment,
+            timeout: 2
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.isEmpty, result.stdout)
+        XCTAssertEqual(
+            try String(contentsOf: codexArgumentsLog, encoding: .utf8),
+            """
+            BEGIN
+            --profile
+            dogfood
+            -c
+            model_catalog_json=\(modelsCache.path)
+            app-server
+            --stdio
+
+            """
+        )
+
+        try Data().write(to: codexArgumentsLog)
+        environment["CMUX_TEST_REJECT_STATIC_CATALOG"] = "1"
+        let fallbackResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "inject-resume-args"],
+            environment: environment,
+            timeout: 2
+        )
+
+        XCTAssertFalse(fallbackResult.timedOut, fallbackResult.stderr)
+        XCTAssertEqual(fallbackResult.status, 0, fallbackResult.stderr)
+        XCTAssertTrue(fallbackResult.stdout.isEmpty, fallbackResult.stdout)
+        XCTAssertEqual(
+            try String(contentsOf: codexArgumentsLog, encoding: .utf8),
+            """
+            BEGIN
+            --profile
+            dogfood
+            -c
+            model_catalog_json=\(modelsCache.path)
+            app-server
+            --stdio
+            BEGIN
+            --profile
+            dogfood
+            app-server
+            --stdio
+
+            """
+        )
+    }
+
     func testClaudeClearSessionStartMarksWorkspaceRunning() throws {
         let context = try makeClaudeHookContext(name: "claude-clear-running")
         defer { context.cleanup() }
@@ -1778,6 +1917,434 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(
             parentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
             "Parent Codex Stop should mark Codex idle, saw \(parentStopCommands)"
+        )
+    }
+
+    func testCodexWrapperResumeSessionStartRebindsInterruptedActivePrompt() throws {
+        let context = try makeClaudeHookContext(name: "codex-wrapper-resume-rebind")
+        defer { context.cleanup() }
+
+        let sessionId = "interrupted-active-session"
+        let resumedPID = Int(Darwin.getpid())
+        let oldPID = resumedPID
+        let now = Date().timeIntervalSince1970
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "pid": oldPID,
+                    "pidStartSeconds": 1,
+                    "pidStartMicroseconds": 0,
+                    "runtimeStatus": "running",
+                    "activePromptDepth": 1,
+                    "activePromptTurnId": "interrupted-turn",
+                    "activePromptTurnIds": ["interrupted-turn"],
+                    "lastPromptTurnId": "interrupted-turn",
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 24)
+        let result = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","cmux_resume_rebind":true}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId).merging([
+                "CMUX_CODEX_PID": String(resumedPID),
+            ], uniquingKeysWith: { _, new in new })
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let record = try readCodexHookSession(sessionId, context: context)
+        XCTAssertEqual(
+            record["pid"] as? Int,
+            resumedPID,
+            "A wrapper-confirmed resume must replace the dead pre-crash PID."
+        )
+        XCTAssertNil(
+            record["activePromptDepth"],
+            "The interrupted pre-crash turn must not make the resumed process look nested."
+        )
+        XCTAssertTrue(
+            context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "The resumed process must republish its binding for another crash cycle."
+        )
+    }
+
+    func testDelayedOlderCodexResumeCannotReplaceNewerActiveProcess() throws {
+        let context = try makeClaudeHookContext(name: "codex-delayed-resume-generation")
+        defer { context.cleanup() }
+
+        let sessionId = "newer-active-session"
+        let incomingPID = Int(Darwin.getpid())
+        let newerPID = 22_222
+        let now = Date().timeIntervalSince1970
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "pid": newerPID,
+                    "pidStartSeconds": Int64(now) + 3_600,
+                    "pidStartMicroseconds": 0,
+                    "runtimeStatus": "running",
+                    "activePromptDepth": 1,
+                    "activePromptTurnId": "newer-turn",
+                    "activePromptTurnIds": ["newer-turn"],
+                    "lastPromptTurnId": "newer-turn",
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 24)
+        let result = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","cmux_resume_rebind":true}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId).merging([
+                "CMUX_CODEX_PID": String(incomingPID),
+            ], uniquingKeysWith: { _, new in new })
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let record = try readCodexHookSession(sessionId, context: context)
+        XCTAssertEqual(
+            record["pid"] as? Int,
+            newerPID,
+            "A delayed older resume event must not replace the newer process generation."
+        )
+        XCTAssertEqual(
+            record["activePromptDepth"] as? Int,
+            1,
+            "A delayed older resume event must not clear the newer process's active turn."
+        )
+        XCTAssertFalse(
+            context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "A rejected older resume event must not republish the session binding."
+        )
+    }
+
+    func testDelayedOlderCodexResumeCannotReplaceAcceptedNewerProcessAfterTurnStateClears() throws {
+        let context = try makeClaudeHookContext(name: "codex-repeat-generation")
+        defer { context.cleanup() }
+        let sessionId = "accepted-newer-session"
+        let olderPID = Int(Darwin.getpid())
+        let deadPID = Int(Int32.max)
+        let newerProcess = Process()
+        let newerProcessInput = Pipe()
+        newerProcess.executableURL = URL(fileURLWithPath: "/bin/cat")
+        newerProcess.standardInput = newerProcessInput
+        try newerProcess.run()
+        defer {
+            try? newerProcessInput.fileHandleForWriting.close()
+            if newerProcess.isRunning {
+                newerProcess.terminate()
+            }
+            newerProcess.waitUntilExit()
+        }
+        let newerPID = Int(newerProcess.processIdentifier)
+        try writeCodexRebindState(
+            context: context,
+            sessionId: sessionId,
+            pid: deadPID
+        )
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+
+        let acceptedResume = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","cmux_resume_rebind":true}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId).merging([
+                "CMUX_CODEX_PID": String(newerPID),
+            ], uniquingKeysWith: { _, new in new })
+        )
+        XCTAssertFalse(acceptedResume.timedOut, acceptedResume.stderr)
+        XCTAssertEqual(acceptedResume.status, 0, acceptedResume.stderr)
+        var record = try readCodexHookSession(sessionId, context: context)
+        XCTAssertEqual(record["pid"] as? Int, newerPID)
+        XCTAssertNil(record["activePromptDepth"])
+        XCTAssertTrue(
+            context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "The newer resume must replace the dead legacy owner."
+        )
+
+        let delayedStart = context.state.commands.count
+        let delayedResume = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","cmux_resume_rebind":true}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId).merging([
+                "CMUX_CODEX_PID": String(olderPID),
+            ], uniquingKeysWith: { _, new in new })
+        )
+        XCTAssertFalse(delayedResume.timedOut, delayedResume.stderr)
+        XCTAssertEqual(delayedResume.status, 0, delayedResume.stderr)
+        record = try readCodexHookSession(sessionId, context: context)
+        XCTAssertEqual(record["pid"] as? Int, newerPID)
+        XCTAssertEqual(record["workspaceId"] as? String, context.workspaceId)
+        XCTAssertEqual(record["surfaceId"] as? String, context.surfaceId)
+        XCTAssertFalse(
+            context.state.commands.dropFirst(delayedStart).contains {
+                self.jsonObject($0)?["method"] as? String == "surface.resume.set"
+            },
+            "A delayed older rebind must remain stale after the accepted newer resume clears interrupted-turn guards."
+        )
+    }
+
+    func testDelayedSameGenerationCodexResumeCannotClearActiveTurn() throws {
+        let context = try makeClaudeHookContext(name: "codex-same-generation-active")
+        defer { context.cleanup() }
+        let sessionId = "same-generation-active"
+        let pid = Int(Darwin.getpid())
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId).merging([
+            "CMUX_CODEX_PID": String(pid),
+        ], uniquingKeysWith: { _, new in new })
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+
+        let initialStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(initialStart.timedOut, initialStart.stderr)
+        XCTAssertEqual(initialStart.status, 0, initialStart.stderr)
+
+        let idempotentStart = context.state.commands.count
+        let idempotentResume = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","cmux_resume_rebind":true}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(idempotentResume.timedOut, idempotentResume.stderr)
+        XCTAssertEqual(idempotentResume.status, 0, idempotentResume.stderr)
+        XCTAssertTrue(
+            context.state.commands.dropFirst(idempotentStart).contains {
+                self.jsonObject($0)?["method"] as? String == "surface.resume.set"
+            },
+            "A repeated same-generation rebind remains idempotent before turn events."
+        )
+
+        let prompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"active-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let delayedStart = context.state.commands.count
+        let delayedResume = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","cmux_resume_rebind":true}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(delayedResume.timedOut, delayedResume.stderr)
+        XCTAssertEqual(delayedResume.status, 0, delayedResume.stderr)
+        let record = try readCodexHookSession(sessionId, context: context)
+        XCTAssertEqual(record["activePromptDepth"] as? Int, 1)
+        XCTAssertEqual(record["activePromptTurnId"] as? String, "active-turn")
+        XCTAssertEqual(record["activePromptTurnIds"] as? [String], ["active-turn"])
+        XCTAssertEqual(record["lastPromptTurnId"] as? String, "active-turn")
+        XCTAssertEqual(record["workspaceId"] as? String, context.workspaceId)
+        XCTAssertEqual(record["surfaceId"] as? String, context.surfaceId)
+        XCTAssertFalse(
+            context.state.commands.dropFirst(delayedStart).contains {
+                self.jsonObject($0)?["method"] as? String == "surface.resume.set"
+            },
+            "A delayed same-generation SessionStart must not erase a newer active turn."
+        )
+    }
+
+    func testDelayedSameGenerationCodexResumeCannotResurrectCompletedTurn() throws {
+        let context = try makeClaudeHookContext(name: "codex-same-generation-complete")
+        defer { context.cleanup() }
+        let sessionId = "same-generation-complete"
+        let pid = Int(Darwin.getpid())
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId).merging([
+            "CMUX_CODEX_PID": String(pid),
+        ], uniquingKeysWith: { _, new in new })
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+
+        let initialStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(initialStart.timedOut, initialStart.stderr)
+        XCTAssertEqual(initialStart.status, 0, initialStart.stderr)
+
+        let prompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"completed-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"finish"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let stop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"completed-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+        let completedRecord = try readCodexHookSession(sessionId, context: context)
+
+        let delayedStart = context.state.commands.count
+        let delayedResume = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","cmux_resume_rebind":true}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(delayedResume.timedOut, delayedResume.stderr)
+        XCTAssertEqual(delayedResume.status, 0, delayedResume.stderr)
+        let record = try readCodexHookSession(sessionId, context: context)
+        XCTAssertNil(record["activePromptDepth"])
+        XCTAssertEqual(record["lastPromptTurnId"] as? String, "completed-turn")
+        XCTAssertTrue((record["terminalPromptTurnIds"] as? [String])?.contains("completed-turn") == true)
+        XCTAssertEqual(record["lastSubtitle"] as? String, completedRecord["lastSubtitle"] as? String)
+        XCTAssertEqual(record["lastBody"] as? String, completedRecord["lastBody"] as? String)
+        XCTAssertEqual(record["runtimeStatus"] as? String, completedRecord["runtimeStatus"] as? String)
+        XCTAssertEqual(record["workspaceId"] as? String, context.workspaceId)
+        XCTAssertEqual(record["surfaceId"] as? String, context.surfaceId)
+        XCTAssertFalse(
+            context.state.commands.dropFirst(delayedStart).contains {
+                self.jsonObject($0)?["method"] as? String == "surface.resume.set"
+            },
+            "A delayed same-generation SessionStart must not resurrect a completed turn."
+        )
+    }
+
+    func testCodexResumeRebindAcceptsDeadPreviousPIDWhenGenerationWasDropped() throws {
+        let context = try makeClaudeHookContext(name: "codex-missing-generation")
+        defer { context.cleanup() }
+        let sessionId = "missing-generation-dead-process"
+        let incomingPID = Int(Darwin.getpid())
+        let deadPID = Int(Int32.max)
+        try writeCodexRebindState(
+            context: context,
+            sessionId: sessionId,
+            pid: deadPID
+        )
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 24)
+
+        let resume = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","cmux_resume_rebind":true}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId).merging([
+                "CMUX_CODEX_PID": String(incomingPID),
+            ], uniquingKeysWith: { _, new in new })
+        )
+        XCTAssertFalse(resume.timedOut, resume.stderr)
+        XCTAssertEqual(resume.status, 0, resume.stderr)
+        let record = try readCodexHookSession(sessionId, context: context)
+        XCTAssertEqual(record["pid"] as? Int, incomingPID)
+        XCTAssertNil(record["activePromptDepth"])
+        XCTAssertTrue(
+            context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "A live resume must recover when an older CLI dropped process-generation fields and the previous PID is dead."
+        )
+    }
+
+    func testCodexResumeRebindRejectsLiveOrUnknownPreviousProcessWithoutGeneration() throws {
+        let liveContext = try makeClaudeHookContext(name: "codex-live-generation")
+        let missingContext = try makeClaudeHookContext(name: "codex-no-generation")
+        defer {
+            liveContext.cleanup()
+            missingContext.cleanup()
+        }
+        let liveSessionId = "missing-generation-live-process"
+        let missingPIDSessionId = "missing-generation-missing-process"
+        let sleeper = Process()
+        sleeper.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        sleeper.arguments = ["30"]
+        try sleeper.run()
+        defer {
+            if sleeper.isRunning {
+                sleeper.terminate()
+            }
+            sleeper.waitUntilExit()
+        }
+
+        try writeCodexRebindState(
+            context: liveContext,
+            sessionId: liveSessionId,
+            pid: Int(Darwin.getpid())
+        )
+        try writeCodexRebindState(
+            context: missingContext,
+            sessionId: missingPIDSessionId,
+            pid: nil
+        )
+        startAgentHookMockServerAccepting(context: liveContext, connectionLimit: 24)
+        startAgentHookMockServerAccepting(context: missingContext, connectionLimit: 24)
+
+        let liveResume = runCodexHook(
+            context: liveContext,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(liveSessionId)","cwd":"\#(liveContext.root.path)","hook_event_name":"SessionStart","cmux_resume_rebind":true}"#,
+            extraEnvironment: codexLaunchEnvironment(context: liveContext, sessionId: liveSessionId).merging([
+                "CMUX_CODEX_PID": String(sleeper.processIdentifier),
+            ], uniquingKeysWith: { _, new in new })
+        )
+        XCTAssertFalse(liveResume.timedOut, liveResume.stderr)
+        XCTAssertEqual(liveResume.status, 0, liveResume.stderr)
+        let liveRecord = try readCodexHookSession(liveSessionId, context: liveContext)
+        XCTAssertEqual(liveRecord["pid"] as? Int, Int(Darwin.getpid()))
+        XCTAssertEqual(liveRecord["activePromptDepth"] as? Int, 1)
+        XCTAssertFalse(
+            liveContext.state.commands.contains {
+                self.jsonObject($0)?["method"] as? String == "surface.resume.set"
+            },
+            "A missing generation must not replace a different PID that is still live."
+        )
+
+        let missingResume = runCodexHook(
+            context: missingContext,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(missingPIDSessionId)","cwd":"\#(missingContext.root.path)","hook_event_name":"SessionStart","cmux_resume_rebind":true}"#,
+            extraEnvironment: codexLaunchEnvironment(context: missingContext, sessionId: missingPIDSessionId).merging([
+                "CMUX_CODEX_PID": String(sleeper.processIdentifier),
+            ], uniquingKeysWith: { _, new in new })
+        )
+        XCTAssertFalse(missingResume.timedOut, missingResume.stderr)
+        XCTAssertEqual(missingResume.status, 0, missingResume.stderr)
+        let missingRecord = try readCodexHookSession(missingPIDSessionId, context: missingContext)
+        XCTAssertNil(missingRecord["pid"])
+        XCTAssertEqual(missingRecord["activePromptDepth"] as? Int, 1)
+        XCTAssertFalse(
+            missingContext.state.commands.contains {
+                self.jsonObject($0)?["method"] as? String == "surface.resume.set"
+            },
+            "A missing previous PID cannot prove that an interrupted owner exited."
         )
     }
 
@@ -8855,6 +9422,44 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
         let sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
         return try XCTUnwrap(sessions[sessionId] as? [String: Any])
+    }
+
+    private func readCodexHookSession(_ sessionId: String, context: ClaudeHookContext) throws -> [String: Any] {
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
+        return try XCTUnwrap(sessions[sessionId] as? [String: Any])
+    }
+
+    private func writeCodexRebindState(
+        context: ClaudeHookContext,
+        sessionId: String,
+        pid: Int?
+    ) throws {
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let now = Date().timeIntervalSince1970
+        var record: [String: Any] = [
+            "sessionId": sessionId,
+            "workspaceId": context.workspaceId,
+            "surfaceId": context.surfaceId,
+            "cwd": context.root.path,
+            "runtimeStatus": "running",
+            "activePromptDepth": 1,
+            "activePromptTurnId": "interrupted-turn",
+            "activePromptTurnIds": ["interrupted-turn"],
+            "lastPromptTurnId": "interrupted-turn",
+            "startedAt": now,
+            "updatedAt": now,
+        ]
+        if let pid {
+            record["pid"] = pid
+        }
+        let state: [String: Any] = [
+            "version": 1,
+            "sessions": [sessionId: record],
+        ]
+        try JSONSerialization.data(withJSONObject: state, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
     }
 
     private func feedPushEvents(in context: ClaudeHookContext) -> [[String: Any]] {

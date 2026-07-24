@@ -67,16 +67,38 @@ public struct AgentResumeArgv: Sendable, Equatable {
     /// the hooks fire. https://github.com/manaflow-ai/cmux/issues/5639
     ///
     /// The token guards on `[ -x … ]` rather than bare `${VAR:-codex}`: a
-    /// long-idle surface can hold the env var after macOS reaps the shim file,
-    /// and the executability guard degrades to bare `codex` (PATH resolution —
-    /// hooks lost but resume works), the same graceful fallback used when the
-    /// variable is unset outside cmux.
+    /// long-idle surface can hold the env var after macOS reaps the shim file.
+    /// Bare Codex launches degrade to PATH resolution. Captured absolute Codex
+    /// launches use an executable-aware variant that falls back to that exact
+    /// binary first, then PATH when both captured files moved.
     ///
     /// Like the claude token, this is POSIX command substitution that fish and
     /// csh/tcsh reject, so any command containing it must reach those shells
     /// wrapped via ``portableCodexResumeShellCommand(posixCommand:)``.
+    private static let codexWrapperShellShimGuardPrefix =
+        "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" || "
+
     public static let codexWrapperShellExecutableToken =
-        "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" || printf codex)\""
+        codexWrapperShellShimGuardPrefix + "printf codex)\""
+
+    public static func codexWrapperShellExecutableToken(
+        fallingBackTo capturedExecutable: String
+    ) -> String {
+        let fallback = posixSingleQuoted(capturedExecutable)
+        return codexWrapperShellShimGuardPrefix
+            + "{ [ -x \(fallback) ] && printf '%s' \(fallback) || printf codex; })\""
+    }
+
+    private static func isCodexWrapperShellExecutableToken(_ value: String) -> Bool {
+        value.hasPrefix(codexWrapperShellShimGuardPrefix)
+    }
+
+    /// Pins a wrapper-routed resume to the exact Codex executable captured at launch.
+    ///
+    /// `cmux-codex-wrapper` validates this path and falls back to PATH resolution
+    /// when the executable moved. This lets auto-resume re-enter the wrapper
+    /// without changing which Codex installation the user launched.
+    public static let codexCustomExecutableEnvironmentKey = "CMUX_CUSTOM_CODEX_PATH"
 
     /// Per-invocation config override appended to every cmux-generated codex resume argv.
     ///
@@ -211,28 +233,75 @@ public struct AgentResumeArgv: Sendable, Equatable {
     ) -> String {
         let rendered = renderingCodexWrapperExecutable(parts: parts, quote: quote)
         let joined = rendered.joined(separator: " ")
-        guard rendered.contains(codexWrapperShellExecutableToken) else { return joined }
+        guard rendered.contains(where: isCodexWrapperShellExecutableToken) else {
+            return joined
+        }
         return portableCodexResumeShellCommand(posixCommand: joined)
     }
 
     /// Renders shell command `parts` to quoted tokens, substituting
-    /// ``codexWrapperShellExecutableToken`` for the first bare `codex` executable token.
+    /// ``codexWrapperShellExecutableToken`` for the first Codex executable token.
     ///
-    /// Mirror of ``renderingClaudeWrapperExecutable(parts:quote:)`` for codex: only
-    /// the first element equal to `codex` — a logical wrapper executable emitted
-    /// by the codex resume builder — is replaced; every other token is quoted normally.
-    /// Call only for the codex kind. https://github.com/manaflow-ai/cmux/issues/5639
+    /// A bare `codex` uses the wrapper token directly. An absolute executable
+    /// whose basename is `codex` is routed through the same token with
+    /// ``codexCustomExecutableEnvironmentKey`` set, preserving the exact captured
+    /// installation while restoring cmux's hook injection. Every other token is
+    /// quoted normally. Call only for the codex kind.
+    /// https://github.com/manaflow-ai/cmux/issues/5639
     public static func renderingCodexWrapperExecutable(
         parts: [String],
         quote: (String) -> String
     ) -> [String] {
-        var replaced = false
-        return parts.map { part in
-            if !replaced, part == "codex" {
-                replaced = true
-                return codexWrapperShellExecutableToken
+        guard let executableIndex = commandExecutableIndex(parts) else {
+            return parts.map(quote)
+        }
+        var rendered: [String] = []
+        for (index, part) in parts.enumerated() {
+            let isBareCodex = part == "codex"
+            let isAbsoluteCodex = part.hasPrefix("/")
+                && (part as NSString).lastPathComponent == "codex"
+            if index == executableIndex, isBareCodex || isAbsoluteCodex {
+                if isAbsoluteCodex {
+                    if rendered.isEmpty {
+                        rendered.append(quote("env"))
+                    }
+                    rendered.append(quote("\(codexCustomExecutableEnvironmentKey)=\(part)"))
+                }
+                rendered.append(
+                    isAbsoluteCodex
+                        ? codexWrapperShellExecutableToken(fallingBackTo: part)
+                        : codexWrapperShellExecutableToken
+                )
+            } else {
+                rendered.append(quote(part))
             }
-            return quote(part)
+        }
+        return rendered
+    }
+
+    private static func commandExecutableIndex(_ parts: [String]) -> Int? {
+        guard !parts.isEmpty else { return nil }
+        let first = (parts[0] as NSString).lastPathComponent
+        guard first == "env" else { return 0 }
+        var index = 1
+        while index < parts.count, isEnvironmentAssignment(parts[index]) {
+            index += 1
+        }
+        if index < parts.count, parts[index] == "--" {
+            index += 1
+        }
+        return index < parts.count ? index : nil
+    }
+
+    private static func isEnvironmentAssignment(_ value: String) -> Bool {
+        guard let equals = value.firstIndex(of: "=") else { return false }
+        let name = value[..<equals]
+        guard let first = name.first,
+              first == "_" || first.isLetter else {
+            return false
+        }
+        return name.dropFirst().allSatisfy {
+            $0 == "_" || $0.isLetter || $0.isNumber
         }
     }
 

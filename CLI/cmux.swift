@@ -771,12 +771,14 @@ final class ClaudeHookSessionStore {
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
-        updateRuntimeStatus: Bool = false
+        updateRuntimeStatus: Bool = false,
+        allowResumedProcessReplacement: Bool = false
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
         return try withLockedState { state in
             let now = Date().timeIntervalSince1970
+            let hadExistingRecord = state.sessions[normalized] != nil
             var record = makeSessionRecord(
                 state: state,
                 sessionId: normalized,
@@ -784,7 +786,11 @@ final class ClaudeHookSessionStore {
                 surfaceId: surfaceId,
                 now: now
             )
-            if codexSessionStartIsStale(record, incomingPID: pid) {
+            if hadExistingRecord, codexSessionStartIsStale(
+                record,
+                incomingPID: pid,
+                allowResumedProcessReplacement: allowResumedProcessReplacement
+            ) {
                 return false
             }
             clearCodexSessionStartTurnState(on: &record)
@@ -863,7 +869,8 @@ final class ClaudeHookSessionStore {
     func codexSessionStartIsStale(
         sessionId: String,
         incomingPID: Int?,
-        includeTerminalPromptTurnIds: Bool = true
+        includeTerminalPromptTurnIds: Bool = true,
+        allowResumedProcessReplacement: Bool = false
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
@@ -872,7 +879,8 @@ final class ClaudeHookSessionStore {
             return codexSessionStartIsStale(
                 record,
                 incomingPID: incomingPID,
-                includeTerminalPromptTurnIds: includeTerminalPromptTurnIds
+                includeTerminalPromptTurnIds: includeTerminalPromptTurnIds,
+                allowResumedProcessReplacement: allowResumedProcessReplacement
             )
         }
     }
@@ -1004,19 +1012,92 @@ final class ClaudeHookSessionStore {
     private func codexSessionStartIsStale(
         _ record: ClaudeHookSessionRecord,
         incomingPID: Int?,
-        includeTerminalPromptTurnIds: Bool = true
+        includeTerminalPromptTurnIds: Bool = true,
+        allowResumedProcessReplacement: Bool = false
     ) -> Bool {
-        if max(record.activePromptDepth ?? 0, record.activePromptTurnIds?.count ?? 0) > 0 {
+        let hasActiveTurnState =
+            max(
+                record.activePromptDepth ?? 0,
+                record.activePromptTurnIds?.count ?? 0
+            ) > 0
+        let hasCompletedTurnState =
+            normalizeOptional(record.lastPromptTurnId) != nil
+            || (
+                includeTerminalPromptTurnIds
+                && !terminalPromptTurnSet(from: record).isEmpty
+            )
+        // A wrapper-confirmed resume may replace an interrupted active turn only
+        // when its process generation is newer or replaces a dead owner from a
+        // legacy record. A same-generation repeat is safe only before that
+        // process publishes turn state. PID inequality alone is insufficient
+        // because fire-and-forget hooks can arrive out of order and the OS can
+        // reuse a numeric PID.
+        if allowResumedProcessReplacement {
+            guard let incomingPID else { return true }
+            switch resumedProcessGenerationRelation(
+                incomingPID: incomingPID,
+                to: record
+            ) {
+            case .newer, .legacyDeadOwner:
+                return false
+            case .same:
+                // The wrapper's fire-and-forget SessionStart can lose its race
+                // with this process's later prompt/stop hooks. Once same-process
+                // turn state exists, treating that delayed start as fresh would
+                // erase or resurrect the newer lifecycle state.
+                return hasActiveTurnState || hasCompletedTurnState
+            case .older, .indeterminate:
+                return true
+            }
+        }
+        if hasActiveTurnState {
             return true
         }
-        let hasCompletedTurnState = normalizeOptional(record.lastPromptTurnId) != nil
-            || (includeTerminalPromptTurnIds && !terminalPromptTurnSet(from: record).isEmpty)
         guard hasCompletedTurnState,
               let incomingPID,
               let existingPID = record.pid else {
             return false
         }
         return incomingPID == existingPID
+    }
+
+    private enum ResumedProcessGenerationRelation {
+        case newer
+        case same
+        case older
+        case legacyDeadOwner
+        case indeterminate
+    }
+
+    private func resumedProcessGenerationRelation(
+        incomingPID: Int,
+        to record: ClaudeHookSessionRecord
+    ) -> ResumedProcessGenerationRelation {
+        guard let incoming = processStartIdentity(pid: incomingPID) else {
+            return .indeterminate
+        }
+        if let existingSeconds = record.pidStartSeconds,
+           let existingMicroseconds = record.pidStartMicroseconds {
+            if incoming.seconds != existingSeconds {
+                return incoming.seconds > existingSeconds ? .newer : .older
+            }
+            if incoming.microseconds != existingMicroseconds {
+                return incoming.microseconds > existingMicroseconds ? .newer : .older
+            }
+            return .same
+        }
+
+        // Older cmux CLIs can decode and rewrite the shared store without the
+        // optional generation fields. Preserve crash recovery for those records
+        // only when the previous owner is a distinct, dead PID. A live or reused
+        // PID and a missing PID remain ambiguous and fail closed.
+        guard let existingPID = record.pid,
+              existingPID > 0,
+              existingPID != incomingPID,
+              processStartIdentity(pid: existingPID) == nil else {
+            return .indeterminate
+        }
+        return .legacyDeadOwner
     }
 
     private func clearCodexSessionStartTurnState(on record: inout ClaudeHookSessionRecord) {
@@ -27787,9 +27868,16 @@ struct CMUXCLI {
         // user's shell (fish/csh/tcsh included), so token-bearing commands are wrapped
         // in `/bin/sh -c '…'` to parse everywhere; the cwd guard below stays outside so
         // cd-prefix rewriting keeps composing. https://github.com/manaflow-ai/cmux/issues/5639
-        var command = kind == "claude"
-            ? AgentResumeArgv.renderedPortableClaudeResumeShellCommand(parts: resumeCommandParts, quote: cliShellQuote)
-            : resumeCommandParts.map(cliShellQuote).joined(separator: " ")
+        let commandRenderer: ([String], (String) -> String) -> String
+        switch kind {
+        case "claude":
+            commandRenderer = AgentResumeArgv.renderedPortableClaudeResumeShellCommand
+        case "codex":
+            commandRenderer = AgentResumeArgv.renderedPortableCodexResumeShellCommand
+        default:
+            commandRenderer = { parts, quote in parts.map(quote).joined(separator: " ") }
+        }
+        var command = commandRenderer(resumeCommandParts, cliShellQuote)
         if kind == "hermes-agent" {
             command = hermesAgentSubrouterResumeCommand(
                 command,
@@ -30482,6 +30570,8 @@ export default CMUXSessionRestore;
                 fallbackKind: def.name,
                 cwd: hookCwd ?? mapped?.cwd
             )
+            let isCodexResumeRebind = def.name == "codex"
+                && (input.rawObject?["cmux_resume_rebind"] as? Bool) == true
             let resumeLaunchCommand = preferredAgentHookResumeLaunchCommand(
                 kind: def.name, current: launchCommand, mapped: mapped,
                 transcriptPath: input.transcriptPath ?? mapped?.transcriptPath, currentPID: pid
@@ -30490,7 +30580,8 @@ export default CMUXSessionRestore;
                 def.name == "codex" && ((try? store.codexSessionStartIsStale(
                     sessionId: sessionId,
                     incomingPID: pid,
-                    includeTerminalPromptTurnIds: false
+                    includeTerminalPromptTurnIds: false,
+                    allowResumedProcessReplacement: isCodexResumeRebind
                 )) == true)
             }
             if !sessionId.isEmpty {
@@ -30506,7 +30597,8 @@ export default CMUXSessionRestore;
                         launchCommand: resumeLaunchCommand,
                         agentLifecycle: .unknown,
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
-                        updateRuntimeStatus: !suppressVisibleMutations
+                        updateRuntimeStatus: !suppressVisibleMutations,
+                        allowResumedProcessReplacement: isCodexResumeRebind
                     )) ?? false
                 } else {
                     try? store.upsert(
@@ -34524,6 +34616,12 @@ export default CMUXSessionRestore;
                 // (Resources/bin/cmux-codex-wrapper) splices to inject cmux's
                 // fire-and-forget hooks for one invocation. No socket required.
                 try emitCodexWrapperInjectArgs()
+                return true
+            case "inject-resume-args" where def.name == "codex":
+                // Hidden: emit the NUL-separated trust override that the
+                // wrapper appends after `codex resume` arguments. Codex ignores
+                // this project decision when it is placed before the subcommand.
+                emitCodexWrapperResumeArgs()
                 return true
             case "install":
                 try installHooksForAgent(def, arguments: actionArgs)

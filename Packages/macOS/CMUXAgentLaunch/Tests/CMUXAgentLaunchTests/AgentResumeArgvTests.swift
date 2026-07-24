@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import Foundation
 import Testing
 
 @Suite("AgentResumeArgv")
@@ -316,12 +317,96 @@ struct AgentResumeArgvTests {
         )
         #expect(rendered == "/bin/sh -c '" + substituted.replacingOccurrences(of: "'", with: "'\\''") + "'")
         #expect(rendered.hasPrefix("/bin/sh -c "))
+        // Real wrapper captures preserve the resolved Codex executable, not the
+        // bare `codex` token. Auto-resume must still route that executable back
+        // through the wrapper while pinning the exact captured binary.
+        let absoluteWrapperToken =
+            "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" "
+            + "|| { [ -x '/opt/company/bin/codex' ] && printf '%s' '/opt/company/bin/codex' || printf codex; })\""
+        let absoluteSubstituted =
+            "'env' 'CODEX_HOME=/tmp/codex home' 'CMUX_CUSTOM_CODEX_PATH=/opt/company/bin/codex' "
+            + "\(absoluteWrapperToken) 'resume' 'SID'"
+        #expect(
+            AgentResumeArgv.renderedPortableCodexResumeShellCommand(
+                parts: [
+                    "env",
+                    "CODEX_HOME=/tmp/codex home",
+                    "/opt/company/bin/codex",
+                    "resume",
+                    "SID",
+                ],
+                quote: quote
+            ) == "/bin/sh -c '" + absoluteSubstituted.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        )
         // No bare `codex` executable: already-portable words stay unwrapped.
         #expect(
             AgentResumeArgv.renderedPortableCodexResumeShellCommand(
                 parts: ["/Applications/cmux.app/Contents/Resources/bin/cmux", "codex-teams", "resume", "SID"],
                 quote: quote
             ) == "'/Applications/cmux.app/Contents/Resources/bin/cmux' 'codex-teams' 'resume' 'SID'"
+        )
+        // An option value whose basename is codex is data, not the executable.
+        #expect(
+            AgentResumeArgv.renderedPortableCodexResumeShellCommand(
+                parts: [
+                    "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                    "codex-teams",
+                    "resume",
+                    "SID",
+                    "--add-dir",
+                    "/tmp/codex",
+                ],
+                quote: quote
+            ) == "'/Applications/cmux.app/Contents/Resources/bin/cmux' 'codex-teams' 'resume' 'SID' '--add-dir' '/tmp/codex'"
+        )
+    }
+
+    @Test("Absolute Codex wrapper fallback executes the captured binary")
+    func absoluteCodexWrapperFallbackExecutesCapturedBinary() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-fallback-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let capturedCodex = root.appendingPathComponent("codex", isDirectory: false)
+        try """
+        #!/bin/sh
+        printf '%s\n' "$*"
+        """.write(to: capturedCodex, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: capturedCodex.path
+        )
+
+        let quote: (String) -> String = {
+            "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        }
+        let rendered = AgentResumeArgv.renderedPortableCodexResumeShellCommand(
+            parts: [capturedCodex.path, "resume", "SID"],
+            quote: quote
+        )
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", rendered]
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CODEX_WRAPPER_SHIM"] = root
+            .appendingPathComponent("missing-wrapper", isDirectory: false)
+            .path
+        environment["PATH"] = "/usr/bin:/bin"
+        process.environment = environment
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        process.standardError = Pipe()
+
+        try process.run()
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus == 0)
+        #expect(
+            String(
+                data: stdout.fileHandleForReading.readDataToEndOfFile(),
+                encoding: .utf8
+            ) == "resume SID\n"
         )
     }
 }

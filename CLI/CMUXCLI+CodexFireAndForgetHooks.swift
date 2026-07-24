@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
@@ -65,16 +66,219 @@ extension CMUXCLI {
             args.append("-c")
             args.append(toml)
         }
-        // NUL-TERMINATE each arg (trailing NUL after the last too) so a bash
+        emitNulSeparatedArguments(args)
+    }
+
+    /// Emit the invocation-only project trust override that must follow a
+    /// `codex resume` subcommand. Codex accepts hook configuration as global
+    /// arguments before `resume`, but resume project trust is parsed from the
+    /// subcommand's argument scope and is ignored when prepended.
+    func emitCodexWrapperResumeArgs() {
+        emitNulSeparatedArguments(codexResumeTrustOverride())
+    }
+
+    private func emitNulSeparatedArguments(_ arguments: [String]) {
+        // NUL-terminate each arg (trailing NUL after the last too) so a bash
         // `while IFS= read -r -d '' arg` loop captures every element including
-        // the final one — a separator-only stream drops the unterminated last
+        // the final one. A separator-only stream drops the unterminated last
         // arg at EOF.
         var out = Data()
-        for arg in args {
+        for arg in arguments {
             out.append(Data(arg.utf8))
             out.append(0)
         }
         FileHandle.standardOutput.write(out)
+    }
+
+    /// Returns a fail-closed, invocation-only project trust decision for an
+    /// unattended Codex resume. Existing explicit cwd or repository decisions
+    /// remain authoritative; an undecided project resumes as untrusted instead
+    /// of blocking the restored pane on Codex's trust picker.
+    private func codexResumeTrustOverride() -> [String] {
+        let environment = ProcessInfo.processInfo.environment
+        guard let arguments = codexCapturedLaunchArguments(environment),
+              let currentDirectory = normalizedHookValue(
+                  environment["CMUX_AGENT_LAUNCH_CWD"]
+              ) ?? normalizedHookValue(FileManager.default.currentDirectoryPath) else {
+            return []
+        }
+        let policy = CodexResumeTrustPolicy()
+        // Gate every subprocess behind a confirmed resume. Fresh Codex
+        // launches only need the normal hook injection.
+        guard
+            let appServerConfigurationArguments = policy
+                .appServerConfigurationArguments(arguments: arguments),
+            let effectiveDirectory = policy.effectiveWorkingDirectory(
+                arguments: arguments,
+                currentDirectory: currentDirectory
+            )
+        else {
+            return []
+        }
+        guard let projectDecisions = codexEffectiveProjectDecisionPaths(
+            environment: environment,
+            appServerConfigurationArguments: appServerConfigurationArguments,
+            currentDirectory: effectiveDirectory,
+            policy: policy
+        ) else {
+            return []
+        }
+        return policy.undecidedProjectOverride(
+            arguments: arguments,
+            currentDirectory: currentDirectory,
+            repositoryRoot: codexCommonRepositoryRoot(currentDirectory: effectiveDirectory),
+            effectiveProjectDecisionPaths: projectDecisions
+        )
+    }
+
+    private func codexCapturedLaunchArguments(_ environment: [String: String]) -> [String]? {
+        guard let raw = normalizedHookValue(environment["CMUX_AGENT_LAUNCH_ARGV_B64"]),
+              let data = Data(base64Encoded: raw) else {
+            return nil
+        }
+        var arguments = data.split(separator: 0, omittingEmptySubsequences: false)
+        if arguments.last?.isEmpty == true {
+            arguments.removeLast()
+        }
+        let decoded = arguments.compactMap { String(data: Data($0), encoding: .utf8) }
+        return decoded.count == arguments.count ? decoded : nil
+    }
+
+    private func codexEffectiveProjectDecisionPaths(
+        environment: [String: String],
+        appServerConfigurationArguments: [String],
+        currentDirectory: String,
+        policy: CodexResumeTrustPolicy
+    ) -> Set<String>? {
+        guard let executablePath = normalizedHookValue(
+            environment["CMUX_AGENT_LAUNCH_EXECUTABLE"]
+        ),
+            executablePath.hasPrefix("/"),
+            FileManager.default.isExecutableFile(atPath: executablePath),
+            let request = codexConfigReadRequest(currentDirectory: currentDirectory)
+        else {
+            return nil
+        }
+
+        func readProjectDecisions(
+            configurationArguments: [String]
+        ) -> Set<String>? {
+            let result = CLIProcessRunner.runJSONLinesProcess(
+                executablePath: executablePath,
+                arguments: configurationArguments + ["app-server", "--stdio"],
+                stdinText: request,
+                responseID: 2,
+                currentDirectoryPath: currentDirectory,
+                timeout: 5
+            )
+            guard result.status == 0, !result.timedOut else {
+                return nil
+            }
+            return policy.effectiveProjectDecisionPaths(
+                appServerOutput: result.stdout,
+                responseID: 2
+            )
+        }
+
+        // config/read does not need a live model catalog. Loading Codex's own
+        // version-compatible cache as a fixed catalog keeps an unrelated model
+        // refresh or credential command from delaying every restored session.
+        // A missing/invalid cache or managed requirement can reject this
+        // session override, so retry the original effective configuration.
+        if let modelCatalogPath = codexModelsCachePath(environment: environment) {
+            let isolatedConfigurationArguments = appServerConfigurationArguments + [
+                "-c",
+                "model_catalog_json=\(modelCatalogPath)",
+            ]
+            if let decisions = readProjectDecisions(
+                configurationArguments: isolatedConfigurationArguments
+            ) {
+                return decisions
+            }
+        }
+        return readProjectDecisions(
+            configurationArguments: appServerConfigurationArguments
+        )
+    }
+
+    private func codexModelsCachePath(
+        environment: [String: String]
+    ) -> String? {
+        let codexHome: URL
+        if let configuredHome = normalizedHookValue(environment["CODEX_HOME"]) {
+            guard configuredHome.hasPrefix("/") else { return nil }
+            codexHome = URL(
+                fileURLWithPath: configuredHome,
+                isDirectory: true
+            )
+        } else {
+            codexHome = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".codex", isDirectory: true)
+        }
+        let path = codexHome
+            .appendingPathComponent("models_cache.json", isDirectory: false)
+            .standardizedFileURL
+            .path
+        return FileManager.default.isReadableFile(atPath: path) ? path : nil
+    }
+
+    private func codexConfigReadRequest(currentDirectory: String) -> String? {
+        let messages: [[String: Any]] = [
+            [
+                "method": "initialize",
+                "id": 1,
+                "params": [
+                    "clientInfo": [
+                        "name": "cmux",
+                        "title": "cmux",
+                        "version": "1",
+                    ],
+                ],
+            ],
+            [
+                "method": "initialized",
+            ],
+            [
+                "method": "config/read",
+                "id": 2,
+                "params": [
+                    "includeLayers": false,
+                    "cwd": currentDirectory,
+                ],
+            ],
+        ]
+        var lines: [String] = []
+        for message in messages {
+            guard let data = try? JSONSerialization.data(withJSONObject: message),
+                  let line = String(data: data, encoding: .utf8) else {
+                return nil
+            }
+            lines.append(line)
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// Mirrors Codex's trust lookup for linked worktrees: project decisions may
+    /// be keyed by the main repository root rather than the checkout root.
+    private func codexCommonRepositoryRoot(currentDirectory: String) -> String? {
+        let result = CLIProcessRunner.runProcess(
+            executablePath: "/usr/bin/git",
+            arguments: [
+                "-C",
+                currentDirectory,
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-common-dir",
+            ],
+            timeout: 1
+        )
+        guard result.status == 0,
+              let commonDirectory = normalizedHookValue(result.stdout) else {
+            return nil
+        }
+        let commonURL = URL(fileURLWithPath: commonDirectory, isDirectory: true)
+        guard commonURL.lastPathComponent == ".git" else { return nil }
+        return commonURL.deletingLastPathComponent().standardizedFileURL.path
     }
 
     /// The cmux-owned directory holding the generated codex hook scripts.

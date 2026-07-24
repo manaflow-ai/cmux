@@ -119,37 +119,44 @@ extension SurfaceResumeCommandCanonicalizer {
                 for: kind,
                 executableBasename: executableBasename
               ),
-              executableBasename == executableName,
-              isPATHManagedAgentExecutablePath(executable, executableName: executableName) else {
+              executableBasename == executableName else {
             return command
         }
-        guard !isExecutableFile(atPath: executable) else {
+
+        if executableName == "codex" {
+            // Every local agent-hook Codex resume must re-enter cmux's wrapper,
+            // including legacy bindings whose captured absolute executable still
+            // exists. Pin the captured binary through CMUX_CUSTOM_CODEX_PATH so
+            // wrapper routing restores hooks without changing installations.
+            return replacingWrapperRoutedExecutable(
+                in: command,
+                words: words,
+                executableIndex: executableIndex,
+                executableName: "codex",
+                wrapperToken: AgentResumeArgv.codexWrapperShellExecutableToken(
+                    fallingBackTo: executable
+                ),
+                preserveCapturedExecutable: true,
+                renderPortable: { AgentResumeArgv.renderedPortableCodexResumeShellCommand(parts: $0, quote: $1) },
+                wrapInPortableShell: { AgentResumeArgv.portableCodexResumeShellCommand(posixCommand: $0) }
+            )
+        }
+
+        guard isPATHManagedAgentExecutablePath(executable, executableName: executableName),
+              !isExecutableFile(atPath: executable) else {
             return command
         }
 
         if executableName == "claude" {
-            return replacingStaleWrapperRoutedExecutable(
+            return replacingWrapperRoutedExecutable(
                 in: command,
                 words: words,
                 executableIndex: executableIndex,
                 executableName: "claude",
                 wrapperToken: AgentResumeArgv.claudeWrapperShellExecutableToken,
+                preserveCapturedExecutable: false,
                 renderPortable: { AgentResumeArgv.renderedPortableClaudeResumeShellCommand(parts: $0, quote: $1) },
                 wrapInPortableShell: { AgentResumeArgv.portableClaudeResumeShellCommand(posixCommand: $0) }
-            )
-        } else if executableName == "codex" {
-            // Mirror claude: route a stale codex executable (a PATH-managed path
-            // whose file is gone) through the codex wrapper token instead of a
-            // bare `codex`, so the restored codex surface keeps cmux hooks.
-            // https://github.com/manaflow-ai/cmux/issues/5639
-            return replacingStaleWrapperRoutedExecutable(
-                in: command,
-                words: words,
-                executableIndex: executableIndex,
-                executableName: "codex",
-                wrapperToken: AgentResumeArgv.codexWrapperShellExecutableToken,
-                renderPortable: { AgentResumeArgv.renderedPortableCodexResumeShellCommand(parts: $0, quote: $1) },
-                wrapInPortableShell: { AgentResumeArgv.portableCodexResumeShellCommand(posixCommand: $0) }
             )
         } else {
             return replacingExecutableOnly(
@@ -240,12 +247,13 @@ extension SurfaceResumeCommandCanonicalizer {
         path.withCString { access($0, X_OK) == 0 }
     }
 
-    private static func replacingStaleWrapperRoutedExecutable(
+    private static func replacingWrapperRoutedExecutable(
         in command: String,
         words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange],
         executableIndex: Int,
         executableName: String,
         wrapperToken: String,
+        preserveCapturedExecutable: Bool,
         renderPortable: ([String], (String) -> String) -> String,
         wrapInPortableShell: (String) -> String
     ) -> String {
@@ -266,6 +274,7 @@ extension SurfaceResumeCommandCanonicalizer {
                 commandStartIndex: commandStartIndex,
                 executableIndex: executableIndex,
                 wrapperToken: wrapperToken,
+                capturedExecutable: preserveCapturedExecutable ? words[executableIndex].value : nil,
                 wrapInPortableShell: wrapInPortableShell
             )
         }
@@ -281,10 +290,13 @@ extension SurfaceResumeCommandCanonicalizer {
                 commandStartIndex: commandStartIndex,
                 executableIndex: executableIndex,
                 wrapperToken: wrapperToken,
+                capturedExecutable: preserveCapturedExecutable ? words[executableIndex].value : nil,
                 wrapInPortableShell: wrapInPortableShell
             )
         }
-        parts[executableIndex - commandStartIndex] = executableName
+        if !preserveCapturedExecutable {
+            parts[executableIndex - commandStartIndex] = executableName
+        }
         let renderedCommand = renderPortable(parts, shellQuoted)
         let commandStart = words[commandStartIndex].range.lowerBound
         return String(command[..<commandStart]) + renderedCommand
@@ -296,13 +308,23 @@ extension SurfaceResumeCommandCanonicalizer {
         commandStartIndex: Int,
         executableIndex: Int,
         wrapperToken: String,
+        capturedExecutable: String?,
         wrapInPortableShell: (String) -> String
     ) -> String {
-        let renderedParts = words[commandStartIndex...].indices.map { index in
+        let renderedParts = words[commandStartIndex...].indices.flatMap { index -> [String] in
             if index == executableIndex {
-                return wrapperToken
+                if let capturedExecutable {
+                    return [
+                        shellQuoted("env"),
+                        shellQuoted(
+                            "\(AgentResumeArgv.codexCustomExecutableEnvironmentKey)=\(capturedExecutable)"
+                        ),
+                        wrapperToken,
+                    ]
+                }
+                return [wrapperToken]
             }
-            return renderedPortableShellWord(words[index], in: command)
+            return [renderedPortableShellWord(words[index], in: command)]
         }
         let renderedCommand = wrapInPortableShell(renderedParts.joined(separator: " "))
         let commandStart = words[commandStartIndex].range.lowerBound
