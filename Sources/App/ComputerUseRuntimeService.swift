@@ -232,6 +232,48 @@ final class ComputerUseRuntimeService {
         }
     }
 
+    /// Shows or hides the stable cursor owned by one cmux surface. The helper
+    /// keeps this cursor identity across short-lived MCP proxy generations, so
+    /// a menu choice applies to both the current call and later calls.
+    func setDriverCursorVisible(
+        _ visible: Bool,
+        driverSessionID: String
+    ) async -> Bool {
+        guard ComputerUseSessionScope.isManagedDriverSessionID(driverSessionID)
+        else {
+            return false
+        }
+        return await serializeHelperLifecycle(cancelledResult: false) { [weak self] in
+            guard
+                let self,
+                self.desiredEnabled,
+                self.acceptsNewLaunches,
+                let expectedPeerIdentity = self.runningHelperProcessIdentity,
+                AgentPIDProcessIdentity(pid: expectedPeerIdentity.pid)
+                    == expectedPeerIdentity
+            else {
+                return false
+            }
+            guard let response = await Self.sendDaemonRequest(
+                [
+                    "method": "call",
+                    "name": "set_agent_cursor_enabled",
+                    "args": [
+                        "cursor_id": driverSessionID,
+                        "enabled": visible,
+                    ],
+                ],
+                paths: self.paths,
+                transport: self.transport,
+                timeout: 3,
+                expectedPeerIdentity: expectedPeerIdentity
+            ) else {
+                return false
+            }
+            return response["ok"] as? Bool == true
+        }
+    }
+
     private func startIfNeeded() async {
         await serializeHelperLifecycle(cancelledResult: ()) { [weak self] in
             guard let self else { return }

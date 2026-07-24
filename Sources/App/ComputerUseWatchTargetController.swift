@@ -207,8 +207,8 @@ struct ComputerUseWatchTargetFeed: Sendable {
 /// Fronts each distinct target exactly once (`ComputerUseWatchTargetDecision`)
 /// so it never competes with the user's own focus while a session runs. Gated by
 /// `featureEnabled` and validated with `ComputerUseTargetIdentity`, mirroring the
-/// menu bar's "View Computer Use" action and the cursor overlay's watcher shape.
-/// Choosing "Continue in Background" pauses automatic activation until the user
+/// menu bar's "Focus Computer Use" action and the cursor overlay's watcher shape.
+/// Choosing "Focus Calling Terminal" pauses automatic activation until the user
 /// explicitly returns to the target or the active session ends.
 @MainActor
 final class ComputerUseWatchTargetController {
@@ -346,6 +346,7 @@ final class ComputerUseWatchTargetController {
             return false
         }
         backgroundDriverSessionIDs.insert(driverSessionID)
+        onCursorVisibilityChange(driverSessionID, false)
         return true
     }
 
@@ -407,6 +408,7 @@ final class ComputerUseWatchTargetController {
         }
 
         backgroundDriverSessionIDs.remove(driverSessionID)
+        onCursorVisibilityChange(driverSessionID, true)
         activate(application)
         lastActivatedTargetPIDByDriverSessionID[driverSessionID] =
             identity.processIdentifier

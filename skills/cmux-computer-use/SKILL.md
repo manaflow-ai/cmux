@@ -120,10 +120,11 @@ driver build.
 While an agent is driving, the **cmux Computer Use** menu-bar item projects only
 the most recently active live agent session and offers two presentation modes:
 
-- **View Computer Use** — bring forward the app the agent is driving and resume
+- **Focus Computer Use** — bring forward the app the agent is driving and resume
   automatically following new targets.
-- **Continue in Background** — keep automation running without fronting its
-  target and reveal the exact workspace + surface running that agent.
+- **Focus Calling Terminal** — return to the terminal that invoked Computer Use
+  and reveal the exact workspace + surface running that agent while automation
+  continues in the background.
 
 The helper pins its cursor window directly above the driven target window at
 the normal application window level. That keeps the cursor visible on the

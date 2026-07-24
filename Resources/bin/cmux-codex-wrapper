@@ -283,6 +283,8 @@ cmux_codex_emit_computer_use_args() {
         "-c" \
         "mcp_servers.cmux-computer-use.env.CUA_DRIVER_DEFAULT_SESSION=\"$(cmux_computer_use_json_escape "$default_session")\"" \
         "-c" \
+        "mcp_servers.cmux-computer-use.env.CUA_DRIVER_STATE_OWNER_PID=\"$(cmux_computer_use_json_escape "${CMUX_CODEX_PID:-$$}")\"" \
+        "-c" \
         "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_TELEMETRY_ENABLED=\"false\"" \
         "-c" \
         "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_UPDATE_CHECK=\"false\"" \

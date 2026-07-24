@@ -1849,7 +1849,7 @@ jobs:
           APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
           HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
-          CUA_DRIVER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-cua-driver"
+          CUA_DRIVER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-computer-use-client"
           DIFF_SIDECAR="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-diff-sidecar"
           test -x "$APP_BINARY"
           test -x "$CLI_BINARY"

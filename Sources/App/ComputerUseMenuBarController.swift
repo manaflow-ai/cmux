@@ -130,7 +130,10 @@ final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
             driverSessionID,
             row.id
         )
-        let viewTitle = String(localized: "computerUse.menu.viewComputerUse", defaultValue: "View Computer Use")
+        let viewTitle = String(
+            localized: "computerUse.menu.focusTarget",
+            defaultValue: "Focus Computer Use"
+        )
         let viewItem = NSMenuItem(
             title: viewTitle,
             action: #selector(viewComputerUseAction(_:)),
@@ -167,8 +170,8 @@ final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
         menu.addItem(viewItem)
 
         let backgroundTitle = String(
-            localized: "computerUse.menu.continueInBackground",
-            defaultValue: "Continue in Background"
+            localized: "computerUse.menu.focusTerminal",
+            defaultValue: "Focus Calling Terminal"
         )
         let backgroundItem = NSMenuItem(
             title: backgroundTitle,

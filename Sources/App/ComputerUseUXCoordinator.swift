@@ -129,7 +129,15 @@ final class ComputerUseUXCoordinator {
             },
             feed: ComputerUseWatchTargetFeed(
                 authenticationKey: runtimeService.stateAuthenticationKey
-            )
+            ),
+            onCursorVisibilityChange: { [runtimeService] driverSessionID, visible in
+                Task { @MainActor in
+                    _ = await runtimeService.setDriverCursorVisible(
+                        visible,
+                        driverSessionID: driverSessionID
+                    )
+                }
+            }
         )
 
         let snapshotStore = ComputerUseMenuBarSnapshotStore(
