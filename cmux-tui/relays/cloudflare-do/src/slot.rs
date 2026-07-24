@@ -11,8 +11,8 @@ use worker::{
 
 use crate::abuse::{
     CIRCUITS_STORAGE_KEY, CLIENT_CONTROL_IDLE_TIMEOUT_MS, CircuitLedger,
-    DAEMON_CONTROL_IDLE_TIMEOUT_MS, MAX_SLOT_SOCKETS, SLOT_HANDSHAKE_TIMEOUT_MS, SlotEndpoint,
-    SlotSocketCounts, admit_slot_socket,
+    DAEMON_CONTROL_IDLE_TIMEOUT_MS, SLOT_HANDSHAKE_TIMEOUT_MS, SlotEndpoint, SlotSocketCounts,
+    admit_slot_socket, websocket_counts_toward_capacity,
 };
 use crate::attachment::{SlotAttachment, SlotPhase};
 use crate::auth::{DEFAULT_TICKET_ISSUER, TicketExpectation, issue_ticket, verify_ticket};
@@ -91,7 +91,11 @@ impl RelaySlot {
             let Ok(attachment) = Self::attachment(&socket) else {
                 continue;
             };
-            if attachment.idle_deadline_ms <= now_ms {
+            if !websocket_counts_toward_capacity(
+                socket.as_ref().ready_state(),
+                attachment.idle_deadline_ms,
+                now_ms,
+            ) {
                 continue;
             }
             counts.total += 1;
@@ -118,10 +122,13 @@ impl RelaySlot {
             .into_iter()
             .find(|socket| {
                 Self::attachment(socket).is_ok_and(|attachment| {
-                    attachment.phase == SlotPhase::Registered
+                    websocket_counts_toward_capacity(
+                        socket.as_ref().ready_state(),
+                        attachment.idle_deadline_ms,
+                        now_ms,
+                    ) && attachment.phase == SlotPhase::Registered
                         && attachment.relay.slot == slot
                         && attachment.expires_at > now
-                        && attachment.idle_deadline_ms > now_ms
                 })
             })
             .and_then(|socket| {
@@ -538,9 +545,7 @@ impl DurableObject for RelaySlot {
             "connect" => (RelayRole::Client, CONNECT_TAG, SlotEndpoint::Client),
             _ => return Response::error("Not found", 404),
         };
-        if self.state.get_websockets().len() >= MAX_SLOT_SOCKETS
-            || !admit_slot_socket(self.socket_counts(self.now_ms()), admission_endpoint)
-        {
+        if !admit_slot_socket(self.socket_counts(self.now_ms()), admission_endpoint) {
             return Response::error("Slot connection limit reached", 429);
         }
 

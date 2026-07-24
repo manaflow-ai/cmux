@@ -51,6 +51,18 @@ pub(crate) fn admit_circuit_socket(total: usize, pending: usize) -> bool {
     total < MAX_CIRCUIT_SOCKETS && pending < MAX_CIRCUIT_PENDING_SOCKETS
 }
 
+/// Cloudflare can briefly return WebSockets in the CLOSING state from
+/// `get_websockets()`. Only an open, unexpired socket consumes admission
+/// capacity; otherwise a deployment cut can reject its own replacement.
+pub(crate) fn websocket_counts_toward_capacity(
+    ready_state: u16,
+    idle_deadline_ms: u64,
+    now_ms: u64,
+) -> bool {
+    const OPEN: u16 = 1;
+    ready_state == OPEN && idle_deadline_ms > now_ms
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "phase", rename_all = "kebab-case")]
 enum CircuitLease {

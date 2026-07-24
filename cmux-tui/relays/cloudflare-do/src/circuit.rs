@@ -12,7 +12,7 @@ use worker::{
 
 use crate::abuse::{
     ACTIVE_CIRCUIT_LEASE_MS, ACTIVE_CIRCUIT_RENEW_MS, CIRCUIT_HANDSHAKE_TIMEOUT_MS,
-    CIRCUIT_IDLE_TIMEOUT_MS, MAX_CIRCUIT_SOCKETS, admit_circuit_socket,
+    CIRCUIT_IDLE_TIMEOUT_MS, admit_circuit_socket, websocket_counts_toward_capacity,
 };
 use crate::attachment::{CircuitAttachment, CircuitPhase};
 use crate::auth::{DEFAULT_TICKET_ISSUER, TicketExpectation, verify_ticket};
@@ -132,6 +132,13 @@ impl RelayCircuit {
             .filter(|candidate| candidate != socket)
             .find_map(|candidate| {
                 let attachment = Self::attachment(&candidate).ok()?;
+                if !websocket_counts_toward_capacity(
+                    candidate.as_ref().ready_state(),
+                    attachment.idle_deadline_ms,
+                    self.now_ms(),
+                ) {
+                    return None;
+                }
                 let candidate_relay = attachment.relay.as_ref()?;
                 let phase_matches = if require_ready {
                     attachment.phase == CircuitPhase::Ready
@@ -155,7 +162,11 @@ impl RelayCircuit {
             .filter(|candidate| candidate != socket)
             .find(|candidate| {
                 Self::attachment(candidate).is_ok_and(|attachment| {
-                    attachment.phase != CircuitPhase::Pending
+                    websocket_counts_toward_capacity(
+                        candidate.as_ref().ready_state(),
+                        attachment.idle_deadline_ms,
+                        self.now_ms(),
+                    ) && attachment.phase != CircuitPhase::Pending
                         && attachment.relay.as_ref().is_some_and(|relay| relay.role == role)
                 })
             })
@@ -459,8 +470,15 @@ impl RelayCircuit {
         self.state
             .get_websockets()
             .into_iter()
-            .filter_map(|socket| Self::attachment(&socket).ok())
-            .filter(|attachment| attachment.idle_deadline_ms > now_ms)
+            .filter_map(|socket| {
+                let attachment = Self::attachment(&socket).ok()?;
+                websocket_counts_toward_capacity(
+                    socket.as_ref().ready_state(),
+                    attachment.idle_deadline_ms,
+                    now_ms,
+                )
+                .then_some(attachment)
+            })
             .fold((0, 0), |(total, pending), attachment| {
                 (total + 1, pending + usize::from(attachment.phase == CircuitPhase::Pending))
             })
@@ -478,9 +496,7 @@ impl DurableObject for RelayCircuit {
         }
         let now_ms = self.now_ms();
         let (total, pending) = self.live_socket_counts(now_ms);
-        if self.state.get_websockets().len() >= MAX_CIRCUIT_SOCKETS
-            || !admit_circuit_socket(total, pending)
-        {
+        if !admit_circuit_socket(total, pending) {
             return Response::error("Circuit connection limit reached", 429);
         }
 
