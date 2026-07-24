@@ -78,7 +78,7 @@ public final class WorkstreamStore {
     public func start() async {
         if let persistence {
             if let page = try? await persistence.loadPage(limit: min(initialLoadLimit, ringCapacity)) {
-                items = page.items
+                items = expiringRestoredPendingItems(page.items)
                 hasMorePersistedItems = page.hasMoreBefore
                 oldestLoadedPersistenceOffset = page.startOffset
                 rebuildContextIndex()
@@ -116,7 +116,9 @@ public final class WorkstreamStore {
         }
 
         let existingIds = Set(items.map(\.id))
-        let olderItems = page.items.filter { !existingIds.contains($0.id) }
+        let olderItems = expiringRestoredPendingItems(
+            page.items.filter { !existingIds.contains($0.id) }
+        )
         if !olderItems.isEmpty {
             items.insert(contentsOf: olderItems, at: 0)
         }
@@ -184,6 +186,22 @@ public final class WorkstreamStore {
     }
 
     // MARK: - Private helpers
+
+    /// A blocking reply waiter is process-local and cannot survive app restart.
+    /// Restored history therefore keeps the decision for audit but never
+    /// presents it as actionable, regardless of the agent PID namespace.
+    private func expiringRestoredPendingItems(
+        _ restoredItems: [WorkstreamItem]
+    ) -> [WorkstreamItem] {
+        let now = clock()
+        return restoredItems.map { restoredItem in
+            guard restoredItem.status.isPending else { return restoredItem }
+            var expiredItem = restoredItem
+            expiredItem.status = .expired(at: now)
+            expiredItem.updatedAt = now
+            return expiredItem
+        }
+    }
 
     private func insert(_ item: WorkstreamItem) {
         items.append(item)

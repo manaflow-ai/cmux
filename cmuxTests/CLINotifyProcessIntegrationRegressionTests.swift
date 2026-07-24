@@ -7,7 +7,7 @@ import Darwin
 #endif
 
 final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
-    func testClaudeClearSessionStartMarksWorkspaceRunning() throws {
+    func testClaudeClearSessionStartDoesNotMarkWorkspaceRunning() throws {
         let context = try makeClaudeHookContext(name: "claude-clear-running")
         defer { context.cleanup() }
 
@@ -24,12 +24,19 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             context.state.commands.contains { $0 == "clear_notifications --tab=\(context.workspaceId) --panel=\(context.surfaceId)" },
             "Expected clear SessionStart to clear only the current pane, saw \(context.state.commands)"
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             context.state.commands.contains {
                 $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
                     && $0.contains("--panel=\(context.surfaceId)")
             },
-            "Expected clear SessionStart to mark Claude running, saw \(context.state.commands)"
+            "Launching Claude without submitting a prompt must not claim Running, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains {
+                $0.hasPrefix("set_agent_lifecycle claude_code running --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "Launching Claude without submitting a prompt must not project a Running lifecycle, saw \(context.state.commands)"
         )
         let resumeClearRequests = context.state.commands.compactMap { command -> [String: Any]? in
             guard let payload = jsonObject(command),
@@ -8835,7 +8842,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         standardInput: String,
         extraEnvironment: [String: String] = [:]
     ) -> ProcessRunResult {
-        let serverHandled = startMockServer(listenerFD: context.listenerFD, state: context.state, connectionCount: 4) { line in
+        let serverHandled = startMockServer(listenerFD: context.listenerFD, state: context.state, connectionCount: 8) { line in
             guard let payload = self.jsonObject(line) else {
                 return "OK"
             }
