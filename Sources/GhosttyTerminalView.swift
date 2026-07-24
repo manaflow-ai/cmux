@@ -5667,7 +5667,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     ) -> TerminalKeyInputEvent {
         return TerminalKeyInputEvent(
             translatedText: textForKeyEvent(translationEvent),
-            rawText: event.characters
+            rawText: event.characters,
+            replaysPhysicalKeyAfterPreeditCommit:
+                replaysPhysicalKeyAfterPreeditCommit(translationEvent)
         )
     }
 

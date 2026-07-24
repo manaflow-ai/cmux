@@ -169,7 +169,7 @@ struct CJKIMEMarkedSelectionTests {
         #expect(pressedKeyCodes.isEmpty)
     }
 
-    @Test func textInputCommandAfterPreeditCommitReplaysPhysicalKey() throws {
+    @Test func textInputCommandAfterPreeditCommitDoesNotReplayPhysicalKey() throws {
         let hostedTerminal = try makeHostedTerminalWindow()
         let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
         let previousInterpretHook = cjkIMEInterpretKeyEventsHook
@@ -217,7 +217,6 @@ struct CJKIMEMarkedSelectionTests {
 
         #expect(recordedKeys == [
             RecordedKey(keyCode: 0, text: "committed", composing: false),
-            RecordedKey(keyCode: UInt32(kVK_Return), text: nil, composing: false),
         ])
     }
 
@@ -244,7 +243,6 @@ struct CJKIMEMarkedSelectionTests {
                 "한",
                 replacementRange: NSRange(location: NSNotFound, length: 0)
             )
-            candidateView.doCommand(by: NSSelectorFromString("moveRight:"))
             return true
         }
 
@@ -271,6 +269,38 @@ struct CJKIMEMarkedSelectionTests {
             RecordedKey(keyCode: 0, text: "한", composing: false),
             RecordedKey(keyCode: UInt32(kVK_RightArrow), text: nil, composing: false),
         ])
+    }
+
+    @Test func postCommitReplayPolicyMatchesGhosttyNavigationSemantics() throws {
+        let view = GhosttyNSView(frame: .zero)
+        let probes: [(UInt16, NSEvent.ModifierFlags, Bool)] = [
+            (UInt16(kVK_DownArrow), [], true),
+            (UInt16(kVK_RightArrow), [], true),
+            (UInt16(kVK_UpArrow), [], true),
+            (UInt16(kVK_LeftArrow), [], false),
+            (UInt16(kVK_LeftArrow), [.shift], true),
+            (UInt16(kVK_Return), [], false),
+        ]
+
+        for (keyCode, modifiers, expected) in probes {
+            let event = try #require(NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: modifiers,
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: 0,
+                context: nil,
+                characters: "",
+                charactersIgnoringModifiers: "",
+                isARepeat: false,
+                keyCode: keyCode
+            ))
+
+            #expect(
+                view.replaysPhysicalKeyAfterPreeditCommit(event) == expected,
+                "keyCode=\(keyCode) modifiers=\(modifiers.rawValue)"
+            )
+        }
     }
 
     @Test(arguments: [

@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 
 extension GhosttyNSView {
     /// Clamps AppKit's marked-text selection into the active preedit buffer.
@@ -39,5 +40,22 @@ extension GhosttyNSView {
         translated translationEvent: NSEvent
     ) -> NSEvent {
         translationEvent
+    }
+
+    /// Mirrors Ghostty's locale-independent post-commit navigation policy.
+    ///
+    /// Most keys only cause AppKit to commit preedit text. Directional
+    /// navigation can additionally affect the terminal after that commit.
+    func replaysPhysicalKeyAfterPreeditCommit(_ event: NSEvent) -> Bool {
+        switch Int(event.keyCode) {
+        case kVK_DownArrow, kVK_RightArrow, kVK_UpArrow:
+            return true
+        case kVK_LeftArrow:
+            return !event.modifierFlags.isDisjoint(
+                with: [.shift, .control, .option, .command]
+            )
+        default:
+            return false
+        }
     }
 }

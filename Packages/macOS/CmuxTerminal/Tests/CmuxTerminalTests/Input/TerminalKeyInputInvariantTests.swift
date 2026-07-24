@@ -29,32 +29,37 @@ import Testing
             for hasMarkedText in booleans {
                 for textInputConsumed in booleans {
                     for textInputCommandPerformed in booleans {
-                        for committedText in committedTextVariants {
-                            for translatedText in textVariants {
-                                for rawText in textVariants {
-                                    let snapshot = TerminalKeyInputSnapshot(
-                                        hadMarkedText: hadMarkedText,
-                                        hasMarkedText: hasMarkedText,
-                                        textInputConsumed: textInputConsumed,
-                                        textInputCommandPerformed: textInputCommandPerformed,
-                                        committedText: committedText,
-                                        event: TerminalKeyInputEvent(
-                                            translatedText: translatedText,
-                                            rawText: rawText
+                        for replaysPhysicalKeyAfterPreeditCommit in booleans {
+                            for committedText in committedTextVariants {
+                                for translatedText in textVariants {
+                                    for rawText in textVariants {
+                                        let snapshot = TerminalKeyInputSnapshot(
+                                            hadMarkedText: hadMarkedText,
+                                            hasMarkedText: hasMarkedText,
+                                            textInputConsumed: textInputConsumed,
+                                            textInputCommandPerformed: textInputCommandPerformed,
+                                            committedText: committedText,
+                                            event: TerminalKeyInputEvent(
+                                                translatedText: translatedText,
+                                                rawText: rawText,
+                                                replaysPhysicalKeyAfterPreeditCommit:
+                                                    replaysPhysicalKeyAfterPreeditCommit
+                                            )
                                         )
-                                    )
-                                    checkedTransitions += 1
+                                        checkedTransitions += 1
 
-                                    if planner.actions(for: snapshot) != ghosttyReferenceActions(for: snapshot),
-                                       mismatches.count < 10 {
-                                        mismatches.append(
-                                            "had=\(hadMarkedText) has=\(hasMarkedText) " +
-                                                "consumed=\(textInputConsumed) " +
-                                                "command=\(textInputCommandPerformed) " +
-                                                "committed=\(committedText) " +
-                                                "translated=\(String(describing: translatedText)) " +
-                                                "raw=\(String(describing: rawText))"
-                                        )
+                                        if planner.actions(for: snapshot) != ghosttyReferenceActions(for: snapshot),
+                                           mismatches.count < 10 {
+                                            mismatches.append(
+                                                "had=\(hadMarkedText) has=\(hasMarkedText) " +
+                                                    "consumed=\(textInputConsumed) " +
+                                                    "command=\(textInputCommandPerformed) " +
+                                                    "replay=\(replaysPhysicalKeyAfterPreeditCommit) " +
+                                                    "committed=\(committedText) " +
+                                                    "translated=\(String(describing: translatedText)) " +
+                                                    "raw=\(String(describing: rawText))"
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -64,7 +69,7 @@ import Testing
             }
         }
 
-        #expect(checkedTransitions == 2_000)
+        #expect(checkedTransitions == 4_000)
         #expect(mismatches.isEmpty)
     }
 
@@ -153,7 +158,7 @@ import Testing
 
         if snapshot.hadMarkedText, !snapshot.committedText.isEmpty {
             var actions = committedText.map(TerminalKeyInputAction.sendCommittedText)
-            if snapshot.textInputCommandPerformed {
+            if snapshot.event.replaysPhysicalKeyAfterPreeditCommit {
                 actions.append(.sendKey(text: nil, composing: false))
             }
             return actions

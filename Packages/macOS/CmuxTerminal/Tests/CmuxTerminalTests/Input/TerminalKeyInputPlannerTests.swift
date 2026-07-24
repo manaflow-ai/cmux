@@ -83,7 +83,8 @@ import Testing
         let actions = planner.actions(for: snapshot(
             hadMarkedText: true,
             committedText: ["é"],
-            translatedText: "\u{F703}"
+            translatedText: "\u{F703}",
+            replaysPhysicalKeyAfterPreeditCommit: true
         ))
 
         #expect(actions == [
@@ -295,7 +296,8 @@ import Testing
         textInputCommandPerformed: Bool = false,
         committedText: [String] = [],
         translatedText: String?,
-        rawText: String? = nil
+        rawText: String? = nil,
+        replaysPhysicalKeyAfterPreeditCommit: Bool = false
     ) -> TerminalKeyInputSnapshot {
         TerminalKeyInputSnapshot(
             hadMarkedText: hadMarkedText,
@@ -305,7 +307,9 @@ import Testing
             committedText: committedText,
             event: TerminalKeyInputEvent(
                 translatedText: translatedText,
-                rawText: rawText ?? translatedText
+                rawText: rawText ?? translatedText,
+                replaysPhysicalKeyAfterPreeditCommit:
+                    replaysPhysicalKeyAfterPreeditCommit
             )
         )
     }
