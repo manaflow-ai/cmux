@@ -141,6 +141,10 @@ impl BrowserInputKind {
         matches!(self, BrowserInputKind::Resize { .. })
     }
 
+    fn closes_pointer_interaction(&self) -> bool {
+        matches!(self, BrowserInputKind::Mouse { event_type: "mouseReleased", .. })
+    }
+
     fn resize_dimensions(&self) -> Option<(u16, u16)> {
         match self {
             BrowserInputKind::Resize { cols, rows, .. } => Some((*cols, *rows)),
@@ -242,13 +246,19 @@ impl BrowserInputDispatcher {
         {
             return true;
         }
-        let lifetime = self
-            .surface_lifetimes
-            .lock()
-            .unwrap()
-            .entry(event.surface_id)
-            .or_insert_with(|| Arc::new(AtomicBool::new(false)))
-            .clone();
+        let lifetime = if event.kind.closes_pointer_interaction() {
+            // A release terminates state established by an earlier press. It
+            // must reach the retained surface handle even when retiring the
+            // surface cancels ordinary queued input from that lifetime.
+            Arc::new(AtomicBool::new(false))
+        } else {
+            self.surface_lifetimes
+                .lock()
+                .unwrap()
+                .entry(event.surface_id)
+                .or_insert_with(|| Arc::new(AtomicBool::new(false)))
+                .clone()
+        };
         let mut order = self.order.lock().unwrap();
         let sequence = order.next_sequence;
         order.next_sequence = order.next_sequence.saturating_add(1);

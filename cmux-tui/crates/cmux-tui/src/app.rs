@@ -5239,15 +5239,6 @@ impl App {
             .min(MAX_REPLAYED_INPUTS);
         let mut replayed = 0;
         while replayed < replay_count {
-            if self.session.has_pending_mutations()
-                || self.session.remote_tree_is_stale()
-                || self.mux_recovery_generation.load(Ordering::Acquire) != 0
-            {
-                return Ok(DeferredReplayOutcome {
-                    action,
-                    disposition: DeferredReplayDisposition::Blocked,
-                });
-            }
             let pointer_is_next = self.pending_pointer_motion.as_ref().is_some_and(|pointer| {
                 self.deferred_input.front().is_none_or(|input| pointer.sequence < input.sequence)
             });
@@ -5285,6 +5276,15 @@ impl App {
                     });
                 }
                 continue;
+            }
+            if self.session.has_pending_mutations()
+                || self.session.remote_tree_is_stale()
+                || self.mux_recovery_generation.load(Ordering::Acquire) != 0
+            {
+                return Ok(DeferredReplayOutcome {
+                    action,
+                    disposition: DeferredReplayDisposition::Blocked,
+                });
             }
             let Some(input) = self.deferred_input.front() else { break };
             if input
@@ -16065,7 +16065,7 @@ mod tests {
         let mux = Mux::new("focus-loss-browser-release-test", SurfaceOptions::default());
         let surface = mux.new_browser_tab("about:blank".to_string(), None, Some((20, 8))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
-        let (dispatcher, _blocked) = BrowserInputDispatcher::blocked(1);
+        let (dispatcher, blocked) = BrowserInputDispatcher::blocked(1);
         app.browser_input = dispatcher;
         app.drag = Some(Drag::Browser {
             surface: surface.id,
@@ -16075,9 +16075,10 @@ mod tests {
 
         app.handle(AppEvent::Input(Event::FocusLost)).unwrap();
 
-        assert!(
-            app.browser_input.tracks_surface(surface.id),
-            "focus loss must enqueue mouseReleased for the browser that owns the press"
+        assert_eq!(
+            blocked.drain_mouse_lifetimes(),
+            vec![("mouseReleased", false)],
+            "focus loss must enqueue a terminal mouseReleased for the browser that owns the press"
         );
         assert!(app.drag.is_none());
         mux.close_surface(surface.id).unwrap();
