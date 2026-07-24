@@ -263,6 +263,35 @@ import Testing
         #expect(lines[hunkStart] == "@@ -1,\(old) +1,\(new) @@")
     }
 
+    @Test func splitsCRLFLinesForCountingAndTruncation() {
+        // Git diffs of CRLF files end every content line with "\r\n". The
+        // truncator must break at those boundaries: a Character split treats
+        // "\r\n" as one grapheme, collapses whole CRLF hunks into a single
+        // mega-line, undercounts totals, and hides interior hunk headers.
+        let fileHeader = [
+            "diff --git a/Windows.txt b/Windows.txt",
+            "index 1111111..2222222 100644",
+            "--- a/Windows.txt",
+            "+++ b/Windows.txt",
+        ]
+        let hunk1 = ["@@ -1,2 +1,2 @@", "-old one\r", "+new one\r", " same\r"]
+        let hunk2 = ["@@ -10,2 +10,2 @@", "-old two\r", "+new two\r", " tail\r"]
+        let diff = (fileHeader + hunk1 + hunk2).joined(separator: "\n")
+
+        let full = WorkspaceDiffTruncator().truncate(diff)
+        #expect(full.totalLineCount == 12)
+
+        let bounded = WorkspaceDiffTruncator(maximumBytes: 1 << 20, maximumLines: 9)
+            .truncate(diff)
+        #expect(bounded.truncated)
+        // Compare split lines: Character-based contains/hasSuffix cannot see
+        // a trailing "\r" that the neighboring "\n" fuses into one grapheme.
+        let boundedLines = bounded.text.components(separatedBy: "\n")
+        #expect(boundedLines.last == " same\r")
+        #expect(boundedLines.contains("+new one\r"))
+        #expect(!bounded.text.contains("old two"))
+    }
+
     @Test func progressiveDiffBudgetClampsToResponseAbuseGuard() {
         let bounded = WorkspaceDiffTruncator(requestedMaximumLines: Int.max)
 
