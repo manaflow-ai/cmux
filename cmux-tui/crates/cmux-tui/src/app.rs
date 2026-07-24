@@ -12994,6 +12994,36 @@ mod tests {
     }
 
     #[test]
+    fn peer_disconnect_uses_the_pointer_mutation_barrier() {
+        let mux = Mux::new("disconnect-pointer-barrier-test", SurfaceOptions::default());
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        app.session.operations.enqueue_session_mutation(
+            "block disconnect lane",
+            false,
+            move || {
+                started_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+                Ok(())
+            },
+        );
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        app.session.disconnect_client(7);
+
+        let pointer_pending = app.session.has_pending_pointer_mutations();
+        release_tx.send(()).unwrap();
+        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        app.handle(settled).unwrap();
+        assert!(
+            pointer_pending,
+            "disconnect can resize surfaces and must block pointer routing until it settles"
+        );
+        assert!(!app.session.has_pending_mutations());
+    }
+
+    #[test]
     fn synthetic_local_client_cannot_be_disconnected_from_the_menu() {
         let local = ClientInfo {
             client: 0,
@@ -14174,6 +14204,59 @@ mod tests {
         );
         mux.close_surface(first.id).unwrap();
         mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
+    fn deferred_scrollbar_press_cannot_reinterpret_changed_thumb_geometry() {
+        let (mux, surface) = test_mux("stable-scrollbar-route-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_visible = false;
+        app.sync_layout((40, 15));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        surface.with_terminal(|terminal| {
+            for index in 0..100 {
+                terminal.vt_write(format!("line {index}\r\n").as_bytes());
+            }
+        });
+        let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let track = app
+            .hits
+            .iter()
+            .find_map(|(_, hit)| match hit {
+                super::Hit::Scrollbar { surface: id, track } if *id == surface.id => Some(*track),
+                _ => None,
+            })
+            .expect("rendered scrollbar");
+        let press = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: track.x,
+            row: track.y + track.height.saturating_sub(1),
+            modifiers: KeyModifiers::NONE,
+        };
+
+        app.pointer_route_phase = PointerRoutePhase::DrawPending;
+        app.handle(AppEvent::Input(Event::Mouse(press))).unwrap();
+        assert_eq!(app.deferred_input.len(), 1);
+
+        surface.scroll_delta(-10_000).unwrap();
+        assert_eq!(
+            surface.with_terminal(|terminal| terminal.scrollbar().map(|state| state.offset)),
+            Some(Some(0))
+        );
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        app.replay_deferred_input().unwrap();
+
+        assert_eq!(
+            surface.with_terminal(|terminal| terminal.scrollbar().map(|state| state.offset)),
+            Some(Some(0)),
+            "a click rendered on the old thumb must not become a live track jump"
+        );
+        assert!(app.drag.is_none());
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -17947,6 +18030,84 @@ mod tests {
             "the accepted right press must keep ownership through menu render, drag, and release"
         );
         assert!(app.menu.is_none());
+    }
+
+    #[test]
+    fn right_menu_capture_cannot_close_a_replacement_active_tab() {
+        let mux = Mux::new("right-menu-owner-test", SurfaceOptions::default());
+        let first =
+            mux.new_browser_tab("about:blank#first".to_string(), None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux
+            .new_browser_tab("about:blank#second".to_string(), Some(pane), Some((80, 24)))
+            .unwrap();
+        mux.select_tab(Some(pane), Some(0), None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_visible = false;
+        app.sync_layout((100, 20));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let content = app.pane_areas[0].content;
+        let press = (content.x + 4, content.y + 2);
+        let action = app
+            .handle(AppEvent::Input(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Right),
+                column: press.0,
+                row: press.1,
+                modifiers: KeyModifiers::SHIFT,
+            })))
+            .unwrap();
+        app.render_action(&mut terminal, action).unwrap();
+        let close = app
+            .menu
+            .as_ref()
+            .and_then(|menu| {
+                let level = menu.levels.first()?;
+                let item = level
+                    .items
+                    .iter()
+                    .position(|item| item.action() == Some(MenuAction::CloseTab(pane)))?;
+                Some((
+                    level.rect.x + 1,
+                    level.rect.y + 1 + item.saturating_sub(level.scroll_offset) as u16,
+                ))
+            })
+            .expect("close-tab menu row");
+
+        mux.select_tab(Some(pane), Some(1), None);
+        app.replace_tree(app.session.tree());
+        assert_eq!(app.active_surface(), Some(second.id));
+        let event = |kind| {
+            AppEvent::Input(Event::Mouse(MouseEvent {
+                kind,
+                column: close.0,
+                row: close.1,
+                modifiers: KeyModifiers::SHIFT,
+            }))
+        };
+        let drag_action = app.handle(event(MouseEventKind::Drag(MouseButton::Right))).unwrap();
+        assert_eq!(
+            app.menu.as_ref().and_then(ContextMenu::selected_action),
+            Some(MenuAction::CloseTab(pane))
+        );
+        app.render_action(&mut terminal, drag_action).unwrap();
+        app.handle_right_up(close.0, close.1).unwrap();
+        assert!(app.menu.is_none());
+        while app.session.has_pending_mutations() {
+            let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            app.handle(settled).unwrap();
+        }
+
+        assert!(
+            mux.with_state(|state| state.surfaces.contains_key(&second.id)),
+            "a menu captured for the first tab must not close its replacement"
+        );
+        let _ = mux.close_surface(first.id);
+        let _ = mux.close_surface(second.id);
     }
 
     #[test]
