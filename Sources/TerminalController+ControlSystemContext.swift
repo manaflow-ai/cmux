@@ -116,13 +116,15 @@ extension TerminalController: ControlSystemContext {
         )
     }
 
-    /// Projects the authoritative control-plane workspace topology shared by
-    /// `system.tree`, `system.top`, and the task-manager snapshot.
+    /// Projects the requested control-plane workspace containers. Tree callers
+    /// include Dock stores; legacy top/task-manager callers explicitly pass
+    /// none because Dock process attribution is outside the list/tree parity
+    /// scope.
     func controlSystemTreeWorkspaceNode(
         workspace: Workspace,
         index: Int,
         selected: Bool,
-        dockStores: [DockSplitStore] = []
+        dockStores: [DockSplitStore]
     ) -> ControlSystemTreeWorkspaceNode {
         var surfacesByPane: [UUID: [ControlSystemTreeSurfaceNode]] = [:]
         let surfaceSummaries = controlSurfaceSummaries(workspace: workspace) +

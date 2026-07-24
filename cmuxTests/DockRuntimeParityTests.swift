@@ -105,6 +105,18 @@ struct DockRuntimeParityTests {
         return try #require(envelope["result"] as? [String: Any])
     }
 
+    private func waitForLiveSurface(_ surface: TerminalSurface) async {
+        guard !surface.hasLiveSurface else { return }
+        let readiness = AsyncStream<Void> { continuation in
+            surface.onRuntimeReady = {
+                continuation.yield()
+                continuation.finish()
+            }
+        }
+        for await _ in readiness { break }
+        surface.onRuntimeReady = nil
+    }
+
     private func withAppContext(
         _ body: @MainActor (AppDelegate, TabManager, Workspace, UUID) async throws -> Void
     ) async throws {
@@ -211,6 +223,8 @@ struct DockRuntimeParityTests {
             })
             #expect(workspacePaneRow["dock_scope"] as? String == "workspace")
             #expect(globalPaneRow["dock_scope"] as? String == "global")
+            #expect(workspacePaneRow["pixel_frame"] == nil)
+            #expect(globalPaneRow["pixel_frame"] == nil)
 
             for (paneID, surfaceID, scope) in [
                 (workspacePane.id, workspaceTerminal.id, "workspace"),
@@ -225,7 +239,7 @@ struct DockRuntimeParityTests {
                 #expect(paneSurfaces.contains { $0["id"] as? String == surfaceID.uuidString })
             }
 
-            let tree = try socketResult(method: "system.tree")
+            let tree = try socketResult(method: "system.tree", params: params)
             let windows = try #require(tree["windows"] as? [[String: Any]])
             let treeWorkspaces = windows.flatMap { $0["workspaces"] as? [[String: Any]] ?? [] }
             let treePanes = treeWorkspaces.flatMap { $0["panes"] as? [[String: Any]] ?? [] }
@@ -262,6 +276,8 @@ struct DockRuntimeParityTests {
                 Issue.record("Workspace Dock send did not resolve its terminal: \(send)")
             }
 
+            await waitForLiveSurface(workspaceTerminal.surface)
+            try #require(workspaceTerminal.surface.hasLiveSurface)
             let readEnvelope = try await socketEnvelopeOnWorker(
                 method: "surface.read_text",
                 params: [

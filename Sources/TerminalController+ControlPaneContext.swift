@@ -74,7 +74,7 @@ extension TerminalController: ControlPaneContext {
             windowID: v2ResolveWindowId(tabManager: tabManager),
             panes: controlPaneSummaries(workspace: ws, snapshot: snapshot) +
                 controlTopologyDocks(workspace: ws, tabManager: tabManager)
-                .flatMap { controlDockPaneSummaries(dock: $0) },
+                .flatMap { controlDockPaneSummaries(dock: $0, includePixelFrames: false) },
             containerWidth: snapshot.containerFrame.width,
             containerHeight: snapshot.containerFrame.height
         )

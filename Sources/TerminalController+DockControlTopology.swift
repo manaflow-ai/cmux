@@ -94,7 +94,8 @@ extension TerminalController {
 
     func controlDockPaneSummaries(
         dock: DockSplitStore,
-        snapshot: LayoutSnapshot? = nil
+        snapshot: LayoutSnapshot? = nil,
+        includePixelFrames: Bool = true
     ) -> [ControlPaneSummary] {
         let snapshot = snapshot ?? dock.bonsplitController.layoutSnapshot()
         let focusedPaneID = dock.bonsplitController.focusedPaneId
@@ -109,9 +110,9 @@ extension TerminalController {
             let selectedSurfaceID = dock.bonsplitController
                 .selectedTab(inPane: paneID)
                 .flatMap { dock.panel(for: $0.id)?.id }
-            let pixelFrame = geometryByPaneID[paneID.id.uuidString].map {
+            let pixelFrame = includePixelFrames ? geometryByPaneID[paneID.id.uuidString].map {
                 ControlPanePixelFrame(x: $0.x, y: $0.y, width: $0.width, height: $0.height)
-            }
+            } : nil
             let gridSize = selectedSurfaceID
                 .flatMap { dock.panels[$0] as? TerminalPanel }
                 .flatMap { controlDockGridSize(panel: $0) }
