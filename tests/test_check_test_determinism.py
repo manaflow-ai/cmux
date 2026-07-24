@@ -307,6 +307,18 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 'case "$state" in ready) DELAY=1 sleep "$DELAY" ;; esac\n'
                 'assert "$actual" "$expected"\n'
             ),
+            "later-case-arm.sh": (
+                'case "$state" in ready) : ;; waiting) sleep 1 ;; esac\n'
+                'assert "$actual" "$expected"\n'
+            ),
+            "continued-assert-substitution.sh": (
+                "assert \\\n"
+                '"$(sleep 1)"\n'
+            ),
+            "continued-assert-backtick.sh": (
+                "assert \\\n"
+                '"`sleep 1`"\n'
+            ),
         }
 
         result = self.run_checker(fixtures)
@@ -342,6 +354,8 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "template-multiline-interpolation.ts",
                     "js-comment-close.ts",
                     "shell-arithmetic-before-sleep.sh",
+                    "continued-assert-substitution.sh",
+                    "continued-assert-backtick.sh",
                 )
                 else 1
             )
@@ -513,6 +527,20 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "from trio import sleep as pause; await pause(0.01)\n"
                     "assert finished\n"
                 ),
+                "deferred-trusted-alias.py": (
+                    "import time as clock\n"
+                    "def check():\n"
+                    "    clock.sleep(0.01)\n"
+                    "    assert finished\n"
+                    "check()\n"
+                ),
+                "deferred-later-trusted-alias.py": (
+                    "def check():\n"
+                    "    clock.sleep(0.01)\n"
+                    "    assert finished\n"
+                    "import time as clock\n"
+                    "check()\n"
+                ),
             }
         )
 
@@ -532,10 +560,16 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             "from-gevent.py",
             "same-line-import.py",
             "same-line-from-import.py",
+            "deferred-trusted-alias.py",
+            "deferred-later-trusted-alias.py",
         ):
             line = (
                 4
                 if relative_path == "parenthesized-from-time.py"
+                else 3
+                if relative_path == "deferred-trusted-alias.py"
+                else 2
+                if relative_path == "deferred-later-trusted-alias.py"
                 else 1
                 if relative_path.startswith("same-line-")
                 else 2
@@ -638,6 +672,14 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "    time = fake_clock\n"
                     "    time.sleep(0.01)\n"
                     "    assert finished\n"
+                ),
+                "deferred-module-rebound.py": (
+                    "import time as clock\n"
+                    "def check():\n"
+                    "    clock.sleep(0.01)\n"
+                    "    assert finished\n"
+                    "clock = fake_clock\n"
+                    "check()\n"
                 ),
             }
         )
