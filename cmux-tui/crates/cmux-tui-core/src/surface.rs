@@ -1893,6 +1893,8 @@ fn terminal_scroll_position(term: &Terminal) -> (u64, bool) {
 
 #[cfg(test)]
 mod tests {
+    use base64::Engine as _;
+
     use super::*;
 
     #[test]
@@ -2171,6 +2173,68 @@ mod tests {
             pty.vt_replay_builds.load(Ordering::Acquire),
             0,
             "dropping the final byte attach must suppress the next resize replay"
+        );
+    }
+
+    #[test]
+    fn resize_replay_preserves_a_valid_large_inflight_kitty_upload() {
+        const IMAGE_WIDTH: usize = 2_048;
+        const IMAGE_HEIGHT: usize = 1_024;
+        const IMAGE_ID: u32 = 196;
+
+        let pixels = vec![0xff; IMAGE_WIDTH * IMAGE_HEIGHT * 3];
+        let payload = base64::engine::general_purpose::STANDARD.encode(&pixels);
+        let final_payload = payload.split_at(payload.len() - 4);
+        let first_chunk = format!(
+            "\x1b_Ga=t,t=d,f=24,i={IMAGE_ID},s={IMAGE_WIDTH},v={IMAGE_HEIGHT},m=1,q=2;{}\x1b\\",
+            final_payload.0
+        )
+        .into_bytes();
+        let final_chunk = format!("\x1b_Gm=0,q=2;{}\x1b\\", final_payload.1).into_bytes();
+        assert!(
+            first_chunk.len() > VT_REPLAY_MAX_BYTES,
+            "fixture must exceed the old {VT_REPLAY_MAX_BYTES}-byte resize replay budget"
+        );
+
+        let mux = Mux::new_for_test("large-inflight-resize", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let attach = surface.attach_stream().unwrap();
+        let pty = surface.as_pty().unwrap();
+        {
+            let mut terminal = pty.term.lock().unwrap();
+            terminal.vt_write(&first_chunk);
+            assert!(terminal.kitty_graphics_snapshot().unwrap().image(IMAGE_ID).is_none());
+        }
+
+        surface.resize(81, 24).unwrap();
+        let AttachFrame::Resized { cols, rows, replay, kitty_image_aliases, .. } =
+            attach.stream.recv_timeout(Duration::from_secs(2)).unwrap()
+        else {
+            panic!("resize must publish replacement terminal state");
+        };
+        assert!(
+            replay.len() >= first_chunk.len(),
+            "{}-byte resize replay omitted the {}-byte in-flight prefix",
+            replay.len(),
+            first_chunk.len()
+        );
+
+        let mut mirror = Terminal::new(cols, rows, 10_000, Callbacks::default()).unwrap();
+        mirror.resize(cols, rows, 8, 16).unwrap();
+        mirror.vt_write(&replay);
+        mirror.restore_kitty_image_aliases(&kitty_image_aliases).unwrap();
+        mirror.vt_write(&final_chunk);
+
+        assert_eq!(
+            mirror
+                .kitty_graphics_snapshot()
+                .unwrap()
+                .image(IMAGE_ID)
+                .expect("resize replay must let a fresh terminal accept the final upload chunk")
+                .data
+                .len(),
+            pixels.len()
         );
     }
 
