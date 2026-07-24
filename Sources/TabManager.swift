@@ -392,6 +392,7 @@ class TabManager: ObservableObject {
     /// Typed synchronous settings access (CmuxSettings).
     private let settings: any SettingsWriting
     private let settingsCatalog = SettingCatalog()
+    let workspaceDirectoryCustomizationStore: WorkspaceDirectoryCustomizationStore
     private var lastFocusHistoryIncludesPanesAndTabs: Bool
     let nativeSSHConnectionBroker: NativeSSHConnectionBroker
 
@@ -476,10 +477,12 @@ class TabManager: ObservableObject {
         gitProbeLimiter: WorkspaceGitMetadataProbeLimiter? = nil,
         panelTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
+        workspaceDirectoryCustomizationStore: WorkspaceDirectoryCustomizationStore = WorkspaceDirectoryCustomizationStore(),
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
         closeTabWarningDefaults: UserDefaults = .standard
     ) {
         self.settings = settings
+        self.workspaceDirectoryCustomizationStore = workspaceDirectoryCustomizationStore
         let focusHistoryScopeKey = SettingCatalog().app.focusHistoryIncludesPanesAndTabs
         self.lastFocusHistoryIncludesPanesAndTabs = settings.value(for: focusHistoryScopeKey)
         self.focusHistoryNavigation = FocusHistoryModel(navigationScope: {
@@ -1166,9 +1169,7 @@ class TabManager: ObservableObject {
                 from: sourceWorkspace ?? capturedTabs.first
             )
             newWorkspace.owningTabManager = self
-            if title != nil {
-                newWorkspace.setCustomTitle(title)
-            }
+            applyWorkspaceDirectoryCustomization(to: newWorkspace, explicitTitle: title)
             wireClosedBrowserTracking(for: newWorkspace)
             if eagerLoadTerminal && !select {
                 requestBackgroundWorkspaceLoad(for: newWorkspace.id)
@@ -1744,6 +1745,7 @@ class TabManager: ObservableObject {
     func setTabColor(tabId: UUID, color: String?) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         tab.setCustomColor(color)
+        recordWorkspaceCustomColor(tab)
     }
 
     func applyWorkspaceColor(_ color: String?, toWorkspaceIds workspaceIds: [UUID]) {
@@ -1755,7 +1757,7 @@ class TabManager: ObservableObject {
 
         let targetIds = Set(workspaceIds)
         for tab in tabs where targetIds.contains(tab.id) {
-            tab.setCustomColor(color)
+            setTabColor(tabId: tab.id, color: color)
         }
     }
 
@@ -4086,8 +4088,8 @@ class TabManager: ObservableObject {
         )
     }
 
-    /// Reopen the most recently closed browser panel (Cmd+Shift+T).
-    /// No-op when no browser panel restore snapshot is available.
+    /// Reopen the most recently closed item, retaining the legacy API name.
+    /// Falls back to the pre-unified browser-panel history when needed.
     @discardableResult
     func reopenMostRecentlyClosedBrowserPanel() -> Bool {
         if reopenMostRecentlyClosedItem() {
@@ -4215,12 +4217,12 @@ class TabManager: ObservableObject {
     func restoreClosedWorkspace(_ entry: ClosedWorkspaceHistoryEntry) -> Bool {
         let preRestoreFocus = currentFocusHistoryEntry
         let workspace = addWorkspace(
-            title: entry.snapshot.customTitle ?? entry.snapshot.processTitle,
             workingDirectory: entry.snapshot.currentDirectory,
             select: false,
             autoWelcomeIfNeeded: false
         )
         let restoredPanelIds = workspace.restoreSessionSnapshot(entry.snapshot, excludingStableIdentities: liveStableIdentitySet())
+        reconcileWorkspaceDirectoryCustomization(afterRestoring: entry.snapshot, to: workspace)
         guard !entry.snapshot.hasRestorablePanels || !restoredPanelIds.isEmpty else {
             closeWorkspace(workspace, recordHistory: false)
             return false
@@ -5642,6 +5644,7 @@ extension TabManager {
             hasher.combine(workspace.groupId)
             hasher.combine(workspace.focusedPanelId)
             hasher.combine(workspace.currentDirectory)
+            hasher.combine(workspace.customizationDirectory ?? "")
             hasher.combine(workspace.customTitle ?? "")
             hasher.combine(workspace.customDescription ?? "")
             hasher.combine(workspace.customColor ?? "")
@@ -6061,6 +6064,7 @@ extension TabManager {
             )
             workspace.owningTabManager = self
             let restoredPanelIds = workspace.restoreSessionSnapshot(workspaceSnapshot, excludingStableIdentities: excludingStableIdentities)
+            reconcileWorkspaceDirectoryCustomization(afterRestoring: workspaceSnapshot, to: workspace)
             Self.recordRestoredTaskCreateProvenance(for: workspace, in: workspaceCreateIdempotencyCache)
             wireClosedBrowserTracking(for: workspace)
             newTabs.append(workspace)
@@ -6079,6 +6083,7 @@ extension TabManager {
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )
             fallback.owningTabManager = self
+            applyWorkspaceDirectoryCustomization(to: fallback, explicitTitle: nil)
             wireClosedBrowserTracking(for: fallback)
             newTabs.append(fallback)
         }

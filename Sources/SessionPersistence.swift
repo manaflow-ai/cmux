@@ -1753,6 +1753,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var customTitleSource: Workspace.CustomTitleSource? = nil
     var customDescription: String?
     var customColor: String?
+    var customizationDirectory: String? = nil
     var isPinned: Bool
     var groupId: UUID? = nil
     var isManuallyUnread: Bool? = nil

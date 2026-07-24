@@ -152,9 +152,9 @@ extension CmuxConfigExecutor {
             workingDirectory: resolvedCwd,
             workspaceEnvironment: wsDef.env ?? [:]
         )
-        newWorkspace.setCustomTitle(workspaceName)
+        tabManager.setCustomTitle(tabId: newWorkspace.id, title: workspaceName)
         if let color = wsDef.color {
-            newWorkspace.setCustomColor(color)
+            tabManager.setTabColor(tabId: newWorkspace.id, color: color)
         }
 
         if let existingWorkspaceToClose, existingWorkspaceToClose.id != newWorkspace.id {

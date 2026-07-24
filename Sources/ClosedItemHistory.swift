@@ -126,8 +126,9 @@ enum ClosedWindowRestoreValidation {
 
 @MainActor
 final class ClosedItemHistoryStore: ObservableObject {
+    static let defaultCapacity = 100
     static let shared = ClosedItemHistoryStore(
-        capacity: nil,
+        capacity: defaultCapacity,
         fileURL: defaultHistoryFileURL()
     )
 
@@ -198,12 +199,14 @@ final class ClosedItemHistoryStore: ObservableObject {
     func restoreFirstRestorable(
         newerThan cutoff: Date?,
         excluding excludedRecordIds: Set<UUID> = [],
+        matching isCandidate: (ClosedItemHistoryEntry) -> Bool = { _ in true },
         onFailure: ((UUID) -> Void)? = nil,
         using restore: (ClosedItemHistoryEntry) -> Bool
     ) -> Bool {
         let candidates = records.enumerated()
             .filter { _, record in
                 guard !excludedRecordIds.contains(record.id) else { return false }
+                guard isCandidate(record.entry) else { return false }
                 guard let cutoff else { return true }
                 return record.closedAt >= cutoff
             }
@@ -258,8 +261,8 @@ final class ClosedItemHistoryStore: ObservableObject {
 
     func menuSnapshot(maxItemCount: Int? = nil) -> ClosedItemHistoryMenuSnapshot {
         // Build items only for the records the menu will show — this runs in
-        // the App commands body on every menu rebuild, and `records` is
-        // unbounded persisted history.
+        // the App commands body on every menu rebuild, and the persisted
+        // history can be much larger than the menu's visible slice.
         if let maxItemCount, maxItemCount >= 0, records.count > maxItemCount {
             return ClosedItemHistoryMenuSnapshot(
                 items: records.suffix(maxItemCount).reversed().map(Self.menuItem(for:)),

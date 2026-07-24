@@ -665,6 +665,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var tabManager: TabManager?
     weak var notificationStore: TerminalNotificationStore?
     weak var sidebarState: SidebarState?
+    private var workspaceDirectoryCustomizationStore = WorkspaceDirectoryCustomizationStore()
 #if DEBUG
     private(set) var pullRequestProbeService = PullRequestProbeService(debugLog: { cmuxDebugLog($0) })
 #else
@@ -2035,9 +2036,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         notificationStore: TerminalNotificationStore,
         sidebarState: SidebarState,
         settingsRuntime: SettingsRuntime,
+        workspaceDirectoryCustomizationStore: WorkspaceDirectoryCustomizationStore,
         auth: MacAuthComposition
     ) {
         self.tabManager = tabManager
+        self.workspaceDirectoryCustomizationStore = workspaceDirectoryCustomizationStore
         // SwiftUI constructs the initial TabManager before this delegate is
         // available; adopt its coordinator so every later window shares it.
         pullRequestProbeService = tabManager.pullRequestProbeService
@@ -8578,6 +8581,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: initialTerminalInput == nil,
             pullRequestProbeService: pullRequestProbeService,
+            workspaceDirectoryCustomizationStore: workspaceDirectoryCustomizationStore,
             nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
         )
         tabManager.windowId = windowId
@@ -14100,6 +14104,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if !reopenPreviousSession() {
                 NSSound.beep()
             }
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .reopenClosedWorkspace) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            _ = reopenMostRecentlyClosedWorkspace(preferredTabManager: routedManager)
             return true
         }
 

@@ -7014,6 +7014,14 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.reopenClosedWorkspace",
+                title: constant(String(localized: "menu.history.reopenClosedWorkspace", defaultValue: "Reopen Closed Workspace")),
+                subtitle: constant(String(localized: "menu.history.title", defaultValue: "History")),
+                keywords: ["reopen", "closed", "recently", "history", "workspace", "project"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.reopenClosedBrowserTab",
                 title: constant(String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed")),
                 subtitle: constant(String(localized: "menu.history.title", defaultValue: "History")),
@@ -8206,6 +8214,13 @@ struct ContentView: View {
                 _ = appDelegate.reopenMostRecentlyClosedItem(preferredTabManager: tabManager)
             } else {
                 _ = tabManager.reopenMostRecentlyClosedItem()
+            }
+        }
+        registry.register(commandId: "palette.reopenClosedWorkspace") {
+            if let appDelegate = AppDelegate.shared {
+                _ = appDelegate.reopenMostRecentlyClosedWorkspace(preferredTabManager: tabManager)
+            } else {
+                _ = tabManager.reopenMostRecentlyClosedWorkspace()
             }
         }
         registry.register(commandId: "palette.toggleSidebar") {
