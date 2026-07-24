@@ -38,7 +38,7 @@ final class MainThreadHangSampleRunner: @unchecked Sendable {
             process.terminationHandler = { [weak self] _ in
                 guard let self else { return }
                 queue.async { [self] in
-                    activeSamples.removeValue(forKey: identifier)
+                    self.activeSamples.removeValue(forKey: identifier)
                     onCompletion()
                 }
             }
