@@ -79,7 +79,7 @@ final class GlobalSearchShortcutSettingsTests {
 
         #expect(shortcutRoutingShouldBypassForPrintableOptionText(event: event))
         #expect(!shortcut.matches(event: event))
-        #expect(appDelegate.matchConfiguredShortcut(event: event, action: .globalSearch))
+        #expect(appDelegate.matchCachedGlobalSearchShortcut(event: event))
     }
 
     @Test func ordinaryTypingDoesNotResolveGlobalSearchBinding() throws {
@@ -100,7 +100,6 @@ final class GlobalSearchShortcutSettingsTests {
             )
         )
         appDelegate.debugResetShortcutRoutingStateForTesting()
-        _ = KeyboardShortcutBareStartCache.hasConfiguredBareShortcutStart(key: "a")
         var globalSearchLookupCount = 0
         KeyboardShortcutSettings.shortcutLookupObserver = { action in
             if action == .globalSearch {

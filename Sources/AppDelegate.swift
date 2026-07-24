@@ -12991,7 +12991,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        if matchConfiguredShortcut(event: event, action: .globalSearch) { toggleGlobalSearchPalette(); return true }
+        if matchCachedGlobalSearchShortcut(event: event) { toggleGlobalSearchPalette(); return true }
 
         if browserFocusModePanelForShortcutEvent(event) != nil {
 #if DEBUG
@@ -15200,6 +15200,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return shortcutWhenClauseAllows(action: action, event: event)
     }
 
+    func matchCachedGlobalSearchShortcut(event: NSEvent) -> Bool {
+        let action = KeyboardShortcutSettings.Action.globalSearch
+        guard matchConfiguredShortcut(
+            event: event,
+            shortcut: KeyboardShortcutSettingsObserver.shared.globalSearchShortcut,
+            allowPrintableOptionTextMatch: action.allowsPrintableOptionTextMatch
+        ) else {
+            return false
+        }
+        return shortcutWhenClauseAllows(action: action, event: event)
+    }
+
     /// Whether `action`'s effective `when` clause (its `shortcuts.when` override,
     /// or its built-in context default) is satisfied by the event's focus state.
     /// Gates every focus-scoped shortcut, including the numbered workspace/surface
@@ -15272,7 +15284,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let action = KeyboardShortcutSettings.Action.globalSearch
-        let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+        let shortcut = KeyboardShortcutSettingsObserver.shared.globalSearchShortcut
         guard action.allowsPrintableOptionTextMatch,
               shortcut.hasChord,
               matchShortcutStroke(
@@ -15284,7 +15296,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        return armConfiguredShortcutChordIfNeeded(event: event, actions: [action])
+        pendingConfiguredShortcutChord = PendingConfiguredShortcutChord(
+            firstStroke: shortcut.firstStroke,
+            windowNumber: configuredShortcutChordWindowNumber(for: event)
+        )
+        return true
     }
 
     private func tabManagerForNumberedShortcut(event: NSEvent) -> TabManager? {
