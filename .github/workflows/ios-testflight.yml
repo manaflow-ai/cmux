@@ -551,14 +551,13 @@ jobs:
         run: |
           security delete-keychain ios-testflight.keychain >/dev/null 2>&1 || true
 
-  # NOTE: this lane uploads to dev.cmux.app.internal only, so there is no
-  # external-group assignment job here. The old assign-external-group job
-  # polled dev.cmux.app.beta for a build that now never arrives there and hung
-  # for its full 40-minute timeout on every run.
+  # Normal and demo runs assign their internal group after upload. A manual
+  # external marketing-version override assigns Founder's Edition and Pro
+  # inline in upload-testflight.sh, so it must skip this internal-app lookup.
   assign-internal-group:
     name: Assign build to internal TestFlight group
     needs: [decide, upload]
-    if: github.ref == 'refs/heads/main' && needs.upload.result == 'success'
+    if: github.ref == 'refs/heads/main' && needs.upload.result == 'success' && github.event.inputs.marketing_version_override == ''
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     env:
