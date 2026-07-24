@@ -218,6 +218,37 @@ struct PostHogAnalyticsPropertiesTests {
     }
 
     @MainActor
+    @Test("successful control-plane omission clears a cached remote disable")
+    func successfulControlPlaneOmissionClearsCachedDisable() async throws {
+        let flag = try #require(CmuxFeatureFlags.allFlags.first {
+            $0.defaultWhenUnavailable
+        })
+        let suiteName = "cmux.feature.flags.omitted-disable.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let remoteCacheKey = "cmux.flags.remote.\(flag.key)"
+        defaults.set(false, forKey: remoteCacheKey)
+        let probe = FeatureFlagRemoteLoaderProbe()
+        let flags = CmuxFeatureFlags(
+            defaults: defaults,
+            remoteFlagValueProvider: { _ in nil },
+            remoteFlagLoader: { await probe.load() }
+        )
+        #expect(flags.remoteValue(for: flag) == false)
+        #expect(!flags.effectiveValue(for: flag))
+
+        flags.start()
+        await probe.waitUntilCalled()
+        for _ in 0..<1_000 where flags.remoteValue(for: flag) != nil {
+            await Task.yield()
+        }
+
+        #expect(flags.remoteValue(for: flag) == nil)
+        #expect(flags.effectiveValue(for: flag))
+        #expect(defaults.object(forKey: remoteCacheKey) == nil)
+    }
+
+    @MainActor
     @Test("missing refresh clears a cached enable for a default-off flag")
     func missingRefreshClearsCachedEnableForDefaultOffFlag() throws {
         let flag = try #require(CmuxFeatureFlags.allFlags.first { !$0.defaultWhenUnavailable })

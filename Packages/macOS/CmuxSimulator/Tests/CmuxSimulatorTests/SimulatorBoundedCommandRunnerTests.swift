@@ -187,6 +187,91 @@ struct SimulatorBoundedCommandRunnerTests {
         #expect(Darwin.kill(descendant, 0) != 0)
         #expect(errno == ESRCH)
     }
+
+    @Test("The owned command runner delegates asynchronously to its injected process runner")
+    func ownedCommandRunnerIsInjectable() async throws {
+        let boundedResult = SimulatorBoundedCommandResult(
+            standardOutput: Data(),
+            standardError: Data("injected diagnostic".utf8),
+            outputWasTruncated: false,
+            errorWasTruncated: false,
+            exitStatus: 17,
+            timedOut: false,
+            executionError: nil
+        )
+        let boundedRunner = RecordingSimulatorBoundedCommandRunner(
+            result: boundedResult
+        )
+        let runner = SimulatorOwnedCommandRunner(
+            boundedCommands: boundedRunner
+        )
+
+        let result = await runner.run(
+            executable: "/usr/bin/xcrun",
+            arguments: ["simctl", "list"],
+            currentDirectory: "/tmp/injected",
+            timeout: 7,
+            outputLimit: 321
+        )
+        let request = try #require(await boundedRunner.request)
+
+        #expect(result == SimulatorOwnedCommandResult(
+            status: 17,
+            standardError: "injected diagnostic",
+            timedOut: false
+        ))
+        #expect(request == SimulatorBoundedCommandRequest(
+            directory: "/tmp/injected",
+            executable: "/usr/bin/xcrun",
+            arguments: ["simctl", "list"],
+            environment: [:],
+            timeout: 7,
+            standardOutputLimit: 321,
+            standardErrorLimit: 321
+        ))
+    }
+}
+
+private struct SimulatorBoundedCommandRequest: Sendable, Equatable {
+    let directory: String
+    let executable: String
+    let arguments: [String]
+    let environment: [String: String]
+    let timeout: TimeInterval?
+    let standardOutputLimit: Int
+    let standardErrorLimit: Int
+}
+
+private actor RecordingSimulatorBoundedCommandRunner:
+    SimulatorBoundedCommandRunning
+{
+    let result: SimulatorBoundedCommandResult
+    private(set) var request: SimulatorBoundedCommandRequest?
+
+    init(result: SimulatorBoundedCommandResult) {
+        self.result = result
+    }
+
+    func runBounded(
+        directory: String,
+        executable: String,
+        arguments: [String],
+        environment: [String: String],
+        timeout: TimeInterval?,
+        standardOutputLimit: Int,
+        standardErrorLimit: Int
+    ) async -> SimulatorBoundedCommandResult {
+        request = SimulatorBoundedCommandRequest(
+            directory: directory,
+            executable: executable,
+            arguments: arguments,
+            environment: environment,
+            timeout: timeout,
+            standardOutputLimit: standardOutputLimit,
+            standardErrorLimit: standardErrorLimit
+        )
+        return result
+    }
 }
 
 private func requireMarkerPID(_ marker: URL) async throws -> Int32 {
