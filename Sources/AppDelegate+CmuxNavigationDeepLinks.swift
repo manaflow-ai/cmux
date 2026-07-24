@@ -146,10 +146,39 @@ extension AppDelegate {
         !didAttemptStartupSessionRestore || isApplyingSessionRestore
     }
 
-    func liveStableIdentitySet() -> Set<UUID> {
-        var identities: Set<UUID> = []
+    func liveWorkspaceIdentityTabManagers(preferredTabManager: TabManager? = nil) -> [TabManager] {
+        var managers: [TabManager] = []
+        var seen: Set<ObjectIdentifier> = []
+
+        func append(_ manager: TabManager?) {
+            guard let manager else { return }
+            guard seen.insert(ObjectIdentifier(manager)).inserted else { return }
+            managers.append(manager)
+        }
+
+        append(preferredTabManager)
+        append(tabManager)
         for context in mainWindowContexts.values {
-            identities.formUnion(context.tabManager.liveStableIdentitySet())
+            append(context.tabManager)
+        }
+        for route in recoverableMainWindowRoutes() {
+            append(route.tabManager)
+        }
+        return managers
+    }
+
+    func liveStableIdentitySet(preferredTabManager: TabManager? = nil) -> Set<UUID> {
+        var identities: Set<UUID> = []
+        for manager in liveWorkspaceIdentityTabManagers(preferredTabManager: preferredTabManager) {
+            identities.formUnion(manager.liveStableIdentitySet())
+        }
+        return identities
+    }
+
+    func liveWorkspaceIdSet(preferredTabManager: TabManager? = nil) -> Set<UUID> {
+        var identities: Set<UUID> = []
+        for manager in liveWorkspaceIdentityTabManagers(preferredTabManager: preferredTabManager) {
+            identities.formUnion(manager.liveWorkspaceIdSet())
         }
         return identities
     }
