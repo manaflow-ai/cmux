@@ -7,7 +7,23 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 OUTPUT=""
 ARCHS_RAW=""
+PRINT_HELPER_ID=""
 CACHE_DIR="${CMUX_CUA_CACHE_DIR:-${HOME:-/tmp}/Library/Caches/cmux/cua-driver}"
+
+helper_bundle_id_for_host() {
+  local host_id="$1"
+  case "$host_id" in
+    com.cmuxterm.app.debug|com.cmuxterm.app.debug.*)
+      # Every tagged Debug build presents the same branded app to TCC. Runtime
+      # sockets and installed paths remain tag-scoped, while System Settings
+      # shows one "cmux Computer Use" row instead of one duplicate per tag.
+      echo "com.cmuxterm.app.debug.computer-use"
+      ;;
+    *)
+      echo "${host_id}.computer-use"
+      ;;
+  esac
+}
 
 usage() {
   cat <<'USAGE' >&2
@@ -16,6 +32,8 @@ usage: scripts/build-cua-driver.sh --output <path> [options]
 Options:
   --archs "<archs>"     architectures to build (default: "arm64 x86_64")
   --cache-dir <path>    clone/build cache dir (default: ~/Library/Caches/cmux/cua-driver)
+  --print-helper-id <host-bundle-id>
+                         Print the TCC-facing helper identity and exit
   -h, --help            show this help
 
 Environment:
@@ -42,6 +60,11 @@ while (($#)); do
       CACHE_DIR="$2"
       shift 2
       ;;
+    --print-helper-id)
+      [[ $# -ge 2 ]] || { usage; exit 2; }
+      PRINT_HELPER_ID="$2"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -53,6 +76,11 @@ while (($#)); do
       ;;
   esac
 done
+
+if [[ -n "$PRINT_HELPER_ID" ]]; then
+  helper_bundle_id_for_host "$PRINT_HELPER_ID"
+  exit 0
+fi
 
 if [[ -z "$OUTPUT" ]]; then
   echo "error: --output is required" >&2
@@ -302,9 +330,10 @@ if [ -n "${_cua_contents:-}" ] && [ "$(basename "$_cua_contents")" = "Contents" 
     _host_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$_cua_contents/Info.plist" 2>/dev/null || true)"
   fi
   [ -n "$_host_id" ] || _host_id="com.cmuxterm.app"
-  HELPER_ID="${_host_id}.computer-use"
+  HELPER_ID="$(helper_bundle_id_for_host "$_host_id")"
   # Keep the TCC-facing product name stable across release, tests, and tagged
-  # dogfood builds. Runtime isolation still comes from HELPER_ID.
+  # dogfood builds. Runtime isolation comes from the tag-scoped install path,
+  # socket, credential, and state directory.
   HELPER_DISPLAY="${CMUX_CUA_HELPER_DISPLAY_NAME:-cmux Computer Use}"
   cat > "$HELPER_APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
