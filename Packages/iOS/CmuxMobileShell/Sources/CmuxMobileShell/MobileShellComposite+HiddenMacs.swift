@@ -1,6 +1,12 @@
 import CmuxMobilePairedMac
 import CmuxMobileShellModel
 import Foundation
+internal import OSLog
+
+private let hiddenMacsLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
+    category: "mobile-shell"
+)
 
 @MainActor
 extension MobileShellComposite {
@@ -63,6 +69,9 @@ extension MobileShellComposite {
                 await clearHiddenMacDeviceID(rowlessID, scopeKey: scopeKey)
             }
         }
+        hiddenMacsLog.info(
+            "legacy hidden-marker migration cleared=\(rowlessIDs.count) kept=\(hiddenIDs.count - rowlessIDs.count) rows=\(loadedMacs.count)"
+        )
         return hiddenIDs.subtracting(rowlessIDs)
     }
 
