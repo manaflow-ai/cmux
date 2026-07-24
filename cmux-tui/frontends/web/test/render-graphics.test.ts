@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { RenderGraphicImage, RenderGraphicPlacement } from "cmux/browser";
+import {
+  RENDER_ATTACH_MAX_ENCODED_CHARS,
+  RENDER_GRAPHIC_MAX_DECODED_BYTES,
+  RENDER_GRAPHIC_MAX_ENCODED_CHARS,
+  type RenderGraphicImage,
+  type RenderGraphicPlacement,
+} from "cmux/browser";
 import {
   decodeRenderGraphicImage,
   resolveRenderGraphicPlacement,
@@ -68,6 +74,33 @@ describe("render graphics", () => {
 
     expect(decodeRenderGraphicImage(mismatched)).toBeNull();
     expect(decodeRenderGraphicImage(oversized)).toBeNull();
+  });
+
+  it("shares the transport budget and continues decoding after an oversized image", () => {
+    expect(RENDER_GRAPHIC_MAX_DECODED_BYTES).toBe(10_000_000);
+    expect(RENDER_GRAPHIC_MAX_ENCODED_CHARS).toBe(13_333_336);
+    expect(RENDER_ATTACH_MAX_ENCODED_CHARS).toBe(16_777_216);
+    expect(RENDER_GRAPHIC_MAX_ENCODED_CHARS).toBeLessThan(RENDER_ATTACH_MAX_ENCODED_CHARS);
+
+    const oversized: RenderGraphicImage = {
+      id: 11,
+      generation: 1,
+      width: RENDER_GRAPHIC_MAX_DECODED_BYTES / 4 + 1,
+      height: 1,
+      format: "rgba",
+      data: "",
+    };
+    const next: RenderGraphicImage = {
+      id: 12,
+      generation: 1,
+      width: 1,
+      height: 1,
+      format: "rgba",
+      data: "AAD//w==",
+    };
+
+    expect(decodeRenderGraphicImage(oversized)).toBeNull();
+    expect(Array.from(decodeRenderGraphicImage(next)!.pixels)).toEqual([0, 0, 255, 255]);
   });
 
   it("resolves source crop, cell origin, pixel offsets, explicit size, and layer", () => {

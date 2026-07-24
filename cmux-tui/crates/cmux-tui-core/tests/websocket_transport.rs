@@ -11,6 +11,21 @@ use serde_json::{Value, json};
 use tungstenite::{Message, WebSocket, client};
 
 const TEST_TOKEN: &str = "test-token";
+const LARGE_RENDER_IMAGE_WIDTH: usize = 1_024;
+const LARGE_RENDER_IMAGE_HEIGHT: usize = 768;
+const LARGE_RENDER_IMAGE_RAW_BYTES: usize =
+    LARGE_RENDER_IMAGE_WIDTH * LARGE_RENDER_IMAGE_HEIGHT * 4;
+const LARGE_RENDER_IMAGE_BASE64_CHARS: usize = LARGE_RENDER_IMAGE_RAW_BYTES.div_ceil(3) * 4;
+
+fn large_rgba_kitty_transmission() -> Vec<u8> {
+    let data =
+        base64::engine::general_purpose::STANDARD.encode(vec![0x7f; LARGE_RENDER_IMAGE_RAW_BYTES]);
+    assert_eq!(data.len(), LARGE_RENDER_IMAGE_BASE64_CHARS);
+    format!(
+        "\x1b_Ga=T,t=d,f=32,i=51,p=1,s={LARGE_RENDER_IMAGE_WIDTH},v={LARGE_RENDER_IMAGE_HEIGHT},c=80,r=24,q=2;{data}\x1b\\"
+    )
+    .into_bytes()
+}
 
 fn connect(addr: SocketAddr) -> WebSocket<TcpStream> {
     connect_raw(addr)
@@ -33,10 +48,17 @@ fn send_json(websocket: &mut WebSocket<TcpStream>, value: Value) {
 }
 
 fn read_json(websocket: &mut WebSocket<TcpStream>) -> Value {
+    read_json_with_size(websocket).0
+}
+
+fn read_json_with_size(websocket: &mut WebSocket<TcpStream>) -> (Value, usize) {
     loop {
         // valgrind's signal delivery interrupts blocking reads with EINTR.
         match websocket.read() {
-            Ok(Message::Text(text)) => return serde_json::from_str(&text).unwrap(),
+            Ok(Message::Text(text)) => {
+                let bytes = text.len();
+                return (serde_json::from_str(&text).unwrap(), bytes);
+            }
             Ok(Message::Ping(data)) => websocket.send(Message::Pong(data)).unwrap(),
             Ok(message) => panic!("expected a JSON text frame, got {message:?}"),
             Err(tungstenite::Error::Io(error))
@@ -264,6 +286,56 @@ fn websocket_streams_subscribe_and_attach_and_survives_unclean_disconnect() {
     let identify = read_json(&mut second);
     assert_eq!(identify["ok"], true);
     assert_eq!(identify["data"]["protocol"], server::PROTOCOL_VERSION);
+
+    mux.shutdown();
+}
+
+#[test]
+fn websocket_render_attach_carries_large_rgba_state_and_stays_connected() {
+    let mux = Mux::new("ws-large-render", SurfaceOptions::default());
+    let surface = mux
+        .run_command_surface(vec!["/bin/cat".to_string()], None, true, None, None, Some((80, 24)))
+        .unwrap()
+        .surface;
+    mux.surface(surface)
+        .unwrap()
+        .try_with_terminal(|terminal| terminal.vt_write(&large_rgba_kitty_transmission()))
+        .unwrap();
+    let server = server::serve_websocket(
+        mux.clone(),
+        "127.0.0.1:0".parse().unwrap(),
+        Some(TEST_TOKEN.to_string()),
+        false,
+    )
+    .unwrap();
+
+    let mut websocket = authenticated_connect(server.local_addr());
+    send_json(
+        &mut websocket,
+        json!({"id": 1, "cmd": "attach-surface", "surface": surface, "mode": "render"}),
+    );
+    let (render_state, render_state_bytes) = read_json_with_size(&mut websocket);
+    assert_eq!(render_state["event"], "render-state");
+    assert_eq!(render_state["surface"], surface);
+    assert_eq!(
+        render_state["graphics"]["images"][0]["data"].as_str().unwrap().len(),
+        LARGE_RENDER_IMAGE_BASE64_CHARS
+    );
+    assert!(
+        render_state_bytes > 4 * 1024 * 1024,
+        "{render_state_bytes}-byte render state did not cross the old 4 MiB boundary"
+    );
+    assert_eq!(read_until(&mut websocket, |value| value["id"] == 1)["ok"], true);
+
+    let empty_probe = json!({"id": 2, "cmd": "ping", "padding": ""}).to_string();
+    let padding = "x".repeat(render_state_bytes - empty_probe.len());
+    let boundary_probe = json!({"id": 2, "cmd": "ping", "padding": padding}).to_string();
+    assert_eq!(boundary_probe.len(), render_state_bytes);
+    websocket.send(Message::Text(boundary_probe.into())).unwrap();
+    let ping = read_until(&mut websocket, |value| value["id"] == 2);
+    assert_eq!(ping["ok"], true);
+    assert_eq!(ping["data"]["ok"], true);
+    eprintln!("WebSocket render-state and follow-up request bytes: {render_state_bytes}");
 
     mux.shutdown();
 }

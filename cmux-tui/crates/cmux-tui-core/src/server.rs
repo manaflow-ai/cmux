@@ -4246,6 +4246,58 @@ mod tests {
         b"\x1b_Ga=T,t=d,f=24,i=41,p=7,s=1,v=1,c=1,r=1,q=2;/wAA\x1b\\";
     const GREEN_IMAGE_42: &[u8] =
         b"\x1b_Ga=T,t=d,f=24,i=42,p=8,s=1,v=1,c=1,r=1,q=2;AP8A\x1b\\";
+    const LARGE_RENDER_IMAGE_WIDTH: usize = 1_024;
+    const LARGE_RENDER_IMAGE_HEIGHT: usize = 768;
+    const LARGE_RENDER_IMAGE_RAW_BYTES: usize =
+        LARGE_RENDER_IMAGE_WIDTH * LARGE_RENDER_IMAGE_HEIGHT * 4;
+    const LARGE_RENDER_IMAGE_BASE64_CHARS: usize = LARGE_RENDER_IMAGE_RAW_BYTES.div_ceil(3) * 4;
+
+    fn large_rgba_kitty_transmission() -> Vec<u8> {
+        let data = base64::engine::general_purpose::STANDARD
+            .encode(vec![0x7f; LARGE_RENDER_IMAGE_RAW_BYTES]);
+        assert_eq!(data.len(), LARGE_RENDER_IMAGE_BASE64_CHARS);
+        format!(
+            "\x1b_Ga=T,t=d,f=32,i=51,p=1,s={LARGE_RENDER_IMAGE_WIDTH},v={LARGE_RENDER_IMAGE_HEIGHT},c=80,r=24,q=2;{data}\x1b\\"
+        )
+        .into_bytes()
+    }
+
+    #[test]
+    fn large_rgba_render_state_serializes_and_queues_within_websocket_budget() {
+        assert_eq!(LARGE_RENDER_IMAGE_RAW_BYTES, 3_145_728);
+        assert_eq!(LARGE_RENDER_IMAGE_BASE64_CHARS, 4_194_304);
+
+        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(&large_rgba_kitty_transmission());
+        let mut render_state = RenderState::new().unwrap();
+        let frame = render_protocol_frame(&mut terminal, &mut render_state);
+        let value = render_state_json(7, &frame);
+        let serialized = serde_json::to_string(&value).unwrap();
+
+        assert_eq!(
+            value["graphics"]["images"][0]["data"].as_str().unwrap().len(),
+            LARGE_RENDER_IMAGE_BASE64_CHARS
+        );
+        assert!(
+            serialized.len() > 4 * 1024 * 1024,
+            "JSON overhead must put the payload beyond the old 4 MiB boundary"
+        );
+        assert!(
+            serialized.len() <= WEBSOCKET_MESSAGE_MAX_BYTES,
+            "{}-byte render state exceeds the configured {}-byte WebSocket boundary",
+            serialized.len(),
+            WEBSOCKET_MESSAGE_MAX_BYTES
+        );
+
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let stream = writer.start_stream(&attach_overflow_json(7)).unwrap();
+        writer.send_initial(&value, &stream).unwrap();
+        assert_eq!(outbound.try_pop().unwrap(), serialized);
+        assert!(writer.is_open());
+        assert!(stream.is_open());
+        eprintln!("1024x768 RGBA render-state bytes: {}", serialized.len());
+    }
 
     #[test]
     fn render_delta_omits_graphics_for_text_only_damage() {
