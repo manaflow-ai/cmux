@@ -72,6 +72,7 @@ const ROUTING_REFRESH_RETRIES: u8 = 1;
 const BACKGROUND_REFRESH_RETRIES: u8 = 6;
 const APP_EVENT_CAPACITY: usize = 4_096;
 const PTY_FAILURE_CAPACITY: usize = 512;
+const MACHINE_PROVIDER_RECONNECT_MAX_BACKOFF_EXPONENT: u8 = 5;
 
 pub enum AppEvent {
     SessionScoped {
@@ -2900,6 +2901,9 @@ pub struct App {
     app_events: SyncSender<AppEvent>,
     machine_action_worker: Option<MachineActionWorker>,
     machine_action_in_flight: bool,
+    machine_action_request: Option<MachineRequest>,
+    machine_provider_reconnect_attempts: u8,
+    machine_provider_reconnect_retry_at: Option<Instant>,
     pending_machine_replacement: Option<PendingMachineReplacement>,
     machine_update_pump: Option<MachineUpdatePump>,
     machine_update_generation: u64,
@@ -3919,6 +3923,9 @@ pub fn run_with_machine_updates(
         app_events: tx,
         machine_action_worker,
         machine_action_in_flight: false,
+        machine_action_request: None,
+        machine_provider_reconnect_attempts: 0,
+        machine_provider_reconnect_retry_at: None,
         pending_machine_replacement: None,
         machine_update_pump: None,
         machine_update_generation: 0,
@@ -4209,6 +4216,7 @@ impl App {
                     Err(_) => break,
                 }
             }
+            action = action.merge(self.process_machine_requests());
             // Always drain retained failures. PtyFailuresReady only shortens
             // the idle wait, so a failed try_send cannot create a lost wakeup.
             action = action.merge(self.apply_pty_failures());
@@ -4297,6 +4305,15 @@ impl App {
         if self.machine_action_in_flight {
             return RenderAction::None;
         }
+        if self.machine_provider_reconnect_retry_at.is_some_and(|retry_at| {
+            Instant::now() < retry_at
+                && self
+                    .machine_ui
+                    .as_ref()
+                    .is_some_and(|ui| matches!(ui.request, Some(MachineRequest::ReconnectProvider)))
+        }) {
+            return RenderAction::None;
+        }
         let Some(request) = self.machine_ui.as_mut().and_then(|ui| ui.request.take()) else {
             return RenderAction::None;
         };
@@ -4313,8 +4330,11 @@ impl App {
             generation: self.session_generation.wrapping_add(1).max(1),
             pty_input: self.pty_input.sender(),
         };
-        match worker.perform(request, preparation) {
-            Ok(()) => self.machine_action_in_flight = true,
+        match worker.perform(request.clone(), preparation) {
+            Ok(()) => {
+                self.machine_action_in_flight = true;
+                self.machine_action_request = Some(request);
+            }
             Err(MachineSubmitError::Busy(request)) => {
                 if let Some(ui) = self.machine_ui.as_mut() {
                     ui.request = Some(request);
@@ -4328,6 +4348,29 @@ impl App {
             }
         }
         RenderAction::None
+    }
+
+    fn schedule_machine_provider_reconnect(&mut self) {
+        self.machine_provider_reconnect_attempts =
+            self.machine_provider_reconnect_attempts.saturating_add(1);
+        let exponent = self
+            .machine_provider_reconnect_attempts
+            .saturating_sub(1)
+            .min(MACHINE_PROVIDER_RECONNECT_MAX_BACKOFF_EXPONENT);
+        self.machine_provider_reconnect_retry_at =
+            Some(Instant::now() + Duration::from_secs(1_u64 << exponent));
+        if let Some(ui) = self.machine_ui.as_mut() {
+            ui.request = Some(MachineRequest::ReconnectProvider);
+        }
+    }
+
+    fn clear_machine_provider_reconnect(&mut self) {
+        self.machine_provider_reconnect_attempts = 0;
+        self.machine_provider_reconnect_retry_at = None;
+    }
+
+    fn take_machine_action_was_provider_reconnect(&mut self) -> bool {
+        matches!(self.machine_action_request.take(), Some(MachineRequest::ReconnectProvider))
     }
 
     fn apply_machine_controller_completion(
@@ -4350,9 +4393,13 @@ impl App {
             }
             MachineControllerCompletion::Action { result, updates } => {
                 self.machine_action_in_flight = false;
+                let reconnecting = self.take_machine_action_was_provider_reconnect();
                 let result = match result {
                     Ok(result) => result,
                     Err(error) => {
+                        if reconnecting {
+                            self.schedule_machine_provider_reconnect();
+                        }
                         self.status_message = Some(format!(
                             "{}: {error}",
                             localization::catalog().sidebar.machine_action_failed
@@ -4360,6 +4407,9 @@ impl App {
                         return RenderAction::Draw;
                     }
                 };
+                if reconnecting {
+                    self.clear_machine_provider_reconnect();
+                }
                 let MachineActionResult {
                     ui,
                     replacement,
@@ -4397,6 +4447,9 @@ impl App {
                         let _ = worker.abort_replacement(action_id);
                     }
                     self.machine_action_in_flight = false;
+                    if self.take_machine_action_was_provider_reconnect() {
+                        self.schedule_machine_provider_reconnect();
+                    }
                     self.status_message = Some(format!(
                         "{}: {}",
                         localization::catalog().sidebar.machine_action_failed,
@@ -4413,6 +4466,9 @@ impl App {
                 {
                     self.pending_machine_replacement.take();
                     self.machine_action_in_flight = false;
+                    if self.take_machine_action_was_provider_reconnect() {
+                        self.schedule_machine_provider_reconnect();
+                    }
                     self.status_message = Some(format!(
                         "{}: {}",
                         localization::catalog().sidebar.machine_action_failed,
@@ -4424,9 +4480,13 @@ impl App {
             }
             MachineControllerCompletion::ReplacementSettled { action_id, committed, updates } => {
                 self.machine_action_in_flight = false;
+                let reconnecting = self.take_machine_action_was_provider_reconnect();
                 let mut action = RenderAction::None;
                 match committed {
                     Ok(true) => {
+                        if reconnecting {
+                            self.clear_machine_provider_reconnect();
+                        }
                         let Some(pending) = self
                             .pending_machine_replacement
                             .take()
@@ -4453,9 +4513,15 @@ impl App {
                     }
                     Ok(false) => {
                         self.pending_machine_replacement.take();
+                        if reconnecting {
+                            self.schedule_machine_provider_reconnect();
+                        }
                     }
                     Err(error) => {
                         self.pending_machine_replacement.take();
+                        if reconnecting {
+                            self.schedule_machine_provider_reconnect();
+                        }
                         self.status_message = Some(format!(
                             "{}: {error}",
                             localization::catalog().sidebar.machine_action_failed
@@ -15326,9 +15392,19 @@ mod tests {
         let mux = Mux::new("provider-reconnect-retry-test", SurfaceOptions::default());
         let (mut app, events) = test_app_with_events(Session::Local(mux));
         app.machine_ui = Some(provider_machine_ui());
-        let (controller, requests) =
-            fake_controller(FakeMachineAction::Fail("provider is still offline"));
-        install_machine_controller(&mut app, controller);
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        install_machine_controller(
+            &mut app,
+            Box::new(FakeMachineController {
+                actions: VecDeque::from([
+                    FakeMachineAction::Fail("provider is still offline"),
+                    FakeMachineAction::Return(Box::new(MachineActionResult::ui(
+                        provider_machine_ui(),
+                    ))),
+                ]),
+                requests: requests.clone(),
+            }),
+        );
         app.machine_ui.as_mut().unwrap().request = Some(MachineRequest::ReconnectProvider);
 
         settle_machine_action(&mut app, &events);
@@ -15338,6 +15414,20 @@ mod tests {
             Some(&MachineRequest::ReconnectProvider)
         );
         assert_eq!(requests.lock().unwrap().as_slice(), &[MachineRequest::ReconnectProvider]);
+        assert_eq!(app.machine_provider_reconnect_attempts, 1);
+        assert!(app.machine_provider_reconnect_retry_at.is_some());
+        assert_eq!(app.process_machine_requests(), RenderAction::None);
+        assert_eq!(requests.lock().unwrap().len(), 1);
+
+        app.machine_provider_reconnect_retry_at = Some(Instant::now() - Duration::from_millis(1));
+        settle_machine_action(&mut app, &events);
+
+        assert_eq!(
+            requests.lock().unwrap().as_slice(),
+            &[MachineRequest::ReconnectProvider, MachineRequest::ReconnectProvider]
+        );
+        assert_eq!(app.machine_provider_reconnect_attempts, 0);
+        assert!(app.machine_provider_reconnect_retry_at.is_none());
     }
 
     #[test]
@@ -16620,6 +16710,9 @@ mod tests {
             app_events: events,
             machine_action_worker: None,
             machine_action_in_flight: false,
+            machine_action_request: None,
+            machine_provider_reconnect_attempts: 0,
+            machine_provider_reconnect_retry_at: None,
             pending_machine_replacement: None,
             machine_update_pump: None,
             machine_update_generation: 0,
