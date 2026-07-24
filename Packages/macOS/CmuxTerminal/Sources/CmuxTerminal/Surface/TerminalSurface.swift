@@ -286,6 +286,12 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// state unless the workspace focus path requests it.
     var desiredFocusState: Bool = false
 
+    /// Whether this model still owns its logical surface-registry entry.
+    /// Weak registry membership is cleared before `deinit`, so the model keeps
+    /// this one-shot ownership bit to distinguish deinit-only cleanup from a
+    /// later deinit following explicit teardown.
+    private var ownsSurfaceRegistryRegistration = false
+
     /// Bumped after every completed runtime clipboard read.
     public internal(set) var clipboardReadGeneration = 0
 #if DEBUG
@@ -514,6 +520,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.paneHost = views.paneHost
         preparePaneHost(self.paneHost)
         registry.register(self)
+        ownsSurfaceRegistryRegistration = true
         self.paneHost.attachSurface(self)
 
         let inheritedCommand = configTemplate?.command?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -568,10 +575,17 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         registry.updateFocusPlacement(id: id, placement)
     }
 
+    /// Retires logical registry ownership once across explicit teardown and deinit.
+    func retireSurfaceRegistryRegistrationIfNeeded() {
+        guard ownsSurfaceRegistryRegistration else { return }
+        ownsSurfaceRegistryRegistration = false
+        registry.unregister(self)
+    }
+
     deinit {
         claudeCommandShimInstallTask?.cancel()
         claudeCommandShimCompletionTask?.cancel()
-        registry.unregister(self)
+        retireSurfaceRegistryRegistrationIfNeeded()
         markPortalLifecycleClosed(reason: "deinit")
         // Mirror closeHeadlessStartupWindowIfNeeded: deinit is nonisolated, so
         // the NSWindow teardown hops to the main actor through the same kind of

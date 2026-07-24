@@ -20,14 +20,21 @@ private final class FakeSurface: TerminalSurfacing {
 @MainActor
 private final class RouteRetireRecorder: MainWindowRouteRetiring {
     private(set) var reasons: [String] = []
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var waiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private let onRetire: @MainActor (Int) -> Void
 
-    func retireRecoverableMainWindowRoutesWithoutRegisteredTerminalSurfaces(reason: String) {
+    init(onRetire: @escaping @MainActor (Int) -> Void = { _ in }) {
+        self.onRetire = onRetire
+    }
+
+    func retireInactiveRecoverableMainWindowRoutes(reason: String) {
         reasons.append(reason)
-        let pending = waiters
-        waiters.removeAll()
-        for waiter in pending {
-            waiter.resume()
+        let count = reasons.count
+        onRetire(count)
+        let ready = waiters.filter { count >= $0.count }
+        waiters.removeAll { count >= $0.count }
+        for waiter in ready {
+            waiter.continuation.resume()
         }
     }
 
@@ -36,9 +43,13 @@ private final class RouteRetireRecorder: MainWindowRouteRetiring {
     /// signal no matter how the retire task interleaves with this call
     /// (a lost-signal version of this hung CI for the full job timeout).
     func awaitFirstRetire() async {
-        if !reasons.isEmpty { return }
+        await awaitRetireCount(1)
+    }
+
+    func awaitRetireCount(_ count: Int) async {
+        if reasons.count >= count { return }
         await withCheckedContinuation { continuation in
-            waiters.append(continuation)
+            waiters.append((count, continuation))
         }
     }
 }
@@ -97,6 +108,27 @@ struct TerminalSurfaceRegistryTests {
         #expect(!registry.isRightSidebarDockSurface(id: sharedId))
     }
 
+    @Test func staleAndRepeatedUnregistersAreIdempotent() {
+        let registry = TerminalSurfaceRegistry()
+        let sharedId = UUID()
+        let active = FakeSurface(id: sharedId, focusPlacement: .rightSidebarDock)
+        let stale = FakeSurface(id: sharedId, focusPlacement: .workspace)
+        registry.register(active)
+        let registeredGeneration = registry.topologyGeneration
+
+        registry.unregister(stale)
+        #expect(registry.topologyGeneration == registeredGeneration)
+        #expect(registry.surface(id: sharedId) === active)
+        #expect(registry.isRightSidebarDockSurface(id: sharedId))
+
+        registry.unregister(active)
+        let removedGeneration = registry.topologyGeneration
+        registry.unregister(active)
+        #expect(registry.topologyGeneration == removedGeneration)
+        #expect(registry.surface(id: sharedId) == nil)
+        #expect(!registry.isRightSidebarDockSurface(id: sharedId))
+    }
+
     @Test func evictsDeallocatedSurfaces() {
         let registry = TerminalSurfaceRegistry()
         var surface: FakeSurface? = FakeSurface()
@@ -106,6 +138,51 @@ struct TerminalSurfaceRegistryTests {
         // Weak table: a deallocated surface must stop resolving.
         #expect(registry.surface(id: id) == nil)
         #expect(registry.allSurfaces().isEmpty)
+    }
+
+    @Test func deallocatedDockSurfaceDoesNotPoisonSameIdReplacement() {
+        let registry = TerminalSurfaceRegistry()
+        let sharedId = UUID()
+        var expired: FakeSurface? = FakeSurface(
+            id: sharedId,
+            focusPlacement: .rightSidebarDock
+        )
+        registry.register(expired!)
+        #expect(registry.isRightSidebarDockSurface(id: sharedId))
+
+        expired = nil
+        #expect(registry.surface(id: sharedId) == nil)
+        #expect(!registry.isRightSidebarDockSurface(id: sharedId))
+
+        let replacement = FakeSurface(
+            id: sharedId,
+            focusPlacement: .rightSidebarDock
+        )
+        registry.register(replacement)
+        #expect(registry.surface(id: sharedId) === replacement)
+        #expect(registry.isRightSidebarDockSurface(id: sharedId))
+
+        registry.unregister(replacement)
+        #expect(registry.surface(id: sharedId) == nil)
+        #expect(!registry.isRightSidebarDockSurface(id: sharedId))
+
+        registry.updateFocusPlacement(id: sharedId, .rightSidebarDock)
+        #expect(!registry.isRightSidebarDockSurface(id: sharedId))
+    }
+
+    @Test func registrationIncrementallyEvictsDeallocatedSurfaceWithoutIdLookup() {
+        let registry = TerminalSurfaceRegistry()
+        var expired: FakeSurface? = FakeSurface()
+        registry.register(expired!)
+        expired = nil
+        let generationBeforeReplacement = registry.topologyGeneration
+
+        let live = FakeSurface()
+        registry.register(live)
+
+        #expect(registry.topologyGeneration == generationBeforeReplacement + 2)
+        #expect(registry.allSurfaces().count == 1)
+        #expect(registry.allSurfaces().first === live)
     }
 
     @Test func allSurfacesIsSortedByIdString() {
@@ -164,6 +241,50 @@ struct TerminalSurfaceRegistryTests {
         await recorder.awaitFirstRetire()
         let reasons = await recorder.reasons
         #expect(reasons == ["terminalSurface.unregister"])
+    }
+
+    @Test("Synchronous bulk unregister coalesces its route-retire sweep")
+    @MainActor
+    func synchronousBulkUnregisterCoalescesRouteRetireSweep() async {
+        let registry = TerminalSurfaceRegistry()
+        let recorder = RouteRetireRecorder()
+        registry.attachRouteRetirer(recorder)
+        let surfaces = (0..<8).map { _ in FakeSurface() }
+        for surface in surfaces {
+            registry.register(surface)
+        }
+
+        for surface in surfaces {
+            registry.unregister(surface)
+        }
+
+        await recorder.awaitFirstRetire()
+        #expect(recorder.reasons == ["terminalSurface.unregister"])
+    }
+
+    @Test("Unregister racing with a route-retire sweep schedules a follow-up")
+    @MainActor
+    func unregisterRacingWithRouteRetireSweepSchedulesFollowUp() async {
+        let registry = TerminalSurfaceRegistry()
+        let first = FakeSurface()
+        let racing = FakeSurface()
+        let recorder = RouteRetireRecorder { invocationCount in
+            if invocationCount == 1 {
+                registry.unregister(racing)
+            }
+        }
+        registry.attachRouteRetirer(recorder)
+        registry.register(first)
+        registry.register(racing)
+
+        registry.unregister(first)
+
+        await recorder.awaitRetireCount(2)
+        #expect(recorder.reasons == [
+            "terminalSurface.unregister",
+            "terminalSurface.unregister",
+        ])
+        #expect(registry.allSurfaces().isEmpty)
     }
 
     @Test func unregisterWithoutRetirerDoesNotCrash() {

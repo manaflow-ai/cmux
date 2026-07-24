@@ -8,12 +8,37 @@ extension AppDelegate {
     }
 
     func windowForMainWindowId(_ windowId: UUID) -> NSWindow? {
-        if let ctx = mainWindowContexts.values.first(where: { $0.windowId == windowId }),
-           let window = ctx.window {
+        if let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
+            guard let window = context.window,
+                  !hasCommittedMainWindowClose(window) else {
+                return nil
+            }
             return window
         }
-        let expectedIdentifier = "cmux.main.\(windowId.uuidString)"
-        return NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
+        guard let route = recoverableMainWindowRoute(windowId: windowId),
+              let window = route.window,
+              NSApp.windows.contains(where: { $0 === window }),
+              mainWindowId(from: window) == windowId,
+              !hasCommittedMainWindowClose(window) else {
+            return nil
+        }
+        return window
+    }
+
+    func mainWindowForClose(windowId: UUID) -> NSWindow? {
+        if let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }),
+           let window = context.window,
+           !hasCommittedMainWindowClose(window) {
+            return window
+        }
+        guard let route = recoverableMainWindowRoute(windowId: windowId),
+              let window = route.window,
+              NSApp.windows.contains(where: { $0 === window }),
+              mainWindowId(from: window) == windowId,
+              !hasCommittedMainWindowClose(window) else {
+            return nil
+        }
+        return window
     }
 
     func startupPrimaryWindowIdForInitialMainWindow() -> UUID? {
@@ -25,6 +50,7 @@ extension AppDelegate {
     func availableWindowIdForNewMainWindow(preferredWindowId: UUID?) -> UUID? {
         guard let preferredWindowId else { return nil }
         guard !mainWindowContexts.values.contains(where: { $0.windowId == preferredWindowId }) else { return nil }
+        guard recoverableMainWindowRoute(windowId: preferredWindowId) == nil else { return nil }
         return preferredWindowId
     }
 

@@ -20,23 +20,13 @@ extension TabManager {
         }
         guard let appDelegate = AppDelegate.shared,
               let windowId = appDelegate.windowId(for: self),
-              appDelegate.mainWindow(for: windowId) != nil else { return false }
+              appDelegate.mainWindowForClose(windowId: windowId) != nil else { return false }
         if workspace.isRemoteTmuxMirror {
             appDelegate.remoteTmuxController.detachMirrorWorkspaceKeptOpenLocally(workspaceId: workspace.id)
         }
         guard appDelegate.closeMainWindow(windowId: windowId, recordHistory: recordHistory) else {
             return false
         }
-        // Window unregister temporarily retains a recoverable route while any
-        // terminal surfaces remain registered. A noninteractive last-workspace
-        // close is final, so tear down those surfaces after the close snapshot is
-        // captured; the terminal registry then retires the route instead of
-        // leaving a scriptable, unclosable window behind (#7992).
-        workspace.withClosedPanelHistorySuppressed {
-            workspace.teardownAllPanels()
-        }
-        workspace.teardownRemoteConnection()
-        workspace.owningTabManager = nil
         return true
     }
 }

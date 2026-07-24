@@ -39,6 +39,7 @@ extension Workspace {
     }
 
     func openDockBrowserLinkInNewTab(panel: BrowserPanel, seed: BrowserNewTabNavigationSeed) -> Bool {
+        guard !isRetiredFromOwningTabManager else { return false }
         guard let dock = _dockSplit, let paneId = dock.paneId(forPanelId: panel.id) else { return false }
         return dock.newSurface(
             kind: .browser,

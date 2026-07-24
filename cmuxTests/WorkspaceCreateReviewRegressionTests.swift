@@ -97,6 +97,50 @@ import Testing
         #expect(manager.tabs.count == baselineCount + 1)
     }
 
+    @Test func windowFinalizationDuringMobilePreparationDoesNotConsumeOperationID() async {
+        let suiteName = "WorkspaceCreateReviewRegressionTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let cache = TerminalController.WorkspaceCreateIdempotencyCache(
+            capacity: 16,
+            defaults: defaults,
+            persistenceKey: "completed"
+        )
+        let manager = TabManager()
+        let operationID = UUID()
+        let validationGate = ControlledReviewDeadlines()
+        let initialTask = Task { @MainActor in
+            await TerminalController.shared.v2MobileWorkspaceCreate(
+                params: ["operation_id": operationID.uuidString],
+                workingDirectoryValidator: { _, _ in
+                    await validationGate.suspendUntilFired()
+                    return .notProvided
+                },
+                tabManager: manager,
+                idempotencyCache: cache
+            )
+        }
+
+        await validationGate.waitForCount(1)
+        manager.finalizeAllWorkspacesForWindowClose()
+        await validationGate.fireAll()
+        let initial = await initialTask.value
+
+        #expect(Self.errorCode(initial) == "internal_error")
+        #expect(cache.containsCompletedOperation(operationID) == false)
+
+        let retryManager = TabManager()
+        let baselineCount = retryManager.tabs.count
+        let retry = await TerminalController.shared.v2MobileWorkspaceCreate(
+            params: ["operation_id": operationID.uuidString],
+            tabManager: retryManager,
+            idempotencyCache: cache
+        )
+
+        #expect(Self.errorCode(retry) == nil)
+        #expect(retryManager.tabs.count == baselineCount + 1)
+    }
+
     private static func errorCode(_ result: TerminalController.V2CallResult) -> String? {
         guard case let .err(code, _, _) = result else { return nil }
         return code

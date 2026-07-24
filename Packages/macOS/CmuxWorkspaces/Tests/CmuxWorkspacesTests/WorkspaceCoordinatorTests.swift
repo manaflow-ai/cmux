@@ -52,7 +52,7 @@ final class StubGroupHost: WorkspaceGroupHosting {
         workingDirectory: String?,
         inheritWorkingDirectory: Bool,
         select: Bool
-    ) -> CoordinatorStubTab {
+    ) -> CoordinatorStubTab? {
         let tab = CoordinatorStubTab(currentDirectory: workingDirectory ?? "/tmp")
         let pinnedCount = model.tabs.prefix(while: \.isPinned).count
         model.tabs.insert(tab, at: pinnedCount)
@@ -69,7 +69,7 @@ final class StubGroupHost: WorkspaceGroupHosting {
         initialBrowserTransparentBackground: Bool,
         inheritWorkingDirectory: Bool,
         select: Bool
-    ) -> CoordinatorStubTab {
+    ) -> CoordinatorStubTab? {
         let tab = CoordinatorStubTab(currentDirectory: workingDirectory ?? "/tmp")
         model.tabs.append(tab)
         if select { model.selectedTabId = tab.id }

@@ -31,6 +31,7 @@ extension TabManager {
         insertionIndexOverride: Int? = nil,
         focusIntent: PanelFocusIntent? = nil
     ) -> Workspace? {
+        guard !isFinalizedForWindowClose else { return nil }
         let sourceWorkspace = selectedWorkspace
         let capturedTabs = tabs
         let capturedSelectedTabId = sourceWorkspace?.id
