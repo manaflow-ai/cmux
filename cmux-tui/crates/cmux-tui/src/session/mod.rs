@@ -15,11 +15,11 @@ use std::sync::atomic::Ordering;
 
 use cmux_tui_core::server::PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY;
 use cmux_tui_core::{
-    BrowserFrame, BrowserStatus, DefaultColors, Mux, MuxEventReceiver, PaneId, ScreenId,
-    SidebarPluginStatus, SplitDir, SplitId, Surface, SurfaceId, SurfaceKind, SurfaceRenderFrame,
-    SurfaceResizeReporter, WorkspaceId, ZoomMode,
+    BrowserFrame, BrowserStatus, DefaultColors, GuardedMouseEncode, Mux, MuxEventReceiver, PaneId,
+    PointerSemanticProbe, ScreenId, SidebarPluginStatus, SplitDir, SplitId, Surface, SurfaceId,
+    SurfaceKind, SurfaceRenderFrame, SurfaceResizeReporter, WorkspaceId, ZoomMode,
 };
-use ghostty_vt::{MouseInput, RenderState, Terminal};
+use ghostty_vt::{MouseInput, RenderState, Terminal, TerminalPointerSemanticSnapshot};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -1121,6 +1121,7 @@ impl SurfaceHandle {
                 Ok(Arc::new(SurfaceRenderFrame {
                     frame: rs.build_frame()?,
                     scrollback_rows: term.history_rows(),
+                    pointer_semantics: term.pointer_semantic_snapshot(),
                     palette_colors,
                     palette_overridden,
                 }))
@@ -1149,7 +1150,7 @@ impl SurfaceHandle {
     pub fn encode_mouse(
         &self,
         input: MouseInput,
-        output: &mut Vec<u8>,
+        output: &mut impl Extend<u8>,
     ) -> Option<ghostty_vt::Result<()>> {
         match self {
             SurfaceHandle::Local(surface, _) => surface.encode_mouse(input, output),
@@ -1160,10 +1161,27 @@ impl SurfaceHandle {
         }
     }
 
+    pub fn encode_mouse_if_semantics(
+        &self,
+        expected: TerminalPointerSemanticSnapshot,
+        input: MouseInput,
+        output: &mut impl Extend<u8>,
+    ) -> Option<GuardedMouseEncode> {
+        match self {
+            SurfaceHandle::Local(surface, _) => {
+                surface.encode_mouse_if_semantics(expected, input, output)
+            }
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
+                Some(surface.encode_mouse_if_semantics(expected, input, output))
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
+        }
+    }
+
     pub fn encode_mouse_release(
         &self,
         input: MouseInput,
-        output: &mut Vec<u8>,
+        output: &mut impl Extend<u8>,
     ) -> Option<ghostty_vt::Result<()>> {
         match self {
             SurfaceHandle::Local(surface, _) => surface.encode_mouse_release(input, output),
@@ -1178,8 +1196,8 @@ impl SurfaceHandle {
         &self,
         press: MouseInput,
         release: MouseInput,
-        press_output: &mut Vec<u8>,
-        release_output: &mut Vec<u8>,
+        press_output: &mut impl Extend<u8>,
+        release_output: &mut impl Extend<u8>,
     ) -> Option<ghostty_vt::Result<()>> {
         match self {
             SurfaceHandle::Local(surface, _) => {
@@ -1192,6 +1210,35 @@ impl SurfaceHandle {
         }
     }
 
+    pub fn encode_mouse_press_pair_if_semantics(
+        &self,
+        expected: TerminalPointerSemanticSnapshot,
+        press: MouseInput,
+        release: MouseInput,
+        press_output: &mut impl Extend<u8>,
+        release_output: &mut impl Extend<u8>,
+    ) -> Option<GuardedMouseEncode> {
+        match self {
+            SurfaceHandle::Local(surface, _) => surface.encode_mouse_press_pair_if_semantics(
+                expected,
+                press,
+                release,
+                press_output,
+                release_output,
+            ),
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
+                Some(surface.encode_mouse_press_pair_if_semantics(
+                    expected,
+                    press,
+                    release,
+                    press_output,
+                    release_output,
+                ))
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
+        }
+    }
+
     pub fn reset_mouse_motion_dedupe(&self) {
         match self {
             SurfaceHandle::Local(surface, _) => surface.reset_mouse_motion_dedupe(),
@@ -1199,6 +1246,16 @@ impl SurfaceHandle {
                 surface.reset_mouse_motion_dedupe();
             }
             SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => {}
+        }
+    }
+
+    pub fn try_pointer_semantics(&self) -> Option<PointerSemanticProbe> {
+        match self {
+            SurfaceHandle::Local(surface, _) => surface.try_pointer_semantics(),
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
+                Some(surface.try_pointer_semantics())
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
         }
     }
 

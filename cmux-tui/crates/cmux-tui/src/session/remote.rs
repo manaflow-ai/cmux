@@ -13,14 +13,14 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_core::{
-    BrowserFrame, BrowserSource, BrowserStatus, DefaultColors, MuxEvent, MuxEventBroadcaster,
-    MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge, Rgb, SurfaceId,
-    SurfaceKind, platform::transport,
+    BrowserFrame, BrowserSource, BrowserStatus, DefaultColors, GuardedMouseEncode, MuxEvent,
+    MuxEventBroadcaster, MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge,
+    PointerSemanticProbe, Rgb, SurfaceId, SurfaceKind, platform::transport,
 };
 use cmux_tui_machine_protocol::BearerToken;
 use ghostty_vt::{
     Callbacks, CursorShape, MouseEncoders, MouseInput, RenderState, Terminal,
-    TerminalColorOverrides, parse_color,
+    TerminalColorOverrides, TerminalPointerSemanticSnapshot, parse_color,
 };
 use serde_json::{Value, json};
 use zeroize::Zeroize;
@@ -244,7 +244,7 @@ impl RemoteSurface {
     pub(super) fn encode_mouse(
         &self,
         input: MouseInput,
-        output: &mut Vec<u8>,
+        output: &mut impl Extend<u8>,
     ) -> Option<ghostty_vt::Result<()>> {
         match self.mouse_encoders.try_lock() {
             Ok(mut encoders) => Some(encoders.encode(input, output)),
@@ -255,10 +255,37 @@ impl RemoteSurface {
         }
     }
 
+    pub(super) fn encode_mouse_if_semantics(
+        &self,
+        expected: TerminalPointerSemanticSnapshot,
+        input: MouseInput,
+        output: &mut impl Extend<u8>,
+    ) -> GuardedMouseEncode {
+        let term = match self.term.try_lock() {
+            Ok(term) => term,
+            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return GuardedMouseEncode::Contended;
+            }
+        };
+        if term.pointer_semantic_snapshot() != expected {
+            return GuardedMouseEncode::SemanticsChanged;
+        }
+        let mut encoders = match self.mouse_encoders.try_lock() {
+            Ok(encoders) => encoders,
+            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return GuardedMouseEncode::Contended;
+            }
+        };
+        encoders.sync_from_terminal(&term);
+        GuardedMouseEncode::Encoded(encoders.encode(input, output))
+    }
+
     pub(super) fn encode_mouse_release(
         &self,
         input: MouseInput,
-        output: &mut Vec<u8>,
+        output: &mut impl Extend<u8>,
     ) -> Option<ghostty_vt::Result<()>> {
         match self.mouse_encoders.try_lock() {
             Ok(mut encoders) => Some(encoders.encode_release(input, output)),
@@ -273,8 +300,8 @@ impl RemoteSurface {
         &self,
         press: MouseInput,
         release: MouseInput,
-        press_output: &mut Vec<u8>,
-        release_output: &mut Vec<u8>,
+        press_output: &mut impl Extend<u8>,
+        release_output: &mut impl Extend<u8>,
     ) -> Option<ghostty_vt::Result<()>> {
         match self.mouse_encoders.try_lock() {
             Ok(mut encoders) => {
@@ -287,9 +314,54 @@ impl RemoteSurface {
         }
     }
 
+    pub(super) fn encode_mouse_press_pair_if_semantics(
+        &self,
+        expected: TerminalPointerSemanticSnapshot,
+        press: MouseInput,
+        release: MouseInput,
+        press_output: &mut impl Extend<u8>,
+        release_output: &mut impl Extend<u8>,
+    ) -> GuardedMouseEncode {
+        let term = match self.term.try_lock() {
+            Ok(term) => term,
+            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return GuardedMouseEncode::Contended;
+            }
+        };
+        if term.pointer_semantic_snapshot() != expected {
+            return GuardedMouseEncode::SemanticsChanged;
+        }
+        let mut encoders = match self.mouse_encoders.try_lock() {
+            Ok(encoders) => encoders,
+            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return GuardedMouseEncode::Contended;
+            }
+        };
+        encoders.sync_from_terminal(&term);
+        GuardedMouseEncode::Encoded(encoders.encode_press_pair(
+            press,
+            release,
+            press_output,
+            release_output,
+        ))
+    }
+
     pub(super) fn reset_mouse_motion_dedupe(&self) {
         self.mouse_encoders.lock().unwrap().reset_motion_dedupe();
     }
+
+    pub(super) fn try_pointer_semantics(&self) -> PointerSemanticProbe {
+        match self.term.try_lock() {
+            Ok(term) => PointerSemanticProbe::Ready(term.pointer_semantic_snapshot()),
+            Err(std::sync::TryLockError::Poisoned(error)) => {
+                PointerSemanticProbe::Ready(error.into_inner().pointer_semantic_snapshot())
+            }
+            Err(std::sync::TryLockError::WouldBlock) => PointerSemanticProbe::Contended,
+        }
+    }
+
     /// Apply an ordered attach-stream resize marker to the mirror terminal.
     pub(super) fn apply_stream_resize(&self, cols: u16, rows: u16, replay: Option<&[u8]>) {
         self.apply_stream_resize_with_colors(cols, rows, replay, None);

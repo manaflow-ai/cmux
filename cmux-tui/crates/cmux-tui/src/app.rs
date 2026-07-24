@@ -17,9 +17,9 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_core::{
-    BrowserSource, BrowserStatus, Direction, MuxEvent, Node, PairingChallenge, PaneId, Rect,
-    SplitDir, SplitEdge, SplitId, SurfaceId, SurfaceKind, WorkspaceId, exact_split_for_pane_edge,
-    layout_screen, split_sides, zellij_default_pane_layout,
+    BrowserSource, BrowserStatus, Direction, GuardedMouseEncode, MuxEvent, Node, PairingChallenge,
+    PaneId, PointerSemanticProbe, Rect, SplitDir, SplitEdge, SplitId, SurfaceId, SurfaceKind,
+    WorkspaceId, exact_split_for_pane_edge, layout_screen, split_sides, zellij_default_pane_layout,
 };
 use crossterm::ExecutableCommand;
 use crossterm::event::{
@@ -32,10 +32,10 @@ use crossterm::terminal::{
 };
 use ghostty_vt::{
     CursorShape, KeyEncoder, Mods, MouseAction, MouseButton as GhosttyMouseButton, MouseInput,
-    RenderState, Rgb, Screen,
+    RenderState, Rgb, Screen, TerminalPointerSemanticSnapshot,
 };
 use ratatui::Terminal as RatatuiTerminal;
-use ratatui::backend::CrosstermBackend;
+use ratatui::backend::{Backend, CrosstermBackend};
 
 use crate::browser_input::{
     BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind, BrowserResizeFailure,
@@ -45,10 +45,10 @@ use crate::keys;
 use crate::localization;
 use crate::machine::{
     MachineActionResult, MachineController, MachineKey, MachineRailSelection, MachineRailTarget,
-    MachineRequest, MachineSession, MachineUiState, MachineUpdateStream, ManagedMachineDescriptor,
-    ManagedMachineStatus, ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation,
-    ManagedWorkspaceStatus, ProviderActionInputError, WorkspaceCreationMode,
-    WorkspaceCreationPolicy, validate_machine_session,
+    MachineRequest, MachineSession, MachineSnapshot, MachineUiState, MachineUpdateStream,
+    ManagedMachineDescriptor, ManagedMachineStatus, ManagedWorkspaceDescriptor,
+    ManagedWorkspaceSessionMutation, ManagedWorkspaceStatus, ProviderActionInputError,
+    ProviderPresentation, WorkspaceCreationMode, WorkspaceCreationPolicy, validate_machine_session,
 };
 use crate::pty_input::{
     PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult, PtyInputEvent, PtyInputKind,
@@ -68,7 +68,7 @@ const DEFERRED_INPUT_CAPACITY: usize = 512;
 const DEFERRED_INPUT_FIXED_BYTES: usize = 64;
 const BRACKETED_PASTE_MARKER_BYTES: usize = 12;
 const MAX_DEFERRED_INPUT_BYTES: usize = 4 * 1024 * 1024;
-const ROUTING_REFRESH_RETRIES: u8 = 1;
+const LAYOUT_REFRESH_RETRIES: u8 = 1;
 const BACKGROUND_REFRESH_RETRIES: u8 = 6;
 const APP_EVENT_CAPACITY: usize = 4_096;
 const PTY_FAILURE_CAPACITY: usize = 512;
@@ -82,7 +82,7 @@ pub enum AppEvent {
     MuxTitlesReady,
     MuxSubscriptionRecovered {
         recovery_generation: u64,
-        routing_generation: u64,
+        destination_generation: u64,
         result: Result<TreeView, String>,
     },
     MuxRecoveryComplete {
@@ -94,11 +94,11 @@ pub enum AppEvent {
     PtyOperationFailed(PtyOperationFailure),
     SessionMutationSettled {
         outcome: SessionMutationOutcome,
-        routing: bool,
+        impact: MutationImpact,
     },
     RemoteTreeUpdated {
         refresh_sequence: u64,
-        routing_generation: u64,
+        destination_generation: u64,
         result: Result<TreeView, String>,
     },
     ClientsUpdated {
@@ -213,7 +213,7 @@ struct MuxTitleIngress {
 fn forward_mux_events(
     event_source: Session,
     mut session_events: cmux_tui_core::MuxEventReceiver,
-    routing_mutation_committed: Arc<AtomicU64>,
+    destination_mutation_committed: Arc<AtomicU64>,
     mux_recovery_generation: Arc<AtomicU64>,
     tx: SessionEventSender,
     mux_titles: Arc<MuxTitleIngress>,
@@ -264,7 +264,7 @@ fn forward_mux_events(
         {
             return;
         }
-        let routing_generation = routing_mutation_committed.load(Ordering::Acquire);
+        let destination_generation = destination_mutation_committed.load(Ordering::Acquire);
         let title_snapshot_epoch = mux_titles.current_epoch();
         let recovered = event_source.refresh_tree().map_err(|error| error.to_string());
         let recovery_succeeded = recovered.is_ok();
@@ -274,7 +274,7 @@ fn forward_mux_events(
         if tx
             .send(AppEvent::MuxSubscriptionRecovered {
                 recovery_generation,
-                routing_generation,
+                destination_generation,
                 result: recovered,
             })
             .is_err()
@@ -372,7 +372,7 @@ fn start_ordered_session_inner(
     let mux_recovery_generation = Arc::new(AtomicU64::new(0));
     let event_source = session.inner.clone();
     let session_events = event_source.events();
-    let routing_mutation_committed = session.routing_mutation_committed.clone();
+    let destination_mutation_committed = session.destination_mutation_committed.clone();
     let mux_recovery_sequence = mux_recovery_generation.clone();
     let worker_events = events;
     let worker_titles = mux_titles.clone();
@@ -390,7 +390,7 @@ fn start_ordered_session_inner(
             forward_mux_events(
                 event_source,
                 session_events,
-                routing_mutation_committed,
+                destination_mutation_committed,
                 mux_recovery_sequence,
                 worker_events,
                 worker_titles,
@@ -537,13 +537,13 @@ pub enum SessionMutationOutcome {
     AuthoritativeMutationSucceeded {
         tree: TreeView,
         authoritative_generation: u64,
-        routing_generation: u64,
+        destination_generation: u64,
         completion: Option<SessionCompletion>,
     },
     IdentityRefreshSucceeded {
         tree: TreeView,
         authoritative_generation: u64,
-        routing_generation: u64,
+        destination_generation: u64,
         refresh_sequence: u64,
     },
     CommittedTreeStale {
@@ -589,12 +589,29 @@ enum SessionCompletionAction {
 struct PendingSessionMutationState {
     events: SessionEventSender,
     pending_mutations: Arc<AtomicUsize>,
-    pending_routing_mutations: Arc<AtomicUsize>,
-    routing: bool,
+    pending_pointer_mutations: Arc<AtomicUsize>,
+    impact: MutationImpact,
     cancellation_pending: Arc<AtomicBool>,
     settled: AtomicBool,
     deferred_outcome: Mutex<Option<SessionMutationOutcome>>,
     canceled_outcome: Mutex<Option<SessionMutationOutcome>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MutationImpact {
+    Ordered,
+    PointerMap,
+    Destination,
+}
+
+impl MutationImpact {
+    fn blocks_pointer(self) -> bool {
+        self != Self::Ordered
+    }
+
+    fn creates_destination_intent(self) -> bool {
+        self == Self::Destination
+    }
 }
 
 #[derive(Clone)]
@@ -606,7 +623,7 @@ impl PendingSessionMutation {
             let _ = self
                 .0
                 .events
-                .send(AppEvent::SessionMutationSettled { outcome, routing: self.0.routing });
+                .send(AppEvent::SessionMutationSettled { outcome, impact: self.0.impact });
         }
     }
 
@@ -634,8 +651,8 @@ impl PendingSessionMutation {
                 Ordering::Acquire,
                 |pending| pending.checked_sub(1),
             );
-            if self.0.routing {
-                let _ = self.0.pending_routing_mutations.fetch_update(
+            if self.0.impact.blocks_pointer() {
+                let _ = self.0.pending_pointer_mutations.fetch_update(
                     Ordering::AcqRel,
                     Ordering::Acquire,
                     |pending| pending.checked_sub(1),
@@ -656,7 +673,7 @@ impl Drop for PendingSessionMutationState {
                 .unwrap_or(SessionMutationOutcome::Canceled);
             match self
                 .events
-                .try_send(AppEvent::SessionMutationSettled { outcome, routing: self.routing })
+                .try_send(AppEvent::SessionMutationSettled { outcome, impact: self.impact })
             {
                 Ok(()) => {}
                 Err(SessionTrySendError::Full | SessionTrySendError::Disconnected) => {
@@ -665,8 +682,8 @@ impl Drop for PendingSessionMutationState {
                         Ordering::Acquire,
                         |pending| pending.checked_sub(1),
                     );
-                    if self.routing {
-                        let _ = self.pending_routing_mutations.fetch_update(
+                    if self.impact.blocks_pointer() {
+                        let _ = self.pending_pointer_mutations.fetch_update(
                             Ordering::AcqRel,
                             Ordering::Acquire,
                             |pending| pending.checked_sub(1),
@@ -835,11 +852,12 @@ pub struct OrderedSession {
     events: SessionEventSender,
     remote: bool,
     pending_mutations: Arc<AtomicUsize>,
-    pending_routing_mutations: Arc<AtomicUsize>,
+    pending_pointer_mutations: Arc<AtomicUsize>,
     cancellation_pending: Arc<AtomicBool>,
     committed_mutation_generation: Arc<AtomicU64>,
-    routing_mutation_started: Arc<AtomicU64>,
-    routing_mutation_committed: Arc<AtomicU64>,
+    pointer_map_generation: Arc<AtomicU64>,
+    destination_mutation_started: Arc<AtomicU64>,
+    destination_mutation_committed: Arc<AtomicU64>,
     remote_refresh_queued: Arc<AtomicBool>,
     remote_background_dirty: Arc<AtomicBool>,
     remote_refresh_sequence: Arc<AtomicU64>,
@@ -875,11 +893,12 @@ impl OrderedSession {
             events,
             remote,
             pending_mutations: Arc::new(AtomicUsize::new(0)),
-            pending_routing_mutations: Arc::new(AtomicUsize::new(0)),
+            pending_pointer_mutations: Arc::new(AtomicUsize::new(0)),
             cancellation_pending: Arc::new(AtomicBool::new(false)),
             committed_mutation_generation: Arc::new(AtomicU64::new(0)),
-            routing_mutation_started: Arc::new(AtomicU64::new(0)),
-            routing_mutation_committed: Arc::new(AtomicU64::new(0)),
+            pointer_map_generation: Arc::new(AtomicU64::new(0)),
+            destination_mutation_started: Arc::new(AtomicU64::new(0)),
+            destination_mutation_committed: Arc::new(AtomicU64::new(0)),
             remote_refresh_queued: Arc::new(AtomicBool::new(false)),
             remote_background_dirty: Arc::new(AtomicBool::new(false)),
             remote_refresh_sequence: Arc::new(AtomicU64::new(0)),
@@ -898,20 +917,17 @@ impl OrderedSession {
         }
     }
 
-    fn pending_mutation(&self) -> PendingSessionMutation {
-        self.pending_mutation_with_routing(false)
-    }
-
-    fn pending_mutation_with_routing(&self, routing: bool) -> PendingSessionMutation {
+    fn pending_mutation_with_impact(&self, impact: MutationImpact) -> PendingSessionMutation {
         self.pending_mutations.fetch_add(1, Ordering::AcqRel);
-        if routing {
-            self.pending_routing_mutations.fetch_add(1, Ordering::AcqRel);
+        if impact.blocks_pointer() {
+            self.pending_pointer_mutations.fetch_add(1, Ordering::AcqRel);
+            self.pointer_map_generation.fetch_add(1, Ordering::AcqRel);
         }
         PendingSessionMutation(Arc::new(PendingSessionMutationState {
             events: self.events.clone(),
             pending_mutations: self.pending_mutations.clone(),
-            pending_routing_mutations: self.pending_routing_mutations.clone(),
-            routing,
+            pending_pointer_mutations: self.pending_pointer_mutations.clone(),
+            impact,
             cancellation_pending: self.cancellation_pending.clone(),
             settled: AtomicBool::new(false),
             deferred_outcome: Mutex::new(None),
@@ -1026,6 +1042,12 @@ impl OrderedSession {
         self.inner.has_surface(id)
     }
 
+    fn surface_is_ready_for_input(&self, id: SurfaceId) -> bool {
+        // Remote attach caches its mirror before the initial VT state arrives.
+        // The claim outlives that initialization, so cache presence alone is not readiness.
+        self.has_surface(id) && !self.surface_attach_claims.lock().unwrap().contains(&id)
+    }
+
     fn has_surface_size_report(&self, id: SurfaceId) -> bool {
         self.inner.has_surface_size_report(id)
     }
@@ -1080,7 +1102,7 @@ impl OrderedSession {
         let attach_failures = self.surface_attach_failures.clone();
         let enqueue_failures = attach_failures.clone();
         let remote = self.remote;
-        let pending = self.pending_mutation();
+        let pending = self.pending_mutation_with_impact(MutationImpact::PointerMap);
         let superseded = pending.clone();
         let settlement = pending.clone();
         let enqueue_result = self.operations.enqueue_coalescing_mutation_with_settlement(
@@ -1180,33 +1202,37 @@ impl OrderedSession {
         self.pending_mutations.load(Ordering::Acquire) > 0
     }
 
-    fn has_pending_routing_mutations(&self) -> bool {
-        self.pending_routing_mutations.load(Ordering::Acquire) > 0
+    fn has_pending_pointer_mutations(&self) -> bool {
+        self.pending_pointer_mutations.load(Ordering::Acquire) > 0
     }
 
-    fn routing_mutation_started(&self) -> u64 {
-        self.routing_mutation_started.load(Ordering::Acquire)
+    fn pointer_map_generation(&self) -> u64 {
+        self.pointer_map_generation.load(Ordering::Acquire)
     }
 
-    fn routing_mutation_committed(&self) -> u64 {
-        self.routing_mutation_committed.load(Ordering::Acquire)
+    fn destination_mutation_started(&self) -> u64 {
+        self.destination_mutation_started.load(Ordering::Acquire)
     }
 
-    fn settle_pending_mutation(&self, routing: bool) {
+    fn destination_mutation_committed(&self) -> u64 {
+        self.destination_mutation_committed.load(Ordering::Acquire)
+    }
+
+    fn settle_pending_mutation(&self, impact: MutationImpact) {
         let result =
             self.pending_mutations.fetch_update(Ordering::AcqRel, Ordering::Acquire, |pending| {
                 pending.checked_sub(1)
             });
         debug_assert!(result.is_ok(), "session mutation completion without a pending operation");
-        if routing {
-            let result = self.pending_routing_mutations.fetch_update(
+        if impact.blocks_pointer() {
+            let result = self.pending_pointer_mutations.fetch_update(
                 Ordering::AcqRel,
                 Ordering::Acquire,
                 |pending| pending.checked_sub(1),
             );
             debug_assert!(
                 result.is_ok(),
-                "routing mutation completion without a pending operation"
+                "pointer mutation completion without a pending operation"
             );
         }
     }
@@ -1230,9 +1256,9 @@ impl OrderedSession {
         self.inner.invalidate_remote_tree();
         let session = self.inner.clone();
         let authoritative_generation = self.committed_mutation_generation.load(Ordering::Acquire);
-        let routing_generation = self.routing_mutation_committed.load(Ordering::Acquire);
+        let destination_generation = self.destination_mutation_committed.load(Ordering::Acquire);
         let refresh_sequence = self.remote_refresh_sequence.fetch_add(1, Ordering::AcqRel) + 1;
-        let pending = self.pending_mutation();
+        let pending = self.pending_mutation_with_impact(MutationImpact::PointerMap);
         let claim = RemoteRefreshClaim(self.remote_refresh_queued.clone());
         let spawn =
             std::thread::Builder::new().name("remote-tree-refresh".into()).spawn(move || {
@@ -1243,7 +1269,7 @@ impl OrderedSession {
                         pending.settle(SessionMutationOutcome::IdentityRefreshSucceeded {
                             tree,
                             authoritative_generation,
-                            routing_generation,
+                            destination_generation,
                             refresh_sequence,
                         });
                     }
@@ -1281,7 +1307,7 @@ impl OrderedSession {
         let session = self.inner.clone();
         let events = self.events.clone();
         let refresh_sequence = self.remote_refresh_sequence.fetch_add(1, Ordering::AcqRel) + 1;
-        let routing_generation = self.routing_mutation_committed.load(Ordering::Acquire);
+        let destination_generation = self.destination_mutation_committed.load(Ordering::Acquire);
         let claim = RemoteRefreshClaim(self.remote_refresh_queued.clone());
         let spawn =
             std::thread::Builder::new().name("remote-tree-refresh".into()).spawn(move || {
@@ -1289,7 +1315,7 @@ impl OrderedSession {
                 drop(claim);
                 let _ = events.send(AppEvent::RemoteTreeUpdated {
                     refresh_sequence,
-                    routing_generation,
+                    destination_generation,
                     result,
                 });
             });
@@ -1297,7 +1323,7 @@ impl OrderedSession {
             self.remote_refresh_queued.store(false, Ordering::Release);
             let _ = self.events.send(AppEvent::RemoteTreeUpdated {
                 refresh_sequence,
-                routing_generation,
+                destination_generation,
                 result: Err(error.to_string()),
             });
         }
@@ -1316,18 +1342,29 @@ impl OrderedSession {
         label: &'static str,
         operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
     ) {
-        self.enqueue_with_completion(label, false, move |session| {
+        self.enqueue_with_completion(label, MutationImpact::Ordered, move |session| {
             operation(session)?;
             Ok(None)
         });
     }
 
-    fn enqueue_routing(
+    fn enqueue_pointer_mutation(
         &self,
         label: &'static str,
         operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
     ) {
-        self.enqueue_with_completion(label, true, move |session| {
+        self.enqueue_with_completion(label, MutationImpact::PointerMap, move |session| {
+            operation(session)?;
+            Ok(None)
+        });
+    }
+
+    fn enqueue_destination_mutation(
+        &self,
+        label: &'static str,
+        operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
+    ) {
+        self.enqueue_with_completion(label, MutationImpact::Destination, move |session| {
             operation(session)?;
             Ok(None)
         });
@@ -1336,18 +1373,19 @@ impl OrderedSession {
     fn enqueue_with_completion(
         &self,
         label: &'static str,
-        routing: bool,
+        impact: MutationImpact,
         operation: impl FnOnce(Session) -> anyhow::Result<Option<SessionCompletionAction>>
         + Send
         + 'static,
     ) {
         let session = self.inner.clone();
-        let pending = self.pending_mutation_with_routing(routing);
+        let pending = self.pending_mutation_with_impact(impact);
         let remote = self.remote;
         let committed_mutation_generation = self.committed_mutation_generation.clone();
-        let routing_token =
-            routing.then(|| self.routing_mutation_started.fetch_add(1, Ordering::AcqRel) + 1);
-        let routing_mutation_committed = self.routing_mutation_committed.clone();
+        let destination_token = impact
+            .creates_destination_intent()
+            .then(|| self.destination_mutation_started.fetch_add(1, Ordering::AcqRel) + 1);
+        let destination_mutation_committed = self.destination_mutation_committed.clone();
         let settlement = pending.clone();
         self.operations.enqueue_session_mutation_with_settlement(
             label,
@@ -1369,8 +1407,8 @@ impl OrderedSession {
                 };
                 let mutation_generation =
                     committed_mutation_generation.fetch_add(1, Ordering::AcqRel) + 1;
-                if let Some(routing_token) = routing_token {
-                    routing_mutation_committed.fetch_max(routing_token, Ordering::AcqRel);
+                if let Some(destination_token) = destination_token {
+                    destination_mutation_committed.fetch_max(destination_token, Ordering::AcqRel);
                 }
                 let completion =
                     completion.map(|action| SessionCompletion { mutation_generation, action });
@@ -1383,12 +1421,12 @@ impl OrderedSession {
                 } else {
                     match session.refresh_tree() {
                         Ok(tree) => {
-                            let routing_generation =
-                                routing_mutation_committed.load(Ordering::Acquire);
+                            let destination_generation =
+                                destination_mutation_committed.load(Ordering::Acquire);
                             pending.defer(SessionMutationOutcome::AuthoritativeMutationSucceeded {
                                 tree,
                                 authoritative_generation: mutation_generation,
-                                routing_generation,
+                                destination_generation,
                                 completion,
                             });
                         }
@@ -1409,8 +1447,37 @@ impl OrderedSession {
         key: (&'static str, u64),
         operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
     ) {
+        self.enqueue_coalescing_session_mutation_with_impact(
+            label,
+            key,
+            MutationImpact::Ordered,
+            operation,
+        );
+    }
+
+    fn enqueue_coalescing_pointer_mutation(
+        &self,
+        label: &'static str,
+        key: (&'static str, u64),
+        operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
+    ) {
+        self.enqueue_coalescing_session_mutation_with_impact(
+            label,
+            key,
+            MutationImpact::PointerMap,
+            operation,
+        );
+    }
+
+    fn enqueue_coalescing_session_mutation_with_impact(
+        &self,
+        label: &'static str,
+        key: (&'static str, u64),
+        impact: MutationImpact,
+        operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
+    ) {
         let session = self.inner.clone();
-        let pending = self.pending_mutation();
+        let pending = self.pending_mutation_with_impact(impact);
         let remote = self.remote;
         let committed_mutation_generation = self.committed_mutation_generation.clone();
         let superseded = pending.clone();
@@ -1445,7 +1512,7 @@ impl OrderedSession {
         operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
     ) {
         let session = self.inner.clone();
-        let pending = self.pending_mutation();
+        let pending = self.pending_mutation_with_impact(MutationImpact::PointerMap);
         let remote = self.remote;
         let committed_mutation_generation = self.committed_mutation_generation.clone();
         let superseded = pending.clone();
@@ -1475,7 +1542,7 @@ impl OrderedSession {
 
     fn release_surface_size(&self, surface: SurfaceId) -> bool {
         let session = self.inner.clone();
-        let pending = self.pending_mutation();
+        let pending = self.pending_mutation_with_impact(MutationImpact::PointerMap);
         pending.cancel_with(SessionMutationOutcome::SurfaceSizeReleaseCanceled { surface });
         let committed_mutation_generation = self.committed_mutation_generation.clone();
         let superseded = pending.clone();
@@ -1513,7 +1580,7 @@ impl OrderedSession {
         reassert: bool,
         claim: SurfaceResizeClaim,
     ) {
-        let pending = self.pending_mutation();
+        let pending = self.pending_mutation_with_impact(MutationImpact::PointerMap);
         let failures = self.surface_resize_failures.clone();
         let enqueue_failures = failures.clone();
         let committed_mutation_generation = self.committed_mutation_generation.clone();
@@ -1662,7 +1729,7 @@ impl OrderedSession {
 
     fn apply_config(&self, config: Config) {
         let session = self.inner.clone();
-        let pending = self.pending_mutation();
+        let pending = self.pending_mutation_with_impact(MutationImpact::PointerMap);
         let committed_mutation_generation = self.committed_mutation_generation.clone();
         let config_generation = self.config_generation.clone();
         let superseded = pending.clone();
@@ -1702,7 +1769,7 @@ impl OrderedSession {
         };
         let session = self.inner.clone();
         let events = self.events.clone();
-        let pending = self.pending_mutation();
+        let pending = self.pending_mutation_with_impact(MutationImpact::PointerMap);
         let superseded = pending.clone();
         let settlement = pending.clone();
         let committed_mutation_generation = self.committed_mutation_generation.clone();
@@ -1748,7 +1815,7 @@ impl OrderedSession {
     }
 
     pub fn new_tab(&self, pane: Option<PaneId>, size: Option<(u16, u16)>) -> anyhow::Result<()> {
-        self.enqueue_with_completion("create tab", true, move |session| {
+        self.enqueue_with_completion("create tab", MutationImpact::Destination, move |session| {
             let surface = session.new_tab(pane, size)?;
             Ok(Some(SessionCompletionAction::SurfaceCreated { surface }))
         });
@@ -1762,7 +1829,7 @@ impl OrderedSession {
         cwd: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<()> {
-        self.enqueue_with_completion("run command", true, move |session| {
+        self.enqueue_with_completion("run command", MutationImpact::Destination, move |session| {
             let surface = session.run_command(argv, pane, cwd, size)?;
             Ok(Some(SessionCompletionAction::SurfaceCreated { surface }))
         });
@@ -1779,16 +1846,20 @@ impl OrderedSession {
         pane: Option<PaneId>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<()> {
-        self.enqueue_with_completion("create browser tab", true, move |session| {
-            let surface = session.new_browser_tab(url, pane, size)?;
-            Ok(Some(SessionCompletionAction::BrowserTabCreated { surface }))
-        });
+        self.enqueue_with_completion(
+            "create browser tab",
+            MutationImpact::Destination,
+            move |session| {
+                let surface = session.new_browser_tab(url, pane, size)?;
+                Ok(Some(SessionCompletionAction::BrowserTabCreated { surface }))
+            },
+        );
         Ok(())
     }
 
     pub fn set_cell_pixel_size(&self, width: u16, height: u16) {
         let ownership = self.surface_resize_ownership.clone();
-        self.enqueue("set cell pixel size", move |session| {
+        self.enqueue_pointer_mutation("set cell pixel size", move |session| {
             session.set_cell_pixel_size(
                 width,
                 height,
@@ -1800,10 +1871,14 @@ impl OrderedSession {
     }
 
     pub fn new_workspace(&self, size: Option<(u16, u16)>) -> anyhow::Result<()> {
-        self.enqueue_with_completion("create workspace", true, move |session| {
-            let surface = session.new_workspace(size)?;
-            Ok(Some(SessionCompletionAction::SurfaceCreated { surface }))
-        });
+        self.enqueue_with_completion(
+            "create workspace",
+            MutationImpact::Destination,
+            move |session| {
+                let surface = session.new_workspace(size)?;
+                Ok(Some(SessionCompletionAction::SurfaceCreated { surface }))
+            },
+        );
         Ok(())
     }
 
@@ -1812,15 +1887,21 @@ impl OrderedSession {
         workspace: Option<WorkspaceId>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<()> {
-        self.enqueue_with_completion("create screen", true, move |session| {
-            let surface = session.new_screen(workspace, size)?;
-            Ok(Some(SessionCompletionAction::SurfaceCreated { surface }))
-        });
+        self.enqueue_with_completion(
+            "create screen",
+            MutationImpact::Destination,
+            move |session| {
+                let surface = session.new_screen(workspace, size)?;
+                Ok(Some(SessionCompletionAction::SurfaceCreated { surface }))
+            },
+        );
         Ok(())
     }
 
     pub fn close_screen(&self, screen: cmux_tui_core::ScreenId) {
-        self.enqueue_routing("close screen", move |session| session.close_screen(screen));
+        self.enqueue_destination_mutation("close screen", move |session| {
+            session.close_screen(screen)
+        });
     }
 
     pub fn rename_screen(&self, screen: cmux_tui_core::ScreenId, name: String) {
@@ -1828,11 +1909,13 @@ impl OrderedSession {
     }
 
     pub fn select_screen(&self, index: Option<usize>, delta: Option<isize>) {
-        self.enqueue_routing("select screen", move |session| session.select_screen(index, delta));
+        self.enqueue_destination_mutation("select screen", move |session| {
+            session.select_screen(index, delta)
+        });
     }
 
     pub fn zoom_pane(&self, pane: Option<PaneId>) {
-        self.enqueue("zoom pane", move |session| session.zoom_pane(pane));
+        self.enqueue_pointer_mutation("zoom pane", move |session| session.zoom_pane(pane));
     }
 
     pub fn split(
@@ -1841,7 +1924,7 @@ impl OrderedSession {
         dir: SplitDir,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<()> {
-        self.enqueue_with_completion("split pane", true, move |session| {
+        self.enqueue_with_completion("split pane", MutationImpact::Destination, move |session| {
             let surface = session.split(pane, dir, size)?;
             Ok(Some(SessionCompletionAction::SurfaceCreated { surface }))
         });
@@ -1849,7 +1932,7 @@ impl OrderedSession {
     }
 
     pub fn new_pane(&self, pane: PaneId, size: Option<(u16, u16)>) -> anyhow::Result<()> {
-        self.enqueue_with_completion("create pane", true, move |session| {
+        self.enqueue_with_completion("create pane", MutationImpact::Destination, move |session| {
             let surface = session.new_pane(pane, size)?;
             Ok(Some(SessionCompletionAction::SurfaceCreated { surface }))
         });
@@ -1862,7 +1945,7 @@ impl OrderedSession {
     }
 
     fn set_split_ratio_deferred(&self, split: SplitId, ratio: f32) {
-        self.enqueue_coalescing_session_mutation(
+        self.enqueue_coalescing_pointer_mutation(
             "resize exact pane split",
             ("split id", split),
             move |session| session.set_split_ratio(split, ratio),
@@ -1870,23 +1953,27 @@ impl OrderedSession {
     }
 
     fn settle_split_ratio(&self) {
-        self.enqueue("settle split resize", |_| Ok(()));
+        self.enqueue_pointer_mutation("settle split resize", |_| Ok(()));
     }
 
     pub fn close_surface(&self, surface: SurfaceId) {
-        self.enqueue_routing("close tab", move |session| session.close_surface(surface));
+        self.enqueue_destination_mutation("close tab", move |session| {
+            session.close_surface(surface)
+        });
     }
 
     pub fn close_pane(&self, pane: PaneId) {
-        self.enqueue_routing("close pane", move |session| session.close_pane(pane));
+        self.enqueue_destination_mutation("close pane", move |session| session.close_pane(pane));
     }
 
     pub fn swap_pane(&self, pane: PaneId, target: PaneId) {
-        self.enqueue("swap panes", move |session| session.swap_pane(pane, target));
+        self.enqueue_pointer_mutation("swap panes", move |session| session.swap_pane(pane, target));
     }
 
     pub fn close_workspace(&self, workspace: WorkspaceId) {
-        self.enqueue_routing("close workspace", move |session| session.close_workspace(workspace));
+        self.enqueue_destination_mutation("close workspace", move |session| {
+            session.close_workspace(workspace)
+        });
     }
 
     pub fn mark_workspaces_provider_managed(&self) -> anyhow::Result<()> {
@@ -1898,7 +1985,7 @@ impl OrderedSession {
     }
 
     pub fn close_provider_managed_workspace(&self, workspace: WorkspaceId, key: String) {
-        self.enqueue_routing("close managed workspace", move |session| {
+        self.enqueue_destination_mutation("close managed workspace", move |session| {
             session.close_provider_managed_workspace(workspace, key)
         });
     }
@@ -1923,25 +2010,31 @@ impl OrderedSession {
     }
 
     pub fn focus_pane(&self, pane: PaneId) {
-        self.enqueue_routing("focus pane", move |session| session.focus_pane(pane));
+        self.enqueue_destination_mutation("focus pane", move |session| session.focus_pane(pane));
     }
 
     pub fn select_tab(&self, pane: Option<PaneId>, index: Option<usize>, delta: Option<isize>) {
-        self.enqueue_routing("select tab", move |session| session.select_tab(pane, index, delta));
+        self.enqueue_destination_mutation("select tab", move |session| {
+            session.select_tab(pane, index, delta)
+        });
     }
 
     pub fn select_workspace(&self, index: Option<usize>, delta: Option<isize>) {
-        self.enqueue_routing("select workspace", move |session| {
+        self.enqueue_destination_mutation("select workspace", move |session| {
             session.select_workspace(index, delta)
         });
     }
 
     pub fn move_tab(&self, surface: SurfaceId, pane: PaneId, index: usize) {
-        self.enqueue_routing("move tab", move |session| session.move_tab(surface, pane, index));
+        self.enqueue_destination_mutation("move tab", move |session| {
+            session.move_tab(surface, pane, index)
+        });
     }
 
     pub fn move_workspace(&self, workspace: WorkspaceId, index: usize) {
-        self.enqueue("move workspace", move |session| session.move_workspace(workspace, index));
+        self.enqueue_pointer_mutation("move workspace", move |session| {
+            session.move_workspace(workspace, index)
+        });
     }
 }
 
@@ -1951,6 +2044,12 @@ enum RenderAction {
     Graphics,
     Paint,
     Draw,
+}
+
+impl RenderAction {
+    fn rebuilds_pointer_route(self) -> bool {
+        matches!(self, Self::Paint | Self::Draw)
+    }
 }
 
 enum MachineRailCommand {
@@ -2294,11 +2393,12 @@ impl MenuItem {
 }
 
 pub struct MenuLevel {
-    pub items: Vec<MenuItem>,
-    all_items: Vec<MenuItem>,
+    pub items: Arc<[MenuItem]>,
+    all_items: Arc<[MenuItem]>,
     pub selected: usize,
     pub scroll_offset: usize,
     visible_rows: usize,
+    fitted_rows: Option<usize>,
     pub rect: Rect,
 }
 
@@ -2314,38 +2414,48 @@ impl MenuLevel {
         let height = items.len() as u16 + 2;
         let selected = items.iter().position(MenuItem::selectable).unwrap_or(0);
         let visible_rows = items.len();
+        let items: Arc<[MenuItem]> = items.into();
         Self {
             all_items: items.clone(),
             items,
             selected,
             scroll_offset: 0,
             visible_rows,
+            fitted_rows: None,
             rect: Rect { x, y, width, height },
         }
     }
 
     pub fn fit_to_rows(&mut self, max_rows: usize) {
+        if self.fitted_rows == Some(max_rows) {
+            return;
+        }
         let selected_item = self.items.get(self.selected).cloned();
         let selectable_count = self.all_items.iter().filter(|item| item.selectable()).count();
         let mut separator_budget = max_rows.saturating_sub(selectable_count);
-        self.items = self
-            .all_items
-            .iter()
-            .filter(|item| match item {
-                MenuItem::Separator if separator_budget > 0 => {
-                    separator_budget -= 1;
-                    true
-                }
-                MenuItem::Separator => false,
-                _ => true,
-            })
-            .cloned()
-            .collect();
+        self.items = if max_rows >= self.all_items.len() {
+            self.all_items.clone()
+        } else {
+            self.all_items
+                .iter()
+                .filter(|item| match item {
+                    MenuItem::Separator if separator_budget > 0 => {
+                        separator_budget -= 1;
+                        true
+                    }
+                    MenuItem::Separator => false,
+                    _ => true,
+                })
+                .cloned()
+                .collect::<Vec<_>>()
+                .into()
+        };
         self.selected = selected_item
             .and_then(|selected| self.items.iter().position(|item| *item == selected))
             .or_else(|| self.items.iter().position(MenuItem::selectable))
             .unwrap_or(0);
         self.visible_rows = self.items.len().min(max_rows);
+        self.fitted_rows = Some(max_rows);
         self.ensure_selection_visible();
         self.rect.height = self.visible_rows as u16 + 2;
     }
@@ -2636,7 +2746,7 @@ fn client_menu_item(clients: &[ClientInfo], surface: SurfaceId) -> Option<MenuIt
 }
 
 /// What a committed rename prompt applies to.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PromptTarget {
     ManagedMachine(MachineKey),
     ConfirmDeleteManagedMachine(MachineKey),
@@ -2773,7 +2883,7 @@ pub struct TabDragView {
 /// Mouse drag in progress.
 enum Drag {
     /// Left press on a machine entry; switching occurs on release.
-    MachineArm { machine: MachineKey, at: (u16, u16) },
+    MachineArm { target: MachinePointerTarget, at: (u16, u16) },
     /// Left press on a tab chip; becomes `Tab` after moving cells.
     TabArm { surface: SurfaceId, at: (u16, u16) },
     /// Tab drag with the current drop target.
@@ -2785,13 +2895,14 @@ enum Drag {
     /// Text selection inside a pane's content rect.
     Select { content: Rect, auto_scroll: Option<i8>, col: u16 },
     /// Browser mouse drag inside a pane's content rect.
-    Browser { surface: SurfaceId, content: Rect },
+    Browser { surface: SurfaceId, content: Rect, position: (u16, u16) },
     /// Mouse reporting owned by the PTY application in this pane.
     PtyMouse {
         surface: SurfaceId,
         handle: Option<SurfaceHandle>,
         reservation_id: u64,
         release_bytes: PtyInputBytes,
+        semantics: Option<TerminalPointerSemanticSnapshot>,
         content: Rect,
         button: MouseButton,
         position: (u16, u16),
@@ -2819,10 +2930,346 @@ struct PtyInputForwardResult {
     reservation_id: Option<u64>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct TerminalPointerAdmission {
+    surface: SurfaceId,
+    semantics: TerminalPointerSemanticSnapshot,
+    encoding: TerminalPointerEncoding,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum TerminalPointerEncoding {
+    None,
+    Single(PtyInputBytes),
+    PressPair { press: PtyInputBytes, release: PtyInputBytes },
+}
+
+enum TerminalPointerAdmissionResult {
+    NotTerminal,
+    Ready(TerminalPointerAdmission),
+    Contended,
+    Rejected,
+}
+
 enum PtyMouseReleaseCapture {
     Bytes(PtyInputBytes),
     NotReported,
     Failed,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum PairingPointerRegion {
+    Approve,
+    Deny,
+    Dialog,
+    Outside,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum PromptPointerRegion {
+    Input,
+    Clear,
+    Ok,
+    Cancel,
+    Dialog,
+    Outside,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum MenuPointerRegion {
+    Item { depth: usize, index: usize },
+    Chrome { depth: usize },
+    Outside,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PanePointerRegion {
+    BrowserCell { column: u16, row: u16 },
+    TerminalCell { column: u16, row: u16, semantics: Option<TerminalPointerSemanticSnapshot> },
+    ContentPadding,
+    Chrome,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct RenderedMenuLevel {
+    rect: Rect,
+    scroll_offset: usize,
+    items: Arc<[MenuItem]>,
+    resources: Arc<[Option<MenuActionResource>]>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MenuActionResource {
+    Surface(SurfaceId),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct MachinePointerContext {
+    snapshot: MachineSnapshot,
+    provider: Option<ProviderPresentation>,
+    workspace_creation: Option<WorkspaceCreationPolicy>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct MachinePointerTarget {
+    context: Arc<MachinePointerContext>,
+    machine: MachineKey,
+    managed: Option<ManagedMachineDescriptor>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum PointerHitIdentity {
+    MachineContext(Arc<MachinePointerContext>),
+    Machine(MachinePointerTarget),
+    RecoverableWorkspace(String),
+    SidebarFile(PathBuf),
+    SidebarFilter(PathBuf),
+    NewScreen(WorkspaceId),
+    Tab(SurfaceId),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct RenderedHitRoute {
+    rect: Rect,
+    hit: Hit,
+    identity: Option<Arc<PointerHitIdentity>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RenderedPaneRoute {
+    pane: PaneId,
+    surface: SurfaceId,
+    kind: Option<SurfaceKind>,
+    rect: Rect,
+    bar: Option<Rect>,
+    omnibar: Option<Rect>,
+    content: Rect,
+    track: Option<Rect>,
+    terminal_input: Option<Rect>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum PointerRouteIdentity {
+    Pairing {
+        request: u64,
+        rect: Rect,
+        approve: Rect,
+        deny: Rect,
+        region: PairingPointerRegion,
+    },
+    Prompt {
+        target: PromptTarget,
+        rect: Rect,
+        input: Rect,
+        clear: Rect,
+        ok: Rect,
+        cancel: Rect,
+        region: PromptPointerRegion,
+    },
+    Menu {
+        levels: Arc<[RenderedMenuLevel]>,
+        region: MenuPointerRegion,
+        resource: Option<MenuActionResource>,
+    },
+    Omnibar {
+        pane: RenderedPaneRoute,
+        rect: Rect,
+        hit: OmnibarHit,
+        column: u16,
+        row: u16,
+    },
+    SidebarPlugin {
+        rect: Rect,
+        surface: Option<SurfaceId>,
+        column: u16,
+        row: u16,
+    },
+    Rail {
+        kind: RailKind,
+        rect: Rect,
+        column: u16,
+        row: u16,
+    },
+    Hit {
+        rect: Rect,
+        hit: Hit,
+        identity: Option<Arc<PointerHitIdentity>>,
+        column: u16,
+        row: u16,
+    },
+    Pane {
+        pane: RenderedPaneRoute,
+        region: PanePointerRegion,
+    },
+    Outside,
+}
+
+impl PointerRouteIdentity {
+    fn terminal_pointer_semantics(
+        &self,
+    ) -> Option<(SurfaceId, Rect, Option<TerminalPointerSemanticSnapshot>)> {
+        match self {
+            Self::Pane { pane, region: PanePointerRegion::TerminalCell { semantics, .. } } => {
+                Some((pane.surface, pane.terminal_input?, *semantics))
+            }
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Default)]
+struct RenderedPointerFrame {
+    pairing: Option<(u64, Rect, Rect, Rect)>,
+    prompt: Option<(PromptTarget, Rect, Rect, Rect, Rect, Rect)>,
+    menu: Option<Arc<[RenderedMenuLevel]>>,
+    omnibar: Option<(PaneId, SurfaceId)>,
+    sidebar_plugin: Option<(Rect, Option<SurfaceId>)>,
+    machine_rail: Option<Rect>,
+    workspace_rail: Option<Rect>,
+    hits: Arc<[RenderedHitRoute]>,
+    panes: Arc<[RenderedPaneRoute]>,
+    terminal_pointer_semantics: Arc<HashMap<SurfaceId, TerminalPointerSemanticSnapshot>>,
+    machine_context: Option<Arc<MachinePointerContext>>,
+    pointer_map_generation: u64,
+}
+
+impl RenderedPointerFrame {
+    fn route_for_mouse(&self, mouse: &MouseEvent) -> PointerRouteIdentity {
+        let (x, y) = (mouse.column, mouse.row);
+        if let Some((request, rect, approve, deny)) = self.pairing {
+            let region = if approve.contains(x, y) {
+                PairingPointerRegion::Approve
+            } else if deny.contains(x, y) {
+                PairingPointerRegion::Deny
+            } else if rect.contains(x, y) {
+                PairingPointerRegion::Dialog
+            } else {
+                PairingPointerRegion::Outside
+            };
+            return PointerRouteIdentity::Pairing { request, rect, approve, deny, region };
+        }
+        if let Some((target, rect, input, clear, ok, cancel)) = self.prompt {
+            let region = if ok.contains(x, y) {
+                PromptPointerRegion::Ok
+            } else if clear.contains(x, y) {
+                PromptPointerRegion::Clear
+            } else if input.contains(x, y) {
+                PromptPointerRegion::Input
+            } else if cancel.contains(x, y) {
+                PromptPointerRegion::Cancel
+            } else if rect.contains(x, y) {
+                PromptPointerRegion::Dialog
+            } else {
+                PromptPointerRegion::Outside
+            };
+            return PointerRouteIdentity::Prompt { target, rect, input, clear, ok, cancel, region };
+        }
+        if let Some(levels) = &self.menu {
+            let (region, resource) = levels
+                .iter()
+                .enumerate()
+                .rev()
+                .find(|(_, level)| level.rect.contains(x, y))
+                .map_or((MenuPointerRegion::Outside, None), |(depth, level)| {
+                    let right = level.rect.x + level.rect.width.saturating_sub(1);
+                    let bottom = level.rect.y + level.rect.height.saturating_sub(1);
+                    if x == level.rect.x || y == level.rect.y || x == right || y == bottom {
+                        return (MenuPointerRegion::Chrome { depth }, None);
+                    }
+                    let index = level.scroll_offset + (y - level.rect.y - 1) as usize;
+                    level.items.get(index).filter(|item| item.selectable()).map_or(
+                        (MenuPointerRegion::Chrome { depth }, None),
+                        |_| {
+                            (
+                                MenuPointerRegion::Item { depth, index },
+                                level.resources.get(index).copied().flatten(),
+                            )
+                        },
+                    )
+                });
+            return PointerRouteIdentity::Menu { levels: levels.clone(), region, resource };
+        }
+        for pane in self.panes.iter() {
+            let Some(rect) = pane.omnibar else { continue };
+            if pane.kind != Some(SurfaceKind::Browser) {
+                continue;
+            }
+            let editing = self.omnibar.is_some_and(|(editing_pane, surface)| {
+                editing_pane == pane.pane && surface == pane.surface
+            });
+            if let Some(hit) = crate::ui::omnibar::hit(rect, x, y, editing) {
+                return PointerRouteIdentity::Omnibar {
+                    pane: *pane,
+                    rect,
+                    hit,
+                    column: x.saturating_sub(rect.x),
+                    row: y.saturating_sub(rect.y),
+                };
+            }
+        }
+        if let Some((rect, surface)) = self.sidebar_plugin.filter(|(rect, _)| rect.contains(x, y)) {
+            return PointerRouteIdentity::SidebarPlugin {
+                rect,
+                surface,
+                column: x.saturating_sub(rect.x),
+                row: y.saturating_sub(rect.y),
+            };
+        }
+        if let Some(route) = self.hits.iter().find(|route| route.rect.contains(x, y)) {
+            return PointerRouteIdentity::Hit {
+                rect: route.rect,
+                hit: route.hit,
+                identity: route.identity.clone(),
+                column: x.saturating_sub(route.rect.x),
+                row: y.saturating_sub(route.rect.y),
+            };
+        }
+        for (kind, rect) in
+            [(RailKind::Machine, self.machine_rail), (RailKind::Workspace, self.workspace_rail)]
+        {
+            if let Some(rect) = rect.filter(|rect| rect.contains(x, y)) {
+                return PointerRouteIdentity::Rail {
+                    kind,
+                    rect,
+                    column: x.saturating_sub(rect.x),
+                    row: y.saturating_sub(rect.y),
+                };
+            }
+        }
+        if let Some(pane) = self.panes.iter().find(|pane| pane.rect.contains(x, y)) {
+            let region = if pane.content.contains(x, y) {
+                match pane.kind {
+                    Some(SurfaceKind::Browser) => PanePointerRegion::BrowserCell {
+                        column: x.saturating_sub(pane.content.x),
+                        row: y.saturating_sub(pane.content.y),
+                    },
+                    Some(SurfaceKind::Pty)
+                        if pane.terminal_input.is_some_and(|rect| rect.contains(x, y)) =>
+                    {
+                        let input = pane.terminal_input.unwrap();
+                        let semantics = self.terminal_pointer_semantics.get(&pane.surface).copied();
+                        PanePointerRegion::TerminalCell {
+                            column: x.saturating_sub(input.x),
+                            row: y.saturating_sub(input.y),
+                            semantics,
+                        }
+                    }
+                    Some(SurfaceKind::Pty) | None => PanePointerRegion::ContentPadding,
+                }
+            } else {
+                PanePointerRegion::Chrome
+            };
+            return PointerRouteIdentity::Pane { pane: *pane, region };
+        }
+        PointerRouteIdentity::Outside
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct DeferredPointerInput {
+    focus_generation: u64,
+    pointer_map_generation: u64,
+    route: Option<PointerRouteIdentity>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2835,8 +3282,68 @@ enum OuterCursorSpec {
 struct DeferredInput {
     event: Event,
     destination: Option<SurfaceId>,
-    routing_intent: Option<u64>,
+    destination_intent: Option<u64>,
     sidebar_focus_intent: bool,
+    pairing_request: Option<u64>,
+    pointer: Option<DeferredPointerInput>,
+    sequence: u64,
+}
+
+#[derive(Clone, Debug)]
+struct DeferredInputAdmission {
+    destination: Option<SurfaceId>,
+    destination_intent: Option<u64>,
+    sidebar_focus_intent: bool,
+    pairing_request: Option<u64>,
+}
+
+#[derive(Clone, Debug)]
+struct ReplayedInputContext {
+    pointer: Option<DeferredPointerInput>,
+    admission: Option<DeferredInputAdmission>,
+}
+
+#[derive(Clone, Copy)]
+struct PendingPointerMotion {
+    event: MouseEvent,
+    destination: Option<SurfaceId>,
+    focus_generation: u64,
+    sequence: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PointerRoutePhase {
+    Fresh,
+    PaintPending,
+    DrawPending,
+}
+
+impl PointerRoutePhase {
+    fn with_action(self, action: RenderAction) -> Self {
+        match action {
+            RenderAction::Draw => Self::DrawPending,
+            RenderAction::Paint if self != Self::DrawPending => Self::PaintPending,
+            _ => self,
+        }
+    }
+
+    fn is_stale(self) -> bool {
+        self != Self::Fresh
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DeferredReplayDisposition {
+    Drained,
+    Blocked,
+    RenderBoundary,
+    Yield,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct DeferredReplayOutcome {
+    action: RenderAction,
+    disposition: DeferredReplayDisposition,
 }
 
 #[derive(Default)]
@@ -2913,6 +3420,10 @@ pub struct App {
     /// surface. Pointer routing uses this snapshot so resize transitions do
     /// not target blank pane margins or wait on the PTY's terminal lock.
     pub rendered_terminal_sizes: HashMap<SurfaceId, (u16, u16)>,
+    /// Pointer-routing semantics captured under the same terminal lock as
+    /// each rendered frame.
+    pub(crate) rendered_terminal_pointer_semantics:
+        HashMap<SurfaceId, TerminalPointerSemanticSnapshot>,
     desired_outer_cursor: OuterCursorSpec,
     applied_outer_cursor: Option<OuterCursorSpec>,
     pub graphics_writer: Option<GraphicsWriter>,
@@ -2935,6 +3446,7 @@ pub struct App {
     pub focus: FocusTarget,
     pub sidebar_focus_pending: bool,
     pub machine_ui: Option<MachineUiState>,
+    machine_pointer_context_cache: Option<Arc<MachinePointerContext>>,
     pub sidebar_view: SidebarView,
     pub sidebar_files: FileBrowser,
     pub sidebar_workspace_selection: usize,
@@ -2988,18 +3500,27 @@ pub struct App {
     browser_input: BrowserInputDispatcher,
     pty_input: PtyInputDispatcher,
     deferred_input: VecDeque<DeferredInput>,
-    routing_refresh_pending: bool,
-    routing_refresh_retries_remaining: u8,
+    /// Latest passive pointer position retained while the rendered hit map is stale.
+    pending_pointer_motion: Option<PendingPointerMotion>,
+    deferred_input_sequence: u64,
+    /// Pointer routing snapshot for the frame that was last committed to the terminal.
+    rendered_pointer_frame: RenderedPointerFrame,
+    pointer_route_phase: PointerRoutePhase,
+    pointer_focus_generation: u64,
+    layout_refresh_retries_remaining: u8,
     background_refresh_attempts: u8,
     background_refresh_retry_at: Option<Instant>,
     last_applied_refresh_sequence: u64,
-    applied_routing_generation: u64,
+    applied_destination_generation: u64,
     pending_session_completions: VecDeque<SessionCompletion>,
     mux_titles: Arc<MuxTitleIngress>,
     pty_failures: Arc<PtyFailureIngress>,
     mux_recovery_generation: Arc<AtomicU64>,
     drag: Option<Drag>,
+    active_pointer_buttons: HashSet<MouseButton>,
     ignored_pty_mouse_buttons: HashSet<MouseButton>,
+    #[cfg(test)]
+    timeout_drain_hook: Option<Box<dyn FnOnce() + Send>>,
     encoder: KeyEncoder,
     encode_buf: Vec<u8>,
     quit: bool,
@@ -3929,6 +4450,7 @@ pub fn run_with_machine_updates(
         tab_locations: HashMap::new(),
         render_states: HashMap::new(),
         rendered_terminal_sizes: HashMap::new(),
+        rendered_terminal_pointer_semantics: HashMap::new(),
         desired_outer_cursor: OuterCursorSpec::Reset,
         applied_outer_cursor: None,
         graphics_writer,
@@ -3945,6 +4467,7 @@ pub fn run_with_machine_updates(
         focus: FocusTarget::Pane,
         sidebar_focus_pending: false,
         machine_ui,
+        machine_pointer_context_cache: None,
         sidebar_view,
         sidebar_files: FileBrowser::new(fallback_cwd),
         sidebar_workspace_selection: 0,
@@ -3987,18 +4510,25 @@ pub fn run_with_machine_updates(
         browser_input,
         pty_input,
         deferred_input: VecDeque::new(),
-        routing_refresh_pending: false,
-        routing_refresh_retries_remaining: 0,
+        pending_pointer_motion: None,
+        deferred_input_sequence: 0,
+        rendered_pointer_frame: RenderedPointerFrame::default(),
+        pointer_route_phase: PointerRoutePhase::DrawPending,
+        pointer_focus_generation: 0,
+        layout_refresh_retries_remaining: 0,
         background_refresh_attempts: 0,
         background_refresh_retry_at: None,
         last_applied_refresh_sequence: 0,
-        applied_routing_generation: 0,
+        applied_destination_generation: 0,
         pending_session_completions: VecDeque::new(),
         mux_titles,
         pty_failures,
         mux_recovery_generation,
         drag: None,
+        active_pointer_buttons: HashSet::new(),
         ignored_pty_mouse_buttons: HashSet::new(),
+        #[cfg(test)]
+        timeout_drain_hook: None,
         encoder,
         encode_buf: Vec::with_capacity(64),
         quit: false,
@@ -4009,7 +4539,7 @@ pub fn run_with_machine_updates(
 
     if let Err(error) = app.restart_machine_updates() {
         app.shutdown_background_workers();
-        app.cancel_pty_mouse_drag();
+        app.cancel_pointer_interaction();
         app.session.begin_shutdown();
         let _ = app.pty_input.shutdown(Duration::from_secs(3));
         if let Some(writer) = app.graphics_writer.as_mut() {
@@ -4022,7 +4552,7 @@ pub fn run_with_machine_updates(
 
     let result = app.event_loop(&mut terminal, rx);
     app.shutdown_background_workers();
-    app.cancel_pty_mouse_drag();
+    app.cancel_pointer_interaction();
     app.session.begin_shutdown();
     let _ = app.pty_input.shutdown(Duration::from_secs(3));
     if let Some(writer) = app.graphics_writer.as_mut() {
@@ -4151,21 +4681,35 @@ impl App {
         }
     }
 
-    fn event_loop(
+    fn event_loop<B: Backend>(
         &mut self,
-        terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::Stdout>>,
+        terminal: &mut RatatuiTerminal<B>,
         rx: Receiver<AppEvent>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<()>
+    where
+        B::Error: Send + Sync + 'static,
+    {
         // Initial layout + draw.
         let size = terminal.size()?;
         self.sync_layout((size.width, size.height));
         self.draw_terminal(terminal)?;
         self.emit_graphics()?;
+        self.commit_rendered_pointer_frame();
+        self.pointer_route_phase = PointerRoutePhase::Fresh;
 
+        let mut replay_ready =
+            !self.deferred_input.is_empty() || self.pending_pointer_motion.is_some();
         while !self.quit
             && !crate::shutdown_requested()
             && !self.session.daemon_shutdown_requested()
         {
+            if replay_ready {
+                let replay = self.replay_deferred_input_batch()?;
+                self.render_action(terminal, replay.action)?;
+                self.retry_pending_surface_attach();
+                replay_ready = self.replay_can_continue_immediately(replay.disposition);
+                continue;
+            }
             // Block for the first event, then drain whatever queued so a
             // torrent of pty output coalesces into one frame.
             let timeout = if self.shake_frames > 0
@@ -4196,15 +4740,27 @@ impl App {
                 }
                 Err(RecvTimeoutError::Disconnected) => break,
             };
+            // Timeout work can mutate hit-tested state without entering
+            // `handle`. Publish its pending render boundary before draining
+            // pointer input that arrived concurrently with the timeout.
+            self.mark_pointer_route_for_rebuild(action);
+            #[cfg(test)]
+            if first.is_none()
+                && let Some(hook) = self.timeout_drain_hook.take()
+            {
+                hook();
+            }
             if let Some(event) = first {
                 action = action.merge(self.handle(event)?);
                 action = action.merge(self.process_machine_requests());
+                self.mark_pointer_route_for_rebuild(action);
             }
             for _ in 0..256 {
                 match rx.try_recv() {
                     Ok(event) => {
                         action = action.merge(self.handle(event)?);
                         action = action.merge(self.process_machine_requests());
+                        self.mark_pointer_route_for_rebuild(action);
                     }
                     Err(_) => break,
                 }
@@ -4226,7 +4782,6 @@ impl App {
             if self.expire_toast() {
                 action = action.merge(RenderAction::Draw);
             }
-            self.retry_deferred_surface_attach();
             if self.browser_input.resize_retry_due() {
                 let mut visible_surfaces =
                     self.pane_areas.iter().map(|area| area.surface).collect::<HashSet<_>>();
@@ -4246,10 +4801,12 @@ impl App {
                 action = action.merge(RenderAction::Draw);
             }
             self.render_action(terminal, action)?;
-            if self.routing_refresh_pending {
-                self.routing_refresh_pending = false;
-                let replay = self.replay_deferred_input()?;
-                self.render_action(terminal, replay)?;
+            self.retry_pending_surface_attach();
+            if !self.deferred_input.is_empty() || self.pending_pointer_motion.is_some() {
+                let replay = self.replay_deferred_input_batch()?;
+                self.render_action(terminal, replay.action)?;
+                self.retry_pending_surface_attach();
+                replay_ready = self.replay_can_continue_immediately(replay.disposition);
             }
         }
         Ok(())
@@ -4557,6 +5114,7 @@ impl App {
         }
         let notice = update.notice.clone();
         self.machine_ui = Some(update);
+        self.machine_pointer_context_cache = None;
         self.reconcile_workspace_rail_selection();
         if let Some(error) = guard_error {
             self.status_message = Some(error);
@@ -4567,6 +5125,7 @@ impl App {
     }
 
     fn install_prepared_machine_session(&mut self, prepared: PreparedMachineSession) {
+        self.cancel_pointer_interaction();
         let PreparedMachineSession {
             session,
             event_worker,
@@ -4617,6 +5176,8 @@ impl App {
         self.pane_areas.clear();
         self.pane_focus_history = PaneFocusHistory::default();
         self.pane_focus_history.sync_membership(&self.tree);
+        self.rendered_terminal_sizes.clear();
+        self.rendered_terminal_pointer_semantics.clear();
         self.rendered_terminal_bounds.clear();
         self.visible_size_surfaces.clear();
         self.pending_size_releases.clear();
@@ -4648,14 +5209,18 @@ impl App {
         self.selection = None;
         self.last_browser_hover = None;
         self.deferred_input.clear();
-        self.routing_refresh_pending = false;
-        self.routing_refresh_retries_remaining = 0;
+        self.pending_pointer_motion = None;
+        self.deferred_input_sequence = 0;
+        self.rendered_pointer_frame = RenderedPointerFrame::default();
+        self.pointer_route_phase = PointerRoutePhase::DrawPending;
+        self.layout_refresh_retries_remaining = 0;
         self.background_refresh_attempts = 0;
         self.background_refresh_retry_at = None;
         self.last_applied_refresh_sequence = 0;
-        self.applied_routing_generation = 0;
+        self.applied_destination_generation = 0;
         self.pending_session_completions.clear();
         self.drag = None;
+        self.active_pointer_buttons.clear();
         self.ignored_pty_mouse_buttons.clear();
         self.encode_buf.clear();
     }
@@ -4673,11 +5238,15 @@ impl App {
         true
     }
 
-    fn render_action(
+    fn render_action<B: Backend>(
         &mut self,
-        terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::Stdout>>,
+        terminal: &mut RatatuiTerminal<B>,
         action: RenderAction,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<()>
+    where
+        B::Error: Send + Sync + 'static,
+    {
+        self.mark_pointer_route_for_rebuild(action);
         match action {
             RenderAction::Draw => {
                 let size = terminal.size()?;
@@ -4692,40 +5261,424 @@ impl App {
             RenderAction::Graphics => self.emit_graphics()?,
             RenderAction::None => {}
         }
+        if action.rebuilds_pointer_route() {
+            self.commit_rendered_pointer_frame_for(action);
+            self.pointer_route_phase = PointerRoutePhase::Fresh;
+        }
         Ok(())
     }
 
-    fn replay_deferred_input(&mut self) -> anyhow::Result<RenderAction> {
+    fn mark_pointer_route_for_rebuild(&mut self, action: RenderAction) {
+        self.pointer_route_phase = self.pointer_route_phase.with_action(action);
+    }
+
+    fn refresh_machine_pointer_context(&mut self) -> Option<Arc<MachinePointerContext>> {
+        let Some(ui) = self.machine_ui.as_ref() else {
+            self.machine_pointer_context_cache = None;
+            return None;
+        };
+        let matches_live = self.machine_pointer_context_cache.as_ref().is_some_and(|context| {
+            context.snapshot == ui.snapshot
+                && context.provider == ui.provider
+                && context.workspace_creation == ui.workspace_creation_policy()
+        });
+        if !matches_live {
+            self.machine_pointer_context_cache = Some(Arc::new(MachinePointerContext {
+                snapshot: ui.snapshot.clone(),
+                provider: ui.provider.clone(),
+                workspace_creation: ui.workspace_creation_policy(),
+            }));
+        }
+        self.machine_pointer_context_cache.clone()
+    }
+
+    fn machine_pointer_target(&mut self, machine: MachineKey) -> Option<MachinePointerTarget> {
+        let context = self.refresh_machine_pointer_context()?;
+        let managed = self.machine_ui.as_ref().and_then(|ui| ui.managed_machine(machine)).cloned();
+        Some(MachinePointerTarget { context, machine, managed })
+    }
+
+    fn pointer_hit_identity(
+        &self,
+        hit: Hit,
+        machine_context: Option<&Arc<MachinePointerContext>>,
+    ) -> Option<PointerHitIdentity> {
+        match hit {
+            Hit::NewVm
+            | Hit::ConnectMachine
+            | Hit::ProviderScope
+            | Hit::ProviderActions
+            | Hit::CreateWorkspace { .. } => {
+                machine_context.cloned().map(PointerHitIdentity::MachineContext)
+            }
+            Hit::Machine { key, .. } => machine_context.cloned().map(|context| {
+                PointerHitIdentity::Machine(MachinePointerTarget {
+                    context,
+                    machine: key,
+                    managed: self
+                        .machine_ui
+                        .as_ref()
+                        .and_then(|ui| ui.managed_machine(key))
+                        .cloned(),
+                })
+            }),
+            Hit::RecoverableWorkspace { index } => self
+                .machine_ui
+                .as_ref()
+                .and_then(|ui| ui.recoverable_workspaces().get(index).copied())
+                .map(|workspace| PointerHitIdentity::RecoverableWorkspace(workspace.id.clone())),
+            Hit::SidebarFile { index } => self
+                .sidebar_files
+                .visible_entry(index)
+                .map(|entry| PointerHitIdentity::SidebarFile(entry.path.clone())),
+            Hit::SidebarFilterInput => Some(PointerHitIdentity::SidebarFilter(
+                self.sidebar_files.current_dir().to_path_buf(),
+            )),
+            Hit::NewScreen => self
+                .tree
+                .active_workspace()
+                .map(|workspace| PointerHitIdentity::NewScreen(workspace.id)),
+            Hit::Tab { pane, index } => self
+                .tree
+                .pane(pane)
+                .and_then(|pane| pane.tabs.get(index))
+                .map(|tab| PointerHitIdentity::Tab(tab.surface)),
+            Hit::Workspace { .. }
+            | Hit::ScreenEntry { .. }
+            | Hit::NewTab { .. }
+            | Hit::Clients { .. }
+            | Hit::Scrollbar { .. }
+            | Hit::RailResize(_)
+            | Hit::PaneResize { .. }
+            | Hit::TabScroll { .. } => None,
+        }
+    }
+
+    fn menu_action_resource(&self, action: MenuAction) -> Option<MenuActionResource> {
+        match action {
+            MenuAction::BrowserBack(pane)
+            | MenuAction::BrowserForward(pane)
+            | MenuAction::BrowserReload(pane)
+            | MenuAction::BrowserEditUrl(pane)
+            | MenuAction::BrowserCopyUrl(pane)
+            | MenuAction::BrowserActivate(pane)
+            | MenuAction::RenameTab(pane)
+            | MenuAction::CopyTabId(pane)
+            | MenuAction::CloseTab(pane) => self
+                .tree
+                .pane(pane)
+                .and_then(|pane| pane.active_surface())
+                .map(MenuActionResource::Surface),
+            _ => None,
+        }
+    }
+
+    fn rendered_menu_snapshot(&self, reuse_owners: bool) -> Option<Arc<[RenderedMenuLevel]>> {
+        let menu = self.menu.as_ref()?;
+        if reuse_owners
+            && let Some(rendered) = self.rendered_pointer_frame.menu.as_ref()
+            && rendered.len() == menu.levels.len()
+            && rendered.iter().zip(&menu.levels).all(|(rendered, live)| {
+                rendered.rect == live.rect
+                    && rendered.scroll_offset == live.scroll_offset
+                    && Arc::ptr_eq(&rendered.items, &live.items)
+            })
+        {
+            return Some(rendered.clone());
+        }
+        Some(Arc::from(
+            menu.levels
+                .iter()
+                .map(|level| RenderedMenuLevel {
+                    rect: level.rect,
+                    scroll_offset: level.scroll_offset,
+                    items: level.items.clone(),
+                    resources: level
+                        .items
+                        .iter()
+                        .map(|item| {
+                            item.action().and_then(|action| self.menu_action_resource(action))
+                        })
+                        .collect::<Vec<_>>()
+                        .into(),
+                })
+                .collect::<Vec<_>>(),
+        ))
+    }
+
+    fn rendered_pane_route(&self, area: &PaneArea) -> RenderedPaneRoute {
+        RenderedPaneRoute {
+            pane: area.pane,
+            surface: area.surface,
+            kind: self.surface_kind(area.surface),
+            rect: area.rect,
+            bar: area.bar,
+            omnibar: area.omnibar,
+            content: area.content,
+            track: area.track,
+            terminal_input: self.terminal_input_rect(area),
+        }
+    }
+
+    fn commit_rendered_pointer_frame(&mut self) {
+        self.commit_rendered_pointer_frame_for(RenderAction::Draw);
+    }
+
+    fn commit_rendered_pointer_frame_for(&mut self, action: RenderAction) {
+        let pairing = self
+            .pairing_dialog
+            .as_ref()
+            .map(|dialog| (dialog.challenge.id, dialog.rect, dialog.approve, dialog.deny));
+        let prompt = self.prompt.as_ref().map(|prompt| {
+            (prompt.target, prompt.rect, prompt.input_rect, prompt.clear, prompt.ok, prompt.cancel)
+        });
+        let omnibar = self.omnibar.as_ref().map(|state| (state.pane, state.surface));
+        let sidebar_plugin = (self.config.sidebar.plugin.is_some() && self.sidebar_visible)
+            .then(|| (self.sidebar_plugin_rect(), self.sidebar_plugin_surface));
+        let machine_rail = self.sidebar_layout.machine;
+        let workspace_rail = self.sidebar_layout.workspace;
+        let pointer_map_generation = self.session.pointer_map_generation();
+        let reuse_owners = action == RenderAction::Paint
+            && self.rendered_pointer_frame.pointer_map_generation == pointer_map_generation;
+        let machine_context = if reuse_owners {
+            self.rendered_pointer_frame.machine_context.clone()
+        } else {
+            self.refresh_machine_pointer_context()
+        };
+        let menu = self.rendered_menu_snapshot(reuse_owners);
+        let panes_match = self.rendered_pointer_frame.panes.len() == self.pane_areas.len()
+            && self
+                .rendered_pointer_frame
+                .panes
+                .iter()
+                .zip(&self.pane_areas)
+                .all(|(rendered, area)| *rendered == self.rendered_pane_route(area));
+        let panes = if panes_match {
+            self.rendered_pointer_frame.panes.clone()
+        } else {
+            self.pane_areas
+                .iter()
+                .map(|area| self.rendered_pane_route(area))
+                .collect::<Vec<_>>()
+                .into()
+        };
+        let hits_match = reuse_owners
+            && self.rendered_pointer_frame.hits.len() == self.hits.len()
+            && self
+                .rendered_pointer_frame
+                .hits
+                .iter()
+                .zip(&self.hits)
+                .all(|(rendered, (rect, hit))| rendered.rect == *rect && rendered.hit == *hit);
+        let hits = if hits_match {
+            self.rendered_pointer_frame.hits.clone()
+        } else {
+            self.hits
+                .iter()
+                .enumerate()
+                .map(|(index, (rect, hit))| {
+                    let reused_identity = reuse_owners
+                        .then(|| {
+                            self.rendered_pointer_frame
+                                .hits
+                                .get(index)
+                                .filter(|rendered| rendered.hit == *hit)
+                                .and_then(|rendered| rendered.identity.clone())
+                        })
+                        .flatten();
+                    RenderedHitRoute {
+                        rect: *rect,
+                        hit: *hit,
+                        identity: reused_identity.or_else(|| {
+                            self.pointer_hit_identity(*hit, machine_context.as_ref()).map(Arc::new)
+                        }),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .into()
+        };
+        let terminal_pointer_semantics = if *self.rendered_pointer_frame.terminal_pointer_semantics
+            == self.rendered_terminal_pointer_semantics
+        {
+            self.rendered_pointer_frame.terminal_pointer_semantics.clone()
+        } else {
+            Arc::new(self.rendered_terminal_pointer_semantics.clone())
+        };
+        self.rendered_pointer_frame = RenderedPointerFrame {
+            pairing,
+            prompt,
+            menu,
+            omnibar,
+            sidebar_plugin,
+            machine_rail,
+            workspace_rail,
+            hits,
+            panes,
+            terminal_pointer_semantics,
+            machine_context,
+            pointer_map_generation,
+        };
+    }
+
+    fn pairing_identity_matches_rendered_frame(&self) -> bool {
+        self.pairing_dialog.as_ref().map(|dialog| dialog.challenge.id)
+            == self.rendered_pointer_frame.pairing.as_ref().map(|pairing| pairing.0)
+    }
+
+    fn replay_can_continue_immediately(&self, disposition: DeferredReplayDisposition) -> bool {
+        matches!(
+            disposition,
+            DeferredReplayDisposition::RenderBoundary | DeferredReplayDisposition::Yield
+        ) && (!self.deferred_input.is_empty() || self.pending_pointer_motion.is_some())
+            && !self.pointer_route_is_stale()
+    }
+
+    fn pointer_replay_barrier(action: RenderAction) -> DeferredReplayDisposition {
+        // RenderBoundary promises the event loop that rendering this batch can
+        // make the next replay attempt progress.
+        if action.rebuilds_pointer_route() {
+            DeferredReplayDisposition::RenderBoundary
+        } else {
+            DeferredReplayDisposition::Blocked
+        }
+    }
+
+    fn retains_input_sequence(&self, sequence: u64) -> bool {
+        self.pending_pointer_motion.is_some_and(|pointer| pointer.sequence == sequence)
+            || self.deferred_input.iter().any(|input| input.sequence == sequence)
+    }
+
+    fn replay_deferred_input_batch(&mut self) -> anyhow::Result<DeferredReplayOutcome> {
+        const MAX_REPLAYED_INPUTS: usize = 256;
         let mut action = RenderAction::None;
         // A replayed event can discover that its destination mirror is still
         // unavailable and append itself again. Only process the queue snapshot
         // that existed at entry so a blocked attach cannot spin this frame.
-        let replay_count = self.deferred_input.len();
-        for _ in 0..replay_count {
-            if self.session.has_pending_mutations() || self.session.remote_tree_is_stale() {
-                break;
-            }
-            let Some(input) = self.deferred_input.pop_front() else { break };
-            let follows_pending_route = matches!(&input.event, Event::Key(_) | Event::Paste(_))
-                && input.routing_intent.is_some_and(|intent| {
-                    self.session.routing_mutation_committed() >= intent
-                        && self.session.routing_mutation_started() == intent
-                });
-            let follows_sidebar_focus =
-                input.sidebar_focus_intent && self.workspace_sidebar_focused();
-            if !follows_pending_route
-                && !follows_sidebar_focus
-                && self.input_destination(&input.event) != input.destination
-            {
-                self.status_message = Some(
-                    "Deferred input was discarded because its destination changed".to_string(),
-                );
-                action = action.merge(RenderAction::Draw);
+        let replay_count = self
+            .deferred_input
+            .len()
+            .saturating_add(usize::from(self.pending_pointer_motion.is_some()))
+            .min(MAX_REPLAYED_INPUTS);
+        let mut replayed = 0;
+        while replayed < replay_count {
+            let pointer_is_next = self.pending_pointer_motion.as_ref().is_some_and(|pointer| {
+                self.deferred_input.front().is_none_or(|input| pointer.sequence < input.sequence)
+            });
+            if pointer_is_next {
+                if self.pending_pointer_motion.is_some_and(|pointer| {
+                    pointer.focus_generation != self.pointer_focus_generation
+                }) {
+                    self.pending_pointer_motion = None;
+                    replayed += 1;
+                    continue;
+                }
+                if self.pointer_route_is_stale() {
+                    return Ok(DeferredReplayOutcome {
+                        action,
+                        disposition: Self::pointer_replay_barrier(action),
+                    });
+                }
+                let pointer = self.pending_pointer_motion.take().unwrap();
+                replayed += 1;
+                let pointer_action = self.handle_replayed_input(
+                    Event::Mouse(pointer.event),
+                    pointer.sequence,
+                    Some(ReplayedInputContext {
+                        pointer: Some(DeferredPointerInput {
+                            focus_generation: pointer.focus_generation,
+                            pointer_map_generation: self
+                                .rendered_pointer_frame
+                                .pointer_map_generation,
+                            route: None,
+                        }),
+                        admission: None,
+                    }),
+                )?;
+                action = action.merge(pointer_action);
+                action = action.merge(self.process_machine_requests());
+                // A missing mirror can retain the same logical input again.
+                // Stop here so later sequences cannot overtake it.
+                if self.retains_input_sequence(pointer.sequence) {
+                    return Ok(DeferredReplayOutcome {
+                        action,
+                        disposition: DeferredReplayDisposition::Blocked,
+                    });
+                }
                 continue;
             }
-            action = action.merge(self.handle(AppEvent::Input(input.event))?);
+            if self.session.has_pending_mutations()
+                || self.session.remote_tree_is_stale()
+                || self.mux_recovery_generation.load(Ordering::Acquire) != 0
+            {
+                return Ok(DeferredReplayOutcome {
+                    action,
+                    disposition: DeferredReplayDisposition::Blocked,
+                });
+            }
+            let Some(input) = self.deferred_input.front() else { break };
+            if input
+                .pointer
+                .as_ref()
+                .is_some_and(|pointer| pointer.focus_generation != self.pointer_focus_generation)
+            {
+                self.deferred_input.pop_front();
+                replayed += 1;
+                continue;
+            }
+            if matches!(input.event, Event::Mouse(_)) && self.pointer_route_is_stale() {
+                return Ok(DeferredReplayOutcome {
+                    action,
+                    disposition: Self::pointer_replay_barrier(action),
+                });
+            }
+            let input = self.deferred_input.pop_front().unwrap();
+            replayed += 1;
+            let replay_context = ReplayedInputContext {
+                pointer: input.pointer,
+                admission: Some(DeferredInputAdmission {
+                    destination: input.destination,
+                    destination_intent: input.destination_intent,
+                    sidebar_focus_intent: input.sidebar_focus_intent,
+                    pairing_request: input.pairing_request,
+                }),
+            };
+            let input_action =
+                self.handle_replayed_input(input.event, input.sequence, Some(replay_context))?;
+            action = action.merge(input_action);
+            action = action.merge(self.process_machine_requests());
+            // A missing mirror can retain the same logical input again.
+            // Stop here so later sequences cannot overtake it.
+            if self.retains_input_sequence(input.sequence) {
+                return Ok(DeferredReplayOutcome {
+                    action,
+                    disposition: DeferredReplayDisposition::Blocked,
+                });
+            }
         }
-        Ok(action)
+        let has_remaining_input =
+            !self.deferred_input.is_empty() || self.pending_pointer_motion.is_some();
+        let disposition = if !has_remaining_input {
+            DeferredReplayDisposition::Drained
+        } else if replayed >= MAX_REPLAYED_INPUTS {
+            DeferredReplayDisposition::Yield
+        } else if self.pointer_route_is_stale() {
+            Self::pointer_replay_barrier(action)
+        } else {
+            DeferredReplayDisposition::Blocked
+        };
+        Ok(DeferredReplayOutcome { action, disposition })
+    }
+
+    #[cfg(test)]
+    fn replay_deferred_input(&mut self) -> anyhow::Result<RenderAction> {
+        Ok(self.replay_deferred_input_batch()?.action)
+    }
+
+    fn pointer_route_is_stale(&self) -> bool {
+        self.session.has_pending_pointer_mutations()
+            || self.session.remote_tree_is_stale()
+            || self.mux_recovery_generation.load(Ordering::Acquire) != 0
+            || self.pointer_route_phase.is_stale()
     }
 
     fn apply_session_completion(&mut self, completion: SessionCompletion) {
@@ -4919,7 +5872,7 @@ impl App {
         self.reapply_mux_titles();
     }
 
-    fn replace_authoritative_tree(&mut self, tree: TreeView, routing_generation: u64) {
+    fn replace_authoritative_tree(&mut self, tree: TreeView, destination_generation: u64) {
         if tree.pane_revision.is_none() {
             self.pane_focus_history.reconcile_membership(&tree);
         } else {
@@ -4944,7 +5897,8 @@ impl App {
         }
         self.replace_tree(tree);
         self.session.reconcile_exited_surfaces(&self.tree);
-        self.applied_routing_generation = self.applied_routing_generation.max(routing_generation);
+        self.applied_destination_generation =
+            self.applied_destination_generation.max(destination_generation);
     }
 
     fn retire_surface_state(&mut self, surface: SurfaceId) {
@@ -4955,6 +5909,8 @@ impl App {
         }
         self.render_states.remove(&surface);
         self.rendered_terminal_sizes.remove(&surface);
+        self.rendered_terminal_pointer_semantics.remove(&surface);
+        self.rendered_terminal_bounds.remove(&surface);
         self.visible_size_surfaces.remove(&surface);
         self.pending_size_releases.remove(&surface);
         self.mux_titles.remove(surface);
@@ -5015,7 +5971,8 @@ impl App {
         self.rebuild_tab_locations();
     }
 
-    fn apply_session_completions_through(&mut self, authoritative_generation: u64) {
+    fn apply_session_completions_through(&mut self, authoritative_generation: u64) -> bool {
+        let mut applied = false;
         while self
             .pending_session_completions
             .front()
@@ -5023,7 +5980,9 @@ impl App {
         {
             let completion = self.pending_session_completions.pop_front().unwrap();
             self.apply_session_completion(completion);
+            applied = true;
         }
+        applied
     }
 
     fn complete_remote_tree_refresh(&self, refresh_stale: bool) {
@@ -5045,15 +6004,6 @@ impl App {
         true
     }
 
-    fn complete_routing_after_stale_identity_result(&mut self) {
-        if !self.session.has_pending_mutations()
-            && !self.session.remote_tree_is_stale()
-            && !self.deferred_input.is_empty()
-        {
-            self.routing_refresh_pending = true;
-        }
-    }
-
     fn schedule_background_refresh_retry(&mut self) -> bool {
         if self.background_refresh_attempts >= BACKGROUND_REFRESH_RETRIES {
             self.background_refresh_retry_at = None;
@@ -5073,10 +6023,10 @@ impl App {
         }
     }
 
-    fn draw_terminal(
-        &mut self,
-        terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::Stdout>>,
-    ) -> anyhow::Result<()> {
+    fn draw_terminal<B: Backend>(&mut self, terminal: &mut RatatuiTerminal<B>) -> anyhow::Result<()>
+    where
+        B::Error: Send + Sync + 'static,
+    {
         let lock = self.stdout_lock.clone();
         let _guard = lock.lock().unwrap();
         terminal.draw(|f| crate::ui::draw(self, f))?;
@@ -5495,6 +6445,28 @@ impl App {
     }
 
     fn handle(&mut self, event: AppEvent) -> anyhow::Result<RenderAction> {
+        let action = self.handle_inner(event, None, None)?;
+        self.mark_pointer_route_for_rebuild(action);
+        Ok(action)
+    }
+
+    fn handle_replayed_input(
+        &mut self,
+        input: Event,
+        sequence: u64,
+        replay_context: Option<ReplayedInputContext>,
+    ) -> anyhow::Result<RenderAction> {
+        let action = self.handle_inner(AppEvent::Input(input), Some(sequence), replay_context)?;
+        self.mark_pointer_route_for_rebuild(action);
+        Ok(action)
+    }
+
+    fn handle_inner(
+        &mut self,
+        event: AppEvent,
+        input_sequence: Option<u64>,
+        replay_context: Option<ReplayedInputContext>,
+    ) -> anyhow::Result<RenderAction> {
         let event = match event {
             AppEvent::SessionScoped { generation, event }
                 if generation == self.session_generation =>
@@ -5504,6 +6476,19 @@ impl App {
             AppEvent::SessionScoped { .. } => return Ok(RenderAction::None),
             event => event,
         };
+        if matches!(&event, AppEvent::Input(Event::Key(_) | Event::Paste(_))) {
+            let current_pairing = self.pairing_dialog.as_ref().map(|dialog| dialog.challenge.id);
+            let replayed_pairing_changed = replay_context
+                .as_ref()
+                .and_then(|context| context.admission.as_ref())
+                .is_some_and(|admission| admission.pairing_request != current_pairing);
+            if replayed_pairing_changed || !self.pairing_identity_matches_rendered_frame() {
+                // Pairing approval is a trusted action. Input captured before
+                // the current pairing identity was visible must never approve
+                // it or reach UI covered by a replacement dialog.
+                return Ok(RenderAction::None);
+            }
+        }
         if let AppEvent::Input(Event::Paste(text)) = &event
             && deferred_paste_bytes(text) > MAX_DEFERRED_INPUT_BYTES
         {
@@ -5532,34 +6517,189 @@ impl App {
         ) {
             self.session.clear_surface_sync_failures();
         }
+        if let AppEvent::Input(Event::Mouse(
+            mouse @ MouseEvent { kind: MouseEventKind::Moved, .. },
+        )) = &event
+        {
+            let mouse = *mouse;
+            if self.pointer_route_is_stale() {
+                self.retain_pointer_motion_with_sequence(
+                    mouse,
+                    input_sequence,
+                    replay_context
+                        .as_ref()
+                        .and_then(|context| context.pointer.as_ref())
+                        .map(|pointer| pointer.focus_generation),
+                );
+                return Ok(RenderAction::None);
+            }
+        }
+        let event = match event {
+            AppEvent::Input(input @ Event::Mouse(_))
+                if self.pointer_route_is_stale()
+                    && !self.input_can_update_pending_mutation(&input) =>
+            {
+                return Ok(self.defer_input_with_sequence(
+                    input,
+                    input_sequence,
+                    replay_context.as_ref().and_then(|context| context.pointer.clone()),
+                    replay_context
+                        .as_ref()
+                        .and_then(|context| context.admission.as_ref())
+                        .and_then(|admission| admission.pairing_request),
+                ));
+            }
+            event => event,
+        };
+        let missing_surface = match &event {
+            AppEvent::Input(input) => self.missing_input_surface(input),
+            _ => None,
+        };
+        let mut terminal_pointer_admission = None;
+        if let AppEvent::Input(input) = &event {
+            let pointer_has_capture = match input {
+                Event::Mouse(mouse) => self.pointer_has_capture(mouse.kind),
+                _ => false,
+            };
+            if let Event::Mouse(mouse) = input
+                && !pointer_has_capture
+            {
+                let rendered_route = self.rendered_pointer_frame.route_for_mouse(mouse);
+                let replayed_route_changed = replay_context
+                    .as_ref()
+                    .and_then(|context| context.pointer.as_ref())
+                    .is_some_and(|pointer| {
+                        pointer.route.as_ref().is_some_and(|expected| {
+                            pointer.pointer_map_generation
+                                != self.rendered_pointer_frame.pointer_map_generation
+                                || expected != &rendered_route
+                        })
+                    });
+                if replayed_route_changed {
+                    return Ok(RenderAction::None);
+                }
+                match self.terminal_pointer_admission_for_route(
+                    &rendered_route,
+                    mouse,
+                    missing_surface,
+                ) {
+                    TerminalPointerAdmissionResult::NotTerminal => {}
+                    TerminalPointerAdmissionResult::Ready(admission) => {
+                        terminal_pointer_admission = Some(admission);
+                    }
+                    TerminalPointerAdmissionResult::Rejected => {
+                        return Ok(RenderAction::None);
+                    }
+                    TerminalPointerAdmissionResult::Contended => {
+                        if mouse.kind == MouseEventKind::Moved {
+                            self.retain_pointer_motion_with_sequence(
+                                *mouse,
+                                input_sequence,
+                                replay_context
+                                    .as_ref()
+                                    .and_then(|context| context.pointer.as_ref())
+                                    .map(|pointer| pointer.focus_generation),
+                            );
+                        } else {
+                            self.defer_input_with_sequence(
+                                Event::Mouse(*mouse),
+                                input_sequence,
+                                replay_context.as_ref().and_then(|context| context.pointer.clone()),
+                                replay_context
+                                    .as_ref()
+                                    .and_then(|context| context.admission.as_ref())
+                                    .and_then(|admission| admission.pairing_request),
+                            );
+                        }
+                        // Parsing will release the semantic lock and normally
+                        // wake us through SurfaceOutput. The idle replay tick
+                        // is the bounded fallback, so do not synchronously
+                        // paint through the same blocking terminal lock.
+                        return Ok(RenderAction::None);
+                    }
+                }
+            }
+            if let Some(admission) =
+                replay_context.as_ref().and_then(|context| context.admission.as_ref())
+                && !pointer_has_capture
+            {
+                let follows_pending_route = matches!(input, Event::Key(_) | Event::Paste(_))
+                    && admission.destination_intent.is_some_and(|intent| {
+                        self.session.destination_mutation_committed() >= intent
+                            && self.session.destination_mutation_started() == intent
+                    });
+                let follows_sidebar_focus =
+                    admission.sidebar_focus_intent && self.workspace_sidebar_focused();
+                if !follows_pending_route
+                    && !follows_sidebar_focus
+                    && self.input_destination(input) != admission.destination
+                {
+                    if !matches!(input, Event::Mouse(_)) {
+                        self.status_message = Some(
+                            "Deferred input was discarded because its destination changed"
+                                .to_string(),
+                        );
+                        return Ok(RenderAction::Draw);
+                    }
+                    return Ok(RenderAction::None);
+                }
+            }
+        }
+        if let AppEvent::Input(Event::Mouse(mouse @ MouseEvent { kind: MouseEventKind::Moved, .. })) =
+            &event
+            && let Some(surface) = missing_surface
+        {
+            self.queue_surface_attach(surface);
+            self.retain_pointer_motion_with_sequence(
+                *mouse,
+                input_sequence,
+                replay_context
+                    .as_ref()
+                    .and_then(|context| context.pointer.as_ref())
+                    .map(|pointer| pointer.focus_generation),
+            );
+            return Ok(RenderAction::None);
+        }
         let event = match event {
             AppEvent::Input(input @ (Event::Key(_) | Event::Mouse(_) | Event::Paste(_)))
-                if self.missing_input_surface(&input).is_some()
-                    && !self.input_can_update_pending_mutation(&input) =>
+                if missing_surface.is_some() && !self.input_can_update_pending_mutation(&input) =>
             {
-                let surface = self.missing_input_surface(&input).unwrap();
+                let surface = missing_surface.unwrap();
                 self.queue_surface_attach(surface);
-                return Ok(self.defer_input(input));
-            }
-            AppEvent::Input(input @ Event::Mouse(_))
-                if (self.session.has_pending_routing_mutations()
-                    || self.session.remote_tree_is_stale()
-                    || self.mux_recovery_generation.load(Ordering::Acquire) != 0
-                    || self.routing_refresh_pending)
-                    && !self.input_can_update_pending_mutation(&input) =>
-            {
-                self.status_message =
-                    Some("Pointer input was discarded while the layout changed".to_string());
-                return Ok(RenderAction::Draw);
+                return Ok(self.defer_input_with_sequence(
+                    input,
+                    input_sequence,
+                    replay_context.as_ref().and_then(|context| context.pointer.clone()),
+                    replay_context
+                        .as_ref()
+                        .and_then(|context| context.admission.as_ref())
+                        .and_then(|admission| admission.pairing_request),
+                ));
             }
             AppEvent::Input(input @ (Event::Key(_) | Event::Mouse(_) | Event::Paste(_)))
-                if (self.session.has_pending_mutations()
+                if !matches!(
+                    &input,
+                    Event::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. })
+                ) && (self.session.has_pending_mutations()
                     || self.session.remote_tree_is_stale()
                     || self.mux_recovery_generation.load(Ordering::Acquire) != 0
-                    || self.routing_refresh_pending)
+                    || matches!(&input, Event::Mouse(_))
+                        && self.pointer_route_phase.is_stale()
+                    || input_sequence.is_none()
+                        && matches!(&input, Event::Key(_) | Event::Paste(_))
+                        && (!self.deferred_input.is_empty()
+                            || self.pending_pointer_motion.is_some()))
                     && !self.input_can_update_pending_mutation(&input) =>
             {
-                return Ok(self.defer_input(input));
+                return Ok(self.defer_input_with_sequence(
+                    input,
+                    input_sequence,
+                    replay_context.as_ref().and_then(|context| context.pointer.clone()),
+                    replay_context
+                        .as_ref()
+                        .and_then(|context| context.admission.as_ref())
+                        .and_then(|admission| admission.pairing_request),
+                ));
             }
             event => event,
         };
@@ -5569,7 +6709,7 @@ impl App {
             }
             AppEvent::MuxSubscriptionRecovered {
                 recovery_generation,
-                routing_generation,
+                destination_generation,
                 result,
             } => {
                 if recovery_generation != self.mux_recovery_generation.load(Ordering::Acquire) {
@@ -5578,7 +6718,7 @@ impl App {
                 match result {
                     Ok(tree) => {
                         let empty = tree.workspaces.is_empty();
-                        self.replace_authoritative_tree(tree, routing_generation);
+                        self.replace_authoritative_tree(tree, destination_generation);
                         self.session.refresh_clients_background();
                         if empty {
                             if self.request_current_machine_session() {
@@ -5626,7 +6766,6 @@ impl App {
                 {
                     return Ok(RenderAction::None);
                 }
-                self.routing_refresh_pending = true;
                 Ok(RenderAction::Draw)
             }
             AppEvent::SidebarPluginUpdated { status, relaunch } => {
@@ -5712,6 +6851,7 @@ impl App {
                     || self.pairing_queue.iter().any(|queued| queued.id == challenge.id);
                 if !duplicate {
                     if self.pairing_dialog.is_none() {
+                        self.cancel_pointer_interaction();
                         self.pairing_dialog = Some(PairingDialog::new(challenge));
                     } else {
                         self.pairing_queue.push_back(challenge);
@@ -5723,6 +6863,7 @@ impl App {
                 self.pairing_queue.retain(|challenge| challenge.id != request);
                 if self.pairing_dialog.as_ref().is_some_and(|dialog| dialog.challenge.id == request)
                 {
+                    self.cancel_pointer_interaction();
                     self.pairing_dialog = self.pairing_queue.pop_front().map(PairingDialog::new);
                 }
                 Ok(RenderAction::Draw)
@@ -5746,24 +6887,24 @@ impl App {
             }
             AppEvent::PtyFailuresReady => Ok(self.apply_pty_failures()),
             AppEvent::PtyOperationFailed(failure) => Ok(self.apply_pty_operation_failure(failure)),
-            AppEvent::SessionMutationSettled { outcome, routing } => {
-                self.session.settle_pending_mutation(routing);
+            AppEvent::SessionMutationSettled { outcome, impact } => {
+                self.session.settle_pending_mutation(impact);
                 match outcome {
                     SessionMutationOutcome::Success { tree } => {
                         if let Some(tree) = tree {
                             self.replace_tree(tree);
                         }
-                        self.routing_refresh_retries_remaining = 0;
+                        self.layout_refresh_retries_remaining = 0;
                     }
                     SessionMutationOutcome::AuthoritativeMutationSucceeded {
                         tree,
                         authoritative_generation,
-                        routing_generation,
+                        destination_generation,
                         completion,
                     } => {
                         self.session.clear_surface_sync_failures();
-                        self.replace_authoritative_tree(tree, routing_generation);
-                        self.routing_refresh_retries_remaining = 0;
+                        self.replace_authoritative_tree(tree, destination_generation);
+                        self.layout_refresh_retries_remaining = 0;
                         if let Some(completion) = completion {
                             self.pending_session_completions.push_back(completion);
                         }
@@ -5772,18 +6913,22 @@ impl App {
                     SessionMutationOutcome::IdentityRefreshSucceeded {
                         tree,
                         authoritative_generation,
-                        routing_generation,
+                        destination_generation,
                         refresh_sequence,
                     } => {
                         if !self.accept_refresh_sequence(refresh_sequence) {
-                            self.apply_session_completions_through(authoritative_generation);
-                            self.complete_routing_after_stale_identity_result();
-                            return Ok(RenderAction::None);
+                            let applied_completion =
+                                self.apply_session_completions_through(authoritative_generation);
+                            return Ok(if applied_completion {
+                                RenderAction::Draw
+                            } else {
+                                RenderAction::None
+                            });
                         }
                         self.session.clear_surface_sync_failures();
                         self.session.reconcile_exited_surfaces(&tree);
-                        self.replace_authoritative_tree(tree, routing_generation);
-                        self.routing_refresh_retries_remaining = 0;
+                        self.replace_authoritative_tree(tree, destination_generation);
+                        self.layout_refresh_retries_remaining = 0;
                         self.background_refresh_attempts = 0;
                         self.background_refresh_retry_at = None;
                         self.apply_session_completions_through(authoritative_generation);
@@ -5793,7 +6938,7 @@ impl App {
                         if let Some(completion) = completion {
                             self.pending_session_completions.push_back(completion);
                         }
-                        self.routing_refresh_retries_remaining = ROUTING_REFRESH_RETRIES;
+                        self.layout_refresh_retries_remaining = LAYOUT_REFRESH_RETRIES;
                         if let Some(error) = error {
                             self.status_message = Some(format!(
                                 "session changed, but its layout refresh failed: {error}"
@@ -5804,15 +6949,14 @@ impl App {
                     }
                     SessionMutationOutcome::IdentityRefreshFailed { error, refresh_sequence } => {
                         if !self.accept_refresh_sequence(refresh_sequence) {
-                            self.complete_routing_after_stale_identity_result();
                             return Ok(RenderAction::None);
                         }
                         self.status_message = Some(format!(
                             "session changed, but its layout is still stale: {error}"
                         ));
-                        let refresh_stale = self.routing_refresh_retries_remaining > 0;
+                        let refresh_stale = self.layout_refresh_retries_remaining > 0;
                         if refresh_stale {
-                            self.routing_refresh_retries_remaining -= 1;
+                            self.layout_refresh_retries_remaining -= 1;
                             self.session.invalidate_remote_tree();
                         }
                         self.complete_remote_tree_refresh(refresh_stale);
@@ -5824,6 +6968,12 @@ impl App {
                         error,
                         reconnect_required,
                     } => {
+                        if self
+                            .pending_pointer_motion
+                            .is_some_and(|pointer| pointer.destination == Some(surface))
+                        {
+                            self.pending_pointer_motion = None;
+                        }
                         if reconnect_required {
                             self.deferred_input.retain(|input| input.destination != Some(surface));
                             self.status_message = Some(format!(
@@ -5859,7 +7009,7 @@ impl App {
                         self.status_message = Some(format!(
                             "session operation may have committed; refreshing its layout: {error}"
                         ));
-                        self.routing_refresh_retries_remaining = ROUTING_REFRESH_RETRIES;
+                        self.layout_refresh_retries_remaining = LAYOUT_REFRESH_RETRIES;
                         self.session.invalidate_remote_tree();
                         self.session.refresh_remote_tree_if_stale();
                         return Ok(RenderAction::Draw);
@@ -5884,19 +7034,17 @@ impl App {
                 if self.session.has_pending_mutations() || self.session.remote_tree_is_stale() {
                     return Ok(RenderAction::Draw);
                 }
-                self.routing_refresh_pending = true;
                 Ok(RenderAction::Draw)
             }
-            AppEvent::RemoteTreeUpdated { refresh_sequence, routing_generation, result } => {
+            AppEvent::RemoteTreeUpdated { refresh_sequence, destination_generation, result } => {
                 if !self.accept_refresh_sequence(refresh_sequence) {
                     return Ok(RenderAction::None);
                 }
                 let refreshed = match result {
                     Ok(tree) => {
                         self.session.reconcile_exited_surfaces(&tree);
-                        self.replace_authoritative_tree(tree, routing_generation);
-                        self.routing_refresh_pending = true;
-                        self.routing_refresh_retries_remaining = 0;
+                        self.replace_authoritative_tree(tree, destination_generation);
+                        self.layout_refresh_retries_remaining = 0;
                         self.background_refresh_attempts = 0;
                         self.background_refresh_retry_at = None;
                         true
@@ -5917,12 +7065,6 @@ impl App {
                 if refreshed {
                     self.complete_remote_tree_refresh(true);
                 }
-                if !self.session.has_pending_mutations()
-                    && !self.session.remote_tree_is_stale()
-                    && !self.deferred_input.is_empty()
-                {
-                    self.routing_refresh_pending = true;
-                }
                 Ok(RenderAction::Draw)
             }
             AppEvent::ClientsUpdated { generation, result } => {
@@ -5938,7 +7080,9 @@ impl App {
                 Ok(RenderAction::Draw)
             }
             AppEvent::Input(Event::Key(key)) => self.handle_key(key),
-            AppEvent::Input(Event::Mouse(mouse)) => self.handle_mouse(mouse),
+            AppEvent::Input(Event::Mouse(mouse)) => {
+                self.handle_mouse_with_sequence(mouse, input_sequence, terminal_pointer_admission)
+            }
             AppEvent::Input(Event::Paste(text)) => {
                 self.status_message = None;
                 if self.pairing_dialog.is_some() {
@@ -5976,11 +7120,13 @@ impl App {
                 }
             }
             AppEvent::Input(Event::FocusGained) => {
+                self.advance_pointer_focus_generation();
                 self.reassert_visible_surface_sizes();
                 Ok(RenderAction::Draw)
             }
             AppEvent::Input(Event::FocusLost) => {
-                self.cancel_pty_mouse_drag();
+                self.cancel_pointer_interaction();
+                self.advance_pointer_focus_generation();
                 Ok(RenderAction::None)
             }
             AppEvent::Input(Event::Resize(_, _)) => {
@@ -6042,46 +7188,103 @@ impl App {
         )
     }
 
+    fn advance_pointer_focus_generation(&mut self) {
+        self.pointer_focus_generation = self.pointer_focus_generation.wrapping_add(1);
+        self.deferred_input.retain(|input| !matches!(&input.event, Event::Mouse(_)));
+        self.pending_pointer_motion = None;
+        self.active_pointer_buttons.clear();
+        self.ignored_pty_mouse_buttons.clear();
+    }
+
+    #[cfg(test)]
     fn defer_input(&mut self, input: Event) -> RenderAction {
+        self.defer_input_with_sequence(input, None, None, None)
+    }
+
+    fn defer_input_with_sequence(
+        &mut self,
+        input: Event,
+        replay_sequence: Option<u64>,
+        replay_pointer: Option<DeferredPointerInput>,
+        replay_pairing_request: Option<u64>,
+    ) -> RenderAction {
         let destination = self.input_destination(&input);
         let sidebar_focus_intent =
             self.sidebar_focus_pending && matches!(&input, Event::Key(_) | Event::Paste(_));
-        let routing_started = self.session.routing_mutation_started();
-        let routing_intent =
-            (routing_started > self.applied_routing_generation).then_some(routing_started);
-        let replace_motion = match (&input, self.deferred_input.back()) {
-            (
-                Event::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. }),
-                Some(DeferredInput {
-                    event: Event::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. }),
-                    destination: previous_destination,
-                    routing_intent: previous_intent,
-                    sidebar_focus_intent: previous_sidebar_intent,
-                }),
-            ) => {
-                *previous_destination == destination
-                    && *previous_intent == routing_intent
-                    && *previous_sidebar_intent == sidebar_focus_intent
-            }
-            (
-                Event::Mouse(MouseEvent { kind: MouseEventKind::Drag(button), .. }),
-                Some(DeferredInput {
-                    event: Event::Mouse(MouseEvent { kind: MouseEventKind::Drag(previous), .. }),
-                    destination: previous_destination,
-                    routing_intent: previous_intent,
-                    sidebar_focus_intent: previous_sidebar_intent,
-                }),
-            ) => {
-                button == previous
-                    && *previous_destination == destination
-                    && *previous_intent == routing_intent
-                    && *previous_sidebar_intent == sidebar_focus_intent
-            }
-            _ => false,
+        let destination_started = self.session.destination_mutation_started();
+        let destination_intent = (destination_started > self.applied_destination_generation)
+            .then_some(destination_started);
+        let pairing_request = if replay_sequence.is_some() {
+            replay_pairing_request
+        } else {
+            self.pairing_dialog.as_ref().map(|dialog| dialog.challenge.id)
         };
+        let pointer = if replay_sequence.is_some() {
+            replay_pointer
+        } else if let Event::Mouse(mouse) = &input {
+            Some(DeferredPointerInput {
+                focus_generation: self.pointer_focus_generation,
+                pointer_map_generation: self.rendered_pointer_frame.pointer_map_generation,
+                route: Self::mouse_requires_rendered_route(mouse.kind)
+                    .then(|| self.rendered_pointer_frame.route_for_mouse(mouse)),
+            })
+        } else {
+            None
+        };
+        let sequence = replay_sequence.unwrap_or_else(|| self.next_deferred_input_sequence());
+        let replace_motion = replay_sequence.is_none()
+            && match (&input, self.deferred_input.back()) {
+                (
+                    Event::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. }),
+                    Some(DeferredInput {
+                        event: Event::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. }),
+                        destination: previous_destination,
+                        destination_intent: previous_intent,
+                        sidebar_focus_intent: previous_sidebar_intent,
+                        pairing_request: previous_pairing_request,
+                        pointer: previous_pointer,
+                        ..
+                    }),
+                ) => {
+                    *previous_destination == destination
+                        && *previous_intent == destination_intent
+                        && *previous_sidebar_intent == sidebar_focus_intent
+                        && *previous_pairing_request == pairing_request
+                        && previous_pointer.as_ref().map(|pointer| pointer.focus_generation)
+                            == pointer.as_ref().map(|pointer| pointer.focus_generation)
+                }
+                (
+                    Event::Mouse(MouseEvent { kind: MouseEventKind::Drag(button), .. }),
+                    Some(DeferredInput {
+                        event: Event::Mouse(MouseEvent { kind: MouseEventKind::Drag(previous), .. }),
+                        destination: previous_destination,
+                        destination_intent: previous_intent,
+                        sidebar_focus_intent: previous_sidebar_intent,
+                        pairing_request: previous_pairing_request,
+                        pointer: previous_pointer,
+                        ..
+                    }),
+                ) => {
+                    button == previous
+                        && *previous_destination == destination
+                        && *previous_intent == destination_intent
+                        && *previous_sidebar_intent == sidebar_focus_intent
+                        && *previous_pairing_request == pairing_request
+                        && previous_pointer.as_ref().map(|pointer| pointer.focus_generation)
+                            == pointer.as_ref().map(|pointer| pointer.focus_generation)
+                }
+                _ => false,
+            };
         if replace_motion {
-            *self.deferred_input.back_mut().unwrap() =
-                DeferredInput { event: input, destination, routing_intent, sidebar_focus_intent };
+            *self.deferred_input.back_mut().unwrap() = DeferredInput {
+                event: input,
+                destination,
+                destination_intent,
+                sidebar_focus_intent,
+                pairing_request,
+                pointer,
+                sequence,
+            };
             return RenderAction::None;
         }
         let input_bytes = deferred_input_bytes(&input);
@@ -6104,13 +7307,275 @@ impl App {
             let Some(removed) = self.deferred_input.pop_front() else { break };
             queued_bytes = queued_bytes.saturating_sub(deferred_input_bytes(&removed.event));
         }
-        self.deferred_input.push_back(DeferredInput {
+        let input = DeferredInput {
             event: input,
             destination,
-            routing_intent,
+            destination_intent,
             sidebar_focus_intent,
-        });
+            pairing_request,
+            pointer,
+            sequence,
+        };
+        if replay_sequence.is_some() {
+            // A replayed input keeps its original chronological position.
+            let index = self
+                .deferred_input
+                .iter()
+                .position(|queued| queued.sequence > sequence)
+                .unwrap_or(self.deferred_input.len());
+            self.deferred_input.insert(index, input);
+        } else {
+            self.deferred_input.push_back(input);
+        }
         RenderAction::None
+    }
+
+    fn next_deferred_input_sequence(&mut self) -> u64 {
+        self.deferred_input_sequence = self.deferred_input_sequence.saturating_add(1);
+        self.deferred_input_sequence
+    }
+
+    #[cfg(test)]
+    fn retain_pointer_motion(&mut self, event: MouseEvent) {
+        self.retain_pointer_motion_with_sequence(event, None, None);
+    }
+
+    fn retain_pointer_motion_with_sequence(
+        &mut self,
+        event: MouseEvent,
+        replay_sequence: Option<u64>,
+        replay_focus_generation: Option<u64>,
+    ) {
+        let sequence = replay_sequence.unwrap_or_else(|| self.next_deferred_input_sequence());
+        let focus_generation = replay_focus_generation.unwrap_or(self.pointer_focus_generation);
+        let destination = self.input_destination(&Event::Mouse(event));
+        let retained = PendingPointerMotion { event, destination, focus_generation, sequence };
+        let Some(pending) = self.pending_pointer_motion else {
+            self.pending_pointer_motion = Some(retained);
+            return;
+        };
+        if pending.sequence == sequence {
+            self.pending_pointer_motion = Some(retained);
+            return;
+        }
+        let (earlier, later) = if pending.sequence < sequence {
+            (pending.sequence, sequence)
+        } else {
+            (sequence, pending.sequence)
+        };
+        let has_discrete_barrier = self.deferred_input.iter().any(|input| {
+            input.sequence > earlier
+                && input.sequence < later
+                && !matches!(
+                    input.event,
+                    Event::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. })
+                )
+        });
+        if !has_discrete_barrier {
+            if pending.sequence < sequence {
+                self.pending_pointer_motion = Some(retained);
+            }
+            return;
+        }
+        if pending.sequence < sequence {
+            if self.spill_retained_pointer_motion(pending) {
+                self.pending_pointer_motion = Some(retained);
+            }
+        } else if !self.spill_retained_pointer_motion(retained) {
+            // Under queue pressure preserve the earlier motion before its
+            // discrete barrier and discard the newer passive sample.
+            self.pending_pointer_motion = Some(retained);
+        }
+    }
+
+    fn spill_retained_pointer_motion(&mut self, pending: PendingPointerMotion) -> bool {
+        let queued_bytes = self
+            .deferred_input
+            .iter()
+            .map(|input| deferred_input_bytes(&input.event))
+            .sum::<usize>();
+        if self.deferred_input.len() >= DEFERRED_INPUT_CAPACITY
+            || queued_bytes.saturating_add(DEFERRED_INPUT_FIXED_BYTES) > MAX_DEFERRED_INPUT_BYTES
+        {
+            return false;
+        }
+        let input = DeferredInput {
+            event: Event::Mouse(pending.event),
+            destination: pending.destination,
+            destination_intent: None,
+            sidebar_focus_intent: false,
+            pairing_request: None,
+            pointer: Some(DeferredPointerInput {
+                focus_generation: pending.focus_generation,
+                pointer_map_generation: self.rendered_pointer_frame.pointer_map_generation,
+                route: None,
+            }),
+            sequence: pending.sequence,
+        };
+        let index = self
+            .deferred_input
+            .iter()
+            .position(|queued| queued.sequence > pending.sequence)
+            .unwrap_or(self.deferred_input.len());
+        self.deferred_input.insert(index, input);
+        true
+    }
+
+    fn mouse_requires_rendered_route(kind: MouseEventKind) -> bool {
+        kind != MouseEventKind::Moved
+    }
+
+    fn pointer_has_capture(&self, kind: MouseEventKind) -> bool {
+        match kind {
+            MouseEventKind::Drag(button) | MouseEventKind::Up(button) => {
+                self.active_pointer_buttons.contains(&button)
+            }
+            _ => false,
+        }
+    }
+
+    fn terminal_pointer_admission_for_route(
+        &self,
+        rendered_route: &PointerRouteIdentity,
+        mouse: &MouseEvent,
+        missing_surface: Option<SurfaceId>,
+    ) -> TerminalPointerAdmissionResult {
+        let Some((surface, input_rect, expected_semantics)) =
+            rendered_route.terminal_pointer_semantics()
+        else {
+            return TerminalPointerAdmissionResult::NotTerminal;
+        };
+        let Some(expected_semantics) = expected_semantics else {
+            return if missing_surface == Some(surface) {
+                TerminalPointerAdmissionResult::NotTerminal
+            } else {
+                TerminalPointerAdmissionResult::Rejected
+            };
+        };
+        if missing_surface == Some(surface) {
+            return TerminalPointerAdmissionResult::Ready(TerminalPointerAdmission {
+                surface,
+                semantics: expected_semantics,
+                encoding: TerminalPointerEncoding::None,
+            });
+        }
+        let Some(surface_handle) = self.session.surface(surface) else {
+            return TerminalPointerAdmissionResult::Rejected;
+        };
+
+        let cell_width = u32::from(self.cell_pixels.0.max(1));
+        let cell_height = u32::from(self.cell_pixels.1.max(1));
+        let position = (
+            (mouse.column as f32 - input_rect.x as f32 + 0.5) * cell_width as f32,
+            (mouse.row as f32 - input_rect.y as f32 + 0.5) * cell_height as f32,
+        );
+        let screen_size = (
+            u32::from(input_rect.width).saturating_mul(cell_width),
+            u32::from(input_rect.height).saturating_mul(cell_height),
+        );
+        let input = |action, button, any_button_pressed| MouseInput {
+            action,
+            button,
+            mods: Self::ghostty_mouse_mods(mouse.modifiers),
+            position,
+            screen_size,
+            cell_size: (cell_width, cell_height),
+            any_button_pressed,
+        };
+        let bypasses_terminal_mouse = mouse.modifiers.contains(KeyModifiers::SHIFT)
+            || matches!(
+                (mouse.kind, self.drag.as_ref()),
+                (MouseEventKind::Down(_), Some(Drag::PtyMouse { .. }))
+            );
+        let guarded = if bypasses_terminal_mouse {
+            None
+        } else {
+            match mouse.kind {
+                MouseEventKind::Down(button) => {
+                    let press =
+                        input(MouseAction::Press, Some(Self::ghostty_mouse_button(button)), true);
+                    let release = MouseInput {
+                        action: MouseAction::Release,
+                        any_button_pressed: false,
+                        ..press
+                    };
+                    let mut press_output = PtyInputBytes::new();
+                    let mut release_output = PtyInputBytes::new();
+                    let encoded = surface_handle.encode_mouse_press_pair_if_semantics(
+                        expected_semantics,
+                        press,
+                        release,
+                        &mut press_output,
+                        &mut release_output,
+                    );
+                    encoded.map(|encoded| {
+                        (
+                            encoded,
+                            TerminalPointerEncoding::PressPair {
+                                press: press_output,
+                                release: release_output,
+                            },
+                        )
+                    })
+                }
+                MouseEventKind::ScrollUp
+                | MouseEventKind::ScrollDown
+                | MouseEventKind::ScrollLeft
+                | MouseEventKind::ScrollRight
+                | MouseEventKind::Moved => {
+                    let (action, button) = match mouse.kind {
+                        MouseEventKind::ScrollUp => {
+                            (MouseAction::Press, Some(GhosttyMouseButton::WheelUp))
+                        }
+                        MouseEventKind::ScrollDown => {
+                            (MouseAction::Press, Some(GhosttyMouseButton::WheelDown))
+                        }
+                        MouseEventKind::ScrollLeft => {
+                            (MouseAction::Press, Some(GhosttyMouseButton::WheelLeft))
+                        }
+                        MouseEventKind::ScrollRight => {
+                            (MouseAction::Press, Some(GhosttyMouseButton::WheelRight))
+                        }
+                        MouseEventKind::Moved => (MouseAction::Motion, None),
+                        _ => unreachable!("guarded by the outer pointer-kind match"),
+                    };
+                    let mut output = PtyInputBytes::new();
+                    let encoded = surface_handle.encode_mouse_if_semantics(
+                        expected_semantics,
+                        input(action, button, false),
+                        &mut output,
+                    );
+                    encoded.map(|encoded| (encoded, TerminalPointerEncoding::Single(output)))
+                }
+                MouseEventKind::Drag(_) | MouseEventKind::Up(_) => None,
+            }
+        };
+        let encoding = match guarded {
+            Some((GuardedMouseEncode::Encoded(Ok(())), encoding)) => encoding,
+            Some((GuardedMouseEncode::Contended, _)) => {
+                return TerminalPointerAdmissionResult::Contended;
+            }
+            Some((GuardedMouseEncode::Encoded(Err(_)), _))
+            | Some((GuardedMouseEncode::SemanticsChanged, _)) => {
+                return TerminalPointerAdmissionResult::Rejected;
+            }
+            None => match surface_handle.try_pointer_semantics() {
+                Some(PointerSemanticProbe::Contended) => {
+                    return TerminalPointerAdmissionResult::Contended;
+                }
+                Some(PointerSemanticProbe::Ready(live)) if live == expected_semantics => {
+                    TerminalPointerEncoding::None
+                }
+                Some(PointerSemanticProbe::Ready(_)) | None => {
+                    return TerminalPointerAdmissionResult::Rejected;
+                }
+            },
+        };
+        TerminalPointerAdmissionResult::Ready(TerminalPointerAdmission {
+            surface,
+            semantics: expected_semantics,
+            encoding,
+        })
     }
 
     fn input_destination(&self, input: &Event) -> Option<SurfaceId> {
@@ -6156,7 +7621,7 @@ impl App {
             }
             _ => return None,
         };
-        (!self.session.has_surface(surface)).then_some(surface)
+        (!self.session.surface_is_ready_for_input(surface)).then_some(surface)
     }
 
     fn queue_surface_attach(&mut self, surface: SurfaceId) {
@@ -6172,9 +7637,21 @@ impl App {
         self.session.attach_surface(surface, size);
     }
 
-    fn retry_deferred_surface_attach(&mut self) {
-        let surface =
-            self.deferred_input.iter().find_map(|input| self.missing_input_surface(&input.event));
+    fn retry_pending_surface_attach(&mut self) {
+        let pointer_route_is_fresh = !self.pointer_route_is_stale();
+        let surface = self
+            .deferred_input
+            .iter()
+            .filter(|input| pointer_route_is_fresh || !matches!(input.event, Event::Mouse(_)))
+            .filter_map(|input| self.missing_input_surface(&input.event))
+            .find(|surface| self.session.can_attach_surface(*surface))
+            .or_else(|| {
+                pointer_route_is_fresh
+                    .then_some(self.pending_pointer_motion)
+                    .flatten()
+                    .and_then(|pointer| self.missing_input_surface(&Event::Mouse(pointer.event)))
+                    .filter(|surface| self.session.can_attach_surface(*surface))
+            });
         if let Some(surface) = surface {
             self.queue_surface_attach(surface);
         }
@@ -7363,6 +8840,7 @@ impl App {
     }
 
     fn resolve_pairing(&mut self, approve: bool) {
+        self.cancel_pointer_interaction();
         let Some(dialog) = self.pairing_dialog.take() else { return };
         if let Err(error) = self.session.respond_pairing(dialog.challenge.id, approve) {
             self.status_message = Some(error.to_string());
@@ -8341,7 +9819,47 @@ impl App {
         self.tree.workspaces.iter().position(|ws| ws.id == workspace)
     }
 
+    #[cfg(test)]
     fn handle_mouse(&mut self, mouse: MouseEvent) -> anyhow::Result<RenderAction> {
+        self.handle_mouse_with_sequence(mouse, None, None)
+    }
+
+    fn handle_mouse_with_sequence(
+        &mut self,
+        mouse: MouseEvent,
+        replay_sequence: Option<u64>,
+        terminal_admission: Option<TerminalPointerAdmission>,
+    ) -> anyhow::Result<RenderAction> {
+        // A live physical sample supersedes retained motion. Replayed input
+        // only supersedes motion that was retained earlier in the same
+        // sequence, preserving newer samples until their chronological turn.
+        if replay_sequence.is_none_or(|sequence| {
+            self.pending_pointer_motion.as_ref().is_none_or(|pending| pending.sequence <= sequence)
+        }) {
+            self.pending_pointer_motion = None;
+        }
+        if self.pairing_dialog.is_some() {
+            if mouse.kind == MouseEventKind::Moved {
+                let hover_region = |position: Option<(u16, u16)>| {
+                    position.and_then(|(x, y)| {
+                        self.pairing_dialog.as_ref().map(|dialog| {
+                            (dialog.approve.contains(x, y), dialog.deny.contains(x, y))
+                        })
+                    })
+                };
+                let before = hover_region(self.hover);
+                let after = hover_region(Some((mouse.column, mouse.row)));
+                self.sync_pointer_shape(mouse.column, mouse.row);
+                self.hover = Some((mouse.column, mouse.row));
+                return Ok(if before != after { RenderAction::Draw } else { RenderAction::None });
+            }
+            if !matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+                if let MouseEventKind::Up(button) = mouse.kind {
+                    self.active_pointer_buttons.remove(&button);
+                }
+                return Ok(RenderAction::None);
+            }
+        }
         // This TUI tracks one active pointer button. Ignore additional presses
         // until its release so a second button cannot orphan the inner app's
         // pressed state.
@@ -8354,9 +9872,21 @@ impl App {
             return Ok(RenderAction::None);
         }
         match mouse.kind {
-            MouseEventKind::Down(MouseButton::Left) => {
-                self.handle_left_down(mouse.column, mouse.row, mouse.modifiers)
+            MouseEventKind::Down(button) => {
+                self.active_pointer_buttons.insert(button);
             }
+            MouseEventKind::Up(button) => {
+                self.active_pointer_buttons.remove(&button);
+            }
+            _ => {}
+        }
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => self.handle_left_down_with_admission(
+                mouse.column,
+                mouse.row,
+                mouse.modifiers,
+                terminal_admission,
+            ),
             MouseEventKind::Drag(MouseButton::Left) => {
                 if self.forward_pty_mouse_drag(
                     mouse.column,
@@ -8386,11 +9916,12 @@ impl App {
                     self.shake_frames = 6;
                     return Ok(RenderAction::Draw);
                 }
-                if self.begin_pty_mouse_drag(
+                if self.begin_pty_mouse_drag_with_admission(
                     mouse.column,
                     mouse.row,
                     MouseButton::Right,
                     mouse.modifiers,
+                    terminal_admission,
                 ) != PtyMousePressResult::NotOwned
                 {
                     return Ok(RenderAction::Draw);
@@ -8423,11 +9954,12 @@ impl App {
                 }
             }
             MouseEventKind::Down(MouseButton::Middle) => Ok(
-                if self.begin_pty_mouse_drag(
+                if self.begin_pty_mouse_drag_with_admission(
                     mouse.column,
                     mouse.row,
                     MouseButton::Middle,
                     mouse.modifiers,
+                    terminal_admission,
                 ) != PtyMousePressResult::NotOwned
                 {
                     RenderAction::Draw
@@ -8456,27 +9988,51 @@ impl App {
                     RenderAction::None
                 },
             ),
-            MouseEventKind::Moved => self.handle_hover(mouse.column, mouse.row, mouse.modifiers),
+            MouseEventKind::Moved => self.handle_hover_with_admission(
+                mouse.column,
+                mouse.row,
+                mouse.modifiers,
+                terminal_admission,
+            ),
             MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
                 let down = matches!(mouse.kind, MouseEventKind::ScrollDown);
-                self.handle_scroll(mouse.column, mouse.row, down, mouse.modifiers)
+                self.handle_scroll_with_admission(
+                    mouse.column,
+                    mouse.row,
+                    down,
+                    mouse.modifiers,
+                    terminal_admission,
+                )
             }
             MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight => self
-                .handle_horizontal_scroll(
+                .handle_horizontal_scroll_with_admission(
                     mouse.column,
                     mouse.row,
                     matches!(mouse.kind, MouseEventKind::ScrollRight),
                     mouse.modifiers,
+                    terminal_admission,
                 ),
         }
     }
 
+    #[cfg(test)]
     fn begin_pty_mouse_drag(
         &mut self,
         x: u16,
         y: u16,
         button: MouseButton,
         modifiers: KeyModifiers,
+    ) -> PtyMousePressResult {
+        self.begin_pty_mouse_drag_with_admission(x, y, button, modifiers, None)
+    }
+
+    fn begin_pty_mouse_drag_with_admission(
+        &mut self,
+        x: u16,
+        y: u16,
+        button: MouseButton,
+        modifiers: KeyModifiers,
+        terminal_admission: Option<TerminalPointerAdmission>,
     ) -> PtyMousePressResult {
         if modifiers.contains(KeyModifiers::SHIFT)
             || self.menu.is_some()
@@ -8499,14 +10055,24 @@ impl App {
         let Some(handle) = self.session.surface(area.surface) else {
             return PtyMousePressResult::Consumed;
         };
+        let semantics = terminal_admission.as_ref().map(|admission| admission.semantics).or_else(
+            || match handle.try_pointer_semantics() {
+                Some(PointerSemanticProbe::Ready(semantics)) => Some(semantics),
+                Some(PointerSemanticProbe::Contended) | None => None,
+            },
+        );
         let (release_capture, forwarded) = self.prepare_pty_mouse_press(
             (area.surface, handle.clone()),
             content,
-            x,
-            y,
+            (x, y),
             button,
             modifiers,
+            terminal_admission,
         );
+        if matches!(release_capture, PtyMouseReleaseCapture::Failed) {
+            self.active_pointer_buttons.remove(&button);
+            return PtyMousePressResult::Consumed;
+        }
         if !forwarded.owned {
             return PtyMousePressResult::NotOwned;
         }
@@ -8515,9 +10081,6 @@ impl App {
         }
         self.leave_workspace_sidebar();
         self.selection = None;
-        if matches!(release_capture, PtyMouseReleaseCapture::Failed) {
-            return PtyMousePressResult::Consumed;
-        }
         if !forwarded.accepted {
             return PtyMousePressResult::Consumed;
         }
@@ -8533,6 +10096,7 @@ impl App {
             handle: Some(handle),
             reservation_id,
             release_bytes,
+            semantics,
             content,
             button,
             position: (x, y),
@@ -8546,12 +10110,13 @@ impl App {
         &mut self,
         route: (SurfaceId, SurfaceHandle),
         content: Rect,
-        x: u16,
-        y: u16,
+        position: (u16, u16),
         button: MouseButton,
         modifiers: KeyModifiers,
+        terminal_admission: Option<TerminalPointerAdmission>,
     ) -> (PtyMouseReleaseCapture, PtyInputForwardResult) {
         let (surface_id, surface) = route;
+        let (x, y) = position;
         let failed =
             || PtyInputForwardResult { owned: true, accepted: false, reservation_id: None };
         let cell_width = u32::from(self.cell_pixels.0.max(1));
@@ -8575,23 +10140,38 @@ impl App {
         };
         let release =
             MouseInput { action: MouseAction::Release, any_button_pressed: false, ..press };
-        let mut release_output = Vec::new();
-        let mut press_output = Vec::new();
-        let Some(encoded) =
-            surface.encode_mouse_press_pair(press, release, &mut press_output, &mut release_output)
-        else {
-            return (PtyMouseReleaseCapture::Failed, failed());
+        let (press_output, release_output, encoded) = match terminal_admission {
+            Some(TerminalPointerAdmission {
+                surface,
+                encoding:
+                    TerminalPointerEncoding::PressPair {
+                        press: encoded_press,
+                        release: encoded_release,
+                    },
+                ..
+            }) if surface == surface_id => (encoded_press, encoded_release, true),
+            Some(_) => (PtyInputBytes::new(), PtyInputBytes::new(), false),
+            None => {
+                let mut press_output = PtyInputBytes::new();
+                let mut release_output = PtyInputBytes::new();
+                let encoded = surface
+                    .encode_mouse_press_pair(press, release, &mut press_output, &mut release_output)
+                    .is_some_and(|encoded| encoded.is_ok());
+                (press_output, release_output, encoded)
+            }
         };
-        self.encode_buf = press_output;
-        if encoded.is_err() {
+        self.encode_buf.clear();
+        #[cfg(test)]
+        self.encode_buf.extend_from_slice(&press_output);
+        if !encoded {
             return (PtyMouseReleaseCapture::Failed, failed());
         }
         let release_capture = if release_output.is_empty() {
             PtyMouseReleaseCapture::NotReported
         } else {
-            PtyMouseReleaseCapture::Bytes(PtyInputBytes::from_slice(&release_output))
+            PtyMouseReleaseCapture::Bytes(release_output)
         };
-        if self.encode_buf.is_empty() {
+        if press_output.is_empty() {
             return (
                 release_capture,
                 PtyInputForwardResult { owned: false, accepted: true, reservation_id: None },
@@ -8602,8 +10182,7 @@ impl App {
         } else {
             PtyInputKind::Ordered
         };
-        let bytes = PtyInputBytes::from_slice(&self.encode_buf);
-        let forwarded = self.enqueue_pty_bytes(surface_id, surface, bytes, kind);
+        let forwarded = self.enqueue_pty_bytes(surface_id, surface, press_output, kind);
         (release_capture, forwarded)
     }
 
@@ -8614,7 +10193,9 @@ impl App {
         _reported_button: MouseButton,
         modifiers: KeyModifiers,
     ) -> bool {
-        let Some(Drag::PtyMouse { surface, content, button: active_button, .. }) = self.drag else {
+        let Some(Drag::PtyMouse { surface, semantics, content, button: active_button, .. }) =
+            self.drag
+        else {
             return false;
         };
         // Some host protocols report a drag as left regardless of the
@@ -8628,13 +10209,20 @@ impl App {
             *position = (x, y);
             *stored_modifiers = modifiers;
         }
+        let Some(semantics) = semantics else {
+            return true;
+        };
         let _ = self.forward_pty_mouse_motion_if_uncontended(
-            surface,
-            content,
+            (surface, content),
             (x, y),
             Some(Self::ghostty_mouse_button(active_button)),
             modifiers,
             true,
+            Some(TerminalPointerAdmission {
+                surface,
+                semantics,
+                encoding: TerminalPointerEncoding::None,
+            }),
         );
         true
     }
@@ -8712,13 +10300,13 @@ impl App {
             cell_size: (cell_width, cell_height),
             any_button_pressed: false,
         };
-        let mut output = Vec::new();
+        let mut output = PtyInputBytes::new();
         let Some(encoded) = surface.encode_mouse_release(input, &mut output) else {
             return PtyMouseReleaseCapture::Failed;
         };
         match encoded {
             Ok(()) if output.is_empty() => PtyMouseReleaseCapture::NotReported,
-            Ok(()) => PtyMouseReleaseCapture::Bytes(PtyInputBytes::from_slice(&output)),
+            Ok(()) => PtyMouseReleaseCapture::Bytes(output),
             Err(_) => PtyMouseReleaseCapture::Failed,
         }
     }
@@ -8734,6 +10322,7 @@ impl App {
             return false;
         };
         self.encode_buf.clear();
+        #[cfg(test)]
         self.encode_buf.extend_from_slice(bytes.as_ref());
         let (result, _) = self.pty_input.enqueue_with_reservation(PtyInputEvent::release(
             surface_id,
@@ -8742,6 +10331,32 @@ impl App {
             reservation_id,
         ));
         self.handle_pty_enqueue_result(result)
+    }
+
+    fn cancel_pointer_interaction(&mut self) {
+        if matches!(self.drag, Some(Drag::PtyMouse { .. })) {
+            self.cancel_pty_mouse_drag();
+        } else if let Some(Drag::Browser { surface, content, position }) = &self.drag {
+            let (surface, content, position) = (*surface, *content, *position);
+            self.drag = None;
+            let x = position.0.clamp(content.x, content.x + content.width.saturating_sub(1));
+            let y = position.1.clamp(content.y, content.y + content.height.saturating_sub(1));
+            self.send_browser_mouse(
+                surface,
+                content,
+                x,
+                y,
+                BrowserMouseDispatch::new("mouseReleased", Some("left"), Some(1)),
+            );
+        } else {
+            let settle_split = matches!(self.drag, Some(Drag::ResizeSplit { .. }));
+            self.drag = None;
+            if settle_split {
+                self.session.settle_split_ratio();
+            }
+        }
+        self.active_pointer_buttons.clear();
+        self.ignored_pty_mouse_buttons.clear();
     }
 
     fn cancel_pty_mouse_drag(&mut self) {
@@ -8754,6 +10369,7 @@ impl App {
             button,
             position,
             modifiers,
+            ..
         }) = &self.drag
         else {
             return;
@@ -8787,6 +10403,7 @@ impl App {
         }
     }
 
+    #[cfg(test)]
     fn forward_pty_mouse_at(
         &mut self,
         x: u16,
@@ -8796,24 +10413,45 @@ impl App {
         modifiers: KeyModifiers,
         any_button_pressed: bool,
     ) -> bool {
+        self.forward_pty_mouse_at_with_admission(
+            (x, y),
+            action,
+            button,
+            modifiers,
+            any_button_pressed,
+            None,
+        )
+        .unwrap_or(true)
+    }
+
+    fn forward_pty_mouse_at_with_admission(
+        &mut self,
+        position: (u16, u16),
+        action: MouseAction,
+        button: Option<GhosttyMouseButton>,
+        modifiers: KeyModifiers,
+        any_button_pressed: bool,
+        terminal_admission: Option<TerminalPointerAdmission>,
+    ) -> Option<bool> {
+        let (x, y) = position;
         if modifiers.contains(KeyModifiers::SHIFT) || self.menu.is_some() || self.prompt.is_some() {
-            return false;
+            return Some(false);
         }
-        let Some(area) = self.pane_area_at(x, y).copied() else { return false };
+        let Some(area) = self.pane_area_at(x, y).copied() else { return Some(false) };
         if !area.content.contains(x, y) || self.surface_kind(area.surface) != Some(SurfaceKind::Pty)
         {
-            return false;
+            return Some(false);
         }
         let content = self.canonical_pty_content(area.surface, area.content);
         if action == MouseAction::Motion {
             let inside = content.contains(x, y);
             let owned = self.forward_pty_mouse_motion_if_uncontended(
-                area.surface,
-                content,
+                (area.surface, content),
                 (x, y),
                 None,
                 modifiers,
                 any_button_pressed,
+                terminal_admission,
             );
             // A no-button motion outside the canonical viewport is
             // intentionally suppressed by Ghostty. Reset dedupe so re-entering
@@ -8824,10 +10462,10 @@ impl App {
             {
                 surface.reset_mouse_motion_dedupe();
             }
-            return owned;
+            return Some(owned);
         }
         if !content.contains(x, y) {
-            return false;
+            return Some(false);
         }
         self.forward_pty_mouse_to_surface(
             area.surface,
@@ -8838,19 +10476,21 @@ impl App {
             button,
             modifiers,
             any_button_pressed,
+            terminal_admission,
         )
-        .owned
+        .map(|forwarded| forwarded.owned)
     }
 
     fn forward_pty_mouse_motion_if_uncontended(
         &mut self,
-        surface_id: SurfaceId,
-        content: Rect,
+        route: (SurfaceId, Rect),
         position: (u16, u16),
         button: Option<GhosttyMouseButton>,
         modifiers: KeyModifiers,
         any_button_pressed: bool,
+        terminal_admission: Option<TerminalPointerAdmission>,
     ) -> bool {
+        let (surface_id, content) = route;
         let Some(surface) = self.session.surface(surface_id) else { return false };
         let (x, y) = position;
         let cell_width = u32::from(self.cell_pixels.0.max(1));
@@ -8871,20 +10511,44 @@ impl App {
             any_button_pressed,
         };
 
-        let mut output = Vec::new();
-        let Some(encoded) = surface.encode_mouse(input, &mut output) else {
-            // The first sample can race terminal initialization. Motion is
-            // coalescible, so consume it without parking the UI loop.
-            return true;
+        self.encode_buf.clear();
+        let bytes = match terminal_admission {
+            Some(TerminalPointerAdmission {
+                surface,
+                encoding: TerminalPointerEncoding::Single(encoded),
+                ..
+            }) if surface == surface_id => encoded,
+            Some(TerminalPointerAdmission {
+                surface: admission_surface,
+                semantics,
+                encoding: TerminalPointerEncoding::None,
+            }) if admission_surface == surface_id => {
+                let mut output = PtyInputBytes::new();
+                match surface.encode_mouse_if_semantics(semantics, input, &mut output) {
+                    Some(GuardedMouseEncode::Encoded(Ok(()))) => output,
+                    Some(
+                        GuardedMouseEncode::Contended
+                        | GuardedMouseEncode::SemanticsChanged
+                        | GuardedMouseEncode::Encoded(Err(_)),
+                    )
+                    | None => return true,
+                }
+            }
+            Some(_) => return true,
+            None => {
+                let mut output = PtyInputBytes::new();
+                match surface.encode_mouse(input, &mut output) {
+                    Some(Ok(())) => output,
+                    Some(Err(_)) | None => return true,
+                }
+            }
         };
-        self.encode_buf = output;
-        if encoded.is_err() {
-            return true;
-        }
-        if self.encode_buf.is_empty() {
+        #[cfg(test)]
+        self.encode_buf.extend_from_slice(&bytes);
+        if bytes.is_empty() {
             return false;
         }
-        let _ = self.write_encoded_pty_bytes(surface_id, surface, PtyInputKind::Motion);
+        let _ = self.enqueue_pty_bytes(surface_id, surface, bytes, PtyInputKind::Motion);
         true
     }
 
@@ -8899,9 +10563,14 @@ impl App {
         button: Option<GhosttyMouseButton>,
         modifiers: KeyModifiers,
         any_button_pressed: bool,
-    ) -> PtyInputForwardResult {
+        terminal_admission: Option<TerminalPointerAdmission>,
+    ) -> Option<PtyInputForwardResult> {
         let Some(surface) = self.session.surface(surface_id) else {
-            return PtyInputForwardResult { owned: false, accepted: false, reservation_id: None };
+            return Some(PtyInputForwardResult {
+                owned: false,
+                accepted: false,
+                reservation_id: None,
+            });
         };
         let cell_width = u32::from(self.cell_pixels.0.max(1));
         let cell_height = u32::from(self.cell_pixels.1.max(1));
@@ -8922,19 +10591,38 @@ impl App {
             any_button_pressed,
         };
 
-        let mut output = Vec::new();
-        let Some(encoded) = surface.encode_mouse(input, &mut output) else {
-            return PtyInputForwardResult { owned: true, accepted: false, reservation_id: None };
+        let (bytes, encoded) = match terminal_admission {
+            Some(TerminalPointerAdmission {
+                surface,
+                encoding: TerminalPointerEncoding::Single(encoded),
+                ..
+            }) if surface == surface_id => (encoded, true),
+            Some(_) => return None,
+            None => {
+                let mut output = PtyInputBytes::new();
+                let encoded = surface.encode_mouse(input, &mut output)?.is_ok();
+                (output, encoded)
+            }
         };
-        self.encode_buf = output;
-        if encoded.is_err() {
-            return PtyInputForwardResult { owned: true, accepted: false, reservation_id: None };
+        self.encode_buf.clear();
+        #[cfg(test)]
+        self.encode_buf.extend_from_slice(&bytes);
+        if !encoded {
+            return Some(PtyInputForwardResult {
+                owned: true,
+                accepted: false,
+                reservation_id: None,
+            });
         }
-        if self.encode_buf.is_empty() {
+        if bytes.is_empty() {
             if action == MouseAction::Release {
                 self.cancel_pty_release_reservation();
             }
-            return PtyInputForwardResult { owned: false, accepted: true, reservation_id: None };
+            return Some(PtyInputForwardResult {
+                owned: false,
+                accepted: true,
+                reservation_id: None,
+            });
         }
         let kind = match action {
             MouseAction::Press
@@ -8953,9 +10641,9 @@ impl App {
             MouseAction::Release => PtyInputKind::Release,
             MouseAction::Motion => PtyInputKind::Motion,
         };
-        let mut forwarded = self.write_encoded_pty_bytes(surface_id, surface, kind);
+        let mut forwarded = self.enqueue_pty_bytes(surface_id, surface, bytes, kind);
         forwarded.owned = true;
-        forwarded
+        Some(forwarded)
     }
 
     fn write_encoded_pty_bytes(
@@ -9227,11 +10915,12 @@ impl App {
     /// item, and track the mouse position so tab-bar controls (+, ‹, ›)
     /// and the scrollbar render a hover state. Only redraws when the
     /// hovered element actually changes.
-    fn handle_hover(
+    fn handle_hover_with_admission(
         &mut self,
         x: u16,
         y: u16,
         modifiers: KeyModifiers,
+        terminal_admission: Option<TerminalPointerAdmission>,
     ) -> anyhow::Result<RenderAction> {
         self.sync_pointer_shape(x, y);
         if let Some(menu) = self.menu.as_mut()
@@ -9243,7 +10932,14 @@ impl App {
             return Ok(RenderAction::None);
         }
         if self.menu.is_none() && self.prompt.is_none() && self.drag.is_none() {
-            let _ = self.forward_pty_mouse_at(x, y, MouseAction::Motion, None, modifiers, false);
+            let _ = self.forward_pty_mouse_at_with_admission(
+                (x, y),
+                MouseAction::Motion,
+                None,
+                modifiers,
+                false,
+                terminal_admission,
+            );
             let mut over_browser = false;
             if let Some(area) = self
                 .pane_areas
@@ -9335,11 +11031,22 @@ impl App {
         Ok(RenderAction::Draw)
     }
 
+    #[cfg(test)]
     fn handle_left_down(
         &mut self,
         x: u16,
         y: u16,
         modifiers: KeyModifiers,
+    ) -> anyhow::Result<RenderAction> {
+        self.handle_left_down_with_admission(x, y, modifiers, None)
+    }
+
+    fn handle_left_down_with_admission(
+        &mut self,
+        x: u16,
+        y: u16,
+        modifiers: KeyModifiers,
+        terminal_admission: Option<TerminalPointerAdmission>,
     ) -> anyhow::Result<RenderAction> {
         self.selection = None;
         self.drag = None;
@@ -9444,7 +11151,9 @@ impl App {
                         machine.selection = index;
                         machine.rail_selection = MachineRailSelection::Machine;
                     }
-                    self.drag = Some(Drag::MachineArm { machine: key, at: (x, y) });
+                    self.drag = self
+                        .machine_pointer_target(key)
+                        .map(|target| Drag::MachineArm { target, at: (x, y) });
                 }
                 Hit::NewVm => {
                     self.focus = FocusTarget::MachineRail;
@@ -9576,10 +11285,18 @@ impl App {
                         y,
                         BrowserMouseDispatch::new("mousePressed", Some("left"), Some(1)),
                     );
-                    self.drag =
-                        Some(Drag::Browser { surface: area.surface, content: area.content });
-                } else if self.begin_pty_mouse_drag(x, y, MouseButton::Left, modifiers)
-                    != PtyMousePressResult::NotOwned
+                    self.drag = Some(Drag::Browser {
+                        surface: area.surface,
+                        content: area.content,
+                        position: (x, y),
+                    });
+                } else if self.begin_pty_mouse_drag_with_admission(
+                    x,
+                    y,
+                    MouseButton::Left,
+                    modifiers,
+                    terminal_admission,
+                ) != PtyMousePressResult::NotOwned
                 {
                     return Ok(RenderAction::Draw);
                 } else {
@@ -9659,10 +11376,13 @@ impl App {
                 self.drag = Some(Drag::Select { content, auto_scroll, col: cx - content.x });
                 Ok(RenderAction::Draw)
             }
-            Some(Drag::Browser { surface, content }) => {
+            Some(Drag::Browser { surface, content, .. }) => {
                 let (surface, content) = (*surface, *content);
                 let cx = x.clamp(content.x, content.x + content.width.saturating_sub(1));
                 let cy = y.clamp(content.y, content.y + content.height.saturating_sub(1));
+                if let Some(Drag::Browser { position, .. }) = &mut self.drag {
+                    *position = (cx, cy);
+                }
                 self.send_browser_mouse(
                     surface,
                     content,
@@ -9704,18 +11424,24 @@ impl App {
     }
 
     fn handle_left_up(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
-        if let Some(Drag::MachineArm { machine, at }) = self.drag {
-            self.drag = None;
-            if (x, y) == at {
-                if self.managed_machine(machine).is_some_and(|managed| {
+        if matches!(self.drag, Some(Drag::MachineArm { .. })) {
+            let Some(Drag::MachineArm { target, at }) = self.drag.take() else {
+                unreachable!("machine arm matched before take");
+            };
+            if (x, y) == at
+                && self.machine_pointer_target(target.machine).as_ref() == Some(&target)
+                && let Some(ui) = self.machine_ui.as_mut()
+            {
+                if let Some(managed) = target.managed.as_ref().filter(|managed| {
                     managed.status == ManagedMachineStatus::Recoverable
                         && managed.capabilities.restore
                 }) {
-                    self.request_restore_managed_machine(machine);
-                } else if let Some(ui) = self.machine_ui.as_mut()
-                    && Some(machine) != ui.snapshot.active
-                {
-                    ui.request = Some(MachineRequest::Switch(machine));
+                    ui.request = Some(MachineRequest::RestoreManagedMachine {
+                        machine: target.machine,
+                        expected_version: managed.version,
+                    });
+                } else if target.context.snapshot.active != Some(target.machine) {
+                    ui.request = Some(MachineRequest::Switch(target.machine));
                 }
             }
             return Ok(RenderAction::Draw);
@@ -9757,7 +11483,7 @@ impl App {
             }
             return Ok(RenderAction::Draw);
         }
-        if let Some(Drag::Browser { surface, content }) = self.drag {
+        if let Some(Drag::Browser { surface, content, .. }) = self.drag {
             self.drag = None;
             let cx = x.clamp(content.x, content.x + content.width.saturating_sub(1));
             let cy = y.clamp(content.y, content.y + content.height.saturating_sub(1));
@@ -10130,12 +11856,24 @@ impl App {
         }
     }
 
+    #[cfg(test)]
     fn handle_scroll(
         &mut self,
         x: u16,
         y: u16,
         down: bool,
         modifiers: KeyModifiers,
+    ) -> anyhow::Result<RenderAction> {
+        self.handle_scroll_with_admission(x, y, down, modifiers, None)
+    }
+
+    fn handle_scroll_with_admission(
+        &mut self,
+        x: u16,
+        y: u16,
+        down: bool,
+        modifiers: KeyModifiers,
+        terminal_admission: Option<TerminalPointerAdmission>,
     ) -> anyhow::Result<RenderAction> {
         if self.menu.is_some() || self.prompt.is_some() {
             return Ok(RenderAction::None);
@@ -10223,10 +11961,9 @@ impl App {
         if !canonical_content.contains(x, y) {
             return Ok(RenderAction::None);
         }
-        if area.content.contains(x, y)
-            && self.forward_pty_mouse_at(
-                x,
-                y,
+        if area.content.contains(x, y) {
+            let forwarded = self.forward_pty_mouse_at_with_admission(
+                (x, y),
                 MouseAction::Press,
                 Some(if down {
                     GhosttyMouseButton::WheelDown
@@ -10235,14 +11972,27 @@ impl App {
                 }),
                 modifiers,
                 false,
-            )
-        {
-            return Ok(RenderAction::Draw);
+                terminal_admission.clone(),
+            );
+            match forwarded {
+                None => return Ok(RenderAction::None),
+                Some(true) => return Ok(RenderAction::Draw),
+                Some(false) => {}
+            }
         }
-        let Some(sent_arrows) = surface.with_terminal(|term| {
-            term.active_screen() == Screen::Alternate && !term.mouse_tracking()
-        }) else {
-            return Ok(RenderAction::None);
+        let sent_arrows = if let Some(admission) = terminal_admission {
+            if admission.surface != surface_id {
+                return Ok(RenderAction::None);
+            }
+            admission.semantics.active_screen == Screen::Alternate
+                && !admission.semantics.mouse_tracking
+        } else {
+            let Some(sent_arrows) = surface.with_terminal(|term| {
+                term.active_screen() == Screen::Alternate && !term.mouse_tracking()
+            }) else {
+                return Ok(RenderAction::None);
+            };
+            sent_arrows
         };
         if sent_arrows {
             let _ = surface.scroll_to_bottom();
@@ -10261,12 +12011,24 @@ impl App {
         Ok(RenderAction::Draw)
     }
 
+    #[cfg(test)]
     fn handle_horizontal_scroll(
         &mut self,
         x: u16,
         y: u16,
         right: bool,
         modifiers: KeyModifiers,
+    ) -> anyhow::Result<RenderAction> {
+        self.handle_horizontal_scroll_with_admission(x, y, right, modifiers, None)
+    }
+
+    fn handle_horizontal_scroll_with_admission(
+        &mut self,
+        x: u16,
+        y: u16,
+        right: bool,
+        modifiers: KeyModifiers,
+        terminal_admission: Option<TerminalPointerAdmission>,
     ) -> anyhow::Result<RenderAction> {
         if self.menu.is_some() || self.prompt.is_some() {
             return Ok(RenderAction::None);
@@ -10288,10 +12050,9 @@ impl App {
         {
             return Ok(RenderAction::None);
         }
-        if area.content.contains(x, y)
-            && self.forward_pty_mouse_at(
-                x,
-                y,
+        if area.content.contains(x, y) {
+            let forwarded = self.forward_pty_mouse_at_with_admission(
+                (x, y),
                 MouseAction::Press,
                 Some(if right {
                     GhosttyMouseButton::WheelRight
@@ -10300,9 +12061,12 @@ impl App {
                 }),
                 modifiers,
                 false,
-            )
-        {
-            return Ok(RenderAction::Draw);
+                terminal_admission,
+            );
+            return Ok(match forwarded {
+                Some(true) => RenderAction::Draw,
+                Some(false) | None => RenderAction::None,
+            });
         }
         Ok(RenderAction::None)
     }
@@ -10538,13 +12302,16 @@ fn browser_key_mapping(
 #[cfg(test)]
 mod tests {
     use super::{
-        App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput, Drag, FocusTarget,
-        ForwardMuxOutcome, MachineActionWorker, MenuAction, MenuItem, MuxTitleIngress,
-        OrderedSession, OuterCursorSpec, PaneArea, PaneEdge, PaneFocusHistory,
-        PendingSessionMutation, PendingSessionMutationState, PromptTarget, PtyFailureIngress,
-        PtyMousePressResult, RailKind, RenderAction, Selection, SessionCompletion,
+        App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput,
+        DeferredReplayDisposition, Drag, FocusTarget, ForwardMuxOutcome, GuardedMouseEncode,
+        MachineActionWorker, MenuAction, MenuItem, MutationImpact, MuxTitleIngress, OrderedSession,
+        OuterCursorSpec, PaneArea, PaneEdge, PaneFocusHistory, PendingSessionMutation,
+        PendingSessionMutationState, PointerHitIdentity, PointerRouteIdentity, PointerRoutePhase,
+        Prompt, PromptTarget, PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction,
+        RenderedMenuLevel, RenderedPointerFrame, Selection, SessionCompletion,
         SessionCompletionAction, SessionEventSender, SidebarLayout, SidebarPluginSyncClaim,
         SidebarPluginSyncState, SurfaceResizeDecision, SurfaceResizeOwnership,
+        TerminalPointerAdmission, TerminalPointerAdmissionResult, TerminalPointerEncoding,
         WorkspaceRailSelection, browser_content_size_for_rect, browser_hover_forward_allowed,
         canonical_terminal_content, clamp_split_ratio_for_tab_bars, client_menu_item,
         forward_mux_event, forward_mux_events, outer_cursor_escape, outer_cursor_escape_if_changed,
@@ -10568,7 +12335,7 @@ mod tests {
     };
     use ghostty_vt::{
         CursorShape, KeyEncoder, Mods, MouseAction, MouseButton as GhosttyMouseButton, MouseInput,
-        RenderState, Rgb,
+        RenderState, Rgb, Screen,
     };
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
@@ -10596,7 +12363,7 @@ mod tests {
     use crate::sidebar_files::FileBrowser;
 
     fn settled(outcome: super::SessionMutationOutcome) -> AppEvent {
-        AppEvent::SessionMutationSettled { outcome, routing: false }
+        AppEvent::SessionMutationSettled { outcome, impact: MutationImpact::Ordered }
     }
 
     #[test]
@@ -10613,7 +12380,7 @@ mod tests {
         let menu = ContextMenu::at(10, 5, pane_context_menu_groups(pane, false, false));
 
         assert_eq!(
-            menu.levels[0].items,
+            menu.levels[0].items.as_ref(),
             vec![
                 MenuItem::Action(MenuAction::RenameTab(pane)),
                 MenuItem::Action(MenuAction::CloseTab(pane)),
@@ -10628,6 +12395,7 @@ mod tests {
                 MenuItem::Action(MenuAction::CopyTabId(pane)),
                 MenuItem::Action(MenuAction::CopyPaneId(pane)),
             ]
+            .as_slice()
         );
     }
 
@@ -11746,20 +13514,20 @@ mod tests {
 
         let mut app = test_app(Session::Local(mux.clone()));
         assert!(app.forward_pty_mouse_motion_if_uncontended(
-            surface.id,
-            Rect { x: 2, y: 3, width: 20, height: 8 },
+            (surface.id, Rect { x: 2, y: 3, width: 20, height: 8 }),
             (6, 5),
             None,
             KeyModifiers::NONE,
             false,
+            None,
         ));
         assert!(app.forward_pty_mouse_motion_if_uncontended(
-            surface.id,
-            Rect { x: 2, y: 3, width: 20, height: 8 },
+            (surface.id, Rect { x: 2, y: 3, width: 20, height: 8 }),
             (7, 5),
             Some(GhosttyMouseButton::Left),
             KeyModifiers::NONE,
             true,
+            None,
         ));
 
         release_tx.send(()).unwrap();
@@ -11864,6 +13632,594 @@ mod tests {
     }
 
     #[test]
+    fn deferred_terminal_press_fails_closed_when_live_mouse_ownership_changes() {
+        let (mux, surface) = test_mux("deferred-mouse-ownership-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_visible = false;
+        app.sync_layout((40, 15));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let content = app.pane_areas[0].content;
+        let press = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 4,
+            row: content.y + 2,
+            modifiers: KeyModifiers::NONE,
+        };
+
+        app.pointer_route_phase = PointerRoutePhase::DrawPending;
+        app.handle(AppEvent::Input(Event::Mouse(press))).unwrap();
+        assert_eq!(app.deferred_input.len(), 1);
+        assert!(app.drag.is_none());
+        assert!(app.selection.is_none());
+
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1000h\x1b[?1006h"));
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
+        app.replay_deferred_input().unwrap();
+
+        assert!(app.deferred_input.is_empty());
+        assert!(
+            app.drag.is_none(),
+            "a press rendered for selection must not become PTY mouse input after mode changes"
+        );
+        assert!(app.selection.is_none());
+        assert!(app.encode_buf.is_empty());
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn deferred_untracked_wheel_fails_closed_when_screen_semantics_change() {
+        for (name, initial, transition, expected_screen) in [
+            (
+                "deferred-wheel-primary-to-alternate",
+                None,
+                b"\x1b[?1049h".as_slice(),
+                Screen::Primary,
+            ),
+            (
+                "deferred-wheel-alternate-to-primary",
+                Some(b"\x1b[?1049h".as_slice()),
+                b"\x1b[?1049l".as_slice(),
+                Screen::Alternate,
+            ),
+        ] {
+            let (mux, surface) = test_mux(name, None);
+            if let Some(initial) = initial {
+                surface.with_terminal(|terminal| terminal.vt_write(initial));
+            }
+            let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+            app.replace_tree(app.session.tree());
+            app.sidebar_visible = false;
+            app.sync_layout((40, 15));
+            while app.session.has_pending_mutations() {
+                app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            }
+            let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
+            app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+            let content = app.pane_areas[0].content;
+            let wheel = MouseEvent {
+                kind: MouseEventKind::ScrollUp,
+                column: content.x + 4,
+                row: content.y + 2,
+                modifiers: KeyModifiers::NONE,
+            };
+            assert_eq!(
+                surface.with_terminal(|terminal| terminal.active_screen()),
+                Some(expected_screen)
+            );
+
+            app.pointer_route_phase = PointerRoutePhase::DrawPending;
+            app.handle(AppEvent::Input(Event::Mouse(wheel))).unwrap();
+            assert_eq!(app.deferred_input.len(), 1);
+
+            surface.with_terminal(|terminal| terminal.vt_write(transition));
+            app.pointer_route_phase = PointerRoutePhase::Fresh;
+            assert_eq!(
+                app.replay_deferred_input().unwrap(),
+                RenderAction::None,
+                "a wheel rendered for one screen's semantics must not run against the other"
+            );
+            assert!(app.deferred_input.is_empty());
+            mux.close_surface(surface.id).unwrap();
+        }
+    }
+
+    #[test]
+    fn immediate_terminal_press_fails_closed_before_surface_output_marks_route_stale() {
+        let (mux, surface) = test_mux("immediate-mouse-semantics-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_visible = false;
+        app.sync_layout((40, 15));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let content = app.pane_areas[0].content;
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::Fresh);
+        assert_eq!(surface.with_terminal(|terminal| terminal.mouse_tracking()), Some(false));
+
+        // Change only the mouse protocol. Reporting remains disabled, so the
+        // event-specific route still looks cmux-owned even though its encoder
+        // semantics no longer match the committed frame.
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1006h"));
+        assert_eq!(surface.with_terminal(|terminal| terminal.mouse_tracking()), Some(false));
+        assert_eq!(
+            app.pointer_route_phase,
+            PointerRoutePhase::Fresh,
+            "the queued SurfaceOutput has not marked the rendered route stale yet"
+        );
+
+        let action = app
+            .handle(AppEvent::Input(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: content.x + 4,
+                row: content.y + 2,
+                modifiers: KeyModifiers::NONE,
+            })))
+            .unwrap();
+
+        assert_eq!(
+            action,
+            RenderAction::None,
+            "an immediate press must fail closed when its rendered semantic token changed"
+        );
+        assert!(app.drag.is_none());
+        assert!(app.selection.is_none());
+        assert!(app.encode_buf.is_empty());
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn immediate_untracked_wheel_fails_closed_before_surface_output_marks_route_stale() {
+        let (mux, surface) = test_mux("immediate-wheel-semantics-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_visible = false;
+        app.sync_layout((40, 15));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let content = app.pane_areas[0].content;
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::Fresh);
+
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1049h"));
+        assert_eq!(
+            app.pointer_route_phase,
+            PointerRoutePhase::Fresh,
+            "the queued SurfaceOutput has not marked the rendered route stale yet"
+        );
+
+        let action = app
+            .handle(AppEvent::Input(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::ScrollUp,
+                column: content.x + 4,
+                row: content.y + 2,
+                modifiers: KeyModifiers::NONE,
+            })))
+            .unwrap();
+
+        assert_eq!(
+            action,
+            RenderAction::None,
+            "an immediate wheel must not cross from host scrollback into alternate-screen arrows"
+        );
+        assert!(app.encode_buf.is_empty());
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn contended_terminal_semantics_retain_discrete_press_for_replay() {
+        let (mux, surface) = test_mux("contended-mouse-semantics-test", None);
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1000h\x1b[?1006h"));
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_visible = false;
+        app.sync_layout((40, 15));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let content = app.pane_areas[0].content;
+        let press = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 4,
+            row: content.y + 2,
+            modifiers: KeyModifiers::NONE,
+        };
+
+        let held_surface = surface.clone();
+        let (locked_tx, locked_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let holder = std::thread::spawn(move || {
+            held_surface.with_terminal(|_| {
+                locked_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+            });
+        });
+        locked_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let action = app.handle(AppEvent::Input(Event::Mouse(press))).unwrap();
+        let queued = app.deferred_input.len();
+        release_tx.send(()).unwrap();
+        holder.join().unwrap();
+        assert_eq!(queued, 1, "ordinary terminal lock contention must retain a discrete press");
+        assert_eq!(
+            action,
+            RenderAction::None,
+            "lock contention must schedule replay without synchronously repainting the locked terminal"
+        );
+
+        app.render_action(&mut terminal, action).unwrap();
+        app.replay_deferred_input().unwrap();
+
+        assert!(app.deferred_input.is_empty());
+        assert!(
+            matches!(app.drag, Some(Drag::PtyMouse { surface: id, .. }) if id == surface.id),
+            "the retained press must replay against the same rendered terminal"
+        );
+        app.cancel_pty_mouse_drag();
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn guarded_mouse_encoding_rejects_a_changed_terminal_snapshot() {
+        let (mux, surface) = test_mux("atomic-mouse-semantics-test", None);
+        let app = test_app(Session::Local(mux.clone()));
+        let handle = app.session.surface(surface.id).expect("local PTY handle");
+        let expected = surface
+            .with_terminal(|terminal| terminal.pointer_semantic_snapshot())
+            .expect("PTY terminal snapshot");
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1003h\x1b[?1006h"));
+
+        let mut output = Vec::new();
+        let encoded = handle.encode_mouse_if_semantics(expected, test_mouse_motion(), &mut output);
+
+        assert!(
+            matches!(encoded, Some(GuardedMouseEncode::SemanticsChanged)),
+            "a stale rendered token must fail at the encoding boundary"
+        );
+        assert!(output.is_empty());
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn guarded_mouse_encoding_rejects_changed_terminal_geometry() {
+        let (mux, surface) = test_mux("atomic-mouse-geometry-test", None);
+        let app = test_app(Session::Local(mux.clone()));
+        let handle = app.session.surface(surface.id).expect("local PTY handle");
+        let expected = surface
+            .with_terminal(|terminal| terminal.pointer_semantic_snapshot())
+            .expect("PTY terminal snapshot");
+        surface
+            .with_terminal(|terminal| {
+                terminal.resize(terminal.cols().saturating_add(1), terminal.rows(), 1, 1)
+            })
+            .expect("PTY terminal")
+            .expect("terminal resize");
+
+        let mut output = Vec::new();
+        let encoded = handle.encode_mouse_if_semantics(expected, test_mouse_motion(), &mut output);
+
+        assert!(
+            matches!(encoded, Some(GuardedMouseEncode::SemanticsChanged)),
+            "a pointer event must not use cell geometry from an older rendered frame"
+        );
+        assert!(output.is_empty());
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn captured_pty_motion_rejects_geometry_changed_since_press() {
+        let (mux, surface) = test_mux("captured-mouse-geometry-test", None);
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1003h\x1b[?1006h"));
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_visible = false;
+        app.sync_layout((40, 15));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let content = app.pane_areas[0].content;
+        let press = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 4,
+            row: content.y + 2,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle(AppEvent::Input(Event::Mouse(press))).unwrap();
+        assert!(matches!(app.drag, Some(Drag::PtyMouse { .. })));
+
+        app.encode_buf.clear();
+        surface
+            .with_terminal(|terminal| {
+                terminal.resize(terminal.cols().saturating_add(1), terminal.rows(), 1, 1)
+            })
+            .expect("PTY terminal")
+            .expect("terminal resize");
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: press.column + 1,
+            ..press
+        })))
+        .unwrap();
+
+        assert!(
+            app.encode_buf.is_empty(),
+            "captured motion must retain the press frame's terminal geometry guard"
+        );
+        assert!(matches!(app.drag, Some(Drag::PtyMouse { .. })));
+        app.cancel_pty_mouse_drag();
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn terminal_pointer_motion_encoding_stays_inline() {
+        let (mux, surface) = test_mux("inline-mouse-motion-test", None);
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1003h\x1b[?1006h"));
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_visible = false;
+        app.sync_layout((40, 15));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let content = app.pane_areas[0].content;
+        let motion = MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: content.x + 4,
+            row: content.y + 2,
+            modifiers: KeyModifiers::NONE,
+        };
+        let route = app.rendered_pointer_frame.route_for_mouse(&motion);
+        let TerminalPointerAdmissionResult::Ready(TerminalPointerAdmission {
+            encoding: TerminalPointerEncoding::Single(bytes),
+            ..
+        }) = app.terminal_pointer_admission_for_route(&route, &motion, None)
+        else {
+            panic!("tracked motion should produce terminal bytes");
+        };
+
+        assert!(!bytes.is_empty());
+        assert!(!bytes.spilled(), "ordinary terminal motion must stay in the inline PTY buffer");
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn menu_pointer_routes_share_the_committed_snapshot() {
+        let levels: Arc<[RenderedMenuLevel]> = vec![RenderedMenuLevel {
+            rect: Rect { x: 2, y: 2, width: 20, height: 3 },
+            scroll_offset: 0,
+            items: vec![MenuItem::Submenu {
+                label: "nested".to_string(),
+                items: vec![MenuItem::Action(MenuAction::NewTab(7))],
+            }]
+            .into(),
+            resources: vec![None].into(),
+        }]
+        .into();
+        let frame = RenderedPointerFrame { menu: Some(levels.clone()), ..Default::default() };
+
+        let route = frame.route_for_mouse(&MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 3,
+            row: 3,
+            modifiers: KeyModifiers::NONE,
+        });
+
+        let PointerRouteIdentity::Menu { levels: routed, .. } = route else {
+            panic!("pointer should route through the committed menu");
+        };
+        assert!(
+            Arc::ptr_eq(&levels, &routed),
+            "motion routing must clone only the Arc, not menu items"
+        );
+    }
+
+    #[test]
+    fn deferred_menu_click_cannot_retarget_a_replacement_tab() {
+        let mux = Mux::new("stable-menu-resource-test", SurfaceOptions::default());
+        let first =
+            mux.new_browser_tab("about:blank#first".to_string(), None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux
+            .new_browser_tab("about:blank#second".to_string(), Some(pane), Some((80, 24)))
+            .unwrap();
+        mux.select_tab(Some(pane), Some(0), None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_visible = false;
+        app.sync_layout((80, 24));
+        let area = app.pane_areas.iter().find(|area| area.pane == pane).copied().unwrap();
+        let omnibar = area.omnibar.expect("browser tab should render an omnibar");
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: omnibar.x + 2,
+            row: omnibar.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.menu =
+            Some(ContextMenu::at(click.column, click.row, vec![vec![MenuAction::RenameTab(pane)]]));
+        app.commit_rendered_pointer_frame();
+        app.pointer_route_phase = PointerRoutePhase::DrawPending;
+
+        app.handle(AppEvent::Input(Event::Mouse(click))).unwrap();
+        assert_eq!(app.deferred_input.len(), 1);
+
+        mux.select_tab(Some(pane), Some(1), None);
+        app.replace_tree(app.session.tree());
+        assert_eq!(app.active_surface(), Some(second.id));
+        app.commit_rendered_pointer_frame();
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
+        app.replay_deferred_input().unwrap();
+
+        assert!(
+            app.prompt.is_none(),
+            "the menu click rendered for the first tab must not rename the replacement tab"
+        );
+        mux.close_surface(first.id).unwrap();
+        mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
+    fn terminal_paint_reuses_unchanged_pointer_owner_snapshots() {
+        let (mux, surface) = test_mux("pointer-owner-paint-cache-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.machine_ui = Some(MachineUiState::new(MachineSnapshot {
+            machines: vec![MachineDescriptor {
+                key: MachineKey(1),
+                id: "machine-1".to_string(),
+                name: "machine-1".to_string(),
+                subtitle: "cloud".to_string(),
+                status: MachineStatus::Running,
+            }],
+            active: Some(MachineKey(1)),
+            capabilities: MachineCapabilities::default(),
+        }));
+        app.sidebar_visible = true;
+        app.sync_layout((100, 20));
+        app.menu = Some(ContextMenu::at(
+            app.content_area.x + 2,
+            app.content_area.y + 2,
+            vec![vec![MenuAction::NewTab(app.active_pane().unwrap())]],
+        ));
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let first_menu = app.rendered_pointer_frame.menu.clone().expect("rendered menu");
+        let first_machine = app
+            .rendered_pointer_frame
+            .hits
+            .iter()
+            .find_map(|route| match route.identity.as_deref() {
+                Some(PointerHitIdentity::Machine(target)) => Some(target.context.clone()),
+                Some(PointerHitIdentity::MachineContext(context)) => Some(context.clone()),
+                _ => None,
+            })
+            .expect("rendered machine identity");
+
+        app.render_action(&mut terminal, RenderAction::Paint).unwrap();
+        let second_menu = app.rendered_pointer_frame.menu.clone().expect("rendered menu");
+        let second_machine = app
+            .rendered_pointer_frame
+            .hits
+            .iter()
+            .find_map(|route| match route.identity.as_deref() {
+                Some(PointerHitIdentity::Machine(target)) => Some(target.context.clone()),
+                Some(PointerHitIdentity::MachineContext(context)) => Some(context.clone()),
+                _ => None,
+            })
+            .expect("rendered machine identity");
+
+        assert!(
+            Arc::ptr_eq(&first_menu, &second_menu),
+            "terminal output must not rebuild unchanged menu strings"
+        );
+        assert!(
+            Arc::ptr_eq(&first_machine, &second_machine),
+            "terminal output must not clone the app-wide machine catalog"
+        );
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn deferred_tab_press_cannot_retarget_a_replacement_surface_at_the_same_index() {
+        let mux = Mux::new("stable-tab-route-test", SurfaceOptions::default());
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_visible = false;
+        app.sync_layout((80, 24));
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let first_tab = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| match hit {
+                super::Hit::Tab { pane: hit_pane, index: 0 } if *hit_pane == pane => Some(*rect),
+                _ => None,
+            })
+            .expect("first tab hit");
+        let press = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: first_tab.x + first_tab.width.saturating_sub(1) / 2,
+            row: first_tab.y,
+            modifiers: KeyModifiers::NONE,
+        };
+
+        app.pointer_route_phase = PointerRoutePhase::DrawPending;
+        app.handle(AppEvent::Input(Event::Mouse(press))).unwrap();
+        assert_eq!(app.deferred_input.len(), 1);
+
+        app.tree.pane_mut(pane).unwrap().tabs.swap(0, 1);
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        app.replay_deferred_input().unwrap();
+
+        assert!(
+            app.drag.is_none(),
+            "the old tab press must not arm the replacement surface at the same index"
+        );
+        mux.close_surface(first.id).unwrap();
+        mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
+    fn deferred_click_fails_closed_after_pointer_map_generation_changes() {
+        let mux = Mux::new("pointer-map-generation-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 24))).unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_visible = false;
+        app.sync_layout((80, 24));
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let new_screen = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| (*hit == super::Hit::NewScreen).then_some(*rect))
+            .expect("new screen hit");
+        let screen_count = app.tree.active_workspace().unwrap().screens.len();
+
+        app.pointer_route_phase = PointerRoutePhase::DrawPending;
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: new_screen.x,
+            row: new_screen.y,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+        assert_eq!(app.deferred_input.len(), 1);
+
+        app.session.pending_mutation_with_impact(MutationImpact::PointerMap).supersede();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        app.replay_deferred_input().unwrap();
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+
+        assert_eq!(
+            app.tree.active_workspace().unwrap().screens.len(),
+            screen_count,
+            "a click from an older pointer-map generation must not create a screen"
+        );
+        let workspace = mux.with_state(|state| state.workspaces[state.active_workspace].id);
+        mux.close_workspace(workspace);
+    }
+
+    #[test]
     fn rejected_input_shows_an_error_without_disconnecting() {
         let mux = Mux::new("oversized-input-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -11898,6 +14254,7 @@ mod tests {
             handle: None,
             reservation_id: 41,
             release_bytes: PtyInputBytes::from_slice(b"fallback-release"),
+            semantics: None,
             content: Rect { x: 1, y: 1, width: 20, height: 8 },
             button: MouseButton::Left,
             position: (4, 3),
@@ -11923,6 +14280,7 @@ mod tests {
             handle: None,
             reservation_id: 41,
             release_bytes: PtyInputBytes::from_slice(b"fallback-release"),
+            semantics: None,
             content: Rect { x: 1, y: 1, width: 20, height: 8 },
             button: MouseButton::Left,
             position: (4, 3),
@@ -11942,6 +14300,7 @@ mod tests {
             handle: None,
             reservation_id: 1,
             release_bytes: PtyInputBytes::from_slice(b"release"),
+            semantics: None,
             content: Rect { x: 1, y: 1, width: 20, height: 8 },
             button: MouseButton::Right,
             position: (4, 3),
@@ -12037,6 +14396,7 @@ mod tests {
             handle: None,
             reservation_id: 1,
             release_bytes: PtyInputBytes::from_slice(b"release"),
+            semantics: None,
             content: Rect { x: 1, y: 1, width: 20, height: 8 },
             button: MouseButton::Right,
             position: (4, 3),
@@ -12066,6 +14426,7 @@ mod tests {
             handle: None,
             reservation_id: 7,
             release_bytes: PtyInputBytes::from_slice(b"release"),
+            semantics: None,
             content: Rect { x: 1, y: 1, width: 20, height: 8 },
             button: MouseButton::Left,
             position: (4, 3),
@@ -12095,6 +14456,7 @@ mod tests {
             handle: None,
             reservation_id: 9,
             release_bytes: PtyInputBytes::from_slice(b"release"),
+            semantics: None,
             content: Rect { x: 1, y: 1, width: 20, height: 8 },
             button: MouseButton::Left,
             position: (4, 3),
@@ -12150,8 +14512,8 @@ mod tests {
         let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(matches!(settled, AppEvent::SessionMutationSettled { .. }));
         app.handle(settled).unwrap();
-        assert!(app.routing_refresh_pending);
-        app.routing_refresh_pending = false;
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::DrawPending);
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
         app.replay_deferred_input().unwrap();
         assert!(app.deferred_input.is_empty());
         assert!(!app.session.has_pending_mutations());
@@ -12210,14 +14572,14 @@ mod tests {
         let (events, receiver) = std::sync::mpsc::sync_channel(1);
         events.send(AppEvent::MuxTitlesReady).unwrap();
         let pending_mutations = Arc::new(std::sync::atomic::AtomicUsize::new(1));
-        let pending_routing_mutations = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let pending_pointer_mutations = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let cancellation_pending = Arc::new(AtomicBool::new(false));
 
         drop(PendingSessionMutation(Arc::new(PendingSessionMutationState {
             events: SessionEventSender::unscoped(events),
             pending_mutations: pending_mutations.clone(),
-            pending_routing_mutations,
-            routing: false,
+            pending_pointer_mutations,
+            impact: MutationImpact::Ordered,
             cancellation_pending: cancellation_pending.clone(),
             settled: AtomicBool::new(false),
             deferred_outcome: Mutex::new(None),
@@ -12233,13 +14595,13 @@ mod tests {
     fn superseded_mutation_settles_without_canceling_session_input() {
         let (events, receiver) = std::sync::mpsc::sync_channel(1);
         let pending_mutations = Arc::new(std::sync::atomic::AtomicUsize::new(1));
-        let pending_routing_mutations = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let pending_pointer_mutations = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let cancellation_pending = Arc::new(AtomicBool::new(false));
         let pending = PendingSessionMutation(Arc::new(PendingSessionMutationState {
             events: SessionEventSender::unscoped(events),
             pending_mutations: pending_mutations.clone(),
-            pending_routing_mutations,
-            routing: false,
+            pending_pointer_mutations,
+            impact: MutationImpact::Ordered,
             cancellation_pending: cancellation_pending.clone(),
             settled: AtomicBool::new(false),
             deferred_outcome: Mutex::new(None),
@@ -12342,7 +14704,7 @@ mod tests {
 
         let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
         app.handle(settled).unwrap();
-        app.routing_refresh_pending = false;
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
         app.replay_deferred_input().unwrap();
 
         assert_eq!(app.active_surface(), Some(second.id));
@@ -12435,13 +14797,13 @@ mod tests {
 
             // A concurrent frontend can invalidate routing after the press.
             // The release still belongs to the armed stable workspace ID.
-            app.routing_refresh_pending = true;
+            app.pointer_route_phase = PointerRoutePhase::DrawPending;
             app.handle(event(MouseEventKind::Up(MouseButton::Left))).unwrap();
             assert_eq!(app.tree.active_workspace, 0);
 
             let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
             app.handle(settled).unwrap();
-            app.routing_refresh_pending = false;
+            app.pointer_route_phase = PointerRoutePhase::Fresh;
             assert_eq!(mux.with_state(|state| state.active_workspace), 0);
         }
 
@@ -12502,7 +14864,7 @@ mod tests {
         app.handle(event(MouseEventKind::Down(MouseButton::Left))).unwrap();
         assert!(matches!(app.drag, Some(Drag::TabArm { surface, .. }) if surface == first.id));
 
-        app.routing_refresh_pending = true;
+        app.pointer_route_phase = PointerRoutePhase::DrawPending;
         app.handle(event(MouseEventKind::Up(MouseButton::Left))).unwrap();
         assert_eq!(app.active_surface(), Some(first.id));
 
@@ -12510,7 +14872,7 @@ mod tests {
             let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
             app.handle(settled).unwrap();
         }
-        app.routing_refresh_pending = false;
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
         assert_eq!(mux.active_surface(), Some(first.id));
 
         let workspace = mux.with_state(|state| state.workspaces[state.active_workspace].id);
@@ -12614,13 +14976,13 @@ mod tests {
             KeyModifiers::NONE,
         ))))
         .unwrap();
-        assert_eq!(app.deferred_input.front().and_then(|input| input.routing_intent), Some(1));
+        assert_eq!(app.deferred_input.front().and_then(|input| input.destination_intent), Some(1));
         app.session.select_tab(Some(pane), Some(2), None);
 
         while app.session.has_pending_mutations() {
             app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
         }
-        app.routing_refresh_pending = false;
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
         app.replay_deferred_input().unwrap();
 
         assert_eq!(app.active_surface(), Some(third.id));
@@ -12637,10 +14999,10 @@ mod tests {
         let mux = Mux::new("stale-routing-snapshot-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.session.remote = true;
-        app.session.routing_mutation_started.store(1, Ordering::Release);
-        app.session.routing_mutation_committed.store(1, Ordering::Release);
+        app.session.destination_mutation_started.store(1, Ordering::Release);
+        app.session.destination_mutation_committed.store(1, Ordering::Release);
         app.replace_tree(notify_tree(41, false));
-        app.routing_refresh_pending = true;
+        app.pointer_route_phase = PointerRoutePhase::DrawPending;
 
         app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
             KeyCode::Char('x'),
@@ -12648,16 +15010,16 @@ mod tests {
         ))))
         .unwrap();
 
-        assert_eq!(app.applied_routing_generation, 0);
-        assert_eq!(app.deferred_input.front().and_then(|input| input.routing_intent), Some(1));
+        assert_eq!(app.applied_destination_generation, 0);
+        assert_eq!(app.deferred_input.front().and_then(|input| input.destination_intent), Some(1));
 
         app.handle(AppEvent::RemoteTreeUpdated {
             refresh_sequence: 1,
-            routing_generation: 1,
+            destination_generation: 1,
             result: Ok(notify_tree(42, false)),
         })
         .unwrap();
-        assert_eq!(app.applied_routing_generation, 1);
+        assert_eq!(app.applied_destination_generation, 1);
     }
 
     #[test]
@@ -12671,7 +15033,7 @@ mod tests {
         app.handle(settled(super::SessionMutationOutcome::IdentityRefreshSucceeded {
             tree: TreeView::default(),
             authoritative_generation: 0,
-            routing_generation: 0,
+            destination_generation: 0,
             refresh_sequence: 1,
         }))
         .unwrap();
@@ -12712,6 +15074,23 @@ mod tests {
         assert_eq!(dirty.len(), 1);
         assert_eq!(dirty.get(&updated_surface).map(AsRef::as_ref), Some("next"));
         assert_eq!(app.mux_titles.snapshot().len(), 2);
+    }
+
+    #[test]
+    fn paint_marks_the_pointer_route_stale_until_rendered() {
+        let mux = Mux::new("paint-pointer-route-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.replace_tree(notify_tree(41, false));
+        assert!(app.mux_titles.push(41, "updated-title".to_string()));
+
+        let action = app.handle(AppEvent::MuxTitlesReady).unwrap();
+
+        assert_eq!(action, RenderAction::Paint);
+        assert_eq!(
+            app.pointer_route_phase,
+            PointerRoutePhase::PaintPending,
+            "Paint rebuilds hit regions, so pointer routing must stay blocked until it renders"
+        );
     }
 
     #[test]
@@ -12769,14 +15148,14 @@ mod tests {
         }
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
         let titles = Arc::new(MuxTitleIngress::default());
-        let routing_generation = Arc::new(AtomicU64::new(0));
+        let destination_generation = Arc::new(AtomicU64::new(0));
         let recovery_generation = Arc::new(AtomicU64::new(0));
         let forwarder_recovery_generation = recovery_generation.clone();
         let forwarder = std::thread::spawn(move || {
             forward_mux_events(
                 event_source,
                 session_events,
-                routing_generation,
+                destination_generation,
                 forwarder_recovery_generation,
                 SessionEventSender::unscoped(tx),
                 titles,
@@ -12921,7 +15300,7 @@ mod tests {
 
         app.handle(AppEvent::MuxSubscriptionRecovered {
             recovery_generation: 1,
-            routing_generation: 0,
+            destination_generation: 0,
             result: Ok(app.session.tree()),
         })
         .unwrap();
@@ -12931,7 +15310,7 @@ mod tests {
 
         app.handle(AppEvent::MuxRecoveryComplete { recovery_generation: 1 }).unwrap();
         assert_eq!(app.mux_recovery_generation.load(Ordering::Acquire), 0);
-        assert!(app.routing_refresh_pending);
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::DrawPending);
     }
 
     #[test]
@@ -12956,7 +15335,7 @@ mod tests {
 
         app.handle(AppEvent::MuxSubscriptionRecovered {
             recovery_generation: 1,
-            routing_generation: 0,
+            destination_generation: 0,
             result: Err("refresh failed".to_string()),
         })
         .unwrap();
@@ -12975,7 +15354,7 @@ mod tests {
         app.handle(AppEvent::MuxRecoveryComplete { recovery_generation: 1 }).unwrap();
 
         assert_eq!(app.mux_recovery_generation.load(Ordering::Acquire), 2);
-        assert!(!app.routing_refresh_pending);
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::Fresh);
     }
 
     #[test]
@@ -13254,8 +15633,11 @@ mod tests {
         app.deferred_input.push_back(DeferredInput {
             event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             destination: Some(77),
-            routing_intent: None,
+            destination_intent: None,
             sidebar_focus_intent: false,
+            pairing_request: None,
+            pointer: None,
+            sequence: 1,
         });
         app.session.pending_mutations.store(1, Ordering::Release);
 
@@ -13305,9 +15687,238 @@ mod tests {
         app.handle(settled).unwrap();
         assert_eq!(app.deferred_input.len(), 1);
 
-        app.routing_refresh_pending = false;
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
         app.replay_deferred_input().unwrap();
         assert_eq!(app.deferred_input.len(), 1);
+    }
+
+    #[test]
+    fn terminally_failed_retained_motion_does_not_block_a_later_key() {
+        let (mux, healthy) = test_mux("failed-retained-motion-order-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        let failed_surface = 77;
+        app.replace_tree(notify_tree(healthy.id, false));
+        app.pane_areas = vec![browser_completion_area(healthy.id), {
+            let mut area = browser_completion_area(failed_surface);
+            area.pane = 3;
+            area.rect.x = 40;
+            area.bar.as_mut().unwrap().x = 40;
+            area.omnibar.as_mut().unwrap().x = 40;
+            area.content.x = 40;
+            area
+        }];
+        app.prompt = Some(Prompt::new("Rename", String::new(), PromptTarget::Surface(88)));
+
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 49,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('x'),
+            KeyModifiers::NONE,
+        ))))
+        .unwrap();
+        assert!(app.pending_pointer_motion.is_some());
+        assert_eq!(app.deferred_input.len(), 1);
+
+        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            settled,
+            AppEvent::SessionMutationSettled {
+                outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+                    surface: 77,
+                    operation: "attach",
+                    ..
+                },
+                ..
+            }
+        ));
+        app.handle(settled).unwrap();
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
+        app.replay_deferred_input().unwrap();
+
+        assert!(app.pending_pointer_motion.is_none());
+        assert!(app.deferred_input.is_empty());
+        assert_eq!(app.prompt.as_ref().unwrap().input.as_str(), "x");
+        mux.close_surface(healthy.id).unwrap();
+    }
+
+    #[test]
+    fn pointer_input_waits_for_a_cached_surface_attach_claim() {
+        let (mux, surface) = test_mux("cached-attach-claim-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(notify_tree(surface.id, false));
+        app.pane_areas.push(browser_completion_area(surface.id));
+        app.session.surface_attach_claims.lock().unwrap().insert(surface.id);
+
+        let motion = MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 14,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle(AppEvent::Input(Event::Mouse(motion))).unwrap();
+
+        assert_eq!(app.pending_pointer_motion.map(|pending| pending.event), Some(motion));
+
+        let press = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 14,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle(AppEvent::Input(Event::Mouse(press))).unwrap();
+
+        assert!(matches!(
+            app.deferred_input.front().map(|input| &input.event),
+            Some(Event::Mouse(event)) if *event == press
+        ));
+
+        app.session.surface_attach_claims.lock().unwrap().remove(&surface.id);
+        app.replay_deferred_input().unwrap();
+
+        assert!(app.pending_pointer_motion.is_none());
+        assert!(app.deferred_input.is_empty());
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn retained_pointer_motion_retries_a_missing_surface_attach() {
+        let mux = Mux::new("missing-mirror-pointer-retry-test", SurfaceOptions::default());
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        let surface = 77;
+        app.replace_tree(notify_tree(surface, false));
+        app.pane_areas.push(browser_completion_area(surface));
+        app.session.surface_attach_failures.lock().unwrap().insert(
+            surface,
+            super::SurfaceSyncFailureState {
+                attempts: 1,
+                retry_after: Some(Instant::now() + Duration::from_secs(30)),
+                sticky_until_reconnect: false,
+            },
+        );
+
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 9,
+            row: 3,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+
+        assert!(app.pending_pointer_motion.is_some());
+        assert!(!app.session.has_pending_mutations());
+        assert!(events.try_recv().is_err());
+
+        app.session
+            .surface_attach_failures
+            .lock()
+            .unwrap()
+            .get_mut(&surface)
+            .unwrap()
+            .retry_after = Some(Instant::now() - Duration::from_millis(1));
+        app.retry_pending_surface_attach();
+
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)).unwrap(),
+            AppEvent::SessionMutationSettled {
+                outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+                    surface: 77,
+                    operation: "attach",
+                    ..
+                },
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn retained_pointer_attach_waits_for_a_fresh_rendered_route() {
+        let mux = Mux::new("stale-pointer-attach-route-test", SurfaceOptions::default());
+        let (mut app, _events) = test_app_with_events(Session::Local(mux));
+        let stale_surface = 77;
+        app.pane_areas.push(browser_completion_area(stale_surface));
+        app.retain_pointer_motion(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 9,
+            row: 3,
+            modifiers: KeyModifiers::NONE,
+        });
+
+        app.handle(AppEvent::RemoteTreeUpdated {
+            refresh_sequence: 1,
+            destination_generation: 0,
+            result: Ok(TreeView::default()),
+        })
+        .unwrap();
+        app.retry_pending_surface_attach();
+
+        assert!(
+            !app.session.has_pending_mutations(),
+            "a stale frame must not choose a surface to attach"
+        );
+    }
+
+    #[test]
+    fn retained_pointer_motion_retry_skips_a_rate_limited_deferred_surface() {
+        let mux = Mux::new("missing-mirror-pointer-starvation-test", SurfaceOptions::default());
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        let deferred_surface = 77;
+        let pointer_surface = 88;
+        app.replace_tree(notify_tree(deferred_surface, false));
+        app.pane_areas.push(browser_completion_area(deferred_surface));
+        let mut pointer_area = browser_completion_area(pointer_surface);
+        pointer_area.rect.x = 40;
+        pointer_area.bar.as_mut().unwrap().x = 40;
+        pointer_area.omnibar.as_mut().unwrap().x = 40;
+        pointer_area.content.x = 40;
+        app.pane_areas.push(pointer_area);
+        app.deferred_input.push_back(DeferredInput {
+            event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
+            destination: Some(deferred_surface),
+            destination_intent: None,
+            sidebar_focus_intent: false,
+            pairing_request: None,
+            pointer: None,
+            sequence: 1,
+        });
+        app.pending_pointer_motion = Some(super::PendingPointerMotion {
+            event: MouseEvent {
+                kind: MouseEventKind::Moved,
+                column: 49,
+                row: 3,
+                modifiers: KeyModifiers::NONE,
+            },
+            destination: Some(pointer_surface),
+            focus_generation: 0,
+            sequence: 2,
+        });
+        app.session.surface_attach_failures.lock().unwrap().insert(
+            deferred_surface,
+            super::SurfaceSyncFailureState {
+                attempts: 1,
+                retry_after: Some(Instant::now() + Duration::from_secs(30)),
+                sticky_until_reconnect: false,
+            },
+        );
+
+        app.retry_pending_surface_attach();
+
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)).unwrap(),
+            AppEvent::SessionMutationSettled {
+                outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+                    surface: 88,
+                    operation: "attach",
+                    ..
+                },
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -13402,39 +16013,42 @@ mod tests {
         app.deferred_input.push_back(DeferredInput {
             event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             destination: None,
-            routing_intent: None,
+            destination_intent: None,
             sidebar_focus_intent: false,
+            pairing_request: None,
+            pointer: None,
+            sequence: 1,
         });
 
         app.handle(AppEvent::RemoteTreeUpdated {
             refresh_sequence: 2,
-            routing_generation: 0,
+            destination_generation: 0,
             result: Ok(newer.clone()),
         })
         .unwrap();
         app.handle(settled(super::SessionMutationOutcome::IdentityRefreshSucceeded {
             tree: older.clone(),
             authoritative_generation: 0,
-            routing_generation: 0,
+            destination_generation: 0,
             refresh_sequence: 1,
         }))
         .unwrap();
         assert_eq!(app.tree.workspaces[0].screens[0].panes[0].tabs[0].surface, 22);
-        assert!(app.routing_refresh_pending);
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::DrawPending);
         assert_eq!(app.deferred_input.len(), 1);
 
-        app.routing_refresh_pending = false;
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
         app.session.pending_mutations.store(1, Ordering::Release);
         app.handle(settled(super::SessionMutationOutcome::IdentityRefreshSucceeded {
             tree: newer,
             authoritative_generation: 0,
-            routing_generation: 0,
+            destination_generation: 0,
             refresh_sequence: 4,
         }))
         .unwrap();
         app.handle(AppEvent::RemoteTreeUpdated {
             refresh_sequence: 3,
-            routing_generation: 0,
+            destination_generation: 0,
             result: Ok(older),
         })
         .unwrap();
@@ -13455,21 +16069,31 @@ mod tests {
 
         app.handle(AppEvent::RemoteTreeUpdated {
             refresh_sequence: 2,
-            routing_generation: 0,
+            destination_generation: 0,
             result: Ok(tree.clone()),
         })
         .unwrap();
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
+        app.retain_pointer_motion(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 14,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        });
         app.session.pending_mutations.store(1, Ordering::Release);
-        app.handle(settled(super::SessionMutationOutcome::IdentityRefreshSucceeded {
-            tree,
-            authoritative_generation: 4,
-            routing_generation: 0,
-            refresh_sequence: 1,
-        }))
-        .unwrap();
+        let action = app
+            .handle(settled(super::SessionMutationOutcome::IdentityRefreshSucceeded {
+                tree,
+                authoritative_generation: 4,
+                destination_generation: 0,
+                refresh_sequence: 1,
+            }))
+            .unwrap();
 
         assert!(app.pending_session_completions.is_empty());
         assert_eq!(app.omnibar.as_ref().map(|state| state.surface), Some(surface));
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::DrawPending);
+        assert_eq!(action, RenderAction::Draw);
     }
 
     #[test]
@@ -13478,12 +16102,12 @@ mod tests {
         let mut app = test_app(Session::Local(mux));
         app.handle(AppEvent::RemoteTreeUpdated {
             refresh_sequence: 1,
-            routing_generation: 0,
+            destination_generation: 0,
             result: Ok(notify_tree(22, false)),
         })
         .unwrap();
 
-        assert!(app.routing_refresh_pending);
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::DrawPending);
         app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
             KeyCode::Char('x'),
             KeyModifiers::NONE,
@@ -13500,7 +16124,7 @@ mod tests {
         for refresh_sequence in 1..=u64::from(BACKGROUND_REFRESH_RETRIES) + 1 {
             app.handle(AppEvent::RemoteTreeUpdated {
                 refresh_sequence,
-                routing_generation: 0,
+                destination_generation: 0,
                 result: Err("offline".to_string()),
             })
             .unwrap();
@@ -13596,6 +16220,7 @@ mod tests {
             handle: None,
             reservation_id: 7,
             release_bytes: PtyInputBytes::from_slice(b"release"),
+            semantics: None,
             content: Rect { x: 1, y: 1, width: 20, height: 8 },
             button: MouseButton::Left,
             position: (4, 3),
@@ -13687,11 +16312,16 @@ mod tests {
         let surface = 77;
         app.session.remote = true;
         app.replace_tree(notify_tree(surface, false));
+        app.rendered_terminal_sizes.insert(surface, (12, 5));
+        app.rendered_terminal_bounds.insert(surface, Rect { x: 2, y: 3, width: 12, height: 5 });
         app.deferred_input.push_back(DeferredInput {
             event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             destination: Some(surface),
-            routing_intent: None,
+            destination_intent: None,
             sidebar_focus_intent: false,
+            pairing_request: None,
+            pointer: None,
+            sequence: 1,
         });
 
         assert_eq!(
@@ -13700,6 +16330,8 @@ mod tests {
         );
         assert!(!app.tab_locations.contains_key(&surface));
         assert!(app.tree.workspaces[0].screens[0].panes[0].tabs.is_empty());
+        assert!(!app.rendered_terminal_sizes.contains_key(&surface));
+        assert!(!app.rendered_terminal_bounds.contains_key(&surface));
 
         // Simulate the stale cached remote tree being painted before the
         // authoritative exit refresh arrives. The exited-surface guard must
@@ -13858,8 +16490,11 @@ mod tests {
         app.deferred_input.push_back(DeferredInput {
             event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             destination: None,
-            routing_intent: None,
+            destination_intent: None,
             sidebar_focus_intent: false,
+            pairing_request: None,
+            pointer: None,
+            sequence: 1,
         });
         app.session
             .enqueue("timed out mutation", |_| Err(crate::session::test_remote_timeout_error()));
@@ -13888,8 +16523,11 @@ mod tests {
         app.deferred_input.push_back(DeferredInput {
             event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             destination: None,
-            routing_intent: None,
+            destination_intent: None,
             sidebar_focus_intent: false,
+            pairing_request: None,
+            pointer: None,
+            sequence: 1,
         });
 
         for (label, key) in [
@@ -13982,7 +16620,7 @@ mod tests {
 
         app.handle(AppEvent::RemoteTreeUpdated {
             refresh_sequence: 1,
-            routing_generation: 0,
+            destination_generation: 0,
             result: Ok(tree.clone()),
         })
         .unwrap();
@@ -13998,7 +16636,7 @@ mod tests {
         app.handle(settled(super::SessionMutationOutcome::IdentityRefreshSucceeded {
             tree: tree.clone(),
             authoritative_generation: 3,
-            routing_generation: 0,
+            destination_generation: 0,
             refresh_sequence: 2,
         }))
         .unwrap();
@@ -14009,7 +16647,7 @@ mod tests {
         app.handle(settled(super::SessionMutationOutcome::IdentityRefreshSucceeded {
             tree,
             authoritative_generation: 4,
-            routing_generation: 0,
+            destination_generation: 0,
             refresh_sequence: 3,
         }))
         .unwrap();
@@ -14033,7 +16671,7 @@ mod tests {
         app.handle(settled(super::SessionMutationOutcome::IdentityRefreshSucceeded {
             tree: browser_completion_tree(created_surface, active_surface),
             authoritative_generation: 4,
-            routing_generation: 0,
+            destination_generation: 0,
             refresh_sequence: 1,
         }))
         .unwrap();
@@ -14049,7 +16687,7 @@ mod tests {
         let (mut app, events) = test_app_with_events(Session::Local(mux));
         let (started_tx, started_rx) = std::sync::mpsc::channel();
         let (release_tx, release_rx) = std::sync::mpsc::channel();
-        app.session.enqueue("failing selection", move |_| {
+        app.session.enqueue_destination_mutation("failing selection", move |_| {
             started_tx.send(()).unwrap();
             release_rx.recv().unwrap();
             anyhow::bail!("selection rejected")
@@ -14067,6 +16705,14 @@ mod tests {
         ))))
         .unwrap();
         assert_eq!(app.deferred_input.len(), 1);
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 14,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+        assert_eq!(app.hover, None);
 
         release_tx.send(()).unwrap();
         let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
@@ -14074,9 +16720,149 @@ mod tests {
 
         assert!(app.deferred_input.is_empty());
         assert!(!app.prefix_armed);
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::DrawPending);
         assert_eq!(
             app.status_message.as_deref(),
             Some("session operation failed: selection rejected")
+        );
+
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
+        app.replay_deferred_input().unwrap();
+        assert_eq!(app.hover, Some((14, 6)));
+    }
+
+    #[test]
+    fn pointer_map_mutations_enter_the_routing_lane() {
+        let mux = Mux::new("pointer-map-routing-test", SurfaceOptions::default());
+        let (app, _events) = test_app_with_events(Session::Local(mux));
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        app.session.operations.enqueue_session_mutation(
+            "block pointer map lane",
+            false,
+            move || {
+                started_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+                Ok(())
+            },
+        );
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        app.session.zoom_pane(None);
+        app.session.swap_pane(1, 2);
+        app.session.move_workspace(1, 0);
+
+        assert_eq!(app.session.pending_pointer_mutations.load(Ordering::Acquire), 3);
+        release_tx.send(()).unwrap();
+    }
+
+    #[test]
+    fn terminal_geometry_mutations_enter_the_pointer_routing_lane() {
+        let (mux, surface) = test_mux("terminal-geometry-routing-test", None);
+        let (app, _events) = test_app_with_events(Session::Local(mux));
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        app.session.operations.enqueue_session_mutation(
+            "block terminal geometry lane",
+            false,
+            move || {
+                started_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+                Ok(())
+            },
+        );
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let claim = match app.session.surface_resize_decision(surface.id, (90, 31), true) {
+            SurfaceResizeDecision::NeedsQueue(claim) => claim,
+            _ => panic!("changed terminal size must queue"),
+        };
+        app.session.resize_surface(
+            surface.id,
+            app.session.surface(surface.id).unwrap(),
+            90,
+            31,
+            false,
+            claim,
+        );
+        app.session.use_all_client_sizing();
+        assert!(app.session.release_surface_size(surface.id));
+
+        assert_eq!(
+            app.session.pending_pointer_mutations.load(Ordering::Acquire),
+            3,
+            "PTY resize, client sizing, and size release all change terminal pointer geometry"
+        );
+        release_tx.send(()).unwrap();
+    }
+
+    #[test]
+    fn pointer_motion_waits_for_config_application() {
+        let mux = Mux::new("config-pointer-routing-test", SurfaceOptions::default());
+        let (mut app, _events) = test_app_with_events(Session::Local(mux));
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        app.session.operations.enqueue_session_mutation("block config lane", false, move || {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            Ok(())
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        app.session.apply_config(Config::default());
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 14,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+
+        let pending_pointer = app.session.has_pending_pointer_mutations();
+        let hover = app.hover;
+        let retained_motion = app.pending_pointer_motion.is_some();
+        release_tx.send(()).unwrap();
+
+        assert!(pending_pointer);
+        assert_eq!(hover, None);
+        assert!(retained_motion);
+    }
+
+    #[test]
+    fn pointer_only_mutations_do_not_mint_destination_intent() {
+        let mux = Mux::new("pointer-only-destination-intent-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        app.session.operations.enqueue_session_mutation(
+            "block pointer-only mutations",
+            false,
+            move || {
+                started_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+                Ok(())
+            },
+        );
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        app.session.set_cell_pixel_size(12, 24);
+        app.session.apply_config(Config::default());
+        app.session.zoom_pane(None);
+        app.session.set_split_ratio(1, 0.5);
+        app.session.swap_pane(1, 2);
+        app.session.move_workspace(1, 0);
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('x'),
+            KeyModifiers::NONE,
+        ))))
+        .unwrap();
+        let destination_intent =
+            app.deferred_input.front().and_then(|input| input.destination_intent);
+        release_tx.send(()).unwrap();
+
+        assert_eq!(
+            destination_intent, None,
+            "pointer-only mutations must not authorize keyboard retargeting"
         );
     }
 
@@ -14150,10 +16936,12 @@ mod tests {
             match events.recv_timeout(Duration::from_secs(1)).unwrap() {
                 AppEvent::SessionMutationSettled {
                     outcome: super::SessionMutationOutcome::Success { tree: None },
+                    impact: MutationImpact::PointerMap,
                     ..
                 } => sample_without_tree += 1,
                 AppEvent::SessionMutationSettled {
                     outcome: super::SessionMutationOutcome::AuthoritativeMutationSucceeded { .. },
+                    impact: MutationImpact::PointerMap,
                     ..
                 } => authoritative_snapshots += 1,
                 _ => panic!("unexpected split ratio settlement"),
@@ -14165,17 +16953,249 @@ mod tests {
     }
 
     #[test]
-    fn pointer_motion_is_discarded_while_a_mutation_can_change_its_target() {
+    fn pointer_motion_keeps_only_the_latest_position_until_routing_settles() {
         let mux = Mux::new("deferred-motion-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.session.pending_mutations.store(1, Ordering::Release);
+        app.session.pending_pointer_mutations.store(1, Ordering::Release);
+
+        for (column, row) in [(9, 3), (14, 6)] {
+            app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Moved,
+                column,
+                row,
+                modifiers: KeyModifiers::NONE,
+            })))
+            .unwrap();
+        }
+
+        assert!(app.deferred_input.is_empty());
+        assert_eq!(app.hover, None);
+        assert_eq!(app.status_message, None);
+
+        app.session.pending_mutations.store(0, Ordering::Release);
+        app.session.pending_pointer_mutations.store(0, Ordering::Release);
+        app.replay_deferred_input().unwrap();
+
+        assert_eq!(app.hover, Some((14, 6)));
+        assert_eq!(app.status_message, None);
+    }
+
+    #[test]
+    fn replay_batches_non_pointer_draws_before_the_next_render_boundary() {
+        let mux = Mux::new("batched-non-pointer-replay-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.prompt = Some(Prompt::new("Rename", String::new(), PromptTarget::Surface(77)));
+        for character in ['a', 'b', 'c'] {
+            app.defer_input(Event::Key(KeyEvent::new(
+                KeyCode::Char(character),
+                KeyModifiers::NONE,
+            )));
+        }
+
+        let action = app.replay_deferred_input().unwrap();
+
+        assert_eq!(action, RenderAction::Draw);
+        assert_eq!(app.prompt.as_ref().unwrap().input.as_str(), "abc");
+        assert!(
+            app.deferred_input.is_empty(),
+            "one replay batch should consume consecutive non-pointer draws"
+        );
+    }
+
+    #[test]
+    fn deferred_key_replays_before_later_pointer_motion() {
+        let mux = Mux::new("key-before-pointer-test", SurfaceOptions::default());
+        let (mut app, _events) = test_app_with_events(Session::Local(mux));
+        app.prefix_armed = true;
+        app.session.pending_mutations.store(1, Ordering::Release);
+        app.session.pending_pointer_mutations.store(1, Ordering::Release);
+
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE))))
+            .unwrap();
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 14,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+
+        app.session.pending_mutations.store(0, Ordering::Release);
+        app.session.pending_pointer_mutations.store(0, Ordering::Release);
+        app.replay_deferred_input().unwrap();
+
+        assert_eq!(app.hover, None);
+        assert!(app.pending_pointer_motion.is_some());
+        assert!(app.session.has_pending_pointer_mutations());
+    }
+
+    #[test]
+    fn deferred_pointer_waits_for_layout_draw_during_replay() {
+        let mux = Mux::new("draw-before-pointer-replay-test", SurfaceOptions::default());
+        let plugin = cmux_tui_core::SidebarPluginOptions {
+            command: vec!["/definitely/missing/cmux-sidebar-plugin".to_string()],
+            cwd: None,
+        };
+        mux.configure_sidebar_plugin(Some(plugin.clone()));
         let (mut app, events) = test_app_with_events(Session::Local(mux));
+        app.config.sidebar.plugin = Some(plugin);
+        app.sidebar_visible = false;
+        app.sidebar_width = 12;
+        app.content_area.height = 8;
         let (started_tx, started_rx) = std::sync::mpsc::channel();
         let (release_tx, release_rx) = std::sync::mpsc::channel();
-        app.session.enqueue_routing("blocking mutation", move |_| {
-            started_tx.send(()).unwrap();
-            release_rx.recv().unwrap();
-            Ok(())
-        });
+        app.session.operations.enqueue_session_mutation(
+            "block before sidebar plugin",
+            false,
+            move || {
+                started_tx.send(()).unwrap();
+                let _ = release_rx.recv();
+                Ok(())
+            },
+        );
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        app.prefix_armed = true;
+        app.defer_input(Event::Key(KeyEvent::new(KeyCode::Char('S'), KeyModifiers::SHIFT)));
+        app.retain_pointer_motion(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 14,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        });
+
+        let action = app.replay_deferred_input().unwrap();
+
+        assert_eq!(action, RenderAction::Draw);
+        assert!(app.sidebar_visible);
+        assert_eq!(app.hover, None);
+        assert!(app.pending_pointer_motion.is_some());
+        assert!(app.session.has_pending_mutations());
+        assert!(
+            app.session.has_pending_pointer_mutations(),
+            "sidebar plugin attachment can replace the rendered pointer owner"
+        );
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::DrawPending);
+
+        release_tx.send(()).unwrap();
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
+        app.replay_deferred_input().unwrap();
+
+        assert_eq!(app.hover, Some((14, 6)));
+        assert!(app.pending_pointer_motion.is_none());
+    }
+
+    #[test]
+    fn pointer_motion_replays_before_a_later_deferred_key() {
+        let mux = Mux::new("pointer-before-key-test", SurfaceOptions::default());
+        let (mut app, _events) = test_app_with_events(Session::Local(mux));
+        app.session.pending_mutations.store(1, Ordering::Release);
+        app.session.pending_pointer_mutations.store(1, Ordering::Release);
+
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 14,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+        app.prefix_armed = true;
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE))))
+            .unwrap();
+
+        app.session.pending_mutations.store(0, Ordering::Release);
+        app.session.pending_pointer_mutations.store(0, Ordering::Release);
+        app.replay_deferred_input().unwrap();
+
+        assert_eq!(app.hover, Some((14, 6)));
+        assert!(app.pending_pointer_motion.is_none());
+        assert!(app.session.has_pending_pointer_mutations());
+    }
+
+    #[test]
+    fn newer_live_pointer_motion_supersedes_a_retained_position() {
+        let mux = Mux::new("newer-pointer-motion-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.session.pending_mutations.store(1, Ordering::Release);
+        app.session.pending_pointer_mutations.store(1, Ordering::Release);
+
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 9,
+            row: 3,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+
+        app.session.pending_mutations.store(0, Ordering::Release);
+        app.session.pending_pointer_mutations.store(0, Ordering::Release);
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 14,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+
+        assert!(app.pending_pointer_motion.is_none());
+        assert_eq!(app.hover, Some((14, 6)));
+        app.replay_deferred_input().unwrap();
+        assert_eq!(app.hover, Some((14, 6)));
+    }
+
+    #[test]
+    fn session_presentation_reset_clears_retained_pointer_motion() {
+        let mux = Mux::new("reset-pointer-motion-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.retain_pointer_motion(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 9,
+            row: 3,
+            modifiers: KeyModifiers::NONE,
+        });
+
+        app.reset_session_presentation(TreeView::default());
+
+        assert!(app.pending_pointer_motion.is_none());
+    }
+
+    #[test]
+    fn session_presentation_reset_clears_rendered_terminal_caches() {
+        let mux = Mux::new("reset-rendered-terminal-state-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.rendered_terminal_sizes.insert(77, (12, 5));
+        app.rendered_terminal_bounds.insert(77, Rect { x: 2, y: 3, width: 12, height: 5 });
+
+        app.reset_session_presentation(TreeView::default());
+
+        assert!(app.rendered_terminal_sizes.is_empty());
+        assert!(app.rendered_terminal_bounds.is_empty());
+    }
+
+    #[test]
+    fn session_presentation_reset_discards_the_previous_pointer_frame() {
+        let mux = Mux::new("reset-rendered-pointer-frame-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.rendered_pointer_frame.pairing = Some((
+            41,
+            Rect { x: 1, y: 1, width: 20, height: 10 },
+            Rect { x: 3, y: 8, width: 6, height: 1 },
+            Rect { x: 12, y: 8, width: 6, height: 1 },
+        ));
+
+        app.reset_session_presentation(TreeView::default());
+
+        assert!(app.rendered_pointer_frame.pairing.is_none());
+    }
+
+    #[test]
+    fn pointer_motion_continues_during_non_routing_background_mutation() {
+        let mux = Mux::new("background-pointer-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.session.pending_mutations.store(1, Ordering::Release);
 
         app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
             kind: MouseEventKind::Moved,
@@ -14186,42 +17206,1082 @@ mod tests {
         .unwrap();
 
         assert!(app.deferred_input.is_empty());
-        assert_eq!(
-            app.status_message.as_deref(),
-            Some("Pointer input was discarded while the layout changed")
-        );
-        release_tx.send(()).unwrap();
-        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
-        app.handle(settled).unwrap();
+        assert_eq!(app.hover, Some((9, 3)));
+        assert_eq!(app.status_message, None);
     }
 
     #[test]
-    fn pointer_input_continues_during_non_routing_background_mutation() {
-        let mux = Mux::new("background-pointer-test", SurfaceOptions::default());
-        let (mut app, events) = test_app_with_events(Session::Local(mux));
+    fn pointer_motion_waits_for_pending_cell_pixel_geometry() {
+        let mux = Mux::new("cell-pixel-pointer-barrier-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
         let (started_tx, started_rx) = std::sync::mpsc::channel();
         let (release_tx, release_rx) = std::sync::mpsc::channel();
-        app.session.enqueue("blocking background sync", move |_| {
+        app.session.operations.enqueue_session_mutation(
+            "block before cell pixel geometry",
+            false,
+            move || {
+                started_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+                Ok(())
+            },
+        );
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        // refresh_cell_pixels publishes this scale before its ordered session
+        // mutation updates browser geometry.
+        app.cell_pixels = (12, 24);
+        app.session.set_cell_pixel_size(12, 24);
+        let motion = MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 9,
+            row: 3,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle(AppEvent::Input(Event::Mouse(motion))).unwrap();
+        let hover = app.hover;
+        let pending_motion = app.pending_pointer_motion.map(|pending| pending.event);
+        let pointer_pending = app.session.has_pending_pointer_mutations();
+        release_tx.send(()).unwrap();
+
+        assert_eq!(hover, None, "motion must not use the new scale before geometry settles");
+        assert_eq!(pending_motion, Some(motion));
+        assert!(pointer_pending, "cell pixel geometry must participate in pointer routing");
+    }
+
+    #[test]
+    fn discrete_pointer_waits_behind_earlier_deferred_input() {
+        let mux = Mux::new("ordered-discrete-pointer-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.session.pending_mutations.store(1, Ordering::Release);
+
+        app.handle(AppEvent::Input(Event::Paste("first".to_string()))).unwrap();
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 14,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+
+        assert_eq!(app.deferred_input.len(), 2);
+        assert!(matches!(
+            app.deferred_input.front().map(|input| &input.event),
+            Some(Event::Paste(text)) if text == "first"
+        ));
+        assert!(matches!(
+            app.deferred_input.back().map(|input| &input.event),
+            Some(Event::Mouse(MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), .. }))
+        ));
+    }
+
+    #[test]
+    fn event_loop_drains_replay_draw_before_receiving_more_input() {
+        let mux = Mux::new("event-loop-draw-replay-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.prefix_armed = true;
+        app.defer_input(Event::Key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE)));
+        app.retain_pointer_motion(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 14,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        });
+        app.pointer_route_phase = PointerRoutePhase::DrawPending;
+        let (events, receiver) = std::sync::mpsc::channel();
+        events.send(AppEvent::Mux(MuxEvent::SurfaceOutput(999))).unwrap();
+        drop(events);
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+
+        app.event_loop(&mut terminal, receiver).unwrap();
+
+        assert!(!app.sidebar_visible);
+        assert_eq!(app.hover, Some((14, 6)));
+        assert!(app.pending_pointer_motion.is_none());
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::Fresh);
+    }
+
+    #[test]
+    fn event_loop_replays_retained_batches_before_new_channel_input() {
+        let mux = Mux::new("event-loop-replay-order-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.prompt = Some(Prompt::new("Rename", String::new(), PromptTarget::Surface(77)));
+        for _ in 0..257 {
+            app.defer_input(Event::Key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)));
+        }
+        let (events, receiver) = std::sync::mpsc::channel();
+        events
+            .send(AppEvent::Input(Event::Key(KeyEvent::new(
+                KeyCode::Char('z'),
+                KeyModifiers::NONE,
+            ))))
+            .unwrap();
+        drop(events);
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+
+        app.event_loop(&mut terminal, receiver).unwrap();
+
+        assert_eq!(
+            app.prompt.as_ref().unwrap().input.as_str(),
+            format!("{}z", "a".repeat(257)),
+            "older retained input must finish replaying before newer channel input"
+        );
+    }
+
+    #[test]
+    fn event_loop_renders_paint_before_following_pointer_input() {
+        let mux = Mux::new("event-loop-paint-pointer-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 24))).unwrap();
+        let (mut app, mutation_events) = test_app_with_events(Session::Local(mux));
+        app.sidebar_visible = false;
+        app.sync_layout((100, 12));
+        while app.session.has_pending_mutations() {
+            app.handle(mutation_events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let (events, receiver) = std::sync::mpsc::channel();
+        events.send(AppEvent::Mux(MuxEvent::SurfaceOutput(999))).unwrap();
+        events
+            .send(AppEvent::Input(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Right),
+                column: 14,
+                row: 6,
+                modifiers: KeyModifiers::SHIFT,
+            })))
+            .unwrap();
+        drop(events);
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+
+        app.event_loop(&mut terminal, receiver).unwrap();
+
+        assert!(
+            app.menu.is_some(),
+            "the pointer input after a routine paint must open its context menu: status={:?}, \
+             deferred={}, panes={:?}",
+            app.status_message,
+            app.deferred_input.len(),
+            app.pane_areas
+        );
+    }
+
+    #[test]
+    fn pointer_captured_before_pairing_dialog_render_cannot_approve_it() {
+        let mux = Mux::new("pairing-render-pointer-route-test", SurfaceOptions::default());
+        let (challenge, decision) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
+        let mut app = test_app(Session::Local(mux));
+        let width = 48;
+        let dialog_x = (100 - width) / 2;
+        let dialog_y = (20 - 10) / 2;
+        let approve_width = localization::catalog().pairing.approve.chars().count() as u16;
+        let approve_x = dialog_x + width - 2 - approve_width;
+        let (events, receiver) = std::sync::mpsc::channel();
+        events.send(AppEvent::Mux(MuxEvent::PairingRequested(challenge.clone()))).unwrap();
+        events
+            .send(AppEvent::Input(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: approve_x,
+                row: dialog_y + 8,
+                modifiers: KeyModifiers::NONE,
+            })))
+            .unwrap();
+        drop(events);
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+
+        app.event_loop(&mut terminal, receiver).unwrap();
+
+        assert_eq!(
+            app.pairing_dialog.as_ref().map(|dialog| dialog.challenge.id),
+            Some(challenge.id),
+            "a click from the previous frame must not activate a newly rendered trusted dialog"
+        );
+        assert!(decision.try_recv().is_err(), "the unseen pairing request must remain unresolved");
+        assert!(
+            app.status_message.as_deref().is_none_or(|message| !message.contains("discarded")),
+            "stale pointer samples should be dropped without noisy user-facing warnings"
+        );
+    }
+
+    #[test]
+    fn focus_loss_purges_pointer_press_waiting_for_a_paint() {
+        let mux = Mux::new(
+            "focus-loss-deferred-pointer-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "sleep 30".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
+        let (mut app, mutation_events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.sync_layout((100, 12));
+        while app.session.has_pending_mutations() {
+            app.handle(mutation_events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let content = app.pane_areas[0].content;
+        let (events, receiver) = std::sync::mpsc::channel();
+        events.send(AppEvent::Mux(MuxEvent::SurfaceOutput(surface.id))).unwrap();
+        events
+            .send(AppEvent::Input(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: content.x + 4,
+                row: content.y + 2,
+                modifiers: KeyModifiers::NONE,
+            })))
+            .unwrap();
+        events.send(AppEvent::Input(Event::FocusLost)).unwrap();
+        drop(events);
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+
+        app.event_loop(&mut terminal, receiver).unwrap();
+
+        assert!(
+            app.drag.is_none(),
+            "focus loss must not allow an earlier retained PTY press to start a new drag"
+        );
+        assert!(app.deferred_input.is_empty());
+        assert!(app.pending_pointer_motion.is_none());
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn routine_paint_and_draw_do_not_defer_key_or_paste_input() {
+        let mux = Mux::new("paint-key-latency-test", SurfaceOptions::default());
+        let mut paint_app = test_app(Session::Local(mux));
+        paint_app.prompt = Some(Prompt::new("Rename", String::new(), PromptTarget::Surface(77)));
+
+        assert_eq!(
+            paint_app.handle(AppEvent::Mux(MuxEvent::SurfaceOutput(77))).unwrap(),
+            RenderAction::Paint
+        );
+        paint_app
+            .handle(AppEvent::Input(Event::Key(KeyEvent::new(
+                KeyCode::Char('k'),
+                KeyModifiers::NONE,
+            ))))
+            .unwrap();
+
+        assert_eq!(paint_app.prompt.as_ref().unwrap().input.as_str(), "k");
+        assert!(
+            paint_app.deferred_input.is_empty(),
+            "routine Paint must not put key input on the replay queue"
+        );
+
+        let mux = Mux::new("draw-paste-latency-test", SurfaceOptions::default());
+        let mut draw_app = test_app(Session::Local(mux));
+        draw_app.prompt = Some(Prompt::new("Rename", String::new(), PromptTarget::Surface(77)));
+
+        assert_eq!(
+            draw_app.handle(AppEvent::Mux(MuxEvent::Status("notice".to_string()))).unwrap(),
+            RenderAction::Draw
+        );
+        draw_app.handle(AppEvent::Input(Event::Paste("paste".to_string()))).unwrap();
+
+        assert_eq!(draw_app.prompt.as_ref().unwrap().input.as_str(), "paste");
+        assert!(
+            draw_app.deferred_input.is_empty(),
+            "routine Draw must not put paste input on the replay queue"
+        );
+    }
+
+    #[test]
+    fn deferred_wheel_cannot_retarget_a_new_blank_machine_rail() {
+        let mux = Mux::new("blank-rail-pointer-route-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_visible = false;
+        app.sync_layout((100, 10));
+        app.commit_rendered_pointer_frame();
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
+
+        app.machine_ui = Some(MachineUiState::new(MachineSnapshot {
+            machines: vec![MachineDescriptor {
+                key: MachineKey(1),
+                id: "machine-1".to_string(),
+                name: "machine-1".to_string(),
+                subtitle: "cloud".to_string(),
+                status: MachineStatus::Running,
+            }],
+            active: Some(MachineKey(1)),
+            capabilities: MachineCapabilities::default(),
+        }));
+        app.sidebar_visible = true;
+        app.sync_layout((100, 10));
+        let rail = app.sidebar_layout.machine.expect("machine rail should be pending");
+        app.pointer_route_phase = PointerRoutePhase::DrawPending;
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: rail.x + 1,
+            row: rail.y + rail.height.saturating_sub(2),
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+
+        assert_eq!(app.deferred_input.len(), 1);
+        app.commit_rendered_pointer_frame();
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
+        app.replay_deferred_input().unwrap();
+
+        assert_eq!(
+            app.machine_rail_scroll, 0,
+            "a wheel event captured outside the old frame must not scroll a newly drawn rail"
+        );
+        assert_eq!(app.machine_footer_scroll, 0);
+    }
+
+    #[test]
+    fn deferred_wheel_cannot_retarget_a_new_blank_workspace_rail() {
+        let mux = Mux::new("blank-workspace-rail-pointer-route-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_visible = false;
+        app.sync_layout((100, 10));
+        app.commit_rendered_pointer_frame();
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
+
+        app.sidebar_view = SidebarView::Workspaces;
+        app.sidebar_visible = true;
+        app.sync_layout((100, 10));
+        let rail = app.sidebar_layout.workspace.expect("workspace rail should be pending");
+        app.pointer_route_phase = PointerRoutePhase::DrawPending;
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: rail.x + 1,
+            row: rail.y + rail.height.saturating_sub(2),
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+
+        assert_eq!(app.deferred_input.len(), 1);
+        app.commit_rendered_pointer_frame();
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
+        app.replay_deferred_input().unwrap();
+
+        assert_eq!(
+            app.workspace_rail_scroll, 0,
+            "a wheel event captured outside the old frame must not scroll a newly drawn rail"
+        );
+        assert_eq!(app.workspace_footer_scroll, 0);
+    }
+
+    #[test]
+    fn timeout_draw_marks_pointer_route_stale_before_channel_drain() {
+        let mux = Mux::new("timeout-pointer-route-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.prompt = Some(Prompt::new("Rename", String::new(), PromptTarget::Surface(77)));
+        app.shake_frames = 2;
+        let (timeout_started_tx, timeout_started_rx) = std::sync::mpsc::channel();
+        let (pointer_queued_tx, pointer_queued_rx) = std::sync::mpsc::channel();
+        app.timeout_drain_hook = Some(Box::new(move || {
+            timeout_started_tx.send(()).unwrap();
+            pointer_queued_rx.recv().unwrap();
+        }));
+        let (events, receiver) = std::sync::mpsc::channel();
+        let sender = std::thread::spawn(move || {
+            timeout_started_rx.recv().unwrap();
+            events
+                .send(AppEvent::Input(Event::Mouse(MouseEvent {
+                    kind: MouseEventKind::ScrollDown,
+                    column: 1,
+                    row: 1,
+                    modifiers: KeyModifiers::NONE,
+                })))
+                .unwrap();
+            pointer_queued_tx.send(()).unwrap();
+        });
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+
+        app.event_loop(&mut terminal, receiver).unwrap();
+        sender.join().unwrap();
+
+        assert_eq!(
+            app.deferred_input_sequence, 1,
+            "pointer input drained after a timeout-triggered draw must cross the rendered-frame barrier"
+        );
+    }
+
+    #[test]
+    fn focus_loss_cancels_non_pty_pointer_interaction() {
+        let mux = Mux::new("focus-loss-selection-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.drag = Some(Drag::Select {
+            content: Rect { x: 2, y: 3, width: 20, height: 8 },
+            auto_scroll: Some(1),
+            col: 4,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        app.handle(AppEvent::Input(Event::FocusLost)).unwrap();
+
+        assert!(app.drag.is_none(), "focus loss must stop selection and its auto-scroll tick");
+        assert!(app.active_pointer_buttons.is_empty());
+    }
+
+    #[test]
+    fn focus_loss_settles_an_active_split_resize() {
+        let mux = Mux::new("focus-loss-split-settle-test", SurfaceOptions::default());
+        let (mut app, _events) = test_app_with_events(Session::Local(mux));
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        app.session.operations.enqueue_session_mutation("block split settle", false, move || {
             started_tx.send(()).unwrap();
             release_rx.recv().unwrap();
             Ok(())
         });
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        app.drag =
+            Some(Drag::ResizeSplit { horizontal: Some((1, PaneEdge::Right)), vertical: None });
+
+        app.handle(AppEvent::Input(Event::FocusLost)).unwrap();
+        let pending_pointer = app.session.pending_pointer_mutations.load(Ordering::Acquire);
+        release_tx.send(()).unwrap();
+
+        assert_eq!(
+            pending_pointer, 1,
+            "canceling a split drag must enqueue its final authoritative settlement"
+        );
+        assert!(app.drag.is_none());
+    }
+
+    #[test]
+    fn focus_loss_releases_an_active_browser_press() {
+        let mux = Mux::new("focus-loss-browser-release-test", SurfaceOptions::default());
+        let surface = mux.new_browser_tab("about:blank".to_string(), None, Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        let (dispatcher, blocked) = BrowserInputDispatcher::blocked(1);
+        app.browser_input = dispatcher;
+        assert!(app.browser_input.enqueue(BrowserInputEvent {
+            surface_id: surface.id,
+            surface: app.session.surface(surface.id).unwrap(),
+            kind: BrowserInputKind::Mouse {
+                event_type: "mousePressed",
+                x: 3.0,
+                y: 2.0,
+                button: Some("left"),
+                click_count: Some(1),
+            },
+        }));
+        assert_eq!(blocked.drain_mouse_lifetimes(), vec![("mousePressed", false)]);
+        app.drag = Some(Drag::Browser {
+            surface: surface.id,
+            content: Rect { x: 2, y: 3, width: 20, height: 8 },
+            position: (5, 5),
+        });
+
+        app.handle(AppEvent::Input(Event::FocusLost)).unwrap();
+
+        assert_eq!(
+            blocked.drain_mouse_lifetimes(),
+            vec![("mouseReleased", false)],
+            "focus loss must enqueue a terminal mouseReleased for the browser that owns the press"
+        );
+        assert!(app.drag.is_none());
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn right_button_capture_cannot_cross_a_new_pairing_dialog() {
+        let mux = Mux::new("pairing-menu-capture-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 24))).unwrap();
+        let (mut app, mutation_events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.sync_layout((100, 20));
+        while app.session.has_pending_mutations() {
+            app.handle(mutation_events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let content = app.pane_areas[0].content;
+        let press = (content.x + 4, content.y + 2);
+        let select = (press.0 + 1, press.1);
+        let action = app
+            .handle(AppEvent::Input(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Right),
+                column: press.0,
+                row: press.1,
+                modifiers: KeyModifiers::SHIFT,
+            })))
+            .unwrap();
+        app.render_action(&mut terminal, action).unwrap();
+        assert!(app.menu.is_some());
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Right));
+
+        let (challenge, decision) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
+        app.handle(AppEvent::Mux(MuxEvent::PairingRequested(challenge.clone()))).unwrap();
+        for kind in
+            [MouseEventKind::Drag(MouseButton::Right), MouseEventKind::Up(MouseButton::Right)]
+        {
+            app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+                kind,
+                column: select.0,
+                row: select.1,
+                modifiers: KeyModifiers::SHIFT,
+            })))
+            .unwrap();
+        }
+        let (events, receiver) = std::sync::mpsc::channel();
+        drop(events);
+        app.event_loop(&mut terminal, receiver).unwrap();
+
+        assert_eq!(
+            app.pairing_dialog.as_ref().map(|dialog| dialog.challenge.id),
+            Some(challenge.id)
+        );
+        assert!(
+            app.prompt.is_none(),
+            "the old right-button capture must not activate its menu behind a trusted dialog"
+        );
+        assert!(decision.try_recv().is_err());
+    }
+
+    #[test]
+    fn pairing_dialog_captures_live_non_left_pointer_input() {
+        let mux = Mux::new("pairing-live-pointer-capture-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 24))).unwrap();
+        let (challenge, decision) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
+        let (mut app, mutation_events) = test_app_with_events(Session::Local(mux));
+        app.sidebar_visible = false;
+        app.sync_layout((100, 20));
+        while app.session.has_pending_mutations() {
+            app.handle(mutation_events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        let action = app.handle(AppEvent::Mux(MuxEvent::PairingRequested(challenge))).unwrap();
+        app.render_action(&mut terminal, action).unwrap();
+        let content = app.pane_areas[0].content;
 
         app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
-            kind: MouseEventKind::Moved,
-            column: 9,
-            row: 3,
-            modifiers: KeyModifiers::NONE,
+            kind: MouseEventKind::Down(MouseButton::Right),
+            column: content.x + 4,
+            row: content.y + 2,
+            modifiers: KeyModifiers::SHIFT,
         })))
         .unwrap();
 
-        assert_ne!(
-            app.status_message.as_deref(),
-            Some("Pointer input was discarded while the layout changed")
+        assert!(app.menu.is_none(), "right-click must not reach panes behind a pairing dialog");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(decision.try_recv().is_err());
+    }
+
+    #[test]
+    fn enter_cannot_approve_a_pairing_dialog_before_it_is_rendered() {
+        let mux = Mux::new("pairing-key-render-barrier-test", SurfaceOptions::default());
+        let (challenge, decision) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
+        let mut app = test_app(Session::Local(mux));
+        let (events, receiver) = std::sync::mpsc::channel();
+        events.send(AppEvent::Mux(MuxEvent::PairingRequested(challenge.clone()))).unwrap();
+        events
+            .send(AppEvent::Input(Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))))
+            .unwrap();
+        drop(events);
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+
+        app.event_loop(&mut terminal, receiver).unwrap();
+
+        assert_eq!(
+            app.pairing_dialog.as_ref().map(|dialog| dialog.challenge.id),
+            Some(challenge.id)
         );
-        release_tx.send(()).unwrap();
-        app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        assert!(decision.try_recv().is_err(), "Enter must not approve an unseen trusted dialog");
+    }
+
+    #[test]
+    fn enter_cannot_approve_an_unrendered_replacement_pairing_dialog() {
+        let mux = Mux::new("pairing-key-replacement-barrier-test", SurfaceOptions::default());
+        let (first, first_decision) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
+        let (second, second_decision) = mux.begin_pairing("127.0.0.2".parse().unwrap()).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        let action = app.handle(AppEvent::Mux(MuxEvent::PairingRequested(first.clone()))).unwrap();
+        app.render_action(&mut terminal, action).unwrap();
+        let action = app.handle(AppEvent::Mux(MuxEvent::PairingRequested(second.clone()))).unwrap();
+        app.render_action(&mut terminal, action).unwrap();
+        assert!(mux.respond_pairing(first.id, false));
+        assert!(first_decision.recv_timeout(Duration::from_secs(1)).is_ok());
+
+        app.handle(AppEvent::Mux(MuxEvent::PairingResolved { request: first.id })).unwrap();
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))))
+            .unwrap();
+
+        assert_eq!(app.pairing_dialog.as_ref().map(|dialog| dialog.challenge.id), Some(second.id));
+        assert!(
+            second_decision.try_recv().is_err(),
+            "Enter must not approve the queued dialog until that identity is rendered"
+        );
+        assert!(mux.respond_pairing(second.id, false));
+    }
+
+    #[test]
+    fn deferred_key_cannot_approve_a_pairing_request_that_arrived_later() {
+        let mux = Mux::new("pairing-deferred-key-identity-test", SurfaceOptions::default());
+        let (challenge, decision) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        app.session.pending_mutations.store(1, Ordering::Release);
+
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))))
+            .unwrap();
+        assert_eq!(app.deferred_input.len(), 1);
+
+        let action =
+            app.handle(AppEvent::Mux(MuxEvent::PairingRequested(challenge.clone()))).unwrap();
+        app.render_action(&mut terminal, action).unwrap();
+        app.session.pending_mutations.store(0, Ordering::Release);
+        app.replay_deferred_input().unwrap();
+
+        assert_eq!(
+            app.pairing_dialog.as_ref().map(|dialog| dialog.challenge.id),
+            Some(challenge.id)
+        );
+        assert!(
+            decision.try_recv().is_err(),
+            "input captured before this pairing identity existed must not approve it"
+        );
+        assert!(mux.respond_pairing(challenge.id, false));
+    }
+
+    #[test]
+    fn key_cannot_reach_underlay_while_a_resolved_pairing_dialog_is_still_rendered() {
+        let mux = Mux::new("pairing-key-removal-barrier-test", SurfaceOptions::default());
+        let (challenge, decision) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.prompt = Some(Prompt::new("Rename", String::new(), PromptTarget::Surface(77)));
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        let action =
+            app.handle(AppEvent::Mux(MuxEvent::PairingRequested(challenge.clone()))).unwrap();
+        app.render_action(&mut terminal, action).unwrap();
+        assert!(mux.respond_pairing(challenge.id, false));
+        assert!(decision.recv_timeout(Duration::from_secs(1)).is_ok());
+
+        app.handle(AppEvent::Mux(MuxEvent::PairingResolved { request: challenge.id })).unwrap();
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('x'),
+            KeyModifiers::NONE,
+        ))))
+        .unwrap();
+
+        assert_eq!(app.prompt.as_ref().unwrap().input.as_str(), "");
+    }
+
+    #[test]
+    fn key_after_retained_pointer_keeps_physical_input_order() {
+        let mux = Mux::new("retained-pointer-key-order-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.prompt = Some(Prompt::new("Rename", "ab".to_string(), PromptTarget::Surface(77)));
+        let prompt_x = (100 - 42) / 2;
+        let prompt_y = (20 - 9) / 2;
+        let (events, receiver) = std::sync::mpsc::channel();
+        events.send(AppEvent::Mux(MuxEvent::SurfaceOutput(77))).unwrap();
+        events
+            .send(AppEvent::Input(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: prompt_x + 2,
+                row: prompt_y + 4,
+                modifiers: KeyModifiers::NONE,
+            })))
+            .unwrap();
+        events
+            .send(AppEvent::Input(Event::Key(KeyEvent::new(
+                KeyCode::Char('x'),
+                KeyModifiers::NONE,
+            ))))
+            .unwrap();
+        drop(events);
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+
+        app.event_loop(&mut terminal, receiver).unwrap();
+
+        assert_eq!(
+            app.prompt.as_ref().unwrap().input.as_str(),
+            "xab",
+            "the later key must not overtake the retained click that moved the cursor"
+        );
+    }
+
+    #[test]
+    fn retained_right_button_capture_crosses_the_menu_frame_it_opens() {
+        let mux = Mux::new("retained-menu-capture-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 24))).unwrap();
+        let (mut app, mutation_events) = test_app_with_events(Session::Local(mux));
+        app.sidebar_visible = false;
+        app.sync_layout((100, 20));
+        while app.session.has_pending_mutations() {
+            app.handle(mutation_events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let content = app.pane_areas[0].content;
+        let press = (content.x + 4, content.y + 2);
+        let select = (press.0 + 1, press.1);
+        let (events, receiver) = std::sync::mpsc::channel();
+        events.send(AppEvent::Mux(MuxEvent::SurfaceOutput(999))).unwrap();
+        events
+            .send(AppEvent::Input(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Right),
+                column: press.0,
+                row: press.1,
+                modifiers: KeyModifiers::SHIFT,
+            })))
+            .unwrap();
+        events
+            .send(AppEvent::Input(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Drag(MouseButton::Right),
+                column: select.0,
+                row: select.1,
+                modifiers: KeyModifiers::SHIFT,
+            })))
+            .unwrap();
+        events
+            .send(AppEvent::Input(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Up(MouseButton::Right),
+                column: select.0,
+                row: select.1,
+                modifiers: KeyModifiers::SHIFT,
+            })))
+            .unwrap();
+        drop(events);
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+
+        app.event_loop(&mut terminal, receiver).unwrap();
+
+        assert!(
+            app.prompt.is_some(),
+            "the accepted right press must keep ownership through menu render, drag, and release"
+        );
+        assert!(app.menu.is_none());
+    }
+
+    #[test]
+    fn older_replayed_pointer_does_not_erase_newer_retained_motion() {
+        let mux = Mux::new("replayed-pointer-motion-order-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.deferred_input.push_back(DeferredInput {
+            event: Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: 9,
+                row: 3,
+                modifiers: KeyModifiers::NONE,
+            }),
+            destination: None,
+            destination_intent: None,
+            sidebar_focus_intent: false,
+            pairing_request: None,
+            pointer: None,
+            sequence: 1,
+        });
+        let newer_motion = MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 14,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.pending_pointer_motion = Some(super::PendingPointerMotion {
+            event: newer_motion,
+            destination: None,
+            focus_generation: 0,
+            sequence: 2,
+        });
+
+        app.replay_deferred_input().unwrap();
+
+        assert_eq!(
+            app.hover,
+            Some((newer_motion.column, newer_motion.row)),
+            "newer retained motion must replay after the older click"
+        );
+    }
+
+    #[test]
+    fn retained_motion_replays_through_ordered_mutation_without_overtaking_discrete_input() {
+        let mux = Mux::new("ordered-mutation-pointer-replay-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let motion = MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 14,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.pending_pointer_motion = Some(super::PendingPointerMotion {
+            event: motion,
+            destination: None,
+            focus_generation: 0,
+            sequence: 1,
+        });
+        app.deferred_input.push_back(DeferredInput {
+            event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
+            destination: None,
+            destination_intent: None,
+            sidebar_focus_intent: false,
+            pairing_request: None,
+            pointer: None,
+            sequence: 2,
+        });
+        app.deferred_input_sequence = 2;
+        app.session.pending_mutations.store(1, Ordering::Release);
+        assert!(
+            !app.session.has_pending_pointer_mutations(),
+            "the synthetic mutation must model MutationImpact::Ordered"
+        );
+
+        let replay = app.replay_deferred_input_batch().unwrap();
+
+        app.session.pending_mutations.store(0, Ordering::Release);
+        assert_eq!(
+            app.hover,
+            Some((motion.column, motion.row)),
+            "retained passive motion should replay through an ordered-only mutation"
+        );
+        assert!(app.pending_pointer_motion.is_none());
+        assert_eq!(
+            app.deferred_input.front().map(|input| input.sequence),
+            Some(2),
+            "later discrete input must remain behind the pending ordered mutation"
+        );
+        assert_eq!(replay.disposition, DeferredReplayDisposition::Blocked);
+    }
+
+    #[test]
+    fn retained_motion_coalesces_only_within_discrete_input_segments() {
+        let mux = Mux::new("segmented-pointer-motion-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.session.pending_mutations.store(1, Ordering::Release);
+        app.session.pending_pointer_mutations.store(1, Ordering::Release);
+        let first = MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 8,
+            row: 3,
+            modifiers: KeyModifiers::NONE,
+        };
+        let second = MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 18,
+            row: 7,
+            modifiers: KeyModifiers::NONE,
+        };
+
+        app.handle(AppEvent::Input(Event::Mouse(first))).unwrap();
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('x'),
+            KeyModifiers::NONE,
+        ))))
+        .unwrap();
+        app.handle(AppEvent::Input(Event::Mouse(second))).unwrap();
+
+        assert!(matches!(
+            app.deferred_input.front(),
+            Some(DeferredInput {
+                event: Event::Mouse(event),
+                sequence: 1,
+                ..
+            }) if *event == first
+        ));
+        assert!(matches!(
+            app.deferred_input.get(1),
+            Some(DeferredInput { event: Event::Key(_), sequence: 2, .. })
+        ));
+        assert!(matches!(
+            app.pending_pointer_motion,
+            Some(super::PendingPointerMotion {
+                event,
+                sequence: 3,
+                ..
+            }) if event == second
+        ));
+    }
+
+    #[test]
+    fn missing_surface_motion_stays_ahead_of_later_deferred_input() {
+        let mux = Mux::new("replayed-missing-motion-order-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let missing_surface = 77;
+        app.pane_areas.push(browser_completion_area(missing_surface));
+        app.session.surface_attach_failures.lock().unwrap().insert(
+            missing_surface,
+            super::SurfaceSyncFailureState {
+                attempts: 1,
+                retry_after: Some(Instant::now() + Duration::from_secs(30)),
+                sticky_until_reconnect: false,
+            },
+        );
+        app.prompt = Some(Prompt::new("Rename", String::new(), PromptTarget::Surface(88)));
+        app.pending_pointer_motion = Some(super::PendingPointerMotion {
+            event: MouseEvent {
+                kind: MouseEventKind::Moved,
+                column: 14,
+                row: 6,
+                modifiers: KeyModifiers::NONE,
+            },
+            destination: Some(missing_surface),
+            focus_generation: 0,
+            sequence: 1,
+        });
+        app.deferred_input.push_back(DeferredInput {
+            event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
+            destination: None,
+            destination_intent: None,
+            sidebar_focus_intent: false,
+            pairing_request: None,
+            pointer: None,
+            sequence: 2,
+        });
+        app.deferred_input_sequence = 2;
+
+        let replay = app.replay_deferred_input_batch().unwrap();
+
+        assert_eq!(
+            app.prompt.as_ref().unwrap().input.as_str(),
+            "",
+            "later input must not pass motion that is still waiting for its surface"
+        );
+        assert_eq!(app.pending_pointer_motion.map(|pointer| pointer.sequence), Some(1));
+        assert_eq!(app.deferred_input.front().map(|input| input.sequence), Some(2));
+        assert_eq!(replay.action, RenderAction::None);
+        assert_eq!(replay.disposition, DeferredReplayDisposition::Blocked);
+    }
+
+    #[test]
+    fn replayed_key_requeue_keeps_its_original_order() {
+        let mux = Mux::new("replayed-missing-key-order-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let missing_surface = 77;
+        app.replace_tree(notify_tree(missing_surface, false));
+        app.deferred_input.push_back(DeferredInput {
+            event: Event::Key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE)),
+            destination: Some(missing_surface),
+            destination_intent: None,
+            sidebar_focus_intent: false,
+            pairing_request: None,
+            pointer: None,
+            sequence: 2,
+        });
+        app.deferred_input_sequence = 2;
+
+        app.handle_replayed_input(
+            Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
+            1,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(
+            app.deferred_input
+                .iter()
+                .map(|input| {
+                    let Event::Key(key) = &input.event else { panic!("expected a deferred key") };
+                    (key.code, input.sequence)
+                })
+                .collect::<Vec<_>>(),
+            vec![(KeyCode::Char('x'), 1), (KeyCode::Char('y'), 2)]
+        );
+    }
+
+    #[test]
+    fn replayed_discrete_pointer_requeue_keeps_its_original_order() {
+        let mux = Mux::new("replayed-missing-pointer-order-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let missing_surface = 77;
+        app.pane_areas.push(browser_completion_area(missing_surface));
+        app.deferred_input.push_back(DeferredInput {
+            event: Event::Key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE)),
+            destination: None,
+            destination_intent: None,
+            sidebar_focus_intent: false,
+            pairing_request: None,
+            pointer: None,
+            sequence: 2,
+        });
+        app.deferred_input_sequence = 2;
+        let pointer = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Right),
+            column: 14,
+            row: 6,
+            modifiers: KeyModifiers::SHIFT,
+        };
+
+        app.handle_replayed_input(Event::Mouse(pointer), 1, None).unwrap();
+
+        assert!(matches!(
+            app.deferred_input.front(),
+            Some(DeferredInput {
+                event: Event::Mouse(event),
+                sequence: 1,
+                ..
+            }) if *event == pointer
+        ));
+        assert_eq!(app.deferred_input.back().map(|input| input.sequence), Some(2));
+    }
+
+    #[test]
+    fn captured_release_ignores_destination_changes_and_clears_ownership() {
+        let (mux, surface) = test_mux("captured-release-destination-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        let pane = app.tree.active_screen().unwrap().active_pane;
+        let content = Rect { x: 2, y: 3, width: 20, height: 8 };
+        app.pane_areas.push(PaneArea {
+            pane,
+            surface: surface.id,
+            rect: Rect { x: 1, y: 2, width: 23, height: 10 },
+            bar: Some(Rect { x: 1, y: 2, width: 23, height: 1 }),
+            omnibar: None,
+            content,
+            track: None,
+        });
+        app.rendered_terminal_bounds.insert(surface.id, content);
+        app.selection = Some(Selection { surface: surface.id, anchor: (1, 1), head: (3, 2) });
+        app.drag = Some(Drag::Select { content, auto_scroll: None, col: 3 });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        let release = MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: content.x + 3,
+            row: content.y + 2,
+            modifiers: KeyModifiers::NONE,
+        };
+
+        app.defer_input(Event::Mouse(release));
+        assert_eq!(
+            app.deferred_input.front().and_then(|input| input.destination),
+            Some(surface.id)
+        );
+        app.pane_areas.clear();
+        app.replay_deferred_input().unwrap();
+
+        assert!(app.deferred_input.is_empty());
+        assert!(app.drag.is_none(), "the release must reach its established selection capture");
+        assert!(app.active_pointer_buttons.is_empty());
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn replay_without_a_render_action_blocks_instead_of_spinning() {
+        let mux = Mux::new("replay-no-render-progress-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.deferred_input.push_back(DeferredInput {
+            event: Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: 9,
+                row: 3,
+                modifiers: KeyModifiers::NONE,
+            }),
+            destination: None,
+            destination_intent: None,
+            sidebar_focus_intent: false,
+            pairing_request: None,
+            pointer: None,
+            sequence: 1,
+        });
+        app.pointer_route_phase = PointerRoutePhase::DrawPending;
+
+        let replay = app.replay_deferred_input_batch().unwrap();
+
+        assert_eq!(replay.action, RenderAction::None);
+        assert_eq!(
+            replay.disposition,
+            DeferredReplayDisposition::Blocked,
+            "a replay boundary without a render action cannot make immediate progress"
+        );
+        assert!(
+            !app.replay_can_continue_immediately(replay.disposition),
+            "the event loop must wait for a state-changing event instead of spinning"
+        );
     }
 
     #[test]
@@ -14236,8 +18296,11 @@ mod tests {
             Ok(())
         });
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        app.drag =
-            Some(Drag::Browser { surface: 42, content: Rect { x: 2, y: 3, width: 20, height: 8 } });
+        app.drag = Some(Drag::Browser {
+            surface: 42,
+            content: Rect { x: 2, y: 3, width: 20, height: 8 },
+            position: (5, 5),
+        });
 
         app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
             kind: MouseEventKind::Up(MouseButton::Left),
@@ -14292,6 +18355,7 @@ mod tests {
             handle: None,
             reservation_id: 1,
             release_bytes: PtyInputBytes::from_slice(b"release"),
+            semantics: None,
             content: Rect { x: 2, y: 3, width: 20, height: 8 },
             button: MouseButton::Right,
             position: (5, 5),
@@ -14343,8 +18407,11 @@ mod tests {
         app.deferred_input.push_back(DeferredInput {
             event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             destination: None,
-            routing_intent: None,
+            destination_intent: None,
             sidebar_focus_intent: false,
+            pairing_request: None,
+            pointer: None,
+            sequence: 1,
         });
 
         app.handle(settled(super::SessionMutationOutcome::CommittedTreeStale {
@@ -14901,6 +18968,22 @@ mod tests {
         ui
     }
 
+    fn provider_machine_ui_with_changed_second_machine() -> MachineUiState {
+        let mut ui = provider_machine_ui_with_machine_lifecycle();
+        let mut machines = ui.managed_machines().to_vec();
+        let machine = machines
+            .iter_mut()
+            .find(|machine| machine.key == MachineKey(42))
+            .expect("second managed machine");
+        machine.status = ManagedMachineStatus::Active;
+        machine.version = 13;
+        machine.recoverable_until = None;
+        machine.capabilities =
+            ManagedMachineCapabilities { rename: true, delete: true, restore: false, purge: false };
+        ui.set_managed_machines(machines);
+        ui
+    }
+
     #[test]
     fn provider_owned_machine_keyboard_actions_use_version_and_confirmation() {
         let mux = Mux::new("managed-machine-keyboard-test", SurfaceOptions::default());
@@ -14982,7 +19065,7 @@ mod tests {
         app.machine_ui.as_mut().unwrap().request = None;
         app.open_context_menu(hit.x, hit.y);
         assert_eq!(
-            app.menu.as_ref().map(|menu| menu.levels[0].items.clone()),
+            app.menu.as_ref().map(|menu| menu.levels[0].items.to_vec()),
             Some(vec![
                 MenuItem::Action(MenuAction::RestoreManagedMachine(MachineKey(42))),
                 MenuItem::Action(MenuAction::PurgeManagedMachine(MachineKey(42))),
@@ -14998,6 +19081,125 @@ mod tests {
                 expected_version: 12,
             })
         );
+    }
+
+    #[test]
+    fn deferred_machine_press_cannot_retarget_changed_provider_semantics() {
+        let mux = Mux::new("managed-machine-deferred-identity-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui_with_machine_lifecycle());
+        app.focus = FocusTarget::MachineRail;
+        let mut terminal = Terminal::new(TestBackend::new(100, 14)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let hit = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::Machine { key: MachineKey(42), .. }).then_some(*rect)
+            })
+            .unwrap();
+
+        app.pointer_route_phase = PointerRoutePhase::DrawPending;
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: hit.x,
+            row: hit.y,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+        assert_eq!(app.deferred_input.len(), 1);
+
+        let action = app
+            .handle(AppEvent::MachineUiUpdated(Box::new(
+                provider_machine_ui_with_changed_second_machine(),
+            )))
+            .unwrap();
+        app.render_action(&mut terminal, action).unwrap();
+        app.replay_deferred_input().unwrap();
+
+        assert!(
+            !matches!(app.drag, Some(Drag::MachineArm { .. })),
+            "a press must not arm a machine row whose provider semantics changed"
+        );
+    }
+
+    #[test]
+    fn held_machine_release_cannot_retarget_changed_provider_semantics() {
+        let mux = Mux::new("managed-machine-held-identity-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui_with_machine_lifecycle());
+        app.focus = FocusTarget::MachineRail;
+        let mut terminal = Terminal::new(TestBackend::new(100, 14)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let hit = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::Machine { key: MachineKey(42), .. }).then_some(*rect)
+            })
+            .unwrap();
+
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: hit.x,
+            row: hit.y,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+        assert!(matches!(app.drag, Some(Drag::MachineArm { .. })));
+
+        let action = app
+            .handle(AppEvent::MachineUiUpdated(Box::new(
+                provider_machine_ui_with_changed_second_machine(),
+            )))
+            .unwrap();
+        app.render_action(&mut terminal, action).unwrap();
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: hit.x,
+            row: hit.y,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+
+        assert!(app.drag.is_none());
+        assert!(app.machine_ui.as_ref().unwrap().request.is_none());
+    }
+
+    #[test]
+    fn replayed_machine_action_is_submitted_before_the_batch_drains() {
+        let mux = Mux::new("replayed-machine-action-submit-test", SurfaceOptions::default());
+        let (mut app, _events) = test_app_with_events(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui_with_machine_lifecycle());
+        let at = (4, 4);
+        let target = app.machine_pointer_target(MachineKey(42)).unwrap();
+        app.drag = Some(Drag::MachineArm { target, at });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        let (controller, _requests) = fake_controller(FakeMachineAction::Fail("expected failure"));
+        install_machine_controller(&mut app, controller);
+        app.deferred_input.push_back(DeferredInput {
+            event: Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Up(MouseButton::Left),
+                column: at.0,
+                row: at.1,
+                modifiers: KeyModifiers::NONE,
+            }),
+            destination: None,
+            destination_intent: None,
+            sidebar_focus_intent: false,
+            pairing_request: None,
+            pointer: None,
+            sequence: 1,
+        });
+        app.deferred_input_sequence = 1;
+
+        app.replay_deferred_input_batch().unwrap();
+
+        assert!(
+            app.machine_action_in_flight,
+            "replay must submit a generated machine request before receiving another event"
+        );
+        assert!(app.machine_ui.as_ref().unwrap().request.is_none());
     }
 
     #[test]
@@ -16355,6 +20557,127 @@ mod tests {
     }
 
     #[test]
+    fn machine_session_replacement_settles_pointer_capture_on_the_old_session() {
+        let first = Mux::new("machine-pointer-reset-first", SurfaceOptions::default());
+        first.new_workspace(None, None).unwrap();
+        let second = Mux::new("machine-pointer-reset-second", SurfaceOptions::default());
+        let (mut app, _events) = test_app_with_events(Session::Local(first));
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        app.session.operations.enqueue_session_mutation(
+            "block old session before pointer settlement",
+            false,
+            move || {
+                started_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+                Ok(())
+            },
+        );
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        app.drag =
+            Some(Drag::ResizeSplit { horizontal: Some((1, PaneEdge::Right)), vertical: None });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        let old_pending_pointer_mutations = app.session.pending_pointer_mutations.clone();
+        let (session, event_worker, mux_titles, mux_recovery_generation) = prepare_ordered_session(
+            Session::Local(second),
+            app.pty_input.sender(),
+            app.app_events.clone(),
+            2,
+        )
+        .unwrap();
+        let tree = session.tree();
+
+        app.install_prepared_machine_session(super::PreparedMachineSession {
+            session,
+            event_worker,
+            generation: 2,
+            mux_titles,
+            mux_recovery_generation,
+            tree,
+            label: "second".into(),
+            session_available: true,
+            color_error: None,
+        });
+
+        let pending_pointer_settlement = old_pending_pointer_mutations.load(Ordering::Acquire);
+        release_tx.send(()).unwrap();
+        assert_eq!(
+            pending_pointer_settlement, 1,
+            "the split settlement must be queued against the old session before replacement"
+        );
+        assert!(app.drag.is_none());
+        assert!(app.active_pointer_buttons.is_empty());
+    }
+
+    #[test]
+    fn machine_session_replacement_preserves_only_the_old_browser_release() {
+        let first = Mux::new("machine-browser-release-first", SurfaceOptions::default());
+        let browser =
+            first.new_browser_tab("about:blank".to_string(), None, Some((20, 8))).unwrap();
+        let second = Mux::new("machine-browser-release-second", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(first.clone()));
+        app.replace_tree(app.session.tree());
+        assert!(app.tab_locations.contains_key(&browser.id));
+        let (dispatcher, blocked) = BrowserInputDispatcher::blocked(2);
+        app.browser_input = dispatcher;
+        assert!(app.browser_input.enqueue(BrowserInputEvent {
+            surface_id: browser.id,
+            surface: app.session.surface(browser.id).unwrap(),
+            kind: BrowserInputKind::Mouse {
+                event_type: "mousePressed",
+                x: 3.0,
+                y: 2.0,
+                button: Some("left"),
+                click_count: Some(1),
+            },
+        }));
+        assert_eq!(blocked.drain_mouse_lifetimes(), vec![("mousePressed", false)]);
+        assert!(app.browser_input.enqueue(BrowserInputEvent {
+            surface_id: browser.id,
+            surface: app.session.surface(browser.id).unwrap(),
+            kind: BrowserInputKind::Mouse {
+                event_type: "mouseMoved",
+                x: 1.0,
+                y: 1.0,
+                button: Some("none"),
+                click_count: None,
+            },
+        }));
+        app.drag = Some(Drag::Browser {
+            surface: browser.id,
+            content: Rect { x: 2, y: 3, width: 20, height: 8 },
+            position: (5, 5),
+        });
+        let (session, event_worker, mux_titles, mux_recovery_generation) = prepare_ordered_session(
+            Session::Local(second),
+            app.pty_input.sender(),
+            app.app_events.clone(),
+            2,
+        )
+        .unwrap();
+        let tree = session.tree();
+
+        app.install_prepared_machine_session(super::PreparedMachineSession {
+            session,
+            event_worker,
+            generation: 2,
+            mux_titles,
+            mux_recovery_generation,
+            tree,
+            label: "second".into(),
+            session_available: true,
+            color_error: None,
+        });
+
+        assert_eq!(
+            blocked.drain_mouse_lifetimes(),
+            vec![("mouseMoved", true), ("mouseReleased", false)],
+            "session replacement must cancel stale browser input but preserve the release that closes the old press"
+        );
+        first.close_surface(browser.id).unwrap();
+    }
+
+    #[test]
     fn replacement_provider_notice_cannot_mask_missing_workspace_mirror_error() {
         let first = Mux::new("machine-replacement-notice-first", SurfaceOptions::default());
         first.new_workspace(None, None).unwrap();
@@ -16611,6 +20934,7 @@ mod tests {
             tab_locations: HashMap::new(),
             render_states: HashMap::<u64, RenderState>::new(),
             rendered_terminal_sizes: HashMap::new(),
+            rendered_terminal_pointer_semantics: HashMap::new(),
             desired_outer_cursor: OuterCursorSpec::Reset,
             applied_outer_cursor: None,
             graphics_writer: None,
@@ -16627,6 +20951,7 @@ mod tests {
             focus: FocusTarget::Pane,
             sidebar_focus_pending: false,
             machine_ui: None,
+            machine_pointer_context_cache: None,
             sidebar_view: SidebarView::Files,
             sidebar_files: FileBrowser::new(std::env::temp_dir()),
             sidebar_workspace_selection: 0,
@@ -16669,18 +20994,24 @@ mod tests {
             browser_input: BrowserInputDispatcher::spawn(|_| {}, |_| {}).unwrap(),
             pty_input,
             deferred_input: VecDeque::new(),
-            routing_refresh_pending: false,
-            routing_refresh_retries_remaining: 0,
+            pending_pointer_motion: None,
+            deferred_input_sequence: 0,
+            rendered_pointer_frame: RenderedPointerFrame::default(),
+            pointer_route_phase: PointerRoutePhase::Fresh,
+            pointer_focus_generation: 0,
+            layout_refresh_retries_remaining: 0,
             background_refresh_attempts: 0,
             background_refresh_retry_at: None,
             last_applied_refresh_sequence: 0,
-            applied_routing_generation: 0,
+            applied_destination_generation: 0,
             pending_session_completions: VecDeque::new(),
             mux_titles: Arc::new(MuxTitleIngress::default()),
             pty_failures: Arc::new(PtyFailureIngress::default()),
             mux_recovery_generation: Arc::new(AtomicU64::new(0)),
             drag: None,
+            active_pointer_buttons: HashSet::new(),
             ignored_pty_mouse_buttons: HashSet::new(),
+            timeout_drain_hook: None,
             encoder: KeyEncoder::new().unwrap(),
             encode_buf: Vec::new(),
             quit: false,

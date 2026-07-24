@@ -71,11 +71,11 @@ impl MouseEncoders {
         self.release.sync_from_terminal(terminal);
     }
 
-    pub fn encode(&mut self, input: MouseInput, out: &mut Vec<u8>) -> Result<()> {
+    pub fn encode(&mut self, input: MouseInput, out: &mut impl Extend<u8>) -> Result<()> {
         self.primary.encode(input, out)
     }
 
-    pub fn encode_release(&mut self, input: MouseInput, out: &mut Vec<u8>) -> Result<()> {
+    pub fn encode_release(&mut self, input: MouseInput, out: &mut impl Extend<u8>) -> Result<()> {
         self.release.encode(input, out)
     }
 
@@ -83,8 +83,8 @@ impl MouseEncoders {
         &mut self,
         press: MouseInput,
         release: MouseInput,
-        press_out: &mut Vec<u8>,
-        release_out: &mut Vec<u8>,
+        press_out: &mut impl Extend<u8>,
+        release_out: &mut impl Extend<u8>,
     ) -> Result<()> {
         self.release.encode(release, release_out)?;
         self.primary.encode(press, press_out)
@@ -133,7 +133,7 @@ impl MouseEncoder {
         unsafe { sys::ghostty_mouse_encoder_reset(self.encoder) };
     }
 
-    pub fn encode(&mut self, input: MouseInput, out: &mut Vec<u8>) -> Result<()> {
+    pub fn encode(&mut self, input: MouseInput, out: &mut impl Extend<u8>) -> Result<()> {
         let action = match input.action {
             MouseAction::Press => sys::GHOSTTY_MOUSE_ACTION_PRESS,
             MouseAction::Release => sys::GHOSTTY_MOUSE_ACTION_RELEASE,
@@ -200,11 +200,11 @@ impl MouseEncoder {
                     &mut big_written,
                 )
             })?;
-            out.extend_from_slice(&big[..big_written]);
+            out.extend(big[..big_written].iter().copied());
             return Ok(());
         }
         check(result)?;
-        out.extend_from_slice(&buf[..written]);
+        out.extend(buf[..written].iter().copied());
         Ok(())
     }
 }
