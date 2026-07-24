@@ -234,6 +234,10 @@ final class AppCompositionRoot {
             }
             emitter.capture("ios_app_foregrounded", foregroundProps)
             hasForegrounded = true
+        case .inactive:
+            // The switcher opened; a swipe-kill from here may skip the
+            // background transition entirely, so snapshot diagnostics now.
+            iroh.archiveDiagnostics()
         case .background:
             iroh.didEnterBackground()
             let now = Date()
@@ -251,8 +255,6 @@ final class AppCompositionRoot {
             }
             // Force a flush before the OS may suspend us, so queued events survive.
             Task { await emitter.flush() }
-        case .inactive:
-            break
         @unknown default:
             break
         }

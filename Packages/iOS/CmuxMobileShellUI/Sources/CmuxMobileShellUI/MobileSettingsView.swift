@@ -18,6 +18,7 @@ struct MobileSettingsView: View {
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     @Environment(MobileDisplaySettings.self) private var displaySettings
+    @Environment(ToastCenter.self) private var toasts
     @Environment(\.irohSettingsController) private var irohSettingsController
     let connectedHostName: String
     let rescanQR: (() -> Void)?
@@ -43,7 +44,6 @@ struct MobileSettingsView: View {
     @State private var showingChatDemo = false
     @State private var showingTerminalDemo = false
     @State private var showingToastGallery = false
-    @Environment(ToastCenter.self) private var toasts
     /// Seconds between tapping "Run Toast Demo" and the first toast, so you
     /// can navigate to any screen (terminal, chat) and watch it play there.
     @AppStorage("cmux.debug.toastDemoDelaySeconds") private var toastDemoDelaySeconds = 3
@@ -51,7 +51,7 @@ struct MobileSettingsView: View {
 
     var body: some View {
         @Bindable var displaySettings = displaySettings
-        @Bindable var toasts = toasts
+        @Bindable var toasts = self.toasts
         return NavigationStack {
             Form {
                 MobileSettingsAccountSection(signOut: signOut)
@@ -200,6 +200,23 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsVoiceRow")
+                }
+
+                Section {
+                    Toggle(isOn: $displaySettings.hapticFeedbackEnabled) {
+                        Text(L10n.string(
+                            "mobile.settings.hapticFeedback",
+                            defaultValue: "Haptic Feedback"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsHapticFeedbackToggle")
+                } header: {
+                    Text(L10n.string("mobile.settings.haptics", defaultValue: "Haptics"))
+                } footer: {
+                    Text(L10n.string(
+                        "mobile.settings.hapticFeedbackFooter",
+                        defaultValue: "When off, cmux does not vibrate for actions, confirmations, warnings, or errors."
+                    ))
                 }
 
                 Section(L10n.string("mobile.settings.betaFeatures", defaultValue: "Beta Features")) {

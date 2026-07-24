@@ -76,8 +76,16 @@ public actor FileWatcher {
 
     // OptionSet masks. Inlined (not stored as statics) because
     // `DispatchSource.FileSystemEvent` is not `Sendable`.
+    //
+    // `.attrib` is deliberately excluded. Reading the watched file (e.g. via
+    // `NSData(contentsOfFile:)`) can update its `com.apple.lastuseddate#PS`
+    // extended attribute, which is itself an attribute change on the same
+    // inode this source watches — a self-sustaining loop with no external
+    // trigger: read -> touches the xattr -> fires `.attrib` -> another read.
+    // `.write`/`.delete`/`.rename`/`.extend` already cover real content
+    // changes, which is what callers actually need to react to.
     private static var fileEventMask: DispatchSource.FileSystemEvent {
-        [.write, .delete, .rename, .extend, .attrib]
+        [.write, .delete, .rename, .extend]
     }
     private static var directoryEventMask: DispatchSource.FileSystemEvent {
         [.write, .rename, .delete]
