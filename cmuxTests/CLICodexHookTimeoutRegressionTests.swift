@@ -193,6 +193,47 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(waitForFile(doneFile, containing: "done", timeout: 3))
     }
 
+    @Test func codexDisabledInstalledStopConsumesPayloadBeforeReturning() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-stop-disabled-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let install = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install", "--yes"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 5
+        )
+        #expect(!install.timedOut, Comment(rawValue: install.stderr))
+        #expect(install.status == 0, Comment(rawValue: install.stderr))
+
+        let stopCommand = try #require(
+            codexHookEntries(in: codexHome).first { $0.eventName == "Stop" }?.command
+        )
+        let run = runCodexHookProcess(
+            executablePath: "/bin/bash",
+            arguments: [
+                "-o", "pipefail", "-c",
+                #"/bin/dd if=/dev/zero bs=1048576 count=8 2>/dev/null | CMUX_CODEX_HOOKS_DISABLED=1 "$CMUX_TEST_HOOK" >/dev/null"#,
+            ],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_TEST_HOOK": stopCommand,
+            ],
+            timeout: 5
+        )
+
+        #expect(!run.timedOut, Comment(rawValue: run.stderr))
+        #expect(
+            run.status == 0,
+            "The disabled Stop hook must drain stdin so Codex can finish writing its payload without EPIPE"
+        )
+    }
+
     @Test func codexInstalledAsyncStopDoesNotMarkNewerTurnIdle() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
