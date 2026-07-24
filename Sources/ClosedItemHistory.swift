@@ -171,8 +171,9 @@ final class ClosedItemHistoryStore: ObservableObject {
         if loadPersisted, let fileURL {
             if loadsPersistedRecordsSynchronously {
                 records = Self.loadRecords(fileURL: fileURL)
-                trimToCapacityIfNeeded()
+                let didTrimPersistedRecords = trimToCapacityIfNeeded()
                 didFinishPersistedRecordsLoad = true
+                if didTrimPersistedRecords { persistRecords() }
             } else {
                 loadPersistedRecordsAsync(from: fileURL)
             }
@@ -254,9 +255,7 @@ final class ClosedItemHistoryStore: ObservableObject {
     }
 
     func menuSnapshot(maxItemCount: Int? = nil) -> ClosedItemHistoryMenuSnapshot {
-        // Build items only for the records the menu will show — this runs in
-        // the App commands body on every menu rebuild, and the persisted
-        // history can be much larger than the menu's visible slice.
+        // Build only visible rows; this runs on every menu rebuild and persisted history can be larger.
         if let maxItemCount, maxItemCount >= 0, records.count > maxItemCount {
             return ClosedItemHistoryMenuSnapshot(
                 items: records.suffix(maxItemCount).reversed().map(Self.menuItem(for:)),
@@ -345,10 +344,11 @@ final class ClosedItemHistoryStore: ObservableObject {
         persistRecords()
     }
 
-    private func trimToCapacityIfNeeded() {
+    @discardableResult private func trimToCapacityIfNeeded() -> Bool {
+        let previousCount = records.count
         records = capacityPolicy.trimming(records)
+        return records.count != previousCount
     }
-
     private func persistRecords() {
         guard let fileURL else { return }
         guard didFinishPersistedRecordsLoad else {
@@ -579,7 +579,7 @@ final class ClosedItemHistoryStore: ObservableObject {
             guard !missingLoadedRecords.isEmpty else { return }
             records = missingLoadedRecords + records
         }
-        trimToCapacityIfNeeded()
+        if trimToCapacityIfNeeded() { needsPersistenceAfterPersistedRecordsLoad = true }
         revision &+= 1
     }
 

@@ -98,4 +98,33 @@ struct WorkspaceDirectoryCustomizationStoreTests {
         #expect(store.customization(for: "/tmp/second")?.customTitle == "Second")
         #expect(store.customization(for: "/tmp/second")?.customColor == nil)
     }
+
+    @Test("batch reads normalize requested roots and preserve explicit tombstones")
+    func batchReads() throws {
+        let suiteName = "WorkspaceDirectoryCustomizationStore.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = WorkspaceDirectoryCustomizationStore(
+            defaults: defaults,
+            storageKey: "test.customizations"
+        )
+        store.setCustomTitle("First", for: "/tmp/first")
+        store.setCustomColor(nil, for: "/tmp/cleared")
+        store.setCustomTitle("Unrequested", for: "/tmp/unrequested")
+
+        #expect(
+            store.customizations(forDirectories: ["/tmp/first/.", "/tmp/cleared"]) == [
+                "/tmp/first": WorkspaceDirectoryCustomization(
+                    customTitle: "First",
+                    customColor: nil
+                ),
+                "/tmp/cleared": WorkspaceDirectoryCustomization(
+                    customTitle: nil,
+                    customColor: nil
+                ),
+            ]
+        )
+    }
 }

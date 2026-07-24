@@ -50,6 +50,22 @@ public struct WorkspaceDirectoryCustomizationStore {
         return loadCustomizations()[key]
     }
 
+    /// Reads sticky identity for a batch of workspace roots with one defaults decode.
+    ///
+    /// Returned keys are normalized directory paths. Explicit-clear tombstones
+    /// remain present in the result.
+    ///
+    /// - Parameter directories: Workspace root paths or already normalized keys.
+    /// - Returns: Stored customizations for the requested valid directories.
+    public func customizations(
+        forDirectories directories: [String]
+    ) -> [String: WorkspaceDirectoryCustomization] {
+        let keys = Set(directories.compactMap { directoryKey(for: $0) })
+        guard !keys.isEmpty else { return [:] }
+        let storedCustomizations = loadCustomizations()
+        return storedCustomizations.filter { keys.contains($0.key) }
+    }
+
     /// Persists or clears the explicit label for a workspace root.
     ///
     /// - Parameters:
