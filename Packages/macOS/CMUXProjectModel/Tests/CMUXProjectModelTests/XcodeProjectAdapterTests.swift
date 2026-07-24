@@ -7,22 +7,57 @@ struct XcodeProjectAdapterTests {
     private let workspaceURL: URL
     private let projectURL: URL
 
-    init() {
+    /// How many directories the search below looks at, counting the one holding
+    /// this file. This file sits five levels below the worktree root today, so
+    /// six candidates cover the current layout and eight leaves a little room.
+    private static let searchedDirectoryCount = 8
+
+    init() throws {
         let env = ProcessInfo.processInfo.environment
         if let override = env["CMUX_PROJECT_FIXTURE"] {
             let base = URL(fileURLWithPath: override)
             self.workspaceURL = base.pathExtension.lowercased() == "xcworkspace" ? base : base.appendingPathComponent("cmux.xcworkspace")
             self.projectURL = base.pathExtension.lowercased() == "xcodeproj" ? base : base.appendingPathComponent("cmux.xcodeproj")
         } else {
-            let here = URL(fileURLWithPath: #filePath)
-            let worktreeRoot = here
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
+            let start = URL(fileURLWithPath: #filePath).resolvingSymlinksInPath().deletingLastPathComponent()
+            guard let worktreeRoot = Self.worktreeRootContainingProject(startingAt: start) else {
+                throw ProjectNotFoundError(searchStart: start, searchedDirectoryCount: Self.searchedDirectoryCount)
+            }
             self.workspaceURL = worktreeRoot.appendingPathComponent("cmux.xcworkspace")
             self.projectURL = worktreeRoot.appendingPathComponent("cmux.xcodeproj")
+        }
+    }
+
+    /// Returns the nearest directory at or above `start` that holds cmux.xcodeproj,
+    /// or nil when none of the `searchedDirectoryCount` directories it looks at has one.
+    ///
+    /// Packages move between the Packages/Shared, Packages/iOS and Packages/macOS
+    /// group folders, which changes how deep this file sits, and counting parent
+    /// directories silently points at the wrong root when that happens. The search
+    /// stops after a fixed number of levels so that a checkout nested inside another
+    /// checkout cannot bind these tests to the outer checkout's project.
+    private static func worktreeRootContainingProject(startingAt start: URL) -> URL? {
+        var directory = start
+        for _ in 0..<searchedDirectoryCount {
+            if FileManager.default.fileExists(atPath: directory.appendingPathComponent("cmux.xcodeproj").path) {
+                return directory
+            }
+            directory.deleteLastPathComponent()
+        }
+        return nil
+    }
+
+    private struct ProjectNotFoundError: Error, CustomStringConvertible {
+        let searchStart: URL
+        let searchedDirectoryCount: Int
+
+        var description: String {
+            """
+            cmux.xcodeproj is not in \(searchStart.path) or in any of the \
+            \(searchedDirectoryCount - 1) directories above it, so these tests have no \
+            project to load. Run them from a cmux checkout, or point \
+            CMUX_PROJECT_FIXTURE at a directory that contains cmux.xcodeproj.
+            """
         }
     }
 
