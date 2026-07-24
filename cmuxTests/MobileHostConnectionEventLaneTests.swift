@@ -198,13 +198,17 @@ extension MobileHostAuthorizationTests {
             handleRequest: { _ in .ok([:]) },
             onClose: { _ in }
         )
+        // A non-droppable topic (state-sync deltas cannot be re-derived by the
+        // client) keeps the close-on-overflow contract; recoverable topics like
+        // terminal.render_grid are shed instead — see
+        // testStalledRenderGridSubscriberStaysOpenWithBoundedEventQueue.
         _ = await session.debugHandleSubscriptionRPCForTesting(
             MobileHostRPCRequest(
                 id: "subscribe",
                 method: "mobile.events.subscribe",
                 params: [
                     "stream_id": "events",
-                    "topics": ["terminal.updated"],
+                    "topics": ["mobile.sync.delta"],
                     "event_transport": "iroh_server_events_v1",
                 ],
                 auth: nil
@@ -213,7 +217,7 @@ extension MobileHostAuthorizationTests {
 
         #expect(
             await session.sendEvent(
-                topic: "terminal.updated",
+                topic: "mobile.sync.delta",
                 payload: ["seq": 0]
             )
         )
@@ -222,14 +226,14 @@ extension MobileHostAuthorizationTests {
         for sequence in 1...256 {
             #expect(
                 await session.sendEvent(
-                    topic: "terminal.updated",
+                    topic: "mobile.sync.delta",
                     payload: ["seq": sequence]
                 )
             )
         }
         #expect(
             !(await session.sendEvent(
-                topic: "terminal.updated",
+                topic: "mobile.sync.delta",
                 payload: ["seq": 257]
             ))
         )
@@ -358,6 +362,194 @@ extension MobileHostAuthorizationTests {
         #expect(await transport.observedCloseCount() == 1)
         #expect(admitted <= 258)
         #expect(await session.debugQueuedEventCountForTesting() == 0)
+    }
+
+    /// End-to-end fan-out proof for issue #8842: sustained emission through the
+    /// static `emitEvent` path into a registered, never-draining subscriber
+    /// keeps the pending payload count and byte budget bounded, spawns no
+    /// per-event teardown churn, and leaves the connection attached.
+    @Test func testEmitEventFanOutKeepsStalledConnectionBounded() async throws {
+        let registry = MobileHostConnectionRegistry.shared
+        for connection in registry.removeAll() {
+            await connection.close(reason: "test setup")
+        }
+        let transport = StalledSendMobileHostByteTransport()
+        let connectionID = UUID()
+        let session = MobileHostConnection(
+            id: connectionID,
+            transport: transport,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { id in
+                MobileHostConnectionRegistry.shared.remove(id: id)
+            }
+        )
+        #expect(registry.insert(session, id: connectionID, authorization: .stackBearer, limit: 10))
+        await session.subscribe(streamID: "events", topics: ["terminal.render_grid"])
+
+        for sequence in 0..<600 {
+            MobileHostService.emitEvent(
+                topic: "terminal.render_grid",
+                payload: [
+                    "surface_id": "surface-fanout-8842",
+                    "full": false,
+                    "state_seq": sequence,
+                ]
+            )
+        }
+
+        #expect(await transport.observedCloseCount() == 0)
+        #expect(await session.debugQueuedEventCountForTesting() <= 256)
+        #expect(await session.debugQueuedEventByteCountForTesting()
+            <= MobileHostConnectionEventQueue.defaultMaximumByteCount)
+        #expect(registry.count == 1)
+
+        await session.close(reason: "test cleanup")
+        for connection in registry.removeAll() {
+            await connection.close(reason: "test cleanup")
+        }
+    }
+
+    /// A subscriber whose transport accepted a frame but never completes the
+    /// write (TCP zero-window peer) is torn down by the bounded event-send
+    /// stall deadline instead of pinning the connection's queue, tasks, and
+    /// socket forever.
+    @Test func testEventSendStallDeadlineClosesStalledConnection() async throws {
+        let transport = StalledSendMobileHostByteTransport()
+        let recorder = MobileHostConnectionCloseRecorder()
+        let connectionID = UUID()
+        let session = MobileHostConnection(
+            id: connectionID,
+            transport: transport,
+            eventSendStallTimeoutNanoseconds: 5_000_000,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { id in
+                await recorder.record(id)
+            }
+        )
+        await session.subscribe(streamID: "events", topics: ["terminal.render_grid"])
+        _ = await session.sendEvent(
+            topic: "terminal.render_grid",
+            payload: ["surface_id": "surface-stall-8842", "full": true]
+        )
+        await transport.waitUntilSendStalled()
+        for _ in 0..<2_000 {
+            if !(await recorder.recordedIDs().isEmpty) { break }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        #expect(await recorder.recordedIDs() == [connectionID])
+        #expect(await transport.observedCloseCount() == 1)
+    }
+
+    // MARK: - Bounded event queue admission policy
+
+    @Test func testEventQueueShedsRenderGridDeltasAndPoisonsUntilFullFrame() {
+        let queue = MobileHostConnectionEventQueue(
+            maximumEventCount: 2,
+            maximumByteCount: 1_000_000
+        )
+        queue.updateSubscribedTopics(["terminal.render_grid"])
+        let frame = Data(repeating: 0x61, count: 16)
+        #expect(queue.enqueue(
+            topic: "terminal.render_grid", coalesceKey: "s1",
+            isFullRenderGridFrame: false, frame: frame
+        ).admitted)
+        #expect(queue.enqueue(
+            topic: "terminal.render_grid", coalesceKey: "s1",
+            isFullRenderGridFrame: false, frame: frame
+        ).admitted)
+        // Overflow sheds s1's queued deltas (the arriving delta builds on
+        // them), requests a full-frame resync, and refuses the newest delta
+        // too: the client must never see a post-gap delta.
+        let overflow = queue.enqueue(
+            topic: "terminal.render_grid", coalesceKey: "s1",
+            isFullRenderGridFrame: false, frame: frame
+        )
+        #expect(!overflow.admitted)
+        #expect(!overflow.shouldClose)
+        #expect(overflow.renderGridResyncSurfaceIDs == ["s1"])
+        #expect(queue.count == 0)
+        // While poisoned, deltas stay refused even though there is room.
+        let poisonedDelta = queue.enqueue(
+            topic: "terminal.render_grid", coalesceKey: "s1",
+            isFullRenderGridFrame: false, frame: frame
+        )
+        #expect(!poisonedDelta.admitted)
+        #expect(poisonedDelta.renderGridResyncSurfaceIDs.isEmpty)
+        // The full-frame resync re-bases the chain and readmits the surface.
+        #expect(queue.enqueue(
+            topic: "terminal.render_grid", coalesceKey: "s1",
+            isFullRenderGridFrame: true, frame: frame
+        ).admitted)
+        #expect(queue.enqueue(
+            topic: "terminal.render_grid", coalesceKey: "s1",
+            isFullRenderGridFrame: false, frame: frame
+        ).admitted)
+        #expect(queue.count == 2)
+    }
+
+    @Test func testEventQueueOverflowOnNonDroppableTopicRequestsClose() {
+        let queue = MobileHostConnectionEventQueue(
+            maximumEventCount: 1,
+            maximumByteCount: 1_000_000
+        )
+        queue.updateSubscribedTopics(["mobile.sync.delta"])
+        let frame = Data(repeating: 0x61, count: 16)
+        #expect(queue.enqueue(
+            topic: "mobile.sync.delta", coalesceKey: nil,
+            isFullRenderGridFrame: false, frame: frame
+        ).admitted)
+        let overflow = queue.enqueue(
+            topic: "mobile.sync.delta", coalesceKey: nil,
+            isFullRenderGridFrame: false, frame: frame
+        )
+        #expect(!overflow.admitted)
+        #expect(overflow.shouldClose)
+    }
+
+    @Test func testEventQueueEnforcesByteBudgetBySheddingOldestDroppable() {
+        let queue = MobileHostConnectionEventQueue(
+            maximumEventCount: 100,
+            maximumByteCount: 64
+        )
+        queue.updateSubscribedTopics(["terminal.bytes"])
+        let frame = Data(repeating: 0x61, count: 48)
+        #expect(queue.enqueue(
+            topic: "terminal.bytes", coalesceKey: "s1",
+            isFullRenderGridFrame: false, frame: frame
+        ).admitted)
+        // The second chunk cannot fit under the byte budget; the oldest chunk
+        // is shed and the client recovers via its byte-seq gap detection.
+        let second = queue.enqueue(
+            topic: "terminal.bytes", coalesceKey: "s1",
+            isFullRenderGridFrame: false, frame: frame
+        )
+        #expect(second.admitted)
+        #expect(queue.count == 1)
+        #expect(queue.byteCount == 48)
+    }
+
+    @Test func testEventQueueRejectsUnsubscribedTopicsAndClosedQueues() {
+        let queue = MobileHostConnectionEventQueue()
+        queue.updateSubscribedTopics(["terminal.render_grid"])
+        let frame = Data(repeating: 0x61, count: 8)
+        #expect(!queue.enqueue(
+            topic: "terminal.updated", coalesceKey: nil,
+            isFullRenderGridFrame: false, frame: frame
+        ).admitted)
+        #expect(queue.enqueue(
+            topic: "terminal.render_grid", coalesceKey: "s1",
+            isFullRenderGridFrame: true, frame: frame
+        ).admitted)
+        queue.close()
+        #expect(queue.count == 0)
+        #expect(!queue.enqueue(
+            topic: "terminal.render_grid", coalesceKey: "s1",
+            isFullRenderGridFrame: true, frame: frame
+        ).admitted)
     }
 
     /// After close, every per-connection resource must be released: the
