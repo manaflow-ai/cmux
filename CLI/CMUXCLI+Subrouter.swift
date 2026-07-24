@@ -226,7 +226,7 @@ extension CMUXCLI {
         print("  sr                           interactive usage overview")
         print("")
         print("Then, in cmux:")
-        print("  Ctrl+6 (or the sidebar Subrouter tab)   live usage, switching, sessions")
+        print("  Ctrl+6 (or the sidebar Subrouter tab)   live usage and switching")
         print("  cmux subrouter usage                    quota windows per account")
         print("  cmux subrouter switch codex <email>     switch the active account")
         print("")
