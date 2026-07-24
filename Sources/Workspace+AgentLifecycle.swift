@@ -90,7 +90,7 @@ extension Workspace {
         pid: pid_t?,
         agentEventTime: TimeInterval?
     ) -> SidebarStatusEntryReplacementDecision {
-        let ownerPanelId = panelId ?? focusedPanelId
+        let ownerPanelId = panelId
         let isStructuredAgentStatus = AgentHibernationLifecycleStatusKeys.allowedStatusKeys.contains(key)
         let hasLifecycleWatermark = ownerPanelId.flatMap {
             agentLifecycleEventTimesByPanelId[$0]?[key]
@@ -352,7 +352,8 @@ extension Workspace {
             statusKey: key,
             panelId: targetPanelId,
             agentEventTime: agentEventTime,
-            enforceOrdering: enforceAgentEventOrdering || agentEventTime != nil
+            enforceOrdering: enforceAgentEventOrdering || agentEventTime != nil,
+            isLifecycleMutation: true
         ) else { return false }
         agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
         if !AgentHibernationLifecycleStatusKeys.isManualKey(key) {

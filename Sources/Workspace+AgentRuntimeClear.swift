@@ -66,7 +66,8 @@ extension Workspace {
         statusKey: String,
         panelId: UUID?,
         agentEventTime: TimeInterval?,
-        enforceOrdering: Bool
+        enforceOrdering: Bool,
+        isLifecycleMutation: Bool = false
     ) -> Bool {
         guard enforceOrdering, let panelId else { return true }
         let lifecycleEventTime = agentLifecycleEventTimesByPanelId[panelId]?[statusKey]
@@ -93,8 +94,8 @@ extension Workspace {
         }
         let retainsDurableLifecycleWatermark =
             AgentHibernationLifecycleStatusKeys.allowedStatusKeys.contains(statusKey) ||
-            (AgentHibernationLifecycleStatusKeys.isManualKey(statusKey) &&
-                agentLifecycleStatesByPanelId[panelId]?[statusKey] != nil)
+            isLifecycleMutation ||
+            agentLifecycleStatesByPanelId[panelId]?[statusKey] != nil
         if let agentEventTime, retainsDurableLifecycleWatermark {
             if let current = agentLifecycleEventTimesByPanelId[panelId]?[statusKey] {
                 if agentEventTime > current {
