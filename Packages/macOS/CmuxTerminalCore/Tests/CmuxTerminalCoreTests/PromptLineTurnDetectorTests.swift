@@ -82,6 +82,22 @@ struct PromptLineTurnDetectorTests {
         #expect(detector.pendingConfirmation == nil)
     }
 
+    @Test("A multi-byte CSI G preserves the echoed submission until its line boundary")
+    func multiByteCSIGPreservesSubmissionState() throws {
+        var detector = readyDetector()
+
+        detector.consume(Data("explain\u{1B}[12G\r\n".utf8))
+        #expect(detector.submissionCount == 1)
+        #expect(detector.pendingConfirmation == nil)
+
+        detector.consume(Data("answer\r\n".utf8))
+        #expect(detector.pendingConfirmation == nil)
+
+        detector.consume(Data(">>> ".utf8))
+        let confirmation = try #require(detector.pendingConfirmation)
+        #expect(detector.confirm(confirmation) == 1)
+    }
+
     @Test("Prompt text inside an OSC title is ignored")
     func oscPayloadCannotCompleteTurn() throws {
         var detector = readyDetector()
@@ -259,6 +275,62 @@ struct PromptLineTurnDetectorTests {
 
         let confirmation = try #require(detector.pendingConfirmation)
         #expect(detector.confirm(confirmation) == 1)
+    }
+
+    @Test("First byte rejects impossible waiting prompt lines")
+    func firstByteRejectsImpossibleWaitingPrompts() {
+        let promptFirstByte = UInt8(ascii: ">")
+        #expect(
+            !PromptLineTurnDetector.firstByteDisqualifiesWaitingPrompt(
+                in: [],
+                promptFirstByte: promptFirstByte
+            )
+        )
+        #expect(
+            !PromptLineTurnDetector.firstByteDisqualifiesWaitingPrompt(
+                in: [promptFirstByte],
+                promptFirstByte: promptFirstByte
+            )
+        )
+        #expect(
+            PromptLineTurnDetector.firstByteDisqualifiesWaitingPrompt(
+                in: [UInt8(ascii: "x")],
+                promptFirstByte: promptFirstByte
+            )
+        )
+    }
+
+    @Test("Printable-run scanning stops exactly at control bytes")
+    func printableRunScanningStopsAtControls() {
+        let controlBytes = Array(UInt8(0x00)...UInt8(0x1F)) + [UInt8(0x7F)]
+        for controlByte in controlBytes {
+            for printableCount in [0, 1, 7, 8, 15, 16, 19] {
+                let bytes = [UInt8(0x00)]
+                    + Array(repeating: UInt8(ascii: "x"), count: printableCount)
+                    + [controlByte, 0x80, 0xFF]
+                bytes.withUnsafeBufferPointer { buffer in
+                    #expect(
+                        PromptLineTurnDetector.firstNonPrintableByteIndex(
+                            in: buffer,
+                            from: 1
+                        ) == printableCount + 1,
+                        "control byte: \(controlByte), printable count: \(printableCount)"
+                    )
+                }
+            }
+        }
+
+        let printableBytes = [UInt8(0x00)]
+            + Array(repeating: UInt8(ascii: "x"), count: 19)
+            + [0x20, 0x7E, 0x80, 0xFF]
+        printableBytes.withUnsafeBufferPointer { buffer in
+            #expect(
+                PromptLineTurnDetector.firstNonPrintableByteIndex(
+                    in: buffer,
+                    from: 1
+                ) == buffer.endIndex
+            )
+        }
     }
 
     private func readyDetector() -> PromptLineTurnDetector {

@@ -1,0 +1,320 @@
+name: Memory autoresearch
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Source branch, tag, or SHA to measure
+        required: true
+        default: main
+        type: string
+      samples:
+        description: Timed snapshots per variant in each iteration
+        required: true
+        default: "5"
+        type: string
+      iterations:
+        description: Repetitions of both snapshot variants
+        required: true
+        default: "3"
+        type: string
+      nonce:
+        description: Dispatcher marker used to identify this run
+        required: false
+        default: ""
+        type: string
+
+run-name: "memory-autoresearch ${{ inputs.nonce }} ${{ inputs.source_ref }}"
+
+permissions:
+  contents: read
+
+jobs:
+  measure-memory:
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      PERF_TAG: memory-${{ github.run_id }}-${{ github.run_attempt }}
+      RESULTS_DIR: ${{ github.workspace }}/artifact
+      SOURCE_PACKAGES_DIR: ${{ github.workspace }}/source-packages
+      CMUX_SKIP_ZIG_BUILD: "1"
+      SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
+    steps:
+      - name: Prepare artifact directory
+        env:
+          SOURCE_REF: ${{ inputs.source_ref }}
+          SAMPLE_COUNT: ${{ inputs.samples }}
+          ITERATION_COUNT: ${{ inputs.iterations }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RESULTS_DIR"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          request = {
+              "source_ref": os.environ["SOURCE_REF"],
+              "samples": os.environ["SAMPLE_COUNT"],
+              "iterations": os.environ["ITERATION_COUNT"],
+          }
+          Path(os.environ["RESULTS_DIR"], "request.json").write_text(
+              json.dumps(request, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      # The workflow and harness stay pinned to the revision that was dispatched.
+      # The measured source is an independent checkout, so refs such as main can
+      # be benchmarked before this workflow or harness exists on that ref.
+      - name: Checkout harness revision
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          path: harness
+          persist-credentials: false
+
+      - name: Checkout source ref
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.source_ref }}
+          path: source
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Record revisions and validate controls
+        id: revisions
+        env:
+          SAMPLE_COUNT: ${{ inputs.samples }}
+          ITERATION_COUNT: ${{ inputs.iterations }}
+        run: |
+          set -euo pipefail
+          positive_integer() {
+            local name="$1"
+            local value="$2"
+            case "$value" in
+              ''|*[!0-9]*)
+                echo "Invalid $name: must be a positive integer" >&2
+                exit 2
+                ;;
+            esac
+            if [ "$value" -lt 1 ]; then
+              echo "Invalid $name: must be at least 1" >&2
+              exit 2
+            fi
+          }
+          positive_integer samples "$SAMPLE_COUNT"
+          positive_integer iterations "$ITERATION_COUNT"
+          echo "source_sha=$(git -C source rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "harness_sha=$(git -C harness rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Select Xcode
+        working-directory: source
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Install Zig
+        working-directory: source
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+          HOMEBREW_NO_ENV_HINTS: "1"
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Install Rust
+        working-directory: source
+        run: ./scripts/install-rust-ci.sh
+
+      - name: Provision GhosttyKit
+        working-directory: source
+        run: ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
+
+      - name: Cache Swift packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ env.SOURCE_PACKAGES_DIR }}
+          key: memory-autoresearch-macos-15-${{ hashFiles('source/cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: memory-autoresearch-macos-15-
+
+      - name: Sanitize Swift package cache
+        working-directory: source
+        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py "$SOURCE_PACKAGES_DIR"
+
+      - name: Resolve Swift packages
+        working-directory: source
+        run: |
+          set -euo pipefail
+          mkdir -p "$SOURCE_PACKAGES_DIR"
+          xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -resolvePackageDependencies
+
+      - name: Build tagged Debug app
+        working-directory: source
+        env:
+          CMUX_DISABLE_AUTOMATIC_PACKAGE_RESOLUTION: "1"
+          CMUX_RELOAD_NO_GLOBAL_CLI_LINKS: "1"
+          CMUX_IROH_BROKER_BASE_URL: http://127.0.0.1:9
+        run: |
+          set -euo pipefail
+          CMUX_SOURCE_PACKAGES_DIR="$SOURCE_PACKAGES_DIR" \
+            ./scripts/reload.sh --tag "$PERF_TAG" 2>&1 | tee "$RESULTS_DIR/build.log"
+
+      - name: Run repeated snapshot memory benchmark
+        working-directory: source
+        env:
+          SOURCE_REF: ${{ inputs.source_ref }}
+          SOURCE_SHA: ${{ steps.revisions.outputs.source_sha }}
+          SAMPLE_COUNT: ${{ inputs.samples }}
+          ITERATION_COUNT: ${{ inputs.iterations }}
+          CMUX_AUTH_WWW_ORIGIN: http://127.0.0.1:9
+          CMUX_WWW_ORIGIN: http://127.0.0.1:9
+          CMUX_API_BASE_URL: http://127.0.0.1:9
+          CMUX_VM_API_BASE_URL: http://127.0.0.1:9
+          CMUX_IROH_BROKER_BASE_URL: http://127.0.0.1:9
+        run: |
+          set -euo pipefail
+          app_path="$HOME/Library/Developer/Xcode/DerivedData/cmux-$PERF_TAG/Build/Products/Debug/cmux DEV $PERF_TAG.app"
+          python3 ../harness/scripts/perf-autoresearch-snapshot.py \
+            --tag "$PERF_TAG" \
+            --app-path "$app_path" \
+            --fixture-root "$RUNNER_TEMP/cmux-memory-fixtures" \
+            --source-ref "$SOURCE_REF" \
+            --source-sha "$SOURCE_SHA" \
+            --samples "$SAMPLE_COUNT" \
+            --iterations "$ITERATION_COUNT" \
+            --output "$RESULTS_DIR/memory-autoresearch.json" \
+            2>&1 | tee "$RESULTS_DIR/benchmark.log"
+
+      - name: Cleanup benchmark process
+        if: ${{ always() }}
+        run: |
+          pkill -f "cmux DEV ${PERF_TAG}.app/Contents/MacOS/cmux DEV" || true
+          rm -f "/tmp/cmux-debug-${PERF_TAG}.sock"
+          reload_log="/tmp/cmux-reload-${PERF_TAG}.log"
+          if [ -f "$reload_log" ]; then
+            cp "$reload_log" "$RESULTS_DIR/reload.log"
+          fi
+
+      - name: Finalize machine-readable result
+        if: ${{ always() }}
+        env:
+          JOB_STATUS: ${{ job.status }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+          SOURCE_SHA: ${{ steps.revisions.outputs.source_sha }}
+          HARNESS_SHA: ${{ steps.revisions.outputs.harness_sha }}
+          SAMPLE_COUNT: ${{ inputs.samples }}
+          ITERATION_COUNT: ${{ inputs.iterations }}
+          RUNNER_LABEL: macos-15
+          WORKFLOW_NAME: Memory autoresearch
+          WORKFLOW_REF: ${{ github.ref }}
+          WORKFLOW_SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          result_path = Path(os.environ["RESULTS_DIR"], "memory-autoresearch.json")
+          if result_path.exists():
+              result = json.loads(result_path.read_text(encoding="utf-8"))
+          else:
+              def integer_or_raw(value):
+                  try:
+                      return int(value)
+                  except ValueError:
+                      return value
+
+              result = {
+                  "source": {
+                      "requested_ref": os.environ["SOURCE_REF"],
+                      "sha": os.environ.get("SOURCE_SHA") or None,
+                  },
+                  "configuration": {
+                      "workspace_count": 12,
+                      "sample_count_per_variant_per_iteration": integer_or_raw(os.environ["SAMPLE_COUNT"]),
+                      "iteration_count": integer_or_raw(os.environ["ITERATION_COUNT"]),
+                  },
+                  "samples": [],
+                  "memory": {"units": "bytes", "samples": [], "deltas": {}},
+                  "failures": ["benchmark did not produce a result; inspect build.log and workflow logs"],
+                  "passed": False,
+                  "status": "fail",
+              }
+
+          result["workflow"] = {
+              "name": os.environ["WORKFLOW_NAME"],
+              "run_id": int(os.environ["RUN_ID"]),
+              "run_attempt": int(os.environ["RUN_ATTEMPT"]),
+              "runner": os.environ["RUNNER_LABEL"],
+              "workflow_ref": os.environ["WORKFLOW_REF"],
+              "workflow_sha": os.environ["WORKFLOW_SHA"],
+              "harness_sha": os.environ.get("HARNESS_SHA") or os.environ["WORKFLOW_SHA"],
+              "job_status_before_artifact": os.environ["JOB_STATUS"],
+          }
+          if os.environ["JOB_STATUS"] != "success":
+              result["passed"] = False
+              result["status"] = "fail"
+              result.setdefault("failures", []).append(
+                  f"workflow job status before artifact upload: {os.environ['JOB_STATUS']}"
+              )
+          failures = result.get("failures") or []
+          cleanup_errors = result.get("cleanup_errors") or []
+          result["pass_fail"] = {
+              "passed": bool(result.get("passed")) and not failures and not cleanup_errors,
+              "status": "pass" if result.get("passed") and not failures and not cleanup_errors else "fail",
+              "failure_count": len(failures),
+              "cleanup_error_count": len(cleanup_errors),
+          }
+          result["passed"] = result["pass_fail"]["passed"]
+          result["status"] = result["pass_fail"]["status"]
+          result_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          PY
+
+      - name: Write job summary
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path(os.environ["RESULTS_DIR"], "memory-autoresearch.json")
+          result = json.loads(path.read_text(encoding="utf-8"))
+          source = result.get("source", {})
+          config = result.get("configuration", {})
+          deltas = result.get("memory", {}).get("deltas", {})
+          print("## Memory autoresearch")
+          print()
+          print(f"- Status: **{result.get('status')}**")
+          print(f"- Source: `{source.get('requested_ref')}` (`{source.get('sha')}`)")
+          print(f"- Fixture: {config.get('workspace_count')} workspaces")
+          print(f"- Samples: {config.get('sample_count_per_variant_per_iteration')} per variant × {config.get('iteration_count')} iterations")
+          def print_delta(label, values):
+              if not isinstance(values, dict):
+                  return
+              if "delta_bytes" in values:
+                  peak = values.get("peak_delta_bytes")
+                  peak_text = f"; peak delta: {peak} bytes" if peak is not None else ""
+                  print(f"- {label} delta: {values['delta_bytes']} bytes{peak_text}")
+                  return
+              for child_label, child_values in values.items():
+                  print_delta(f"{label}.{child_label}", child_values)
+
+          for label, values in deltas.items():
+              print_delta(label, values)
+          for failure in result.get("failures") or []:
+              print(f"- Failure: {failure}")
+          PY
+
+      - name: Upload memory autoresearch artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: memory-autoresearch-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifact/
+          retention-days: 14
+          if-no-files-found: error

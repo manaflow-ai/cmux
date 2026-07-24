@@ -39,19 +39,16 @@ public struct PromptLineTurnDetector: Sendable {
     }
 
     private static let maximumLogicalLineBytes = 4_096
-    private static let maximumCSIParameterBytes = 12
 
     private let configuration: PromptLineTurnDetectionConfiguration
     private let maximumWaitingPromptLineByteCount: Int
     private let promptVisibleByteCount: Int
     private var phase: Phase = .stable(.seekingInitialPrompt)
     private var controlSequence: ControlSequence = .none
-    /// CSI parameter/intermediate bytes of the sequence being parsed, so the
-    /// terminator can distinguish line-rewriting controls (CSI 2K, CSI 1G)
-    /// from inert ones (SGR, cursor shifts). Overlong sequences are treated
-    /// as inert rather than growing the buffer.
-    private var csiParameterBytes: [UInt8] = []
-    private var csiParameterOverflowed = false
+    /// CSI parameter/intermediate byte count, saturated at two. The first byte
+    /// is retained only for the exactly-one-byte G/K forms handled below.
+    private var csiFirstParameterByte: UInt8 = 0
+    private var csiParameterByteCount: UInt8 = 0
     private var logicalLine: [UInt8] = []
     private var logicalLineOverflowed = false
     /// Visible bytes currently in `logicalLine`, maintained incrementally so
@@ -122,12 +119,7 @@ public struct PromptLineTurnDetector: Sendable {
                printableBytesCannotChangeState {
                 // Skip the rest of the printable run without state machine
                 // work; only control bytes below can change detection state.
-                var cursor = index + 1
-                while cursor < bytes.endIndex {
-                    let next = bytes[cursor]
-                    if next < 0x20 || next == 0x7F { break }
-                    cursor += 1
-                }
+                let cursor = Self.firstNonPrintableByteIndex(in: bytes, from: index)
                 unstoredLineByteCount += cursor - index
                 index = cursor
                 continue
@@ -135,6 +127,53 @@ public struct PromptLineTurnDetector: Sendable {
             consume(byte)
             index += 1
         }
+    }
+
+    /// Returns the first C0 control or DEL byte at or after `startIndex`.
+    /// Eight-byte probes keep ordinary PTY output close to memcpy cost while
+    /// the scalar tail preserves the exact logical-line boundary semantics.
+    @inline(__always)
+    static func firstNonPrintableByteIndex(
+        in bytes: UnsafeBufferPointer<UInt8>,
+        from startIndex: Int
+    ) -> Int {
+        precondition(startIndex >= bytes.startIndex && startIndex <= bytes.endIndex)
+        guard let baseAddress = bytes.baseAddress else { return bytes.endIndex }
+
+        var index = startIndex
+        while index + MemoryLayout<UInt64>.size <= bytes.endIndex {
+            let word = UnsafeRawPointer(baseAddress.advanced(by: index))
+                .loadUnaligned(as: UInt64.self)
+            if wordContainsNonPrintableByte(word) { break }
+            index += MemoryLayout<UInt64>.size
+        }
+        while index < bytes.endIndex {
+            let byte = bytes[index]
+            if byte < 0x20 || byte == 0x7F { break }
+            index += 1
+        }
+        return index
+    }
+
+    @inline(__always)
+    private static func wordContainsNonPrintableByte(_ word: UInt64) -> Bool {
+        let highBits: UInt64 = 0x8080_8080_8080_8080
+        let repeatedOnes: UInt64 = 0x0101_0101_0101_0101
+        let repeatedSpaces: UInt64 = 0x2020_2020_2020_2020
+        let repeatedDeletes: UInt64 = 0x7F7F_7F7F_7F7F_7F7F
+        let containsC0Control = ((word &- repeatedSpaces) & ~word & highBits) != 0
+        let deleteCandidates = word ^ repeatedDeletes
+        let containsDelete = ((deleteCandidates &- repeatedOnes) & ~deleteCandidates & highBits) != 0
+        return containsC0Control || containsDelete
+    }
+
+    @inline(__always)
+    static func firstByteDisqualifiesWaitingPrompt(
+        in line: [UInt8],
+        promptFirstByte: UInt8
+    ) -> Bool {
+        guard let firstByte = line.first else { return false }
+        return firstByte != promptFirstByte
     }
 
     /// Confirms a prompt boundary after its debounce interval elapsed.
@@ -196,6 +235,12 @@ public struct PromptLineTurnDetector: Sendable {
     private var lineCannotBecomeWaitingPrompt: Bool {
         if logicalLineOverflowed || unstoredLineByteCount > 0 { return true }
         if logicalLine.count > maximumWaitingPromptLineByteCount { return true }
+        if Self.firstByteDisqualifiesWaitingPrompt(
+            in: logicalLine,
+            promptFirstByte: configuration.promptBytes[0]
+        ) {
+            return true
+        }
         return !configuration.waitingPromptLineBytes.contains { $0.starts(with: logicalLine) }
     }
 
@@ -209,13 +254,19 @@ public struct PromptLineTurnDetector: Sendable {
             }
             return
         case .csi:
-            if (0x40...0x7E).contains(byte) {
+            if byte >= 0x40 && byte <= 0x7E {
                 controlSequence = .none
                 handleCSITerminator(byte)
-            } else if csiParameterBytes.count < Self.maximumCSIParameterBytes {
-                csiParameterBytes.append(byte)
             } else {
-                csiParameterOverflowed = true
+                switch csiParameterByteCount {
+                case 0:
+                    csiFirstParameterByte = byte
+                    csiParameterByteCount = 1
+                case 1:
+                    csiParameterByteCount = 2
+                default:
+                    break
+                }
             }
             return
         case .osc:
@@ -235,8 +286,8 @@ public struct PromptLineTurnDetector: Sendable {
         switch byte {
         case 0x1B:
             controlSequence = .escape
-            csiParameterBytes.removeAll(keepingCapacity: true)
-            csiParameterOverflowed = false
+            csiFirstParameterByte = 0
+            csiParameterByteCount = 0
         case 0x0A, 0x0D:
             invalidatePendingPrompt()
             handleLineBoundary()
@@ -316,6 +367,15 @@ public struct PromptLineTurnDetector: Sendable {
             }
             return
         }
+        if Self.firstByteDisqualifiesWaitingPrompt(
+            in: logicalLine,
+            promptFirstByte: configuration.promptBytes[0]
+        ) {
+            if visibleByteCount > 0 {
+                markOutputObserved()
+            }
+            return
+        }
         guard configuration.waitingPromptLineBytes.contains(logicalLine),
               case .stable(let stablePhase) = phase else {
             if !configuration.waitingPromptLineBytes.contains(where: { $0.starts(with: logicalLine) }),
@@ -355,21 +415,22 @@ public struct PromptLineTurnDetector: Sendable {
     /// stays inert because the detector does not track cursor columns.
     private mutating func handleCSITerminator(_ terminator: UInt8) {
         defer {
-            csiParameterBytes.removeAll(keepingCapacity: true)
-            csiParameterOverflowed = false
+            csiFirstParameterByte = 0
+            csiParameterByteCount = 0
         }
-        guard !csiParameterOverflowed else { return }
         switch terminator {
         case UInt8(ascii: "G"):
-            guard csiParameterBytes.isEmpty ||
-                csiParameterBytes == [UInt8(ascii: "1")] ||
-                csiParameterBytes == [UInt8(ascii: "0")] else {
+            guard csiParameterByteCount == 0 ||
+                (csiParameterByteCount == 1 &&
+                    (csiFirstParameterByte == UInt8(ascii: "0") ||
+                        csiFirstParameterByte == UInt8(ascii: "1"))) else {
                 return
             }
             invalidatePendingPrompt()
             resetLogicalLine()
         case UInt8(ascii: "K"):
-            guard csiParameterBytes == [UInt8(ascii: "2")] else { return }
+            guard csiParameterByteCount == 1,
+                  csiFirstParameterByte == UInt8(ascii: "2") else { return }
             invalidatePendingPrompt()
             resetLogicalLine()
         default:
