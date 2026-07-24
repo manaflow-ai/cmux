@@ -318,6 +318,67 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
     }
 
+    func testPersistedSplitShortcutWinsOverNewFontSizeDefault() {
+        withIsolatedShortcutFileStore {
+            withDefaultShortcutFallback(action: .decreaseWorkspaceTerminalFontSize) {
+                withTemporaryShortcut(
+                    action: .splitRight,
+                    shortcut: StoredShortcut(
+                        key: "-",
+                        command: true,
+                        shift: false,
+                        option: false,
+                        control: true
+                    )
+                ) {
+                    guard let appDelegate = AppDelegate.shared else {
+                        XCTFail("Expected AppDelegate.shared")
+                        return
+                    }
+
+                    let windowId = appDelegate.createMainWindow()
+                    defer { closeWindow(withId: windowId) }
+
+                    guard let window = window(withId: windowId),
+                          let manager = appDelegate.tabManagerFor(windowId: windowId),
+                          let workspace = manager.selectedWorkspace,
+                          let firstPanelId = workspace.focusedPanelId,
+                          let firstPanel = workspace.terminalPanel(for: firstPanelId),
+                          let event = makeKeyDownEvent(
+                            key: "-",
+                            modifiers: [.command, .control],
+                            keyCode: 27,
+                            windowNumber: window.windowNumber
+                          ) else {
+                        XCTFail("Expected a terminal and Cmd+Ctrl+- event")
+                        return
+                    }
+                    let panelCountBefore = workspace.panels.count
+
+                    window.makeKeyAndOrderFront(nil)
+#if DEBUG
+                    XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+                    XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+                    return
+#endif
+                    RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.35))
+
+                    XCTAssertEqual(workspace.panels.count, panelCountBefore + 1)
+                    XCTAssertEqual(
+                        shortcutRoutingSplitNodes(
+                            in: workspace.bonsplitController.treeSnapshot()
+                        ).count,
+                        1
+                    )
+                    XCTAssertFalse(
+                        firstPanel.surface.fontSizeLineageSnapshot()?.isExplicitOverride ?? false
+                    )
+                }
+            }
+        }
+    }
+
     func testWorkspaceFontSizeDefaultsAreNotSuppressedAfterRebinding() {
         withIsolatedShortcutFileStore {
             let cases: [

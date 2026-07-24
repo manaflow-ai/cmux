@@ -77,6 +77,37 @@ import Testing
         #expect(lineage.isExplicitOverride)
     }
 
+    @Test func staleRuntimePointerFallsBackToDurableLineageAdjustment() throws {
+        var template = CmuxSurfaceConfigTemplate()
+        template.setFontSize(12, isExplicitOverride: true)
+        let surface = makeSurface(configTemplate: template)
+        surface.surface = UnsafeMutableRawPointer(bitPattern: 0x7542)
+
+        #expect(surface.adjustFontSize(byRuntimePoints: -1, fallbackRuntimePoints: 16))
+        #expect(surface.surface == nil)
+        #expect(
+            try #require(surface.fontSizeLineageSnapshot())
+                == TerminalFontSizeLineage(basePoints: 11, isExplicitOverride: true)
+        )
+    }
+
+    @Test func hibernatedNonExplicitLineageUsesCurrentConfiguredFallback() throws {
+        var template = CmuxSurfaceConfigTemplate()
+        template.setFontSize(19, isExplicitOverride: true)
+        let surface = makeSurface(configTemplate: template)
+        surface.surface = UnsafeMutableRawPointer(bitPattern: 0x7543)
+        surface.surface = nil
+        surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(basePoints: 12, isExplicitOverride: false)
+        )
+
+        #expect(surface.adjustFontSize(byRuntimePoints: -1, fallbackRuntimePoints: 16))
+        #expect(
+            try #require(surface.fontSizeLineageSnapshot())
+                == TerminalFontSizeLineage(basePoints: 15, isExplicitOverride: true)
+        )
+    }
+
     private func makeSurface(
         configTemplate: CmuxSurfaceConfigTemplate,
         globalFontMagnificationPercent: Int = 100
