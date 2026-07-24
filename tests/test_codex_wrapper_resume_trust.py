@@ -40,6 +40,7 @@ class CodexWrapperResumeTrustTests(unittest.TestCase):
             root = Path(raw)
             home = root / "home"
             project = root / "project"
+            working_directory = project / "nested"
             wrapper = root / "cmux-codex-wrapper"
             real_codex = (
                 home / ".local" / "bin" / "codex"
@@ -58,7 +59,8 @@ class CodexWrapperResumeTrustTests(unittest.TestCase):
 
             shutil.copy2(SOURCE_WRAPPER, wrapper)
             wrapper.chmod(0o755)
-            project.mkdir()
+            (project / ".git").mkdir(parents=True)
+            working_directory.mkdir()
             real_codex.parent.mkdir(parents=True, exist_ok=True)
             make_executable(
                 real_codex,
@@ -142,7 +144,7 @@ printf 'hostile-codex-ran\\n' >> "$FAKE_CMUX_LOG"
 exit 98
 """,
                 )
-            lookup_path = env.get("PATH", "")
+            lookup_path = "/usr/bin:/bin"
             if trusted_codex_from_custom_path:
                 lookup_path = f"{lookup_path}:{real_codex.parent}"
             if hostile_bash_on_path or hostile_codex_on_path:
@@ -151,7 +153,7 @@ exit 98
             try:
                 result = subprocess.run(
                     [str(wrapper), *arguments],
-                    cwd=project,
+                    cwd=working_directory,
                     env=env,
                     capture_output=True,
                     text=True,

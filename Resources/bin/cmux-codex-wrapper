@@ -19,11 +19,11 @@
 # script always reaches an `exec "$REAL_CODEX"`.
 
 # Keep the user's original lookup path for the launched Codex process and for
-# non-session passthrough commands. Session entrypoints resolve Codex only from
-# an explicit absolute override or established user/system install roots, so a
-# project-controlled PATH cannot select executable code before Codex's project
-# trust decision applies. Every wrapper utility resolves from macOS system
-# paths for the same reason.
+# finding installations outside the standard package-manager locations.
+# Session entrypoints reject candidates physically contained by the current
+# Git project, so a project-controlled PATH entry cannot select executable code
+# before Codex's project trust decision applies. Every wrapper utility resolves
+# from macOS system paths for the same reason.
 cmux_codex_lookup_path="${PATH:-}"
 PATH="/usr/bin:/bin:/usr/sbin:/sbin"
 export PATH
@@ -63,34 +63,115 @@ cmux_codex_candidate_is_real() {
     ! cmux_codex_wrapper_is_self_or_shim "$candidate"
 }
 
-# Find the real Codex binary. An explicit absolute captured path is
-# authoritative. Non-session passthrough commands may preserve normal PATH
-# lookup, but session entrypoints inside cmux use only stable installation roots
-# controlled by the user or system, never a project-supplied PATH entry.
+# Resolve a candidate's directory and symlink chain without invoking anything
+# from the user's PATH. Returning the physical target also closes the gap where
+# a project-owned PATH entry is a symlink to an executable elsewhere and is
+# swapped between validation and exec.
+cmux_codex_physical_candidate() {
+    local candidate="$1"
+    local target
+    local hops=0
+    while [[ -L "$candidate" ]]; do
+        target="$(/usr/bin/readlink "$candidate" 2>/dev/null)" || return 1
+        if [[ "$target" == /* ]]; then
+            candidate="$target"
+        else
+            candidate="$(dirname "$candidate")/$target"
+        fi
+        (( hops += 1 ))
+        (( hops <= 40 )) || return 1
+    done
+
+    local physical_directory
+    physical_directory="$(
+        cd -P "$(dirname "$candidate")" 2>/dev/null && pwd -P
+    )" || return 1
+    printf '%s/%s' "${physical_directory%/}" "$(basename "$candidate")"
+}
+
+# Print the nearest physical ancestor that contains a Git marker. Outside a Git
+# checkout, the working directory itself is the untrusted project boundary.
+cmux_codex_untrusted_project_root() {
+    local root
+    root="$(pwd -P 2>/dev/null)" || return 1
+    local cursor="$root"
+    while :; do
+        if [[ -e "$cursor/.git" || -L "$cursor/.git" ]]; then
+            printf '%s' "$cursor"
+            return 0
+        fi
+        [[ "$cursor" == "/" ]] && break
+        cursor="${cursor%/*}"
+        [[ -n "$cursor" ]] || cursor="/"
+    done
+    printf '%s' "$root"
+}
+
+cmux_codex_candidate_is_project_controlled() {
+    local candidate="$1"
+    local project_root="$2"
+    [[ -n "$project_root" ]] || return 0
+    [[ "$project_root" == "/" ]] && return 0
+    [[ "$candidate" == "$project_root" || "$candidate" == "$project_root/"* ]]
+}
+
+# Print a physical, executable candidate only when it is outside the untrusted
+# project boundary. This lets custom npm/pnpm/user-bin installs work without
+# allowing a repository-local `codex` to run before Codex asks for trust.
+cmux_codex_validated_session_candidate() {
+    local candidate="$1"
+    local project_root="$2"
+    local physical_candidate
+    physical_candidate="$(cmux_codex_physical_candidate "$candidate")" || return 1
+    cmux_codex_candidate_is_real "$physical_candidate" || return 1
+    cmux_codex_candidate_is_project_controlled \
+        "$physical_candidate" \
+        "$project_root" && return 1
+    printf '%s' "$physical_candidate"
+}
+
+# Find the real Codex binary. An explicit absolute captured path is checked
+# first. Normal PATH lookup remains available for custom installation roots,
+# with repository-local candidates rejected for session entrypoints.
 find_real_codex() {
+    local session_requires_project_validation=false
+    local project_root=""
+    if [[ "${IN_CMUX:-0}" == "1" ]] && should_inject_codex_hooks "$@"; then
+        session_requires_project_validation=true
+        project_root="$(cmux_codex_untrusted_project_root)" || return 1
+    fi
+
     local custom="${CMUX_CUSTOM_CODEX_PATH:-}"
     custom="${custom#"${custom%%[![:space:]]*}"}"  # trim leading whitespace
     custom="${custom%"${custom##*[![:space:]]}"}"  # trim trailing whitespace
-    if [[ "$custom" == /* ]] && cmux_codex_candidate_is_real "$custom"; then
-        printf '%s' "$custom"
-        return 0
+    if [[ "$custom" == /* ]]; then
+        if [[ "$session_requires_project_validation" == true ]]; then
+            cmux_codex_validated_session_candidate \
+                "$custom" \
+                "$project_root" && return 0
+        elif cmux_codex_candidate_is_real "$custom"; then
+            printf '%s' "$custom"
+            return 0
+        fi
     fi
 
     local self_dir
     self_dir="$(cd "$(dirname "$0")" && pwd)"
-
-    if [[ "${IN_CMUX:-0}" != "1" ]] || ! should_inject_codex_hooks "$@"; then
-        local IFS=:
-        local d candidate
-        for d in $cmux_codex_lookup_path; do
-            [[ "$d" == "$self_dir" ]] && continue
-            candidate="$d/codex"
-            if cmux_codex_candidate_is_real "$candidate"; then
-                printf '%s' "$candidate"
-                return 0
-            fi
-        done
-    fi
+    local IFS=:
+    local d candidate
+    for d in $cmux_codex_lookup_path; do
+        [[ -n "$d" ]] || d="."
+        [[ "$d" == "$self_dir" ]] && continue
+        candidate="$d/codex"
+        if [[ "$session_requires_project_validation" == true ]]; then
+            cmux_codex_validated_session_candidate \
+                "$candidate" \
+                "$project_root" && return 0
+        elif cmux_codex_candidate_is_real "$candidate"; then
+            printf '%s' "$candidate"
+            return 0
+        fi
+    done
 
     local candidates=()
     if [[ "${HOME:-}" == /* ]]; then
@@ -120,7 +201,11 @@ find_real_codex() {
     )
     local candidate
     for candidate in "${candidates[@]}"; do
-        if cmux_codex_candidate_is_real "$candidate"; then
+        if [[ "$session_requires_project_validation" == true ]]; then
+            cmux_codex_validated_session_candidate \
+                "$candidate" \
+                "$project_root" && return 0
+        elif cmux_codex_candidate_is_real "$candidate"; then
             printf '%s' "$candidate"
             return 0
         fi
