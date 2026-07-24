@@ -7,6 +7,7 @@ final class SidebarFocusBoundaryReference {
     private weak var boundaryView: NSView?
 
     func attach(_ view: NSView) {
+        guard view.window != nil else { return }
         boundaryView = view
     }
 
