@@ -189,6 +189,45 @@ esac
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn('"cmux_resume_rebind":true', logged_cmux_calls)
 
+    def test_attached_short_option_values_before_resume_receive_trust_override(
+        self,
+    ) -> None:
+        for option in (
+            "-cmodel=gpt-5.6",
+            "-iimage.png",
+            "-mgpt-5.6",
+            "-pdogfood",
+            "-sread-only",
+            "-C/private/tmp/project.with.dot",
+            "-anever",
+        ):
+            with self.subTest(option=option):
+                args, logged_cmux_calls, result = self.run_wrapper(
+                    [option, "resume", SESSION_ID]
+                )
+
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(
+                    args,
+                    [
+                        "--enable",
+                        "hooks",
+                        option,
+                        "resume",
+                        SESSION_ID,
+                        "-c",
+                        TRUST_OVERRIDE,
+                    ],
+                )
+                self.assertIn(
+                    "hooks codex inject-resume-args",
+                    logged_cmux_calls,
+                )
+                self.assertIn(
+                    '"cmux_resume_rebind":true',
+                    logged_cmux_calls,
+                )
+
     def test_fresh_launch_does_not_query_resume_trust(self) -> None:
         args, logged_cmux_calls, result = self.run_wrapper(["--yolo"])
 

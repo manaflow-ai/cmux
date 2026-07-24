@@ -94,6 +94,42 @@ struct CodexResumeTrustPolicyTests {
         )
     }
 
+    @Test("Attached short-option values preserve resume trust parsing")
+    func attachedShortOptionValuesPreserveResumeTrustParsing() {
+        let projectOverride =
+            #"projects={"/Users/me/decided"={trust_level="trusted"}}"#
+        let arguments = [
+            "codex",
+            "-pglobal",
+            "-c\(projectOverride)",
+            "-C/Users/me/restored",
+            "-mgpt-5.6",
+            "-anever",
+            "-sread-only",
+            "-iimage.png",
+            "resume",
+            "SID",
+            "-prestored",
+        ]
+
+        #expect(policy.isResumeInvocation(arguments: arguments))
+        #expect(
+            policy.appServerConfigurationArguments(arguments: arguments) == [
+                "--profile",
+                "restored",
+                "-c",
+                projectOverride,
+            ]
+        )
+        #expect(policy.selectedProfile(arguments: arguments) == "restored")
+        #expect(
+            policy.effectiveWorkingDirectory(
+                arguments: arguments,
+                currentDirectory: "/Users/me/original"
+            ) == "/Users/me/restored"
+        )
+    }
+
     @Test("Remote app-server resumes fail closed")
     func remoteResumeDoesNotQueryLocalConfig() {
         #expect(

@@ -2098,6 +2098,133 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(record.surfaceId, "22222222-2222-2222-2222-222222222222")
     }
 
+    func testDelayedSameGenerationCodexResumeCannotClearActiveTurn() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-same-generation-active-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let store = ClaudeHookSessionStore(
+            processEnv: ["CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path]
+        )
+        let sessionId = "same-generation-active"
+        let pid = Int(Darwin.getpid())
+
+        XCTAssertTrue(
+            try store.upsertCodexSessionStartIfFresh(
+                sessionId: sessionId,
+                workspaceId: "11111111-1111-1111-1111-111111111111",
+                surfaceId: "22222222-2222-2222-2222-222222222222",
+                cwd: root.path,
+                pid: pid
+            )
+        )
+        XCTAssertTrue(
+            try store.upsertCodexSessionStartIfFresh(
+                sessionId: sessionId,
+                workspaceId: "11111111-1111-1111-1111-111111111111",
+                surfaceId: "22222222-2222-2222-2222-222222222222",
+                cwd: root.path,
+                pid: pid,
+                allowResumedProcessReplacement: true
+            ),
+            "A repeated same-generation rebind remains idempotent before turn events."
+        )
+        _ = try store.recordPromptSubmit(
+            sessionId: sessionId,
+            workspaceId: "11111111-1111-1111-1111-111111111111",
+            surfaceId: "22222222-2222-2222-2222-222222222222",
+            cwd: root.path,
+            turnId: "active-turn",
+            pid: pid,
+            launchCommand: nil
+        )
+
+        XCTAssertFalse(
+            try store.upsertCodexSessionStartIfFresh(
+                sessionId: sessionId,
+                workspaceId: "33333333-3333-3333-3333-333333333333",
+                surfaceId: "44444444-4444-4444-4444-444444444444",
+                cwd: root.path,
+                pid: pid,
+                allowResumedProcessReplacement: true
+            ),
+            "A delayed same-generation SessionStart must not erase a newer active turn."
+        )
+        let record = try XCTUnwrap(store.lookup(sessionId: sessionId))
+        XCTAssertEqual(record.activePromptDepth, 1)
+        XCTAssertEqual(record.activePromptTurnId, "active-turn")
+        XCTAssertEqual(record.activePromptTurnIds, ["active-turn"])
+        XCTAssertEqual(record.lastPromptTurnId, "active-turn")
+        XCTAssertEqual(record.workspaceId, "11111111-1111-1111-1111-111111111111")
+        XCTAssertEqual(record.surfaceId, "22222222-2222-2222-2222-222222222222")
+    }
+
+    func testDelayedSameGenerationCodexResumeCannotResurrectCompletedTurn() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-same-generation-complete-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let store = ClaudeHookSessionStore(
+            processEnv: ["CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path]
+        )
+        let sessionId = "same-generation-complete"
+        let pid = Int(Darwin.getpid())
+
+        XCTAssertTrue(
+            try store.upsertCodexSessionStartIfFresh(
+                sessionId: sessionId,
+                workspaceId: "11111111-1111-1111-1111-111111111111",
+                surfaceId: "22222222-2222-2222-2222-222222222222",
+                cwd: root.path,
+                pid: pid
+            )
+        )
+        _ = try store.recordPromptSubmit(
+            sessionId: sessionId,
+            workspaceId: "11111111-1111-1111-1111-111111111111",
+            surfaceId: "22222222-2222-2222-2222-222222222222",
+            cwd: root.path,
+            turnId: "completed-turn",
+            pid: pid,
+            launchCommand: nil
+        )
+        _ = try store.recordPromptStop(
+            sessionId: sessionId,
+            workspaceId: "11111111-1111-1111-1111-111111111111",
+            surfaceId: "22222222-2222-2222-2222-222222222222",
+            cwd: root.path,
+            turnId: "completed-turn",
+            pid: pid,
+            launchCommand: nil,
+            lastSubtitle: "done",
+            lastBody: "done"
+        )
+
+        XCTAssertFalse(
+            try store.upsertCodexSessionStartIfFresh(
+                sessionId: sessionId,
+                workspaceId: "33333333-3333-3333-3333-333333333333",
+                surfaceId: "44444444-4444-4444-4444-444444444444",
+                cwd: root.path,
+                pid: pid,
+                runtimeStatus: .running,
+                updateRuntimeStatus: true,
+                allowResumedProcessReplacement: true
+            ),
+            "A delayed same-generation SessionStart must not resurrect a completed turn."
+        )
+        let record = try XCTUnwrap(store.lookup(sessionId: sessionId))
+        XCTAssertNil(record.activePromptDepth)
+        XCTAssertEqual(record.lastPromptTurnId, "completed-turn")
+        XCTAssertTrue(record.terminalPromptTurnIds?.contains("completed-turn") == true)
+        XCTAssertEqual(record.lastSubtitle, "done")
+        XCTAssertEqual(record.lastBody, "done")
+        XCTAssertEqual(record.workspaceId, "11111111-1111-1111-1111-111111111111")
+        XCTAssertEqual(record.surfaceId, "22222222-2222-2222-2222-222222222222")
+    }
+
     func testCodexResumeRebindAcceptsDeadPreviousPIDWhenGenerationWasDropped() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-missing-generation-\(UUID().uuidString)", isDirectory: true)
