@@ -1380,6 +1380,25 @@ impl ClientRegistry {
         }
         attached
     }
+
+    /// Query one surface for the resize hot path. The server bounds live
+    /// connections, so this avoids walking each client's retained surfaces.
+    pub(crate) fn attached_client_ids_for_surface(&self, surface: SurfaceId) -> HashSet<u64> {
+        self.clients
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|(client, record)| {
+                record
+                    .attached
+                    .get(&surface)
+                    .is_some_and(|attachment| {
+                        !attachment.streams.is_empty() || !attachment.pending_streams.is_empty()
+                    })
+                    .then_some(*client)
+            })
+            .collect()
+    }
 }
 
 fn clamp_client_label(value: String) -> String {

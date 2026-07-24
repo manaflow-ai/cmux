@@ -1361,6 +1361,26 @@ impl Mux {
         }
     }
 
+    fn record_latest_client_size_for_report(
+        &self,
+        sizing: &ClientSizingState,
+        surface: SurfaceId,
+        client: u64,
+        attached_clients: &HashSet<u64>,
+        effective: Option<(u16, u16)>,
+    ) {
+        let use_excluded = sizing.uses_excluded_fallback(surface, Some(attached_clients));
+        // The newest report becomes the creation default only when it
+        // contributes to this surface's effective size.
+        if (use_excluded || sizing.client_participates(surface, client))
+            && let Some(size) = effective
+        {
+            let mut latest = self.latest_client_size.lock().unwrap();
+            latest.size = Some(size);
+            latest.from_report = true;
+        }
+    }
+
     /// Record one viewer's available grid and resize the shared surface to
     /// the smallest rows and columns reported by all current viewers.
     pub fn resize_surface_for_client(
@@ -1385,16 +1405,16 @@ impl Mux {
         // Serialize the report and its application. Otherwise an older
         // effective size can reach the PTY after a newer shared minimum.
         let mut sizing = self.client_sizing.lock().unwrap();
-        let attached_clients = self.control_clients.attached_client_ids_by_surface();
+        let attached_clients = self.control_clients.attached_client_ids_for_surface(id);
         let result = self.resize_surface_for_client_locked(
             &mut sizing,
-            attached_clients.get(&id),
+            Some(&attached_clients),
             id,
             client,
             requested,
             None,
         )?;
-        self.reconcile_latest_client_size(&sizing, &attached_clients);
+        self.record_latest_client_size_for_report(&sizing, id, client, &attached_clients, result.1);
         drop(sizing);
         Ok(result.0)
     }
@@ -1423,10 +1443,10 @@ impl Mux {
         // leases through this same sizing lock after dropping the registry lock.
         let mut sizing = self.client_sizing.lock().unwrap();
         let attached = self.control_clients.record_size(client, id, requested.0, requested.1)?;
-        let attached_clients = self.control_clients.attached_client_ids_by_surface();
+        let attached_clients = self.control_clients.attached_client_ids_for_surface(id);
         let result = self.resize_surface_for_client_locked(
             &mut sizing,
-            attached_clients.get(&id),
+            Some(&attached_clients),
             id,
             client,
             requested,
@@ -1439,7 +1459,7 @@ impl Mux {
         }
         let result = result?;
         self.control_clients.set_report_order(client, id, result.2.applied_report_order);
-        self.reconcile_latest_client_size(&sizing, &attached_clients);
+        self.record_latest_client_size_for_report(&sizing, id, client, &attached_clients, result.1);
         drop(sizing);
         Ok(ControlClientResize {
             accepted: result.0.0,
@@ -5227,6 +5247,39 @@ mod tests {
         assert_eq!(mux.set_client_size_participation(surface.id, 2, true), Some(true));
         assert_eq!(surface.size(), (60, 30));
         assert!(mux.client_size_participates(surface.id, 2));
+    }
+
+    #[test]
+    fn excluded_report_does_not_replace_a_newer_participating_creation_default() {
+        let mux = test_mux();
+        let excluded_surface = mux.new_workspace(None, None).unwrap();
+        let latest_surface = mux.new_workspace(None, None).unwrap();
+
+        mux.resize_surface_for_client(excluded_surface.id, 1, 100, 30).unwrap();
+        mux.resize_surface_for_client(excluded_surface.id, 2, 90, 25).unwrap();
+        assert_eq!(mux.set_client_size_participation(excluded_surface.id, 2, false), Some(true));
+        mux.resize_surface_for_client(latest_surface.id, 3, 120, 40).unwrap();
+
+        mux.resize_surface_for_client(excluded_surface.id, 2, 60, 20).unwrap();
+
+        assert_eq!(excluded_surface.size(), (100, 30));
+        assert_eq!(mux.new_workspace(None, None).unwrap().size(), (120, 40));
+    }
+
+    #[test]
+    fn excluded_report_updates_creation_default_when_surface_uses_fallback() {
+        let mux = test_mux();
+        let fallback_surface = mux.new_workspace(None, None).unwrap();
+        let latest_surface = mux.new_workspace(None, None).unwrap();
+
+        mux.resize_surface_for_client(fallback_surface.id, 1, 100, 30).unwrap();
+        assert_eq!(mux.set_client_size_participation(fallback_surface.id, 1, false), Some(true));
+        mux.resize_surface_for_client(latest_surface.id, 2, 120, 40).unwrap();
+
+        mux.resize_surface_for_client(fallback_surface.id, 1, 70, 20).unwrap();
+
+        assert_eq!(fallback_surface.size(), (70, 20));
+        assert_eq!(mux.new_workspace(None, None).unwrap().size(), (70, 20));
     }
 
     #[test]
