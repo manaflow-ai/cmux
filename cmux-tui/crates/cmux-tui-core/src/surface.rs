@@ -18,8 +18,8 @@ use std::sync::{Arc, Mutex, TryLockError, Weak};
 use std::time::{Duration, Instant};
 
 use ghostty_vt::{
-    Callbacks, CursorShape, MouseEncoders, MouseInput, RenderFrame, RenderState, Rgb, Screen,
-    Terminal, TerminalColorOverrides,
+    Callbacks, CursorShape, MouseEncoders, MouseInput, RenderFrame, RenderState, Rgb, Terminal,
+    TerminalColorOverrides, TerminalPointerSemanticSnapshot,
 };
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
@@ -467,8 +467,7 @@ impl AttachTap {
 pub struct SurfaceRenderFrame {
     pub frame: RenderFrame,
     pub scrollback_rows: u32,
-    pub mouse_tracking: bool,
-    pub active_screen: Screen,
+    pub pointer_semantics: TerminalPointerSemanticSnapshot,
     pub palette_colors: [Rgb; 256],
     pub palette_overridden: [bool; 256],
 }
@@ -1805,14 +1804,13 @@ impl Surface {
     }
 
     /// Read current pointer-routing state without waiting behind terminal parsing.
-    /// A contended terminal is unknown to pointer replay and must fail closed.
-    pub fn try_pointer_state(&self) -> Option<(bool, Screen)> {
+    /// A contended terminal is unknown to pointer admission and must fail closed.
+    pub fn try_pointer_semantics(&self) -> Option<TerminalPointerSemanticSnapshot> {
         let pty = self.as_pty()?;
         match pty.term.try_lock() {
-            Ok(term) => Some((term.mouse_tracking(), term.active_screen())),
+            Ok(term) => Some(term.pointer_semantic_snapshot()),
             Err(TryLockError::Poisoned(error)) => {
-                let term = error.into_inner();
-                Some((term.mouse_tracking(), term.active_screen()))
+                Some(error.into_inner().pointer_semantic_snapshot())
             }
             Err(TryLockError::WouldBlock) => None,
         }
@@ -2368,8 +2366,7 @@ impl PtySurface {
                 let frame = Arc::new(SurfaceRenderFrame {
                     frame: render.state.build_frame()?,
                     scrollback_rows: term.history_rows(),
-                    mouse_tracking: term.mouse_tracking(),
-                    active_screen: term.active_screen(),
+                    pointer_semantics: term.pointer_semantic_snapshot(),
                     palette_colors,
                     palette_overridden,
                 });

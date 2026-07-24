@@ -19,7 +19,7 @@ use cmux_tui_core::{
     SidebarPluginStatus, SplitDir, SplitId, Surface, SurfaceId, SurfaceKind, SurfaceRenderFrame,
     SurfaceResizeReporter, WorkspaceId, ZoomMode,
 };
-use ghostty_vt::{MouseInput, RenderState, Screen, Terminal};
+use ghostty_vt::{MouseInput, RenderState, Terminal, TerminalPointerSemanticSnapshot};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -1121,8 +1121,7 @@ impl SurfaceHandle {
                 Ok(Arc::new(SurfaceRenderFrame {
                     frame: rs.build_frame()?,
                     scrollback_rows: term.history_rows(),
-                    mouse_tracking: term.mouse_tracking(),
-                    active_screen: term.active_screen(),
+                    pointer_semantics: term.pointer_semantic_snapshot(),
                     palette_colors,
                     palette_overridden,
                 }))
@@ -1204,11 +1203,11 @@ impl SurfaceHandle {
         }
     }
 
-    pub fn try_pointer_state(&self) -> Option<(bool, Screen)> {
+    pub fn try_pointer_semantics(&self) -> Option<TerminalPointerSemanticSnapshot> {
         match self {
-            SurfaceHandle::Local(surface, _) => surface.try_pointer_state(),
+            SurfaceHandle::Local(surface, _) => surface.try_pointer_semantics(),
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
-                surface.try_pointer_state()
+                surface.try_pointer_semantics()
             }
             SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
         }

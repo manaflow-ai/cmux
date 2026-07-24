@@ -21,7 +21,7 @@ pub use render::{
 };
 pub use terminal::{
     Callbacks, NotifyFn, PtyWriteFn, Rgb, Screen, Scrollbar, Terminal, TerminalColorOverrides,
-    parse_color, parse_palette_entry,
+    TerminalPointerSemanticSnapshot, parse_color, parse_palette_entry,
 };
 
 pub(crate) fn check(result: ghostty_vt_sys::GhosttyResult) -> std::result::Result<(), Error> {

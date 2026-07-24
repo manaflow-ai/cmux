@@ -87,6 +87,16 @@ pub enum Screen {
     Alternate,
 }
 
+/// Immutable terminal state that can change how pointer input is encoded or
+/// interpreted. Capture this under the same lock as a rendered frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TerminalPointerSemanticSnapshot {
+    pub terminal_instance_id: u64,
+    pub mouse_mode_revision: u64,
+    pub mouse_tracking: bool,
+    pub active_screen: Screen,
+}
+
 /// Scrollbar geometry for the viewport, in rows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Scrollbar {
@@ -1532,6 +1542,15 @@ impl Terminal {
     /// Whether any mouse tracking mode is enabled by the application.
     pub fn mouse_tracking(&self) -> bool {
         self.get::<bool>(sys::GHOSTTY_TERMINAL_DATA_MOUSE_TRACKING).unwrap_or(false)
+    }
+
+    pub fn pointer_semantic_snapshot(&self) -> TerminalPointerSemanticSnapshot {
+        TerminalPointerSemanticSnapshot {
+            terminal_instance_id: self.instance_id,
+            mouse_mode_revision: self.mouse_mode_revision,
+            mouse_tracking: self.mouse_tracking(),
+            active_screen: self.active_screen(),
+        }
     }
 
     /// Number of scrollback rows above the viewport.
