@@ -227,9 +227,14 @@ interface StreamWaiter<T> {
   reject: (error: Error) => void;
 }
 
+interface BufferedStreamEvent<T> {
+  event: T;
+  retainedBytes: number;
+}
+
 /** A closeable async event stream with optional per-read timeouts. */
 export class CmuxStream<T extends { event: string }> implements AsyncIterable<T> {
-  private readonly buffered: T[] = [];
+  private readonly buffered: BufferedStreamEvent<T>[] = [];
   private bufferedBytes = 0;
   private readonly waiters: StreamWaiter<T>[] = [];
   private closed = false;
@@ -246,10 +251,10 @@ export class CmuxStream<T extends { event: string }> implements AsyncIterable<T>
 
   async next(timeoutMs = this.timeoutMs): Promise<T> {
     if (this.buffered.length > 0) {
-      const event = this.buffered.shift()!;
-      this.bufferedBytes = Math.max(0, this.bufferedBytes - this.retainedBytes(event));
+      const buffered = this.buffered.shift()!;
+      this.bufferedBytes = Math.max(0, this.bufferedBytes - buffered.retainedBytes);
       if (this.endsAfterDrain && this.buffered.length === 0) this.finish();
-      return event;
+      return buffered.event;
     }
     if (this.terminalError) throw this.terminalError;
     if (this.closed) throw new CmuxConnectionError("stream is closed");
@@ -312,7 +317,7 @@ export class CmuxStream<T extends { event: string }> implements AsyncIterable<T>
         );
         return;
       }
-      this.buffered.push(event);
+      this.buffered.push({ event, retainedBytes });
       this.bufferedBytes += retainedBytes;
     }
     if (terminal) this.endsAfterDrain = true;
@@ -787,12 +792,7 @@ export class CmuxClient {
   }
 
   private renderAttachEventRetainedBytes(event: RenderAttachEvent): number {
-    if (event.event !== "render-state" && event.event !== "render-delta") return 0;
-    const graphics = (event as { graphics?: { images?: Array<{ data?: unknown }> } }).graphics;
-    return graphics?.images?.reduce(
-      (total, image) => total + (typeof image.data === "string" ? image.data.length : 0),
-      0,
-    ) ?? 0;
+    return new TextEncoder().encode(JSON.stringify(event)).byteLength;
   }
 
   private decodeAttachData(value: unknown, eventName: string): Uint8Array {
