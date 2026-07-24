@@ -616,6 +616,11 @@ fi
 # ended-detection can bind this Codex to its surface and pid. Because we exec
 # codex below, $$ becomes the real codex pid.
 export CMUX_CODEX_PID=$$
+unset CMUX_CODEX_PROCESS_LEASE_ID
+cmux_codex_process_lease_id="$(/usr/bin/uuidgen 2>/dev/null || true)"
+if [[ -n "$cmux_codex_process_lease_id" ]]; then
+    export CMUX_CODEX_PROCESS_LEASE_ID="$cmux_codex_process_lease_id"
+fi
 export CMUX_CODEX_HOOK_CMUX_BIN="$(resolve_hook_cmux_bin)"
 export CMUX_AGENT_LAUNCH_KIND="codex"
 export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CODEX"

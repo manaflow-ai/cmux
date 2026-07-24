@@ -80,6 +80,7 @@ class CodexWrapperResumeTrustTests(unittest.TestCase):
 printf '%s\\0' "$@" > "$FAKE_CODEX_ARGS_LOG"
 printf 'codex-path=%s\\n' "$PATH" >> "$FAKE_CMUX_LOG"
 printf 'launch-executable=%s\\n' "${CMUX_AGENT_LAUNCH_EXECUTABLE:-}" >> "$FAKE_CMUX_LOG"
+printf 'process-lease=%s\\n' "${CMUX_CODEX_PROCESS_LEASE_ID:-}" >> "$FAKE_CMUX_LOG"
 sleep 0.2
 """,
             )
@@ -352,6 +353,10 @@ printf '%s\\0' "$@" > "$FAKE_CODEX_ARGS_LOG"
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(args, ["--enable", "hooks", "--yolo"])
         self.assertNotIn("hooks codex inject-resume-args", logged_cmux_calls)
+        self.assertRegex(
+            logged_cmux_calls,
+            r"(?m)^process-lease=[0-9A-F-]{36}$",
+        )
 
     def test_fork_session_receives_hooks_without_resume_trust(self) -> None:
         args, logged_cmux_calls, result = self.run_wrapper(
