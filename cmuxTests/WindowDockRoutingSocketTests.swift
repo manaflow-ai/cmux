@@ -70,6 +70,30 @@ struct WindowDockRoutingSocketTests {
         }
     }
 
+    @Test("Floating Dock stash lifecycle is visible over the socket")
+    @MainActor
+    func floatingDockStashLifecycleIsVisibleOverSocket() throws {
+        try withSocketAppContext { _, workspace, _ in
+            let dock = try #require(workspace.createFloatingDock(initialContent: .terminal))
+
+            let stashed = try v2Result(method: "workspace.float.stash", params: [
+                "workspace_id": workspace.id.uuidString,
+                "float": dock.id.uuidString,
+            ])
+            #expect(stashed["presentation"] as? String == "stashed")
+            #expect(stashed["visible"] as? Bool == false)
+            #expect(stashed["stashed_at"] is NSNumber)
+            #expect(dock.isStashed)
+
+            let focused = try v2Result(method: "workspace.float.focus", params: [
+                "workspace_id": workspace.id.uuidString,
+                "float": dock.id.uuidString,
+            ])
+            #expect(focused["presentation"] as? String == "visible")
+            #expect(!dock.isStashed)
+        }
+    }
+
     @Test("Closing all floating Docks uses one aggregate confirmation")
     @MainActor
     func closingAllFloatingDocksUsesOneAggregateConfirmation() async throws {

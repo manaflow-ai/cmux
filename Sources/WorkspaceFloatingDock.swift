@@ -264,6 +264,11 @@ final class WorkspaceFloatingDockNoteLoader: @unchecked Sendable {
 }
 
 /// One window-like Bonsplit container owned by a workspace.
+enum WorkspaceFloatingDockPresentationState: String, Codable, Sendable {
+    case visible
+    case stashed
+}
+
 @MainActor
 @Observable
 final class WorkspaceFloatingDock: Identifiable {
@@ -278,6 +283,8 @@ final class WorkspaceFloatingDock: Identifiable {
     var backgroundTintHex: String? {
         didSet { if backgroundTintHex != oldValue { sessionMetadataRevision &+= 1 } }
     }
+    private(set) var presentationState: WorkspaceFloatingDockPresentationState
+    private(set) var stashedAt: TimeInterval?
     var ownsInputFocus = false
 
     @ObservationIgnored var screenFrame: CGRect? {
@@ -307,6 +314,8 @@ final class WorkspaceFloatingDock: Identifiable {
         frame: CGRect,
         noteFilePath: String,
         backgroundTintHex: String? = nil,
+        presentationState: WorkspaceFloatingDockPresentationState = .visible,
+        stashedAt: TimeInterval? = nil,
         initialContent: DockSurfaceKind? = .note,
         initialURL: URL? = nil,
         screenFrame: CGRect? = nil,
@@ -323,6 +332,8 @@ final class WorkspaceFloatingDock: Identifiable {
         self.title = title
         self.frame = frame
         self.backgroundTintHex = backgroundTintHex
+        self.presentationState = presentationState
+        self.stashedAt = presentationState == .stashed ? stashedAt : nil
         self.screenFrame = screenFrame
         self.displaySnapshot = displaySnapshot
         self.configFrames = configFrames
@@ -361,6 +372,20 @@ final class WorkspaceFloatingDock: Identifiable {
         return store.panels.values.compactMap { $0 as? FilePreviewPanel }.first {
             isManagedNotePanel($0)
         }
+    }
+
+    var isStashed: Bool {
+        presentationState == .stashed
+    }
+
+    func setStashed(_ stashed: Bool, at timestamp: TimeInterval = Date().timeIntervalSince1970) {
+        let nextState: WorkspaceFloatingDockPresentationState = stashed ? .stashed : .visible
+        let nextStashedAt = stashed ? timestamp : nil
+        guard presentationState != nextState || stashedAt != nextStashedAt else { return }
+        presentationState = nextState
+        stashedAt = nextStashedAt
+        ownsInputFocus = false
+        sessionMetadataRevision &+= 1
     }
 
     func sessionContentSnapshot() -> SessionFloatingDockContentSnapshot? {

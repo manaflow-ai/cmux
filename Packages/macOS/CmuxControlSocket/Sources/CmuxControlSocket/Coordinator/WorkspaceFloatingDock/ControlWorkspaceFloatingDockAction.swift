@@ -52,6 +52,9 @@ public enum ControlWorkspaceFloatingDockAction: Sendable, Equatable {
         focus: Bool
     )
     case focus(selector: String)
+    case stash(selector: String)
+    case restore(selector: String, focus: Bool)
+    case restoreAll(focus: Bool)
     case close(selector: String)
     case closeAll
     case setFrame(selector: String, frame: Frame)

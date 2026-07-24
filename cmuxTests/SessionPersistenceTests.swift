@@ -263,6 +263,23 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceSessionSnapshotRestoresFloatingDockStashState() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let dock = try XCTUnwrap(workspace.createFloatingDock(initialContent: .terminal))
+        dock.setStashed(true, at: 1_234)
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let restored = Workspace()
+        defer { restored.teardownAllPanels() }
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredDock = try XCTUnwrap(restored.floatingDocks.first)
+        XCTAssertEqual(restoredDock.presentationState, .stashed)
+        XCTAssertEqual(restoredDock.stashedAt, 1_234)
+    }
+
+    @MainActor
     func testWorkspaceSessionSnapshotPreservesRegularFilePreviewInFloatingDock() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-floating-preview-\(UUID().uuidString)", isDirectory: true)

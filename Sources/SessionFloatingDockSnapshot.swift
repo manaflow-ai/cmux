@@ -9,6 +9,10 @@ struct SessionFloatingDockSnapshot: Codable, Sendable {
     var y: Double
     var width: Double
     var height: Double
+    /// Absent snapshots predate workspace-scoped stashing and restore as visible.
+    var presentationState: WorkspaceFloatingDockPresentationState? = nil
+    /// Orders the most recently stashed windows without coupling that order to creation.
+    var stashedAt: TimeInterval? = nil
     /// Per-window glass tint. Absent snapshots derive the Raycast-style tint from the Ghostty theme.
     var backgroundTintHex: String? = nil
     /// Exact managed-note path. This can retain the source path when a

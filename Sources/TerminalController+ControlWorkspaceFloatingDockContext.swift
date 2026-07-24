@@ -281,12 +281,45 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
                 in: workspace,
                 tabManager: tabManager
             ) == true else {
-                return .operationFailed(String(
-                    localized: "floatingDock.error.presentation",
-                    defaultValue: "Failed to update floating window visibility"
-                ))
+                return .operationFailed(floatingDockPresentationErrorMessage)
             }
             return .resolved(floatingDockMutationPayload(dock: dock, workspace: workspace, tabManager: tabManager))
+        case .stash(let selector):
+            guard let dock = workspace.floatingDock(selector: selector) else { return .floatingDockNotFound }
+            guard AppDelegate.shared?.setWorkspaceFloatingDockStashed(
+                dock,
+                in: workspace,
+                tabManager: tabManager,
+                stashed: true,
+                focus: false
+            ) == true else {
+                return .operationFailed(floatingDockPresentationErrorMessage)
+            }
+            return .resolved(floatingDockMutationPayload(dock: dock, workspace: workspace, tabManager: tabManager))
+        case .restore(let selector, let focus):
+            guard let dock = workspace.floatingDock(selector: selector) else { return .floatingDockNotFound }
+            guard AppDelegate.shared?.setWorkspaceFloatingDockStashed(
+                dock,
+                in: workspace,
+                tabManager: tabManager,
+                stashed: false,
+                focus: focus
+            ) == true else {
+                return .operationFailed(floatingDockPresentationErrorMessage)
+            }
+            return .resolved(floatingDockMutationPayload(dock: dock, workspace: workspace, tabManager: tabManager))
+        case .restoreAll(let focus):
+            guard let restoredCount = AppDelegate.shared?.restoreAllStashedWorkspaceFloatingDocks(
+                in: workspace,
+                tabManager: tabManager,
+                focus: focus
+            ) else {
+                return .operationFailed(floatingDockPresentationErrorMessage)
+            }
+            return .resolved(.object([
+                "workspace_id": .string(workspace.id.uuidString),
+                "restored_count": .int(Int64(restoredCount)),
+            ]))
         case .close(let selector):
             guard let dock = workspace.floatingDock(selector: selector) else { return .floatingDockNotFound }
             let needsNoteFlush = dock.store.needsAutosavingNoteFlush
@@ -458,6 +491,13 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
         return floatingDockPayload(dock: dock, index: index, workspace: workspace, tabManager: tabManager)
     }
 
+    private var floatingDockPresentationErrorMessage: String {
+        String(
+            localized: "floatingDock.error.presentation",
+            defaultValue: "Failed to update floating window visibility"
+        )
+    }
+
     private func floatingDockPendingPayload(_ payload: JSONValue) -> JSONValue {
         guard case .object(var fields) = payload else { return payload }
         fields["status"] = .string("pending")
@@ -502,7 +542,9 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
             "id": .string(dock.id.uuidString),
             "ref": .string("float:\(index + 1)"),
             "title": .string(dock.title),
-            "visible": .bool(tabManager.selectedTabId == workspace.id),
+            "visible": .bool(tabManager.selectedTabId == workspace.id && !dock.isStashed),
+            "presentation": .string(dock.presentationState.rawValue),
+            "stashed_at": dock.stashedAt.map(JSONValue.double) ?? .null,
             "focused": .bool(dock.ownsInputFocus),
             "close_status": closeStatus,
             "close_error": closeFailure.map(JSONValue.string) ?? .null,

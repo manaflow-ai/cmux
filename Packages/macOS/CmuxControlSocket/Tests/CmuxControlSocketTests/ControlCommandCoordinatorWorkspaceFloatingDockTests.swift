@@ -98,6 +98,24 @@ struct ControlCommandCoordinatorWorkspaceFloatingDockTests {
         #expect(context.lastAction == .closeAll)
     }
 
+    @Test func stashRestoreAndRestoreAllForwardSharedLifecycleActions() {
+        let (coordinator, context) = makeCoordinator()
+
+        _ = coordinator.handle(request("workspace.float.stash", [
+            "float": .string("float:2"),
+        ]))
+        #expect(context.lastAction == .stash(selector: "float:2"))
+
+        _ = coordinator.handle(request("workspace.float.restore", [
+            "float": .string("float:2"),
+            "focus": .bool(true),
+        ]))
+        #expect(context.lastAction == .restore(selector: "float:2", focus: true))
+
+        _ = coordinator.handle(request("workspace.float.restore_all"))
+        #expect(context.lastAction == .restoreAll(focus: false))
+    }
+
     @Test func closePendingReturnsAcceptedPayload() {
         let (coordinator, context) = makeCoordinator()
         let payload: JSONValue = .object([

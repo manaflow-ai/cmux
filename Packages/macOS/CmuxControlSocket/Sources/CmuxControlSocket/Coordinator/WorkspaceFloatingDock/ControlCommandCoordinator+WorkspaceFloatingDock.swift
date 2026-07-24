@@ -27,6 +27,17 @@ extension ControlCommandCoordinator {
         case "workspace.float.focus":
             guard let selector = floatingDockSelector(request.params) else { return missingFloatingDock() }
             action = .focus(selector: selector)
+        case "workspace.float.stash":
+            guard let selector = floatingDockSelector(request.params) else { return missingFloatingDock() }
+            action = .stash(selector: selector)
+        case "workspace.float.restore":
+            guard let selector = floatingDockSelector(request.params) else { return missingFloatingDock() }
+            action = .restore(
+                selector: selector,
+                focus: bool(request.params, "focus") ?? false
+            )
+        case "workspace.float.restore_all":
+            action = .restoreAll(focus: bool(request.params, "focus") ?? false)
         case "workspace.float.close":
             guard let selector = floatingDockSelector(request.params) else { return missingFloatingDock() }
             action = .close(selector: selector)

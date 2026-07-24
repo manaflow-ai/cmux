@@ -186,6 +186,15 @@ extension AppDelegate {
         tabManager: TabManager
     ) -> Bool {
         guard workspace.floatingDocks.contains(where: { $0 === dock }) else { return false }
+        if dock.isStashed {
+            return setWorkspaceFloatingDockStashed(
+                dock,
+                in: workspace,
+                tabManager: tabManager,
+                stashed: false,
+                focus: true
+            )
+        }
         if tabManager.selectedTabId != workspace.id {
             tabManager.selectWorkspace(workspace)
         }
@@ -194,6 +203,106 @@ extension AppDelegate {
             focusDockId: dock.id
         )
         return true
+    }
+
+    @discardableResult
+    func setWorkspaceFloatingDockStashed(
+        _ dock: WorkspaceFloatingDock,
+        in workspace: Workspace,
+        tabManager: TabManager,
+        stashed: Bool,
+        focus: Bool
+    ) -> Bool {
+        guard workspace.floatingDock(id: dock.id) === dock else { return false }
+        if stashed == dock.isStashed {
+            if focus, !stashed {
+                return focusWorkspaceFloatingDock(dock, in: workspace, tabManager: tabManager)
+            }
+            return true
+        }
+
+        let context = mainWindowContexts.values.first { $0.tabManager === tabManager }
+        if focus, !stashed, tabManager.selectedTabId != workspace.id {
+            tabManager.selectWorkspace(workspace)
+        }
+        let isSelectedWorkspace = tabManager.selectedTabId == workspace.id
+        if !stashed, isSelectedWorkspace {
+            context?.installWorkspaceFloatingDockPresenterIfNeeded()
+            context?.workspaceFloatingDockPresenter?.prepareRestoreAnimation(for: dock.id)
+        }
+        dock.setStashed(stashed)
+
+        if stashed, isSelectedWorkspace {
+            context?.installWorkspaceFloatingDockPresenterIfNeeded()
+            if let presenter = context?.workspaceFloatingDockPresenter {
+                presenter.animateStash(dock)
+            } else {
+                refreshWorkspaceFloatingDocks(for: tabManager)
+            }
+            return true
+        }
+
+        refreshWorkspaceFloatingDocks(
+            for: tabManager,
+            focusDockId: focus && !stashed ? dock.id : nil
+        )
+        return true
+    }
+
+    func stashPreferredWorkspaceFloatingDock(in tabManager: TabManager) -> Bool {
+        guard let workspace = tabManager.selectedWorkspace,
+              let dock = preferredWorkspaceFloatingDock(in: tabManager) else { return false }
+        return setWorkspaceFloatingDockStashed(
+            dock,
+            in: workspace,
+            tabManager: tabManager,
+            stashed: true,
+            focus: false
+        )
+    }
+
+    @discardableResult
+    func restoreAllStashedWorkspaceFloatingDocks(
+        in workspace: Workspace,
+        tabManager: TabManager,
+        focus: Bool
+    ) -> Int? {
+        guard tabManager.tabs.contains(where: { $0 === workspace }) else { return nil }
+        let stashedDocks = workspace.floatingDocks.filter(\.isStashed)
+        guard !stashedDocks.isEmpty else { return 0 }
+
+        if focus, tabManager.selectedTabId != workspace.id {
+            tabManager.selectWorkspace(workspace)
+        }
+        let isSelectedWorkspace = tabManager.selectedTabId == workspace.id
+        let context = mainWindowContexts.values.first { $0.tabManager === tabManager }
+        if isSelectedWorkspace {
+            context?.installWorkspaceFloatingDockPresenterIfNeeded()
+        }
+        stashedDocks.forEach {
+            if isSelectedWorkspace {
+                context?.workspaceFloatingDockPresenter?.prepareRestoreAnimation(for: $0.id)
+            }
+            $0.setStashed(false)
+        }
+        refreshWorkspaceFloatingDocks(
+            for: tabManager,
+            focusDockId: focus ? stashedDocks.first?.id : nil
+        )
+        return stashedDocks.count
+    }
+
+    @discardableResult
+    func restoreAllStashedWorkspaceFloatingDocks(
+        in tabManager: TabManager,
+        focus: Bool
+    ) -> Int? {
+        guard let workspace = tabManager.selectedWorkspace else { return nil }
+        return restoreAllStashedWorkspaceFloatingDocks(
+            in: workspace,
+            tabManager: tabManager,
+            focus: focus
+        )
     }
 
     func customizeWorkspaceFloatingDockColor(in tabManager: TabManager) -> Bool {

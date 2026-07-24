@@ -3046,7 +3046,7 @@ private final class WorkspaceFloatingDockTitlebarActionRecordingWindow: NSWindow
 
 @MainActor
 final class FilePreviewPanelTextSavingTests: XCTestCase {
-    func testWorkspaceFloatingDockUsesNativeCloseOnlyGlassChrome() throws {
+    func testWorkspaceFloatingDockUsesNativeCloseAndStashGlassChrome() throws {
         _ = NSApplication.shared
         let defaults = UserDefaults.standard
         let debugSettingKeys = [
@@ -3102,10 +3102,12 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
             "Floating Docks must opt into Bonsplit's host-scoped reorder fallback"
         )
 
+        var stashRequestCount = 0
         let controller = WorkspaceFloatingDockWindowController(
             dock: dock,
             parentWindow: parent,
-            onCloseRequest: { _ in }
+            onCloseRequest: { _ in },
+            onStashRequest: { _ in stashRequestCount += 1 }
         )
         defer { controller.teardown() }
         let panel = try XCTUnwrap(controller.window)
@@ -3120,8 +3122,10 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(panel.standardWindowButton(.miniaturizeButton)?.alphaValue, 1)
         XCTAssertEqual(panel.standardWindowButton(.zoomButton)?.alphaValue, 1)
         XCTAssertTrue(panel.standardWindowButton(.closeButton)?.isEnabled == true)
-        XCTAssertTrue(panel.standardWindowButton(.miniaturizeButton)?.isEnabled == false)
+        XCTAssertTrue(panel.standardWindowButton(.miniaturizeButton)?.isEnabled == true)
         XCTAssertTrue(panel.standardWindowButton(.zoomButton)?.isEnabled == false)
+        panel.standardWindowButton(.miniaturizeButton)?.performClick(nil)
+        XCTAssertEqual(stashRequestCount, 1)
         XCTAssertFalse(panel.isMiniaturized)
         XCTAssertTrue(panel.canBecomeKey)
         XCTAssertTrue(panel.canBecomeMain)
@@ -3321,6 +3325,54 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
             WorkspaceFloatingDockChromeMetrics.tabBarLeadingInset,
             WorkspaceFloatingDockChromeMetrics.trafficLightClearance
         )
+    }
+
+    func testWorkspaceFloatingDockStashLayoutBoundsDirectItemsAndOverflow() throws {
+        let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
+        let rail = try XCTUnwrap(WorkspaceFloatingDockStashLayout.railFrame(
+            visibleScreenFrame: screen,
+            itemCount: 32
+        ))
+
+        XCTAssertEqual(rail.width, WorkspaceFloatingDockStashLayout.railWidth)
+        XCTAssertEqual(rail.maxX, screen.maxX)
+        XCTAssertEqual(
+            rail.height,
+            WorkspaceFloatingDockStashLayout.railPadding * 2
+                + CGFloat(WorkspaceFloatingDockStashLayout.directItemLimit + 1)
+                    * WorkspaceFloatingDockStashLayout.slotHeight
+        )
+
+        let tray = WorkspaceFloatingDockStashLayout.trayFrame(
+            visibleScreenFrame: screen,
+            railFrame: rail,
+            itemCount: 32
+        )
+        XCTAssertLessThanOrEqual(tray.maxY, screen.maxY)
+        XCTAssertGreaterThanOrEqual(tray.minY, screen.minY)
+        XCTAssertEqual(
+            tray.height,
+            WorkspaceFloatingDockStashLayout.railPadding * 2
+                + CGFloat(WorkspaceFloatingDockStashLayout.maximumTrayRows)
+                    * WorkspaceFloatingDockStashLayout.trayRowHeight
+        )
+    }
+
+    func testWorkspaceFloatingDockStashAnimationKeepsBonsplitWindowSize() {
+        let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
+        let window = CGRect(x: 240, y: 180, width: 620, height: 420)
+        let target = CGRect(x: 1412, y: 24, width: 28, height: 40)
+
+        let stashed = WorkspaceFloatingDockStashLayout.offscreenWindowFrame(
+            windowFrame: window,
+            targetFrame: target,
+            visibleScreenFrame: screen
+        )
+
+        XCTAssertEqual(stashed.size, window.size)
+        XCTAssertEqual(stashed.minX, screen.maxX - 12)
+        XCTAssertGreaterThanOrEqual(stashed.minY, screen.minY)
+        XCTAssertLessThanOrEqual(stashed.maxY, screen.maxY)
     }
 
     func testWorkspaceFloatingDockTitlebarDoubleClickDoesNotInvokeNativeWindowActions() throws {

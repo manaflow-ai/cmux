@@ -2,6 +2,7 @@ import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
 import Observation
+import QuartzCore
 import SwiftUI
 
 /// One window-root appearance for every floating Dock surface. Bonsplit,
@@ -50,10 +51,13 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
     let dock: WorkspaceFloatingDock
     private weak var parentWindow: NSWindow?
     private let onCloseRequest: (UUID) -> Void
+    private let onStashRequest: (UUID) -> Void
     private let onBecomeKey: (UUID) -> Void
     private let glassEffect = WindowGlassEffect()
     private weak var compatibilityBlurView: NSVisualEffectView?
     private var isApplyingModelFrame = false
+    private var isAnimatingPresentation = false
+    private var presentationGeneration = 0
     private var hasAppliedInitialScreenPlacement = false
     private var isScreenConfigurationChanging = false
 
@@ -61,11 +65,13 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         dock: WorkspaceFloatingDock,
         parentWindow: NSWindow,
         onCloseRequest: @escaping (UUID) -> Void,
+        onStashRequest: @escaping (UUID) -> Void = { _ in },
         onBecomeKey: @escaping (UUID) -> Void = { _ in }
     ) {
         self.dock = dock
         self.parentWindow = parentWindow
         self.onCloseRequest = onCloseRequest
+        self.onStashRequest = onStashRequest
         self.onBecomeKey = onBecomeKey
 
         let panel = WorkspaceFloatingDockPanel(
@@ -99,6 +105,10 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         )
 
         super.init(window: panel)
+        panel.onCustomStash = { [weak self] in
+            guard let self else { return }
+            self.onStashRequest(self.dock.id)
+        }
         panel.delegate = self
         panel.lockContentDrivenSizeChanges()
         glassEffect.changesTintWithWindowKeyState = false
@@ -110,8 +120,16 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         fatalError("init(coder:) has not been implemented")
     }
 
-    func show(focus: Bool) {
+    func show(
+        focus: Bool,
+        animatedFrom sourceFrame: CGRect? = nil,
+        visibleScreenFrame: CGRect? = nil
+    ) {
         guard let panel = window, let parentWindow else { return }
+        presentationGeneration &+= 1
+        let generation = presentationGeneration
+        isAnimatingPresentation = false
+        panel.ignoresMouseEvents = false
         panel.title = dock.title
         applyGlassTexture()
         Self.configureStandardWindowButtons(in: panel)
@@ -124,6 +142,40 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         if !panel.isVisible {
             if panel.parent !== parentWindow {
                 parentWindow.addChildWindow(panel, ordered: .above)
+            }
+            if let sourceFrame,
+               let visibleScreenFrame,
+               !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                let destinationFrame = panel.frame
+                let startFrame = WorkspaceFloatingDockStashLayout.offscreenWindowFrame(
+                    windowFrame: destinationFrame,
+                    targetFrame: sourceFrame,
+                    visibleScreenFrame: visibleScreenFrame
+                )
+                isAnimatingPresentation = true
+                panel.ignoresMouseEvents = true
+                setPanelFrame(startFrame, display: false)
+                panel.orderFront(nil)
+                dock.store.setVisibleInUI(true)
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0.22
+                    context.timingFunction = CAMediaTimingFunction(
+                        controlPoints: 0.0,
+                        0.0,
+                        0.2,
+                        1.0
+                    )
+                    panel.animator().setFrame(destinationFrame, display: true)
+                } completionHandler: { [weak self, weak panel] in
+                    guard let self, let panel,
+                          self.presentationGeneration == generation,
+                          !self.dock.isStashed else { return }
+                    self.isAnimatingPresentation = false
+                    panel.ignoresMouseEvents = false
+                    self.setPanelFrame(destinationFrame, display: true)
+                    self.finishShowing(panel, focus: focus)
+                }
+                return
             }
             panel.orderFront(nil)
         }
@@ -149,9 +201,90 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
     }
 
     func hide() {
+        presentationGeneration &+= 1
+        isAnimatingPresentation = false
         dock.ownsInputFocus = false
         dock.store.setVisibleInUI(false)
+        window?.ignoresMouseEvents = false
         window?.orderOut(nil)
+    }
+
+    func stash(
+        toward targetFrame: CGRect,
+        visibleScreenFrame: CGRect,
+        completion: @escaping () -> Void
+    ) {
+        guard let panel = window, panel.isVisible else {
+            hide()
+            completion()
+            return
+        }
+        presentationGeneration &+= 1
+        let generation = presentationGeneration
+        let originalFrame = panel.frame
+        let wasKeyWindow = panel.isKeyWindow
+        let stashedFrame = WorkspaceFloatingDockStashLayout.offscreenWindowFrame(
+            windowFrame: originalFrame,
+            targetFrame: targetFrame,
+            visibleScreenFrame: visibleScreenFrame
+        )
+        dock.ownsInputFocus = false
+
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            completeStash(
+                panel: panel,
+                originalFrame: originalFrame,
+                wasKeyWindow: wasKeyWindow,
+                completion: completion
+            )
+            return
+        }
+
+        isAnimatingPresentation = true
+        panel.ignoresMouseEvents = true
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.22
+            context.timingFunction = CAMediaTimingFunction(
+                controlPoints: 0.4,
+                0.0,
+                0.8,
+                1.0
+            )
+            panel.animator().setFrame(stashedFrame, display: true)
+        } completionHandler: { [weak self, weak panel] in
+            guard let self, let panel,
+                  self.presentationGeneration == generation else { return }
+            if self.dock.isStashed {
+                self.completeStash(
+                    panel: panel,
+                    originalFrame: originalFrame,
+                    wasKeyWindow: wasKeyWindow,
+                    completion: completion
+                )
+            } else {
+                self.isAnimatingPresentation = false
+                panel.ignoresMouseEvents = false
+                self.setPanelFrame(originalFrame, display: true)
+                self.finishShowing(panel, focus: true)
+            }
+        }
+    }
+
+    private func completeStash(
+        panel: NSWindow,
+        originalFrame: CGRect,
+        wasKeyWindow: Bool,
+        completion: @escaping () -> Void
+    ) {
+        panel.orderOut(nil)
+        panel.ignoresMouseEvents = false
+        setPanelFrame(originalFrame, display: false)
+        isAnimatingPresentation = false
+        dock.store.setVisibleInUI(false)
+        if wasKeyWindow {
+            parentWindow?.makeKeyAndOrderFront(nil)
+        }
+        completion()
     }
 
     /// Uses AppKit's native cascade policy so a new floating window follows
@@ -165,6 +298,8 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
     }
 
     func teardown() {
+        presentationGeneration &+= 1
+        isAnimatingPresentation = false
         dock.ownsInputFocus = false
         dock.store.setVisibleInUI(false)
         if let window, let parent = window.parent {
@@ -175,6 +310,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         }
         compatibilityBlurView?.removeFromSuperview()
         window?.orderOut(nil)
+        window?.ignoresMouseEvents = false
         window?.delegate = nil
     }
 
@@ -322,6 +458,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
 
     private func captureModelFrame(allowDuringScreenConfigurationChange: Bool = false) {
         guard !isApplyingModelFrame,
+              !isAnimatingPresentation,
               allowDuringScreenConfigurationChange || !isScreenConfigurationChanging,
               let panel = window,
               let parentWindow else { return }
@@ -342,6 +479,17 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             lastUsedAt: Date().timeIntervalSince1970
         )
         dock.configFrames = dock.configFrames.upserting(entry)
+    }
+
+    private func setPanelFrame(_ frame: CGRect, display: Bool) {
+        guard let panel = window else { return }
+        isApplyingModelFrame = true
+        if let floatingPanel = panel as? WorkspaceFloatingDockPanel {
+            floatingPanel.setExplicitFrame(frame, display: display)
+        } else {
+            panel.setFrame(frame, display: display)
+        }
+        isApplyingModelFrame = false
     }
 
     private func raiseAboveSiblingFloatingDocks(_ panel: NSWindow) {
@@ -435,7 +583,12 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             guard let button = panel.standardWindowButton(buttonType) else { continue }
             button.isHidden = false
             button.alphaValue = 1
-            button.isEnabled = buttonType == .closeButton
+            button.isEnabled = buttonType != .zoomButton
+            if buttonType == .miniaturizeButton,
+               let floatingPanel = panel as? WorkspaceFloatingDockPanel {
+                button.target = floatingPanel
+                button.action = #selector(WorkspaceFloatingDockPanel.performCustomStash(_:))
+            }
             configuredButtons.append(button)
         }
 
@@ -462,6 +615,7 @@ private final class WorkspaceFloatingDockPanel: NSPanel {
     }
 
     private var sizeAuthority = SizeAuthority.initializing
+    var onCustomStash: (() -> Void)?
 
     // These panels behave like workspace-owned windows, not passive utility
     // palettes. Becoming main keeps mouse and keyboard routing attached to the
@@ -472,6 +626,10 @@ private final class WorkspaceFloatingDockPanel: NSPanel {
     override func miniaturize(_ sender: Any?) {}
 
     override func zoom(_ sender: Any?) {}
+
+    @objc func performCustomStash(_ sender: Any?) {
+        onCustomStash?()
+    }
 
     func lockContentDrivenSizeChanges() {
         sizeAuthority = .contentLocked

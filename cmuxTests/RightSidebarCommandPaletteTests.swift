@@ -96,12 +96,12 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         )
     }
 
-    func testCommandPaletteOmitsMinimizeAndRestoreFloatingWindowActions() {
+    func testCommandPaletteIncludesStashAndRestoreFloatingWindowActions() {
         let contributions = ContentView.commandPaletteViewCommandContributions()
         let contributionIDs = Set(contributions.map(\.commandId))
 
-        XCTAssertFalse(contributionIDs.contains("palette.minimizeFloatingWindow"))
-        XCTAssertFalse(contributionIDs.contains("palette.restoreWorkspaceFloatingWindows"))
+        XCTAssertTrue(contributionIDs.contains("palette.stashFloatingWindow"))
+        XCTAssertTrue(contributionIDs.contains("palette.restoreStashedFloatingWindows"))
     }
 
     private func withSavedBetaFeatureDefaults(_ body: () throws -> Void) rethrows {

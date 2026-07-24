@@ -18,7 +18,7 @@ extension CMUXCLI {
         guard let subcommand = optionArgs.first?.lowercased() else {
             throw CLIError(message: floatingDockCLIString(
                 "cli.workspace.float.error.subcommandRequired",
-                defaultValue: "workspace float requires a subcommand. Try: list, create, focus, close, close-all, frame, color, note, surface, pane"
+                defaultValue: "workspace float requires a subcommand. Try: list, create, focus, stash, restore, restore-all, close, close-all, frame, color, note, surface, pane"
             ))
         }
         let target = try workspaceFloatingDockTarget(
@@ -46,11 +46,33 @@ extension CMUXCLI {
             try addFloatingDockFrameParams(from: rem4, to: &params, required: false)
             let payload = try client.sendV2(method: "workspace.float.create", params: params)
             printFloatingDockMutation(payload, jsonOutput: jsonOutput, idFormat: idFormat)
-        case "focus", "close":
+        case "focus", "stash", "close":
             let (selector, _) = try floatingDockSelector(from: args)
             params["float"] = selector
             let payload = try client.sendV2(method: "workspace.float.\(subcommand)", params: params)
             printFloatingDockMutation(payload, jsonOutput: jsonOutput, idFormat: idFormat)
+        case "restore":
+            let (selector, remaining) = try floatingDockSelector(from: args)
+            params["float"] = selector
+            params["focus"] = hasFlag(remaining, name: "--focus")
+            let payload = try client.sendV2(method: "workspace.float.restore", params: params)
+            printFloatingDockMutation(payload, jsonOutput: jsonOutput, idFormat: idFormat)
+        case "restore-all", "restore_all":
+            params["focus"] = hasFlag(args, name: "--focus")
+            let payload = try client.sendV2(method: "workspace.float.restore_all", params: params)
+            if jsonOutput {
+                printV2Payload(payload, jsonOutput: true, idFormat: idFormat, fallbackText: "")
+            } else {
+                let restoredCount = (payload["restored_count"] as? NSNumber)?.intValue ?? 0
+                print(String(
+                    format: floatingDockCLIString(
+                        "cli.workspace.float.output.restoredAll",
+                        defaultValue: "Restored %d stashed floating window(s)."
+                    ),
+                    locale: .current,
+                    restoredCount
+                ))
+            }
         case "close-all", "close_all":
             let payload = try client.sendV2(method: "workspace.float.close_all", params: params)
             if jsonOutput {
@@ -317,9 +339,14 @@ extension CMUXCLI {
             let title = item["title"] as? String ?? String(
                 localized: "floatingDock.defaultTitle", defaultValue: "Notes"
             )
-            let state = (item["visible"] as? Bool) == true
-                ? floatingDockCLIString("cli.workspace.float.output.visible", defaultValue: "visible")
-                : floatingDockCLIString("cli.workspace.float.output.hidden", defaultValue: "hidden")
+            let state: String
+            if item["presentation"] as? String == "stashed" {
+                state = floatingDockCLIString("cli.workspace.float.output.stashed", defaultValue: "stashed")
+            } else if (item["visible"] as? Bool) == true {
+                state = floatingDockCLIString("cli.workspace.float.output.visible", defaultValue: "visible")
+            } else {
+                state = floatingDockCLIString("cli.workspace.float.output.hidden", defaultValue: "hidden")
+            }
             let panes = (item["panes"] as? [[String: Any]])?.count ?? 0
             let format = floatingDockCLIString(
                 panes == 1 ? "cli.workspace.float.output.row.one" : "cli.workspace.float.output.row.other",
@@ -355,7 +382,8 @@ extension CMUXCLI {
       create [--type terminal|browser|notes] [--title <title>] [--url <URL>]
              [--color #RRGGBB] [--relative-to <float>]
              [--x N --y N --width N --height N] [--focus]
-      focus <float> | close <float> | close-all
+      focus <float> | stash <float> | restore <float> [--focus] | restore-all [--focus]
+      close <float> | close-all
       frame <float> --x N --y N --width N --height N
       color get <float> | color set <float> --color #RRGGBB | color reset <float>
       note get <float> | note set <float> <text>
