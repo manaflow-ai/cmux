@@ -1945,6 +1945,59 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testDelayedOlderCodexResumeCannotReplaceAcceptedNewerProcessAfterTurnStateClears() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-repeat-generation-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sessionId = "accepted-newer-session"
+        let olderPID = Int(Darwin.getpid())
+        let deadPID = Int(Int32.max)
+        let newerProcess = Process()
+        newerProcess.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        newerProcess.arguments = ["30"]
+        try newerProcess.run()
+        defer {
+            if newerProcess.isRunning {
+                newerProcess.terminate()
+            }
+            newerProcess.waitUntilExit()
+        }
+        let newerPID = Int(newerProcess.processIdentifier)
+        let store = try makeCodexRebindStore(
+            root: root,
+            sessionId: sessionId,
+            pid: deadPID
+        )
+
+        XCTAssertTrue(
+            try store.upsertCodexSessionStartIfFresh(
+                sessionId: sessionId,
+                workspaceId: "11111111-1111-1111-1111-111111111111",
+                surfaceId: "22222222-2222-2222-2222-222222222222",
+                cwd: root.path,
+                pid: newerPID,
+                allowResumedProcessReplacement: true
+            )
+        )
+        XCTAssertNil(try store.lookup(sessionId: sessionId)?.activePromptDepth)
+
+        XCTAssertFalse(
+            try store.upsertCodexSessionStartIfFresh(
+                sessionId: sessionId,
+                workspaceId: "33333333-3333-3333-3333-333333333333",
+                surfaceId: "44444444-4444-4444-4444-444444444444",
+                cwd: root.path,
+                pid: olderPID,
+                allowResumedProcessReplacement: true
+            ),
+            "A delayed older rebind must remain stale after the accepted newer resume clears interrupted-turn guards."
+        )
+        let record = try XCTUnwrap(store.lookup(sessionId: sessionId))
+        XCTAssertEqual(record.pid, newerPID)
+        XCTAssertEqual(record.workspaceId, "11111111-1111-1111-1111-111111111111")
+        XCTAssertEqual(record.surfaceId, "22222222-2222-2222-2222-222222222222")
+    }
+
     func testCodexResumeRebindAcceptsDeadPreviousPIDWhenGenerationWasDropped() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-missing-generation-\(UUID().uuidString)", isDirectory: true)

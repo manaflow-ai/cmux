@@ -61,8 +61,8 @@ struct RestorableCodexForkTagTests {
             Comment(rawValue: "forking a restored forked session must preserve every prompt tag; got: \(fork)")
         )
         #expect(
-            !fork.contains("CMUX_CODEX_WRAPPER_SHIM"),
-            Comment(rawValue: "a prompt tag named resume must not route a fork through the resume wrapper; got: \(fork)")
+            fork.contains("CMUX_CODEX_WRAPPER_SHIM"),
+            Comment(rawValue: "the fork executable must keep established wrapper routing while a prompt tag named resume stays ordinary data; got: \(fork)")
         )
     }
 

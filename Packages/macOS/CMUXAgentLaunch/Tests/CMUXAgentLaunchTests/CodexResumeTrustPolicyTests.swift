@@ -51,8 +51,8 @@ struct CodexResumeTrustPolicyTests {
         )
     }
 
-    @Test("Project trust before resume is ignored by the resume parser")
-    func globalScopedLaunchOverrideIsNotAuthoritative() {
+    @Test("Root-scoped project trust applies to resume")
+    func rootScopedLaunchOverrideRemainsAuthoritative() {
         #expect(
             policy.undecidedProjectOverride(
                 arguments: [
@@ -65,10 +65,7 @@ struct CodexResumeTrustPolicyTests {
                 currentDirectory: "/Users/me/worktree",
                 repositoryRoot: "/Users/me/repo",
                 userConfigContents: nil
-            ) == [
-                "-c",
-                #"projects={"/Users/me/worktree"={trust_level="untrusted"}}"#,
-            ]
+            ).isEmpty
         )
     }
 
@@ -87,6 +84,27 @@ struct CodexResumeTrustPolicyTests {
                 repositoryRoot: "/Users/me/repo",
                 userConfigContents: nil
             ).isEmpty
+        )
+    }
+
+    @Test("Prompt text after -- cannot masquerade as project trust")
+    func promptTextAfterEndOfOptionsIsNotAuthoritative() {
+        #expect(
+            policy.undecidedProjectOverride(
+                arguments: [
+                    "codex",
+                    "resume",
+                    "SID",
+                    "--",
+                    #"--config=projects./Users/me/repo.trust_level=trusted"#,
+                ],
+                currentDirectory: "/Users/me/worktree",
+                repositoryRoot: "/Users/me/repo",
+                userConfigContents: nil
+            ) == [
+                "-c",
+                #"projects={"/Users/me/worktree"={trust_level="untrusted"}}"#,
+            ]
         )
     }
 
