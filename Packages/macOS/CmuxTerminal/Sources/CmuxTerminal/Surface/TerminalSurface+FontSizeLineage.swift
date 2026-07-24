@@ -23,7 +23,7 @@ extension TerminalSurface {
 
         if surface != nil {
             let verb = deltaRuntimePoints > 0 ? "increase_font_size" : "decrease_font_size"
-            let action = String(format: "%@:%g", verb, abs(deltaRuntimePoints))
+            let action = "\(verb):\(abs(deltaRuntimePoints))"
             guard performExplicitInputBindingAction(action) else { return false }
             _ = fontSizeLineageSnapshot()
             return true
