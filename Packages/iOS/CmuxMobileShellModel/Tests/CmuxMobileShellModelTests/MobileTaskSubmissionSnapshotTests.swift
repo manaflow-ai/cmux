@@ -333,6 +333,45 @@ import Testing
         #expect(rebound.trimmedDirectory == original.trimmedDirectory)
     }
 
+    @Test func selectedModelFlowsThroughCompositionRebindingAndDraft() {
+        let operationID = UUID()
+        let snapshot = MobileTaskSubmissionSnapshot(
+            template: MobileTaskTemplate(
+                name: "Claude",
+                icon: "agent:claude",
+                command: "claude -- \"$CMUX_TASK_PROMPT\""
+            ),
+            prompt: "Ship it",
+            modelID: "claude-opus-4-8",
+            macDeviceID: "mac-a",
+            directory: "~/cmux",
+            didEditDirectory: false,
+            operationID: operationID
+        )
+        let rebound = snapshot.withOperationID(UUID())
+
+        #expect(
+            snapshot.composition.initialCommand
+                == "claude --model 'claude-opus-4-8' -- \"$CMUX_TASK_PROMPT\""
+        )
+        #expect(rebound.modelID == "claude-opus-4-8")
+        #expect(rebound.composition == snapshot.composition)
+        #expect(rebound.operationID != operationID)
+        #expect(snapshot.draft.modelID == "claude-opus-4-8")
+    }
+
+    @Test func selectedModelChangesRequestEquivalence() {
+        let template = MobileTaskTemplate(
+            name: "Claude",
+            icon: "agent:claude",
+            command: "claude -- \"$CMUX_TASK_PROMPT\""
+        )
+        let defaultModel = snapshot(template: template)
+        let selectedModel = snapshot(template: template, modelID: "claude-opus-4-8")
+
+        #expect(!defaultModel.isRequestEquivalent(to: selectedModel))
+    }
+
     private func expectIdentityPreserved(
         from before: MobileTaskSubmissionSnapshot?,
         to after: MobileTaskSubmissionSnapshot?
@@ -364,11 +403,13 @@ import Testing
         prompt: String = "ship it",
         macDeviceID: String = "mac-a",
         directory: String = "~/cmux",
-        workspaceName: String = ""
+        workspaceName: String = "",
+        modelID: String? = nil
     ) -> MobileTaskSubmissionSnapshot {
         MobileTaskSubmissionSnapshot(
             template: template,
             prompt: prompt,
+            modelID: modelID,
             macDeviceID: macDeviceID,
             directory: directory,
             workspaceName: workspaceName,

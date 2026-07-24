@@ -61,6 +61,70 @@ import Testing
         }
     }
 
+    @Test func seededAgentCommandsApplySelectedModels() {
+        let seeds = MobileTaskTemplate.seedDefaults(
+            claudeName: "Claude",
+            codexName: "Codex",
+            openCodeName: "OpenCode",
+            shellName: "Shell"
+        )
+        let cases = [
+            (
+                seeds[0],
+                "claude-opus-4-8",
+                "claude --model 'claude-opus-4-8' -- \"$CMUX_TASK_PROMPT\""
+            ),
+            (
+                seeds[1],
+                "gpt-5.5",
+                "codex -m 'gpt-5.5' -- \"$CMUX_TASK_PROMPT\""
+            ),
+            (
+                seeds[2],
+                "openai/gpt-5.5",
+                "opencode --model 'openai/gpt-5.5' --prompt \"$CMUX_TASK_PROMPT\""
+            ),
+        ]
+
+        for (template, modelID, expectedCommand) in cases {
+            let result = composer.compose(
+                template: template,
+                prompt: "  Fix the race  ",
+                modelID: modelID
+            )
+            #expect(result.initialCommand == expectedCommand)
+            #expect(result.initialEnv == ["CMUX_TASK_PROMPT": "Fix the race"])
+            #expect(result.title == "Fix the race")
+        }
+    }
+
+    @Test func selectedModelKeepsPlainShellPlain() {
+        let template = MobileTaskTemplate(name: "Shell", icon: "terminal", command: "")
+        let result = composer.compose(
+            template: template,
+            prompt: "Run diagnostics",
+            modelID: "gpt-5.5"
+        )
+
+        #expect(result.initialCommand == nil)
+        #expect(result.initialEnv.isEmpty)
+        #expect(result.title == "Run diagnostics")
+    }
+
+    @Test func selectedModelKeepsUnknownCommandVerbatim() {
+        let command = "custom-agent -- \"$CMUX_TASK_PROMPT\""
+        let template = MobileTaskTemplate(name: "Custom", icon: "terminal", command: command)
+        let result = composer.compose(
+            template: template,
+            prompt: "Investigate",
+            modelID: "gpt-5.5"
+        )
+
+        #expect(result.initialCommand == command)
+        #expect(result.initialEnv == ["CMUX_TASK_PROMPT": "Investigate"])
+        #expect(result.title == "Investigate")
+    }
+
     @Test func submissionIdentityStaysStableUntilRotated() {
         let restoredID = UUID()
         var identity = MobileTaskSubmissionIdentity(id: restoredID)
@@ -99,6 +163,7 @@ import Testing
         #expect(snapshot.composition.initialEnv == ["CMUX_TASK_PROMPT": "Fix the race"])
         #expect(snapshot.draft == MobileTaskComposerDraft(
             prompt: "Fix the race",
+            modelID: nil,
             templateID: template.id,
             macDeviceID: "mac-a",
             directory: "  ~/cmux  ",

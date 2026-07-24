@@ -4,6 +4,8 @@ public import Foundation
 public struct MobileTaskComposerDraft: Codable, Equatable, Sendable {
     /// Prompt text exactly as entered by the user.
     public var prompt: String
+    /// Optional CLI model identifier selected for the task template.
+    public var modelID: String?
     /// Selected template, validated against current templates when restored.
     public var templateID: MobileTaskTemplate.ID?
     /// Selected Mac, validated against current paired Macs when restored.
@@ -23,6 +25,7 @@ public struct MobileTaskComposerDraft: Codable, Equatable, Sendable {
     /// Creates a restorable composer draft.
     public init(
         prompt: String,
+        modelID: String? = nil,
         templateID: MobileTaskTemplate.ID?,
         macDeviceID: String?,
         directory: String,
@@ -32,6 +35,7 @@ public struct MobileTaskComposerDraft: Codable, Equatable, Sendable {
         completedOperationID: UUID? = nil
     ) {
         self.prompt = prompt
+        self.modelID = modelID
         self.templateID = templateID
         self.macDeviceID = macDeviceID
         self.directory = directory

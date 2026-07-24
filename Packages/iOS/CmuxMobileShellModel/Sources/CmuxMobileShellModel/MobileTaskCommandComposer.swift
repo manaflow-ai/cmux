@@ -5,21 +5,31 @@ public struct MobileTaskCommandComposer: Sendable {
     /// Creates a command composer.
     public init() {}
 
-    /// Preserves a nonblank template command byte-for-byte and supplies the
-    /// trimmed task prompt through `CMUX_TASK_PROMPT`. Blank commands open a
-    /// plain shell and intentionally receive no startup environment.
+    /// Preserves a nonblank template command byte-for-byte unless a model is
+    /// explicitly selected, then inserts only its provider-specific model flag.
+    /// Supplies the trimmed task prompt through `CMUX_TASK_PROMPT`. Blank
+    /// commands open a plain shell and intentionally receive no startup
+    /// environment.
     /// - Parameters:
     ///   - template: The selected task template.
     ///   - prompt: User-entered task prompt.
+    ///   - modelID: Optional CLI model identifier to apply to a known provider.
     /// - Returns: The command, environment, and prompt-derived title.
-    public func compose(template: MobileTaskTemplate, prompt rawPrompt: String) -> MobileTaskComposition {
+    public func compose(
+        template: MobileTaskTemplate,
+        prompt rawPrompt: String,
+        modelID: String? = nil
+    ) -> MobileTaskComposition {
         let prompt = rawPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
         let title = Self.taskTitle(from: prompt)
         guard !template.isPlainShell else {
             return MobileTaskComposition(initialCommand: nil, initialEnv: [:], title: title)
         }
         return MobileTaskComposition(
-            initialCommand: template.command,
+            initialCommand: MobileTaskAgentModelCatalog.commandApplying(
+                modelID: modelID,
+                to: template.command
+            ),
             initialEnv: ["CMUX_TASK_PROMPT": prompt],
             title: title
         )

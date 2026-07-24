@@ -19,41 +19,19 @@ struct TaskComposerAgentMenu: View, Equatable {
         }
     }
 
+    private var selectedModel: MobileTaskAgentModel? {
+        guard value.modelPickerVariant.renderedVariant == .combined,
+              let selectedTemplate,
+              let selectedModelID = value.selectedModelID else { return nil }
+        return MobileTaskAgentModelCatalog.model(
+            id: selectedModelID,
+            forCommand: selectedTemplate.command
+        )
+    }
+
     var body: some View {
         Menu {
-            if !value.templates.isEmpty {
-                Picker(
-                    L10n.string("mobile.taskComposer.agent", defaultValue: "Agent"),
-                    selection: Binding(
-                        get: { value.selectedTemplateID },
-                        set: { id in
-                            guard let id,
-                                  value.templates.contains(where: { $0.id == id }) else { return }
-                            actions.selectTemplate(id)
-                        }
-                    )
-                ) {
-                    ForEach(value.templates) { template in
-                        Text(template.name)
-                            .tag(Optional(template.id))
-                    }
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
-            }
-
-            Divider()
-
-            Button(action: actions.editTemplates) {
-                Label(
-                    L10n.string(
-                        "mobile.taskComposer.agent.edit",
-                        defaultValue: "Edit Agents"
-                    ),
-                    systemImage: "slider.horizontal.3"
-                )
-            }
-            .accessibilityIdentifier("MobileTaskComposerEditTemplatesButton")
+            TaskComposerAgentMenuContent(value: value, actions: actions)
         } label: {
             HStack(spacing: 10) {
                 if let selectedTemplate {
@@ -103,25 +81,29 @@ struct TaskComposerAgentMenu: View, Equatable {
         // editor remains the recovery path for adding an agent.
         .disabled(value.isDisabled)
         .accessibilityLabel(L10n.string("mobile.taskComposer.agent", defaultValue: "Agent"))
-        .accessibilityValue(selectedTemplate?.name ?? "")
+        .accessibilityValue(selectedTemplate.map(title(for:)) ?? "")
         .accessibilityHint(TaskComposerSheet.templateAccessibilityHint)
         .accessibilityIdentifier("MobileTaskComposerAgentMenu")
     }
 
     private func title(for template: MobileTaskTemplate) -> String {
+        let baseTitle: String
         if template.isPlainShell {
-            return L10n.string(
+            baseTitle = L10n.string(
                 "mobile.taskComposer.promptTitle.shell",
                 defaultValue: "Shell command"
             )
+        } else {
+            baseTitle = String(
+                format: L10n.string(
+                    "mobile.taskComposer.promptTitle.agentFormat",
+                    defaultValue: "Ask %@"
+                ),
+                template.name
+            )
         }
-        return String(
-            format: L10n.string(
-                "mobile.taskComposer.promptTitle.agentFormat",
-                defaultValue: "Ask %@"
-            ),
-            template.name
-        )
+        guard let selectedModel else { return baseTitle }
+        return "\(baseTitle) · \(selectedModel.displayName)"
     }
 }
 #endif
