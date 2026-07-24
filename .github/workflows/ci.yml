@@ -253,7 +253,10 @@ jobs:
         run: python3 scripts/lint-feature-flags.py
 
       - name: Validate test determinism gate
-        run: python3 scripts/check-test-determinism.py --strict
+        run: |
+          python3 tests/test_check_test_determinism.py
+          python3 scripts/check-test-determinism.py --self-test
+          python3 scripts/check-test-determinism.py --strict
 
   remote-daemon-tests:
     needs: changes

@@ -17,7 +17,8 @@ This checker is deliberately conservative: it flags ONLY unambiguous,
 high-confidence flaky primitives so its false-positive rate stays near zero.
 A noisy gate gets hated and reverted. When in doubt, it stays silent.
 
-Detectors (all line/regex heuristics, never an AST):
+Detectors use conservative line/regex heuristics, with Python AST resolution
+for direct standard-library sleep calls:
 
 - assert-on-duration: an assertion comparing a wall-clock duration expression
   (elapsed_ms, perf_counter, DispatchTime.now, CACurrentMediaTime,
@@ -44,11 +45,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import pathlib
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Iterable, Optional
 
 # ---------------------------------------------------------------------------
@@ -186,23 +188,40 @@ _DURATION_COMPARE = re.compile(
     """
 )
 
-# Real-sleep call sites. Must be a genuine wall-clock sleep. These are all CALL
-# forms (`foo.sleep(`, `sleep(`) so a quoted shell command embedded in a string
-# literal (e.g. a terminal-parser fixture `consume("... sleep 5 ...")`) never
-# matches: `sleep 5` has no following `(` and is not a call.
-_SLEEP_CALL = re.compile(
+# High-confidence real-sleep call sites, scoped to the source language where
+# each spelling identifies a known runtime API. Arbitrary `clock.sleep(...)`
+# calls and implicit Swift enum values such as `.sleep(...)` stay silent because
+# resolving those correctly requires compiler semantics.
+_SWIFT_SLEEP_CALL = re.compile(
     r"""(?x)
-    \btime\.sleep\s*\(
-  | \bsleep\s*\(                            # sleep(...) call (C/shell function form)
-  | \busleep\s*\(
-  | \bnanosleep\s*\(
-  | Thread\.sleep\s*\(
-  | Task\.sleep\s*\(
-  | try\s+await\s+Task\.sleep
-  | \basyncio\.sleep\s*\(
-  | \bsetTimeout\s*\(                       # JS, when used as a bare delay
+    (?<![.$\w])sleep\s*\(                  # unqualified POSIX sleep(...)
+  | (?<![.$\w])usleep\s*\(
+  | (?<![.$\w])nanosleep\s*\(
+  | (?<![.$\w])(?:Darwin|Glibc)\.(?:sleep|usleep|nanosleep)\s*\(
+  | (?<![.$\w])(?:Foundation\.)?Thread\.sleep\s*\(
+  | (?<![.$\w])Task(?:\s*<[^>\n]+>)?\s*\.sleep\s*\(
     """
 )
+_PYTHON_SLEEP_MODULES = frozenset(("time", "asyncio", "trio", "anyio", "gevent"))
+_JS_SLEEP_CALL = re.compile(
+    r"""(?x)
+    (?<![.$\w])Bun\s*\.\s*sleep\s*\(
+  | (?<![.$\w])(?:global|globalThis|self|window)\s*\.\s*setTimeout\s*\(
+  | (?<![.$\w])setTimeout\s*\(
+    """
+)
+_JS_SUFFIXES = (".ts", ".tsx", ".js", ".mjs")
+
+_SLASH_NONCODE_MARKER = re.compile(r'//|/\*|"""|\'\'\'|["\'`]')
+_HASH_NONCODE_MARKER = re.compile(r'#|"""|\'\'\'|["\']')
+_BLOCK_COMMENT_MARKER = re.compile(r'/\*|\*/')
+_SHELL_HEREDOC_OPERATOR = re.compile(
+    r"(?<!<)<<(?P<strip>-)?(?!<)[ \t]*"
+)
+
+_ASSERTION_HINTS = ("assert", "expect", "require", "XCT", "raise", "must")
+_BIND_HINTS = ("bind", "connect", "connect_ex", "createServer")
+
 
 # The shell BARE-COMMAND sleep form (`sleep 0.3`) has no parentheses, so it can
 # only be recognized positionally. It is matched ONLY in shell files: in Swift /
@@ -210,7 +229,24 @@ _SLEEP_CALL = re.compile(
 # literal ("sleep 5" inside a terminal fixture), never a real delay. Requiring
 # the bare form to sit at statement start (optionally after `;`, `&&`, `||`, or a
 # pipe) keeps it from firing on `"... sleep 5 ..."` substrings.
-_SHELL_BARE_SLEEP = re.compile(r"""(?x) (?:^|[;&|]) \s* sleep \s+ [\d.]""")
+_SHELL_BARE_SLEEP = re.compile(
+    r"""(?x)
+    (?:
+        ^ | (?<!\\)[;&|({] | (?<!\\)\$\(| (?<!\\)`
+    )
+    \s*
+    (?:!\s*)?
+    (?:(?:if|elif|while|until|then|do|else)\b\s*)?
+    (?:!\s*)?
+    (?:[A-Za-z_][A-Za-z0-9_]*=[^\s;&|()]*\s+)*
+    (?:time(?:\s+-p)?\s+)?
+    (?:[A-Za-z_][A-Za-z0-9_]*=[^\s;&|()]*\s+)*
+    sleep (?=\s|$)
+  | ^\s* [^;&|()]+ (?:\|[^;&|()]+)* \) \s* sleep (?=\s|$)
+    """
+)
+_SHELL_COMMAND_SEPARATOR = re.compile(r";|&&|\|\||(?<!\|)\|(?!\|)|\)")
+_SHELL_CLOSING_CONTINUATION = re.compile(r"^\s*[)}`]+\s*$")
 
 # Loop-body markers: if the sleep line itself is a loop header or sits in an
 # obvious poll, we treat it as an allowed deadline-bounded poll, not a sync hack.
@@ -443,30 +479,2844 @@ def _sleep_in_loop(lines: list[str], idx: int) -> bool:
     return False
 
 
-def detect_sleep_then_assert(lines: list[str], idx: int, path_suffix: str) -> bool:
+def _sleep_call_pattern(path_suffix: str) -> Optional[re.Pattern[str]]:
+    if path_suffix == ".swift":
+        return _SWIFT_SLEEP_CALL
+    if path_suffix in _JS_SUFFIXES:
+        return _JS_SLEEP_CALL
+    return None
+
+
+def _swift_real_sleep_positions(
+    masked_lines: list[str],
+) -> dict[int, set[int]]:
+    """Return line/column sites for trusted Swift sleeps, including multiline."""
+    text = "\n".join(masked_lines)
+    positions: dict[int, set[int]] = {}
+
+    def record(sleep_offset: int) -> None:
+        line = text.count("\n", 0, sleep_offset)
+        line_start = text.rfind("\n", 0, sleep_offset) + 1
+        positions.setdefault(line, set()).add(sleep_offset - line_start)
+
+    for match in _SWIFT_SLEEP_CALL.finditer(text):
+        sleep_offset = match.start() + match.group().rfind("sleep")
+        record(sleep_offset)
+
+    for task in re.finditer(r"(?<![.$\w])Task\b", text):
+        cursor = task.end()
+        while cursor < len(text) and text[cursor].isspace():
+            cursor += 1
+        if cursor >= len(text) or text[cursor] != "<":
+            continue
+
+        depth = 0
+        generic_end: Optional[int] = None
+        for index in range(cursor, min(len(text), cursor + 4096)):
+            char = text[index]
+            if char == "<":
+                depth += 1
+            elif char == ">":
+                depth -= 1
+                if depth == 0:
+                    generic_end = index + 1
+                    break
+        if generic_end is None:
+            continue
+
+        cursor = generic_end
+        while cursor < len(text) and text[cursor].isspace():
+            cursor += 1
+        sleep = re.match(r"\.sleep\s*\(", text[cursor:])
+        if sleep is not None:
+            record(cursor + 1)
+    return positions
+
+
+def _javascript_real_sleep_positions(
+    masked_lines: list[str],
+) -> dict[int, set[int]]:
+    """Return line/column sites for trusted JavaScript sleeps."""
+    text = "\n".join(masked_lines)
+    positions: dict[int, set[int]] = {}
+    for match in _JS_SLEEP_CALL.finditer(text):
+        token = (
+            "setTimeout"
+            if "setTimeout" in match.group()
+            else "sleep"
+        )
+        sleep_offset = match.start() + match.group().rfind(token)
+        previous = match.start() - 1
+        while previous >= 0 and text[previous].isspace():
+            previous -= 1
+        if previous >= 0 and text[previous] == ".":
+            continue
+        line = text.count("\n", 0, sleep_offset)
+        line_start = text.rfind("\n", 0, sleep_offset) + 1
+        positions.setdefault(line, set()).add(sleep_offset - line_start)
+    return positions
+
+
+def _sleep_call_end_positions(
+    masked_lines: list[str],
+    positions: dict[int, set[int]],
+) -> dict[int, list[tuple[int, int]]]:
+    """Map each sleep-token line to balanced call-ending line/columns."""
+    end_positions: dict[int, list[tuple[int, int]]] = {}
+    for start_line, columns in positions.items():
+        for column in columns:
+            depth = 0
+            call_started = False
+            call_end = (start_line, len(masked_lines[start_line]))
+            for line_index in range(start_line, len(masked_lines)):
+                line = masked_lines[line_index]
+                start_column = column if line_index == start_line else 0
+                for char_index in range(start_column, len(line)):
+                    char = line[char_index]
+                    if not call_started:
+                        if char == "(":
+                            call_started = True
+                            depth = 1
+                        continue
+                    if char == "(":
+                        depth += 1
+                    elif char == ")":
+                        depth -= 1
+                        if depth == 0:
+                            call_end = (line_index, char_index + 1)
+                            break
+                if call_started and depth == 0:
+                    break
+            end_positions.setdefault(start_line, []).append(call_end)
+    return end_positions
+
+
+_PYTHON_MODULE_BINDING = "module"
+_PYTHON_FUNCTION_BINDING = "function"
+_PYTHON_SHADOWED_BINDING = "shadowed"
+
+
+class _PythonLocalBindingCollector(ast.NodeVisitor):
+    """Collect compile-time locals without descending into nested scopes."""
+
+    def __init__(self) -> None:
+        self.local_names: set[str] = set()
+        self.global_names: set[str] = set()
+        self.nonlocal_names: set[str] = set()
+
+    def visit_Name(self, node: ast.Name) -> None:
+        if isinstance(node.ctx, (ast.Store, ast.Del)):
+            self.local_names.add(node.id)
+
+    def visit_Global(self, node: ast.Global) -> None:
+        self.global_names.update(node.names)
+
+    def visit_Nonlocal(self, node: ast.Nonlocal) -> None:
+        self.nonlocal_names.update(node.names)
+
+    def visit_Import(self, node: ast.Import) -> None:
+        for alias in node.names:
+            self.local_names.add(
+                alias.asname or alias.name.split(".", maxsplit=1)[0]
+            )
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        for alias in node.names:
+            if alias.name != "*":
+                self.local_names.add(alias.asname or alias.name)
+
+    def _visit_function_signature(
+        self,
+        node: ast.FunctionDef | ast.AsyncFunctionDef,
+    ) -> None:
+        self.local_names.add(node.name)
+        for decorator in node.decorator_list:
+            self.visit(decorator)
+        for default in node.args.defaults:
+            self.visit(default)
+        for default in node.args.kw_defaults:
+            if default is not None:
+                self.visit(default)
+        if node.returns is not None:
+            self.visit(node.returns)
+        for argument in (
+            list(node.args.posonlyargs)
+            + list(node.args.args)
+            + list(node.args.kwonlyargs)
+        ):
+            if argument.annotation is not None:
+                self.visit(argument.annotation)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._visit_function_signature(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self._visit_function_signature(node)
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        for default in node.args.defaults:
+            self.visit(default)
+        for default in node.args.kw_defaults:
+            if default is not None:
+                self.visit(default)
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        self.local_names.add(node.name)
+        for decorator in node.decorator_list:
+            self.visit(decorator)
+        for base in node.bases:
+            self.visit(base)
+        for keyword in node.keywords:
+            self.visit(keyword.value)
+
+    def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
+        if node.name is not None:
+            self.local_names.add(node.name)
+        if node.type is not None:
+            self.visit(node.type)
+        for statement in node.body:
+            self.visit(statement)
+
+    def visit_match_case(self, node: ast.match_case) -> None:
+        for child in ast.walk(node.pattern):
+            if isinstance(child, ast.MatchAs) and child.name is not None:
+                self.local_names.add(child.name)
+            elif isinstance(child, ast.MatchStar) and child.name is not None:
+                self.local_names.add(child.name)
+            elif (
+                isinstance(child, ast.MatchMapping)
+                and child.rest is not None
+            ):
+                self.local_names.add(child.rest)
+        if node.guard is not None:
+            self.visit(node.guard)
+        for statement in node.body:
+            self.visit(statement)
+
+    def _visit_comprehension(
+        self,
+        generators: list[ast.comprehension],
+        values: list[ast.expr],
+    ) -> None:
+        for generator in generators:
+            self.visit(generator.iter)
+            for condition in generator.ifs:
+                self.visit(condition)
+        for value in values:
+            self.visit(value)
+
+    def visit_ListComp(self, node: ast.ListComp) -> None:
+        self._visit_comprehension(node.generators, [node.elt])
+
+    def visit_SetComp(self, node: ast.SetComp) -> None:
+        self._visit_comprehension(node.generators, [node.elt])
+
+    def visit_GeneratorExp(self, node: ast.GeneratorExp) -> None:
+        self._visit_comprehension(node.generators, [node.elt])
+
+    def visit_DictComp(self, node: ast.DictComp) -> None:
+        self._visit_comprehension(node.generators, [node.key, node.value])
+
+
+class _PythonDeferredBindingCollector(_PythonLocalBindingCollector):
+    """Collect stable/ambiguous module bindings used by deferred bodies."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.trusted_bindings: dict[str, str] = {}
+
+    def visit_Import(self, node: ast.Import) -> None:
+        for alias in node.names:
+            root = alias.name.split(".", maxsplit=1)[0]
+            if (
+                alias.name in _PYTHON_SLEEP_MODULES
+                or (alias.asname is None and root in _PYTHON_SLEEP_MODULES)
+            ):
+                self.trusted_bindings[
+                    alias.asname or root
+                ] = _PYTHON_MODULE_BINDING
+                continue
+            self.local_names.add(alias.asname or root)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        for alias in node.names:
+            if alias.name == "*":
+                self.local_names.update(_PYTHON_SLEEP_MODULES)
+            elif (
+                node.level == 0
+                and node.module in _PYTHON_SLEEP_MODULES
+                and alias.name == "sleep"
+            ):
+                self.trusted_bindings[
+                    alias.asname or alias.name
+                ] = _PYTHON_FUNCTION_BINDING
+            else:
+                self.local_names.add(alias.asname or alias.name)
+
+    def deferred_bindings(self) -> dict[str, str]:
+        result = self.trusted_bindings.copy()
+        for name in self.local_names:
+            result[name] = _PYTHON_SHADOWED_BINDING
+        return result
+
+
+def _python_deferred_bindings(
+    body: list[ast.stmt],
+) -> dict[str, str]:
+    """Collect eventual closure-cell bindings for one function body."""
+    collector = _PythonDeferredBindingCollector()
+    for statement in body:
+        collector.visit(statement)
+    return collector.deferred_bindings()
+
+
+def _python_deferred_expression_bindings(
+    expression: ast.expr,
+) -> dict[str, str]:
+    """Collect eventual closure-cell bindings for one lambda expression."""
+    collector = _PythonDeferredBindingCollector()
+    collector.visit(expression)
+    return collector.deferred_bindings()
+
+
+def _python_block_may_complete(body: list[ast.stmt]) -> bool:
+    """Return whether a loop body has a path reaching its lexical end."""
+    for statement in body:
+        if isinstance(statement, ast.Break):
+            return False
+        if (
+            isinstance(statement, ast.If)
+            and statement.orelse
+            and not _python_block_may_complete(statement.body)
+            and not _python_block_may_complete(statement.orelse)
+        ):
+            return False
+    return True
+
+
+def _python_function_bindings(
+    body: list[ast.stmt],
+) -> tuple[set[str], set[str], set[str]]:
+    collector = _PythonLocalBindingCollector()
+    for statement in body:
+        collector.visit(statement)
+    local_names = (
+        collector.local_names
+        - collector.global_names
+        - collector.nonlocal_names
+    )
+    return local_names, collector.global_names, collector.nonlocal_names
+
+
+@dataclass
+class _PythonScope:
+    """One Python lexical namespace used by the sleep-call resolver."""
+
+    kind: str
+    parent: Optional["_PythonScope"]
+    bindings: dict[str, str]
+    global_names: set[str] = field(default_factory=set)
+    nonlocal_names: set[str] = field(default_factory=set)
+    deferred_parent_bindings: dict[str, str] = field(default_factory=dict)
+
+
+_PythonScopeState = list[tuple[_PythonScope, dict[str, str]]]
+
+
+class _PythonSleepVisitor(ast.NodeVisitor):
+    """Find exact trusted ``sleep`` calls without guessing receiver types."""
+
+    def __init__(
+        self,
+        postponed_annotations: bool,
+        deferred_module_bindings: dict[str, str],
+    ) -> None:
+        self.module_scope = _PythonScope(
+            kind="module",
+            parent=None,
+            bindings={
+                name: _PYTHON_MODULE_BINDING
+                for name in _PYTHON_SLEEP_MODULES
+            },
+        )
+        self.scope = self.module_scope
+        self.postponed_annotations = postponed_annotations
+        self.deferred_module_bindings = deferred_module_bindings
+        self.sleep_lines: set[int] = set()
+        self.sleep_positions: dict[int, set[int]] = {}
+        self.sleep_end_positions: dict[int, list[tuple[int, int]]] = {}
+        self.assertion_positions: dict[int, set[int]] = {}
+        self.asserted_sleep_positions: dict[int, set[int]] = {}
+        self.assertion_depth = 0
+        self.loop_break_states: list[list[_PythonScopeState]] = []
+
+    def _resolve(self, name: str) -> Optional[str]:
+        scope: Optional[_PythonScope] = self.scope
+        while scope is not None:
+            if name in scope.global_names:
+                return self.module_scope.bindings.get(name)
+            if name in scope.nonlocal_names:
+                scope = scope.parent
+                while scope is not None and scope.kind == "class":
+                    scope = scope.parent
+                continue
+            binding = scope.bindings.get(name)
+            if binding is not None:
+                return binding
+            scope = scope.parent
+        return None
+
+    def _bind_in_scope(
+        self,
+        scope: _PythonScope,
+        name: str,
+        binding: str,
+    ) -> None:
+        if name in scope.global_names:
+            self.module_scope.bindings[name] = binding
+            return
+        if name in scope.nonlocal_names:
+            target = scope.parent
+            while target is not None:
+                if target.kind != "class" and name in target.bindings:
+                    target.bindings[name] = binding
+                    return
+                target = target.parent
+        scope.bindings[name] = binding
+
+    def _bind(self, name: str, binding: str = _PYTHON_SHADOWED_BINDING) -> None:
+        self._bind_in_scope(self.scope, name, binding)
+
+    def _bind_target(self, target: ast.expr) -> None:
+        if isinstance(target, ast.Name):
+            self._bind(target.id)
+        elif isinstance(target, (ast.List, ast.Tuple)):
+            for element in target.elts:
+                self._bind_target(element)
+        elif isinstance(target, ast.Starred):
+            self._bind_target(target.value)
+
+    def _visit_target_expressions(self, target: ast.expr) -> None:
+        if isinstance(target, ast.Attribute):
+            self.visit(target.value)
+        elif isinstance(target, ast.Subscript):
+            self.visit(target.value)
+            self.visit(target.slice)
+        elif isinstance(target, (ast.List, ast.Tuple)):
+            for element in target.elts:
+                self._visit_target_expressions(element)
+        elif isinstance(target, ast.Starred):
+            self._visit_target_expressions(target.value)
+
+    def _lexical_parent(self) -> _PythonScope:
+        scope = self.scope
+        while scope.kind == "class" and scope.parent is not None:
+            scope = scope.parent
+        return scope
+
+    def _scope_state(self) -> _PythonScopeState:
+        result: _PythonScopeState = []
+        scope: Optional[_PythonScope] = self.scope
+        while scope is not None:
+            result.append((scope, scope.bindings.copy()))
+            scope = scope.parent
+        return result
+
+    def _restore_scope_state(self, state: _PythonScopeState) -> None:
+        for scope, bindings in state:
+            scope.bindings = bindings.copy()
+
+    def _merged_scope_state(
+        self,
+        states: list[_PythonScopeState],
+    ) -> _PythonScopeState:
+        result: _PythonScopeState = []
+        for state_index, (scope, _) in enumerate(states[0]):
+            bindings_states = [
+                state[state_index][1]
+                for state in states
+            ]
+            merged_bindings: dict[str, str] = {}
+            keys = set().union(
+                *(bindings.keys() for bindings in bindings_states)
+            )
+            for key in keys:
+                values = {
+                    bindings.get(key)
+                    for bindings in bindings_states
+                }
+                merged_bindings[key] = (
+                    values.pop()
+                    if len(values) == 1 and None not in values
+                    else _PYTHON_SHADOWED_BINDING
+                )
+            result.append((scope, merged_bindings))
+        return result
+
+    def _merge_scope_states(self, states: list[_PythonScopeState]) -> None:
+        self._restore_scope_state(self._merged_scope_state(states))
+
+    def _visit_branch_blocks(
+        self,
+        blocks: list[list[ast.stmt]],
+    ) -> None:
+        base = self._scope_state()
+        states: list[_PythonScopeState] = []
+        for block in blocks:
+            self._restore_scope_state(base)
+            for statement in block:
+                self.visit(statement)
+            states.append(self._scope_state())
+        self._merge_scope_states(states)
+
+    def _argument_nodes(self, arguments: ast.arguments) -> list[ast.arg]:
+        result = list(arguments.posonlyargs) + list(arguments.args)
+        if arguments.vararg is not None:
+            result.append(arguments.vararg)
+        result.extend(arguments.kwonlyargs)
+        if arguments.kwarg is not None:
+            result.append(arguments.kwarg)
+        return result
+
+    def _visit_argument_expressions(self, arguments: ast.arguments) -> None:
+        for default in arguments.defaults:
+            self.visit(default)
+        for default in arguments.kw_defaults:
+            if default is not None:
+                self.visit(default)
+        if not self.postponed_annotations:
+            for argument in self._argument_nodes(arguments):
+                if argument.annotation is not None:
+                    self.visit(argument.annotation)
+
+    def _visit_function(
+        self,
+        node: ast.FunctionDef | ast.AsyncFunctionDef,
+    ) -> None:
+        for decorator in node.decorator_list:
+            self.visit(decorator)
+        self._visit_argument_expressions(node.args)
+        if node.returns is not None and not self.postponed_annotations:
+            self.visit(node.returns)
+
+        # The function name is available when its body eventually executes.
+        self._bind(node.name)
+        parent = self._lexical_parent()
+        previous_scope = self.scope
+        local_names, global_names, nonlocal_names = (
+            _python_function_bindings(node.body)
+        )
+        scope_snapshots: list[tuple[_PythonScope, dict[str, str]]] = []
+        snapshot_scope: Optional[_PythonScope] = previous_scope
+        while snapshot_scope is not None:
+            scope_snapshots.append(
+                (snapshot_scope, snapshot_scope.bindings.copy())
+            )
+            snapshot_scope = snapshot_scope.parent
+        for name, binding in previous_scope.deferred_parent_bindings.items():
+            self._bind_in_scope(parent, name, binding)
+        for name, binding in self.deferred_module_bindings.items():
+            self.module_scope.bindings[name] = binding
+        self.scope = _PythonScope(
+            "function",
+            parent,
+            {
+                name: _PYTHON_SHADOWED_BINDING
+                for name in local_names
+            },
+            global_names,
+            nonlocal_names,
+            _python_deferred_bindings(node.body),
+        )
+        for argument in self._argument_nodes(node.args):
+            self._bind(argument.arg)
+        try:
+            for statement in node.body:
+                self.visit(statement)
+        finally:
+            for scope, bindings in scope_snapshots:
+                scope.bindings = bindings
+            self.scope = previous_scope
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._visit_function(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self._visit_function(node)
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        self._visit_argument_expressions(node.args)
+        parent = self._lexical_parent()
+        previous_scope = self.scope
+        collector = _PythonLocalBindingCollector()
+        collector.visit(node.body)
+        scope_snapshots: list[tuple[_PythonScope, dict[str, str]]] = []
+        snapshot_scope: Optional[_PythonScope] = previous_scope
+        while snapshot_scope is not None:
+            scope_snapshots.append(
+                (snapshot_scope, snapshot_scope.bindings.copy())
+            )
+            snapshot_scope = snapshot_scope.parent
+        for name, binding in previous_scope.deferred_parent_bindings.items():
+            self._bind_in_scope(parent, name, binding)
+        for name, binding in self.deferred_module_bindings.items():
+            self.module_scope.bindings[name] = binding
+        self.scope = _PythonScope(
+            "function",
+            parent,
+            {
+                name: _PYTHON_SHADOWED_BINDING
+                for name in collector.local_names
+            },
+            deferred_parent_bindings=(
+                _python_deferred_expression_bindings(node.body)
+            ),
+        )
+        for argument in self._argument_nodes(node.args):
+            self._bind(argument.arg)
+        try:
+            self.visit(node.body)
+        finally:
+            for scope, bindings in scope_snapshots:
+                scope.bindings = bindings
+            self.scope = previous_scope
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        for decorator in node.decorator_list:
+            self.visit(decorator)
+        for base in node.bases:
+            self.visit(base)
+        for keyword in node.keywords:
+            self.visit(keyword.value)
+
+        parent = self._lexical_parent()
+        previous_scope = self.scope
+        _, global_names, nonlocal_names = _python_function_bindings(node.body)
+        self.scope = _PythonScope(
+            "class",
+            parent,
+            {},
+            global_names,
+            nonlocal_names,
+            {node.name: _PYTHON_SHADOWED_BINDING},
+        )
+        for statement in node.body:
+            self.visit(statement)
+        self.scope = previous_scope
+        # The class name becomes visible only after its body has executed.
+        self._bind(node.name)
+
+    def visit_Import(self, node: ast.Import) -> None:
+        for alias in node.names:
+            root = alias.name.split(".", maxsplit=1)[0]
+            name = alias.asname or root
+            binding = (
+                _PYTHON_MODULE_BINDING
+                if (
+                    alias.name in _PYTHON_SLEEP_MODULES
+                    or (alias.asname is None and root in _PYTHON_SLEEP_MODULES)
+                )
+                else _PYTHON_SHADOWED_BINDING
+            )
+            self._bind(name, binding)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        if any(alias.name == "*" for alias in node.names):
+            visible_names: set[str] = set()
+            scope: Optional[_PythonScope] = self.scope
+            while scope is not None:
+                visible_names.update(scope.bindings)
+                scope = scope.parent
+            for name in visible_names:
+                if self._resolve(name) in (
+                    _PYTHON_MODULE_BINDING,
+                    _PYTHON_FUNCTION_BINDING,
+                ):
+                    self._bind(name)
+            return
+
+        for alias in node.names:
+            name = alias.asname or alias.name
+            binding = (
+                _PYTHON_FUNCTION_BINDING
+                if (
+                    node.level == 0
+                    and node.module in _PYTHON_SLEEP_MODULES
+                    and alias.name == "sleep"
+                )
+                else _PYTHON_SHADOWED_BINDING
+            )
+            self._bind(name, binding)
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        self.visit(node.value)
+        for target in node.targets:
+            self._visit_target_expressions(target)
+            self._bind_target(target)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        if node.value is not None:
+            self.visit(node.value)
+        self._visit_target_expressions(node.target)
+        if node.value is not None:
+            self._bind_target(node.target)
+        if (
+            not self.postponed_annotations
+            and self.scope.kind in ("module", "class")
+        ):
+            self.visit(node.annotation)
+
+    def visit_AugAssign(self, node: ast.AugAssign) -> None:
+        self._visit_target_expressions(node.target)
+        self.visit(node.value)
+        self._bind_target(node.target)
+
+    def visit_NamedExpr(self, node: ast.NamedExpr) -> None:
+        self.visit(node.value)
+        previous_scope = self.scope
+        while (
+            self.scope.kind == "comprehension"
+            and self.scope.parent is not None
+        ):
+            self.scope = self.scope.parent
+        self._bind_target(node.target)
+        self.scope = previous_scope
+
+    def visit_Delete(self, node: ast.Delete) -> None:
+        for target in node.targets:
+            self._visit_target_expressions(target)
+            self._bind_target(target)
+
+    def visit_If(self, node: ast.If) -> None:
+        self.visit(node.test)
+        self._visit_branch_blocks([node.body, node.orelse])
+
+    def _visit_loop(
+        self,
+        body: list[ast.stmt],
+        orelse: list[ast.stmt],
+        target: Optional[ast.expr] = None,
+    ) -> None:
+        base = self._scope_state()
+        states: list[_PythonScopeState] = []
+
+        self._restore_scope_state(base)
+        for statement in orelse:
+            self.visit(statement)
+        states.append(self._scope_state())
+
+        self._restore_scope_state(base)
+        if target is not None:
+            self._visit_target_expressions(target)
+            self._bind_target(target)
+        self.loop_break_states.append([])
+        for statement in body:
+            self.visit(statement)
+        states.extend(self.loop_break_states.pop())
+        if _python_block_may_complete(body):
+            for statement in orelse:
+                self.visit(statement)
+            states.append(self._scope_state())
+
+        self._merge_scope_states(states)
+
+    def visit_Break(self, node: ast.Break) -> None:
+        if self.loop_break_states:
+            self.loop_break_states[-1].append(self._scope_state())
+
+    def visit_For(self, node: ast.For) -> None:
+        self.visit(node.iter)
+        self._visit_loop(node.body, node.orelse, node.target)
+
+    def visit_AsyncFor(self, node: ast.AsyncFor) -> None:
+        self.visit_For(node)
+
+    def visit_While(self, node: ast.While) -> None:
+        self.visit(node.test)
+        self._visit_loop(node.body, node.orelse)
+
+    def visit_With(self, node: ast.With) -> None:
+        for item in node.items:
+            self.visit(item.context_expr)
+            if item.optional_vars is not None:
+                self._visit_target_expressions(item.optional_vars)
+                self._bind_target(item.optional_vars)
+        for statement in node.body:
+            self.visit(statement)
+
+    def visit_AsyncWith(self, node: ast.AsyncWith) -> None:
+        self.visit_With(node)
+
+    def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
+        if node.type is not None:
+            self.visit(node.type)
+        if node.name is not None:
+            self._bind(node.name)
+        for statement in node.body:
+            self.visit(statement)
+
+    def _visit_try(
+        self,
+        body: list[ast.stmt],
+        handlers: list[ast.ExceptHandler],
+        orelse: list[ast.stmt],
+        finalbody: list[ast.stmt],
+    ) -> None:
+        base = self._scope_state()
+        prefix_states = [base]
+
+        self._restore_scope_state(base)
+        for statement in body:
+            self.visit(statement)
+            prefix_states.append(self._scope_state())
+        for statement in orelse:
+            self.visit(statement)
+        states = [base, self._scope_state()]
+
+        handler_entry = self._merged_scope_state(prefix_states)
+        for handler in handlers:
+            self._restore_scope_state(handler_entry)
+            self.visit(handler)
+            states.append(self._scope_state())
+
+        self._merge_scope_states(states)
+        for statement in finalbody:
+            self.visit(statement)
+
+    def visit_Try(self, node: ast.Try) -> None:
+        self._visit_try(
+            node.body,
+            node.handlers,
+            node.orelse,
+            node.finalbody,
+        )
+
+    def visit_TryStar(self, node: ast.TryStar) -> None:
+        self._visit_try(
+            node.body,
+            node.handlers,
+            node.orelse,
+            node.finalbody,
+        )
+
+    def _bind_match_pattern(self, pattern: ast.pattern) -> None:
+        for child in ast.walk(pattern):
+            if isinstance(child, ast.MatchAs) and child.name is not None:
+                self._bind(child.name)
+            elif isinstance(child, ast.MatchStar) and child.name is not None:
+                self._bind(child.name)
+            elif (
+                isinstance(child, ast.MatchMapping)
+                and child.rest is not None
+            ):
+                self._bind(child.rest)
+
+    def visit_Match(self, node: ast.Match) -> None:
+        self.visit(node.subject)
+        base = self._scope_state()
+        states = [base]
+        for case in node.cases:
+            self._restore_scope_state(base)
+            self._bind_match_pattern(case.pattern)
+            if case.guard is not None:
+                self.visit(case.guard)
+            for statement in case.body:
+                self.visit(statement)
+            states.append(self._scope_state())
+        self._merge_scope_states(states)
+
+    def _visit_comprehension(
+        self,
+        generators: list[ast.comprehension],
+        values: list[ast.expr],
+    ) -> None:
+        if not generators:
+            for value in values:
+                self.visit(value)
+            return
+
+        # The outermost iterator runs in the parent scope. Comprehension
+        # targets and the remaining expressions live in an isolated scope.
+        self.visit(generators[0].iter)
+        previous_scope = self.scope
+        self.scope = _PythonScope(
+            "comprehension",
+            self._lexical_parent(),
+            {},
+        )
+        first = generators[0]
+        self._visit_target_expressions(first.target)
+        self._bind_target(first.target)
+        for condition in first.ifs:
+            self.visit(condition)
+        for generator in generators[1:]:
+            self.visit(generator.iter)
+            self._visit_target_expressions(generator.target)
+            self._bind_target(generator.target)
+            for condition in generator.ifs:
+                self.visit(condition)
+        for value in values:
+            self.visit(value)
+        self.scope = previous_scope
+
+    def visit_ListComp(self, node: ast.ListComp) -> None:
+        self._visit_comprehension(node.generators, [node.elt])
+
+    def visit_SetComp(self, node: ast.SetComp) -> None:
+        self._visit_comprehension(node.generators, [node.elt])
+
+    def visit_GeneratorExp(self, node: ast.GeneratorExp) -> None:
+        self._visit_comprehension(node.generators, [node.elt])
+
+    def visit_DictComp(self, node: ast.DictComp) -> None:
+        self._visit_comprehension(node.generators, [node.key, node.value])
+
+    def visit_Assert(self, node: ast.Assert) -> None:
+        self.assertion_positions.setdefault(node.lineno - 1, set()).add(
+            node.col_offset
+        )
+        self.assertion_depth += 1
+        try:
+            self.visit(node.test)
+            if node.msg is not None:
+                self.visit(node.msg)
+        finally:
+            self.assertion_depth -= 1
+
+    def visit_Call(self, node: ast.Call) -> None:
+        function = node.func
+        assertion_name: Optional[str] = None
+        if isinstance(function, ast.Name):
+            assertion_name = function.id
+        elif isinstance(function, ast.Attribute):
+            assertion_name = function.attr
+        is_assertion = bool(
+            assertion_name
+            and _ASSERT_TOKEN.fullmatch(assertion_name)
+        )
+        if is_assertion:
+            self.assertion_positions.setdefault(node.lineno - 1, set()).add(
+                node.col_offset
+            )
+            self.assertion_depth += 1
+
+        is_sleep = False
+        if (
+            isinstance(function, ast.Attribute)
+            and function.attr == "sleep"
+            and isinstance(function.value, ast.Name)
+            and self._resolve(function.value.id) == _PYTHON_MODULE_BINDING
+        ):
+            is_sleep = True
+        elif (
+            isinstance(function, ast.Name)
+            and self._resolve(function.id) == _PYTHON_FUNCTION_BINDING
+        ):
+            is_sleep = True
+
+        if is_sleep:
+            self.sleep_lines.add(node.lineno - 1)
+            self.sleep_positions.setdefault(node.lineno - 1, set()).add(
+                node.col_offset
+            )
+            if (
+                node.end_lineno is not None
+                and node.end_col_offset is not None
+            ):
+                self.sleep_end_positions.setdefault(
+                    node.lineno - 1,
+                    [],
+                ).append(
+                    (node.end_lineno - 1, node.end_col_offset)
+                )
+            if self.assertion_depth:
+                self.asserted_sleep_positions.setdefault(
+                    node.lineno - 1,
+                    set(),
+                ).add(node.col_offset)
+        try:
+            self.generic_visit(node)
+        finally:
+            if is_assertion:
+                self.assertion_depth -= 1
+
+
+def _python_real_sleep_lines(
+    text: str,
+    positions: Optional[dict[int, set[int]]] = None,
+    end_positions: Optional[dict[int, list[tuple[int, int]]]] = None,
+    assertion_causal_sleep_positions: Optional[
+        dict[int, set[int]]
+    ] = None,
+    assertion_lines: Optional[set[int]] = None,
+) -> set[int]:
+    """Locate direct trusted Python sleep APIs with lexical AST resolution."""
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return set()
+    postponed_annotations = any(
+        isinstance(statement, ast.ImportFrom)
+        and statement.module == "__future__"
+        and any(alias.name == "annotations" for alias in statement.names)
+        for statement in tree.body
+    )
+    deferred_binding_collector = _PythonDeferredBindingCollector()
+    for statement in tree.body:
+        deferred_binding_collector.visit(statement)
+    visitor = _PythonSleepVisitor(
+        postponed_annotations,
+        deferred_binding_collector.deferred_bindings(),
+    )
+    visitor.visit(tree)
+    if assertion_lines is not None:
+        assertion_lines.update(visitor.assertion_positions)
+    if (
+        positions is not None
+        or end_positions is not None
+        or assertion_causal_sleep_positions is not None
+    ):
+        source_lines = text.splitlines()
+
+        def character_positions(
+            byte_positions: dict[int, set[int]],
+        ) -> dict[int, set[int]]:
+            result: dict[int, set[int]] = {}
+            for line_index, byte_columns in byte_positions.items():
+                source_line = source_lines[line_index]
+                encoded_line = source_line.encode("utf-8")
+                result[line_index] = {
+                    len(
+                        encoded_line[:byte_column].decode(
+                            "utf-8",
+                            errors="ignore",
+                        )
+                    )
+                    for byte_column in byte_columns
+                }
+            return result
+
+        converted_sleeps = character_positions(visitor.sleep_positions)
+        if positions is not None:
+            positions.update(converted_sleeps)
+        if end_positions is not None:
+            for line_index, ends in visitor.sleep_end_positions.items():
+                converted_ends: list[tuple[int, int]] = []
+                for end_line, end_byte_column in ends:
+                    encoded_line = source_lines[end_line].encode("utf-8")
+                    end_character_column = len(
+                        encoded_line[:end_byte_column].decode(
+                            "utf-8",
+                            errors="ignore",
+                        )
+                    )
+                    converted_ends.append(
+                        (end_line, end_character_column)
+                    )
+                end_positions[line_index] = converted_ends
+        if assertion_causal_sleep_positions is not None:
+            converted_assertions = character_positions(
+                visitor.assertion_positions
+            )
+            converted_asserted_sleeps = character_positions(
+                visitor.asserted_sleep_positions
+            )
+            for line_index, sleep_columns in converted_sleeps.items():
+                assertion_columns = converted_assertions.get(
+                    line_index,
+                    set(),
+                )
+                asserted_columns = converted_asserted_sleeps.get(
+                    line_index,
+                    set(),
+                )
+                for sleep_column in sleep_columns:
+                    if (
+                        sleep_column in asserted_columns
+                        or any(
+                            assertion_column > sleep_column
+                            for assertion_column in assertion_columns
+                        )
+                    ):
+                        assertion_causal_sleep_positions.setdefault(
+                            line_index,
+                            set(),
+                        ).add(sleep_column)
+    return visitor.sleep_lines
+
+
+def _unescaped_token_index(line: str, token: str, start: int) -> int:
+    """Return the next token not preceded by an odd backslash run."""
+    index = line.find(token, start)
+    while index >= 0:
+        backslashes = 0
+        cursor = index - 1
+        while cursor >= 0 and line[cursor] == "\\":
+            backslashes += 1
+            cursor -= 1
+        if backslashes % 2 == 0:
+            return index
+        index = line.find(token, index + len(token))
+    return -1
+
+
+def _has_odd_trailing_backslashes(line: str) -> bool:
+    """Return whether a physical line ends in an unescaped backslash."""
+    return (len(line) - len(line.rstrip("\\"))) % 2 == 1
+
+
+@dataclass
+class _ShellExpansionFrame:
+    """Parser state for executable substitutions inside an unquoted heredoc."""
+
+    kind: str
+    depth: int = 1
+    quote: Optional[str] = None
+    case_depth_at_open: int = 0
+
+
+def _mask_shell_heredoc_expansions(
+    line: str,
+    frames: list[_ShellExpansionFrame],
+    case_state: list[int],
+) -> str:
+    """Expose executable heredoc substitutions, preserving multiline state."""
+    masked = [" "] * len(line)
+    index = 0
+    while index < len(line):
+        if not frames:
+            if line[index] == "\\":
+                index += 2
+                continue
+            if line.startswith("$(", index):
+                masked[index : index + 2] = "$("
+                frames.append(
+                    _ShellExpansionFrame(
+                        "paren",
+                        case_depth_at_open=len(case_state),
+                    )
+                )
+                index += 2
+                continue
+            if line[index] == "`":
+                masked[index] = "`"
+                frames.append(_ShellExpansionFrame("backtick"))
+            index += 1
+            continue
+
+        frame = frames[-1]
+        char = line[index]
+        if frame.quote == "'":
+            if char == "'":
+                frame.quote = None
+            index += 1
+            continue
+        if frame.quote == '"':
+            if char == "\\":
+                index += 2
+                continue
+            if char == '"':
+                frame.quote = None
+                index += 1
+                continue
+            if line.startswith("$(", index):
+                masked[index : index + 2] = "$("
+                frames.append(
+                    _ShellExpansionFrame(
+                        "paren",
+                        case_depth_at_open=len(case_state),
+                    )
+                )
+                index += 2
+                continue
+            if char == "`":
+                masked[index] = char
+                frames.append(_ShellExpansionFrame("backtick"))
+            index += 1
+            continue
+
+        if char == "#" and _shell_hash_starts_comment(line, index):
+            break
+        if char == "\\":
+            index += 2
+            continue
+        if char in ("'", '"'):
+            frame.quote = char
+            index += 1
+            continue
+        if line.startswith("$(", index):
+            masked[index : index + 2] = "$("
+            frames.append(
+                _ShellExpansionFrame(
+                    "paren",
+                    case_depth_at_open=len(case_state),
+                )
+            )
+            index += 2
+            continue
+        if char == "`":
+            masked[index] = char
+            if frame.kind == "backtick":
+                frames.pop()
+            else:
+                frames.append(_ShellExpansionFrame("backtick"))
+            index += 1
+            continue
+
+        masked[index] = char
+        if frame.kind == "paren":
+            if char == "(":
+                frame.depth += 1
+            elif char == ")" and not (
+                _shell_parenthesis_is_case_arm_boundary(
+                    "".join(masked),
+                    index,
+                    tuple(case_state),
+                    frame.case_depth_at_open,
+                )
+            ):
+                frame.depth -= 1
+                if frame.depth == 0:
+                    frames.pop()
+        index += 1
+    masked_line = "".join(masked)
+    case_state[:] = _shell_case_state_after_prefix(
+        masked_line,
+        len(masked_line),
+        tuple(case_state),
+    )
+    return masked_line
+
+
+def _parse_shell_heredoc_word(
+    line: str,
+    start: int,
+) -> Optional[tuple[str, bool]]:
+    """Return a quote-removed heredoc delimiter and expansion policy."""
+    delimiter: list[str] = []
+    quoted = False
+    index = start
+    while index < len(line):
+        char = line[index]
+        if char.isspace() or char in ";&|()<>":
+            break
+        if char == "'":
+            quoted = True
+            closing = line.find("'", index + 1)
+            if closing < 0:
+                return None
+            delimiter.append(line[index + 1 : closing])
+            index = closing + 1
+            continue
+        if char == '"':
+            quoted = True
+            index += 1
+            while index < len(line) and line[index] != '"':
+                if line[index] == "\\" and index + 1 < len(line):
+                    escaped = line[index + 1]
+                    if escaped in '$`"\\':
+                        delimiter.append(escaped)
+                        index += 2
+                    else:
+                        delimiter.append("\\")
+                        index += 1
+                else:
+                    delimiter.append(line[index])
+                    index += 1
+            if index >= len(line):
+                return None
+            index += 1
+            continue
+        if char == "\\":
+            quoted = True
+            if index + 1 >= len(line):
+                return None
+            delimiter.append(line[index + 1])
+            index += 2
+            continue
+        delimiter.append(char)
+        index += 1
+
+    if not delimiter:
+        return None
+    return "".join(delimiter), not quoted
+
+
+def _shell_arithmetic_ranges(
+    line: str,
+    initial_depth: int,
+) -> tuple[list[tuple[int, int]], int]:
+    """Return shell ``((...))`` ranges so shifts are not parsed as heredocs."""
+    ranges: list[tuple[int, int]] = []
+    depth = initial_depth
+    range_start: Optional[int] = 0 if depth else None
+    index = 0
+    while index < len(line):
+        if depth == 0:
+            if line.startswith("$((", index):
+                range_start = index
+                index += 1
+            elif line.startswith("((", index):
+                range_start = index
+            else:
+                index += 1
+                continue
+
+        char = line[index]
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0 and range_start is not None:
+                ranges.append((range_start, index + 1))
+                range_start = None
+        index += 1
+
+    if depth > 0 and range_start is not None:
+        ranges.append((range_start, len(line)))
+    return ranges, depth
+
+
+def _shell_arithmetic_identifier_positions(
+    lines: list[str],
+    candidate_positions: dict[int, set[int]],
+) -> dict[int, set[int]]:
+    """Return candidates evaluated as arithmetic names, not commands."""
+    result: dict[int, set[int]] = {}
+    frames: list[_ShellExpansionFrame] = []
+    case_state: tuple[int, ...] = ()
+
+    for line_index, line in enumerate(lines):
+        candidates = candidate_positions.get(line_index, set())
+        index = 0
+        while index < len(line):
+            if (
+                index in candidates
+                and frames
+                and frames[-1].kind == "arithmetic"
+            ):
+                result.setdefault(line_index, set()).add(index)
+
+            if line.startswith("$((", index):
+                frames.append(_ShellExpansionFrame("arithmetic", 2))
+                index += 3
+                continue
+            if line.startswith("((", index):
+                frames.append(_ShellExpansionFrame("arithmetic", 2))
+                index += 2
+                continue
+            if line.startswith("$(", index):
+                frames.append(_ShellExpansionFrame("paren"))
+                index += 2
+                continue
+
+            char = line[index]
+            if char == "`":
+                if frames and frames[-1].kind == "backtick":
+                    frames.pop()
+                else:
+                    frames.append(_ShellExpansionFrame("backtick"))
+                index += 1
+                continue
+
+            if frames and frames[-1].kind in ("arithmetic", "paren"):
+                frame = frames[-1]
+                if char == "(":
+                    frame.depth += 1
+                elif char == ")" and not (
+                    frame.kind == "paren"
+                    and _shell_parenthesis_is_case_arm_boundary(
+                        line,
+                        index,
+                        case_state,
+                    )
+                ):
+                    frame.depth -= 1
+                    if frame.depth == 0:
+                        frames.pop()
+                index += 1
+                continue
+            index += 1
+
+        case_state = _shell_case_state_after_prefix(
+            line,
+            len(line),
+            case_state,
+        )
+    return result
+
+
+_SHELL_COMMAND_START = re.compile(
+    r"^|(?<!\\)\$\(|(?<!\\)[;&|(){`]"
+)
+_SHELL_CONTROL_PREFIX = re.compile(
+    r"(?:if|elif|while|until|then|do|else)\b"
+)
+_SHELL_ASSIGNMENT_START = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
+_SHELL_CASE_TOKEN = re.compile(
+    r"[A-Za-z_][A-Za-z0-9_]*|;;&|;&|;;|[;&|(){}]"
+)
+_SHELL_CASE_AWAITING_IN = 0
+_SHELL_CASE_EMPTY_PATTERN = 1
+_SHELL_CASE_PATTERN = 2
+_SHELL_CASE_BODY = 3
+
+
+def _shell_case_state_after_prefix(
+    line: str,
+    end: int,
+    initial_state: tuple[int, ...] = (),
+) -> tuple[int, ...]:
+    """Return nested case blocks and their current shell grammar phase."""
+    state = list(initial_state)
+    command_position = True
+    for match in _SHELL_CASE_TOKEN.finditer(line, 0, end):
+        token = match.group()
+        if not token[0].isalnum() and match.start() > 0:
+            backslashes = 0
+            cursor = match.start() - 1
+            while cursor >= 0 and line[cursor] == "\\":
+                backslashes += 1
+                cursor -= 1
+            if backslashes % 2 == 1:
+                continue
+
+        phase = state[-1] if state else None
+        if phase in (
+            _SHELL_CASE_EMPTY_PATTERN,
+            _SHELL_CASE_PATTERN,
+        ):
+            if (
+                token == "esac"
+                and phase == _SHELL_CASE_EMPTY_PATTERN
+            ):
+                state.pop()
+                command_position = False
+            elif token == ")":
+                state[-1] = _SHELL_CASE_BODY
+                command_position = True
+            elif token[0].isalnum():
+                state[-1] = _SHELL_CASE_PATTERN
+                command_position = False
+            else:
+                command_position = False
+            continue
+
+        if token == "case" and command_position:
+            state.append(_SHELL_CASE_AWAITING_IN)
+        elif (
+            token == "in"
+            and state
+            and state[-1] == _SHELL_CASE_AWAITING_IN
+        ):
+            state[-1] = _SHELL_CASE_EMPTY_PATTERN
+        elif token == "esac" and command_position and state:
+            state.pop()
+        elif (
+            token in (";;", ";&", ";;&")
+            and state
+            and state[-1] == _SHELL_CASE_BODY
+        ):
+            state[-1] = _SHELL_CASE_EMPTY_PATTERN
+        if token in ";&|(){}" or token in (";;", ";&", ";;&"):
+            command_position = True
+        elif (
+            command_position
+            and token in ("then", "do", "else", "elif")
+        ):
+            command_position = True
+        else:
+            command_position = False
+    return tuple(state)
+
+
+def _shell_parenthesis_is_case_arm_boundary(
+    line: str,
+    parenthesis_index: int,
+    initial_case_state: tuple[int, ...] = (),
+    case_depth_at_open: int = 0,
+) -> bool:
+    """Return whether ``)`` terminates a pattern in an active case block."""
+    state = _shell_case_state_after_prefix(
+        line,
+        parenthesis_index,
+        initial_case_state,
+    )
+    return bool(
+        len(state) > case_depth_at_open
+        and state[-1]
+        in (
+            _SHELL_CASE_EMPTY_PATTERN,
+            _SHELL_CASE_PATTERN,
+        )
+    )
+
+
+def _shell_command_start_indices(
+    line: str,
+    initial_case_state: tuple[int, ...] = (),
+) -> list[int]:
+    """Return command boundaries, excluding non-case closing parentheses."""
+    result: list[int] = []
+    for command_start in _SHELL_COMMAND_START.finditer(line):
+        if (
+            command_start.group() == ")"
+            and (
+                _shell_closer_ends_expansion(
+                    line,
+                    command_start.start(),
+                    initial_case_state,
+                )
+                or not _shell_parenthesis_is_case_arm_boundary(
+                    line,
+                    command_start.start(),
+                    initial_case_state,
+                )
+            )
+        ):
+            continue
+        result.append(command_start.end())
+    return result
+
+
+def _shell_assignment_word_end(line: str, start: int) -> Optional[int]:
+    """Return the end of one shell assignment word, including expansions."""
+    assignment = _SHELL_ASSIGNMENT_START.match(line, start)
+    if assignment is None:
+        return None
+
+    index = assignment.end()
+    quotes: list[Optional[str]] = [None]
+    expansions: list[str] = []
+    while index < len(line):
+        char = line[index]
+        quote = quotes[-1]
+        if quote == "'":
+            if char == "'":
+                quotes[-1] = None
+            index += 1
+            continue
+        if quote == '"':
+            if char == "\\":
+                index = min(len(line), index + 2)
+                continue
+            if char == '"':
+                quotes[-1] = None
+                index += 1
+                continue
+            if line.startswith("$(", index):
+                expansions.append(")")
+                quotes.append(None)
+                index += 2
+                continue
+            if line.startswith("${", index):
+                expansions.append("}")
+                quotes.append(None)
+                index += 2
+                continue
+            if char == "`":
+                expansions.append("`")
+                quotes.append(None)
+                index += 1
+                continue
+            index += 1
+            continue
+
+        if char == "\\":
+            index = min(len(line), index + 2)
+            continue
+        if char in ("'", '"'):
+            quotes[-1] = char
+            index += 1
+            continue
+        if char == "`":
+            if expansions and expansions[-1] == "`":
+                expansions.pop()
+                quotes.pop()
+            else:
+                expansions.append("`")
+                quotes.append(None)
+            index += 1
+            continue
+        if line.startswith("$(", index):
+            expansions.append(")")
+            quotes.append(None)
+            index += 2
+            continue
+        if line.startswith("${", index):
+            expansions.append("}")
+            quotes.append(None)
+            index += 2
+            continue
+        if expansions:
+            if char == expansions[-1]:
+                expansions.pop()
+                quotes.pop()
+            elif char == "(" and expansions[-1] == ")":
+                expansions.append(")")
+                quotes.append(None)
+            elif char == "{" and expansions[-1] == "}":
+                expansions.append("}")
+                quotes.append(None)
+            index += 1
+            continue
+        if char.isspace() or char in ";&|()<>":
+            break
+        index += 1
+    return index
+
+
+def _shell_command_name_position(
+    raw_line: str,
+    start: int,
+) -> int:
+    """Return the command name after shell control/assignment prefixes."""
+    index = start
+    while True:
+        while index < len(raw_line) and raw_line[index].isspace():
+            index += 1
+
+        if raw_line.startswith("!", index):
+            index += 1
+            continue
+
+        control = _SHELL_CONTROL_PREFIX.match(raw_line, index)
+        if control is not None:
+            index = control.end()
+            continue
+
+        if raw_line.startswith("time", index) and (
+            index + 4 == len(raw_line)
+            or raw_line[index + 4].isspace()
+        ):
+            index += 4
+            while index < len(raw_line) and raw_line[index].isspace():
+                index += 1
+            if raw_line.startswith("-p", index) and (
+                index + 2 == len(raw_line)
+                or raw_line[index + 2].isspace()
+            ):
+                index += 2
+            continue
+
+        assignment_end = _shell_assignment_word_end(raw_line, index)
+        if assignment_end is None:
+            break
+        index = assignment_end
+    return index
+
+
+def _shell_prefixed_sleep_position(
+    raw_line: str,
+    masked_line: str,
+    start: int,
+) -> Optional[int]:
+    """Find a sleep command after shell control/assignment prefix words."""
+    index = _shell_command_name_position(raw_line, start)
+
+    if (
+        masked_line.startswith("sleep", index)
+        and (
+            index + len("sleep") == len(masked_line)
+            or masked_line[index + len("sleep")].isspace()
+        )
+    ):
+        return index
+    return None
+
+
+def _shell_assertion_is_command_position(
+    line: str,
+    assertion_start: int,
+    initial_case_state: tuple[int, ...] = (),
+) -> bool:
+    """Return whether an assertion-looking shell token names a command."""
+    for command_start in _shell_command_start_indices(
+        line,
+        initial_case_state,
+    ):
+        if command_start > assertion_start:
+            break
+        if (
+            _shell_command_name_position(line, command_start)
+            == assertion_start
+        ):
+            return True
+    return False
+
+
+def _shell_function_declaration_at(line: str, sleep_position: int) -> bool:
+    """Return whether ``sleep`` names a shell function instead of a command."""
+    index = sleep_position + len("sleep")
+    while index < len(line) and line[index].isspace():
+        index += 1
+    if index >= len(line) or line[index] != "(":
+        return False
+    index += 1
+    while index < len(line) and line[index].isspace():
+        index += 1
+    if index >= len(line) or line[index] != ")":
+        return False
+    index += 1
+    while index < len(line) and line[index].isspace():
+        index += 1
+    return index == len(line) or line[index] == "{"
+
+
+def _shell_real_sleep_positions(
+    raw_lines: list[str],
+    masked_lines: list[str],
+) -> dict[int, set[int]]:
+    positions: dict[int, set[int]] = {}
+    case_state: tuple[int, ...] = ()
+    for line_index, (raw_line, masked_line) in enumerate(
+        zip(raw_lines, masked_lines)
+    ):
+        for match in _SHELL_BARE_SLEEP.finditer(masked_line):
+            sleep_position = match.start() + match.group().rfind("sleep")
+            if not _shell_function_declaration_at(
+                raw_line,
+                sleep_position,
+            ):
+                positions.setdefault(line_index, set()).add(sleep_position)
+        for command_start in _shell_command_start_indices(
+            masked_line,
+            case_state,
+        ):
+            sleep_position = _shell_prefixed_sleep_position(
+                raw_line,
+                masked_line,
+                command_start,
+            )
+            if (
+                sleep_position is not None
+                and not _shell_function_declaration_at(
+                    raw_line,
+                    sleep_position,
+                )
+            ):
+                positions.setdefault(line_index, set()).add(sleep_position)
+        case_state = _shell_case_state_after_prefix(
+            masked_line,
+            len(masked_line),
+            case_state,
+        )
+    arithmetic_identifiers = _shell_arithmetic_identifier_positions(
+        masked_lines,
+        positions,
+    )
+    for line_index, columns in list(positions.items()):
+        columns.difference_update(arithmetic_identifiers.get(line_index, set()))
+        if not columns:
+            del positions[line_index]
+    return positions
+
+
+def _shell_sleep_end_positions(
+    raw_lines: list[str],
+    sleep_positions: dict[int, set[int]],
+) -> dict[int, list[tuple[int, int]]]:
+    """Map shell sleeps to the end of their logical multiline command."""
+    result: dict[int, list[tuple[int, int]]] = {}
+    for start_line, columns in sleep_positions.items():
+        for column in columns:
+            frames: list[_ShellExpansionFrame] = []
+            quotes: list[Optional[str]] = [None]
+            command_end = (start_line, len(raw_lines[start_line]))
+            finished = False
+            for line_index in range(start_line, len(raw_lines)):
+                line = raw_lines[line_index]
+                index = column if line_index == start_line else 0
+                while index < len(line):
+                    quote = quotes[-1]
+                    char = line[index]
+                    if quote == "'":
+                        if char == "'":
+                            quotes[-1] = None
+                        index += 1
+                        continue
+                    if quote == '"':
+                        if char == "\\":
+                            index += 2
+                            continue
+                        if char == '"':
+                            quotes[-1] = None
+                            index += 1
+                            continue
+                        if line.startswith("$((", index):
+                            frames.append(
+                                _ShellExpansionFrame("arithmetic", 2)
+                            )
+                            quotes.append(None)
+                            index += 3
+                            continue
+                        if line.startswith("$(", index):
+                            frames.append(_ShellExpansionFrame("paren"))
+                            quotes.append(None)
+                            index += 2
+                            continue
+                        if line.startswith("${", index):
+                            frames.append(_ShellExpansionFrame("brace"))
+                            quotes.append(None)
+                            index += 2
+                            continue
+                        if char == "`":
+                            frames.append(_ShellExpansionFrame("backtick"))
+                            quotes.append(None)
+                        index += 1
+                        continue
+
+                    if char == "\\":
+                        index += 2
+                        continue
+                    if char in ("'", '"'):
+                        quotes[-1] = char
+                        index += 1
+                        continue
+                    if line.startswith("$((", index):
+                        frames.append(_ShellExpansionFrame("arithmetic", 2))
+                        quotes.append(None)
+                        index += 3
+                        continue
+                    if line.startswith("$(", index):
+                        frames.append(_ShellExpansionFrame("paren"))
+                        quotes.append(None)
+                        index += 2
+                        continue
+                    if line.startswith("${", index):
+                        frames.append(_ShellExpansionFrame("brace"))
+                        quotes.append(None)
+                        index += 2
+                        continue
+                    if char == "`":
+                        if frames and frames[-1].kind == "backtick":
+                            frames.pop()
+                            quotes.pop()
+                        else:
+                            frames.append(_ShellExpansionFrame("backtick"))
+                            quotes.append(None)
+                        index += 1
+                        continue
+
+                    if frames and frames[-1].kind != "backtick":
+                        frame = frames[-1]
+                        opener, closer = (
+                            ("{", "}")
+                            if frame.kind == "brace"
+                            else ("(", ")")
+                        )
+                        if char == opener:
+                            frame.depth += 1
+                        elif char == closer:
+                            frame.depth -= 1
+                            if frame.depth == 0:
+                                frames.pop()
+                                quotes.pop()
+                        index += 1
+                        continue
+
+                    if not frames:
+                        if (
+                            char == "#"
+                            and _shell_hash_starts_comment(line, index)
+                        ):
+                            command_end = (line_index, index)
+                            finished = True
+                            break
+                        if char in ";&|":
+                            command_end = (line_index, index)
+                            finished = True
+                            break
+                    index += 1
+
+                if finished:
+                    break
+                if (
+                    quotes[-1] is None
+                    and not frames
+                    and not _has_odd_trailing_backslashes(line)
+                ):
+                    command_end = (line_index, len(line))
+                    break
+            result.setdefault(start_line, []).append(command_end)
+    return result
+
+
+@dataclass
+class _ShellCommandSubstitutionFrame:
+    kind: str
+    depth: int
+    outer_assertion: bool
+    command_assertion: bool = False
+    case_depth_at_open: int = 0
+
+
+def _shell_asserted_substitution_sleep_positions(
+    masked_lines: list[str],
+    sleep_positions: dict[int, set[int]],
+) -> dict[int, set[int]]:
+    """Locate sleeps evaluated as arguments to an enclosing assert command."""
+    result: dict[int, set[int]] = {}
+    frames: list[_ShellCommandSubstitutionFrame] = []
+    top_level_assertion = False
+    case_state: tuple[int, ...] = ()
+
+    def current_command_assertion() -> bool:
+        if frames:
+            return frames[-1].command_assertion
+        return top_level_assertion
+
+    def set_current_command_assertion(value: bool) -> None:
+        nonlocal top_level_assertion
+        if frames:
+            frames[-1].command_assertion = value
+        else:
+            top_level_assertion = value
+
+    for line_index, line in enumerate(masked_lines):
+        assertion_starts = {
+            match.start()
+            for match in _ASSERT_TOKEN.finditer(line)
+            if _shell_assertion_is_command_position(
+                line,
+                match.start(),
+                case_state,
+            )
+        }
+        line_sleep_positions = sleep_positions.get(line_index, set())
+        index = 0
+        while index < len(line):
+            if index in assertion_starts:
+                set_current_command_assertion(True)
+            if index in line_sleep_positions and any(
+                frame.outer_assertion for frame in frames
+            ):
+                result.setdefault(line_index, set()).add(index)
+
+            if line.startswith("$((", index):
+                inherited_assertion = (
+                    current_command_assertion()
+                    or any(frame.outer_assertion for frame in frames)
+                )
+                frames.append(
+                    _ShellCommandSubstitutionFrame(
+                        "arithmetic",
+                        2,
+                        inherited_assertion,
+                        case_depth_at_open=len(
+                            _shell_case_state_after_prefix(
+                                line,
+                                index,
+                                case_state,
+                            )
+                        ),
+                    )
+                )
+                index += 3
+                continue
+            if line.startswith("$(", index):
+                inherited_assertion = (
+                    current_command_assertion()
+                    or any(frame.outer_assertion for frame in frames)
+                )
+                frames.append(
+                    _ShellCommandSubstitutionFrame(
+                        "paren",
+                        1,
+                        inherited_assertion,
+                        case_depth_at_open=len(
+                            _shell_case_state_after_prefix(
+                                line,
+                                index,
+                                case_state,
+                            )
+                        ),
+                    )
+                )
+                index += 2
+                continue
+
+            char = line[index]
+            if char == "`":
+                if frames and frames[-1].kind == "backtick":
+                    frames.pop()
+                else:
+                    inherited_assertion = (
+                        current_command_assertion()
+                        or any(frame.outer_assertion for frame in frames)
+                    )
+                    frames.append(
+                        _ShellCommandSubstitutionFrame(
+                            "backtick",
+                            1,
+                            inherited_assertion,
+                            case_depth_at_open=len(
+                                _shell_case_state_after_prefix(
+                                    line,
+                                    index,
+                                    case_state,
+                                )
+                            ),
+                        )
+                    )
+                index += 1
+                continue
+
+            if frames and frames[-1].kind in ("paren", "arithmetic"):
+                if char == "(":
+                    frames[-1].depth += 1
+                elif char == ")" and not (
+                    frames[-1].kind == "paren"
+                    and _shell_parenthesis_is_case_arm_boundary(
+                        line,
+                        index,
+                        case_state,
+                        frames[-1].case_depth_at_open,
+                    )
+                ):
+                    frames[-1].depth -= 1
+                    if frames[-1].depth == 0:
+                        frames.pop()
+                    index += 1
+                    continue
+
+            if line.startswith(("&&", "||"), index):
+                set_current_command_assertion(False)
+                index += 2
+                continue
+            if char in ";|":
+                set_current_command_assertion(False)
+            index += 1
+
+        if not _has_odd_trailing_backslashes(line):
+            top_level_assertion = False
+            if frames:
+                frames[-1].command_assertion = False
+        case_state = _shell_case_state_after_prefix(
+            line,
+            len(line),
+            case_state,
+        )
+
+    return result
+
+
+@dataclass
+class _SwiftStringFrame:
+    hash_count: int
+    quote_length: int
+
+
+@dataclass
+class _SwiftInterpolationFrame:
+    depth: int = 1
+
+
+def _swift_string_start(
+    line: str,
+    index: int,
+) -> Optional[tuple[int, int]]:
+    cursor = index
+    while cursor < len(line) and line[cursor] == "#":
+        cursor += 1
+    hash_count = cursor - index
+    if hash_count == 0 and (cursor >= len(line) or line[cursor] != '"'):
+        return None
+    if hash_count > 0 and (cursor >= len(line) or line[cursor] != '"'):
+        return None
+    quote_length = 3 if line.startswith('"""', cursor) else 1
+    return hash_count, quote_length
+
+
+def _mask_swift_noncode(lines: list[str]) -> list[str]:
+    """Mask Swift comments/strings while exposing interpolation expressions."""
+    masked_lines: list[str] = []
+    contexts: list[object] = []
+    block_comment_depth = 0
+
+    for line in lines:
+        masked = [" "] * len(line)
+        index = 0
+        while index < len(line):
+            if block_comment_depth:
+                marker = _BLOCK_COMMENT_MARKER.search(line, index)
+                if marker is None:
+                    break
+                if marker.group() == "/*":
+                    block_comment_depth += 1
+                else:
+                    block_comment_depth -= 1
+                index = marker.end()
+                continue
+
+            context = contexts[-1] if contexts else None
+            if isinstance(context, _SwiftStringFrame):
+                hashes = "#" * context.hash_count
+                interpolation = "\\" + hashes + "("
+                if line.startswith(interpolation, index):
+                    contexts.append(_SwiftInterpolationFrame())
+                    index += len(interpolation)
+                    continue
+
+                escape = "\\" + hashes
+                if line.startswith(escape, index):
+                    escaped_index = index + len(escape)
+                    quotes = '"' * context.quote_length
+                    if line.startswith(quotes, escaped_index):
+                        index = escaped_index + context.quote_length
+                    else:
+                        index = min(len(line), escaped_index + 1)
+                    continue
+
+                delimiter = '"' * context.quote_length + hashes
+                if line.startswith(delimiter, index):
+                    contexts.pop()
+                    index += len(delimiter)
+                    continue
+                index += 1
+                continue
+
+            if line.startswith("//", index):
+                break
+            if line.startswith("/*", index):
+                block_comment_depth = 1
+                index += 2
+                continue
+
+            string_start = _swift_string_start(line, index)
+            if string_start is not None:
+                hash_count, quote_length = string_start
+                contexts.append(_SwiftStringFrame(hash_count, quote_length))
+                index += hash_count + quote_length
+                continue
+
+            interpolation = (
+                context
+                if isinstance(context, _SwiftInterpolationFrame)
+                else None
+            )
+            char = line[index]
+            masked[index] = char
+            if interpolation is not None:
+                if char == "(":
+                    interpolation.depth += 1
+                elif char == ")":
+                    interpolation.depth -= 1
+                    if interpolation.depth == 0:
+                        contexts.pop()
+            index += 1
+
+        masked_lines.append("".join(masked))
+
+    return masked_lines
+
+
+_JS_REGEX_PREFIX_CHARS = frozenset("([{,:;=!?&|+-*%^~<>")
+_JS_REGEX_PREFIX_WORDS = frozenset(
+    (
+        "await",
+        "case",
+        "delete",
+        "do",
+        "else",
+        "in",
+        "instanceof",
+        "new",
+        "of",
+        "return",
+        "throw",
+        "typeof",
+        "void",
+        "yield",
+    )
+)
+_JS_CONTROL_HEADER_WORDS = frozenset(
+    ("catch", "for", "if", "switch", "while", "with")
+)
+
+
+def _javascript_control_header_before(
+    text: str,
+    closing_parenthesis: int,
+) -> bool:
+    depth = 0
+    index = closing_parenthesis
+    while index >= 0:
+        char = text[index]
+        if char == ")":
+            depth += 1
+        elif char == "(":
+            depth -= 1
+            if depth == 0:
+                index -= 1
+                while index >= 0 and text[index].isspace():
+                    index -= 1
+                word_end = index + 1
+                while index >= 0 and (
+                    text[index].isalnum() or text[index] in "_$"
+                ):
+                    index -= 1
+                return (
+                    text[index + 1 : word_end]
+                    in _JS_CONTROL_HEADER_WORDS
+                )
+        index -= 1
+    return False
+
+
+def _mask_javascript_regex_literals(lines: list[str]) -> list[str]:
+    """Mask high-confidence JavaScript regex literals across source lines."""
+    text = "\n".join(lines)
+    masked = list(text)
+    index = 0
+    while index < len(text):
+        if text[index] != "/":
+            index += 1
+            continue
+        if text.startswith(("//", "/*"), index):
+            index += 2
+            continue
+
+        previous = index - 1
+        while previous >= 0 and text[previous].isspace():
+            previous -= 1
+        can_start = previous < 0 or text[previous] in _JS_REGEX_PREFIX_CHARS
+        if (
+            not can_start
+            and previous >= 0
+            and text[previous] == ")"
+        ):
+            can_start = _javascript_control_header_before(text, previous)
+        if (
+            can_start
+            and previous >= 0
+            and text[previous] == "<"
+            and index + 1 < len(text)
+            and (text[index + 1].isalpha() or text[index + 1] == ">")
+        ):
+            can_start = False
+        if not can_start and previous >= 0 and (
+            text[previous].isalnum() or text[previous] in "_$"
+        ):
+            word_end = previous + 1
+            word_start = previous
+            while word_start >= 0 and (
+                text[word_start].isalnum()
+                or text[word_start] in "_$"
+            ):
+                word_start -= 1
+            can_start = (
+                text[word_start + 1 : word_end]
+                in _JS_REGEX_PREFIX_WORDS
+            )
+        if not can_start:
+            index += 1
+            continue
+
+        cursor = index + 1
+        in_character_class = False
+        closed = False
+        while cursor < len(text):
+            char = text[cursor]
+            if char == "\n":
+                break
+            if char == "\\":
+                cursor += 2
+                continue
+            if char == "[":
+                in_character_class = True
+            elif char == "]":
+                in_character_class = False
+            elif char == "/" and not in_character_class:
+                cursor += 1
+                while cursor < len(text) and text[cursor].isalpha():
+                    cursor += 1
+                masked[index:cursor] = " " * (cursor - index)
+                index = cursor
+                closed = True
+                break
+            cursor += 1
+        if not closed:
+            index += 1
+    return "".join(masked).split("\n")
+
+
+def _shell_closer_ends_expansion(
+    line: str,
+    closer_index: int,
+    initial_case_state: tuple[int, ...] = (),
+) -> bool:
+    """Return whether a ``)``/``}`` closes a dollar expansion."""
+    if line[closer_index] not in ")}":
+        return False
+
+    frames: list[_ShellExpansionFrame] = []
+    quotes: list[Optional[str]] = [None]
+    index = 0
+    while index <= closer_index:
+        quote = quotes[-1]
+        char = line[index]
+        if quote == "'":
+            if char == "'":
+                quotes[-1] = None
+            index += 1
+            continue
+        if quote in ('"', "`"):
+            if char == "\\":
+                index += 2
+                continue
+            if char == quote:
+                quotes[-1] = None
+                index += 1
+                continue
+            if line.startswith("$((", index):
+                frames.append(
+                    _ShellExpansionFrame(
+                        "arithmetic",
+                        2,
+                        case_depth_at_open=len(
+                            _shell_case_state_after_prefix(
+                                line,
+                                index,
+                                initial_case_state,
+                            )
+                        ),
+                    )
+                )
+                quotes.append(None)
+                index += 3
+                continue
+            if line.startswith("$(", index):
+                frames.append(
+                    _ShellExpansionFrame(
+                        "paren",
+                        case_depth_at_open=len(
+                            _shell_case_state_after_prefix(
+                                line,
+                                index,
+                                initial_case_state,
+                            )
+                        ),
+                    )
+                )
+                quotes.append(None)
+                index += 2
+                continue
+            if line.startswith("${", index):
+                frames.append(_ShellExpansionFrame("brace"))
+                quotes.append(None)
+                index += 2
+                continue
+            index += 1
+            continue
+
+        if char == "\\":
+            index += 2
+            continue
+        if char in ("'", '"', "`"):
+            quotes[-1] = char
+            index += 1
+            continue
+        if line.startswith("$((", index):
+            frames.append(
+                _ShellExpansionFrame(
+                    "arithmetic",
+                    2,
+                    case_depth_at_open=len(
+                        _shell_case_state_after_prefix(
+                            line,
+                            index,
+                            initial_case_state,
+                        )
+                    ),
+                )
+            )
+            quotes.append(None)
+            index += 3
+            continue
+        if line.startswith("$(", index):
+            frames.append(
+                _ShellExpansionFrame(
+                    "paren",
+                    case_depth_at_open=len(
+                        _shell_case_state_after_prefix(
+                            line,
+                            index,
+                            initial_case_state,
+                        )
+                    ),
+                )
+            )
+            quotes.append(None)
+            index += 2
+            continue
+        if line.startswith("${", index):
+            frames.append(_ShellExpansionFrame("brace"))
+            quotes.append(None)
+            index += 2
+            continue
+
+        if frames:
+            frame = frames[-1]
+            opener, closer = (
+                ("{", "}")
+                if frame.kind == "brace"
+                else ("(", ")")
+            )
+            if char == opener:
+                frame.depth += 1
+            elif char == closer and not (
+                frame.kind == "paren"
+                and _shell_parenthesis_is_case_arm_boundary(
+                    line,
+                    index,
+                    initial_case_state,
+                    frame.case_depth_at_open,
+                )
+            ):
+                frame.depth -= 1
+                if frame.depth == 0:
+                    if index == closer_index:
+                        return True
+                    frames.pop()
+                    quotes.pop()
+        index += 1
+    return False
+
+
+def _shell_hash_starts_comment(line: str, index: int) -> bool:
+    """Return whether an unquoted shell ``#`` starts a comment word."""
+    if index == 0:
+        return True
+    previous = line[index - 1]
+    if previous in ")}" and _shell_closer_ends_expansion(line, index - 1):
+        return False
+    return previous.isspace() or previous in ";&|()<>{}"
+
+
+def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
+    """Replace quoted strings and comments while preserving line positions."""
+    if path_suffix == ".swift":
+        return _mask_swift_noncode(lines)
+
+    masked_lines: list[str] = []
+    quote: Optional[str] = None
+    block_comment_depth = 0
+    template_interpolation_depths: list[int] = []
+    shell_interpolations: list[tuple[str, int]] = []
+    shell_heredocs: list[tuple[str, bool, bool]] = []
+    shell_heredoc_expansions: list[_ShellExpansionFrame] = []
+    shell_heredoc_case_state: list[int] = []
+    shell_arithmetic_depth = 0
+    shell_case_state: tuple[int, ...] = ()
+    hash_comments = path_suffix in (".py", ".sh")
+    marker_pattern = (
+        _HASH_NONCODE_MARKER if hash_comments else _SLASH_NONCODE_MARKER
+    )
+    javascript_structural_lines = (
+        _mask_javascript_regex_literals(lines)
+        if path_suffix in _JS_SUFFIXES
+        else lines
+    )
+
+    for line_index, line in enumerate(lines):
+        if path_suffix == ".sh" and shell_heredocs:
+            delimiter, strip_tabs, allow_expansions = shell_heredocs[0]
+            candidate = line.lstrip("\t") if strip_tabs else line
+            if candidate == delimiter:
+                shell_heredocs.pop(0)
+                shell_heredoc_expansions.clear()
+                shell_heredoc_case_state.clear()
+                masked_lines.append(" " * len(line))
+            elif allow_expansions:
+                masked_lines.append(
+                    _mask_shell_heredoc_expansions(
+                        line,
+                        shell_heredoc_expansions,
+                        shell_heredoc_case_state,
+                    )
+                )
+            else:
+                masked_lines.append(" " * len(line))
+            continue
+
+        masked = list(line)
+        i = 0
+        while i < len(line):
+            if block_comment_depth:
+                marker = _BLOCK_COMMENT_MARKER.search(line, i)
+                if marker is None:
+                    masked[i:] = " " * (len(line) - i)
+                    break
+                masked[i : marker.end()] = " " * (marker.end() - i)
+                if marker.group() == "/*":
+                    if path_suffix == ".swift":
+                        block_comment_depth += 1
+                else:
+                    block_comment_depth -= 1
+                i = marker.end()
+                continue
+
+            if quote:
+                quote_end = line.find(quote, i)
+                escape = line.find("\\", i)
+                if path_suffix in _JS_SUFFIXES and quote == "`":
+                    interpolation_start = _unescaped_token_index(
+                        line,
+                        "${",
+                        i,
+                    )
+                    if interpolation_start >= 0 and (
+                        quote_end < 0 or interpolation_start < quote_end
+                    ) and (
+                        escape < 0 or interpolation_start < escape
+                    ):
+                        masked[i:interpolation_start] = " " * (
+                            interpolation_start - i
+                        )
+                        template_interpolation_depths.append(1)
+                        quote = None
+                        i = interpolation_start + 2
+                        continue
+
+                if path_suffix == ".sh" and quote == '"':
+                    dollar_start = line.find("$(", i)
+                    backtick_start = _unescaped_token_index(line, "`", i)
+                    if dollar_start >= 0 and (
+                        backtick_start < 0 or dollar_start < backtick_start
+                    ):
+                        interpolation_start = dollar_start
+                        interpolation_kind = "paren"
+                        interpolation_token_length = 2
+                    elif backtick_start >= 0:
+                        interpolation_start = backtick_start
+                        interpolation_kind = "backtick"
+                        interpolation_token_length = 1
+                    else:
+                        interpolation_start = -1
+                    if interpolation_start >= 0 and (
+                        quote_end < 0 or interpolation_start < quote_end
+                    ) and (
+                        escape < 0 or interpolation_start < escape
+                    ):
+                        masked[i:interpolation_start] = " " * (
+                            interpolation_start - i
+                        )
+                        shell_interpolations.append(
+                            (interpolation_kind, 1)
+                        )
+                        quote = None
+                        i = interpolation_start + interpolation_token_length
+                        continue
+                if escape >= 0 and (quote_end < 0 or escape < quote_end):
+                    end = min(len(line), escape + 2)
+                    masked[i:end] = " " * (end - i)
+                    i = end
+                    continue
+                if quote_end < 0:
+                    masked[i:] = " " * (len(line) - i)
+                    break
+                end = quote_end + len(quote)
+                masked[i:end] = " " * (end - i)
+                i = end
+                quote = None
+                continue
+
+            marker = marker_pattern.search(
+                javascript_structural_lines[line_index],
+                i,
+            )
+            if path_suffix == ".sh" and shell_interpolations:
+                interpolation_kind, depth = shell_interpolations[-1]
+                if interpolation_kind == "backtick":
+                    delimiter = _unescaped_token_index(line, "`", i)
+                    if delimiter >= 0 and (
+                        marker is None or delimiter < marker.start()
+                    ):
+                        shell_interpolations.pop()
+                        quote = '"'
+                        i = delimiter + 1
+                        continue
+                else:
+                    opening = _unescaped_token_index(line, "(", i)
+                    closing = _unescaped_token_index(line, ")", i)
+                    delimiters = [
+                        index
+                        for index in (opening, closing)
+                        if index >= 0
+                    ]
+                    delimiter = min(delimiters) if delimiters else -1
+                    if delimiter >= 0 and (
+                        marker is None or delimiter < marker.start()
+                    ):
+                        if (
+                            line[delimiter] == ")"
+                            and interpolation_kind == "paren"
+                            and depth == 1
+                            and _shell_parenthesis_is_case_arm_boundary(
+                                "".join(masked),
+                                delimiter,
+                                shell_case_state,
+                            )
+                        ):
+                            i = delimiter + 1
+                            continue
+                        if line[delimiter] == "(":
+                            shell_interpolations[-1] = (
+                                interpolation_kind,
+                                depth + 1,
+                            )
+                        elif depth == 1:
+                            shell_interpolations.pop()
+                            quote = '"'
+                        else:
+                            shell_interpolations[-1] = (
+                                interpolation_kind,
+                                depth - 1,
+                            )
+                        i = delimiter + 1
+                        continue
+            if (
+                path_suffix in _JS_SUFFIXES
+                and template_interpolation_depths
+            ):
+                structural_line = _mask_javascript_regex_literals(
+                    ["".join(masked)]
+                )[0]
+                opening = structural_line.find("{", i)
+                closing = structural_line.find("}", i)
+                braces = [index for index in (opening, closing) if index >= 0]
+                brace = min(braces) if braces else -1
+                if brace >= 0 and (
+                    marker is None or brace < marker.start()
+                ):
+                    if line[brace] == "{":
+                        template_interpolation_depths[-1] += 1
+                    else:
+                        template_interpolation_depths[-1] -= 1
+                        if template_interpolation_depths[-1] == 0:
+                            template_interpolation_depths.pop()
+                            quote = "`"
+                    i = brace + 1
+                    continue
+            if marker is None:
+                break
+            token = marker.group()
+            if (
+                path_suffix == ".sh"
+                and token == "#"
+                and not _shell_hash_starts_comment(line, marker.start())
+            ):
+                i = marker.end()
+                continue
+            if token == ("#" if hash_comments else "//"):
+                masked[marker.start() :] = " " * (
+                    len(line) - marker.start()
+                )
+                break
+            masked[marker.start() : marker.end()] = " " * len(token)
+            i = marker.end()
+            if token == "/*":
+                block_comment_depth = 1
+            else:
+                quote = token
+
+        # Shell quotes may span physical lines; Swift/Python/JS single and
+        # double quotes do not in the forms this conservative lexer supports.
+        if quote in ('"', "'") and path_suffix != ".sh":
+            if not (
+                path_suffix in _JS_SUFFIXES
+                and _has_odd_trailing_backslashes(line)
+            ):
+                quote = None
+        masked_line = "".join(masked)
+        if path_suffix == ".sh":
+            arithmetic_ranges, shell_arithmetic_depth = (
+                _shell_arithmetic_ranges(
+                    masked_line,
+                    shell_arithmetic_depth,
+                )
+            )
+            for operator in _SHELL_HEREDOC_OPERATOR.finditer(line):
+                if masked_line[operator.start() : operator.start() + 2] != "<<":
+                    continue
+                if any(
+                    start <= operator.start() < end
+                    for start, end in arithmetic_ranges
+                ):
+                    continue
+                parsed_word = _parse_shell_heredoc_word(
+                    line,
+                    operator.end(),
+                )
+                if parsed_word is None:
+                    continue
+                delimiter, allow_expansions = parsed_word
+                shell_heredocs.append(
+                    (
+                        delimiter,
+                        operator.group("strip") is not None,
+                        allow_expansions,
+                    )
+                )
+            shell_case_state = _shell_case_state_after_prefix(
+                masked_line,
+                len(masked_line),
+                shell_case_state,
+            )
+        masked_lines.append(masked_line)
+
+    if path_suffix in _JS_SUFFIXES:
+        return _mask_javascript_regex_literals(masked_lines)
+    return masked_lines
+
+
+def _assertion_encloses_sleep(
+    line: str,
+    assertion_end: int,
+    sleep_start: int,
+    path_suffix: str,
+) -> bool:
+    """Return whether a preceding assertion syntactically contains a sleep."""
+    index = assertion_end
+    while index < sleep_start and line[index].isspace():
+        index += 1
+    if index < sleep_start and line[index] == "(":
+        depth = 0
+        for char in line[index:sleep_start]:
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+        return depth > 0
+
+    # Python's statement-form assert and ``raise ... if`` have no wrapping
+    # call delimiter; their expression extends to the statement separator.
+    return path_suffix == ".py" and ";" not in line[assertion_end:sleep_start]
+
+
+def _is_executable_assertion_line(line: str, path_suffix: str) -> bool:
+    if path_suffix == ".sh":
+        return any(
+            _shell_assertion_is_command_position(line, match.start())
+            for match in _ASSERT_TOKEN.finditer(line)
+        )
+    return _is_assertion_line(line)
+
+
+def detect_sleep_then_assert(
+    lines: list[str],
+    masked_lines: list[str],
+    idx: int,
+    path_suffix: str,
+    known_sleep_lines: Optional[set[int]] = None,
+    known_sleep_positions: Optional[dict[int, set[int]]] = None,
+    known_sleep_end_positions: Optional[
+        dict[int, list[tuple[int, int]]]
+    ] = None,
+    assertion_enclosed_sleep_positions: Optional[dict[int, set[int]]] = None,
+    known_assertion_lines: Optional[set[int]] = None,
+) -> bool:
     """Sleep on lines[idx] followed by an assertion within 3 non-blank lines."""
-    line = lines[idx]
-    is_sleep = bool(_SLEEP_CALL.search(line))
-    if not is_sleep and path_suffix == ".sh":
+    line = masked_lines[idx]
+    sleep_pattern = _sleep_call_pattern(path_suffix)
+    if known_sleep_lines is not None:
+        is_sleep = idx in known_sleep_lines
+    else:
+        is_sleep = bool(sleep_pattern and sleep_pattern.search(line))
+    if path_suffix == ".sh" and known_sleep_lines is None:
         is_sleep = bool(_SHELL_BARE_SLEEP.search(line))
     if not is_sleep:
         return False
     if _sleep_in_loop(lines, idx):
         return False
-    seen = 0
-    for j in range(idx + 1, len(lines)):
-        nxt = _strip_comment(lines[j], path_suffix)
-        if not nxt.strip():
-            continue
-        seen += 1
-        if seen > 3:
-            break
-        # If we run into a loop header right after the sleep, the following
-        # assert is inside a poll, not gated solely by the sleep.
-        if _LOOP_HEADER.search(nxt):
-            return False
-        if _is_assertion_line(nxt):
+
+    if known_sleep_positions is not None:
+        sleep_starts = known_sleep_positions.get(idx, set())
+    elif path_suffix == ".sh":
+        sleep_starts = {
+            match.start() + match.group().rfind("sleep")
+            for match in _SHELL_BARE_SLEEP.finditer(line)
+        }
+    else:
+        sleep_starts = (
+            {match.start() for match in sleep_pattern.finditer(line)}
+            if sleep_pattern is not None
+            else set()
+        )
+    assertions = [
+        (match.start(), match.end())
+        for match in _ASSERT_TOKEN.finditer(line)
+        if (
+            path_suffix != ".sh"
+            or _shell_assertion_is_command_position(line, match.start())
+        )
+    ]
+    raise_if = _RAISE_IF.search(line)
+    if raise_if is not None:
+        assertions.append((raise_if.start(), raise_if.end()))
+    for sleep_start in sleep_starts:
+        if (
+            assertion_enclosed_sleep_positions is not None
+            and sleep_start
+            in assertion_enclosed_sleep_positions.get(idx, set())
+        ):
             return True
+        for assertion_start, assertion_end in assertions:
+            if assertion_start > sleep_start:
+                return True
+            between = line[assertion_start:sleep_start]
+            if path_suffix == ".sh":
+                if not _SHELL_COMMAND_SEPARATOR.search(between):
+                    return True
+            elif _assertion_encloses_sleep(
+                line,
+                assertion_end,
+                sleep_start,
+                path_suffix,
+            ):
+                return True
+
+    end_positions = (
+        known_sleep_end_positions.get(idx, [])
+        if known_sleep_end_positions is not None
+        else [(idx, len(line))]
+    )
+    for end_line, end_column in end_positions:
+        closing_line_tail = masked_lines[end_line][end_column:]
+        if _is_executable_assertion_line(
+            closing_line_tail,
+            path_suffix,
+        ):
+            return True
+        if _LOOP_HEADER.search(closing_line_tail):
+            continue
+
+        seen = 0
+        for j in range(end_line + 1, len(lines)):
+            nxt = masked_lines[j]
+            if not nxt.strip():
+                continue
+            if (
+                path_suffix == ".sh"
+                and _SHELL_CLOSING_CONTINUATION.fullmatch(nxt)
+            ):
+                continue
+            seen += 1
+            if seen > 3:
+                break
+            # If we run into a loop header right after the sleep, the
+            # following assert is inside a poll, not gated solely by the sleep.
+            if _LOOP_HEADER.search(nxt):
+                break
+            if (
+                _is_executable_assertion_line(nxt, path_suffix)
+                or (
+                    known_assertion_lines is not None
+                    and j in known_assertion_lines
+                )
+            ):
+                return True
     return False
 
 
@@ -493,22 +3343,112 @@ def _looks_like_test_file(rel_posix: str, root: str) -> bool:
 def scan_text(rel_posix: str, text: str) -> list[Finding]:
     suffix = pathlib.PurePosixPath(rel_posix).suffix
     raw_lines = text.splitlines()
-    code_lines = [_strip_comment(l, suffix) for l in raw_lines]
+    code_lines = [_strip_comment(line, suffix) for line in raw_lines]
+    sleep_pattern = _sleep_call_pattern(suffix)
+    has_sleep_candidate = (
+        "sleep" in text
+        if suffix in (".py", ".swift")
+        else bool(sleep_pattern and sleep_pattern.search(text))
+    )
+    if suffix in _JS_SUFFIXES:
+        has_sleep_candidate = "sleep" in text or "setTimeout" in text
+    if suffix == ".sh":
+        has_sleep_candidate = "sleep" in text
+    masked_lines = (
+        _mask_noncode(raw_lines, suffix) if has_sleep_candidate else code_lines
+    )
+    known_sleep_positions: Optional[dict[int, set[int]]] = None
+    known_sleep_end_positions: Optional[
+        dict[int, list[tuple[int, int]]]
+    ] = None
+    assertion_enclosed_sleep_positions: Optional[dict[int, set[int]]] = None
+    known_assertion_lines: Optional[set[int]] = None
+    known_sleep_lines: Optional[set[int]] = None
+    if suffix == ".py" and has_sleep_candidate:
+        known_sleep_positions = {}
+        known_sleep_end_positions = {}
+        assertion_enclosed_sleep_positions = {}
+        known_assertion_lines = set()
+        known_sleep_lines = _python_real_sleep_lines(
+            text,
+            known_sleep_positions,
+            known_sleep_end_positions,
+            assertion_enclosed_sleep_positions,
+            known_assertion_lines,
+        )
+    elif suffix == ".swift" and has_sleep_candidate:
+        known_sleep_positions = _swift_real_sleep_positions(masked_lines)
+        known_sleep_lines = set(known_sleep_positions)
+    elif suffix in _JS_SUFFIXES and has_sleep_candidate:
+        known_sleep_positions = _javascript_real_sleep_positions(masked_lines)
+        known_sleep_lines = set(known_sleep_positions)
+    elif suffix == ".sh" and has_sleep_candidate:
+        known_sleep_positions = _shell_real_sleep_positions(
+            raw_lines,
+            masked_lines,
+        )
+        known_sleep_lines = set(known_sleep_positions)
+        known_sleep_end_positions = _shell_sleep_end_positions(
+            raw_lines,
+            known_sleep_positions,
+        )
+        assertion_enclosed_sleep_positions = (
+            _shell_asserted_substitution_sleep_positions(
+                masked_lines,
+                known_sleep_positions,
+            )
+        )
+    if (
+        known_sleep_positions is not None
+        and known_sleep_end_positions is None
+    ):
+        known_sleep_end_positions = _sleep_call_end_positions(
+            masked_lines,
+            known_sleep_positions,
+        )
+    if known_sleep_lines is not None:
+        has_sleep_candidate = bool(known_sleep_lines)
     findings: list[Finding] = []
 
     for i, code in enumerate(code_lines):
-        if not code.strip():
+        if (
+            not code.strip()
+            and (
+                known_sleep_lines is None
+                or i not in known_sleep_lines
+            )
+        ):
             continue
         line_no = i + 1
         snippet = raw_lines[i].strip()
 
-        if detect_assert_on_duration(code):
+        if any(
+            hint in code for hint in _ASSERTION_HINTS
+        ) and detect_assert_on_duration(code):
             findings.append(Finding(rel_posix, line_no, RULE_ASSERT_ON_DURATION, snippet))
-        if detect_live_network_host(code):
+        if "http" in code and detect_live_network_host(code):
             findings.append(Finding(rel_posix, line_no, RULE_LIVE_NETWORK_HOST, snippet))
-        if detect_fixed_port_bind(code):
+        if any(hint in code for hint in _BIND_HINTS) and detect_fixed_port_bind(code):
             findings.append(Finding(rel_posix, line_no, RULE_FIXED_PORT_BIND, snippet))
-        if detect_sleep_then_assert(code_lines, i, suffix):
+        if (
+            has_sleep_candidate
+            and (
+                (known_sleep_lines is not None and i in known_sleep_lines)
+                or "sleep" in code
+                or "setTimeout" in code
+            )
+            and detect_sleep_then_assert(
+                code_lines,
+                masked_lines,
+                i,
+                suffix,
+                known_sleep_lines,
+                known_sleep_positions,
+                known_sleep_end_positions,
+                assertion_enclosed_sleep_positions,
+                known_assertion_lines,
+            )
+        ):
             findings.append(Finding(rel_posix, line_no, RULE_SLEEP_THEN_ASSERT, snippet))
 
     return findings
@@ -642,8 +3582,78 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "tests/time-alias.py",
+            "import time as clock_time\n"
+            "clock_time.sleep(0.3)\n"
+            "assert widget.is_rendered()\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "tests/time-import-list.py",
+            "import os, time as clock_time\n"
+            "clock_time.sleep(0.3)\n"
+            "assert widget.is_rendered()\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "tests/sleep-alias.py",
+            "from asyncio import sleep as pause\n"
+            "await pause(0.3)\n"
+            "assert widget.is_rendered()\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "cmuxUITests/f.swift",
             "try await Task.sleep(nanoseconds: 300_000_000)\nXCTAssertTrue(view.exists)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "cmuxTests/darwin-usleep.swift",
+            "Darwin.usleep(1)\n#expect(finished)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "cmuxTests/glibc-nanosleep.swift",
+            "Glibc.nanosleep(nil, nil)\n#expect(finished)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "tests/interpolation.sh",
+            'actual="$(start_job; sleep 1; read_state)"\n'
+            'assert "$actual" "$expected"\n',
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "tests/direct-interpolation.sh",
+            'actual="$(sleep 1)"\n'
+            'assert "$actual" "$expected"\n',
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "tests/backtick-interpolation.sh",
+            "actual=`sleep 1`\n"
+            'assert "$actual" "$expected"\n',
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "tests/multiline-interpolation.sh",
+            'actual="$(sleep 1\n'
+            ')"\n'
+            'assert "$actual" "$expected"\n',
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "web/tests/interpolation.ts",
+            "const actual = `${await Bun.sleep(1)}`\n"
+            "expect(actual).toBeTruthy()\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
+            "web/tests/multiline-interpolation.ts",
+            "const actual = `${\n"
+            "  await Bun.sleep(1)\n"
+            "}`\n"
+            "expect(actual).toBeTruthy()\n",
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
@@ -660,6 +3670,103 @@ def _self_test() -> int:
     ]
 
     negatives: list[tuple[str, str]] = [
+        # Swift enum values represent virtual-clock events, not real delays.
+        (
+            "Packages/Shared/CmuxIrohTransport/Tests/Refresh.swift",
+            "#expect(await clockEvents.next() == .sleep(initialRefresh))\n"
+            "clock.advance(to: initialRefresh)\n"
+            "#expect(await clockEvents.next() == .sleep(replacementRefresh))\n"
+            "#expect(await endpoint.updateCount == 2)\n",
+        ),
+        # Unknown receiver-qualified sleeps stay silent without compiler semantics.
+        (
+            "cmuxTests/virtual.swift",
+            "try await clock.sleep(until: deadline)\n"
+            "#expect(await completed)\n"
+            "try await ContinuousClock().sleep(until: deadline)\n"
+            "#expect(await completed)\n",
+        ),
+        # A known module name nested under another receiver is not a direct API.
+        (
+            "tests/nested-runtime.py",
+            "fixture.trio.sleep(0.1)\n"
+            "assert completed\n"
+            "fixture.time.sleep(0.1)\n"
+            "assert completed\n",
+        ),
+        (
+            "tests/shadowed-runtime.py",
+            "time = fake_clock\n"
+            "time.sleep(0.1)\n"
+            "assert completed\n"
+            "def wait(asyncio):\n"
+            "    asyncio.sleep(0.1)\n"
+            "    assert completed\n",
+        ),
+        (
+            "tests/import-shadowed-runtime.py",
+            "import fake_clock as time\n"
+            "time.sleep(0.1)\n"
+            "assert completed\n",
+        ),
+        (
+            "tests/expression-shadowed-runtime.py",
+            "def wait(factory=make(), time=fake_clock):\n"
+            "    time.sleep(0.1)\n"
+            "    assert completed\n"
+            "if (asyncio := fake_clock):\n"
+            "    pass\n"
+            "await asyncio.sleep(0.1)\n"
+            "assert completed\n",
+        ),
+        # Runtime spellings only identify direct APIs in their own language.
+        (
+            "cmuxTests/cross-language.swift",
+            "Bun.sleep(1)\n"
+            "#expect(completed)\n"
+            "time.sleep(1)\n"
+            "#expect(completed)\n",
+        ),
+        (
+            "tests/cross-language.py",
+            "Bun.sleep(1)\n"
+            "assert completed\n"
+            "setTimeout(done, 1)\n"
+            "assert completed\n",
+        ),
+        (
+            "web/tests/cross-language.ts",
+            "time.sleep(1)\n"
+            "expect(completed).toBe(true)\n"
+            "Task.sleep(1)\n"
+            "expect(completed).toBe(true)\n",
+        ),
+        # Known sleep API names inside strings or comments are fixture data.
+        (
+            "cmuxTests/sleep-text.swift",
+            "let source = \"Task.sleep(nanoseconds: 1)\"\n"
+            "#expect(source.isEmpty == false)\n"
+            "// Thread.sleep(forTimeInterval: 1)\n"
+            "#expect(finished)\n",
+        ),
+        (
+            "web/tests/sleep-text.ts",
+            "const source = `setTimeout(resolve, 1)`\n"
+            "expect(source).toBeTruthy()\n"
+            'const nested = `${"Bun.sleep(1)"}`\n'
+            "expect(nested).toBeTruthy()\n"
+            "const escaped = `\\${Bun.sleep(1)}`\n"
+            "expect(escaped).toBeTruthy()\n",
+        ),
+        (
+            "tests/sleep-text.sh",
+            "actual=\"$(printf 'sleep 1')\"\n"
+            'assert "$actual" "$expected"\n'
+            'escaped="\\$(sleep 1)"\n'
+            'assert "$escaped" "$expected"\n'
+            'escaped_backtick="\\`sleep 1\\`"\n'
+            'assert "$escaped_backtick" "$expected"\n',
+        ),
         # Deterministic scenario-pacing sleep with NO following assertion.
         (
             "tests/n1.py",
