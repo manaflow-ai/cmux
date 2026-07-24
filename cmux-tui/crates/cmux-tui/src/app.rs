@@ -12529,6 +12529,21 @@ mod tests {
     }
 
     #[test]
+    fn host_terminal_resize_marks_graphics_scene_for_retransmission() {
+        let mux = Mux::new("resize-graphics-invalidation-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.graphics_supported = true;
+        assert!(!app.graphics_host_scene_reset_pending);
+
+        assert_eq!(
+            app.handle(AppEvent::Input(Event::Resize(120, 40))).unwrap(),
+            RenderAction::Draw
+        );
+
+        assert!(app.graphics_host_scene_reset_pending);
+    }
+
+    #[test]
     fn superseded_client_refresh_results_are_ignored() {
         let mux = Mux::new("stale-client-refresh-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));

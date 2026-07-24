@@ -926,6 +926,31 @@ mod tests {
     }
 
     #[test]
+    fn host_scene_invalidation_restores_an_unchanged_image_after_clear() {
+        let image = image(5, 20, 1, GraphicFormat::Rgb, &[255; 12]);
+        let value = placement(image, 1, 0, Rect { x: 2, y: 3, width: 2, height: 2 });
+        let mut state = GraphicsState::default();
+        let mut host = Terminal::new(20, 8, 100, Callbacks::default()).unwrap();
+        host.resize(20, 8, 10, 20).unwrap();
+
+        for batch in state.frame_batches(std::slice::from_ref(&value)) {
+            host.vt_write(&batch);
+        }
+        assert_eq!(host.kitty_graphics_snapshot().unwrap().placements.len(), 1);
+
+        host.vt_write(b"\x1b[2J");
+        assert!(host.kitty_graphics_snapshot().unwrap().is_empty());
+
+        state.invalidate_host_scene();
+        for batch in state.frame_batches(&[value]) {
+            host.vt_write(&batch);
+        }
+        let restored = host.kitty_graphics_snapshot().unwrap();
+        assert_eq!(restored.images.len(), 1);
+        assert_eq!(restored.placements.len(), 1);
+    }
+
+    #[test]
     fn changed_geometry_deletes_old_placement_before_replacing_it() {
         let image = image(5, 3, 1, GraphicFormat::Rgb, &[255; 12]);
         let initial = placement(image.clone(), 1, 0, Rect { x: 2, y: 3, width: 1, height: 1 });

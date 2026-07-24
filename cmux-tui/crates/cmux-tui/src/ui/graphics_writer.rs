@@ -153,4 +153,41 @@ mod tests {
         writer.shutdown(Duration::from_secs(1));
         assert!(writer.handle.as_ref().is_none_or(|handle| handle.is_finished()));
     }
+
+    #[test]
+    fn host_scene_invalidation_survives_latest_wins_coalescing() {
+        let (tx, rx) = sync_channel(1);
+        let slot = Arc::new(Mutex::new(PendingGraphics::default()));
+        let writer =
+            GraphicsWriter { slot: slot.clone(), notify: Some(tx), done: None, handle: None };
+
+        writer.invalidate_host_scene();
+        writer.submit(vec![GraphicPlacement::browser(
+            0,
+            1,
+            Rect { x: 0, y: 0, width: 10, height: 5 },
+            1,
+            10,
+            5,
+            "AAAA".to_string(),
+        )]);
+        writer.submit(vec![GraphicPlacement::browser(
+            0,
+            1,
+            Rect { x: 1, y: 1, width: 11, height: 6 },
+            2,
+            11,
+            6,
+            "BBBB".to_string(),
+        )]);
+
+        let update = take_pending_update(&slot, 0).expect("pending scene update");
+        assert_ne!(update.host_scene_epoch, 0);
+        let latest = update.placements.expect("latest snapshot");
+        assert_eq!(latest.len(), 1);
+        assert_eq!(latest[0].image.generation, 2);
+        assert_eq!(latest[0].rect.x, 1);
+        rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(rx.try_recv().is_err());
+    }
 }
