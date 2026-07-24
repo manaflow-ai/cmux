@@ -170,7 +170,7 @@ struct PanesTabsPreviewHost: View {
                 .accessibilityHidden(paneZoomPresentation.isTerminalPresented)
                 .navigationTitle(workspace.name)
                 .mobileTerminalNavigationChrome(theme: terminalTheme)
-                .toolbar { sharedPaneToolbar }
+                .toolbar { paneMapToolbar }
                 .navigationBarBackButtonHidden(true)
             } terminal: {
                 terminalPreviewEndpoint
@@ -199,7 +199,7 @@ struct PanesTabsPreviewHost: View {
         .ignoresSafeArea(.keyboard, edges: .bottom)
         .navigationTitle(workspace.name)
         .mobileTerminalNavigationChrome(theme: terminalTheme)
-        .toolbar { sharedPaneToolbar }
+        .toolbar { terminalToolbar }
         .accessibilityIdentifier("PanesTabsPreviewHost")
     }
 
@@ -240,57 +240,50 @@ struct PanesTabsPreviewHost: View {
     }
 
     @ToolbarContentBuilder
-    private var sharedPaneToolbar: some ToolbarContent {
+    private var paneMapToolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
             WorkspaceBackButton(unreadCount: 2, action: {})
         }
         ToolbarItem(placement: .topBarTrailing) {
-            ZStack(alignment: .trailing) {
-                if paneZoomPresentation.isTerminalPresented {
-                    WorkspaceUtilitiesMenu(
-                        showsViewAsText: false,
-                        showsPaneMap: true,
-                        terminalTheme: terminalTheme,
-                        presentPaneMap: presentPaneMap,
-                        openTextSheet: {},
-                        copyDebugLogs: {},
-                        sendFeedback: {}
-                    )
-                    .transition(
-                        .move(edge: .trailing)
-                            .combined(with: .opacity)
-                            .combined(with: .scale(scale: 0.9, anchor: .trailing))
-                    )
-                } else {
-                    HStack(spacing: 8) {
-                        Button {
-                            paneMapRefreshTrigger &+= 1
-                        } label: {
-                            if isPaneMapRefreshing {
-                                ProgressView()
-                            } else {
-                                Image(systemName: "arrow.clockwise")
-                            }
-                        }
-                        .accessibilityLabel(
-                            L10n.string("mobile.paneMap.refresh", defaultValue: "Refresh")
-                        )
-                        .accessibilityIdentifier("MobilePaneMapRefresh")
-
-                        Button(
-                            L10n.string("mobile.paneMap.done", defaultValue: "Done"),
-                            action: returnToTerminalFromPaneMap
-                        )
-                        .accessibilityIdentifier("MobilePaneMapDone")
+            HStack(spacing: 8) {
+                Button {
+                    paneMapRefreshTrigger &+= 1
+                } label: {
+                    if isPaneMapRefreshing {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "arrow.clockwise")
                     }
-                    .transition(
-                        .move(edge: .trailing)
-                            .combined(with: .opacity)
-                            .combined(with: .scale(scale: 0.9, anchor: .trailing))
-                    )
                 }
+                .accessibilityLabel(
+                    L10n.string("mobile.paneMap.refresh", defaultValue: "Refresh")
+                )
+                .accessibilityIdentifier("MobilePaneMapRefresh")
+
+                Button(
+                    L10n.string("mobile.paneMap.done", defaultValue: "Done"),
+                    action: returnToTerminalFromPaneMap
+                )
+                .accessibilityIdentifier("MobilePaneMapDone")
             }
-            .animation(.snappy(duration: 0.32), value: paneZoomPresentation.endpoint)
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var terminalToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            WorkspaceBackButton(unreadCount: 2, action: {})
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            WorkspaceUtilitiesMenu(
+                showsViewAsText: false,
+                showsPaneMap: true,
+                terminalTheme: terminalTheme,
+                presentPaneMap: presentPaneMap,
+                openTextSheet: {},
+                copyDebugLogs: {},
+                sendFeedback: {}
+            )
         }
     }
 

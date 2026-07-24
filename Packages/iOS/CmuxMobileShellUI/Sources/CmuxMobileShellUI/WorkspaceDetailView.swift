@@ -109,7 +109,7 @@ struct WorkspaceDetailView: View {
                     .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
                     .navigationTitle(systemNavigationTitle)
                     .mobileTerminalNavigationChrome(theme: store.activeTerminalTheme)
-                    .toolbar { workspaceDetailToolbar }
+                    .toolbar { workspaceDetailToolbar(mode: .paneMap) }
                     .navigationBarBackButtonHidden(true)
             } terminal: {
                 terminalWorkspaceEndpoint
@@ -165,7 +165,7 @@ struct WorkspaceDetailView: View {
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .navigationTitle(systemNavigationTitle)
             .mobileTerminalNavigationChrome(theme: store.activeTerminalTheme)
-            .toolbar { workspaceDetailToolbar }
+            .toolbar { workspaceDetailToolbar(mode: .terminal) }
             .task(id: chatRefreshKey) { await refreshChatSessions() }
             .task(id: chatConversationWarmKey) { await runWarmChatConversation() }
             .onChange(of: selectedTerminalID) { _, _ in
@@ -236,8 +236,15 @@ struct WorkspaceDetailView: View {
             ?? ""
     }
 
+    private enum WorkspaceDetailToolbarMode {
+        case paneMap
+        case terminal
+    }
+
     @ToolbarContentBuilder
-    private var workspaceDetailToolbar: some ToolbarContent {
+    private func workspaceDetailToolbar(
+        mode: WorkspaceDetailToolbarMode
+    ) -> some ToolbarContent {
         if backButtonConfiguration != nil {
             ToolbarItem(id: "workspace-back", placement: .topBarLeading) {
                 workspaceBackToolbarButton
@@ -247,26 +254,28 @@ struct WorkspaceDetailView: View {
             }
         }
         ToolbarItem(id: "workspace-title", placement: .topBarLeading) {
-            workspaceTitleToolbarMenu
+            workspaceTitleToolbarMenu(mode: mode)
         }
         ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
-            paneWorkspaceToolbarTrailingContent
+            workspaceToolbarTrailingContent(mode: mode)
         }
     }
 
-    private var workspaceTitleToolbarMenu: some View {
+    private func workspaceTitleToolbarMenu(
+        mode: WorkspaceDetailToolbarMode
+    ) -> some View {
         let value = WorkspaceTitleMenuValue(
             contentWidth: contentWidth,
             hasBackButton: backButtonConfiguration != nil,
             hasTrailingCluster: true,
-            hasChatToggle: shouldShowChatToggle,
+            hasChatToggle: mode == .terminal && shouldShowChatToggle,
             isEnabled: hasTitleMenuActions,
             workspaceName: workspace.name,
             hasUnread: workspace.hasUnread,
             canRenameWorkspace: renameWorkspace != nil,
             canToggleReadState: setWorkspaceUnread != nil,
             canCloseWorkspace: closeWorkspace != nil,
-            labelToken: toolbarTitleLabelToken,
+            labelToken: toolbarTitleLabelToken(mode: mode),
             terminalTheme: store.activeTerminalTheme
         )
         return WorkspaceTitleMenu(
@@ -314,8 +323,10 @@ struct WorkspaceDetailView: View {
         .equatable()
     }
 
-    private var toolbarTitleLabelToken: WorkspaceTitleMenuLabelToken {
-        if !paneZoomPresentation.isTerminalPresented,
+    private func toolbarTitleLabelToken(
+        mode: WorkspaceDetailToolbarMode
+    ) -> WorkspaceTitleMenuLabelToken {
+        if mode == .paneMap,
            let layout = workspace.layout {
             let paneMapValue = PaneMapValue(
                 workspaceName: workspace.name,
@@ -344,35 +355,26 @@ struct WorkspaceDetailView: View {
         }
     }
 
-    private var paneWorkspaceToolbarTrailingContent: some View {
-        ZStack(alignment: .trailing) {
-            if paneZoomPresentation.isTerminalPresented {
-                HStack(spacing: 8) {
-                    if let selectedTerminalID,
-                       store.isAlternateScreen(surfaceID: selectedTerminalID),
-                       displaySettings.showAltScreenNotice {
-                        AltScreenNoticeButton {
-                            displaySettings.showAltScreenNotice = false
-                        }
-                        .frame(width: 44, height: 44)
+    @ViewBuilder
+    private func workspaceToolbarTrailingContent(
+        mode: WorkspaceDetailToolbarMode
+    ) -> some View {
+        switch mode {
+        case .terminal:
+            HStack(spacing: 8) {
+                if let selectedTerminalID,
+                   store.isAlternateScreen(surfaceID: selectedTerminalID),
+                   displaySettings.showAltScreenNotice {
+                    AltScreenNoticeButton {
+                        displaySettings.showAltScreenNotice = false
                     }
-                    toolbarTrailingCluster
+                    .frame(width: 44, height: 44)
                 }
-                .transition(
-                    .move(edge: .trailing)
-                        .combined(with: .opacity)
-                        .combined(with: .scale(scale: 0.9, anchor: .trailing))
-                )
-            } else {
-                paneMapToolbarControls
-                    .transition(
-                        .move(edge: .trailing)
-                            .combined(with: .opacity)
-                            .combined(with: .scale(scale: 0.9, anchor: .trailing))
-                    )
+                toolbarTrailingCluster
             }
+        case .paneMap:
+            paneMapToolbarControls
         }
-        .animation(.snappy(duration: 0.32), value: paneZoomPresentation.endpoint)
     }
 
     private var paneMapToolbarControls: some View {
