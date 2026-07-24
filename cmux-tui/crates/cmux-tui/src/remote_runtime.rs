@@ -1877,6 +1877,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let daemon_root = directory.path().join("daemon");
         let daemon_link = daemon_root.join("link.sock");
+        let proxy_link = directory.path().join("proxy-link.sock");
         let daemon = start_daemon_runtime(
             directory.path().join("missing-mux.sock"),
             DaemonRuntimeOptions {
@@ -1894,6 +1895,26 @@ mod tests {
             },
         )
         .unwrap();
+        let proxy_listener = std::os::unix::net::UnixListener::bind(&proxy_link).unwrap();
+        proxy_listener.set_nonblocking(true).unwrap();
+        let (cut_tx, cut_rx) = tokio::sync::oneshot::channel();
+        let proxy = thread::spawn(move || {
+            let runtime = build_remote_runtime("cmux-remote-carrier-cut-test").unwrap();
+            runtime.block_on(async move {
+                let listener = tokio::net::UnixListener::from_std(proxy_listener).unwrap();
+                let (mut client_stream, _) = listener.accept().await.unwrap();
+                let mut daemon_stream = tokio::net::UnixStream::connect(daemon_link).await.unwrap();
+                tokio::select! {
+                    _ = cut_rx => {}
+                    result = tokio::io::copy_bidirectional(
+                        &mut client_stream,
+                        &mut daemon_stream,
+                    ) => {
+                        result.unwrap();
+                    }
+                }
+            });
+        });
 
         let script = directory.path().join("ssh");
         let pid_file = directory.path().join("ssh.pid");
@@ -1915,7 +1936,7 @@ mod tests {
                 .unwrap(),
         );
         let mut unix_route = Url::parse("unix:///").unwrap();
-        unix_route.set_path(daemon_link.to_str().unwrap());
+        unix_route.set_path(proxy_link.to_str().unwrap());
         let routes = [unix_route, Url::parse("ssh://fallback.example").unwrap()]
             .into_iter()
             .map(|endpoint| {
@@ -1952,7 +1973,8 @@ mod tests {
         })
         .unwrap();
 
-        daemon.shutdown().unwrap();
+        cut_tx.send(()).unwrap();
+        proxy.join().unwrap();
         let deadline = std::time::Instant::now() + Duration::from_secs(3);
         let pid = loop {
             if let Ok(value) = fs::read_to_string(&pid_file)
@@ -1998,6 +2020,7 @@ mod tests {
         }
         assert_eq!(unsafe { libc::kill(pid, 0) }, -1, "cancelled SSH child is still alive");
         assert_eq!(std::io::Error::last_os_error().raw_os_error(), Some(libc::ESRCH));
+        daemon.shutdown().unwrap();
     }
 
     #[tokio::test]
