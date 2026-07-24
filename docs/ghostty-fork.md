@@ -33,6 +33,10 @@ mutable-default color reset semantics, nonblocking embedded lifecycle updates,
 and the product-main renderer/link fixes described below, with the PTY reader
 and child teardown fix described first.
 
+Its universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-5ef5cba6351dbdf315307fc7efd1aaa4a36ab31c-crashsubdir-cmux-crash-v1
+and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
+
 The previous pin's universal ReleaseFast GhosttyKit archive remains published
 at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-c55514dd52d806e9aa661ee20381aa19c91c1c09-crashsubdir-cmux-crash-v1
