@@ -2212,7 +2212,7 @@ mod tests {
     }
 
     #[test]
-    fn clear_history_erases_rows_scrolled_by_prompt_aware_screen_clear() {
+    fn clear_history_preserves_prompt_without_writing_to_the_child() {
         let mux = Mux::new_for_test("clear-prompt-history", SurfaceOptions::default());
         let surface =
             Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
@@ -2230,9 +2230,11 @@ mod tests {
 
         surface.with_terminal(|term| {
             assert_eq!(term.history_rows(), 0);
-            assert!(term.viewport_text().unwrap().trim().is_empty());
+            let viewport = term.viewport_text().unwrap();
+            assert!(viewport.contains("prompt> "));
+            assert!(!viewport.contains("history-"));
         });
-        assert_eq!(&*writer.0.lock().unwrap(), b"\x0c");
+        assert!(writer.0.lock().unwrap().is_empty());
     }
 
     #[test]
