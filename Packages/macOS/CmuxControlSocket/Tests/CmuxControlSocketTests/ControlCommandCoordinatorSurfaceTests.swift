@@ -145,6 +145,53 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(data == .object(["type": .string("agentSession")]))
     }
 
+    @Test func surfaceListIncludesLiveSimulatorIdentity() throws {
+        let context = FakeSurfaceControlCommandContext()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        context.surfaceListSnapshot = ControlSurfaceListSnapshot(
+            workspaceID: workspaceID,
+            windowID: nil,
+            surfaces: [ControlSurfaceSummary(
+                surfaceID: surfaceID,
+                typeRawValue: "simulator",
+                title: "Simulator",
+                isFocused: true,
+                paneID: nil,
+                indexInPane: nil,
+                selectedInPane: nil,
+                developerToolsVisible: nil,
+                requestedWorkingDirectory: nil,
+                initialCommand: nil,
+                tmuxStartCommand: nil,
+                isTerminal: false,
+                resumeBinding: nil,
+                simulatorDeviceID: "SIM-UDID",
+                simulatorRuntimeIdentifier: "com.apple.CoreSimulator.SimRuntime.iOS-26-5",
+                simulatorDeviceTypeIdentifier: "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13-inch-M5",
+                simulatorDeviceName: "iPad Pro 13-inch (M5)",
+                simulatorDeviceState: "Booted"
+            )]
+        )
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.list",
+            params: ["workspace_id": .string(workspaceID.uuidString)]
+        ))
+
+        guard case let .ok(.object(payload)) = result,
+              case let .array(rows)? = payload["surfaces"],
+              case let .object(row)? = rows.first else {
+            Issue.record("Expected a Simulator surface row")
+            return
+        }
+        #expect(row["simulator_id"] == .string("SIM-UDID"))
+        #expect(row["device_name"] == .string("iPad Pro 13-inch (M5)"))
+        #expect(row["state"] == .string("Booted"))
+    }
+
     @Test func paneCreateDockUnsupportedTypeReturnsInvalidParams() throws {
         let context = FakeSurfaceControlCommandContext()
         context.paneCreateResolution = .dockUnsupportedType(

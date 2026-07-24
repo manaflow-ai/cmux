@@ -53,6 +53,11 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.newSurface`
 - `shortcuts.bindings.toggleTerminalCopyMode`
 - `shortcuts.bindings.clearScreenKeepScrollback`
+- `shortcuts.bindings.simulatorHome`
+- `shortcuts.bindings.simulatorRotateLeft`
+- `shortcuts.bindings.simulatorRotateRight`
+- `shortcuts.bindings.simulatorToggleAppearance`
+- `shortcuts.bindings.simulatorToggleSoftwareKeyboard`
 - `shortcuts.bindings.focusLeft`
 - `shortcuts.bindings.focusRight`
 - `shortcuts.bindings.focusUp`

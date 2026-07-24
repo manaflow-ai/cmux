@@ -224,6 +224,7 @@ struct ViewerNavigationTests {
                 browserPanel: nil,
                 markdownPanel: nil,
                 filePreviewTextEditorFocused: false,
+                simulatorFocused: false,
                 rightSidebarFocused: false,
                 shortcutContext: shortcutContext
             )
@@ -375,6 +376,7 @@ struct ViewerNavigationTests {
                 browserPanel: nil,
                 markdownPanel: nil,
                 filePreviewTextEditorFocused: false,
+                simulatorFocused: false,
                 rightSidebarFocused: false,
                 shortcutContext: shortcutContext
             )

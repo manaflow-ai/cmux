@@ -63,7 +63,9 @@ extension ControlCommandCoordinator {
     }
 
     /// `v2ActionKey`: a trimmed string lowercased with `-` mapped to `_`.
-    func actionKey(_ params: [String: JSONValue], _ key: String = "action") -> String? {
+    nonisolated func actionKey(
+        _ params: [String: JSONValue], _ key: String = "action"
+    ) -> String? {
         guard let action = string(params, key) else { return nil }
         return action.lowercased().replacingOccurrences(of: "-", with: "_")
     }

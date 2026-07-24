@@ -688,51 +688,6 @@ final class ClosedItemHistoryStore: ObservableObject {
             )
         }
     }
-    private static func title(for snapshot: SessionPanelSnapshot) -> String {
-        let candidates = [
-            snapshot.customTitle,
-            snapshot.title,
-            // String-only path math — NOT URL(fileURLWithPath:), which lstat()s
-            // the path to infer directory-ness. These snapshots can hold REMOTE
-            // working directories (closed remote-tmux tabs); stat'ing one on the
-            // main thread blocks on the autofs automounter (e.g. /home/…) for
-            // hundreds of ms per record, and this runs inside the App commands
-            // body on every menu rebuild.
-            snapshot.directory.map { ($0 as NSString).lastPathComponent }
-        ]
-        if let title = candidates.compactMap({ $0?.trimmingCharacters(in: .whitespacesAndNewlines) })
-            .first(where: { !$0.isEmpty }) {
-            return title
-        }
-        switch snapshot.type {
-        case .terminal:
-            return String(localized: "menu.history.recentlyClosed.panel.terminal", defaultValue: "Terminal")
-        case .browser:
-            return String(localized: "menu.history.recentlyClosed.panel.browser", defaultValue: "Browser")
-        case .markdown:
-            return String(localized: "menu.history.recentlyClosed.panel.markdown", defaultValue: "Markdown")
-        case .filePreview:
-            return String(localized: "menu.history.recentlyClosed.panel.filePreview", defaultValue: "File Preview")
-        case .rightSidebarTool:
-            if let mode = snapshot.rightSidebarTool?.mode {
-                return mode.label
-            }
-            return String(localized: "menu.history.recentlyClosed.panel.tool", defaultValue: "Tool")
-        case .customSidebar:
-            return String(localized: "menu.history.recentlyClosed.panel.customSidebar", defaultValue: "Custom Sidebar")
-        case .agentSession:
-            return String(localized: "menu.history.recentlyClosed.panel.agentSession", defaultValue: "Agent")
-        case .project:
-            return String(localized: "menu.history.recentlyClosed.panel.project", defaultValue: "Project")
-        case .extensionBrowser:
-            return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
-        case .workspaceTodo:
-            return String(localized: "workspaceTodoPane.title", defaultValue: "Todos")
-        case .cloudVMLoading:
-            return String(localized: "menu.history.recentlyClosed.panel.cloudVM", defaultValue: "Cloud VM")
-        }
-    }
-
     private static func title(for snapshot: SessionWorkspaceSnapshot) -> String {
         let candidates = [
             snapshot.customTitle,

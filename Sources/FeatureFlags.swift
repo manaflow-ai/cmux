@@ -19,9 +19,13 @@ struct CmuxFeatureFlagDefinition: Identifiable, Equatable {
 /// Resolution semantics (flags must never break the app):
 /// - A remote value is authoritative when present, so rollout and kill-switch
 ///   changes cannot be masked by a stale local override.
-/// - Without a remote value — including forever, when the SDK never starts
-///   because telemetry is off or a DEBUG build lacks CMUX_POSTHOG_ENABLE=1 —
-///   a local override applies, followed by the explicit per-flag default.
+/// - Without a remote value, a local override applies, followed by the explicit
+///   per-flag default.
+/// - Until a payload arrives, the last remote value survives restarts. A flag
+///   that has never loaded keeps its safe default.
+/// - Request and payload failures preserve the complete cached snapshot. A
+///   successfully parsed payload replaces it, so omitted flags return to their
+///   local override or default.
 ///
 /// Registry contract (enforced by scripts/lint-feature-flags.py in CI): each
 /// flag declares key / owner / reviewBy / defaultWhenUnavailable in the FLAG
@@ -46,10 +50,17 @@ final class CmuxFeatureFlags {
     #endif
     private static let agentChatUIDefault = false
     private static let sidebarWorkspaceAgentSpinnerDefault = false
+    private static let simulatorDefault = true
     private static let workspaceTodoControlsDefault = false
     private static let appKitSidebarListDefault = true
 
     private static let overrideKeyPrefix = "cmux.flags.override."
+    private static let remoteCacheKeyPrefix = "cmux.flags.remote."
+    private static let releaseControlProductWideDistinctID = "cmux-desktop-release-control"
+    private static let releaseControlDistinctIDKey = "cmux.flags.releaseControlDistinctID"
+    private static let releaseControlDistinctIDPrefix =
+        releaseControlProductWideDistinctID + "-"
+    private nonisolated static let maximumPostHogControlPlaneResponseBytes = 1_048_576
 
     // Order is load-bearing for the typed accessors below. A keyed lookup would
     // repeat flag-key literals and violate the feature-flag lint's single
@@ -135,6 +146,24 @@ final class CmuxFeatureFlags {
                 defaultWhenUnavailable: CmuxFeatureFlags.sidebarWorkspaceAgentSpinnerDefault
             ),
 
+            // FLAG(key: simulator-enabled-release, owner: lawrencecchen,
+            //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+            // Controls every Simulator entrypoint and active pane. The enabled
+            // fallback preserves access when PostHog is unavailable, while the
+            // remote value provides a release kill switch.
+            CmuxFeatureFlagDefinition(
+                key: "simulator-enabled-release",
+                title: String(
+                    localized: "featureFlags.simulator.title",
+                    defaultValue: "Simulator"
+                ),
+                flagDescription: String(
+                    localized: "featureFlags.simulator.description",
+                    defaultValue: "Enables iPhone and iPad Simulator panes, commands, and automation."
+                ),
+                defaultWhenUnavailable: CmuxFeatureFlags.simulatorDefault
+            ),
+
             // FLAG(key: workspace-todo-controls-enabled-release, owner: lawrencecchen,
             //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
             // Shows user-facing workspace todo controls that create checklist
@@ -193,12 +222,16 @@ final class CmuxFeatureFlags {
         effectiveValue(for: Self.allFlags[4])
     }
 
-    var isWorkspaceTodoControlsEnabled: Bool {
+    var isSimulatorEnabled: Bool {
         effectiveValue(for: Self.allFlags[5])
     }
 
-    var isAppKitSidebarListEnabled: Bool {
+    var isWorkspaceTodoControlsEnabled: Bool {
         effectiveValue(for: Self.allFlags[6])
+    }
+
+    var isAppKitSidebarListEnabled: Bool {
+        effectiveValue(for: Self.allFlags[7])
     }
 
     @ObservationIgnored
@@ -206,7 +239,11 @@ final class CmuxFeatureFlags {
     @ObservationIgnored
     private let remoteFlagValueProvider: (String) -> Any?
     @ObservationIgnored
-    private var flagsObserver: (any NSObjectProtocol)?
+    private let remoteFlagLoader: @Sendable () async -> [String: Bool]?
+    @ObservationIgnored
+    private var refreshTask: Task<Void, Never>?
+    @ObservationIgnored
+    private var refreshTimer: Timer?
 
     private var localOverridesByKey: [String: Bool] = [:]
     private var remoteValuesByKey: [String: Bool] = [:]
@@ -214,32 +251,230 @@ final class CmuxFeatureFlags {
 
     init(
         defaults: UserDefaults = .standard,
-        remoteFlagValueProvider: @escaping (String) -> Any? = { PostHogSDK.shared.getFeatureFlag($0) }
+        telemetryEnabled: Bool = TelemetrySettings.enabledForCurrentLaunch,
+        remoteFlagValueProvider: @escaping (String) -> Any? = { PostHogSDK.shared.getFeatureFlag($0) },
+        remoteFlagLoader: (@Sendable () async -> [String: Bool]?)? = nil
     ) {
         self.defaults = defaults
         self.remoteFlagValueProvider = remoteFlagValueProvider
+        if let remoteFlagLoader {
+            self.remoteFlagLoader = remoteFlagLoader
+        } else {
+            let target = Self.releaseControlTarget(
+                telemetryEnabled: telemetryEnabled,
+                defaults: defaults
+            )
+            self.remoteFlagLoader = {
+                await CmuxFeatureFlags.loadPostHogControlPlaneFlags(
+                    distinctID: target.distinctID,
+                    personProperties: target.personProperties
+                )
+            }
+        }
         localOverridesByKey = Self.allFlags.reduce(into: [:]) { values, definition in
             if let value = Self.storedOverrideValue(for: definition.key, defaults: defaults) {
+                values[definition.key] = value
+            }
+        }
+        remoteValuesByKey = Self.allFlags.reduce(into: [:]) { values, definition in
+            if let value = Self.storedBoolValue(
+                forKey: Self.remoteCacheKey(for: definition.key),
+                defaults: defaults
+            ) {
                 values[definition.key] = value
             }
         }
         recomputeEffectiveValues()
     }
 
-    /// Called once from AppDelegate after PostHog analytics starts. Safe when
-    /// the SDK never sets up — flags then keep their local fallback resolution.
+    /// Loads release-control values without initializing analytics. The request
+    /// uses a separate anonymous installation identity only when telemetry is
+    /// enabled. Opted-out launches use one product-wide ID without targeting
+    /// properties, preserving a non-identifying emergency kill switch.
     func start() {
-        guard flagsObserver == nil else { return }
-        flagsObserver = NotificationCenter.default.addObserver(
-            forName: PostHogSDK.didReceiveFeatureFlags,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.applyLoadedFlags()
+        guard refreshTimer == nil else { return }
+        refreshRemoteFlags()
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 5 * 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.refreshRemoteFlags() }
+        }
+    }
+
+    private func refreshRemoteFlags() {
+        guard refreshTask == nil else { return }
+        let loader = remoteFlagLoader
+        refreshTask = Task { @MainActor [weak self] in
+            let values = await loader()
+            guard let self else { return }
+            self.refreshTask = nil
+            guard let values, !Task.isCancelled else { return }
+            self.applyRemoteFlagValues(values)
+        }
+    }
+
+    private func applyRemoteFlagValues(_ values: [String: Bool]) {
+        let previousResolutions = resolutionsByKey
+        for definition in Self.allFlags {
+            if let value = values[definition.key] {
+                remoteValuesByKey[definition.key] = value
+                defaults.set(value, forKey: Self.remoteCacheKey(for: definition.key))
+            } else {
+                remoteValuesByKey.removeValue(forKey: definition.key)
+                defaults.removeObject(forKey: Self.remoteCacheKey(for: definition.key))
             }
         }
-        PostHogSDK.shared.reloadFeatureFlags()
+        recomputeEffectiveValues()
+        postChangeIfNeeded(previousResolutions: previousResolutions)
+    }
+
+    static func postHogControlPlaneRequest(
+        telemetryEnabled: Bool = TelemetrySettings.enabledForCurrentLaunch,
+        defaults: UserDefaults = .standard,
+        bundle: Bundle = .main
+    ) -> URLRequest? {
+        let target = releaseControlTarget(
+            telemetryEnabled: telemetryEnabled,
+            defaults: defaults,
+            bundle: bundle
+        )
+        return postHogControlPlaneRequest(
+            distinctID: target.distinctID,
+            personProperties: target.personProperties
+        )
+    }
+
+    private static func releaseControlTarget(
+        telemetryEnabled: Bool,
+        defaults: UserDefaults,
+        bundle: Bundle = .main
+    ) -> (distinctID: String, personProperties: [String: String]) {
+        guard telemetryEnabled else {
+            return (releaseControlProductWideDistinctID, [:])
+        }
+        return (
+            releaseControlDistinctID(defaults: defaults),
+            releaseControlPersonProperties(bundle: bundle)
+        )
+    }
+
+    private static func releaseControlDistinctID(defaults: UserDefaults) -> String {
+        if let existing = defaults.string(forKey: releaseControlDistinctIDKey),
+           existing.hasPrefix(releaseControlDistinctIDPrefix),
+           UUID(uuidString: String(existing.dropFirst(releaseControlDistinctIDPrefix.count))) != nil {
+            return existing
+        }
+        let distinctID = releaseControlDistinctIDPrefix + UUID().uuidString.lowercased()
+        defaults.set(distinctID, forKey: releaseControlDistinctIDKey)
+        return distinctID
+    }
+
+    private static func releaseControlPersonProperties(
+        bundle: Bundle = .main
+    ) -> [String: String] {
+        var properties = [
+            "$os": "macOS",
+            "cmux_architecture": releaseControlArchitecture,
+        ]
+        if let version = bundle.object(
+            forInfoDictionaryKey: "CFBundleShortVersionString"
+        ) as? String, !version.isEmpty {
+            properties["$app_version"] = version
+        }
+        if let build = bundle.object(
+            forInfoDictionaryKey: "CFBundleVersion"
+        ) as? String, !build.isEmpty {
+            properties["$app_build"] = build
+        }
+        return properties
+    }
+
+    private static var releaseControlArchitecture: String {
+        #if arch(arm64)
+        "arm64"
+        #elseif arch(x86_64)
+        "x86_64"
+        #else
+        "unknown"
+        #endif
+    }
+
+    nonisolated private static func postHogControlPlaneRequest(
+        distinctID: String,
+        personProperties: [String: String]
+    ) -> URLRequest? {
+        guard let url = URL(string: "https://cmux.com/api/client-config") else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 10
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let context: [String: Any] = personProperties.isEmpty
+            ? [:]
+            : ["personProperties": personProperties]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "distinctId": distinctID,
+            "context": context,
+        ])
+        return request
+    }
+
+    nonisolated private static func loadPostHogControlPlaneFlags(
+        distinctID: String,
+        personProperties: [String: String]
+    ) async -> [String: Bool]? {
+        guard let request = postHogControlPlaneRequest(
+            distinctID: distinctID,
+            personProperties: personProperties
+        ) else { return nil }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 10
+        configuration.timeoutIntervalForResource = 15
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        guard let (bytes, response) = try? await session.bytes(for: request),
+              let http = response as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode),
+              response.expectedContentLength < 0
+                || response.expectedContentLength <= maximumPostHogControlPlaneResponseBytes,
+              let data = try? await boundedPostHogControlPlaneData(
+                  from: bytes,
+                  maximumByteCount: maximumPostHogControlPlaneResponseBytes
+              )
+        else { return nil }
+        return postHogControlPlaneFlagValues(from: data)
+    }
+
+    nonisolated static func boundedPostHogControlPlaneData<Bytes: AsyncSequence>(
+        from bytes: Bytes,
+        maximumByteCount: Int
+    ) async throws -> Data? where Bytes.Element == UInt8 {
+        guard maximumByteCount >= 0 else { return nil }
+        var data = Data()
+        data.reserveCapacity(min(maximumByteCount, 16 * 1_024))
+        for try await byte in bytes {
+            guard data.count < maximumByteCount else { return nil }
+            data.append(byte)
+        }
+        return data
+    }
+
+    nonisolated static func postHogControlPlaneFlagValues(
+        from data: Data
+    ) -> [String: Bool]? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["errorsWhileComputingFlags"] as? Bool == false,
+              let values = object["featureFlags"] as? [String: Any] else { return nil }
+        return values.reduce(into: [String: Bool]()) { result, entry in
+            if let value = entry.value as? Bool {
+                result[entry.key] = value
+            } else if let value = entry.value as? NSNumber {
+                result[entry.key] = value.boolValue
+            } else if let value = entry.value as? String {
+                switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+                case "true", "1", "yes", "on": result[entry.key] = true
+                case "false", "0", "no", "off": result[entry.key] = false
+                default: break
+                }
+            }
+        }
     }
 
     func effectiveValue(for definition: CmuxFeatureFlagDefinition) -> Bool {
@@ -293,9 +528,13 @@ final class CmuxFeatureFlags {
 
     func applyLoadedFlags() {
         let previousResolutions = resolutionsByKey
-        remoteValuesByKey = Self.allFlags.reduce(into: [:]) { values, definition in
+        for definition in Self.allFlags {
             if let value = Self.coerceBoolFlagValue(remoteFlagValueProvider(definition.key)) {
-                values[definition.key] = value
+                remoteValuesByKey[definition.key] = value
+                defaults.set(value, forKey: Self.remoteCacheKey(for: definition.key))
+            } else if remoteValuesByKey[definition.key] == true {
+                remoteValuesByKey.removeValue(forKey: definition.key)
+                defaults.removeObject(forKey: Self.remoteCacheKey(for: definition.key))
             }
         }
         recomputeEffectiveValues()
@@ -322,8 +561,16 @@ final class CmuxFeatureFlags {
         overrideKeyPrefix + key
     }
 
+    private static func remoteCacheKey(for key: String) -> String {
+        remoteCacheKeyPrefix + key
+    }
+
     private static func storedOverrideValue(for key: String, defaults: UserDefaults) -> Bool? {
-        guard let value = defaults.object(forKey: overrideDefaultsKey(for: key)) else {
+        storedBoolValue(forKey: overrideDefaultsKey(for: key), defaults: defaults)
+    }
+
+    private static func storedBoolValue(forKey key: String, defaults: UserDefaults) -> Bool? {
+        guard let value = defaults.object(forKey: key) else {
             return nil
         }
         if let boolValue = value as? Bool {

@@ -1,0 +1,3 @@
+nonisolated let controlSimulatorMaximumWebInspectorJSONByteCount = 1_024 * 1_024
+nonisolated let controlSimulatorMaximumBundleIdentifierUTF8ByteCount = 255
+nonisolated let controlSimulatorMaximumCommandTokenUTF8ByteCount = 64

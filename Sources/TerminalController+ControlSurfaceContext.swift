@@ -107,7 +107,7 @@ extension TerminalController: ControlSurfaceContext {
             return nil
         }
         if let dock = windowDockForRouting(routing, tabManager: tabManager) {
-            return controlDockSurfaceList(dock: dock, tabManager: tabManager)
+            return controlSimulatorAwareDockSurfaceList(dock: dock, tabManager: tabManager)
         }
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else { return nil }
 
@@ -116,8 +116,48 @@ extension TerminalController: ControlSurfaceContext {
             windowID: v2ResolveWindowId(tabManager: tabManager),
             surfaces: controlSurfaceSummaries(workspace: ws) +
                 controlTopologyDocks(workspace: ws, tabManager: tabManager)
-                .flatMap { controlDockSurfaceSummaries(dock: $0) }
+                .flatMap { controlSimulatorAwareDockSurfaceSummaries(dock: $0) }
         )
+    }
+
+    private func controlSimulatorAwareDockSurfaceList(
+        dock: DockSplitStore,
+        tabManager: TabManager
+    ) -> ControlSurfaceListSnapshot {
+        return ControlSurfaceListSnapshot(
+            workspaceID: dock.workspaceId,
+            windowID: dockResultWindowId(for: dock, tabManager: tabManager),
+            surfaces: controlSimulatorAwareDockSurfaceSummaries(dock: dock)
+        )
+    }
+
+    private func controlSimulatorAwareDockSurfaceSummaries(
+        dock: DockSplitStore
+    ) -> [ControlSurfaceSummary] {
+        controlDockSurfaceSummaries(dock: dock).map { summary in
+            let simulatorPanel = dock.panels[summary.surfaceID] as? SimulatorPanel
+            return ControlSurfaceSummary(
+                surfaceID: summary.surfaceID,
+                typeRawValue: summary.typeRawValue,
+                title: summary.title,
+                isFocused: summary.isFocused,
+                paneID: summary.paneID,
+                indexInPane: summary.indexInPane,
+                selectedInPane: summary.selectedInPane,
+                developerToolsVisible: summary.developerToolsVisible,
+                requestedWorkingDirectory: summary.requestedWorkingDirectory,
+                initialCommand: summary.initialCommand,
+                tmuxStartCommand: summary.tmuxStartCommand,
+                isTerminal: summary.isTerminal,
+                resumeBinding: summary.resumeBinding,
+                simulatorDeviceID: simulatorPanel?.selectedDeviceID,
+                simulatorRuntimeIdentifier: simulatorPanel?.selectedRuntimeIdentifier,
+                simulatorDeviceTypeIdentifier: simulatorPanel?.selectedDeviceTypeIdentifier,
+                simulatorDeviceName: simulatorPanel?.selectedDeviceName,
+                simulatorDeviceState: simulatorPanel?.selectedDeviceState,
+                dockScopeRawValue: summary.dockScopeRawValue
+            )
+        }
     }
 
     // MARK: - current

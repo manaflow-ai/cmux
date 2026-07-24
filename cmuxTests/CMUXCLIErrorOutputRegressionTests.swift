@@ -52,6 +52,44 @@ import Testing
         }
     }
 
+    @Test func testIOSContextFromTerminalFallsBackToWorkspaceSimulator() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-ios-routing-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: #"{"ok":true,"result":{"simulator_id":"PAD","device_name":"iPad","runtime_id":"runtime","device_type_id":"type","family":"ipad","state":"booted"}}"#
+        )
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_WORKSPACE_ID"] = "workspace:caller"
+        environment["CMUX_SURFACE_ID"] = "surface:terminal"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", socketPath, "ios", "context", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let requests = responder.receivedRequests
+        #expect(requests.count == 1)
+        let request = try #require(requests.first)
+        let data = try #require(request.data(using: String.Encoding.utf8))
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["method"] as? String == "simulator.context")
+        let params = try #require(object["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == "workspace:caller")
+        #expect(params["pane_id"] == nil)
+        #expect(params["surface_id"] == nil)
+    }
+
     @Test func testBundledCLIInTaggedDebugAppPrefersItsOwnSocketWithoutEnvironmentOverride() throws {
         let cliPath = try bundledCLIPath()
         let tagSlug = "cli-socket-\(UUID().uuidString.lowercased())"

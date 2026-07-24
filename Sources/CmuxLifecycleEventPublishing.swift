@@ -217,6 +217,8 @@ extension Workspace {
             return "right_sidebar_tool"
         case .customSidebar:
             return "custom_sidebar"
+        case .simulator:
+            return "simulator"
         case .agentSession:
             return "agent_session"
         case .project:

@@ -192,6 +192,8 @@ enum KeyboardShortcutSettings {
         case diffViewerScrollToBottom
         case diffViewerScrollToTop
         case diffViewerOpenFileSearch
+        case simulatorHome, simulatorRotateLeft, simulatorRotateRight
+        case simulatorToggleAppearance, simulatorToggleSoftwareKeyboard
         case diffViewerNextFile, diffViewerPreviousFile
 
         var id: String { rawValue }
@@ -323,6 +325,9 @@ enum KeyboardShortcutSettings {
             case .diffViewerScrollToBottom: return String(localized: "shortcut.diffViewerScrollToBottom.label", defaultValue: "Viewers: Scroll to Bottom")
             case .diffViewerScrollToTop: return String(localized: "shortcut.diffViewerScrollToTop.label", defaultValue: "Viewers: Scroll to Top")
             case .diffViewerOpenFileSearch: return String(localized: "shortcut.diffViewerOpenFileSearch.label", defaultValue: "Diff Viewer: Open File Search")
+            case .simulatorHome, .simulatorRotateLeft, .simulatorRotateRight,
+                 .simulatorToggleAppearance, .simulatorToggleSoftwareKeyboard:
+                return simulatorLabel
             case .diffViewerNextFile: return String(localized: "shortcut.diffViewerNextFile.label", defaultValue: "Diff Viewer: Next File")
             case .diffViewerPreviousFile: return String(localized: "shortcut.diffViewerPreviousFile.label", defaultValue: "Diff Viewer: Previous File")
             }
@@ -612,19 +617,9 @@ enum KeyboardShortcutSettings {
                     first: ShortcutStroke(key: "[", command: false, shift: false, option: false, control: false),
                     second: ShortcutStroke(key: "f", command: false, shift: false, option: false, control: false)
                 )
-            }
-        }
-
-        func tooltip(_ base: String) -> String {
-            "\(base) (\(displayedShortcutString(for: KeyboardShortcutSettings.shortcut(for: self))))"
-        }
-
-        var usesNumberedDigitMatching: Bool {
-            switch self {
-            case .selectSurfaceByNumber, .selectWorkspaceByNumber:
-                return true
-            default:
-                return false
+            case .simulatorHome, .simulatorRotateLeft, .simulatorRotateRight,
+                 .simulatorToggleAppearance, .simulatorToggleSoftwareKeyboard:
+                return simulatorDefaultShortcut
             }
         }
 

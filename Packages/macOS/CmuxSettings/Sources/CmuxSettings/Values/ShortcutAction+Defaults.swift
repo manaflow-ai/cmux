@@ -158,6 +158,11 @@ extension ShortcutAction {
         case .diffViewerScrollToBottom: return ShortcutStroke(key: "g", shift: true)
         case .diffViewerScrollToTop: return nil
         case .diffViewerOpenFileSearch: return ShortcutStroke(key: "/")
+        case .simulatorHome: return ShortcutStroke(key: "h", command: true, shift: true)
+        case .simulatorRotateLeft: return ShortcutStroke(key: "←", command: true)
+        case .simulatorRotateRight: return ShortcutStroke(key: "→", command: true)
+        case .simulatorToggleAppearance: return ShortcutStroke(key: "a", command: true, shift: true)
+        case .simulatorToggleSoftwareKeyboard: return ShortcutStroke(key: "k", command: true)
         case .diffViewerNextFile: return nil
         case .diffViewerPreviousFile: return nil
         }
