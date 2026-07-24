@@ -3375,6 +3375,63 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertLessThanOrEqual(stashed.maxY, screen.maxY)
     }
 
+    func testWorkspaceFloatingDockStashKeepsNativeWindowAndContentAlive() throws {
+        _ = NSApplication.shared
+        let url = try temporaryTextFile(contents: "", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let parent = NSWindow(
+            contentRect: CGRect(x: 100, y: 100, width: 900, height: 700),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let dock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: workspace.id,
+            title: "Persistent stash",
+            frame: CGRect(x: 40, y: 40, width: 520, height: 380),
+            noteFilePath: url.path,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        workspace.floatingDocks.append(dock)
+        let presenter = WorkspaceFloatingDockPresenter(
+            parentWindow: parent,
+            tabManager: manager
+        )
+        defer {
+            presenter.teardown()
+            workspace.floatingDocks.removeAll { $0 === dock }
+            dock.close()
+            parent.orderOut(nil)
+            parent.close()
+        }
+
+        presenter.refresh()
+        let identifier = NSUserInterfaceItemIdentifier(
+            "cmux.workspace.float.\(dock.id.uuidString)"
+        )
+        let originalWindow = try XCTUnwrap(
+            parent.childWindows?.first { $0.identifier == identifier }
+        )
+        let originalContent = try XCTUnwrap(originalWindow.contentView)
+
+        dock.setStashed(true)
+        presenter.refresh()
+
+        XCTAssertTrue(presenter.owns(window: originalWindow))
+        XCTAssertTrue(originalWindow.contentView === originalContent)
+
+        dock.setStashed(false)
+        presenter.refresh()
+
+        XCTAssertTrue(presenter.owns(window: originalWindow))
+        XCTAssertTrue(originalWindow.contentView === originalContent)
+    }
+
     func testWorkspaceFloatingDockTitlebarDoubleClickDoesNotInvokeNativeWindowActions() throws {
         let window = WorkspaceFloatingDockTitlebarActionRecordingWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 380),
