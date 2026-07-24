@@ -81,19 +81,37 @@ extension SocketControlServer {
     /// retained inactive listener state, binds with stale/refused replacement
     /// rules and a one-shot policy fallback path, then commits the running
     /// state under a fresh accept-loop generation and arms the path monitor
-    /// and accept source. Failures are reported through the events seam.
+    /// and accept source. Transient startup failures schedule bounded recovery;
+    /// permanent or exhausted failures are reported through the events seam.
     /// - Parameters:
     ///   - socketPath: The path to bind.
     ///   - accessMode: Socket access mode; drives file permissions, client
     ///     ancestry checks, and password auth.
     ///   - preserveAcceptFailureStreak: Keeps the consecutive accept-failure
     ///     counter across a rearm restart so backoff continues to escalate.
-    /// - Returns: `true` when the listener activated.
+    /// - Returns: `true` when the listener activated synchronously. `false`
+    ///   may mean bounded transient-failure recovery is pending.
     @discardableResult
     public func start(
         socketPath: String,
         accessMode: SocketControlMode,
         preserveAcceptFailureStreak: Bool = false
+    ) -> Bool {
+        startupRetryTask?.cancel()
+        startupRetryTask = nil
+        return startAttempt(
+            socketPath: socketPath,
+            accessMode: accessMode,
+            preserveAcceptFailureStreak: preserveAcceptFailureStreak,
+            consecutiveStartupFailures: 0
+        )
+    }
+
+    private func startAttempt(
+        socketPath: String,
+        accessMode: SocketControlMode,
+        preserveAcceptFailureStreak: Bool,
+        consecutiveStartupFailures: Int
     ) -> Bool {
         configureConnectionAuthorization(accessMode: accessMode)
         let existing = withListenerState { state in
@@ -182,12 +200,15 @@ extension SocketControlServer {
         guard newServerSocket >= 0 else {
             let errnoCode = createSocketErrno ?? EIO
             print("SocketControlServer: Failed to create socket")
-            reportSocketListenerFailure(
+            return handleStartupFailure(
                 message: "socket.listener.start.failed",
                 stage: "create_socket",
-                errnoCode: errnoCode
+                errnoCode: errnoCode,
+                socketPath: activeSocketPath,
+                accessMode: accessMode,
+                preserveAcceptFailureStreak: preserveAcceptFailureStreak,
+                consecutiveStartupFailures: consecutiveStartupFailures
             )
-            return false
         }
 
         func acquireActiveSocketPathLock() -> SocketBindAttemptResult? {
@@ -251,7 +272,7 @@ extension SocketControlServer {
             }
         case .pathTooLong(let failedPath):
             close(newServerSocket)
-            reportSocketListenerFailure(
+            return handleStartupFailure(
                 message: "socket.listener.start.failed",
                 stage: "bind_path_too_long",
                 errnoCode: ENAMETOOLONG,
@@ -259,19 +280,25 @@ extension SocketControlServer {
                     "path": failedPath,
                     "pathLength": failedPath.utf8.count,
                     "maxPathLength": SocketTransport.unixSocketPathMaxLength,
-                ]
+                ],
+                socketPath: activeSocketPath,
+                accessMode: accessMode,
+                preserveAcceptFailureStreak: preserveAcceptFailureStreak,
+                consecutiveStartupFailures: consecutiveStartupFailures
             )
-            return false
         case .failure(let failedPath, let bindFailure):
             print("SocketControlServer: Failed to bind socket")
             close(newServerSocket)
-            reportSocketListenerFailure(
+            return handleStartupFailure(
                 message: "socket.listener.start.failed",
                 stage: bindFailure.stage,
                 errnoCode: bindFailure.errnoCode,
-                extra: ["path": failedPath]
+                extra: ["path": failedPath],
+                socketPath: activeSocketPath,
+                accessMode: accessMode,
+                preserveAcceptFailureStreak: preserveAcceptFailureStreak,
+                consecutiveStartupFailures: consecutiveStartupFailures
             )
-            return false
         }
 
         guard applySocketPermissions() else {
@@ -282,12 +309,15 @@ extension SocketControlServer {
         if let errnoCode = transport.configureNonBlocking(newServerSocket) {
             print("SocketControlServer: Failed to configure socket")
             close(newServerSocket)
-            reportSocketListenerFailure(
+            return handleStartupFailure(
                 message: "socket.listener.start.failed",
                 stage: "configure_nonblocking",
-                errnoCode: errnoCode
+                errnoCode: errnoCode,
+                socketPath: activeSocketPath,
+                accessMode: accessMode,
+                preserveAcceptFailureStreak: preserveAcceptFailureStreak,
+                consecutiveStartupFailures: consecutiveStartupFailures
             )
-            return false
         }
 
         // Listen
@@ -295,12 +325,15 @@ extension SocketControlServer {
             let errnoCode = errno
             print("SocketControlServer: Failed to listen on socket")
             close(newServerSocket)
-            reportSocketListenerFailure(
+            return handleStartupFailure(
                 message: "socket.listener.start.failed",
                 stage: "listen",
-                errnoCode: errnoCode
+                errnoCode: errnoCode,
+                socketPath: activeSocketPath,
+                accessMode: accessMode,
+                preserveAcceptFailureStreak: preserveAcceptFailureStreak,
+                consecutiveStartupFailures: consecutiveStartupFailures
             )
-            return false
         }
 
         transport.markSocketPathLockReusable(activeSocketPathLockFD)
@@ -349,6 +382,71 @@ extension SocketControlServer {
         startSocketPathMonitor(path: activeSocketPath, generation: generation)
         startAcceptSource(listenerSocket: listenerSocket, generation: generation)
         return true
+    }
+
+    private func handleStartupFailure(
+        message: String,
+        stage: String,
+        errnoCode: Int32,
+        extra: [String: any Sendable] = [:],
+        socketPath: String,
+        accessMode: SocketControlMode,
+        preserveAcceptFailureStreak: Bool,
+        consecutiveStartupFailures: Int
+    ) -> Bool {
+        let failureCount = consecutiveStartupFailures + 1
+        guard listenerPolicy.shouldRetryStartupFailure(
+            stage: stage,
+            errnoCode: errnoCode,
+            consecutiveFailures: failureCount
+        ) else {
+            var reportExtra = extra
+            reportExtra["startupFailureCount"] = failureCount
+            reportSocketListenerFailure(
+                message: message,
+                stage: stage,
+                errnoCode: errnoCode,
+                extra: reportExtra
+            )
+            return false
+        }
+
+        let delayMs = listenerPolicy.startupFailureRetryDelayMilliseconds(
+            consecutiveFailures: failureCount
+        )
+        var retryExtra = extra
+        retryExtra["startupFailureCount"] = failureCount
+        retryExtra["retryDelayMs"] = delayMs
+        events.breadcrumb(
+            "socket.listener.start.retry_scheduled",
+            socketListenerEventData(
+                stage: stage,
+                errnoCode: errnoCode,
+                extra: retryExtra
+            )
+        )
+
+        startupRetryTask?.cancel()
+        // A bounded, cancellable transport-recovery delay is the intended
+        // behavior; the injected clock makes it deterministic in tests.
+        startupRetryTask = Task { [weak self, recoveryClock] in
+            do {
+                try await recoveryClock.sleep(forMilliseconds: delayMs)
+                try Task.checkCancellation()
+            } catch {
+                return
+            }
+            guard let self else { return }
+            self.startupRetryTask = nil
+            guard !self.isRunning else { return }
+            _ = self.startAttempt(
+                socketPath: socketPath,
+                accessMode: accessMode,
+                preserveAcceptFailureStreak: preserveAcceptFailureStreak,
+                consecutiveStartupFailures: failureCount
+            )
+        }
+        return false
     }
 
     /// Applies the access mode's file permissions to the current socket path.
