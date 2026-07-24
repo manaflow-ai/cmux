@@ -48,11 +48,7 @@ impl MuxLaneTracker {
         };
         if let Some(event) = value.get("event").and_then(Value::as_str) {
             return Some(match event {
-                "output"
-                | "vt-state"
-                | "render-state"
-                | "render-delta"
-                | "frame"
+                "output" | "vt-state" | "render-state" | "render-delta" | "frame"
                 | "browser-state" => Lane::Bulk,
                 _ => Lane::Control,
             });

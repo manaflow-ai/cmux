@@ -456,7 +456,7 @@ impl ServiceMultiplexer {
             failure,
             state,
             terminal,
-            outbound: Mutex::new(()),
+            outbound: outbound_lane_locks(),
         })
     }
 
@@ -596,7 +596,11 @@ pub struct ServiceStream {
     failure: watch::Sender<Option<StreamFailure>>,
     state: Arc<AtomicU8>,
     terminal: Arc<LaneTerminalState>,
-    outbound: Mutex<()>,
+    outbound: [Mutex<()>; 4],
+}
+
+fn outbound_lane_locks() -> [Mutex<()>; 4] {
+    std::array::from_fn(|_| Mutex::new(()))
 }
 
 struct StreamReceiver {
@@ -629,7 +633,8 @@ impl ServiceStream {
     }
 
     pub async fn send_on(&self, lane: Lane, payload: Bytes) -> Result<(), ServiceError> {
-        let _outbound = self.outbound.lock().await;
+        let lane = if self.service == Service::TcpTunnel { Lane::Tunnel } else { lane };
+        let _outbound = self.outbound[lane as usize].lock().await;
         self.require_active()?;
         if self.terminal.closing.load(Ordering::Acquire) {
             return Err(ServiceError::Closed);
@@ -643,7 +648,6 @@ impl ServiceStream {
         if closed {
             return Err(ServiceError::Closed);
         }
-        let lane = if self.service == Service::TcpTunnel { Lane::Tunnel } else { lane };
         if payload.is_empty() {
             self.endpoint
                 .send_frame(self.generation, lane, self.id, payload, FrameFlags::empty())
@@ -737,7 +741,6 @@ impl ServiceStream {
     }
 
     pub async fn close_on(&self, lane: Lane) -> Result<(), ServiceError> {
-        let _outbound = self.outbound.lock().await;
         self.require_active()?;
         if self.state.load(Ordering::Acquire) & STREAM_LOCAL_FIN != 0 {
             return Ok(());
@@ -746,6 +749,7 @@ impl ServiceStream {
         let lane = if self.service == Service::TcpTunnel { Lane::Tunnel } else { lane };
         let lanes = close_lanes(self.service, &lane);
         for lane in lanes {
+            let _outbound = self.outbound[*lane as usize].lock().await;
             let bit = lane_bit(*lane);
             if self.terminal.local.load(Ordering::Acquire) & bit != 0 {
                 continue;
@@ -995,7 +999,7 @@ async fn reader_loop(reader: ReaderLoop) {
                 failure,
                 state,
                 terminal,
-                outbound: Mutex::new(()),
+                outbound: outbound_lane_locks(),
             };
             match accepted.try_send(IncomingStream {
                 service: control.0,
@@ -1872,8 +1876,7 @@ mod tests {
     #[tokio::test]
     async fn mux_service_lanes_send_independently_under_bulk_backpressure() {
         let endpoint = LaneBlockingEndpoint::new();
-        let multiplexer =
-            ServiceMultiplexer::new(endpoint.clone(), EndpointRole::Daemon);
+        let multiplexer = ServiceMultiplexer::new(endpoint.clone(), EndpointRole::Daemon);
         let stream =
             Arc::new(multiplexer.open(Service::MuxControl, BTreeMap::new()).await.unwrap());
 

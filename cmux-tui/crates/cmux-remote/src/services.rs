@@ -10,7 +10,7 @@ use cmux_remote_protocol::{
     WorkspaceResponse,
 };
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::sync::{Mutex, Semaphore, mpsc, watch};
+use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, mpsc, watch};
 use tokio::task::JoinSet;
 
 use crate::daemon::ServerConnection;
@@ -31,11 +31,88 @@ const MAX_INTERACTIVE_RPC_REQUESTS: usize = 32;
 const MAX_CONTROL_RPC_REQUESTS: usize = 48;
 const MAX_BULK_RPC_REQUESTS: usize = 48;
 const CLIENT_HANDLER_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+const MAX_BUFFERED_MUX_UPLOAD_BYTES: usize = 64 * 1024 * 1024;
+const MAX_BUFFERED_MUX_NON_INTERACTIVE_BYTES: usize = 56 * 1024 * 1024;
+const MAX_BUFFERED_MUX_BULK_BYTES: usize = 48 * 1024 * 1024;
+const MAX_BUFFERED_MUX_MESSAGES_PER_LANE: usize = 4096;
+const MIN_BUFFERED_MUX_MESSAGE_BYTES: usize = 1024;
+const _: () = assert!(MAX_BUFFERED_MUX_NON_INTERACTIVE_BYTES < MAX_BUFFERED_MUX_UPLOAD_BYTES);
+const _: () = assert!(MAX_BUFFERED_MUX_BULK_BYTES < MAX_BUFFERED_MUX_NON_INTERACTIVE_BYTES);
 
 struct RequestAdmission {
     interactive: Arc<Semaphore>,
     control: Arc<Semaphore>,
     bulk: Arc<Semaphore>,
+}
+
+#[derive(Clone)]
+struct MuxUploadBudget {
+    total: Arc<Semaphore>,
+    non_interactive: Arc<Semaphore>,
+    bulk: Arc<Semaphore>,
+}
+
+struct MuxUploadPermit {
+    _bulk: Option<OwnedSemaphorePermit>,
+    _non_interactive: Option<OwnedSemaphorePermit>,
+    _total: OwnedSemaphorePermit,
+}
+
+impl MuxUploadBudget {
+    fn new() -> Self {
+        Self {
+            total: Arc::new(Semaphore::new(MAX_BUFFERED_MUX_UPLOAD_BYTES)),
+            non_interactive: Arc::new(Semaphore::new(MAX_BUFFERED_MUX_NON_INTERACTIVE_BYTES)),
+            bulk: Arc::new(Semaphore::new(MAX_BUFFERED_MUX_BULK_BYTES)),
+        }
+    }
+
+    async fn acquire(
+        &self,
+        lane: Lane,
+        encoded_bytes: usize,
+    ) -> Result<MuxUploadPermit, ServicesError> {
+        let charged = encoded_bytes.max(MIN_BUFFERED_MUX_MESSAGE_BYTES);
+        let lane_capacity = match lane {
+            Lane::Interactive => MAX_BUFFERED_MUX_UPLOAD_BYTES,
+            Lane::Control => MAX_BUFFERED_MUX_NON_INTERACTIVE_BYTES,
+            Lane::Bulk | Lane::Tunnel => MAX_BUFFERED_MUX_BULK_BYTES,
+        };
+        if charged > lane_capacity {
+            return Err(ServicesError::MessageTooLarge(encoded_bytes));
+        }
+        let charged =
+            u32::try_from(charged).map_err(|_| ServicesError::MessageTooLarge(encoded_bytes))?;
+        let bulk = if matches!(lane, Lane::Bulk | Lane::Tunnel) {
+            Some(
+                self.bulk
+                    .clone()
+                    .acquire_many_owned(charged)
+                    .await
+                    .expect("mux upload budget is never closed"),
+            )
+        } else {
+            None
+        };
+        let non_interactive = if lane == Lane::Interactive {
+            None
+        } else {
+            Some(
+                self.non_interactive
+                    .clone()
+                    .acquire_many_owned(charged)
+                    .await
+                    .expect("mux upload budget is never closed"),
+            )
+        };
+        let total = self
+            .total
+            .clone()
+            .acquire_many_owned(charged)
+            .await
+            .expect("mux upload budget is never closed");
+        Ok(MuxUploadPermit { _bulk: bulk, _non_interactive: non_interactive, _total: total })
+    }
 }
 
 struct ClientCleanupGuard {
@@ -152,11 +229,12 @@ impl RequestAdmission {
 pub struct DaemonServices {
     workspace: WorkspaceService,
     mux_socket: Option<PathBuf>,
+    mux_upload_budget: MuxUploadBudget,
 }
 
 impl DaemonServices {
     pub fn new(workspace: WorkspaceService, mux_socket: Option<PathBuf>) -> Arc<Self> {
-        Arc::new(Self { workspace, mux_socket })
+        Arc::new(Self { workspace, mux_socket, mux_upload_budget: MuxUploadBudget::new() })
     }
 
     pub async fn run(self: Arc<Self>, clients: mpsc::Receiver<Arc<ServerConnection>>) {
@@ -289,6 +367,7 @@ impl DaemonServices {
     ) -> Result<(), ServicesError> {
         let workspace = self.workspace.clone();
         let mux_socket = self.mux_socket.clone();
+        let mux_upload_budget = self.mux_upload_budget.clone();
         match incoming.service {
             Service::WorkspaceRpc => {
                 Self::serve_workspace_rpc(
@@ -307,7 +386,10 @@ impl DaemonServices {
             Service::TcpTunnel => {
                 Self::serve_tcp_tunnel(workspace, incoming.stream, incoming.metadata).await
             }
-            Service::MuxControl => Self::serve_mux_control(mux_socket, incoming.stream).await,
+            Service::MuxControl => {
+                Self::serve_mux_control_with_budget(mux_socket, incoming.stream, mux_upload_budget)
+                    .await
+            }
             Service::ComputerUse => {
                 incoming
                     .stream
@@ -502,10 +584,19 @@ impl DaemonServices {
         pump_stream(stream, reader, writer).await
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, test))]
     async fn serve_mux_control(
         mux_socket: Option<PathBuf>,
         stream: ServiceStream,
+    ) -> Result<(), ServicesError> {
+        Self::serve_mux_control_with_budget(mux_socket, stream, MuxUploadBudget::new()).await
+    }
+
+    #[cfg(unix)]
+    async fn serve_mux_control_with_budget(
+        mux_socket: Option<PathBuf>,
+        stream: ServiceStream,
+        upload_budget: MuxUploadBudget,
     ) -> Result<(), ServicesError> {
         let path = mux_socket.as_ref().ok_or_else(|| {
             ServicesError::Unavailable("mux control socket is not configured".into())
@@ -514,13 +605,22 @@ impl DaemonServices {
         let stream = Arc::new(stream);
         send_opened(&stream, Lane::Interactive).await?;
         let (reader, writer) = socket.into_split();
-        pump_mux_server(stream, reader, writer).await
+        pump_mux_server_with_budget(stream, reader, writer, upload_budget).await
     }
 
-    #[cfg(not(unix))]
+    #[cfg(all(not(unix), test))]
     async fn serve_mux_control(
         _mux_socket: Option<PathBuf>,
         stream: ServiceStream,
+    ) -> Result<(), ServicesError> {
+        Self::serve_mux_control_with_budget(None, stream, MuxUploadBudget::new()).await
+    }
+
+    #[cfg(not(unix))]
+    async fn serve_mux_control_with_budget(
+        _mux_socket: Option<PathBuf>,
+        stream: ServiceStream,
+        _upload_budget: MuxUploadBudget,
     ) -> Result<(), ServicesError> {
         stream
             .reject(
@@ -879,40 +979,125 @@ where
     }
 }
 
+struct MuxUploadMessage {
+    packets: Vec<Bytes>,
+    _permit: MuxUploadPermit,
+}
+
+async fn read_mux_uploads<R>(
+    local_reader: R,
+    tracker: Arc<crate::mux_lanes::MuxLaneTracker>,
+    upload_budget: MuxUploadBudget,
+    interactive: mpsc::Sender<MuxUploadMessage>,
+    control: mpsc::Sender<MuxUploadMessage>,
+    bulk: mpsc::Sender<MuxUploadMessage>,
+) -> Result<(), ServicesError>
+where
+    R: AsyncRead + Unpin,
+{
+    use tokio::io::{AsyncBufReadExt, BufReader};
+
+    let mut reader = BufReader::new(local_reader);
+    let mut line = Vec::new();
+    let mut message = 1_u64;
+    loop {
+        line.clear();
+        let size = reader.read_until(b'\n', &mut line).await?;
+        if size == 0 {
+            return Ok(());
+        }
+        let Some(lane) = tracker.classify_server_line(&line) else {
+            continue;
+        };
+        if lane == Lane::Tunnel {
+            return Err(ServicesError::UnexpectedLane {
+                expected: Lane::Bulk,
+                actual: Lane::Tunnel,
+            });
+        }
+        let packets = crate::mux_codec::encode_line(message, &line)?;
+        let encoded_bytes =
+            packets.iter().try_fold(0_usize, |total, packet| total.checked_add(packet.len()));
+        let Some(encoded_bytes) = encoded_bytes else {
+            return Err(ServicesError::MessageTooLarge(usize::MAX));
+        };
+        let upload = MuxUploadMessage {
+            packets,
+            _permit: upload_budget.acquire(lane, encoded_bytes).await?,
+        };
+        let sender = match lane {
+            Lane::Interactive => &interactive,
+            Lane::Control => &control,
+            Lane::Bulk => &bulk,
+            Lane::Tunnel => unreachable!("Tunnel was rejected above"),
+        };
+        sender
+            .send(upload)
+            .await
+            .map_err(|_| ServicesError::Remote(format!("{lane:?} mux upload queue closed")))?;
+        message = message.checked_add(1).ok_or(ServicesError::MessageIdsExhausted)?;
+    }
+}
+
+async fn send_mux_uploads(
+    remote: Arc<ServiceStream>,
+    lane: Lane,
+    mut uploads: mpsc::Receiver<MuxUploadMessage>,
+) -> Result<(), ServicesError> {
+    while let Some(upload) = uploads.recv().await {
+        for packet in upload.packets {
+            remote.send_on(lane, packet).await?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
 pub(crate) async fn pump_mux_server<R, W>(
     remote: Arc<ServiceStream>,
     local_reader: R,
-    mut local_writer: W,
+    local_writer: W,
 ) -> Result<(), ServicesError>
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
-    use tokio::io::{AsyncBufReadExt, BufReader};
+    pump_mux_server_with_budget(remote, local_reader, local_writer, MuxUploadBudget::new()).await
+}
+
+async fn pump_mux_server_with_budget<R, W>(
+    remote: Arc<ServiceStream>,
+    local_reader: R,
+    mut local_writer: W,
+    upload_budget: MuxUploadBudget,
+) -> Result<(), ServicesError>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    let (interactive_tx, interactive_rx) = mpsc::channel(MAX_BUFFERED_MUX_MESSAGES_PER_LANE);
+    let (control_tx, control_rx) = mpsc::channel(MAX_BUFFERED_MUX_MESSAGES_PER_LANE);
+    let (bulk_tx, bulk_rx) = mpsc::channel(MAX_BUFFERED_MUX_MESSAGES_PER_LANE);
 
     let tracker = Arc::new(crate::mux_lanes::MuxLaneTracker::default());
     let upload = {
         let remote = remote.clone();
         let tracker = tracker.clone();
         async move {
-            let mut reader = BufReader::new(local_reader);
-            let mut line = Vec::new();
-            let mut message = 1_u64;
-            loop {
-                line.clear();
-                let size = reader.read_until(b'\n', &mut line).await?;
-                if size == 0 {
-                    remote.close().await?;
-                    break;
-                }
-                let Some(lane) = tracker.classify_server_line(&line) else {
-                    continue;
-                };
-                for packet in crate::mux_codec::encode_line(message, &line)? {
-                    remote.send_on(lane, packet).await?;
-                }
-                message = message.checked_add(1).ok_or(ServicesError::MessageIdsExhausted)?;
-            }
+            let read = read_mux_uploads(
+                local_reader,
+                tracker,
+                upload_budget,
+                interactive_tx,
+                control_tx,
+                bulk_tx,
+            );
+            let send_interactive =
+                send_mux_uploads(remote.clone(), Lane::Interactive, interactive_rx);
+            let send_control = send_mux_uploads(remote.clone(), Lane::Control, control_rx);
+            let send_bulk = send_mux_uploads(remote.clone(), Lane::Bulk, bulk_rx);
+            tokio::try_join!(read, send_interactive, send_control, send_bulk)?;
+            remote.close().await?;
             Ok::<_, ServicesError>(())
         }
     };
@@ -1272,8 +1457,7 @@ mod tests {
     #[tokio::test]
     async fn mux_server_drains_control_while_bulk_lane_is_backpressured() {
         let endpoint = BackpressuredMuxEndpoint::new();
-        let multiplexer =
-            ServiceMultiplexer::new(endpoint.clone(), EndpointRole::Daemon);
+        let multiplexer = ServiceMultiplexer::new(endpoint.clone(), EndpointRole::Daemon);
         let stream =
             Arc::new(multiplexer.open(Service::MuxControl, BTreeMap::new()).await.unwrap());
         let (bridge, mut fake_core) = tokio::io::duplex(64 * 1024);
