@@ -1826,7 +1826,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        let record = try readClaudeHookSession(sessionId, context: context)
+        let record = try readCodexHookSession(sessionId, context: context)
         XCTAssertEqual(
             record["pid"] as? Int,
             resumedPID,
@@ -1887,7 +1887,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        let record = try readClaudeHookSession(sessionId, context: context)
+        let record = try readCodexHookSession(sessionId, context: context)
         XCTAssertEqual(
             record["pid"] as? Int,
             newerPID,
@@ -1901,6 +1901,87 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(
             context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
             "A rejected older resume event must not republish the session binding."
+        )
+    }
+
+    func testCodexResumeRebindAcceptsDeadPreviousPIDWhenGenerationWasDropped() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-missing-generation-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sessionId = "missing-generation-dead-process"
+        let incomingPID = Int(Darwin.getpid())
+        let deadPID = Int(Int32.max)
+        let store = try makeCodexRebindStore(
+            root: root,
+            sessionId: sessionId,
+            pid: deadPID
+        )
+
+        XCTAssertTrue(
+            try store.upsertCodexSessionStartIfFresh(
+                sessionId: sessionId,
+                workspaceId: "11111111-1111-1111-1111-111111111111",
+                surfaceId: "22222222-2222-2222-2222-222222222222",
+                cwd: root.path,
+                pid: incomingPID,
+                allowResumedProcessReplacement: true
+            ),
+            "A live resume must recover when an older CLI dropped process-generation fields and the previous PID is dead."
+        )
+        let record = try XCTUnwrap(store.lookup(sessionId: sessionId))
+        XCTAssertEqual(record.pid, incomingPID)
+        XCTAssertNil(record.activePromptDepth)
+    }
+
+    func testCodexResumeRebindRejectsLiveOrUnknownPreviousProcessWithoutGeneration() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-unknown-generation-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let liveSessionId = "missing-generation-live-process"
+        let missingPIDSessionId = "missing-generation-missing-process"
+        let sleeper = Process()
+        sleeper.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        sleeper.arguments = ["30"]
+        try sleeper.run()
+        defer {
+            if sleeper.isRunning {
+                sleeper.terminate()
+            }
+            sleeper.waitUntilExit()
+        }
+
+        let liveStore = try makeCodexRebindStore(
+            root: root.appendingPathComponent("live", isDirectory: true),
+            sessionId: liveSessionId,
+            pid: Int(Darwin.getpid())
+        )
+        XCTAssertFalse(
+            try liveStore.upsertCodexSessionStartIfFresh(
+                sessionId: liveSessionId,
+                workspaceId: "11111111-1111-1111-1111-111111111111",
+                surfaceId: "22222222-2222-2222-2222-222222222222",
+                cwd: root.path,
+                pid: Int(sleeper.processIdentifier),
+                allowResumedProcessReplacement: true
+            ),
+            "A missing generation must not replace a different PID that is still live."
+        )
+
+        let missingPIDStore = try makeCodexRebindStore(
+            root: root.appendingPathComponent("missing", isDirectory: true),
+            sessionId: missingPIDSessionId,
+            pid: nil
+        )
+        XCTAssertFalse(
+            try missingPIDStore.upsertCodexSessionStartIfFresh(
+                sessionId: missingPIDSessionId,
+                workspaceId: "11111111-1111-1111-1111-111111111111",
+                surfaceId: "22222222-2222-2222-2222-222222222222",
+                cwd: root.path,
+                pid: Int(sleeper.processIdentifier),
+                allowResumedProcessReplacement: true
+            ),
+            "A missing previous PID cannot prove that an interrupted owner exited."
         )
     }
 
@@ -8978,6 +9059,48 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
         let sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
         return try XCTUnwrap(sessions[sessionId] as? [String: Any])
+    }
+
+    private func readCodexHookSession(_ sessionId: String, context: ClaudeHookContext) throws -> [String: Any] {
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
+        return try XCTUnwrap(sessions[sessionId] as? [String: Any])
+    }
+
+    private func makeCodexRebindStore(
+        root: URL,
+        sessionId: String,
+        pid: Int?
+    ) throws -> ClaudeHookSessionStore {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let now = Date().timeIntervalSince1970
+        var record: [String: Any] = [
+            "sessionId": sessionId,
+            "workspaceId": "11111111-1111-1111-1111-111111111111",
+            "surfaceId": "22222222-2222-2222-2222-222222222222",
+            "cwd": root.path,
+            "runtimeStatus": "running",
+            "activePromptDepth": 1,
+            "activePromptTurnId": "interrupted-turn",
+            "activePromptTurnIds": ["interrupted-turn"],
+            "lastPromptTurnId": "interrupted-turn",
+            "startedAt": now,
+            "updatedAt": now,
+        ]
+        if let pid {
+            record["pid"] = pid
+        }
+        let state: [String: Any] = [
+            "version": 1,
+            "sessions": [sessionId: record],
+        ]
+        try JSONSerialization.data(withJSONObject: state, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+        return ClaudeHookSessionStore(
+            processEnv: ["CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path]
+        )
     }
 
     private func feedPushEvents(in context: ClaudeHookContext) -> [[String: Any]] {

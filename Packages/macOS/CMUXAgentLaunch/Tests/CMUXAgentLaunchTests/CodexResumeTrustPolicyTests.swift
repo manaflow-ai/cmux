@@ -108,6 +108,27 @@ struct CodexResumeTrustPolicyTests {
         )
     }
 
+    @Test("Malformed resume trust key fails closed without trapping")
+    func malformedResumeTrustKeyFailsClosed() {
+        #expect(
+            policy.undecidedProjectOverride(
+                arguments: [
+                    "codex",
+                    "resume",
+                    "SID",
+                    "-c",
+                    #"projects.trust_level="trusted""#,
+                ],
+                currentDirectory: "/Users/me/worktree",
+                repositoryRoot: nil,
+                userConfigContents: nil
+            ) == [
+                "-c",
+                #"projects={"/Users/me/worktree"={trust_level="untrusted"}}"#,
+            ]
+        )
+    }
+
     @Test("Ineffective quoted dotted launch override is replaced")
     func ineffectiveQuotedDottedOverrideIsReplaced() {
         #expect(
