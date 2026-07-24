@@ -405,6 +405,65 @@ struct AgentHibernationTests {
         )
     }
 
+    @MainActor
+    @Test
+    func testMovingPanelLeavesWorkspaceScopedStatusInSourceWorkspace() throws {
+        let source = Workspace()
+        let movingPanelId = try #require(source.focusedPanelId)
+        let replacement = source.upsertSidebarStatusEntry(
+            key: "build",
+            value: "Compiling",
+            icon: "hammer",
+            color: "#FF9500",
+            url: nil,
+            priority: 80,
+            format: .plain,
+            panelId: nil,
+            pid: nil,
+            agentEventTime: nil
+        )
+        expectEqual(replacement, .replace)
+        expectNil(source.statusEntries["build"]?.agentOwnerPanelID)
+
+        let detached = try #require(source.detachSurface(panelId: movingPanelId))
+        let destination = Workspace()
+        let destinationPaneId = try #require(destination.bonsplitController.focusedPaneId)
+        expectEqual(
+            destination.attachDetachedSurface(detached, inPane: destinationPaneId, focus: false),
+            movingPanelId
+        )
+
+        expectEqual(source.statusEntries["build"]?.value, "Compiling")
+        expectNil(source.statusEntries["build"]?.agentOwnerPanelID)
+        expectNil(destination.statusEntries["build"])
+    }
+
+    @MainActor
+    @Test
+    func testRegisteredAgentLifecycleRejectsStaleEventTime() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let key = "registered-agent"
+
+        expectTrue(workspace.setAgentLifecycle(
+            key: key,
+            panelId: panelId,
+            lifecycle: .running,
+            agentEventTime: 200,
+            enforceAgentEventOrdering: true
+        ))
+        expectFalse(workspace.setAgentLifecycle(
+            key: key,
+            panelId: panelId,
+            lifecycle: .idle,
+            agentEventTime: 100,
+            enforceAgentEventOrdering: true
+        ))
+
+        expectEqual(workspace.agentLifecycleStatesByPanelId[panelId]?[key], .running)
+        expectEqual(workspace.agentLifecycleEventTimesByPanelId[panelId]?[key], 200)
+    }
+
     @Test
     func testSessionIndexLoadsAgentLifecycleFromHookStore() throws {
         let home = FileManager.default.temporaryDirectory
