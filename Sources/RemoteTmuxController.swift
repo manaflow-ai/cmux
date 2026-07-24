@@ -25,6 +25,10 @@ final class RemoteTmuxController {
     /// owned by ``RemoteTmuxController`` and delegated to for discovery + master teardown.
     let transportRegistry = RemoteTmuxTransportRegistry()
 
+    /// Per-host sidebar origin colors, owned here (not an ambient global) so every
+    /// window resolves a destination to the same palette slot for the app session.
+    let hostColorRegistry = RemoteHostColorRegistry()
+
     /// Live `tmux -CC` control connections keyed by `connectionHash\u{1}session`
     /// (see ``connectionKey(host:sessionName:)``), so repeated attach requests for
     /// the same endpoint+session reuse the existing connection.
@@ -328,6 +332,30 @@ final class RemoteTmuxController {
     }
 
     // MARK: - Create / destroy propagation (P5)
+
+    /// The destination (ssh alias / `user@host`) of the host whose mirror owns
+    /// `workspaceId`, or `nil` when no mirror maps to it. Drives the per-host
+    /// origin color: mirror workspaces carry their host only through the session
+    /// mirror (not `remoteConfiguration`), so the color resolver reads it here.
+    func hostDestination(forWorkspaceId workspaceId: UUID) -> String? {
+        sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId })?.host.destination
+    }
+
+    /// Every mirrored workspace's destination, in one pass. A sidebar refresh resolves
+    /// colors for many rows at once; calling ``hostDestination(forWorkspaceId:)`` per row
+    /// re-scans the mirrors each time and makes the batch O(N²). Derived fresh per call
+    /// rather than cached: ``RemoteTmuxSessionMirror/mirroredWorkspaceId`` follows a weak
+    /// workspace reference, so an index kept alongside `sessionMirrors` would still be
+    /// stale after a workspace closes without the dictionary itself changing.
+    func hostDestinationsByWorkspaceId() -> [UUID: String] {
+        var destinations: [UUID: String] = [:]
+        destinations.reserveCapacity(sessionMirrors.count)
+        for mirror in sessionMirrors.values {
+            guard let workspaceId = mirror.mirroredWorkspaceId else { continue }
+            destinations[workspaceId] = mirror.host.destination
+        }
+        return destinations
+    }
 
     /// A mirrored workspace was renamed → `rename-session` on the remote so the
     /// tmux session name tracks the cmux workspace title.

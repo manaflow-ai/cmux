@@ -10504,6 +10504,9 @@ struct VerticalTabsSidebar: View, Equatable {
     @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsExperimentalEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
+    // Per-host origin colors (beta). Read here so toggling the flag re-evaluates
+    // the sidebar and rebuilds each row's snapshot with the resolved color.
+    @LiveSetting(\.betaFeatures.remoteTmuxOriginColors) private var remoteTmuxOriginColorsEnabled
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
     @Environment(\.sidebarLazyContractProbe) private var sidebarLazyContractProbe
@@ -10754,6 +10757,9 @@ struct VerticalTabsSidebar: View, Equatable {
         let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
         let workspaceRenderItems: [SidebarWorkspaceRenderItem]
         let visibleWorkspaceRowIds: [UUID]
+        /// Mirror destinations for the origin-color resolve, walked once for this render
+        /// pass so a row doesn't rescan the session mirrors. Nil when origin colors are off.
+        let mirrorOriginDestinations: [UUID: String]?
 
         var workspaceIds: [UUID] { tabIds }
     }
@@ -10848,7 +10854,8 @@ struct VerticalTabsSidebar: View, Equatable {
             memberWorkspaceIdsByGroupId: memberWorkspaceIdsByGroupId,
             workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
             workspaceRenderItems: workspaceRenderItems,
-            visibleWorkspaceRowIds: visibleWorkspaceRowIds
+            visibleWorkspaceRowIds: visibleWorkspaceRowIds,
+            mirrorOriginDestinations: mirrorDestinationsForOriginColors()
         )
         let _ = SidebarProfilingSignposts.end(signpost)
         ZStack(alignment: .bottomLeading) {
@@ -11043,6 +11050,13 @@ struct VerticalTabsSidebar: View, Equatable {
             refreshWorkspaceSnapshots()
         }
         .onChange(of: renderContext.showsAgentActivity) { _, _ in
+            refreshWorkspaceSnapshots()
+        }
+        .onChange(of: remoteTmuxOriginColorsEnabled) { _, _ in
+            // The origin color feeds the snapshot's effective color, so a flag
+            // toggle must repopulate the cache like any other presentation change;
+            // otherwise every row keeps missing the cache and rebuilds its
+            // snapshot on each evaluation.
             refreshWorkspaceSnapshots()
         }
         .onDisappear {
@@ -11933,6 +11947,7 @@ struct VerticalTabsSidebar: View, Equatable {
         let settings = tabItemSettingsStore.snapshot
         let showsAgentActivity = settings.details.showAgentActivity
             && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled
+        let mirrorDestinations = mirrorDestinationsForOriginColors()
         var next = workspaceSnapshotsById
         var changed = false
         for workspaceId in workspaceIds {
@@ -11943,7 +11958,8 @@ struct VerticalTabsSidebar: View, Equatable {
             let snapshot = makeWorkspaceSnapshot(
                 workspace: workspace,
                 settings: settings,
-                showsAgentActivity: showsAgentActivity
+                showsAgentActivity: showsAgentActivity,
+                mirrorDestinations: mirrorDestinations
             )
             guard next[workspaceId] != snapshot else { continue }
             next[workspaceId] = snapshot
@@ -11963,13 +11979,15 @@ struct VerticalTabsSidebar: View, Equatable {
         let settings = tabItemSettingsStore.snapshot
         let showsAgentActivity = settings.details.showAgentActivity
             && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled
+        let mirrorDestinations = mirrorDestinationsForOriginColors()
         var next: [UUID: SidebarWorkspaceSnapshotBuilder.Snapshot] = [:]
         next.reserveCapacity(tabs.count)
         for workspace in tabs {
             next[workspace.id] = makeWorkspaceSnapshot(
                 workspace: workspace,
                 settings: settings,
-                showsAgentActivity: showsAgentActivity
+                showsAgentActivity: showsAgentActivity,
+                mirrorDestinations: mirrorDestinations
             )
         }
         guard next != workspaceSnapshotsById || Set(workspaceSnapshotsById.keys) != liveIds else { return }
@@ -11979,7 +11997,8 @@ struct VerticalTabsSidebar: View, Equatable {
     private func makeWorkspaceSnapshot(
         workspace: Workspace,
         settings: SidebarTabItemSettingsSnapshot,
-        showsAgentActivity: Bool
+        showsAgentActivity: Bool,
+        mirrorDestinations: [UUID: String]?
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
 #if DEBUG
         sidebarLazyContractProbe.workspaceSnapshotBuild?()
@@ -11987,8 +12006,37 @@ struct VerticalTabsSidebar: View, Equatable {
         return SidebarWorkspaceSnapshotFactory(
             workspace: workspace,
             settings: settings,
-            showsAgentActivity: showsAgentActivity
+            showsAgentActivity: showsAgentActivity,
+            originColorHex: originColorHex(for: workspace, mirrorDestinations: mirrorDestinations)
         ).makeSnapshot()
+    }
+
+    /// Per-host origin color (beta), resolved here — above the row boundary — to
+    /// a plain value. Nil when the flag is off or the workspace has no host.
+    ///
+    /// Mirror workspaces carry their host only through the session mirror, so callers
+    /// pass `mirrorDestinations` and the mirrors get walked once for a whole refresh
+    /// rather than once per row. That map comes from `mirrorDestinationsForOriginColors()`,
+    /// which returns nil only while the flag is off — the case the guard above already
+    /// answers — so a mirror with no entry here simply has no host yet.
+    private func originColorHex(
+        for workspace: Workspace,
+        mirrorDestinations: [UUID: String]?
+    ) -> String? {
+        guard remoteTmuxOriginColorsEnabled else { return nil }
+        var destination = workspace.remoteConfiguration?.destination
+        if destination == nil, workspace.isRemoteTmuxMirror {
+            destination = mirrorDestinations?[workspace.id]
+        }
+        guard let destination, !destination.isEmpty else { return nil }
+        return AppDelegate.shared?.remoteTmuxController.hostColorRegistry.colorHex(for: destination)
+    }
+
+    /// The mirror destinations a batch snapshot refresh needs, or nil when origin colors
+    /// are off (then no row resolves a destination and the walk would be wasted).
+    private func mirrorDestinationsForOriginColors() -> [UUID: String]? {
+        guard remoteTmuxOriginColorsEnabled else { return nil }
+        return AppDelegate.shared?.remoteTmuxController.hostDestinationsByWorkspaceId() ?? [:]
     }
 
     private func clearExtensionSidebarObservationPublishers() {
@@ -13710,9 +13758,16 @@ struct VerticalTabsSidebar: View, Equatable {
         )
         let settings = renderContext.tabItemSettings
         let cachedWorkspaceSnapshot = workspaceSnapshotsById[tab.id]
+        // The effective row color (manual color, else resolved origin color) is
+        // part of the key so the cached snapshot is rebuilt when the color
+        // changes — e.g. toggling the origin-colors flag or a mirror host
+        // resolving after the row first appears, neither of which is a Workspace
+        // @Published change that would otherwise refresh the snapshot.
         let expectedPresentationKey = SidebarWorkspaceSnapshotFactory.presentationKey(
             settings: settings,
-            showsAgentActivity: renderContext.showsAgentActivity
+            showsAgentActivity: renderContext.showsAgentActivity,
+            customColorHex: tab.customColor
+                ?? originColorHex(for: tab, mirrorDestinations: renderContext.mirrorOriginDestinations)
         )
         let workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
         if let cachedWorkspaceSnapshot,
@@ -13722,7 +13777,8 @@ struct VerticalTabsSidebar: View, Equatable {
             workspaceSnapshot = makeWorkspaceSnapshot(
                 workspace: tab,
                 settings: settings,
-                showsAgentActivity: renderContext.showsAgentActivity
+                showsAgentActivity: renderContext.showsAgentActivity,
+                mirrorDestinations: renderContext.mirrorOriginDestinations
             )
         }
 

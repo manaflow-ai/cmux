@@ -225,6 +225,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .betaFeatures, id: "dock", title: "Dock", synonyms: "dock right sidebar terminal controls tui beta unstable"),
             .init(section: .betaFeatures, id: "customSidebars", title: "Custom Sidebars", synonyms: "custom sidebars swift json interpreted vibe beta unstable"),
             .init(section: .betaFeatures, id: "remoteTmux", title: "Remote tmux", synonyms: "remote tmux ssh control mode -CC mirror session window pane sidebar workspace beta unstable"),
+            .init(section: .betaFeatures, id: "remoteTmuxOriginColors", title: String(localized: "settings.betaFeatures.remoteTmuxOriginColors", defaultValue: "Remote host colors"), synonyms: "remote host colors origin color tint per-host server workspace sidebar row tab beta unstable"),
             .init(
                 section: .betaFeatures,
                 id: "workspace-todo-controls",
