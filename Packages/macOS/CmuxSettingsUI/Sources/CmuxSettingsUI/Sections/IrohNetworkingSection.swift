@@ -261,7 +261,8 @@ public struct IrohNetworkingSection: View {
                     defaultValue: "Your iPhone learns the live port automatically. Allow this UDP port through VPN and firewall ACLs."
                 )
             ) {
-                Text(model.mobileDirectPort, format: .number)
+                // A port is an identifier, not a quantity: no locale grouping.
+                Text(verbatim: String(model.mobileDirectPort))
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
             }
