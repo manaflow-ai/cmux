@@ -18,7 +18,7 @@ final class SidebarFocusBoundaryReference {
             return false
         }
         let boundaryFrame = boundaryView.convert(boundaryView.bounds, to: nil)
-        let responderFrame = responderView.convert(responderView.bounds, to: nil)
+        let responderFrame = responderView.convert(responderView.visibleRect, to: nil)
         guard !boundaryFrame.isEmpty, !responderFrame.isEmpty else { return false }
         return boundaryFrame.contains(NSPoint(x: responderFrame.midX, y: responderFrame.midY))
     }

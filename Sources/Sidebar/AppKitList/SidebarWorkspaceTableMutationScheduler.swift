@@ -58,11 +58,13 @@ final class SidebarWorkspaceTableMutationScheduler {
     private func scheduleFlushIfNeeded() {
         guard !isFlushScheduled else { return }
         isFlushScheduled = true
-        RunLoop.main.perform(inModes: [.common]) { [weak self] in
+        // Deliberately retain the scheduler through this turn. Post-update
+        // actions can commit user edits while their controller is tearing down.
+        RunLoop.main.perform(inModes: [.common]) {
             // RunLoop guarantees main-thread delivery, but Foundation does
             // not annotate this callback with MainActor.
             MainActor.assumeIsolated {
-                self?.flushPendingMutations()
+                self.flushPendingMutations()
             }
         }
     }
