@@ -2712,7 +2712,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ] && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'resume' '019dad34-d218-7943-b81a-eddac5c87951' '-c' 'check_for_update_on_startup=false' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--ask-for-approval' 'never' '--search'"
+            "cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ] && /bin/sh -c "
+                + shellQuotedForTest("'env' 'CODEX_HOME=/tmp/codex home' 'CMUX_CUSTOM_CODEX_PATH=/Users/example/.bun/bin/codex' \"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" || { [ -x '/Users/example/.bun/bin/codex' ] && printf '%s' '/Users/example/.bun/bin/codex' || printf codex; })\" 'resume' '019dad34-d218-7943-b81a-eddac5c87951' '-c' 'check_for_update_on_startup=false' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--ask-for-approval' 'never' '--search'")
         )
     }
 
@@ -2743,7 +2744,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd -- '/Users/lawrence/fun/cmuxterm-hq' 2>/dev/null || [ ! -d '/Users/lawrence/fun/cmuxterm-hq' ] && '/Users/lawrence/.bun/bin/codex' 'resume' '019e2bb9-5544-7201-a517-d77bb00d724f' '-c' 'check_for_update_on_startup=false' '--yolo' '--model' 'gpt-5.4'"
+            "cd -- '/Users/lawrence/fun/cmuxterm-hq' 2>/dev/null || [ ! -d '/Users/lawrence/fun/cmuxterm-hq' ] && /bin/sh -c "
+                + shellQuotedForTest("'env' 'CMUX_CUSTOM_CODEX_PATH=/Users/lawrence/.bun/bin/codex' \"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" || { [ -x '/Users/lawrence/.bun/bin/codex' ] && printf '%s' '/Users/lawrence/.bun/bin/codex' || printf codex; })\" 'resume' '019e2bb9-5544-7201-a517-d77bb00d724f' '-c' 'check_for_update_on_startup=false' '--yolo' '--model' 'gpt-5.4'")
         )
     }
 
@@ -3977,7 +3979,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.launchCommand?.arguments.first, "/usr/local/bin/codex")
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd -- '/tmp/repo' 2>/dev/null || [ ! -d '/tmp/repo' ] && 'env' 'CODEX_HOME=/tmp/codex' '/usr/local/bin/codex' 'resume' 'codex-session-123' '-c' 'check_for_update_on_startup=false' '--model' 'gpt-5.4' '--search'"
+            "cd -- '/tmp/repo' 2>/dev/null || [ ! -d '/tmp/repo' ] && /bin/sh -c "
+                + shellQuotedForTest("'env' 'CODEX_HOME=/tmp/codex' 'CMUX_CUSTOM_CODEX_PATH=/usr/local/bin/codex' \"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" || { [ -x '/usr/local/bin/codex' ] && printf '%s' '/usr/local/bin/codex' || printf codex; })\" 'resume' 'codex-session-123' '-c' 'check_for_update_on_startup=false' '--model' 'gpt-5.4' '--search'")
         )
     }
 

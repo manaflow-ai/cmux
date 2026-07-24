@@ -720,6 +720,11 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A9E02000000000000000000E /* CodexAppServerSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E01000000000000000000E /* CodexAppServerSession.swift */; };
 		A9E040000000000000000002 /* CodexAppServerSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E040000000000000000001 /* CodexAppServerSessionTests.swift */; };
 		C8711B000000000000000002 /* CodexCodeModeRolloutIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8711B000000000000000001 /* CodexCodeModeRolloutIdentityTests.swift */; };
+		C0DE87830000000000000006 /* CodexResumeProcessLeaseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE87830000000000000005 /* CodexResumeProcessLeaseTests.swift */; };
+		C0DE87830000000000000008 /* CodexResumeRebindTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE87830000000000000007 /* CodexResumeRebindTests.swift */; };
+		C0DE8783000000000000000A /* CodexResumeTestAssertions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE87830000000000000009 /* CodexResumeTestAssertions.swift */; };
+		C0DE87830000000000000002 /* CodexResumeTestHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE87830000000000000001 /* CodexResumeTestHarness.swift */; };
+		C0DE87830000000000000004 /* CodexResumeTrustTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE87830000000000000003 /* CodexResumeTrustTests.swift */; };
 		C8711C000000000000000002 /* CodexRolloutIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8711C000000000000000001 /* CodexRolloutIdentity.swift */; };
 		C8711D000000000000000002 /* CodexRolloutIdentityResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8711D000000000000000001 /* CodexRolloutIdentityResolver.swift */; };
 		C0DECAFE0000000000000001 /* CodexTeamsApprovalBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DECAFE0000000000000002 /* CodexTeamsApprovalBridge.swift */; };
@@ -2950,6 +2955,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A9E01000000000000000000E /* CodexAppServerSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CodexAppServerSession.swift; sourceTree = "<group>"; };
 		A9E040000000000000000001 /* CodexAppServerSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexAppServerSessionTests.swift; sourceTree = "<group>"; };
 		C8711B000000000000000001 /* CodexCodeModeRolloutIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexCodeModeRolloutIdentityTests.swift; sourceTree = "<group>"; };
+		C0DE87830000000000000005 /* CodexResumeProcessLeaseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexResumeProcessLeaseTests.swift; sourceTree = "<group>"; };
+		C0DE87830000000000000007 /* CodexResumeRebindTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexResumeRebindTests.swift; sourceTree = "<group>"; };
+		C0DE87830000000000000009 /* CodexResumeTestAssertions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexResumeTestAssertions.swift; sourceTree = "<group>"; };
+		C0DE87830000000000000001 /* CodexResumeTestHarness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexResumeTestHarness.swift; sourceTree = "<group>"; };
+		C0DE87830000000000000003 /* CodexResumeTrustTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexResumeTrustTests.swift; sourceTree = "<group>"; };
 		C8711C000000000000000001 /* CodexRolloutIdentity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodexRolloutIdentity.swift; sourceTree = "<group>"; };
 		C8711D000000000000000001 /* CodexRolloutIdentityResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodexRolloutIdentityResolver.swift; sourceTree = "<group>"; };
 		C0DECAFE0000000000000002 /* CodexTeamsApprovalBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTeamsApprovalBridge.swift; sourceTree = "<group>"; };
@@ -6268,6 +6278,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				842300000000000000000008 /* SurfaceResumeAgentBindingGenerationTests.swift */,
 				D3610B020000000000000002 /* AgentSessionAutoResumeSwiftTests.swift */,
 				A9E010000000000000000005 /* AgentExecutableResolverTests.swift */,
+				C0DE87830000000000000001 /* CodexResumeTestHarness.swift */,
+				C0DE87830000000000000003 /* CodexResumeTrustTests.swift */,
+				C0DE87830000000000000005 /* CodexResumeProcessLeaseTests.swift */,
+				C0DE87830000000000000007 /* CodexResumeRebindTests.swift */,
+				C0DE87830000000000000009 /* CodexResumeTestAssertions.swift */,
 				A9E030000000000000000001 /* AgentSessionSocketSurfaceTests.swift */,
 				A9E050000000000000000001 /* AgentSessionWebRendererTests.swift */,
 				A9E040000000000000000001 /* CodexAppServerSessionTests.swift */,
@@ -9011,6 +9026,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				AAE06C3AEC68484DA33D42A1 /* CoalesceLatestPublisherDemandTests.swift in Sources */,
 				A9E040000000000000000002 /* CodexAppServerSessionTests.swift in Sources */,
 				C8711B000000000000000002 /* CodexCodeModeRolloutIdentityTests.swift in Sources */,
+				C0DE87830000000000000006 /* CodexResumeProcessLeaseTests.swift in Sources */,
+				C0DE87830000000000000008 /* CodexResumeRebindTests.swift in Sources */,
+				C0DE8783000000000000000A /* CodexResumeTestAssertions.swift in Sources */,
+				C0DE87830000000000000002 /* CodexResumeTestHarness.swift in Sources */,
+				C0DE87830000000000000004 /* CodexResumeTrustTests.swift in Sources */,
 				C0DECAFE0000000000000003 /* CodexTeamsApprovalBridge.swift in Sources */,
 				C0DE7100C0DE7100C0DE7100 /* CodexTerminalErrorNotificationTests.swift in Sources */,
 				C0DEC0DE000000000000F302 /* CommandPaletteEmojiTitleSearchTests.swift in Sources */,

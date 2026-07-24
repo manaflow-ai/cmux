@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
@@ -65,16 +66,387 @@ extension CMUXCLI {
             args.append("-c")
             args.append(toml)
         }
-        // NUL-TERMINATE each arg (trailing NUL after the last too) so a bash
+        emitNulSeparatedArguments(args)
+    }
+
+    /// Emit the invocation-only project trust override that must follow a
+    /// `codex resume` subcommand. Codex accepts hook configuration as global
+    /// arguments before `resume`, but resume project trust is parsed from the
+    /// subcommand's argument scope and is ignored when prepended.
+    func emitCodexWrapperResumeArgs() {
+        emitNulSeparatedArguments(codexResumeTrustOverride())
+    }
+
+    private func emitNulSeparatedArguments(_ arguments: [String]) {
+        // NUL-terminate each arg (trailing NUL after the last too) so a bash
         // `while IFS= read -r -d '' arg` loop captures every element including
-        // the final one — a separator-only stream drops the unterminated last
+        // the final one. A separator-only stream drops the unterminated last
         // arg at EOF.
         var out = Data()
-        for arg in args {
+        for arg in arguments {
             out.append(Data(arg.utf8))
             out.append(0)
         }
         FileHandle.standardOutput.write(out)
+    }
+
+    /// Returns a fail-closed, invocation-only project trust decision for an
+    /// unattended Codex resume. Existing explicit cwd or repository decisions
+    /// remain authoritative; an undecided project resumes as untrusted instead
+    /// of blocking the restored pane on Codex's trust picker.
+    private func codexResumeTrustOverride() -> [String] {
+        let environment = ProcessInfo.processInfo.environment
+        guard let arguments = codexCapturedLaunchArguments(environment),
+              let currentDirectory = normalizedHookValue(
+                  environment["CMUX_AGENT_LAUNCH_CWD"]
+              ) ?? normalizedHookValue(FileManager.default.currentDirectoryPath) else {
+            return []
+        }
+        let policy = CodexResumeTrustPolicy()
+        // Gate every subprocess behind a confirmed resume. Fresh Codex
+        // launches only need the normal hook injection.
+        guard
+            let appServerConfigurationArguments = policy
+                .appServerConfigurationArguments(arguments: arguments),
+            let effectiveDirectory = policy.effectiveWorkingDirectory(
+                arguments: arguments,
+                currentDirectory: currentDirectory
+            )
+        else {
+            return []
+        }
+        guard let projectDecisions = codexEffectiveProjectDecisionPaths(
+            environment: environment,
+            appServerConfigurationArguments: appServerConfigurationArguments,
+            currentDirectory: effectiveDirectory,
+            policy: policy
+        ) else {
+            return []
+        }
+        let repository = codexRepositoryDecisionRoots(
+            currentDirectory: effectiveDirectory
+        )
+        guard repository.resolved else {
+            return []
+        }
+        return policy.undecidedProjectOverride(
+            arguments: arguments,
+            currentDirectory: currentDirectory,
+            repositoryRoots: repository.roots,
+            effectiveProjectDecisionPaths: projectDecisions
+        )
+    }
+
+    private func codexCapturedLaunchArguments(_ environment: [String: String]) -> [String]? {
+        guard let raw = normalizedHookValue(environment["CMUX_AGENT_LAUNCH_ARGV_B64"]),
+              let data = Data(base64Encoded: raw) else {
+            return nil
+        }
+        var arguments = data.split(separator: 0, omittingEmptySubsequences: false)
+        if arguments.last?.isEmpty == true {
+            arguments.removeLast()
+        }
+        let decoded = arguments.compactMap { String(data: Data($0), encoding: .utf8) }
+        return decoded.count == arguments.count ? decoded : nil
+    }
+
+    private func codexEffectiveProjectDecisionPaths(
+        environment: [String: String],
+        appServerConfigurationArguments: [String],
+        currentDirectory: String,
+        policy: CodexResumeTrustPolicy
+    ) -> Set<String>? {
+        guard let executablePath = normalizedHookValue(
+            environment["CMUX_AGENT_LAUNCH_EXECUTABLE"]
+        ),
+            executablePath.hasPrefix("/"),
+            FileManager.default.isExecutableFile(atPath: executablePath),
+            let request = codexConfigReadRequest(currentDirectory: currentDirectory)
+        else {
+            return nil
+        }
+
+        let modelCatalogPath = codexModelsCachePath(environment: environment)
+        let cacheKeyComponents = codexResumeTrustProbeCacheKeyComponents(
+            executablePath: executablePath,
+            appServerConfigurationArguments: appServerConfigurationArguments,
+            currentDirectory: currentDirectory,
+            modelCatalogPath: modelCatalogPath,
+            environment: environment
+        )
+
+        func readProjectDecisions(
+            configurationArguments: [String]
+        ) -> Set<String>? {
+            let result = CLIProcessRunner.runJSONLinesProcess(
+                executablePath: executablePath,
+                arguments: configurationArguments + ["app-server", "--stdio"],
+                stdinText: request,
+                responseID: 2,
+                currentDirectoryPath: currentDirectory,
+                timeout: 5
+            )
+            guard result.status == 0, !result.timedOut else {
+                return nil
+            }
+            return policy.effectiveProjectDecisionPaths(
+                appServerOutput: result.stdout,
+                responseID: 2
+            )
+        }
+
+        // config/read does not need a live model catalog. Loading Codex's own
+        // version-compatible cache as a fixed catalog keeps an unrelated model
+        // refresh or credential command from delaying every restored session.
+        // A missing/invalid cache or managed requirement can reject this
+        // session override, so retry the original effective configuration.
+        return CodexResumeTrustProbeCache(
+            directory: codexResumeTrustProbeCacheDirectory(
+                environment: environment
+            ),
+            fileManager: .default
+        ).resolve(
+            keyComponents: cacheKeyComponents
+        ) {
+            if let modelCatalogPath {
+                let isolatedConfigurationArguments = appServerConfigurationArguments + [
+                    "-c",
+                    "model_catalog_json=\(modelCatalogPath)",
+                ]
+                if let decisions = readProjectDecisions(
+                    configurationArguments: isolatedConfigurationArguments
+                ) {
+                    return decisions
+                }
+            }
+            return readProjectDecisions(
+                configurationArguments: appServerConfigurationArguments
+            )
+        }
+    }
+
+    private func codexResumeTrustProbeCacheKeyComponents(
+        executablePath: String,
+        appServerConfigurationArguments: [String],
+        currentDirectory: String,
+        modelCatalogPath: String?,
+        environment: [String: String]
+    ) -> [String] {
+        [
+            "v1",
+            codexResumeTrustProbeFileIdentity(path: executablePath),
+            currentDirectory,
+            environment["CODEX_HOME"] ?? "",
+            environment["HOME"] ?? "",
+            appServerConfigurationArguments.joined(separator: "\u{0}"),
+            modelCatalogPath.map(codexResumeTrustProbeFileIdentity(path:)) ?? "",
+        ]
+    }
+
+    private func codexResumeTrustProbeFileIdentity(path: String) -> String {
+        let url = URL(fileURLWithPath: path, isDirectory: false)
+        let attributes = try? FileManager.default.attributesOfItem(
+            atPath: url.path
+        )
+        let modifiedAt = (attributes?[.modificationDate] as? Date)?
+            .timeIntervalSince1970 ?? 0
+        let size = (attributes?[.size] as? NSNumber)?.uint64Value ?? 0
+        let device = (attributes?[.systemNumber] as? NSNumber)?.uint64Value ?? 0
+        let inode = (attributes?[.systemFileNumber] as? NSNumber)?
+            .uint64Value ?? 0
+        return [
+            url.standardizedFileURL.path,
+            url.resolvingSymlinksInPath().path,
+            String(device),
+            String(inode),
+            String(size),
+            String(modifiedAt),
+        ].joined(separator: "\u{0}")
+    }
+
+    private func codexResumeTrustProbeCacheDirectory(
+        environment: [String: String]
+    ) -> URL {
+        let statePath = NSString(
+            string: agentHookStatePath(
+                sessionStoreSuffix: "codex",
+                env: environment
+            )
+        ).expandingTildeInPath
+        let directory = URL(
+            fileURLWithPath: statePath,
+            isDirectory: false
+        )
+        .deletingLastPathComponent()
+        .appendingPathComponent(
+            "codex-resume-trust-probes",
+            isDirectory: true
+        )
+        return directory
+    }
+
+    private func codexModelsCachePath(
+        environment: [String: String]
+    ) -> String? {
+        let codexHome: URL
+        if let configuredHome = normalizedHookValue(environment["CODEX_HOME"]) {
+            guard configuredHome.hasPrefix("/") else { return nil }
+            codexHome = URL(
+                fileURLWithPath: configuredHome,
+                isDirectory: true
+            )
+        } else {
+            codexHome = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".codex", isDirectory: true)
+        }
+        let path = codexHome
+            .appendingPathComponent("models_cache.json", isDirectory: false)
+            .standardizedFileURL
+            .path
+        return FileManager.default.isReadableFile(atPath: path) ? path : nil
+    }
+
+    private func codexConfigReadRequest(currentDirectory: String) -> String? {
+        let messages: [[String: Any]] = [
+            [
+                "method": "initialize",
+                "id": 1,
+                "params": [
+                    "clientInfo": [
+                        "name": "cmux",
+                        "title": "cmux",
+                        "version": "1",
+                    ],
+                ],
+            ],
+            [
+                "method": "initialized",
+            ],
+            [
+                "method": "config/read",
+                "id": 2,
+                "params": [
+                    "includeLayers": false,
+                    "cwd": currentDirectory,
+                ],
+            ],
+        ]
+        var lines: [String] = []
+        for message in messages {
+            guard let data = try? JSONSerialization.data(withJSONObject: message),
+                  let line = String(data: data, encoding: .utf8) else {
+                return nil
+            }
+            lines.append(line)
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// Mirrors Codex's trust lookup for linked worktrees: project decisions may
+    /// be keyed by the main repository root rather than the checkout root. A
+    /// failed probe is distinct from a confirmed non-repository so an
+    /// invocation-only override cannot hide an authoritative root decision.
+    private func codexRepositoryDecisionRoots(
+        currentDirectory: String
+    ) -> (resolved: Bool, roots: [String]) {
+        let result = CLIProcessRunner.runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "LC_ALL=C",
+                "/usr/bin/git",
+                "-C",
+                currentDirectory,
+                "rev-parse",
+                "--path-format=absolute",
+                "--show-toplevel",
+                "--git-dir",
+                "--git-common-dir",
+            ],
+            timeout: 1
+        )
+        if result.status == 0, !result.timedOut {
+            let paths = result.stdout
+                .split(whereSeparator: \.isNewline)
+                .compactMap { normalizedHookValue(String($0)) }
+            guard paths.count == 3,
+                  paths.allSatisfy({ $0.hasPrefix("/") }) else {
+                return (false, [])
+            }
+            let checkoutURL = URL(
+                fileURLWithPath: paths[0],
+                isDirectory: true
+            ).standardizedFileURL
+            let gitURL = URL(
+                fileURLWithPath: paths[1],
+                isDirectory: true
+            ).standardizedFileURL
+            let commonURL = URL(
+                fileURLWithPath: paths[2],
+                isDirectory: true
+            ).standardizedFileURL
+
+            var roots = [checkoutURL.path]
+            let worktreesURL = gitURL.deletingLastPathComponent()
+            if worktreesURL.lastPathComponent == "worktrees",
+               worktreesURL.deletingLastPathComponent().path
+                == commonURL.path {
+                roots.append(
+                    commonURL
+                        .deletingLastPathComponent()
+                        .standardizedFileURL
+                        .path
+                )
+            }
+            return (true, Array(Set(roots)).sorted())
+        }
+
+        guard !result.timedOut,
+              result.status == 128,
+              result.stderr.contains("not a git repository"),
+              !codexRepositoryEnvironmentIsConfigured(),
+              !codexRepositoryMarkerExists(currentDirectory: currentDirectory) else {
+            return (false, [])
+        }
+        return (true, [])
+    }
+
+    private func codexRepositoryEnvironmentIsConfigured() -> Bool {
+        let environment = ProcessInfo.processInfo.environment
+        return normalizedHookValue(environment["GIT_DIR"]) != nil
+            || normalizedHookValue(environment["GIT_WORK_TREE"]) != nil
+    }
+
+    private func codexRepositoryMarkerExists(
+        currentDirectory: String
+    ) -> Bool {
+        let logicalURL = URL(
+            fileURLWithPath: currentDirectory,
+            isDirectory: true
+        ).standardizedFileURL
+        let canonicalURL = logicalURL.resolvingSymlinksInPath()
+        var startingURLs = [logicalURL]
+        if canonicalURL.path != logicalURL.path {
+            startingURLs.append(canonicalURL)
+        }
+
+        for startingURL in startingURLs {
+            var directory = startingURL
+            while true {
+                if FileManager.default.fileExists(
+                    atPath: directory
+                        .appendingPathComponent(".git", isDirectory: false)
+                        .path
+                ) {
+                    return true
+                }
+                let parent = directory.deletingLastPathComponent()
+                guard parent.path != directory.path else {
+                    break
+                }
+                directory = parent
+            }
+        }
+        return false
     }
 
     /// The cmux-owned directory holding the generated codex hook scripts.

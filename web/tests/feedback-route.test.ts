@@ -25,6 +25,9 @@ mock.module("@/app/env", () => ({
     CMUX_FEEDBACK_FROM_EMAIL: "feedback@example.test",
     CMUX_FEEDBACK_RATE_LIMIT_ID: "feedback-rate-limit-test",
     CMUX_PUSH_RATE_LIMIT_ID: "cmux-push-test",
+    // Bun module mocks persist across test files, so preserve shared preload config.
+    STRIPE_FOUNDERS_WEBHOOK_SECRET:
+      process.env.STRIPE_FOUNDERS_WEBHOOK_SECRET ?? "whsec_founders_test",
   },
 }));
 

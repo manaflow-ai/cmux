@@ -49,7 +49,7 @@ import Testing
         )
     }
 
-    @Test func codexBindingWithExistingUpdateCheckSettingReplaysUnchanged() throws {
+    @Test func codexBindingWithExistingUpdateCheckSettingKeepsExplicitValue() throws {
         let command = "'/opt/company/bin/codex' 'resume' 'session-explicit' '-c' 'check_for_update_on_startup=true'"
         let binding = SurfaceResumeBindingSnapshot(
             kind: "codex",
@@ -61,11 +61,13 @@ import Testing
 
         let startupInput = try #require(binding.startupInput)
 
-        #expect(startupInput.contains(command), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CODEX_WRAPPER_SHIM"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CUSTOM_CODEX_PATH=/opt/company/bin/codex"), "\(startupInput)")
+        #expect(startupInput.contains("check_for_update_on_startup=true"), "\(startupInput)")
         #expect(!startupInput.contains("check_for_update_on_startup=false"), "\(startupInput)")
     }
 
-    @Test func codexBindingWithShortEqualsUpdateCheckSettingReplaysUnchanged() throws {
+    @Test func codexBindingWithShortEqualsUpdateCheckSettingKeepsExplicitValue() throws {
         let command = "'/opt/company/bin/codex' 'resume' 'session-explicit-short' '-c=check_for_update_on_startup=true'"
         let binding = SurfaceResumeBindingSnapshot(
             kind: "codex",
@@ -77,7 +79,9 @@ import Testing
 
         let startupInput = try #require(binding.startupInput)
 
-        #expect(startupInput.contains(command), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CODEX_WRAPPER_SHIM"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CUSTOM_CODEX_PATH=/opt/company/bin/codex"), "\(startupInput)")
+        #expect(startupInput.contains("-c=check_for_update_on_startup=true"), "\(startupInput)")
         #expect(!startupInput.contains("check_for_update_on_startup=false"), "\(startupInput)")
     }
 

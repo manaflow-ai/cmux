@@ -1,5 +1,203 @@
 import Foundation
 
+private let codexWrapperShellShimGuardPrefix =
+    "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" || "
+
+private func renderedCodexWrapperShellExecutableToken(
+    fallingBackTo capturedExecutable: String
+) -> String {
+    let fallback = posixSingleQuoted(capturedExecutable)
+    return codexWrapperShellShimGuardPrefix
+        + "{ [ -x \(fallback) ] && printf '%s' \(fallback) || printf codex; })\""
+}
+
+private func isCodexWrapperShellExecutableToken(_ value: String) -> Bool {
+    value.hasPrefix(codexWrapperShellShimGuardPrefix)
+}
+
+private func codexCommandExecutableIndex(_ parts: [String]) -> Int? {
+    guard !parts.isEmpty else { return nil }
+    let first = (parts[0] as NSString).lastPathComponent
+    guard first == "env" else { return 0 }
+    // Only parse the macOS system env grammar. A captured custom executable
+    // named `env` may implement different options and must remain unchanged.
+    guard parts[0] == "env" || parts[0] == "/usr/bin/env" else { return 0 }
+    var index = 1
+    var parsesOptions = true
+    while index < parts.count {
+        let part = parts[index]
+        if parsesOptions {
+            if part == "--" {
+                parsesOptions = false
+                index += 1
+                continue
+            }
+            if isEnvironmentAssignment(part) {
+                // BSD env stops recognizing options at its first assignment.
+                parsesOptions = false
+                index += 1
+                continue
+            }
+            if part.hasPrefix("--") {
+                guard let consumed = environmentLongOptionLength(
+                    part,
+                    hasFollowingArgument: index + 1 < parts.count
+                ) else {
+                    return nil
+                }
+                index += consumed
+                continue
+            }
+            if part.hasPrefix("-"), part != "-" {
+                guard let consumed = environmentShortOptionLength(
+                    part,
+                    hasFollowingArgument: index + 1 < parts.count
+                ) else {
+                    return nil
+                }
+                index += consumed
+                continue
+            }
+        }
+        if isEnvironmentAssignment(part) {
+            index += 1
+            continue
+        }
+        return index
+    }
+    return nil
+}
+
+/// Whether an `env` prefix changes how its bare utility name is resolved.
+///
+/// Wrapper command substitution is evaluated by the outer shell before
+/// `/usr/bin/env` applies these options. Without a captured absolute Codex
+/// executable, routing such a command through the wrapper could therefore
+/// launch a different installation. Leave that command untouched and let
+/// `env` perform its original lookup.
+private func codexEnvironmentChangesExecutableLookup(
+    _ parts: [String],
+    executableIndex: Int
+) -> Bool {
+    guard executableIndex > 0 else { return false }
+
+    for index in 1..<executableIndex {
+        let part = parts[index]
+        if isEnvironmentAssignment(part),
+           let equals = part.firstIndex(of: "="),
+           part[..<equals] == "PATH" {
+            return true
+        }
+        switch part {
+        case "-i", "--ignore-environment", "-C", "-P", "--chdir":
+            return true
+        case "--unset":
+            if index + 1 < executableIndex, parts[index + 1] == "PATH" {
+                return true
+            }
+        case let option where option.hasPrefix("--chdir="):
+            return true
+        case "--unset=PATH":
+            return true
+        default:
+            break
+        }
+
+        guard part.hasPrefix("-"),
+              !part.hasPrefix("--"),
+              part != "-" else {
+            continue
+        }
+        let options = Array(part.dropFirst())
+        for (offset, option) in options.enumerated() {
+            switch option {
+            case "i", "C", "P":
+                return true
+            case "u":
+                let attachedValue = String(options.dropFirst(offset + 1))
+                if attachedValue == "PATH"
+                    || (
+                        attachedValue.isEmpty
+                            && index + 1 < executableIndex
+                            && parts[index + 1] == "PATH"
+                    ) {
+                    return true
+                }
+            default:
+                continue
+            }
+        }
+    }
+    return false
+}
+
+/// Number of argv elements consumed by a supported `env` long option.
+///
+/// Unknown options and split-string fail closed because their values can
+/// contain the real utility, making a later `codex` token ambiguous.
+private func environmentLongOptionLength(
+    _ value: String,
+    hasFollowingArgument: Bool
+) -> Int? {
+    switch value {
+    case "--ignore-environment", "--debug":
+        return 1
+    case "--unset", "--chdir":
+        return hasFollowingArgument ? 2 : nil
+    case let option where option.hasPrefix("--unset=")
+        || option.hasPrefix("--chdir="):
+        return 1
+    case "--null", "--split-string":
+        return nil
+    case let option where option.hasPrefix("--split-string="):
+        return nil
+    default:
+        return nil
+    }
+}
+
+/// Number of argv elements consumed by supported BSD `env` short options.
+///
+/// `-i` and `-v` may be clustered. `-C`, `-P`, and `-u` accept either an
+/// attached value or the following argv element. `-0` cannot be combined with
+/// a utility, and `-S` can inject the utility from inside its split string, so
+/// both intentionally fail closed.
+private func environmentShortOptionLength(
+    _ value: String,
+    hasFollowingArgument: Bool
+) -> Int? {
+    let options = Array(value.dropFirst())
+    guard !options.isEmpty else { return nil }
+    var index = 0
+    while index < options.count {
+        switch options[index] {
+        case "i", "v":
+            index += 1
+        case "C", "P", "u":
+            return index + 1 < options.count
+                ? 1
+                : (hasFollowingArgument ? 2 : nil)
+        case "0", "S":
+            return nil
+        default:
+            return nil
+        }
+    }
+    return 1
+}
+
+private func isEnvironmentAssignment(_ value: String) -> Bool {
+    guard let equals = value.firstIndex(of: "=") else { return false }
+    let name = value[..<equals]
+    guard let first = name.first,
+          first == "_" || first.isLetter else {
+        return false
+    }
+    return name.dropFirst().allSatisfy {
+        $0 == "_" || $0.isLetter || $0.isNumber
+    }
+}
+
 /// Builds the argument vector for an agent's resume/continue command.
 ///
 /// This is the single source of truth shared by the app-side resume builder
@@ -67,16 +265,35 @@ public struct AgentResumeArgv: Sendable, Equatable {
     /// the hooks fire. https://github.com/manaflow-ai/cmux/issues/5639
     ///
     /// The token guards on `[ -x … ]` rather than bare `${VAR:-codex}`: a
-    /// long-idle surface can hold the env var after macOS reaps the shim file,
-    /// and the executability guard degrades to bare `codex` (PATH resolution —
-    /// hooks lost but resume works), the same graceful fallback used when the
-    /// variable is unset outside cmux.
+    /// long-idle surface can hold the env var after macOS reaps the shim file.
+    /// Bare Codex launches degrade to PATH resolution. Captured absolute Codex
+    /// launches use an executable-aware variant that falls back to that exact
+    /// binary first, then PATH when both captured files moved.
     ///
     /// Like the claude token, this is POSIX command substitution that fish and
     /// csh/tcsh reject, so any command containing it must reach those shells
     /// wrapped via ``portableCodexResumeShellCommand(posixCommand:)``.
     public static let codexWrapperShellExecutableToken =
-        "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" || printf codex)\""
+        codexWrapperShellShimGuardPrefix + "printf codex)\""
+
+    /// Builds the wrapper token for a captured absolute Codex executable.
+    ///
+    /// The token prefers the live cmux shim, then the captured executable, and
+    /// finally a bare `codex` lookup when both paths have disappeared.
+    public func codexWrapperShellExecutableToken(
+        fallingBackTo capturedExecutable: String
+    ) -> String {
+        renderedCodexWrapperShellExecutableToken(
+            fallingBackTo: capturedExecutable
+        )
+    }
+
+    /// Pins a wrapper-routed resume to the exact Codex executable captured at launch.
+    ///
+    /// `cmux-codex-wrapper` validates this path and falls back to PATH resolution
+    /// when the executable moved. This lets auto-resume re-enter the wrapper
+    /// without changing which Codex installation the user launched.
+    public static let codexCustomExecutableEnvironmentKey = "CMUX_CUSTOM_CODEX_PATH"
 
     /// Per-invocation config override appended to every cmux-generated codex resume argv.
     ///
@@ -211,29 +428,70 @@ public struct AgentResumeArgv: Sendable, Equatable {
     ) -> String {
         let rendered = renderingCodexWrapperExecutable(parts: parts, quote: quote)
         let joined = rendered.joined(separator: " ")
-        guard rendered.contains(codexWrapperShellExecutableToken) else { return joined }
+        guard rendered.contains(where: isCodexWrapperShellExecutableToken) else {
+            return joined
+        }
         return portableCodexResumeShellCommand(posixCommand: joined)
     }
 
     /// Renders shell command `parts` to quoted tokens, substituting
-    /// ``codexWrapperShellExecutableToken`` for the first bare `codex` executable token.
+    /// ``codexWrapperShellExecutableToken`` for the first Codex executable token.
     ///
-    /// Mirror of ``renderingClaudeWrapperExecutable(parts:quote:)`` for codex: only
-    /// the first element equal to `codex` — a logical wrapper executable emitted
-    /// by the codex resume builder — is replaced; every other token is quoted normally.
-    /// Call only for the codex kind. https://github.com/manaflow-ai/cmux/issues/5639
+    /// A bare `codex` uses the wrapper token directly unless an `env` prefix
+    /// changes executable lookup without providing a captured identity. An
+    /// absolute executable whose basename is `codex` is routed through the same
+    /// token with ``codexCustomExecutableEnvironmentKey`` set, preserving the
+    /// exact captured installation while restoring cmux's hook injection. Every
+    /// other token is quoted normally. Call only for the codex kind.
+    /// https://github.com/manaflow-ai/cmux/issues/5639
     public static func renderingCodexWrapperExecutable(
         parts: [String],
         quote: (String) -> String
     ) -> [String] {
-        var replaced = false
-        return parts.map { part in
-            if !replaced, part == "codex" {
-                replaced = true
-                return codexWrapperShellExecutableToken
-            }
-            return quote(part)
+        guard let executableIndex = codexCommandExecutableIndex(parts) else {
+            return parts.map(quote)
         }
+        let executable = parts[executableIndex]
+        if executable == "codex",
+           codexEnvironmentChangesExecutableLookup(
+               parts,
+               executableIndex: executableIndex
+           ) {
+            return parts.map(quote)
+        }
+        let routesThroughCodexWrapper = executable == "codex"
+            || (
+                executable.hasPrefix("/")
+                && (executable as NSString).lastPathComponent == "codex"
+            )
+        var rendered: [String] = []
+        for (index, part) in parts.enumerated() {
+            let isBareCodex = part == "codex"
+            let isAbsoluteCodex = part.hasPrefix("/")
+                && (part as NSString).lastPathComponent == "codex"
+            if index == 0, part == "env", routesThroughCodexWrapper {
+                rendered.append(quote("/usr/bin/env"))
+                continue
+            }
+            if index == executableIndex, isBareCodex || isAbsoluteCodex {
+                if isAbsoluteCodex {
+                    if rendered.isEmpty {
+                        rendered.append(quote("/usr/bin/env"))
+                    }
+                    rendered.append(quote("\(codexCustomExecutableEnvironmentKey)=\(part)"))
+                }
+                rendered.append(
+                    isAbsoluteCodex
+                        ? renderedCodexWrapperShellExecutableToken(
+                            fallingBackTo: part
+                        )
+                        : codexWrapperShellExecutableToken
+                )
+            } else {
+                rendered.append(quote(part))
+            }
+        }
+        return rendered
     }
 
     /// The result of resolving a cmux wrapper launcher (the `claude-teams` / `codex-teams` / `omo`
