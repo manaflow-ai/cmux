@@ -341,6 +341,16 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "Bun.sleep(1)\n"
                 "expect(done).toBe(true)\n"
             ),
+            "asserted-case-substitution.sh": (
+                'assert "$(case "$state" in '
+                'ready) sleep 1; echo ready ;; esac)"\n'
+            ),
+            "multiline-case-assignment.sh": (
+                'case "$state" in\n'
+                'ready) DELAY=1 sleep "$DELAY" ;;\n'
+                "esac\n"
+                'assert "$ready"\n'
+            ),
         }
 
         result = self.run_checker(fixtures)
@@ -379,6 +389,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "continued-assert-substitution.sh",
                     "continued-assert-backtick.sh",
                     "regex-comment-marker-before-sleep.ts",
+                    "multiline-case-assignment.sh",
                 )
                 else 1
             )
@@ -743,6 +754,15 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "        assert finished\n"
                     "    check()\n"
                 ),
+                "nested-closure-rebound.py": (
+                    "def outer():\n"
+                    "    import time as clock\n"
+                    "    def inner():\n"
+                    "        clock.sleep(0.01)\n"
+                    "        assert finished\n"
+                    "    clock = fake_clock\n"
+                    "    inner()\n"
+                ),
             }
         )
 
@@ -872,6 +892,11 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     'rendered = f"{time.sleep(0.01)}'
                     '{self.assertTrue(done)}"\n'
                 ),
+                "multiline-assert.py": (
+                    "assert (\n"
+                    "    time.sleep(0.1) or ready\n"
+                    ")\n"
+                ),
             }
         )
 
@@ -885,6 +910,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             "default-argument.py": 1,
             "default-before-annotation.py": 1,
             "same-f-string-assertion.py": 1,
+            "multiline-assert.py": 2,
         }
         for relative_path, line in expected_lines.items():
             self.assertIn(
@@ -1190,6 +1216,16 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 ),
                 "assertion-looking-argument.sh": (
                     'echo assert "$(sleep 1)"\n'
+                ),
+                "arithmetic-sleep-identifier.sh": (
+                    "value=$((sleep + 1))\n"
+                    'assert "$ready"\n'
+                ),
+                "heredoc-arithmetic-sleep-identifier.sh": (
+                    "cat <<EOF\n"
+                    "$((sleep + 1))\n"
+                    "EOF\n"
+                    'assert "$ready"\n'
                 ),
             },
             timeout=2,
