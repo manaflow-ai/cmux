@@ -13,22 +13,55 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The submodule pinned by this branch is
-`c55514dd52d806e9aa661ee20381aa19c91c1c09`, the current
-`manaflow-ai/ghostty` `main`. The cumulative integration landed through
-https://github.com/manaflow-ai/ghostty/pull/128; the earlier stacked PRs
-https://github.com/manaflow-ai/ghostty/pull/127,
-https://github.com/manaflow-ai/ghostty/pull/123, and
-https://github.com/manaflow-ai/ghostty/pull/122 are now merged or superseded.
-The nonblocking renderer lifecycle fix landed through
-https://github.com/manaflow-ai/ghostty/pull/132 before that cumulative merge.
-The resulting main line supplies the external-frontend renderer contract used
-by cmux Browser, exact cursor state for process-separated terminal mirrors,
-mutable-default color reset semantics, nonblocking embedded lifecycle updates,
-and the product-main renderer/link fixes described below.
+`518ac28d58b188e5131b7d01e1c1b672d88b6819`, the current
+`manaflow-ai/ghostty` `main`. It retains the bounded renderer work from
+https://github.com/manaflow-ai/ghostty/pull/135,
+https://github.com/manaflow-ai/ghostty/pull/136, and
+https://github.com/manaflow-ai/ghostty/pull/139; adds the frame-slot rotation
+from https://github.com/manaflow-ai/ghostty/pull/145; and restores synchronous,
+borrowed callback userdata through
+https://github.com/manaflow-ai/ghostty/pull/146. It also includes the PTY
+cleanup fix from https://github.com/manaflow-ai/ghostty/pull/143, the wrapped
+link fix from https://github.com/manaflow-ai/ghostty/pull/134, and bounded
+Kitty graphics state from https://github.com/manaflow-ai/ghostty/pull/137.
 
 Its universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-c55514dd52d806e9aa661ee20381aa19c91c1c09-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-518ac28d58b188e5131b7d01e1c1b672d88b6819-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
+
+### Issue 8808 typing-lag rollback
+
+- Commits:
+  - `3a43d5edc` (test: require serial frame slot rotation)
+  - `fcafac572` (fix: rotate serial frame leases)
+  - `7541eb3db` (revert the owned-userdata rewrite)
+  - `f4b337d1d` (test: require synchronous teardown during redraw action)
+  - `b47e5cac2` (fix: complete surface teardown before free returns)
+  - `1336910cc` (test: cover cross-thread free during redraw action)
+  - `ff36ae8ac` (fix: serialize teardown with cross-thread actions)
+- Files:
+  - `include/ghostty.h`
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+  - `src/renderer/frame_lease.zig`
+- Summary:
+  - https://github.com/manaflow-ai/cmux/issues/8808 was bisected to the cmux
+    Ghostty bump at `ea51d55aa8`. The lag was specific to cmux's fork-only
+    external renderer: serial frame production repeatedly reused IOSurface slot
+    zero, allowing Core Animation to delay visible recomposition of what looked
+    like the same surface object. Upstream Ghostty does not use this external
+    frame-lease path.
+  - Rotates the exact-slot lease scan after every successful acquisition, so
+    slow or serial input presents successive IOSurface identities.
+  - Reverts the broad owned-userdata API introduced while diagnosing the lag.
+    Callback userdata is borrowed again, surface teardown completes before
+    `ghostty_surface_free` returns, and a small action-lifetime guard prevents a
+    cross-thread redraw callback from racing teardown.
+  - Retains bounded renderer mailbox drains, redraw delivery tickets, and
+    surface action retention. Reverting those would restore the starvation and
+    teardown bugs covered by PRs 135, 136, and 139.
+  - This pin is the nightly unblock. It does not change the upstream Ghostty
+    base or Zig version; the next clean update performs that upgrade together.
 
 ### Nonblocking renderer lifecycle state
 
