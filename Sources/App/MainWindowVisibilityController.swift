@@ -172,7 +172,7 @@ final class MainWindowVisibilityController {
             suppressed: suppressed,
             availability: availability
         )
-        dependencies.recordBreadcrumb("mainWindow.focus", breadcrumbData)
+        dependencies.recordBreadcrumb("mainWindow.focus.attempt", breadcrumbData)
 
         guard availability.isAvailable else {
             var unavailableData = breadcrumbData

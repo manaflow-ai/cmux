@@ -893,7 +893,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return .init(
                     isAvailable: true,
                     windowId: context.windowId,
-                    workspaceId: context.tabManager.selectedTabId ?? context.tabManager.tabs.first?.id
+                    workspaceId: context.tabManager.selectedTabId
                 )
             },
             setActiveMainWindow: { [weak self] window in

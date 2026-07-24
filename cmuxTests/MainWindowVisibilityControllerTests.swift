@@ -88,7 +88,7 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
         let windowId = UUID()
         let workspaceId = UUID()
         var activeCount = 0
-        var operationCount = 0
+        var mutationCount = 0
         var activationCount = 0
         var breadcrumbs: [String: [String: Any]] = [:]
 
@@ -109,18 +109,18 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
                     breadcrumbs[message] = data
                 },
                 windowOperations: makeWindowOperations(
-                    isMiniaturized: { _ in operationCount += 1; return false },
-                    deminiaturize: { _ in operationCount += 1 },
-                    makeKeyAndOrderFront: { _ in operationCount += 1 },
-                    orderFront: { _ in operationCount += 1 },
-                    softShow: { _ in operationCount += 1 }
+                    isMiniaturized: { _ in false },
+                    deminiaturize: { _ in mutationCount += 1 },
+                    makeKeyAndOrderFront: { _ in mutationCount += 1 },
+                    orderFront: { _ in mutationCount += 1 },
+                    softShow: { _ in mutationCount += 1 }
                 )
             )
         )
 
         XCTAssertFalse(controller.focus(window, reason: .focusMainWindow))
         XCTAssertEqual(activeCount, 0)
-        XCTAssertEqual(operationCount, 0)
+        XCTAssertEqual(mutationCount, 0)
         XCTAssertEqual(activationCount, 0)
         XCTAssertEqual(
             breadcrumbs["mainWindow.focus.unavailable"]?["reason"] as? String,
@@ -138,6 +138,11 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
             breadcrumbs["mainWindow.focus.unavailable"]?["contextAvailable"] as? Bool,
             false
         )
+        XCTAssertEqual(
+            breadcrumbs["mainWindow.focus.attempt"]?["contextAvailable"] as? Bool,
+            false
+        )
+        XCTAssertNil(breadcrumbs["mainWindow.focus"])
     }
 
     func testFocusUnavailableWindowDoesNotUseSuppressedActiveContextShortcut() {
