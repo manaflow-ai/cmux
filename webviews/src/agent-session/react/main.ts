@@ -254,7 +254,37 @@ function useInitialData(dispatch: React.Dispatch<Action>) {
 }
 
 function useNativeEvents(dispatch: React.Dispatch<Action>) {
-  useEffect(() => subscribeToAgentEvents((event) => dispatch({ type: "event", event })), [dispatch]);
+  useEffect(
+    () =>
+      subscribeToAgentEvents((event) => {
+        if (event.type === "composer.setText") {
+          // Native-authored text must not echo back through composer.changed.
+          markComposerTextFromNative(event.text);
+        }
+        dispatch({ type: "event", event });
+      }),
+    [dispatch],
+  );
+}
+
+// Composer change notifications to the native host (multiplayer share).
+// Deduped so native-pushed setText (which round-trips through the editor's
+// onTextChange) does not echo back as a local change.
+let lastNotifiedComposerText: string | null = null;
+
+function markComposerTextFromNative(text: string) {
+  lastNotifiedComposerText = text;
+}
+
+function notifyComposerTextChanged(text: string) {
+  if (text === lastNotifiedComposerText) {
+    return;
+  }
+  lastNotifiedComposerText = text;
+  void callNative("composer.changed", { text }).catch(() => {
+    // The native side may not handle composer.changed (older host builds);
+    // co-editing simply stays host->web only in that case.
+  });
 }
 
 function useAutoStart(state: SessionState, dispatch: React.Dispatch<Action>) {
@@ -607,7 +637,10 @@ function SessionSurface({
     onAutocompleteChange: updateComposerAutocomplete,
     onAutocompleteKeyDown: handleComposerAutocompleteKey,
     onPlanModeShortcut: togglePlanMode,
-    onTextChange: (input: string) => dispatch({ type: "setInput", input }),
+    onTextChange: (input: string) => {
+      dispatch({ type: "setInput", input });
+      notifyComposerTextChanged(input);
+    },
     onSubmit: submit,
     onTriggerToken: (token: "@" | "$") => {
       setMenuKind(token === "@" ? "mention" : "skill");

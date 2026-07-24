@@ -139,6 +139,12 @@ export type AgentEvent =
       rateLimitRows: AgentSessionRateLimitRow[];
     }
   | {
+      /** Authoritative composer text pushed by the native host (multiplayer share). */
+      type: "composer.setText";
+      text: string;
+      caret?: { start: number; end: number };
+    }
+  | {
       type: "provider.started";
       sessionId: string;
       providerId: ProviderId;

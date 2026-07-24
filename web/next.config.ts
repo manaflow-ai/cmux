@@ -135,7 +135,11 @@ const nextConfig: NextConfig = {
       ...rule,
       headers: [
         ...rule.headers,
-        { key: "X-Robots-Tag", value: "noindex, follow" },
+        ...(rule.headers.some(
+          (header) => header.key.toLowerCase() === "x-robots-tag",
+        )
+          ? []
+          : [{ key: "X-Robots-Tag", value: "noindex, follow" }]),
       ],
     }));
   },

@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# cmux workspace sharing — Cloudflare Worker + Durable Objects.
+#
+# One ShareSession Durable Object per share code fans a host Mac's workspace
+# streams (render-grid terminal frames, layout, cursors, chat) out to guest
+# browsers at cmux.com/share/<code>, and relays guest input back to the host.
+# The DO stores session-lifetime state (participants, roles, chat), then keeps
+# a ten-minute ended-code tombstone before its cleanup alarm deletes storage.
+#
+# Auth: the web API mints short-TTL Ed25519 JWTs bound to a share code
+# (services/share/token.ts, mirroring the iroh relay token system); this
+# worker verifies them offline with the public key only. Provision once as a
+# secret (survives deploys; [vars] would overwrite dashboard values):
+#   wrangler secret put SHARE_JWT_PUBLIC_KEY   # SPKI PEM
+#
+# Never hand-edit past [[migrations]] tags; append a new one.
+
+name = "cmux-share"
+main = "src/index.ts"
+compatibility_date = "2026-05-01"
+
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+# Browser bearer tokens ride the query string. Keep explicit redacted Worker
+# logs, but never let automatic invocation logs capture request URLs.
+invocation_logs = false
+
+[[durable_objects.bindings]]
+name = "SHARE_SESSION"
+class_name = "ShareSession"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ShareSession"]
+
+# Production custom domain on the cmux.dev zone (same Cloudflare account).
+[[routes]]
+pattern = "share.cmux.dev"
+custom_domain = true

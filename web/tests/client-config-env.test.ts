@@ -32,6 +32,13 @@ const requiredRelayProductionEnv = {
   CMUX_RELAY_TOKEN_RATE_LIMIT_ID: "relay-token-rule",
 };
 
+const requiredShareProductionEnv = {
+  CMUX_SHARE_JWT_PRIVATE_KEY_PEM:
+    `-----BEGIN PRIVATE KEY-----\n${"D".repeat(64)}\n-----END PRIVATE KEY-----`,
+  CMUX_SHARE_SESSION_CREATE_RATE_LIMIT_ID: "share-session-create-rule",
+  CMUX_SHARE_TOKEN_RATE_LIMIT_ID: "share-token-rule",
+};
+
 describe("client config env validation", () => {
   test("allows local builds with VERCEL set but no deployment environment", () => {
     const result = importEnv({
@@ -64,9 +71,32 @@ describe("client config env validation", () => {
       CMUX_ANALYTICS_RATE_LIMIT_ID: "analytics-rule",
       ...requiredIrohProductionEnv,
       ...requiredRelayProductionEnv,
+      ...requiredShareProductionEnv,
     });
 
     expect(result.exitCode).toBe(0);
+  });
+
+  test("requires both share limiters when production sharing is enabled", () => {
+    const result = importEnv({
+      ...requiredEnv,
+      ...requiredIrohProductionEnv,
+      ...requiredRelayProductionEnv,
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
+      CMUX_ANALYTICS_RATE_LIMIT_ID: "analytics-rule",
+      CMUX_SHARE_JWT_PRIVATE_KEY_PEM:
+        requiredShareProductionEnv.CMUX_SHARE_JWT_PRIVATE_KEY_PEM,
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain(
+      "CMUX_SHARE_SESSION_CREATE_RATE_LIMIT_ID is required",
+    );
+    expect(result.stderr).toContain(
+      "CMUX_SHARE_TOKEN_RATE_LIMIT_ID is required",
+    );
   });
 
   test("allows credential-free docs channel deployments", () => {
@@ -127,17 +157,28 @@ describe("client config env validation", () => {
     expect(result.exitCode).toBe(0);
   });
 
-  test("requires the Iroh limiter id in explicit Vercel production deployments", () => {
+  test("allows production without the optional Iroh limiter id", () => {
     const result = importEnv({
       ...requiredEnv,
       VERCEL: "1",
       VERCEL_ENV: "production",
       CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
       CMUX_ANALYTICS_RATE_LIMIT_ID: "analytics-rule",
+      CMUX_IROH_LAN_DISCOVERY_SECRET_B64:
+        requiredIrohProductionEnv.CMUX_IROH_LAN_DISCOVERY_SECRET_B64,
+      CMUX_IROH_ACCOUNT_SUBJECT_SECRET_B64:
+        requiredIrohProductionEnv.CMUX_IROH_ACCOUNT_SUBJECT_SECRET_B64,
+      CMUX_IROH_GRANT_SIGNING_KEY_P8:
+        requiredIrohProductionEnv.CMUX_IROH_GRANT_SIGNING_KEY_P8,
+      CMUX_IROH_GRANT_SIGNING_KID:
+        requiredIrohProductionEnv.CMUX_IROH_GRANT_SIGNING_KID,
+      CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON:
+        requiredIrohProductionEnv.CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON,
+      ...requiredRelayProductionEnv,
     });
 
-    expect(result.exitCode).not.toBe(0);
-    expect(result.stderr).toContain("CMUX_IROH_RATE_LIMIT_ID is required");
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).not.toContain("CMUX_IROH_RATE_LIMIT_ID is required");
   });
 
   test("requires the complete Iroh trust-broker configuration in production", () => {

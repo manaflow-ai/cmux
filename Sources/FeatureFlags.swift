@@ -48,6 +48,11 @@ final class CmuxFeatureFlags {
     private static let sidebarWorkspaceAgentSpinnerDefault = false
     private static let workspaceTodoControlsDefault = false
     private static let appKitSidebarListDefault = true
+    #if DEBUG
+    private static let multiplayerShareUIDefault = true
+    #else
+    private static let multiplayerShareUIDefault = false
+    #endif
 
     private static let overrideKeyPrefix = "cmux.flags.override."
 
@@ -170,6 +175,24 @@ final class CmuxFeatureFlags {
                 ),
                 defaultWhenUnavailable: CmuxFeatureFlags.appKitSidebarListDefault
             ),
+
+            // FLAG(key: multiplayer-share-ui-enabled-release, owner: lawrencecchen,
+            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+            // Shows the Share Workspace and Stop Sharing command-palette
+            // entrypoints. Release builds keep multiplayer sharing hidden until
+            // the remote flag enables it; DEBUG keeps it visible for dogfood.
+            CmuxFeatureFlagDefinition(
+                key: "multiplayer-share-ui-enabled-release",
+                title: String(
+                    localized: "featureFlags.multiplayerShare.title",
+                    defaultValue: "Multiplayer workspace sharing"
+                ),
+                flagDescription: String(
+                    localized: "featureFlags.multiplayerShare.description",
+                    defaultValue: "Shows command palette actions for sharing the focused workspace."
+                ),
+                defaultWhenUnavailable: CmuxFeatureFlags.multiplayerShareUIDefault
+            ),
         ]
     }()
 
@@ -199,6 +222,10 @@ final class CmuxFeatureFlags {
 
     var isAppKitSidebarListEnabled: Bool {
         effectiveValue(for: Self.allFlags[6])
+    }
+
+    var isMultiplayerShareUIEnabled: Bool {
+        effectiveValue(for: Self.allFlags[7])
     }
 
     @ObservationIgnored

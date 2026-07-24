@@ -71,6 +71,19 @@ struct PostHogAnalyticsPropertiesTests {
     }
 
     @MainActor
+    @Test("multiplayer share UI feature flag follows the build default")
+    func multiplayerShareUIFeatureFlagFollowsBuildDefault() throws {
+        let flag = try #require(CmuxFeatureFlags.allFlags.first {
+            $0.key == "multiplayer-share-ui-enabled-release"
+        })
+        #if DEBUG
+        #expect(flag.defaultWhenUnavailable)
+        #else
+        #expect(!flag.defaultWhenUnavailable)
+        #endif
+    }
+
+    @MainActor
     @Test("remote-controlled flags reject new local override writes")
     func remoteControlledFlagsRejectNewLocalOverrideWrites() throws {
         let flag = try #require(CmuxFeatureFlags.allFlags.first {

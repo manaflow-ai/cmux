@@ -4755,5 +4755,36 @@
         "action": "Manage plan"
       }
     }
+  },
+  "share": {
+    "connectingTitle": "Connecting…",
+    "connectingBody": "Reaching the shared workspace session.",
+    "pendingTitle": "Waiting for approval",
+    "pendingBody": "The host has been asked to let you in. Keep this tab open.",
+    "deniedTitle": "Access denied",
+    "deniedBody": "The host declined your request for this session.",
+    "kickedTitle": "Removed from session",
+    "kickedBody": "The host removed you from this shared workspace.",
+    "unavailableTitle": "Session unavailable",
+    "unavailableBody": "This share link is invalid or the session has ended.",
+    "endedTitle": "Session ended",
+    "endedBody": "The host stopped sharing. This link is no longer valid.",
+    "endedHostGoneBody": "The host disconnected and did not return. This link is no longer valid.",
+    "sharedBy": "shared by {email}",
+    "reconnecting": "reconnecting…",
+    "hostDisconnected": "host disconnected",
+    "roleEditor": "can edit",
+    "roleViewer": "view only",
+    "participants": "People",
+    "hostBadge": "host",
+    "chatYou": "you",
+    "chatTitle": "Session chat",
+    "chatCollapse": "Collapse chat",
+    "chatEmpty": "No messages yet. Press / over the workspace to chat at your cursor.",
+    "chatPlaceholder": "Message…",
+    "bubblePlaceholder": "Say something…",
+    "emptyWorkspace": "This workspace has no panes.",
+    "browserPanePlaceholder": "Browser pane (sharing coming soon)",
+    "panePlaceholder": "This pane type isn't shareable yet"
   }
 }
