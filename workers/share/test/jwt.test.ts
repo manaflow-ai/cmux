@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import { describe, expect, it } from "bun:test";
 
 import {
@@ -79,7 +81,12 @@ describe("claim validation (pure)", () => {
     ["wrong issuer", claims({ iss: "other" })],
     ["wrong audience", claims({ aud: "cmux-relay" })],
     ["expired", claims({ exp: Math.floor(NOW / 1000) - 1 })],
+    ["non-finite expiry", claims({ exp: Number.POSITIVE_INFINITY })],
     ["missing sub", claims({ sub: "" })],
+    ["oversized sub", claims({ sub: "u".repeat(300) })],
+    ["newline email", claims({ email: "a@example.com\nforged@example.com" })],
+    ["C1 control in email", claims({ email: "a@example.com\u0085forged@example.com" })],
+    ["C1 control in sub", claims({ sub: "u-1\u009fhidden" })],
     ["code mismatch", claims({ code: "other" })],
   ])("rejects %s", (_label, payload) => {
     expect(validateClaims(payload, "code123", NOW)).toBeNull();

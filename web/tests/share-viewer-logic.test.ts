@@ -1,9 +1,27 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 
+import type { ShareClient } from "../app/[locale]/share/[code]/share-connection";
+import type {
+  LayoutNode,
+  RenderGridFrame,
+} from "../app/[locale]/share/[code]/share-protocol";
 import { TerminalGridModel } from "../app/[locale]/share/[code]/terminal-grid";
 import { keyEventToBytes } from "../app/[locale]/share/[code]/terminal-keys";
-import { spliceDiff } from "../app/[locale]/share/[code]/compose-ops";
-import type { RenderGridFrame } from "../app/[locale]/share/[code]/share-protocol";
+
+mock.module("next-intl", () => ({
+  useTranslations: () => (key: string) => key,
+}));
+
+const { LayoutView, paneKeyOf, paneRefFromKey } = await import(
+  "../app/[locale]/share/[code]/share-panes"
+);
+const {
+  hasEditableShortcutFocus,
+  installKeydownListener,
+  shouldOpenBubbleShortcut,
+} = await import("../app/[locale]/share/[code]/share-viewer");
 
 function fullFrame(overrides: Partial<RenderGridFrame> = {}): RenderGridFrame {
   return {
@@ -38,7 +56,9 @@ describe("TerminalGridModel", () => {
 
   test("rejects deltas before any full frame", () => {
     const model = new TerminalGridModel();
-    expect(model.apply(fullFrame({ full: false, cleared_rows: [0], row_spans: [] }))).toBe(false);
+    expect(
+      model.apply(fullFrame({ full: false, cleared_rows: [0], row_spans: [] })),
+    ).toBe(false);
   });
 
   test("delta clears rows then repaints the spans it carries", () => {
@@ -57,31 +77,231 @@ describe("TerminalGridModel", () => {
     expect(model.rowSpans(1)[0]?.text).toBe("changed");
   });
 
-  test("rejects wrong formats and geometry-changing deltas", () => {
+  test("a frame without a cursor clears the previously painted cursor", () => {
+    const model = new TerminalGridModel();
+    expect(model.apply(fullFrame())).toBe(true);
+    expect(model.cursor?.column).toBe(7);
+
+    expect(
+      model.apply(fullFrame({ full: false, cursor: undefined, row_spans: [] })),
+    ).toBe(true);
+    expect(model.cursor).toBeNull();
+  });
+
+  test("rejects wrong formats, geometry-changing deltas, and oversized allocations", () => {
     const model = new TerminalGridModel();
     expect(model.apply(fullFrame({ format: "cmux.render-grid.v2" }))).toBe(false);
+    expect(() => model.apply({ ...fullFrame(), rows: 1_000_000 })).not.toThrow();
+    expect(model.apply({ ...fullFrame(), rows: 1_000_000 })).toBe(false);
+    expect(model.apply(null)).toBe(false);
     model.apply(fullFrame());
     expect(model.apply(fullFrame({ full: false, columns: 12 }))).toBe(false);
   });
+
+  test("rejects oversized grid styles, palettes, and cleared-row collections", () => {
+    const model = new TerminalGridModel();
+    expect(
+      model.apply({
+        ...fullFrame(),
+        styles: Array.from({ length: 4_097 }, (_, id) => ({ id })),
+      }),
+    ).toBe(false);
+    expect(
+      model.apply({
+        ...fullFrame(),
+        terminal_theme: {
+          background: "#000000",
+          foreground: "#ffffff",
+          cursor: "#ffffff",
+          palette: Array.from({ length: 257 }, () => "#000000"),
+        },
+      }),
+    ).toBe(false);
+    expect(
+      model.apply({
+        ...fullFrame(),
+        cleared_rows: Array.from({ length: 501 }, () => 0),
+      }),
+    ).toBe(false);
+    expect(model.generation).toBe(0);
+  });
 });
 
-describe("spliceDiff", () => {
-  test("insert, delete, replace, and noop", () => {
-    expect(spliceDiff("abc", "abc")).toBeNull();
-    expect(spliceDiff("abc", "abXc")).toEqual({ p: 2, d: 0, i: "X" });
-    expect(spliceDiff("abXc", "abc")).toEqual({ p: 2, d: 1, i: "" });
-    expect(spliceDiff("hello", "help")).toEqual({ p: 3, d: 2, i: "p" });
-    expect(spliceDiff("", "hi")).toEqual({ p: 0, d: 0, i: "hi" });
+describe("terminal-only split renderer", () => {
+  test("round-trips opaque workspace and pane ids for cursor targeting", () => {
+    const key = paneKeyOf("workspace with spaces", "pane with spaces");
+    expect(paneRefFromKey(key)).toEqual([
+      "workspace with spaces",
+      "pane with spaces",
+    ]);
+    expect(paneRefFromKey("malformed")).toBeNull();
   });
 
-  test("handles multi-codepoint characters as single units", () => {
-    expect(spliceDiff("a🙂b", "ab")).toEqual({ p: 1, d: 1, i: "" });
+  test("preserves split ratios and renders non-terminal leaves as stable placeholders", () => {
+    const layout: LayoutNode = {
+      kind: "split",
+      axis: "h",
+      ratio: 0.25,
+      a: { kind: "pane", pane: "terminal:1", content: "terminal" },
+      b: {
+        kind: "split",
+        axis: "v",
+        ratio: 0.6,
+        a: { kind: "pane", pane: "browser:1", content: "browser" },
+        b: {
+          kind: "split",
+          axis: "h",
+          ratio: 0.5,
+          a: { kind: "pane", pane: "agent:1", content: "agent" },
+          b: { kind: "pane", pane: "other:1", content: "other" },
+        },
+      },
+    };
+    const client = {} as ShareClient;
+
+    const html = renderToStaticMarkup(
+      createElement(LayoutView, {
+        client,
+        ws: "workspace:1",
+        node: layout,
+        canType: false,
+      }),
+    );
+
+    expect(html).toContain("flex-basis:25%");
+    expect(html).toContain("flex-basis:75%");
+    expect(html).toContain('data-share-placeholder="browser"');
+    expect(html).toContain('data-share-placeholder="agent"');
+    expect(html).toContain('data-share-placeholder="other"');
+    expect(html.match(/data-share-placeholder=/g)).toHaveLength(3);
+    expect(html.match(/data-share-pane=/g)).toHaveLength(1);
+    expect(html.match(/<canvas/g)).toHaveLength(1);
+    expect(html).not.toContain("<textarea");
+    expect(html).not.toContain('role="application"');
+  });
+
+  test("viewer terminal overlay is non-editable", () => {
+    const html = renderToStaticMarkup(
+      createElement(LayoutView, {
+        client: {} as ShareClient,
+        ws: "workspace:1",
+        node: { kind: "pane", pane: "terminal:1", content: "terminal" },
+        canType: false,
+      }),
+    );
+
+    expect(html).toContain('role="presentation"');
+    expect(html).toContain('tabindex="-1"');
+    expect(html).not.toContain('role="textbox"');
+  });
+});
+
+describe("bubble shortcut", () => {
+  function focusElement({
+    tagName = "DIV",
+    attributes = {},
+    disabled = false,
+    readOnly = false,
+    parentElement = null,
+  }: {
+    tagName?: string;
+    attributes?: Record<string, string>;
+    disabled?: boolean;
+    readOnly?: boolean;
+    parentElement?: Element | null;
+  } = {}): Element {
+    return {
+      tagName,
+      disabled,
+      readOnly,
+      parentElement,
+      getAttribute(name: string) {
+        return attributes[name] ?? null;
+      },
+    } as unknown as Element;
+  }
+
+  test("opens only for slash with a terminal pointer, no draft, and no editable focus", () => {
+    const eligible = {
+      key: "/",
+      hasEditableFocus: false,
+      hasPointer: true,
+      hasDraft: false,
+    };
+    expect(shouldOpenBubbleShortcut(eligible)).toBe(true);
+    expect(shouldOpenBubbleShortcut({ ...eligible, key: "a" })).toBe(false);
+    expect(
+      shouldOpenBubbleShortcut({ ...eligible, hasEditableFocus: true }),
+    ).toBe(false);
+    expect(shouldOpenBubbleShortcut({ ...eligible, hasPointer: false })).toBe(false);
+    expect(shouldOpenBubbleShortcut({ ...eligible, hasDraft: true })).toBe(false);
+  });
+
+  test("recognizes terminal textboxes and common editable focus targets", () => {
+    expect(
+      hasEditableShortcutFocus(
+        focusElement({ attributes: { role: "textbox" } }),
+      ),
+    ).toBe(true);
+    expect(hasEditableShortcutFocus(focusElement({ tagName: "INPUT" }))).toBe(true);
+    expect(hasEditableShortcutFocus(focusElement({ tagName: "TEXTAREA" }))).toBe(true);
+    expect(
+      hasEditableShortcutFocus(
+        focusElement({ attributes: { contenteditable: "true" } }),
+      ),
+    ).toBe(true);
+    expect(
+      hasEditableShortcutFocus(
+        focusElement({
+          parentElement: focusElement({ attributes: { role: "textbox" } }),
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      hasEditableShortcutFocus(
+        focusElement({ tagName: "INPUT", readOnly: true }),
+      ),
+    ).toBe(false);
+    expect(hasEditableShortcutFocus(focusElement())).toBe(false);
+  });
+
+  test("removes the exact window listener during callback-ref cleanup", () => {
+    let installed: ((event: KeyboardEvent) => void) | null = null;
+    const target = {
+      addEventListener(type: "keydown", listener: (event: KeyboardEvent) => void) {
+        expect(type).toBe("keydown");
+        installed = listener;
+      },
+      removeEventListener(type: "keydown", listener: (event: KeyboardEvent) => void) {
+        expect(type).toBe("keydown");
+        if (installed === listener) installed = null;
+      },
+    };
+    const listener = () => {};
+
+    const cleanup = installKeydownListener(target, listener);
+
+    expect(installed).toBe(listener);
+    cleanup();
+    expect(installed).toBeNull();
   });
 });
 
 describe("keyEventToBytes", () => {
-  const key = (k: string, mods: Partial<Record<"ctrlKey" | "altKey" | "metaKey" | "shiftKey", boolean>> = {}) =>
-    keyEventToBytes({ key: k, ctrlKey: false, altKey: false, metaKey: false, shiftKey: false, ...mods });
+  const key = (
+    value: string,
+    mods: Partial<
+      Record<"ctrlKey" | "altKey" | "metaKey" | "shiftKey", boolean>
+    > = {},
+  ) =>
+    keyEventToBytes({
+      key: value,
+      ctrlKey: false,
+      altKey: false,
+      metaKey: false,
+      shiftKey: false,
+      ...mods,
+    });
 
   test("printables, enter, backspace, arrows", () => {
     expect(key("a")).toBe("a");

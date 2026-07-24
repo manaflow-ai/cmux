@@ -31,6 +31,7 @@ struct WorkspaceShareSessionLifecycleTests {
         #expect(await states.next() == .connecting(attempt: 1))
         await lifecycle.connectionOpened()
         #expect(await states.next() == .connected)
+        await lifecycle.sessionSynchronized()
 
         await lifecycle.connectionFailed(.transport)
         #expect(
@@ -38,6 +39,88 @@ struct WorkspaceShareSessionLifecycleTests {
                 == .reconnecting(attempt: 1, delay: .milliseconds(625))
         )
         #expect(await clock.nextRequestedSleep() == .milliseconds(625))
+        await lifecycle.stop()
+    }
+
+    @Test
+    func `An open socket does not reset reconnect escalation`() async {
+        let clock = ManualClock()
+        let lifecycle = WorkspaceShareSessionLifecycle(
+            clockSleep: { duration in
+                try await clock.sleep(for: duration)
+            },
+            randomUnitInterval: { 0 }
+        )
+        var states = (await lifecycle.states()).makeAsyncIterator()
+
+        #expect(await states.next() == .idle)
+        await lifecycle.start()
+        #expect(await states.next() == .connecting(attempt: 0))
+        await lifecycle.connectionOpened()
+        #expect(await states.next() == .connected)
+
+        for expected in [
+            (attempt: 1, delay: Duration.milliseconds(500)),
+            (attempt: 2, delay: Duration.seconds(1)),
+            (attempt: 3, delay: Duration.seconds(2)),
+        ] {
+            await lifecycle.connectionFailed(
+                .webSocketClosed(code: 4008, reason: nil)
+            )
+            #expect(
+                await states.next()
+                    == .reconnecting(
+                        attempt: expected.attempt,
+                        delay: expected.delay
+                    )
+            )
+            #expect(await clock.nextRequestedSleep() == expected.delay)
+            await clock.advanceNext()
+            #expect(
+                await states.next()
+                    == .connecting(attempt: expected.attempt)
+            )
+            await lifecycle.connectionOpened()
+            #expect(await states.next() == .connected)
+        }
+
+        await lifecycle.stop()
+    }
+
+    @Test
+    func `Accepted session snapshot resets reconnect escalation`() async {
+        let clock = ManualClock()
+        let lifecycle = WorkspaceShareSessionLifecycle(
+            clockSleep: { duration in
+                try await clock.sleep(for: duration)
+            },
+            randomUnitInterval: { 0 }
+        )
+        var states = (await lifecycle.states()).makeAsyncIterator()
+
+        #expect(await states.next() == .idle)
+        await lifecycle.start()
+        #expect(await states.next() == .connecting(attempt: 0))
+        await lifecycle.connectionOpened()
+        #expect(await states.next() == .connected)
+        await lifecycle.connectionFailed(.transport)
+        #expect(
+            await states.next()
+                == .reconnecting(attempt: 1, delay: .milliseconds(500))
+        )
+        #expect(await clock.nextRequestedSleep() == .milliseconds(500))
+        await clock.advanceNext()
+        #expect(await states.next() == .connecting(attempt: 1))
+        await lifecycle.connectionOpened()
+        #expect(await states.next() == .connected)
+
+        await lifecycle.sessionSynchronized()
+        await lifecycle.connectionFailed(.transport)
+        #expect(
+            await states.next()
+                == .reconnecting(attempt: 1, delay: .milliseconds(500))
+        )
+        #expect(await clock.nextRequestedSleep() == .milliseconds(500))
         await lifecycle.stop()
     }
 
@@ -98,7 +181,7 @@ struct WorkspaceShareSessionLifecycleTests {
 
     @Test
     func `Pending send budget rejects count and byte overflow until sends drain`() {
-        var budget = WorkspaceSharePendingSendBudget(
+        let budget = WorkspaceSharePendingSendBudget(
             maximumMessages: 2,
             maximumBytes: 10
         )
