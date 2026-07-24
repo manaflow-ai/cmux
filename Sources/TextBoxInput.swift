@@ -3449,6 +3449,9 @@ final class TextBoxInputTextView: NSTextView {
         }
         isHandlingDidChangeText = true
         defer { isHandlingDidChangeText = false }
+        if undoManager?.isUndoing == true || undoManager?.isRedoing == true {
+            reconcileInlineAttachmentRenderingAfterUndoRedo()
+        }
         super.didChangeText()
         flushAutomaticAttachmentFileCleanup()
         refreshMentionCompletions()
@@ -4012,13 +4015,11 @@ final class TextBoxInputTextView: NSTextView {
         if flags.contains(.shift) {
             guard undoManager?.canRedo == true else { return true }
             undoManager?.redo()
-            synchronizeAfterUndoRedo()
             return true
         }
 
         guard undoManager?.canUndo == true else { return true }
         undoManager?.undo()
-        synchronizeAfterUndoRedo()
         return true
     }
 
@@ -4732,15 +4733,11 @@ final class TextBoxInputTextView: NSTextView {
         onSubmit()
     }
 
-    private func synchronizeAfterUndoRedo() {
+    private func reconcileInlineAttachmentRenderingAfterUndoRedo() {
         refreshInlineAttachmentCells(
             font: font ?? GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize),
             foregroundColor: textColor ?? .labelColor
         )
-        normalizeTextBaselineOffsets()
-        recenterSingleLineTextContainer()
-        didChangeText()
-        refreshMentionCompletions()
         needsDisplay = true
         enclosingScrollView?.needsDisplay = true
         window?.viewsNeedDisplay = true
