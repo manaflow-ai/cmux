@@ -29,9 +29,9 @@ import Testing
                 FakeWorkspaceChangesGitRunner.result(baseOID),
             ["rev-parse", "--verify", "HEAD^{commit}"]:
                 FakeWorkspaceChangesGitRunner.result(baseOID),
-            ["diff", "-M", "--name-status", "-z", "HEAD", "--"]:
+            ["diff", "-M", "--name-status", "-z", baseOID, "--"]:
                 FakeWorkspaceChangesGitRunner.result("M\0large.bin\0"),
-            ["diff", "-M", "--numstat", "-z", "HEAD", "--"]:
+            ["diff", "-M", "--numstat", "-z", baseOID, "--"]:
                 FakeWorkspaceChangesGitRunner.result("-\t-\tlarge.bin\0"),
             ["ls-files", "--others", "--exclude-standard", "-z"]:
                 FakeWorkspaceChangesGitRunner.result(),

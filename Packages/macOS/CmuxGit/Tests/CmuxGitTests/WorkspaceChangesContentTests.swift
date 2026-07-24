@@ -122,7 +122,7 @@ import Testing
         try Data("before\n".utf8).write(to: root.appendingPathComponent("changed.txt"))
         let diffArguments = [
             "--literal-pathspecs", "diff", "-M", "--unified=3",
-            "HEAD", "--", "changed.txt",
+            "abc", "--", "changed.txt",
         ]
         let runner = FakeWorkspaceChangesGitRunner(
             results: [
@@ -138,9 +138,9 @@ import Testing
                     FakeWorkspaceChangesGitRunner.result("abc\n"),
                 ["rev-parse", "--verify", "HEAD^{commit}"]:
                     FakeWorkspaceChangesGitRunner.result("abc\n"),
-                ["diff", "-M", "--name-status", "-z", "HEAD", "--"]:
+                ["diff", "-M", "--name-status", "-z", "abc", "--"]:
                     FakeWorkspaceChangesGitRunner.result("M\0changed.txt\0"),
-                ["diff", "-M", "--numstat", "-z", "HEAD", "--"]:
+                ["diff", "-M", "--numstat", "-z", "abc", "--"]:
                     FakeWorkspaceChangesGitRunner.result("1\t1\tchanged.txt\0"),
                 ["ls-files", "--others", "--exclude-standard", "-z"]:
                     FakeWorkspaceChangesGitRunner.result(),
@@ -303,8 +303,10 @@ import Testing
             ["rev-parse", "--verify", "--quiet", "origin/master^{commit}"]: FakeWorkspaceChangesGitRunner.result(exitCode: 1),
             ["rev-parse", "--verify", "--quiet", "main^{commit}"]: FakeWorkspaceChangesGitRunner.result("abc\n"),
             ["rev-parse", "--verify", "HEAD^{commit}"]: FakeWorkspaceChangesGitRunner.result("abc\n"),
-            ["diff", "-M", "--name-status", "-z", "HEAD", "--"]: FakeWorkspaceChangesGitRunner.result("M\0large.bin\0"),
-            ["diff", "-M", "--numstat", "-z", "HEAD", "--"]: FakeWorkspaceChangesGitRunner.result("1\t1\tlarge.bin\0"),
+            ["diff", "-M", "--name-status", "-z", "abc", "--"]:
+                FakeWorkspaceChangesGitRunner.result("M\0large.bin\0"),
+            ["diff", "-M", "--numstat", "-z", "abc", "--"]:
+                FakeWorkspaceChangesGitRunner.result("1\t1\tlarge.bin\0"),
             ["ls-files", "--others", "--exclude-standard", "-z"]: FakeWorkspaceChangesGitRunner.result(),
             ["--literal-pathspecs", "rev-parse", "abc:large.bin"]:
                 FakeWorkspaceChangesGitRunner.result("blob-abc\n"),

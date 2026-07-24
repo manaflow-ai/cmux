@@ -50,6 +50,35 @@ import Testing
         )
     }
 
+    @Test func routineLegacyListReloadKeepsTheSummaryRequestTTLRespecting() throws {
+        var policy = WorkspaceChangesSummaryRefreshSchedulePolicy()
+
+        let startsDebounce = policy.schedule(scope: .fullSnapshot, force: false)
+        let pendingRequest = policy.beginFetchAfterDebounce()
+        let request = try #require(pendingRequest)
+
+        #expect(startsDebounce)
+        #expect(request.scope == .fullSnapshot)
+        #expect(!request.force)
+    }
+
+    @Test func explicitUserRefreshStillForcesTheSummaryRequest() throws {
+        var policy = WorkspaceChangesSummaryRefreshSchedulePolicy()
+
+        let startsDebounce = policy.schedule(scope: .fullSnapshot, force: false)
+        let restartsDebounce = policy.schedule(
+            scope: .workspaceDelta(["workspace-a"]),
+            force: true
+        )
+        let pendingRequest = policy.beginFetchAfterDebounce()
+        let request = try #require(pendingRequest)
+
+        #expect(startsDebounce)
+        #expect(restartsDebounce)
+        #expect(request.scope == .fullSnapshot)
+        #expect(request.force)
+    }
+
     @Test func midFlightDeltasDoNotRestartDebounceAndDrainInOneTrailingPass() throws {
         var policy = WorkspaceChangesSummaryRefreshSchedulePolicy()
         let startsDebounce = policy.schedule(

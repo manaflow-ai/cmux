@@ -58,4 +58,15 @@ struct WorkspaceChangesSummaryFetchPolicy: Sendable {
             freshUntilByWorkspaceID: freshUntilByWorkspaceID
         )
     }
+
+    func freshUntilAfterSuccessfulFetch(
+        workspaceIDs: [String],
+        fetchedAt: Date
+    ) -> [String: Date] {
+        let expiry = fetchedAt.addingTimeInterval(reuseWindow)
+        return workspaceIDs.reduce(into: [:]) { expiries, workspaceID in
+            guard !workspaceID.isEmpty else { return }
+            expiries[workspaceID] = expiry
+        }
+    }
 }

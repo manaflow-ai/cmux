@@ -5,7 +5,7 @@ import Testing
 @Suite struct WorkspaceChangesResourceBoundsTests {
     @Test func boundedSnapshotCommandPropagatesPartialResultAsTruncated() async throws {
         let root = "/tmp/cmux-truncated-snapshot"
-        let statusArguments = ["diff", "-M", "--name-status", "-z", "HEAD", "--"]
+        let statusArguments = ["diff", "-M", "--name-status", "-z", "abc", "--"]
         let runner = FakeWorkspaceChangesGitRunner(results: [
             ["rev-parse", "--show-toplevel"]: FakeWorkspaceChangesGitRunner.result("\(root)\n"),
             ["symbolic-ref", "--quiet", "--short", "HEAD"]: FakeWorkspaceChangesGitRunner.result("main\n"),
@@ -24,7 +24,7 @@ import Testing
                 exitCode: 15,
                 standardOutputWasTruncated: true
             ),
-            ["diff", "-M", "--numstat", "-z", "HEAD", "--"]:
+            ["diff", "-M", "--numstat", "-z", "abc", "--"]:
                 FakeWorkspaceChangesGitRunner.result("4\t2\tFile.swift\0"),
             ["ls-files", "--others", "--exclude-standard", "-z"]:
                 FakeWorkspaceChangesGitRunner.result(),
@@ -71,6 +71,24 @@ import Testing
 
         #expect(result.standardOutputWasTruncated)
         #expect(clock.now - start < .seconds(4))
+    }
+
+    @Test func cappedReadDoesNotWaitForGraceAfterCooperativeChildExits() throws {
+        let runner = SystemWorkspaceChangesGitRunner(
+            executableURL: URL(fileURLWithPath: "/usr/bin/yes"),
+            boundedCommandWallTimeLimit: 10
+        )
+        let clock = ContinuousClock()
+        let start = clock.now
+
+        let result = try runner.run(
+            arguments: [],
+            in: FileManager.default.temporaryDirectory,
+            maximumOutputByteCount: 1
+        )
+
+        #expect(result.standardOutputWasTruncated)
+        #expect(clock.now - start < .seconds(2))
     }
 
     @Test func hardDeadlineKillsTermIgnoringProcessGroupWithinGrace() throws {
@@ -123,9 +141,9 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         try Data("one\ntwo\n".utf8).write(to: root.appendingPathComponent("partial.txt"))
         let runner = FakeWorkspaceChangesGitRunner(results: [
-            ["diff", "-M", "--name-status", "-z", "HEAD", "--"]:
+            ["diff", "-M", "--name-status", "-z", "abc", "--"]:
                 FakeWorkspaceChangesGitRunner.result(),
-            ["diff", "-M", "--numstat", "-z", "HEAD", "--"]:
+            ["diff", "-M", "--numstat", "-z", "abc", "--"]:
                 FakeWorkspaceChangesGitRunner.result(),
             ["ls-files", "--others", "--exclude-standard", "-z"]:
                 FakeWorkspaceChangesGitRunner.result("partial.txt\0"),
@@ -141,7 +159,7 @@ import Testing
             repoRoot: root.path,
             branch: "main",
             baseRef: nil,
-            diffBase: "HEAD",
+            diffBase: "abc",
             diffBaseCommitOID: "abc"
         )
 

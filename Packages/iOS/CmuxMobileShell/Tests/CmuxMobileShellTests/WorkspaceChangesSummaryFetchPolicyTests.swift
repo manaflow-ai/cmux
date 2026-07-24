@@ -72,4 +72,19 @@ import Testing
         #expect(plan.freshUntilByWorkspaceID.count == 2)
         #expect(plan.earliestFreshExpiry == now.addingTimeInterval(5))
     }
+
+    @Test func successfulFetchesArmEveryRequestedWorkspaceAtTheReuseBoundary() {
+        let policy = WorkspaceChangesSummaryFetchPolicy(reuseWindow: 15)
+        let fetchedAt = Date(timeIntervalSince1970: 1_000)
+
+        let expiries = policy.freshUntilAfterSuccessfulFetch(
+            workspaceIDs: ["workspace-a", "workspace-b", "workspace-a", ""],
+            fetchedAt: fetchedAt
+        )
+
+        #expect(expiries == [
+            "workspace-a": fetchedAt.addingTimeInterval(15),
+            "workspace-b": fetchedAt.addingTimeInterval(15),
+        ])
+    }
 }

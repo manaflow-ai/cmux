@@ -69,7 +69,7 @@ struct WorkspaceChangesSnapshotLoader: Sendable {
         let resolvedDiffBase: String
         let diffBaseCommitOID: String
         if let verifiedBaseCommitOID {
-            resolvedDiffBase = diffBase
+            resolvedDiffBase = verifiedBaseCommitOID
             diffBaseCommitOID = verifiedBaseCommitOID
         } else if diffBase == "HEAD" {
             resolvedDiffBase = Self.emptyTreeOID

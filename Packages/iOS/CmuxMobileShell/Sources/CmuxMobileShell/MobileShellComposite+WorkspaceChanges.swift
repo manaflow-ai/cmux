@@ -112,6 +112,13 @@ extension MobileShellComposite {
                     workspaceChangesSummaryTrailingExpiryByWorkspaceID
                         .removeValue(forKey: workspaceID)
                 }
+                armWorkspaceChangesSummaryTrailingRefresh(
+                    freshUntilByWorkspaceID: workspaceChangesSummaryFetchPolicy
+                        .freshUntilAfterSuccessfulFetch(
+                            workspaceIDs: batch,
+                            fetchedAt: now
+                        )
+                )
             } catch {
                 MobileDebugLog.anchormux("changes.summary error \(error)")
                 guard !Task.isCancelled, remoteClient === client else { return }

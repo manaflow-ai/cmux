@@ -32,6 +32,7 @@ final class WorkspaceChangesGitProcess: @unchecked Sendable {
     private var didEscalate = false
     private var timedOut = false
     private var terminationStartedAt: DispatchTime?
+    private var reapedStatus: (exitCode: Int32, wasSignaled: Bool)?
     private var deadlineTimer: (any DispatchSourceTimer)?
     private var killTimer: (any DispatchSourceTimer)?
     private var exitSource: (any DispatchSourceProcess)?
@@ -238,7 +239,7 @@ final class WorkspaceChangesGitProcess: @unchecked Sendable {
             forceKill()
             _ = exitSignal.wait(timeout: .now() + Self.exitMargin)
         }
-        let status = reapExitedLeader()
+        let status = stateLock.withLock { reapedStatus } ?? reapExitedLeader()
         let outcome = stateLock.withLock {
             (
                 timedOut: timedOut,
@@ -274,6 +275,21 @@ final class WorkspaceChangesGitProcess: @unchecked Sendable {
             stateLock.withLock {
                 didExit = true
             }
+            let status = reapExitedLeader()
+            let processGroupIsGone = isProcessGroupGone()
+            let shouldEndEscalationWait = stateLock.withLock {
+                reapedStatus = status
+                guard processGroupIsGone, didStartTermination, !didEscalate else {
+                    return false
+                }
+                didEscalate = true
+                killTimer?.cancel()
+                killTimer = nil
+                return true
+            }
+            if shouldEndEscalationWait {
+                escalationSignal.signal()
+            }
             exitSignal.signal()
         }
         exitSource = source
@@ -293,6 +309,7 @@ final class WorkspaceChangesGitProcess: @unchecked Sendable {
 
     private func beginTermination(isDeadline: Bool) {
         let shouldStart = stateLock.withLock { () -> Bool in
+            guard !didExit else { return false }
             if isDeadline {
                 timedOut = true
             }
@@ -325,6 +342,11 @@ final class WorkspaceChangesGitProcess: @unchecked Sendable {
         guard shouldSignal else { return }
         _ = Darwin.kill(-processIdentifier, SIGKILL)
         escalationSignal.signal()
+    }
+
+    private func isProcessGroupGone() -> Bool {
+        guard Darwin.kill(-processIdentifier, 0) == -1 else { return false }
+        return errno == ESRCH
     }
 
     private func closeReadEnd() {

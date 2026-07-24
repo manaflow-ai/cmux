@@ -8051,7 +8051,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceListRefreshTask = Task { @MainActor [weak self] in
             defer { self?.workspaceListRefreshTask = nil }
             await self?.reloadWorkspaceListFromMac()
-            self?.scheduleWorkspaceChangesSummaryRefresh(force: true)
+            self?.scheduleWorkspaceChangesSummaryRefresh()
         }
     }
 
