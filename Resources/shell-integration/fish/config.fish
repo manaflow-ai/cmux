@@ -287,6 +287,7 @@ if test "$_cmux_integration_enabled" != 0
         if set -q TMPDIR; and test -n "$TMPDIR"
             set tmp_root "$TMPDIR"
         end
+        set tmp_root (string replace -r '/+$' '' -- "$tmp_root")
         set -l surface_component "$fish_pid"
         if set -q CMUX_SURFACE_ID; and test -n "$CMUX_SURFACE_ID"
             set surface_component "$CMUX_SURFACE_ID"
