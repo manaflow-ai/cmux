@@ -1779,10 +1779,12 @@ impl Mux {
             affected.insert(*surface);
             false
         });
+        let mut restored_surfaces = HashSet::new();
         for (surface, policy) in &mut sizing.policies {
             let changed = if policy.exclusive_client == Some(client) {
                 policy.exclusive_client = None;
                 policy.excluded_clients.clear();
+                restored_surfaces.insert(*surface);
                 true
             } else {
                 policy.excluded_clients.remove(&client)
@@ -1794,11 +1796,22 @@ impl Mux {
         sizing.policies.retain(|_, policy| {
             policy.exclusive_client.is_some() || !policy.excluded_clients.is_empty()
         });
+        let mut changed_clients = HashSet::new();
+        for surface in restored_surfaces {
+            if let Some(clients) = attached_clients.get(&surface) {
+                changed_clients.extend(clients.iter().copied());
+            }
+            if let Some(reporters) = sizing.surfaces.get(&surface) {
+                changed_clients.extend(reporters.keys().copied());
+            }
+        }
+        changed_clients.remove(&client);
         let effective = sizing.effective_sizes(affected, &attached_clients);
         for (surface, (cols, rows)) in effective {
             let _ = self.resize_surface(surface, cols, rows);
         }
         drop(sizing);
+        self.emit_client_sizing_changes(changed_clients);
     }
 
     pub fn client_surface_size(&self, id: SurfaceId, client: u64) -> Option<(u16, u16)> {
