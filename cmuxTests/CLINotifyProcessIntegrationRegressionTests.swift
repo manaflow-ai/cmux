@@ -618,13 +618,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(newStart.timedOut, newStart.stderr)
         XCTAssertEqual(newStart.status, 0, newStart.stderr)
         let newStartCommands = Array(context.state.commands.dropFirst(newStartCommandIndex))
-        let replacementClear = try XCTUnwrap(newStartCommands.compactMap { command -> [String: Any]? in
-            guard let payload = jsonObject(command),
-                  payload["method"] as? String == "surface.resume.clear" else {
-                return nil
-            }
-            return payload["params"] as? [String: Any]
-        }.first)
+        let replacementClear = try XCTUnwrap(
+            newStartCommands.compactMap { command -> [String: Any]? in
+                guard let payload = jsonObject(command),
+                      payload["method"] as? String == "surface.resume.clear" else {
+                    return nil
+                }
+                return payload["params"] as? [String: Any]
+            }.first,
+            "Expected replacement SessionStart to clear the prior resume binding, saw \(newStartCommands)"
+        )
         XCTAssertNil(
             replacementClear["checkpoint_id"],
             "The replacement SessionStart must clear the prior session's agent-hook binding."
