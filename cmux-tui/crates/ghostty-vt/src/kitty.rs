@@ -11,6 +11,7 @@ use crate::terminal::Terminal;
 use crate::{Error, Result, check};
 
 pub(crate) const MAX_KITTY_IMAGE_BYTES: usize = 10_000_000;
+const MAX_KITTY_INFLIGHT_BYTES: usize = (MAX_KITTY_IMAGE_BYTES * 4 + 2) / 3 + 256 * 1024;
 const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
 
 #[cfg(test)]
@@ -24,6 +25,197 @@ fn record_snapshot_image_visit() {
 
 #[cfg(not(test))]
 fn record_snapshot_image_visit() {}
+
+/// Bounded copy of a Kitty direct transmission that libghostty is still
+/// assembling. A fresh attach terminal must consume this exact prefix before
+/// it can understand later continuation chunks from the live byte stream.
+#[derive(Default)]
+pub(crate) struct KittyInFlightTracker {
+    scan: KittyStreamScan,
+    prefix: Vec<u8>,
+    loading: bool,
+    overflowed: bool,
+}
+
+impl KittyInFlightTracker {
+    pub(crate) fn write(&mut self, data: &[u8]) {
+        for &byte in data {
+            let state = std::mem::take(&mut self.scan);
+            self.scan = match state {
+                KittyStreamScan::Ground => match byte {
+                    0x1b => KittyStreamScan::Escape,
+                    0x9f => KittyStreamScan::ApcType(KittyApcIntroducer::C1),
+                    _ => KittyStreamScan::Ground,
+                },
+                KittyStreamScan::Escape => match byte {
+                    b'_' => KittyStreamScan::ApcType(KittyApcIntroducer::Esc),
+                    b'c' => {
+                        self.clear_loading();
+                        KittyStreamScan::Ground
+                    }
+                    0x1b => KittyStreamScan::Escape,
+                    _ => KittyStreamScan::Ground,
+                },
+                KittyStreamScan::ApcType(introducer) => match byte {
+                    b'G' => KittyStreamScan::Kitty(KittyCommand::new(introducer)),
+                    0x1b => KittyStreamScan::OtherApc { saw_escape: true },
+                    0x9c => KittyStreamScan::Ground,
+                    _ => KittyStreamScan::OtherApc { saw_escape: false },
+                },
+                KittyStreamScan::Kitty(mut command) => {
+                    command.push(byte);
+                    if byte == 0x9c {
+                        self.finish_command(command);
+                        KittyStreamScan::Ground
+                    } else if command.saw_escape && byte == b'\\' {
+                        self.finish_command(command);
+                        KittyStreamScan::Ground
+                    } else {
+                        command.saw_escape = byte == 0x1b;
+                        KittyStreamScan::Kitty(command)
+                    }
+                }
+                KittyStreamScan::OtherApc { saw_escape } => {
+                    if byte == 0x9c || (saw_escape && byte == b'\\') {
+                        KittyStreamScan::Ground
+                    } else {
+                        KittyStreamScan::OtherApc { saw_escape: byte == 0x1b }
+                    }
+                }
+            };
+        }
+    }
+
+    pub(crate) fn replay_prefix(&self, max_bytes: usize) -> Vec<u8> {
+        if self.overflowed {
+            return Vec::new();
+        }
+        let partial = match &self.scan {
+            KittyStreamScan::Escape => &b"\x1b"[..],
+            KittyStreamScan::ApcType(KittyApcIntroducer::Esc) => &b"\x1b_"[..],
+            KittyStreamScan::ApcType(KittyApcIntroducer::C1) => &b"\x9f"[..],
+            KittyStreamScan::Kitty(command) if !command.overflowed => &command.bytes,
+            _ => &[],
+        };
+        let prefix = self.loading.then_some(self.prefix.as_slice()).unwrap_or_default();
+        let Some(total) = prefix.len().checked_add(partial.len()) else {
+            return Vec::new();
+        };
+        if total > max_bytes {
+            return Vec::new();
+        }
+        let mut replay = Vec::with_capacity(total);
+        replay.extend_from_slice(prefix);
+        replay.extend_from_slice(partial);
+        replay
+    }
+
+    fn finish_command(&mut self, command: KittyCommand) {
+        let Some(more) = kitty_transmission_more(&command.bytes) else {
+            return;
+        };
+        if more {
+            if !self.loading {
+                self.prefix.clear();
+                self.overflowed = false;
+            }
+            self.loading = true;
+            if self.overflowed || command.overflowed {
+                self.prefix.clear();
+                self.overflowed = true;
+                return;
+            }
+            let Some(total) = self.prefix.len().checked_add(command.bytes.len()) else {
+                self.prefix.clear();
+                self.overflowed = true;
+                return;
+            };
+            if total > MAX_KITTY_INFLIGHT_BYTES {
+                self.prefix.clear();
+                self.overflowed = true;
+                return;
+            }
+            self.prefix.extend_from_slice(&command.bytes);
+        } else {
+            self.clear_loading();
+        }
+    }
+
+    fn clear_loading(&mut self) {
+        self.prefix.clear();
+        self.loading = false;
+        self.overflowed = false;
+    }
+}
+
+#[derive(Default)]
+enum KittyStreamScan {
+    #[default]
+    Ground,
+    Escape,
+    ApcType(KittyApcIntroducer),
+    Kitty(KittyCommand),
+    OtherApc {
+        saw_escape: bool,
+    },
+}
+
+enum KittyApcIntroducer {
+    Esc,
+    C1,
+}
+
+struct KittyCommand {
+    bytes: Vec<u8>,
+    saw_escape: bool,
+    overflowed: bool,
+}
+
+impl KittyCommand {
+    fn new(introducer: KittyApcIntroducer) -> Self {
+        let bytes = match introducer {
+            KittyApcIntroducer::Esc => b"\x1b_G".to_vec(),
+            KittyApcIntroducer::C1 => b"\x9fG".to_vec(),
+        };
+        Self { bytes, saw_escape: false, overflowed: false }
+    }
+
+    fn push(&mut self, byte: u8) {
+        if self.bytes.len() < MAX_KITTY_INFLIGHT_BYTES {
+            self.bytes.push(byte);
+        } else {
+            self.overflowed = true;
+        }
+    }
+}
+
+fn kitty_transmission_more(command: &[u8]) -> Option<bool> {
+    let header_start = if command.starts_with(b"\x1b_G") {
+        3
+    } else if command.starts_with(b"\x9fG") {
+        2
+    } else {
+        return None;
+    };
+    let header_end = command[header_start..].iter().position(|byte| *byte == b';')? + header_start;
+    let mut action = b't';
+    let mut direct = true;
+    let mut more = false;
+    for parameter in command[header_start..header_end].split(|byte| *byte == b',') {
+        let Some(separator) = parameter.iter().position(|byte| *byte == b'=') else {
+            continue;
+        };
+        let key = &parameter[..separator];
+        let value = &parameter[separator + 1..];
+        match key {
+            b"a" => action = *value.first()?,
+            b"t" => direct = value == b"d",
+            b"m" => more = value != b"0",
+            _ => {}
+        }
+    }
+    matches!(action, b't' | b'T').then_some(more && direct)
+}
 
 /// Pixel format stored in an owned Kitty graphics snapshot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -564,6 +756,51 @@ fn png_header_within_limits(encoded: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inflight_tracker_replays_completed_and_partial_chunks() {
+        let first = b"\x1b_Ga=t,t=d,f=24,i=92,s=1,v=2,m=1;AAAA\x1b\\";
+        let partial = b"\x1b_Gm=0;AA";
+        let mut tracker = KittyInFlightTracker::default();
+
+        for bytes in first.chunks(3) {
+            tracker.write(bytes);
+        }
+        for bytes in partial.chunks(2) {
+            tracker.write(bytes);
+        }
+
+        let mut expected = first.to_vec();
+        expected.extend_from_slice(partial);
+        assert_eq!(tracker.replay_prefix(usize::MAX), expected);
+    }
+
+    #[test]
+    fn inflight_tracker_clears_only_for_a_final_direct_transmission() {
+        let first = b"\x1b_Ga=T,t=d,f=24,i=92,s=1,v=2,m=1;AAAA\x1b\\";
+        let placement = b"\x1b_Ga=p,i=92,p=1,c=1,r=1\x1b\\";
+        let final_chunk = b"\x1b_Gm=0;AAAA\x1b\\";
+        let mut tracker = KittyInFlightTracker::default();
+
+        tracker.write(first);
+        tracker.write(placement);
+        assert_eq!(tracker.replay_prefix(usize::MAX), first);
+
+        tracker.write(final_chunk);
+        assert!(tracker.replay_prefix(usize::MAX).is_empty());
+    }
+
+    #[test]
+    fn inflight_tracker_handles_c1_apc_and_terminal_reset() {
+        let first = b"\x9fGa=t,t=d,f=24,i=92,s=1,v=2,m=1;AAAA\x9c";
+        let mut tracker = KittyInFlightTracker::default();
+
+        tracker.write(first);
+        assert_eq!(tracker.replay_prefix(usize::MAX), first);
+
+        tracker.write(b"\x1bc");
+        assert!(tracker.replay_prefix(usize::MAX).is_empty());
+    }
 
     #[test]
     fn snapshot_enumerates_each_stored_image_once() {

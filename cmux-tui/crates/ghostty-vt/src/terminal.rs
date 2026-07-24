@@ -5,7 +5,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use base64::Engine as _;
 use ghostty_vt_sys as sys;
 
-use crate::kitty::{self, KittyGraphicsSnapshot, KittyImageAlias, MAX_KITTY_IMAGE_BYTES};
+use crate::kitty::{
+    self, KittyGraphicsSnapshot, KittyImageAlias, KittyInFlightTracker, MAX_KITTY_IMAGE_BYTES,
+};
 use crate::render::{Cell, CursorShape, read_grid_ref_cell, terminal_palette};
 use crate::{Result, check};
 
@@ -242,6 +244,7 @@ pub struct Terminal {
     instance_id: u64,
     mouse_mode_revision: u64,
     mouse_mode_scan: MouseModeScan,
+    kitty_inflight: KittyInFlightTracker,
     // Heap-pinned so the userdata pointer stays valid for the terminal's
     // lifetime.
     callbacks: Box<Callbacks>,
@@ -859,6 +862,7 @@ impl Terminal {
             instance_id: NEXT_TERMINAL_ID.fetch_add(1, Ordering::Relaxed),
             mouse_mode_revision: 0,
             mouse_mode_scan: MouseModeScan::default(),
+            kitty_inflight: KittyInFlightTracker::default(),
             callbacks: Box::new(callbacks),
             cursor_override: CursorOverrideTracker::default(),
             palette_override: Box::default(),
@@ -907,6 +911,7 @@ impl Terminal {
         }
         self.cursor_override.write(data);
         self.palette_override.write(data);
+        self.kitty_inflight.write(data);
         unsafe { sys::ghostty_terminal_vt_write(self.raw, data.as_ptr(), data.len()) }
     }
 
@@ -1386,14 +1391,18 @@ impl Terminal {
     /// back to a terminal reset so callers can still attach and receive live
     /// output instead of entering a permanent overflow loop.
     pub fn vt_replay_bounded(&mut self, max_bytes: usize) -> Result<VtReplay> {
+        let graphics_budget = max_bytes.saturating_div(2);
+        let inflight = self.kitty_inflight.replay_prefix(graphics_budget);
         let graphics = kitty_replay_bounded(
             &self.kitty_graphics_snapshot()?,
-            max_bytes.saturating_div(2),
+            graphics_budget.saturating_sub(inflight.len()),
             self.cell_pixel_size(),
         );
-        let text_budget = max_bytes.saturating_sub(graphics.bytes.len());
+        let text_budget =
+            max_bytes.saturating_sub(graphics.bytes.len().saturating_add(inflight.len()));
         let mut bytes = self.vt_replay_text_bounded(text_budget)?;
         bytes.extend_from_slice(&graphics.bytes);
+        bytes.extend_from_slice(&inflight);
         Ok(VtReplay { bytes, kitty_image_aliases: graphics.aliases })
     }
 
@@ -1484,6 +1493,7 @@ impl Terminal {
         }
         let graphics = kitty_replay(&self.kitty_graphics_snapshot()?, self.cell_pixel_size());
         bytes.extend_from_slice(&graphics.bytes);
+        bytes.extend_from_slice(&self.kitty_inflight.replay_prefix(usize::MAX));
         Ok(VtReplay { bytes, kitty_image_aliases: graphics.aliases })
     }
 
