@@ -214,7 +214,17 @@ pub enum AttachFrame {
 
 const ATTACH_STREAM_CAPACITY: usize = 256;
 const ATTACH_STREAM_MAX_BYTES: usize = 16 * 1024 * 1024;
-pub(crate) const VT_REPLAY_MAX_BYTES: usize = 8 * 1024 * 1024;
+// Preserve every valid upload prefix plus enough recent text while fitting
+// both the raw attach queue and its 32 MiB base64-encoded transport.
+const VT_REPLAY_TEXT_HEADROOM_BYTES: usize = 2 * 1024 * 1024;
+pub(crate) const VT_REPLAY_MAX_BYTES: usize =
+    ghostty_vt::KITTY_INFLIGHT_REPLAY_MAX_BYTES + VT_REPLAY_TEXT_HEADROOM_BYTES;
+const VT_REPLAY_FRAME_METADATA_HEADROOM_BYTES: usize = 64 * 1024;
+const VT_REPLAY_ENCODED_TRANSPORT_MAX_BYTES: usize = 32 * 1024 * 1024;
+const _: () = assert!(
+    VT_REPLAY_MAX_BYTES + VT_REPLAY_FRAME_METADATA_HEADROOM_BYTES <= ATTACH_STREAM_MAX_BYTES
+);
+const _: () = assert!(VT_REPLAY_MAX_BYTES.div_ceil(3) * 4 < VT_REPLAY_ENCODED_TRANSPORT_MAX_BYTES);
 
 pub struct AttachFrameReceiver {
     receiver: Receiver<AttachFrame>,
@@ -1782,14 +1792,6 @@ impl PtySurface {
                 )),
             };
         }
-        drop(master);
-        *geometry = next;
-        #[cfg(test)]
-        self.run_geometry_test_hook(if refresh_attach_colors {
-            PtyGeometryTestStep::ResizeCommitBoundary
-        } else {
-            PtyGeometryTestStep::CellPixelCommitBoundary
-        });
         let has_attach_taps = {
             let mut taps = self.taps.lock().unwrap();
             taps.retain(|tap| !tap.lifecycle.is_canceled());
@@ -1798,10 +1800,48 @@ impl PtySurface {
         let replay = if has_attach_taps {
             #[cfg(test)]
             self.vt_replay_builds.fetch_add(1, Ordering::AcqRel);
-            Some(term.vt_replay_bounded(VT_REPLAY_MAX_BYTES).unwrap_or_default())
+            match term.vt_replay_bounded(VT_REPLAY_MAX_BYTES) {
+                Ok(replay) => Some(replay),
+                Err(error) => {
+                    let terminal_rollback = term.resize(
+                        previous.cols,
+                        previous.rows,
+                        u32::from(previous.cell_width),
+                        u32::from(previous.cell_height),
+                    );
+                    let master_rollback = master.resize(previous.pty_size());
+                    return match (terminal_rollback, master_rollback) {
+                        (Ok(()), Ok(())) => Err(anyhow::anyhow!(
+                            "could not build attach replay after resizing PTY surface to {}x{} at \
+                             {}x{} px per cell: {error}; terminal and PTY geometry rolled back",
+                            next.cols,
+                            next.rows,
+                            next.cell_width,
+                            next.cell_height
+                        )),
+                        (terminal, master) => Err(anyhow::anyhow!(
+                            "could not build attach replay after resizing PTY surface to {}x{} at \
+                             {}x{} px per cell: {error}; Ghostty rollback: {terminal:?}; PTY master \
+                             rollback: {master:?}",
+                            next.cols,
+                            next.rows,
+                            next.cell_width,
+                            next.cell_height
+                        )),
+                    };
+                }
+            }
         } else {
             None
         };
+        drop(master);
+        *geometry = next;
+        #[cfg(test)]
+        self.run_geometry_test_hook(if refresh_attach_colors {
+            PtyGeometryTestStep::ResizeCommitBoundary
+        } else {
+            PtyGeometryTestStep::CellPixelCommitBoundary
+        });
         let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
         let _ = self.build_frame_locked(&mut term, generation, false);
         if let Some(replay) = replay {
@@ -2178,6 +2218,7 @@ mod tests {
 
     #[test]
     fn resize_replay_preserves_a_valid_large_inflight_kitty_upload() {
+        const OLD_VT_REPLAY_MAX_BYTES: usize = 8 * 1024 * 1024;
         const IMAGE_WIDTH: usize = 2_048;
         const IMAGE_HEIGHT: usize = 1_024;
         const IMAGE_ID: u32 = 196;
@@ -2192,9 +2233,10 @@ mod tests {
         .into_bytes();
         let final_chunk = format!("\x1b_Gm=0,q=2;{}\x1b\\", final_payload.1).into_bytes();
         assert!(
-            first_chunk.len() > VT_REPLAY_MAX_BYTES,
-            "fixture must exceed the old {VT_REPLAY_MAX_BYTES}-byte resize replay budget"
+            first_chunk.len() > OLD_VT_REPLAY_MAX_BYTES,
+            "fixture must exceed the old {OLD_VT_REPLAY_MAX_BYTES}-byte resize replay budget"
         );
+        assert!(first_chunk.len() <= ghostty_vt::KITTY_INFLIGHT_REPLAY_MAX_BYTES);
 
         let mux = Mux::new_for_test("large-inflight-resize", SurfaceOptions::default());
         let surface =
@@ -2236,6 +2278,55 @@ mod tests {
                 .len(),
             pixels.len()
         );
+    }
+
+    #[test]
+    fn resize_replay_budget_covers_inflight_state_and_transport_limits() {
+        assert_eq!(ghostty_vt::KITTY_INFLIGHT_REPLAY_MAX_BYTES, 13_595_478);
+        assert_eq!(VT_REPLAY_TEXT_HEADROOM_BYTES, 2_097_152);
+        assert_eq!(VT_REPLAY_MAX_BYTES, 15_692_630);
+        assert_eq!(ATTACH_STREAM_MAX_BYTES - VT_REPLAY_MAX_BYTES, 1_084_586);
+        assert_eq!(VT_REPLAY_MAX_BYTES.div_ceil(3) * 4, 20_923_508);
+        assert!(
+            VT_REPLAY_MAX_BYTES + VT_REPLAY_FRAME_METADATA_HEADROOM_BYTES
+                <= ATTACH_STREAM_MAX_BYTES
+        );
+        assert!(VT_REPLAY_MAX_BYTES.div_ceil(3) * 4 < VT_REPLAY_ENCODED_TRANSPORT_MAX_BYTES);
+    }
+
+    #[test]
+    fn resize_replay_failure_rolls_back_terminal_and_pty_geometry() {
+        let mux = Mux::new_for_test("failed-resize-replay", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let attach = surface.attach_stream().unwrap();
+        let pty = surface.as_pty().unwrap();
+        let mut oversized = b"\x1b_Ga=t,t=d,f=24,i=197,s=1,v=1,m=1,q=2;".to_vec();
+        oversized.resize(ghostty_vt::KITTY_INFLIGHT_REPLAY_MAX_BYTES + 1, b'A');
+        oversized.extend_from_slice(b"\x1b\\");
+        {
+            let mut terminal = pty.term.lock().unwrap();
+            terminal.vt_write(&oversized);
+            assert_eq!(
+                terminal.vt_replay_bounded(VT_REPLAY_MAX_BYTES),
+                Err(ghostty_vt::Error::OutOfSpace)
+            );
+        }
+
+        let error = surface.resize(100, 30).unwrap_err();
+
+        assert!(error.to_string().contains("terminal and PTY geometry rolled back"), "{error:#}");
+        assert_eq!(surface.size(), (80, 24));
+        {
+            let terminal = pty.term.lock().unwrap();
+            assert_eq!((terminal.cols(), terminal.rows()), (80, 24));
+        }
+        let master = surface.test_master_size();
+        assert_eq!(
+            (master.cols, master.rows, master.pixel_width, master.pixel_height),
+            (80, 24, 640, 384)
+        );
+        assert!(matches!(attach.stream.try_recv(), Err(TryRecvError::Empty)));
     }
 
     #[test]

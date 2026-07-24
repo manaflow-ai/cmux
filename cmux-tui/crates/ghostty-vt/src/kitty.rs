@@ -11,7 +11,8 @@ use crate::terminal::Terminal;
 use crate::{Error, Result, check};
 
 pub(crate) const MAX_KITTY_IMAGE_BYTES: usize = 10_000_000;
-const MAX_KITTY_INFLIGHT_BYTES: usize = (MAX_KITTY_IMAGE_BYTES * 4 + 2) / 3 + 256 * 1024;
+/// Maximum retained byte prefix for a valid incomplete direct Kitty upload.
+pub const KITTY_INFLIGHT_REPLAY_MAX_BYTES: usize = (MAX_KITTY_IMAGE_BYTES * 4 + 2) / 3 + 256 * 1024;
 const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
 
 #[cfg(test)]
@@ -151,7 +152,7 @@ impl KittyInFlightTracker {
                 self.overflowed = true;
                 return;
             };
-            if total > MAX_KITTY_INFLIGHT_BYTES {
+            if total > KITTY_INFLIGHT_REPLAY_MAX_BYTES {
                 self.prefix.clear();
                 self.overflowed = true;
                 return;
@@ -230,7 +231,7 @@ impl KittyCommand {
     }
 
     fn push(&mut self, byte: u8) {
-        if self.bytes.len() < MAX_KITTY_INFLIGHT_BYTES {
+        if self.bytes.len() < KITTY_INFLIGHT_REPLAY_MAX_BYTES {
             self.bytes.push(byte);
         } else {
             self.overflowed = true;
