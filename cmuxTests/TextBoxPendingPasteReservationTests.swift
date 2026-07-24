@@ -78,6 +78,28 @@ struct TextBoxPendingPasteReservationTests {
         #expect(textView.undoManager?.canUndo == false)
     }
 
+    @Test("text paste at an insertion point leaves the caret after the paste")
+    func textPasteAtInsertionPointLeavesCaretAfterPaste() {
+        let (window, textView) = makeTextView()
+        defer { close(window) }
+        setInsertionPoint(in: textView)
+
+        let pasteID = UUID()
+        textView.insertPendingAttachmentUploadPlaceholder(id: pasteID)
+        #expect(
+            textView.replacePendingAttachmentUploadPlaceholder(
+                id: pasteID,
+                withText: "pasted"
+            )
+        )
+
+        let pastedRange = (textView.string as NSString).range(of: "pasted")
+        #expect(
+            textView.selectedRange()
+                == NSRange(location: NSMaxRange(pastedRange), length: 0)
+        )
+    }
+
     @Test("successful attachment paste is one undoable edit")
     func successfulAttachmentPasteIsOneUndoableEdit() {
         let (window, textView) = makeTextView()
@@ -155,6 +177,14 @@ struct TextBoxPendingPasteReservationTests {
         textView.string = "before selected after"
         textView.setSelectedRange(
             (textView.string as NSString).range(of: "selected")
+        )
+        textView.undoManager?.removeAllActions()
+    }
+
+    private func setInsertionPoint(in textView: TextBoxInputTextView) {
+        textView.string = "before after"
+        textView.setSelectedRange(
+            NSRange(location: ("before " as NSString).length, length: 0)
         )
         textView.undoManager?.removeAllActions()
     }

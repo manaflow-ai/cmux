@@ -86,6 +86,17 @@ struct HTMLPlainTextParserTests {
         )
     }
 
+    @Test("preserves indentation and line breaks in preformatted blocks")
+    func preservesPreformattedWhitespace() {
+        let parser = HTMLPlainTextParser()
+        let html = "<pre>first\n  second\n    third</pre><p>after</p>"
+
+        #expect(
+            parser.plainText(from: html)
+                == "first\n  second\n    third\nafter"
+        )
+    }
+
     @Test("image-only HTML has no plain text")
     func imageOnlyHTMLHasNoPlainText() {
         let parser = HTMLPlainTextParser()
