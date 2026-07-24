@@ -69,6 +69,7 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         let autowrapMode = deltaReplayAutowrapMode()
         if frame.cursor == nil { bytes.append(Data("\u{1B}[s".utf8)) }
         bytes.append(deltaReplayModeNormalizationBytes())
+        appendDeltaScrollPrologue(&bytes, stylesByID: stylesByID, defaultStyle: defaultStyle)
         let rowsToClear = Set(frame.clearedRows).union(frame.rowSpans.map(\.row)).sorted()
         for row in rowsToClear {
             bytes.append(sgrBytes(for: defaultStyle))
@@ -224,6 +225,43 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         appendCursorRestore(&bytes)
         bytes.append(Data("\u{1B}[?2026l".utf8))
         return bytes
+    }
+
+    /// Scrolls the consumer's grid for a screen-anchored delta before row
+    /// repaints: line feeds at the bottom row push the rows that entered the
+    /// producer's history since the previous frame into local scrollback, so
+    /// the consumer's scrollback accumulates exactly like the producer's. A
+    /// burst delta additionally flows the missed history rows (captured as
+    /// scrollback spans) through the grid like natural output, oldest first.
+    private func appendDeltaScrollPrologue(
+        _ bytes: inout Data,
+        stylesByID: [Int: MobileTerminalRenderGridFrame.Style],
+        defaultStyle: MobileTerminalRenderGridFrame.Style
+    ) {
+        let pushes = frame.scrolledRows
+        guard pushes > 0, frame.activeScreen == .primary else { return }
+        let missed = min(max(0, frame.scrollbackRows), pushes)
+        // Reset any stray scroll region so a line feed at the bottom row pushes
+        // the top row into scrollback (the delta repaints by absolute rows, so
+        // the region reset cannot desync the mirror), then feed from the bottom.
+        bytes.append(sgrBytes(for: defaultStyle))
+        bytes.append(Data("\u{1B}[r\u{1B}[\(frame.rows);1H".utf8))
+        if missed > 0 {
+            bytes.append(Data("\r\n".utf8))
+            appendFlowLines(
+                &bytes,
+                spans: frame.scrollbackSpans,
+                lineCount: missed,
+                stylesByID: stylesByID,
+                defaultStyle: defaultStyle,
+                terminateLast: false
+            )
+        }
+        let trailing = pushes - missed
+        if trailing > 0 {
+            bytes.append(sgrBytes(for: defaultStyle))
+            bytes.append(Data(String(repeating: "\r\n", count: trailing).utf8))
+        }
     }
 
     private func deltaReplayModeNormalizationBytes() -> Data {

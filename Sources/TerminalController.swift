@@ -14383,10 +14383,30 @@ class TerminalController {
         }
         let state = MobileTerminalByteTee.shared.replayState(surfaceID: surfaceId)
         let seq = state?.seq ?? 0
+        // Screen-anchored replays hydrate the phone's local scrollback: honor
+        // the client's requested history depth up to the shared budget so the
+        // replay reset does not truncate what the phone can scroll through.
+        let anchor: MobileTerminalRenderGridFrame.Anchor =
+            v2String(params, "anchor") == MobileTerminalRenderGridFrame.Anchor.screen.rawValue
+            ? .screen
+            : .viewport
+        let scrollbackLines: Int
+        if anchor == .screen {
+            let requested = v2Int(params, "max_scrollback_rows")
+                ?? MobileTerminalRenderGridFrame.screenAnchorScrollbackRowBudget
+            scrollbackLines = min(
+                max(requested, 0),
+                MobileTerminalRenderGridFrame.screenAnchorScrollbackRowBudget
+            )
+        } else {
+            scrollbackLines = TerminalController.mobileReplayScrollbackLineBudget
+        }
         let renderGrid = mobileTerminalRenderGridFrame(
             terminalPanel: terminalPanel,
             surfaceID: surfaceId,
-            seq: seq
+            seq: seq,
+            scrollbackLines: scrollbackLines,
+            anchor: anchor
         )
         if let expectedViewport,
            let renderGrid,

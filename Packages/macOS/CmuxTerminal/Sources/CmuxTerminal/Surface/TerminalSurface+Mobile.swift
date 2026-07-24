@@ -55,7 +55,9 @@ extension TerminalSurface {
     /// Exports the surface grid as a mobile render frame (optionally filtered
     /// to changed rows). Set `includeTheme` to `false` for ordinary live ticks
     /// after the caller has cached this surface's theme; replay and invalidation
-    /// snapshots should retain the default complete theme payload.
+    /// snapshots should retain the default complete theme payload. A `.screen`
+    /// anchor exports the active area (independent of this surface's scroll
+    /// position) for consumers that keep their own local viewport/scrollback.
     @MainActor
     public func mobileRenderGridFrame(
         stateSeq: UInt64,
@@ -64,18 +66,20 @@ extension TerminalSurface {
         full: Bool = true,
         changedRows: Set<Int>? = nil,
         scrollbackLines: Int = 0,
-        includeTheme: Bool = true
+        includeTheme: Bool = true,
+        anchor: MobileTerminalRenderGridFrame.Anchor = .viewport
     ) -> (frame: MobileTerminalRenderGridFrame, rows: [String])? {
         guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileRenderGrid") else { return nil }
         let surfaceID = id.uuidString
         let exported = surfaceID.withCString { ptr in
-            ghostty_surface_render_grid_json_with_theme(
+            ghostty_surface_render_grid_json_v2(
                 surface,
                 ptr,
                 UInt(surfaceID.utf8.count),
                 stateSeq,
                 UInt(max(0, scrollbackLines)),
-                includeTheme
+                includeTheme,
+                anchor == .screen
             )
         }
         defer { ghostty_string_free(exported) }

@@ -83,6 +83,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     static let terminalVerifiedReplayCapability = "terminal.render_grid.verified_replay.v1"
+    static let terminalScreenAnchorCapability = "terminal.render_grid.screen_anchor.v1"
     private static let terminalBytesCapability = "terminal.bytes.v1"
     static let terminalReplayCapability = "terminal.replay.v1"
     static let maxTerminalReplayBarrierDroppedOutputBeforeFailOpen: UInt64 = 256
@@ -872,6 +873,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
     var pendingTerminalInputDroppedRenderGridSurfaceIDs: Set<String>
     var terminalActiveScreenBySurfaceID: [String: MobileTerminalRenderGridFrame.Screen]
+    /// History-row count of the last DELIVERED screen-anchored frame. Deltas
+    /// carry the producer's previous history count as their diff base; a
+    /// mismatch here means a frame was missed and dirty-row patching can no
+    /// longer realign the grid or scrollback, so delivery requests a full
+    /// replay instead.
+    var terminalRenderGridHistoryContinuityBySurfaceID: [String: UInt64]
     var terminalReplaySurfaceIDsInFlight: Set<String>
     var terminalReplayRequestIDsInFlightBySurfaceID: [String: UUID]
     var terminalReplayTasksBySurfaceID: [String: Task<Void, Never>]
@@ -1102,6 +1109,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pendingTerminalByteEndSeqBySurfaceID = [:]
         self.pendingTerminalInputDroppedRenderGridSurfaceIDs = []
         self.terminalActiveScreenBySurfaceID = [:]
+        self.terminalRenderGridHistoryContinuityBySurfaceID = [:]
         self.terminalReplaySurfaceIDsInFlight = []
         self.terminalReplayRequestIDsInFlightBySurfaceID = [:]
         self.terminalReplayTasksBySurfaceID = [:]
@@ -5821,6 +5829,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pendingTerminalByteEndSeqBySurfaceID = [:]
         pendingTerminalInputDroppedRenderGridSurfaceIDs = []
         terminalActiveScreenBySurfaceID = [:]
+        terminalRenderGridHistoryContinuityBySurfaceID = [:]
         terminalReplaySurfaceIDsInFlight = []
         terminalReplayRequestIDsInFlightBySurfaceID = [:]
         terminalReplayBarrierTokensInFlightBySurfaceID = [:]
@@ -6702,12 +6711,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) async -> TerminalEventSubscriptionAck {
         let requestData: Data
         do {
+            var params: [String: Any] = [
+                "stream_id": terminalEventStreamID,
+                "topics": topics,
+            ]
+            // Negotiate screen-anchored render grids: the Mac then emits frames
+            // anchored to the active area (with exact scrolled-row counts) so
+            // this device owns a deep local scrollback and scrolls it locally.
+            if usesScreenAnchoredRenderGrid, topics.contains("terminal.render_grid") {
+                params["render_grid_anchor"] = MobileTerminalRenderGridFrame.Anchor.screen.rawValue
+            }
             requestData = try MobileCoreRPCClient.requestData(
                 method: "mobile.events.subscribe",
-                params: [
-                    "stream_id": terminalEventStreamID,
-                    "topics": topics,
-                ]
+                params: params
             )
         } catch {
             mobileShellLog.error("subscribe payload encode failed: \(String(describing: error), privacy: .private)")
@@ -7448,6 +7464,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
         terminalActiveScreenBySurfaceID.removeValue(forKey: surfaceID)
+        terminalRenderGridHistoryContinuityBySurfaceID.removeValue(forKey: surfaceID)
         // Tell the Mac this device is no longer viewing the surface so it can unpin and clear its border.
         clearTerminalViewport(surfaceID: surfaceID)
     }
@@ -7632,6 +7649,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     if let generation = reportedViewport.generation {
                         params["viewport_generation"] = Int(clamping: generation)
                     }
+                }
+                // Screen-anchored replays hydrate this device's deep local
+                // scrollback in one pass, so every replay reset (cold attach,
+                // resync, resize) restores the history the user can scroll.
+                if self?.usesScreenAnchoredRenderGrid == true {
+                    params["anchor"] = MobileTerminalRenderGridFrame.Anchor.screen.rawValue
+                    params["max_scrollback_rows"] =
+                        MobileTerminalRenderGridFrame.screenAnchorScrollbackRowBudget
                 }
                 let request = try MobileCoreRPCClient.requestData(
                     method: "mobile.terminal.replay",

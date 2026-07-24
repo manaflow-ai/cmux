@@ -154,6 +154,27 @@ extension MobileShellComposite {
             }
             return
         }
+        // Chain-link screen-anchored deltas to what this device actually
+        // delivered: each delta names the history count of the producer frame
+        // it was diffed against. If that is not the last delivered frame, a
+        // frame was missed and dirty-row patching can no longer realign the
+        // grid or local scrollback; request a full replay instead of painting.
+        // Skipped while a replay barrier is active - the barrier already drops
+        // deltas and resolves with an authoritative replay.
+        if !renderGrid.full,
+           renderGrid.anchor == .screen,
+           renderGrid.activeScreen == .primary,
+           terminalReplayBarrierTokensBySurfaceID[renderGrid.surfaceID] == nil,
+           let deltaBase = renderGrid.deltaBaseHistoryRows,
+           terminalRenderGridHistoryContinuityBySurfaceID[renderGrid.surfaceID] != deltaBase {
+            let delivered = terminalRenderGridHistoryContinuityBySurfaceID[renderGrid.surfaceID]
+            MobileDebugLog.anchormux(
+                "sync.render_grid_history_chain_break surface=\(renderGrid.surfaceID) " +
+                    "base=\(deltaBase) delivered=\(delivered.map(String.init) ?? "nil") seq=\(renderGrid.stateSeq)"
+            )
+            terminalOutputNeedsReplay(surfaceID: renderGrid.surfaceID)
+            return
+        }
         let activeReplayBarrierToken = terminalReplayBarrierTokensBySurfaceID[renderGrid.surfaceID]
         let bypassLiveBaselineBarrier = source == "event"
             && establishesRenderGridBaseline
@@ -192,6 +213,9 @@ extension MobileShellComposite {
             endSeq: renderGrid.stateSeq,
             fullReplacement: renderGrid.full
         )
+        if renderGrid.anchor == .screen, let historyRows = renderGrid.historyRows {
+            terminalRenderGridHistoryContinuityBySurfaceID[renderGrid.surfaceID] = historyRows
+        }
     }
 
     /// Whether a surface currently has an attached output stream consumer.
@@ -338,11 +362,31 @@ extension MobileShellComposite {
                     streamToken: streamToken,
                     viewportPolicy: immediate.viewportPolicy,
                     sourceRenderGridFrame: immediate.sourceRenderGridFrame,
-                    requiresVerifiedReplay: terminalOutputTransport == .renderGrid
-                        && supportedHostCapabilities.contains(Self.terminalVerifiedReplayCapability),
+                    requiresVerifiedReplay: requiresVerifiedReplayApplication(for: immediate),
                     terminalConfigTheme: immediate.terminalConfigTheme
                 )
             )
+        }
+        return true
+    }
+
+    /// Whether a chunk must apply through the verified freeze/replay/verify/
+    /// reveal pipeline. Screen-anchored primary-screen deltas apply directly:
+    /// they are ordered by the same stateSeq floors, their scroll prologue
+    /// feeds local scrollback, and skipping the per-frame Metal fence keeps
+    /// streaming output from stalling a locally scrolling viewport. Fulls and
+    /// alternate-screen frames keep the verified pipeline.
+    private func requiresVerifiedReplayApplication(for delivery: TerminalOutputDelivery) -> Bool {
+        guard terminalOutputTransport == .renderGrid,
+              supportedHostCapabilities.contains(Self.terminalVerifiedReplayCapability) else {
+            return false
+        }
+        if usesScreenAnchoredRenderGrid,
+           let frame = delivery.sourceRenderGridFrame,
+           !frame.full,
+           frame.anchor == .screen,
+           frame.activeScreen == .primary {
+            return false
         }
         return true
     }
@@ -426,8 +470,7 @@ extension MobileShellComposite {
             streamToken: streamToken,
             viewportPolicy: next.viewportPolicy,
             sourceRenderGridFrame: next.sourceRenderGridFrame,
-            requiresVerifiedReplay: terminalOutputTransport == .renderGrid
-                && supportedHostCapabilities.contains(Self.terminalVerifiedReplayCapability),
+            requiresVerifiedReplay: requiresVerifiedReplayApplication(for: next),
             terminalConfigTheme: next.terminalConfigTheme
         ))
     }
@@ -473,6 +516,7 @@ extension MobileShellComposite {
         // Post-reset retry: rebuilt surface, so drop the floor, don't stash.
         rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        terminalRenderGridHistoryContinuityBySurfaceID.removeValue(forKey: surfaceID)
         terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
         terminalFullReplacementSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalFullReplacementGenerationBySurfaceID.removeValue(forKey: surfaceID)

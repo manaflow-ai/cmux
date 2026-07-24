@@ -26,6 +26,11 @@ extension MobileHostService {
             "terminal.bytes.v1",
             "terminal.render_grid.v1",
             "terminal.render_grid.verified_replay.v1",
+            // Screen-anchored render grids: frames anchor to the active area
+            // (independent of the Mac's scroll position), deltas carry exact
+            // scrolled-row counts, and replays honor max_scrollback_rows, so
+            // the phone owns a deep local scrollback and scrolls it locally.
+            "terminal.render_grid.screen_anchor.v1",
             "terminal.replay.v1",
             "terminal.viewport.v1",
             "terminal.artifact.v1",

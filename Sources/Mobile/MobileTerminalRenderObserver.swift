@@ -17,7 +17,8 @@ final class MobileTerminalRenderObserver {
     private var hasPendingThemeInvalidation = false
     private var pendingThemeSurfaceIDs = Set<UUID>()
     private var isEmitFlushScheduled = false
-    private var renderGridStatesBySurfaceID: [UUID: MobileTerminalRenderGridEmissionState] = [:]
+    private var renderGridStatesBySurfaceID:
+        [UUID: [MobileTerminalRenderGridFrame.Anchor: MobileTerminalRenderGridEmissionState]] = [:]
     private var terminalThemesBySurfaceID: [UUID: TerminalTheme] = [:]
     private var terminalConfigThemesBySurfaceID: [UUID: TerminalTheme] = [:]
     private var runtimeSurfaceGenerationsBySurfaceID: [UUID: UInt64] = [:]
@@ -269,59 +270,144 @@ final class MobileTerminalRenderObserver {
             clearRenderGridCache(surfaceID: surfaceID)
         }
         let includeTheme = forceIncludeTheme
-            || renderGridStatesBySurfaceID[surfaceID]?.terminalTheme == nil
+            || renderGridStatesBySurfaceID[surfaceID]?.values
+                .contains { $0.terminalTheme != nil } != true
             || didReplaceRuntimeSurface
-        guard let snapshot = surface.mobileRenderGridFrame(
-                stateSeq: stateSeq,
-                renderEpoch: renderCapture.epoch,
-                renderRevision: renderCapture.revision,
-                full: true,
-                includeTheme: includeTheme
-              ) else {
-            clearRenderGridCache(surfaceID: surfaceID)
-            return
-        }
 
-        var themedFrame = snapshot.frame
-        let configTheme = MobileTerminalThemeEmissionDecision.resolveConfigTheme(
-            candidate: themedFrame.terminalConfigTheme,
-            cached: terminalConfigThemesBySurfaceID[surfaceID],
-            fallbackBoldColor: cachedTerminalTheme.boldColor
-        )
-        themedFrame.terminalConfigTheme = configTheme
-        if snapshot.frame.terminalConfigTheme != nil, let configTheme {
-            terminalConfigThemesBySurfaceID[surfaceID] = configTheme
-        }
-        let candidateTheme = (themedFrame.terminalTheme
-            ?? terminalThemesBySurfaceID[surfaceID]
-            ?? cachedTerminalTheme).applyingSurfaceColors(from: snapshot.frame)
-        let themeDecision = MobileTerminalThemeEmissionDecision.resolve(
-            candidate: candidateTheme,
-            cached: terminalThemesBySurfaceID[surfaceID],
-            forceCandidate: forceIncludeTheme || didReplaceRuntimeSurface
-        )
-        themedFrame.terminalTheme = themeDecision.theme
-        if themeDecision.shouldScheduleCandidate {
-            themeInvalidationScheduler.schedule(surfaceID: surfaceID)
-        } else {
-            terminalThemesBySurfaceID[surfaceID] = themeDecision.theme
-        }
+        // Produce one payload per anchor with a live subscriber. Viewport (v1)
+        // mirrors the Mac's scroll position; screen (v2) anchors to the active
+        // area so the phone owns its local viewport/scrollback. An empty
+        // registry (subscribers predating anchor negotiation) means v1 only.
+        let activeAnchors = MobileTerminalRenderGridAnchorRegistry.activeAnchors()
+        var anchors: [MobileTerminalRenderGridFrame.Anchor] = []
+        if activeAnchors.contains(.viewport) || activeAnchors.isEmpty { anchors.append(.viewport) }
+        if activeAnchors.contains(.screen) { anchors.append(.screen) }
+
         runtimeSurfaceGenerationsBySurfaceID[surfaceID] = runtimeGeneration
-        themedFrame.terminalThemeRevision = nextTerminalThemeRevision()
-        guard let emission = try? themedFrame.renderGridEmission(
-            comparedTo: renderGridStatesBySurfaceID[surfaceID]
-        ) else { return }
-        let frame = emission.frame
-        renderGridStatesBySurfaceID[surfaceID] = emission.state
-        guard let payload = try? frame.jsonObject() else { return }
-        MobileHostService.emitEvent(topic: "terminal.render_grid", payload: payload)
+        // Both anchor variants describe the same terminal state at the same
+        // capture, so they share one theme decision and one theme revision.
+        var sharedTheme: (config: TerminalTheme?, theme: TerminalTheme, revision: UInt64)?
+        var payloadsByAnchor: [MobileTerminalRenderGridFrame.Anchor: [String: Any]] = [:]
+        var emittedByAnchor: [MobileTerminalRenderGridFrame.Anchor: MobileTerminalRenderGridFrame] = [:]
+
+        for anchor in anchors {
+            guard let emitted = emitRenderGridFrame(
+                surface: surface,
+                surfaceID: surfaceID,
+                anchor: anchor,
+                stateSeq: stateSeq,
+                renderCapture: renderCapture,
+                includeTheme: includeTheme,
+                forceIncludeTheme: forceIncludeTheme || didReplaceRuntimeSurface,
+                sharedTheme: &sharedTheme
+            ) else { continue }
+            guard let payload = try? emitted.jsonObject() else { continue }
+            payloadsByAnchor[anchor] = payload
+            emittedByAnchor[anchor] = emitted
+        }
+        guard !payloadsByAnchor.isEmpty else { return }
+        MobileHostService.emitRenderGridEvent(payloadsByAnchor: payloadsByAnchor)
         #if DEBUG
-        cmuxDebugLog(
-            "mobile.render_grid surface=\(surfaceID.uuidString.prefix(8)) full=\(frame.full) " +
-                "cleared=\(frame.clearedRows.count) spans=\(frame.rowSpans.count) " +
-                "seq=\(frame.stateSeq) revision=\(frame.renderRevision)"
-        )
+        for (anchor, frame) in emittedByAnchor {
+            cmuxDebugLog(
+                "mobile.render_grid surface=\(surfaceID.uuidString.prefix(8)) anchor=\(anchor.rawValue) " +
+                    "full=\(frame.full) cleared=\(frame.clearedRows.count) spans=\(frame.rowSpans.count) " +
+                    "scrolled=\(frame.scrolledRows) sbRows=\(frame.scrollbackRows) " +
+                    "seq=\(frame.stateSeq) revision=\(frame.renderRevision)"
+            )
+        }
         #endif
+    }
+
+    /// Exports, themes, and diffs one anchor variant for a surface, handling
+    /// the emission's re-export request: a screen-anchored burst delta must
+    /// carry the history rows that scrolled through between captures, and a
+    /// screen-anchored full must carry deep scrollback so a replay reset
+    /// preserves the consumer's local history.
+    private func emitRenderGridFrame(
+        surface: TerminalSurface,
+        surfaceID: UUID,
+        anchor: MobileTerminalRenderGridFrame.Anchor,
+        stateSeq: UInt64,
+        renderCapture: (epoch: String, revision: UInt64),
+        includeTheme: Bool,
+        forceIncludeTheme: Bool,
+        sharedTheme: inout (config: TerminalTheme?, theme: TerminalTheme, revision: UInt64)?
+    ) -> MobileTerminalRenderGridFrame? {
+        let fullScrollbackTarget = anchor == .screen
+            ? MobileTerminalRenderGridFrame.screenAnchorScrollbackRowBudget
+            : 0
+        var scrollbackLines = 0
+        var allowScrollbackRequest = true
+        while true {
+            guard let snapshot = surface.mobileRenderGridFrame(
+                    stateSeq: stateSeq,
+                    renderEpoch: renderCapture.epoch,
+                    renderRevision: renderCapture.revision,
+                    full: true,
+                    scrollbackLines: scrollbackLines,
+                    includeTheme: includeTheme,
+                    anchor: anchor
+                  ) else {
+                clearRenderGridCache(surfaceID: surfaceID)
+                return nil
+            }
+            var themedFrame = snapshot.frame
+            let resolvedTheme: (config: TerminalTheme?, theme: TerminalTheme, revision: UInt64)
+            if let sharedTheme {
+                resolvedTheme = sharedTheme
+            } else {
+                let configTheme = MobileTerminalThemeEmissionDecision.resolveConfigTheme(
+                    candidate: themedFrame.terminalConfigTheme,
+                    cached: terminalConfigThemesBySurfaceID[surfaceID],
+                    fallbackBoldColor: cachedTerminalTheme.boldColor
+                )
+                if snapshot.frame.terminalConfigTheme != nil, let configTheme {
+                    terminalConfigThemesBySurfaceID[surfaceID] = configTheme
+                }
+                let candidateTheme = (themedFrame.terminalTheme
+                    ?? terminalThemesBySurfaceID[surfaceID]
+                    ?? cachedTerminalTheme).applyingSurfaceColors(from: snapshot.frame)
+                let themeDecision = MobileTerminalThemeEmissionDecision.resolve(
+                    candidate: candidateTheme,
+                    cached: terminalThemesBySurfaceID[surfaceID],
+                    forceCandidate: forceIncludeTheme
+                )
+                if themeDecision.shouldScheduleCandidate {
+                    themeInvalidationScheduler.schedule(surfaceID: surfaceID)
+                } else {
+                    terminalThemesBySurfaceID[surfaceID] = themeDecision.theme
+                }
+                resolvedTheme = (
+                    config: configTheme,
+                    theme: themeDecision.theme,
+                    revision: nextTerminalThemeRevision()
+                )
+                sharedTheme = resolvedTheme
+            }
+            themedFrame.terminalConfigTheme = resolvedTheme.config
+            themedFrame.terminalTheme = resolvedTheme.theme
+            themedFrame.terminalThemeRevision = resolvedTheme.revision
+
+            guard let emission = try? themedFrame.renderGridEmission(
+                comparedTo: renderGridStatesBySurfaceID[surfaceID]?[anchor],
+                fullScrollbackTarget: fullScrollbackTarget,
+                allowScrollbackRequest: allowScrollbackRequest
+            ) else { return nil }
+            switch emission {
+            case .emit(let frame, let state):
+                renderGridStatesBySurfaceID[surfaceID, default: [:]][anchor] = state
+                return frame
+            case .needsScrollback(let rows):
+                // Re-export once with the requested history rows; the retry
+                // recomputes from the fresh capture and must emit with
+                // whatever it carries (content may advance between exports).
+                scrollbackLines = rows
+                allowScrollbackRequest = false
+            case .none:
+                return nil
+            }
+        }
     }
 
     private func refreshTerminalTheme() {

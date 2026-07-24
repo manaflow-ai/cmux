@@ -428,6 +428,36 @@ final class MobileHostService {
         MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic)
     }
 
+    /// Fan out per-anchor render-grid payloads: each connection receives the
+    /// variant matching the anchor it negotiated at subscribe time (viewport =
+    /// v1 Mac-scroll mirror, screen = v2 active-area anchor for local
+    /// scrollback), so mixed old/new clients each keep their contract.
+    nonisolated static func emitRenderGridEvent(
+        payloadsByAnchor: [MobileTerminalRenderGridFrame.Anchor: [String: Any]]
+    ) {
+        let topic = "terminal.render_grid"
+        guard !payloadsByAnchor.isEmpty,
+              MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic) else {
+            return
+        }
+        let connections = MobileHostConnectionRegistry.shared.snapshot()
+        guard !connections.isEmpty else { return }
+        for connection in connections {
+            let anchor = MobileTerminalRenderGridAnchorRegistry.anchor(
+                connectionID: connection.connectionID
+            )
+            guard let payload = payloadsByAnchor[anchor] else { continue }
+            Task {
+                let delivered = await connection.sendEvent(topic: topic, payload: payload)
+                #if DEBUG
+                cmuxDebugLog(
+                    "mobile.emit -> connection delivered=\(delivered) topic=\(topic) anchor=\(anchor.rawValue)"
+                )
+                #endif
+            }
+        }
+    }
+
     /// User-default key for the opt-in Mac-side iOS pairing listener.
     nonisolated static let listeningEnabledDefaultsKey = SettingCatalog().mobile.iOSPairingHost.userDefaultsKey
 
@@ -1687,6 +1717,9 @@ actor MobileHostConnection {
     }
 
     private let id: UUID
+
+    /// Stable identity for cross-registry lookups (anchor preferences).
+    nonisolated var connectionID: UUID { id }
     private let transport: any CmxByteTransport
     private let writer: MobileHostSerializedTransportWriter
     private let independentEventWriter: (any MobileHostIndependentEventWriting)?
@@ -1852,6 +1885,7 @@ actor MobileHostConnection {
                 nextTopics: nil
             )
         }
+        MobileTerminalRenderGridAnchorRegistry.remove(connectionID: id)
         mobileHostLog.info("mobile host connection closed \(self.id.uuidString, privacy: .public): \(reason, privacy: .public)")
         await independentEventWriter?.close()
         await transport.close()
@@ -2109,6 +2143,17 @@ actor MobileHostConnection {
                 topics: topics,
                 transport: selectedTransport
             )
+            if topics.contains("terminal.render_grid") {
+                // Anchor negotiation: "screen" clients own their local
+                // viewport/scrollback and receive active-area-anchored frames;
+                // everything else keeps the v1 viewport-mirror contract.
+                let anchor: MobileTerminalRenderGridFrame.Anchor =
+                    (request.params["render_grid_anchor"] as? String)
+                        == MobileTerminalRenderGridFrame.Anchor.screen.rawValue
+                    ? .screen
+                    : .viewport
+                MobileTerminalRenderGridAnchorRegistry.set(anchor, connectionID: id)
+            }
             #if DEBUG
             cmuxDebugLog("mobile.subscribe streamID=\(streamID) topics=\(topics.sorted()) existing=\(alreadySubscribed) connID=\(self.id.uuidString)")
             #endif

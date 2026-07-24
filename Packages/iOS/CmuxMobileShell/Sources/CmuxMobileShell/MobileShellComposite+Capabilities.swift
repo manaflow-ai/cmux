@@ -8,6 +8,16 @@ extension MobileShellComposite {
             && supportedHostCapabilities.contains(Self.terminalVerifiedReplayCapability)
     }
 
+    /// Screen-anchored render-grid sessions receive active-area-anchored
+    /// frames whose deltas carry exact scrolled-row counts, so this device
+    /// keeps a deep local scrollback and scrolls the primary screen locally
+    /// (no per-scroll round trip to the Mac). Full replays still flow through
+    /// the verified pipeline when the host supports it.
+    public var usesScreenAnchoredRenderGrid: Bool {
+        terminalOutputTransport == .renderGrid
+            && supportedHostCapabilities.contains(Self.terminalScreenAnchorCapability)
+    }
+
     /// Whether the Mac supports workspace close requests.
     public var supportsWorkspaceCloseActions: Bool { supportedHostCapabilities.contains(Self.workspaceCloseCapability) }
     /// Whether the Mac supports workspace move/reorder requests.

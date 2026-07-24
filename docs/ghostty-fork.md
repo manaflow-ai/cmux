@@ -12,9 +12,18 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is
-`c55514dd52d806e9aa661ee20381aa19c91c1c09`, the current
-`manaflow-ai/ghostty` `main`. The cumulative integration landed through
+The submodule pinned by this branch is `4cc0933cf` on
+`manaflow-ai/ghostty` branch `render-grid-screen-anchor` (one commit atop
+`c55514dd52d806e9aa661ee20381aa19c91c1c09`, the prior pinned `main`). It adds
+the screen-anchored render-grid export for the iOS local-scrollback scroll
+work: `buildRenderGridJson` gains an active-area anchor mode, every export
+carries `history_rows` + `row_space_revision` (scrollbar semantics; revision
+bumps on trim/eviction/reflow/erase), and the new C export
+`ghostty_surface_render_grid_json_v2` takes the anchor flag. Existing exports
+keep viewport anchoring byte-for-byte unchanged. Files:
+`src/apprt/embedded.zig`, `include/ghostty.h`.
+
+The prior pinned main: The cumulative integration landed through
 https://github.com/manaflow-ai/ghostty/pull/128; the earlier stacked PRs
 https://github.com/manaflow-ai/ghostty/pull/127,
 https://github.com/manaflow-ai/ghostty/pull/123, and
