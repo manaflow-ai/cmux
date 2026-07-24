@@ -1,8 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { generateKeyPairSync, verify as edVerify } from "node:crypto";
 
-import { handleShareGuestToken } from "../app/api/share/sessions/[code]/token/route";
-import { handleShareSessionCreate } from "../app/api/share/sessions/route";
+import {
+  handleShareGuestToken,
+  type ShareGuestTokenDeps,
+} from "../app/api/share/sessions/[code]/token/route";
+import {
+  handleShareSessionCreate,
+  type ShareSessionCreateDeps,
+} from "../app/api/share/sessions/route";
 import {
   generateShareCode,
   isValidShareCode,
@@ -29,8 +35,49 @@ const USER: AuthedUser = {
   billingPlanId: null,
 };
 
+type ShareRateLimitDeps = {
+  readonly checkRateLimit: (
+    id: string,
+    options: { request: Request; rateLimitKey?: string },
+  ) => Promise<{ rateLimited: boolean; error?: string | null }>;
+  readonly rateLimitRuleId: () => string | undefined;
+  readonly isVercel: () => boolean;
+};
+
+type SessionCreateTestDeps = ShareSessionCreateDeps & ShareRateLimitDeps;
+type GuestTokenTestDeps = ShareGuestTokenDeps & ShareRateLimitDeps;
+
 function keypair() {
   return generateKeyPairSync("ed25519");
+}
+
+function sessionCreateDeps(
+  overrides: Partial<SessionCreateTestDeps> = {},
+): SessionCreateTestDeps {
+  return {
+    verifyRequest: async () => USER,
+    signingKey: () => keypair().privateKey,
+    nowSeconds: () => NOW,
+    generateCode: generateShareCode,
+    checkRateLimit: async () => ({ rateLimited: false }),
+    rateLimitRuleId: () => undefined,
+    isVercel: () => false,
+    ...overrides,
+  };
+}
+
+function guestTokenDeps(
+  overrides: Partial<GuestTokenTestDeps> = {},
+): GuestTokenTestDeps {
+  return {
+    verifyRequest: async () => USER,
+    signingKey: () => keypair().privateKey,
+    nowSeconds: () => NOW,
+    checkRateLimit: async () => ({ rateLimited: false }),
+    rateLimitRuleId: () => undefined,
+    isVercel: () => false,
+    ...overrides,
+  };
 }
 
 function decodePayload(token: string): Record<string, unknown> {
@@ -94,38 +141,59 @@ describe("POST /api/share/sessions", () => {
   const request = () => new Request("https://cmux.com/api/share/sessions", { method: "POST" });
 
   test("401s unauthenticated callers", async () => {
-    const res = await handleShareSessionCreate(request(), {
+    const res = await handleShareSessionCreate(request(), sessionCreateDeps({
       verifyRequest: async () => null,
-      signingKey: () => keypair().privateKey,
-      nowSeconds: () => NOW,
-      generateCode: generateShareCode,
-    });
+    }));
     expect(res.status).toBe(401);
   });
 
   test("503s when the signing key is not configured", async () => {
-    const res = await handleShareSessionCreate(request(), {
-      verifyRequest: async () => USER,
+    const res = await handleShareSessionCreate(request(), sessionCreateDeps({
       signingKey: () => null,
-      nowSeconds: () => NOW,
-      generateCode: generateShareCode,
-    });
+    }));
     expect(res.status).toBe(503);
   });
 
   test("mints a host grant with code, ws URL, and share URL", async () => {
-    const res = await handleShareSessionCreate(request(), {
-      verifyRequest: async () => USER,
-      signingKey: () => keypair().privateKey,
-      nowSeconds: () => NOW,
+    const res = await handleShareSessionCreate(request(), sessionCreateDeps({
       generateCode: () => "fixedCode0123456789012",
-    });
+    }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, string>;
     expect(body.code).toBe("fixedCode0123456789012");
     expect(body.wsUrl).toContain("/v1/share/sessions/fixedCode0123456789012/ws");
     expect(body.shareUrl).toContain("/share/fixedCode0123456789012");
     expect(decodePayload(body.token ?? "").host).toBe(true);
+  });
+
+  test("allows N session creates and rejects N+1 before minting another grant", async () => {
+    const limit = 2;
+    let checks = 0;
+    let grants = 0;
+    const deps = sessionCreateDeps({
+      isVercel: () => true,
+      rateLimitRuleId: () => "share-session-create-test",
+      checkRateLimit: async () => {
+        checks += 1;
+        return { rateLimited: checks > limit };
+      },
+      generateCode: () => {
+        grants += 1;
+        return "fixedCode0123456789012";
+      },
+    });
+
+    const responses: Response[] = [];
+    for (let index = 0; index <= limit; index += 1) {
+      responses.push(await handleShareSessionCreate(request(), deps));
+    }
+
+    expect(responses.map((response) => response.status)).toEqual([200, 200, 429]);
+    expect(checks).toBe(limit + 1);
+    expect(grants).toBe(limit);
+    expect(await responses[limit]?.json()).toEqual({ error: "rate_limited" });
+    const retryAfter = Number(responses[limit]?.headers.get("retry-after"));
+    expect(Number.isSafeInteger(retryAfter) && retryAfter > 0).toBe(true);
   });
 });
 
@@ -134,36 +202,64 @@ describe("POST /api/share/sessions/[code]/token", () => {
     new Request("https://cmux.com/api/share/sessions/x/token", { method: "POST" });
 
   test("400s malformed codes without hitting auth", async () => {
-    const res = await handleShareGuestToken(request(), "bad code!", {
+    const res = await handleShareGuestToken(request(), "bad code!", guestTokenDeps({
       verifyRequest: async () => {
         throw new Error("must not be called");
       },
-      signingKey: () => null,
-      nowSeconds: () => NOW,
-    });
+    }));
     expect(res.status).toBe(400);
   });
 
   test("401s unauthenticated callers", async () => {
-    const res = await handleShareGuestToken(request(), "code12345678", {
+    const res = await handleShareGuestToken(request(), "code12345678", guestTokenDeps({
       verifyRequest: async () => null,
-      signingKey: () => keypair().privateKey,
-      nowSeconds: () => NOW,
-    });
+    }));
     expect(res.status).toBe(401);
   });
 
   test("mints a guest (host=false) token bound to the code", async () => {
-    const res = await handleShareGuestToken(request(), "code12345678", {
-      verifyRequest: async () => USER,
-      signingKey: () => keypair().privateKey,
-      nowSeconds: () => NOW,
-    });
+    const res = await handleShareGuestToken(
+      request(),
+      "code12345678",
+      guestTokenDeps(),
+    );
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, string>;
     const claims = decodePayload(body.token ?? "");
     expect(claims.host).toBe(false);
     expect(claims.code).toBe("code12345678");
     expect(body.wsUrl).toContain("/v1/share/sessions/code12345678/ws");
+  });
+
+  test("allows N token grants and rejects N+1 before minting another token", async () => {
+    const limit = 2;
+    let checks = 0;
+    let mints = 0;
+    const deps = guestTokenDeps({
+      isVercel: () => true,
+      rateLimitRuleId: () => "share-guest-token-test",
+      checkRateLimit: async () => {
+        checks += 1;
+        return { rateLimited: checks > limit };
+      },
+      nowSeconds: () => {
+        mints += 1;
+        return NOW;
+      },
+    });
+
+    const responses: Response[] = [];
+    for (let index = 0; index <= limit; index += 1) {
+      responses.push(
+        await handleShareGuestToken(request(), "code12345678", deps),
+      );
+    }
+
+    expect(responses.map((response) => response.status)).toEqual([200, 200, 429]);
+    expect(checks).toBe(limit + 1);
+    expect(mints).toBe(limit);
+    expect(await responses[limit]?.json()).toEqual({ error: "rate_limited" });
+    const retryAfter = Number(responses[limit]?.headers.get("retry-after"));
+    expect(Number.isSafeInteger(retryAfter) && retryAfter > 0).toBe(true);
   });
 });

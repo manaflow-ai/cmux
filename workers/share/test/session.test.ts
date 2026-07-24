@@ -8,12 +8,15 @@ import {
 import type { ServerMessage } from "../src/protocol";
 import {
   CHAT_HISTORY_LIMIT,
+  CHAT_TEXT_LIMIT,
   HOST_GRACE_MS,
   ShareSessionCore,
 } from "../src/session";
 import type { Effect } from "../src/session";
 
 const T0 = 1_700_000_000_000;
+const MAX_CONNECTIONS_PER_SESSION = 32;
+const MAX_PENDING_REQUESTS_PER_SESSION = 16;
 const HOST = { user: "u-host", email: "host@cmux.com", hostToken: true };
 const ALICE = { user: "u-alice", email: "alice@example.com", hostToken: false };
 const BOB = { user: "u-bob", email: "bob@example.com", hostToken: false };
@@ -63,6 +66,30 @@ function closes(effects: Effect[]): Array<{ to: string; code: number }> {
   return effects
     .filter((e): e is Extract<Effect, { kind: "close" }> => e.kind === "close")
     .map((e) => ({ to: e.to, code: e.code }));
+}
+
+function expectCapacityRejection(
+  effects: Effect[],
+  to: string,
+  code: "session_full" | "too_many_pending",
+): void {
+  expect(effects).toHaveLength(2);
+
+  const error = effects[0];
+  if (error?.kind !== "send" || error.msg.t !== "error") {
+    throw new Error("expected an error before the capacity close");
+  }
+  expect(error.to).toBe(to);
+  expect(error.msg.code).toBe(code);
+  expect(error.msg.message.trim().length).toBeGreaterThan(0);
+
+  const close = effects[1];
+  if (close?.kind !== "close") {
+    throw new Error("expected a capacity close after the error");
+  }
+  expect(close.to).toBe(to);
+  expect(close.code).toBe(4429);
+  expect(close.reason.trim().length).toBeGreaterThan(0);
 }
 
 describe("join and approval flow", () => {
@@ -170,6 +197,86 @@ describe("join and approval flow", () => {
       email: ALICE.email,
     });
   });
+
+  it("caps total connections at N and does not retain the N+1 socket", () => {
+    const core = bootedCore();
+    approveGuest(core, "c-alice-0", ALICE);
+
+    // One host plus 31 approved sockets for the same user reaches the cap
+    // without consuming pending-request capacity.
+    for (let i = 1; i < MAX_CONNECTIONS_PER_SESSION - 1; i += 1) {
+      const effects = core.connect(`c-alice-${i}`, ALICE, T0 + i);
+      expect(sends(effects, `c-alice-${i}`).some((m) => m.t === "session-state")).toBe(true);
+    }
+
+    const overflow = {
+      user: "u-overflow",
+      email: "overflow@example.com",
+      hostToken: false,
+    };
+    const rejected = core.connect("c-overflow", overflow, T0 + 100);
+    expectCapacityRejection(rejected, "c-overflow", "session_full");
+
+    // A host reconnect at capacity must replace the old host. The rejected
+    // socket was never retained, so its user cannot surface as pending.
+    const reconnected = core.connect("c-host-2", HOST, T0 + 101);
+    expect(closes(reconnected)).toContainEqual({ to: "c-host", code: 4000 });
+    expect(sends(reconnected, "c-host-2")).not.toContainEqual({
+      t: "access-request",
+      user: overflow.user,
+      email: overflow.email,
+    });
+
+    // Releasing one accepted socket makes exactly one slot available.
+    core.disconnect("c-alice-1", T0 + 102);
+    const retry = core.connect("c-overflow-retry", overflow, T0 + 103);
+    expect(sends(retry, "c-overflow-retry")).toEqual([{ t: "access-pending" }]);
+    expect(sends(retry, "c-host-2")).toEqual([
+      { t: "access-request", user: overflow.user, email: overflow.email },
+    ]);
+  });
+
+  it("caps pending requests at N and does not retain the N+1 request", () => {
+    const core = bootedCore();
+    const pending = Array.from({ length: MAX_PENDING_REQUESTS_PER_SESSION }, (_, i) => ({
+      conn: `c-pending-${i}`,
+      user: `u-pending-${i}`,
+      email: `pending-${i}@example.com`,
+      hostToken: false,
+    }));
+
+    for (const { conn, ...who } of pending) {
+      const effects = core.connect(conn, who, T0);
+      expect(sends(effects, conn)).toEqual([{ t: "access-pending" }]);
+      expect(sends(effects, "c-host")).toEqual([
+        { t: "access-request", user: who.user, email: who.email },
+      ]);
+    }
+
+    const overflow = {
+      user: "u-pending-overflow",
+      email: "pending-overflow@example.com",
+      hostToken: false,
+    };
+    const rejected = core.connect("c-pending-overflow", overflow, T0 + 1);
+    expectCapacityRejection(rejected, "c-pending-overflow", "too_many_pending");
+
+    const reconnected = core.connect("c-host-2", HOST, T0 + 2);
+    const resurfaced = sends(reconnected, "c-host-2").filter((m) => m.t === "access-request");
+    expect(resurfaced).toHaveLength(MAX_PENDING_REQUESTS_PER_SESSION);
+    expect(resurfaced).not.toContainEqual({
+      t: "access-request",
+      user: overflow.user,
+      email: overflow.email,
+    });
+
+    core.disconnect(pending[0]!.conn, T0 + 3);
+    const retry = core.connect("c-pending-overflow-retry", overflow, T0 + 4);
+    expect(sends(retry, "c-pending-overflow-retry")).toEqual([{ t: "access-pending" }]);
+    expect(sends(retry, "c-host-2")).toEqual([
+      { t: "access-request", user: overflow.user, email: overflow.email },
+    ]);
+  });
 });
 
 describe("roles and moderation", () => {
@@ -274,6 +381,42 @@ describe("cursors, chat, presence", () => {
     const core = bootedCore();
     approveGuest(core, "c-alice", ALICE);
     expect(core.handleGuest("c-alice", { t: "chat", text: "   " })).toEqual([]);
+  });
+
+  it("bounds oversized chat in persisted and broadcast state", () => {
+    const core = bootedCore();
+    approveGuest(core, "c-alice", ALICE);
+    const effects = core.handleGuest("c-alice", {
+      t: "chat",
+      text: "x".repeat(CHAT_TEXT_LIMIT + 100),
+    });
+
+    expect(core.persisted.chat.at(-1)?.text).toHaveLength(CHAT_TEXT_LIMIT);
+    for (const broadcast of sends(effects).filter((m) => m.t === "chat")) {
+      if (broadcast.t !== "chat") throw new Error("expected chat broadcast");
+      expect(broadcast.msg.text).toHaveLength(CHAT_TEXT_LIMIT);
+    }
+  });
+
+  it("scrubs an unshared chat bubble before persisting and broadcasting it", () => {
+    const core = bootedCore();
+    approveGuest(core, "c-alice", ALICE);
+    const effects = core.handleGuest("c-alice", {
+      t: "chat",
+      text: "look here",
+      bubble: { ws: "workspace:private", pane: "surface:secret", x: 0.5, y: 0.5 },
+    });
+
+    const persisted = core.persisted.chat.at(-1);
+    expect(persisted?.text).toBe("look here");
+    expect(persisted).not.toHaveProperty("bubble");
+
+    const broadcasts = sends(effects).filter((m) => m.t === "chat");
+    expect(broadcasts).toHaveLength(2);
+    for (const broadcast of broadcasts) {
+      if (broadcast.t !== "chat") throw new Error("expected chat broadcast");
+      expect(broadcast.msg).not.toHaveProperty("bubble");
+    }
   });
 
   it("focus updates flow into presence participants", () => {
