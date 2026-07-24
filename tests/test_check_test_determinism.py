@@ -296,6 +296,17 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "marker = 1\n"
                 "assert done\n"
             ),
+            "quoted-backslash-heredoc-then-sleep.sh": (
+                'cat <<"E\\OF"\n'
+                "sleep 99\n"
+                "E\\OF\n"
+                "sleep 1\n"
+                'assert "$actual" "$expected"\n'
+            ),
+            "case-assignment-prefix.sh": (
+                'case "$state" in ready) DELAY=1 sleep "$DELAY" ;; esac\n'
+                'assert "$actual" "$expected"\n'
+            ),
         }
 
         result = self.run_checker(fixtures)
@@ -312,6 +323,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "shell-multiline-arithmetic-before-sleep.sh",
                     "deferred-global-write.py",
                     "mixed-quoted-heredoc-then-sleep.sh",
+                    "quoted-backslash-heredoc-then-sleep.sh",
                 )
                 else
                 3
@@ -1031,6 +1043,12 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 ),
                 "sleep-function-declaration.sh": (
                     'sleep () { assert "$ready"; }\n'
+                ),
+                "multiline-sleep-function-declaration.sh": (
+                    "sleep ()\n"
+                    "{\n"
+                    '    assert "$ready"\n'
+                    "}\n"
                 ),
             },
             timeout=2,
