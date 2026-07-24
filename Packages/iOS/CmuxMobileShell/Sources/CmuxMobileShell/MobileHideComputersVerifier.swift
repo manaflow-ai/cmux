@@ -65,6 +65,8 @@ public struct MobileHideComputersVerifier {
                 halfNoDisconnectedBanner: false,
                 refreshPreservedHalfList: false,
                 allHidden: false,
+                allHiddenKnownPairedMac: false,
+                allHiddenNormalEmpty: false,
                 refreshPreservedEmptyList: false,
                 checkpoints: [],
                 evidencePath: nil
@@ -139,6 +141,14 @@ public struct MobileHideComputersVerifier {
             && afterHalfRefresh.displayMacIDs == afterHalfHide.displayMacIDs
         let allHidden = afterAllHide.workspaceIDs.isEmpty
             && afterAllHide.displayMacIDs.isEmpty
+        let allHiddenKnownPairedMac = afterAllHide.hasKnownPairedMac
+            && afterAllRefresh.hasKnownPairedMac
+        let allHiddenNormalEmpty = afterAllHide.workspaceIDs.isEmpty
+            && afterAllHide.displayMacIDs.isEmpty
+            && afterAllHide.workspaceListStatus == "connected"
+            && afterAllRefresh.workspaceIDs.isEmpty
+            && afterAllRefresh.displayMacIDs.isEmpty
+            && afterAllRefresh.workspaceListStatus == "connected"
         let refreshPreservedEmptyList = afterAllRefresh.workspaceIDs.isEmpty
             && afterAllRefresh.displayMacIDs.isEmpty
         let passed = halfHiddenAbsent
@@ -146,10 +156,12 @@ public struct MobileHideComputersVerifier {
             && halfNoDisconnectedBanner
             && refreshPreservedHalfList
             && allHidden
+            && allHiddenKnownPairedMac
+            && allHiddenNormalEmpty
             && refreshPreservedEmptyList
         let reason = passed
             ? "PASS"
-            : "halfHiddenAbsent=\(halfHiddenAbsent) halfRemainingPresent=\(halfRemainingPresent) halfNoDisconnectedBanner=\(halfNoDisconnectedBanner) refreshPreservedHalfList=\(refreshPreservedHalfList) allHidden=\(allHidden) refreshPreservedEmptyList=\(refreshPreservedEmptyList)"
+            : "halfHiddenAbsent=\(halfHiddenAbsent) halfRemainingPresent=\(halfRemainingPresent) halfNoDisconnectedBanner=\(halfNoDisconnectedBanner) refreshPreservedHalfList=\(refreshPreservedHalfList) allHidden=\(allHidden) allHiddenKnownPairedMac=\(allHiddenKnownPairedMac) allHiddenNormalEmpty=\(allHiddenNormalEmpty) refreshPreservedEmptyList=\(refreshPreservedEmptyList)"
 
         return MobileHideComputersVerificationResult(
             passed: passed,
@@ -161,6 +173,8 @@ public struct MobileHideComputersVerifier {
             halfNoDisconnectedBanner: halfNoDisconnectedBanner,
             refreshPreservedHalfList: refreshPreservedHalfList,
             allHidden: allHidden,
+            allHiddenKnownPairedMac: allHiddenKnownPairedMac,
+            allHiddenNormalEmpty: allHiddenNormalEmpty,
             refreshPreservedEmptyList: refreshPreservedEmptyList,
             checkpoints: [initial, afterHalfHide, afterHalfRefresh, afterAllHide, afterAllRefresh],
             evidencePath: nil
@@ -186,6 +200,7 @@ public struct MobileHideComputersVerifier {
             workspaceMacIDs: Array(Set(workspaces.compactMap(\.macDeviceID))).sorted(),
             displayMacIDs: shell.displayPairedMacs.map(\.macDeviceID).sorted(),
             workspaceListStatus: statusName(shell.workspaceListConnectionStatus),
+            hasKnownPairedMac: shell.hasKnownPairedMac,
             pages: workspaces.chunkedForVerifier(pageSize: 5)
         )
     }

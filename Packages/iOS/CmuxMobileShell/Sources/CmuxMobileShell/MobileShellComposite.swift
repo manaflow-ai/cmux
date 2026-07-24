@@ -1950,8 +1950,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // A newer attempt may have started while we awaited the store read; if so,
         // let it own the flags rather than marking ourselves the active reconnect.
         guard generation == storedMacReconnectGeneration else { return .superseded }
-        let hadStoredCandidates = !candidates.isEmpty
-        if hadStoredCandidates {
+        let hasKnownStoredMac = loadedActiveMac != nil
+            || !loadedMacs.isEmpty
+            || !hiddenIDs.isEmpty
+        if hasKnownStoredMac {
             setHasKnownPairedMac(true, generation: generation)
         }
         let irohReconnectIsBlocked = automaticIrohReconnectIsBlocked(accountID: scope.userID)
@@ -1979,7 +1981,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         candidates.append(contentsOf: zeroTouchCandidates)
         let zeroTouchCandidateIDs = Set(zeroTouchCandidates.map(\.id))
         guard !candidates.isEmpty else {
-            if !irohReconnectIsBlocked {
+            if !hasKnownStoredMac, !irohReconnectIsBlocked {
                 setHasKnownPairedMac(false, generation: generation)
             }
             finishStoredMacReconnectAttempt(generation: generation)
@@ -2447,6 +2449,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         storedPairedMacsIncludingHidden = loaded
         updateHiddenComputers(loadedMacs: loaded, hiddenIDs: hiddenIDs)
+        if hasHiddenComputers, !hasKnownPairedMac {
+            // Self-heal installs where an older build cleared the persisted hint
+            // after hiding the final visible Mac. Hidden markers still represent
+            // stored paired Macs, even when no row is currently visible.
+            hasKnownPairedMac = true
+        }
         pairedMacLoadState = .loaded
         storedPairedMacs = visibleLoaded
         let supportedRouteKinds = runtime?.supportedRouteKinds ?? []
@@ -2815,8 +2823,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return restored
     }
 
-    func clearSavedMacHintAfterHidingLastVisibleMacIfNeeded() {
-        guard pairedMacs.isEmpty else { return }
+    func clearSavedMacHintWhenNoStoredMacsRemainIfNeeded() {
+        guard pairedMacs.isEmpty, !hasHiddenComputers else { return }
         storedMacReconnectGeneration &+= 1
         hasKnownPairedMac = false
         isReconnectingStoredMac = false
@@ -3299,8 +3307,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Tear down the live connection and reset connection UI state, without
     /// touching the paired-Mac store or the restoring-gate hint. The switcher's
     /// ``hideMac(macDeviceID:)`` and ``switchToMac(macDeviceID:)`` reuse this,
-    /// so it must not clear ``hasKnownPairedMac`` (that belongs to the explicit
-    /// hide-active path below).
+    /// so it must not clear ``hasKnownPairedMac``; hiding changes list visibility,
+    /// not whether a stored paired Mac is known.
     func disconnectLiveConnection(preservingOtherMacWorkspaceState: Bool = false) {
         suppressNextConnectionOutageEdge = true
         invalidatePairingAttempt()
@@ -3318,15 +3326,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func disconnectAndHideActiveMac() {
         let staleMacID = connectedMacDeviceID ?? activeTicket?.macDeviceID
         disconnectLiveConnection()
-        // Hiding the active Mac clears the restoring hint so the next launch
-        // (and the current disconnected view) shows add-device immediately. Bump
-        // the reconnect generation first so an in-flight reconnect can't re-set the
-        // hint or the gate flags after the user hid the Mac.
+        // Bump the reconnect generation so an in-flight reconnect cannot reclaim
+        // the foreground while the retained pairing is being hidden. Preserve the
+        // known-Mac hint: hiding changes list visibility, not the app's shell mode.
         storedMacReconnectGeneration &+= 1
-        hasKnownPairedMac = false
         isReconnectingStoredMac = false
         didFinishStoredMacReconnectAttempt = false
         if let macID = staleMacID {
+            hasKnownPairedMac = true
             // The shell action is synchronous for its UI caller; the device-local
             // marker and list pruning continue on the main actor without deleting
             // the retained paired-Mac row.

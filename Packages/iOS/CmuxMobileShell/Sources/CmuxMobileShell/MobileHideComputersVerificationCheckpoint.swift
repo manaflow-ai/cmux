@@ -13,6 +13,8 @@ public struct MobileHideComputersVerificationCheckpoint: Codable, Equatable, Sen
     public var displayMacIDs: [String]
     /// Aggregate workspace-list connection status.
     public var workspaceListStatus: String
+    /// Persisted hint that at least one paired Mac is known.
+    public var hasKnownPairedMac: Bool
     /// Paged workspace rows used by the verifier UI for scrolling evidence.
     public var pages: [[MobileHideComputersVerificationWorkspace]]
 }

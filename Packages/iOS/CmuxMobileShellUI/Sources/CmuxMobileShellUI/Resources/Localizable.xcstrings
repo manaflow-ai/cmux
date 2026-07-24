@@ -655,6 +655,20 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "説明は4 KB以下にしてください。" } }
       }
     },
+    "mobile.hideComputersVerifier.allHiddenKnownPairedMac" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "allHiddenKnownPairedMac=" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "すべて非表示後も既知のMac=" } }
+      }
+    },
+    "mobile.hideComputersVerifier.allHiddenNormalEmpty" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "allHiddenNormalEmpty=" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "すべて非表示後に通常の空リスト=" } }
+      }
+    },
     "mobile.iroh.private" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -968,6 +982,40 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Connection Admission Denied" } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続の受け入れが拒否されました" } }
+      }
+    },
+    "mobile.iroh.diagnostics.failure.admissionLeaseExpired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Admission Lease Expired"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "受け入れリースの期限切れ"
+          }
+        }
+      }
+    },
+    "mobile.iroh.diagnostics.failure.admissionRevalidationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Admission Revalidation Failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "受け入れの再検証に失敗しました"
+          }
+        }
       }
     },
     "mobile.iroh.diagnostics.failure.authorizationFailed" : {

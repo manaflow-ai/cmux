@@ -258,7 +258,8 @@ extension MobileHostIrohRuntime {
                         await laneRouter.stop()
                     }
                 )
-                let exit = await connectionSupervisor.run()
+                let observedExit = await connectionSupervisor.run()
+                let exit = await session.connectionExit(resolving: observedExit)
                 diagnosticLog.record(DiagnosticEvent(
                     .transportSessionLifecycle,
                     a: exit.lifecycle.rawValue,

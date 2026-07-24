@@ -370,6 +370,16 @@ private extension MobileIrohSettingsView {
                 "mobile.iroh.diagnostics.failure.admissionDenied",
                 defaultValue: "Connection Admission Denied"
             )
+        case .some(.admissionLeaseExpired):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.admissionLeaseExpired",
+                defaultValue: "Admission Lease Expired"
+            )
+        case .some(.admissionRevalidationFailed):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.admissionRevalidationFailed",
+                defaultValue: "Admission Revalidation Failed"
+            )
         case .some(.authorizationFailed):
             L10n.string(
                 "mobile.iroh.diagnostics.failure.authorizationFailed",
