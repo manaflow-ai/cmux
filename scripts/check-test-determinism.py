@@ -255,7 +255,7 @@ _BIND_HINTS = ("bind", "connect", "connect_ex", "createServer")
 _SHELL_BARE_SLEEP = re.compile(
     r"""(?x)
     (?:^|[;&|]|(?<!\\)\$\(|(?<!\\)`)
-    \s* sleep \s+ \S
+    \s* sleep (?=\s|$)
     """
 )
 
@@ -639,18 +639,17 @@ def _python_shadowed_names(line: str, candidates: set[str]) -> set[str]:
     return shadowed
 
 
-def _python_lambda_shadowed_names(
-    line: str,
+def _python_lambda_parameter_names(
+    match: re.Match[str],
     candidates: set[str],
 ) -> set[str]:
-    """Return sleep names shadowed only inside a lambda expression."""
+    """Return tracked names bound by one lambda parameter list."""
     return {
-        match.group("name")
-        for lambda_parameters in _PYTHON_LAMBDA_PARAMETERS.finditer(line)
-        for match in _PYTHON_PARAMETER.finditer(
-            lambda_parameters.group("parameters")
+        parameter.group("name")
+        for parameter in _PYTHON_PARAMETER.finditer(
+            match.group("parameters")
         )
-        if match.group("name") in candidates
+        if parameter.group("name") in candidates
     }
 
 
@@ -665,6 +664,29 @@ def _python_bracket_depth(line: str, initial: int = 0) -> int:
     return depth
 
 
+def _python_lambda_expression_end(
+    line: str,
+    start: int,
+    line_start_depth: int,
+    lambda_depth: int,
+) -> Optional[int]:
+    """Return the same-line end of a lambda expression, if visible."""
+    depth = _python_bracket_depth(line[:start], line_start_depth)
+    for index in range(start, len(line)):
+        char = line[index]
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            if depth == lambda_depth:
+                return index
+            depth = max(0, depth - 1)
+        elif char == "," and depth == lambda_depth:
+            return index
+    if lambda_depth == 0 and depth == 0 and not line.rstrip().endswith("\\"):
+        return len(line)
+    return None
+
+
 def _python_real_sleep_lines(masked_lines: list[str]) -> set[int]:
     """Locate direct Python sleep APIs while aliases remain unshadowed."""
     active_modules = set(_PYTHON_SLEEP_MODULES)
@@ -677,22 +699,10 @@ def _python_real_sleep_lines(masked_lines: list[str]) -> set[int]:
     scope_stack: list[tuple[int, set[str], set[str], bool, str]] = []
     lambda_scopes: list[tuple[int, set[str]]] = []
     bracket_depth = 0
-    previous_line_continues = False
 
     for idx, line in enumerate(masked_lines):
-        if idx:
-            lambda_scopes = [
-                (depth, names)
-                for depth, names in lambda_scopes
-                if (
-                    bracket_depth >= depth
-                    if depth > 0
-                    else bracket_depth > 0 or previous_line_continues
-                )
-            ]
         line_start_depth = bracket_depth
         bracket_depth = _python_bracket_depth(line, line_start_depth)
-        previous_line_continues = line.rstrip().endswith("\\")
 
         line_indent = len(line) - len(line.lstrip())
         if line.strip() and pending_parameters is None:
@@ -741,10 +751,18 @@ def _python_real_sleep_lines(masked_lines: list[str]) -> set[int]:
             else:
                 import_statement = line
 
+        trailing_import_statement = (
+            import_statement is not None and ";" in line
+        )
+        if trailing_import_statement:
+            separator = line.index(";") + 1
+            scan_line = " " * separator + line[separator:]
+        else:
+            scan_line = line
         shadowed = (
             set()
-            if in_import_header
-            else _python_shadowed_names(line, candidates)
+            if in_import_header and not trailing_import_statement
+            else _python_shadowed_names(scan_line, candidates)
         )
         if import_statement is None:
             import_bindings: set[str] = set()
@@ -762,8 +780,8 @@ def _python_real_sleep_lines(masked_lines: list[str]) -> set[int]:
         if wildcard_import:
             shadowed.update(candidates)
 
-        function = _PYTHON_FUNCTION_START.search(line)
-        class_definition = _PYTHON_CLASS.search(line)
+        function = _PYTHON_FUNCTION_START.search(scan_line)
+        class_definition = _PYTHON_CLASS.search(scan_line)
         in_function_header = function is not None or pending_parameters is not None
         if function or class_definition:
             lexical_modules = active_modules.copy()
@@ -826,36 +844,79 @@ def _python_real_sleep_lines(masked_lines: list[str]) -> set[int]:
             active_modules.update(module_aliases)
             active_functions.update(function_aliases)
 
-        if in_function_header or in_import_header or class_definition:
+        lambda_ranges: list[tuple[set[str], int, int]] = []
+        surviving_lambda_scopes: list[tuple[int, set[str]]] = []
+        for lambda_depth, names in lambda_scopes:
+            expression_end = _python_lambda_expression_end(
+                scan_line,
+                0,
+                line_start_depth,
+                lambda_depth,
+            )
+            lambda_ranges.append(
+                (
+                    names,
+                    0,
+                    len(scan_line) if expression_end is None else expression_end,
+                )
+            )
+            if expression_end is None:
+                surviving_lambda_scopes.append((lambda_depth, names))
+        lambda_scopes = surviving_lambda_scopes
+
+        if (
+            in_function_header
+            or (in_import_header and not trailing_import_statement)
+            or class_definition
+        ):
             continue
 
-        new_lambda_shadowed = _python_lambda_shadowed_names(line, candidates)
-        for lambda_parameters in _PYTHON_LAMBDA_PARAMETERS.finditer(line):
-            names = {
-                match.group("name")
-                for match in _PYTHON_PARAMETER.finditer(
-                    lambda_parameters.group("parameters")
-                )
-                if match.group("name") in candidates
-            }
+        current_candidates = active_modules | active_functions
+        for lambda_parameters in _PYTHON_LAMBDA_PARAMETERS.finditer(scan_line):
+            names = _python_lambda_parameter_names(
+                lambda_parameters,
+                current_candidates,
+            )
             if names:
                 lambda_depth = _python_bracket_depth(
-                    line[:lambda_parameters.start()],
+                    scan_line[:lambda_parameters.start()],
                     line_start_depth,
                 )
-                lambda_scopes.append((lambda_depth, names))
-        lambda_shadowed = new_lambda_shadowed | set().union(
-            *(names for _, names in lambda_scopes)
-        )
-        line_modules = active_modules - lambda_shadowed
-        line_functions = active_functions - lambda_shadowed
+                expression_end = _python_lambda_expression_end(
+                    scan_line,
+                    lambda_parameters.end(),
+                    line_start_depth,
+                    lambda_depth,
+                )
+                lambda_ranges.append(
+                    (
+                        names,
+                        lambda_parameters.end(),
+                        (
+                            len(scan_line)
+                            if expression_end is None
+                            else expression_end
+                        ),
+                    )
+                )
+                if expression_end is None:
+                    lambda_scopes.append((lambda_depth, names))
+
+        def lambda_shadows(name: str, position: int) -> bool:
+            return any(
+                start <= position < end and name in names
+                for names, start, end in lambda_ranges
+            )
+
         qualified_sleep = any(
-            match.group("name") in line_modules
-            for match in _PYTHON_QUALIFIED_SLEEP.finditer(line)
+            match.group("name") in active_modules
+            and not lambda_shadows(match.group("name"), match.start())
+            for match in _PYTHON_QUALIFIED_SLEEP.finditer(scan_line)
         )
         bare_sleep = any(
-            match.group("name") in line_functions
-            for match in _PYTHON_BARE_CALL.finditer(line)
+            match.group("name") in active_functions
+            and not lambda_shadows(match.group("name"), match.start())
+            for match in _PYTHON_BARE_CALL.finditer(scan_line)
         )
         if qualified_sleep or bare_sleep:
             sleep_lines.add(idx)
@@ -1071,7 +1132,7 @@ def detect_sleep_then_assert(
         else bool(sleep_pattern and sleep_pattern.search(line))
     )
     if path_suffix == ".sh":
-        is_sleep = bool(_SHELL_BARE_SLEEP.search(lines[idx]))
+        is_sleep = bool(_SHELL_BARE_SLEEP.search(line))
     if not is_sleep:
         return False
     if _sleep_in_loop(lines, idx):
