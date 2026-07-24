@@ -180,6 +180,17 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     /// Device reachability changed. `a` is 1 when a usable network path
     /// exists, else 0. Correlates drops with WiFi/cellular transitions.
     case reachabilityChanged = 53
+    /// The Iroh boundary reported why a shared QUIC connection closed. `a` is
+    /// the stable close-initiator kind (0 unknown, 1 local, 2 remote, 3 timed
+    /// out), `b` is ``DiagnosticFailureKind``, `ms` is the application error
+    /// code clamped to the nonnegative `Int32` range when parseable, and `c` is
+    /// the matching positive, process-local session correlation ID.
+    case transportCloseAttribution = 54
+    /// One Iroh path opened, closed, became selected, or reported lag. `a` is
+    /// the stable path-event kind (1 opened, 2 closed, 3 selected, 4 lagged),
+    /// `b` is ``DiagnosticPathKind`` for the affected path, and `c` is the
+    /// matching positive, process-local session correlation ID.
+    case transportPathEvent = 55
 }
 
 /// Scene phase carried by ``DiagnosticEventCode/appLifecycleChanged``.
