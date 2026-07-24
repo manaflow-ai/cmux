@@ -1547,14 +1547,20 @@ extension Workspace {
                 restoredRemotePTYAttachCommand == nil &&
                 !isDefaultFreestyleSSHDRemoteWorkspace
             let effectiveRemoteStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteStartupCommand
-            let localWorkingDirectory = effectiveRemoteStartupCommand == nil &&
+            // True when the surface being restored runs a local shell. A remote surface's shell
+            // lives on the far host, where a local path means nothing.
+            let restoresLocalTerminalSurface = effectiveRemoteStartupCommand == nil &&
                 restoredRemotePTYAttachCommand == nil &&
-                !restoresRemoteWorkspaceTerminalSnapshot &&
-                !startupHandlesWorkingDirectory
+                !restoresRemoteWorkspaceTerminalSnapshot
+            let localWorkingDirectory = restoresLocalTerminalSurface && !startupHandlesWorkingDirectory
                 ? (suppressWorkspaceRemoteStartupCommand ? savedWorkingDirectory : workingDirectory)
                 : nil
-            let requestedWorkingDirectory =
-                localWorkingDirectory ?? (startupHandlesWorkingDirectory ? workingDirectory : nil)
+            // A startup command that cds itself lets the surface keep that directory for the shell
+            // the command leaves behind, but only when that shell is local. On a remote-workspace
+            // terminal the startup command is the ssh invocation, so handing it this machine's
+            // working directory asks the far host to enter a path from here.
+            let requestedWorkingDirectory = localWorkingDirectory
+                ?? (startupHandlesWorkingDirectory && restoresLocalTerminalSurface ? workingDirectory : nil)
             let restoredAgentWillRunStartupCommand = restorableAgent != nil && (
                 restoredAgentResumeLaunch?.initialCommand != nil ||
                 (restoredBindingLaunch?.initialCommand != nil && resumeBinding?.isAgentHookBinding == true) ||
