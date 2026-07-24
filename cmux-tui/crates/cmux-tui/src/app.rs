@@ -30,6 +30,7 @@ use crossterm::event::{
 };
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+    query_keyboard_enhancement_flags,
 };
 use ghostty_vt::{
     CursorShape, KeyEncoder, KeyInput, Mods, MouseAction, MouseButton as GhosttyMouseButton,
@@ -86,20 +87,27 @@ enum TerminalInput {
 
 impl From<Event> for TerminalInput {
     fn from(event: Event) -> Self {
-        Self::from_event(event, None)
+        Self::from_event(event, None, false)
     }
 }
 
 impl TerminalInput {
-    fn from_event(event: Event, macos_option_as_alt: Option<bool>) -> Self {
+    fn from_event(
+        event: Event,
+        macos_option_as_alt: Option<bool>,
+        enhanced_keyboard_input: bool,
+    ) -> Self {
         match event {
             Event::Key(key) => Self::Keyboard(key.into()),
-            Event::EnhancedKey(key) => Self::Keyboard(keys::KeyboardInput::from_enhanced(
-                key,
-                // Unset and side-specific policies are ambiguous because Kitty
-                // omits modifier-side and consumption metadata. Preserve Alt.
-                macos_option_as_alt.unwrap_or(true),
-            )),
+            Event::EnhancedKey(key) if enhanced_keyboard_input => {
+                Self::Keyboard(keys::KeyboardInput::from_enhanced(
+                    key,
+                    // Unset and side-specific policies are ambiguous because Kitty
+                    // omits modifier-side and consumption metadata. Preserve Alt.
+                    macos_option_as_alt.unwrap_or(true),
+                ))
+            }
+            Event::EnhancedKey(key) => Self::Keyboard(key.key_event.into()),
             Event::Mouse(mouse) => Self::Mouse(mouse),
             Event::Paste(text) => Self::Paste(text),
             Event::FocusGained => Self::FocusGained,
@@ -2991,6 +2999,7 @@ pub struct App {
     machine_update_pump: Option<MachineUpdatePump>,
     machine_update_generation: u64,
     pub config: Config,
+    enhanced_keyboard_input: bool,
     pub chrome: ChromeTheme,
     default_colors: cmux_tui_core::DefaultColors,
     pub tree: TreeView,
@@ -3947,7 +3956,7 @@ pub fn run_with_machine_updates(
         let _guard = stdout_lock.lock().unwrap();
         let mut stdout = std::io::stdout();
         stdout.execute(EnterAlternateScreen)?;
-        host_keyboard_protocol = enable_host_keyboard_protocol(&mut stdout)?;
+        host_keyboard_protocol = negotiate_host_keyboard_protocol(&mut stdout)?;
         stdout.execute(EnableMouseCapture)?;
         // Ask the host terminal to report Shift-modified mouse events so
         // Shift remains cmux's selection/context-menu escape while the inner
@@ -4013,6 +4022,7 @@ pub fn run_with_machine_updates(
         machine_update_pump: None,
         machine_update_generation: 0,
         config,
+        enhanced_keyboard_input: host_keyboard_protocol.enhanced_input,
         chrome,
         default_colors,
         tree: TreeView::default(),
@@ -4132,24 +4142,56 @@ pub fn run_with_machine_updates(
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct HostKeyboardProtocolOwnership {
     pushed: bool,
+    enhanced_input: bool,
+}
+
+const HOST_KEYBOARD_FLAGS: KeyboardEnhancementFlags =
+    KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+        .union(KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS)
+        .union(KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES)
+        .union(KeyboardEnhancementFlags::REPORT_ASSOCIATED_TEXT);
+
+fn keyboard_protocol_accepts(
+    requested: KeyboardEnhancementFlags,
+    accepted: Option<KeyboardEnhancementFlags>,
+) -> bool {
+    accepted.is_some_and(|flags| flags.contains(requested))
 }
 
 fn enable_host_keyboard_protocol(
     stdout: &mut impl Write,
 ) -> std::io::Result<HostKeyboardProtocolOwnership> {
-    let result = stdout.execute(PushKeyboardEnhancementFlags(
-        KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
-            | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS
-            | KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES
-            | KeyboardEnhancementFlags::REPORT_ASSOCIATED_TEXT,
-    ));
+    let result = stdout.execute(PushKeyboardEnhancementFlags(HOST_KEYBOARD_FLAGS));
     match result {
-        Ok(_) => Ok(HostKeyboardProtocolOwnership { pushed: true }),
+        Ok(_) => Ok(HostKeyboardProtocolOwnership { pushed: true, enhanced_input: false }),
         Err(error) if error.kind() == std::io::ErrorKind::Unsupported => {
             Ok(HostKeyboardProtocolOwnership::default())
         }
         Err(error) => Err(error),
     }
+}
+
+fn negotiate_host_keyboard_protocol(
+    stdout: &mut impl Write,
+) -> std::io::Result<HostKeyboardProtocolOwnership> {
+    negotiate_host_keyboard_protocol_with(stdout, query_keyboard_enhancement_flags)
+}
+
+fn negotiate_host_keyboard_protocol_with(
+    stdout: &mut impl Write,
+    query: impl FnOnce() -> std::io::Result<Option<KeyboardEnhancementFlags>>,
+) -> std::io::Result<HostKeyboardProtocolOwnership> {
+    let ownership = enable_host_keyboard_protocol(stdout)?;
+    if !ownership.pushed {
+        return Ok(ownership);
+    }
+
+    if keyboard_protocol_accepts(HOST_KEYBOARD_FLAGS, query().unwrap_or(None)) {
+        return Ok(HostKeyboardProtocolOwnership { enhanced_input: true, ..ownership });
+    }
+
+    disable_host_keyboard_protocol(stdout, ownership)?;
+    Ok(HostKeyboardProtocolOwnership::default())
 }
 
 fn disable_host_keyboard_protocol(
@@ -5642,6 +5684,7 @@ impl App {
             return self.handle_terminal_input(TerminalInput::from_event(
                 input,
                 self.config.macos_option_as_alt,
+                self.enhanced_keyboard_input,
             ));
         }
         match &event {
@@ -10914,15 +10957,15 @@ mod tests {
         PendingSessionMutation, PendingSessionMutationState, PromptTarget, PtyFailureIngress,
         PtyMousePressResult, RailKind, RenderAction, Selection, SessionCompletion,
         SessionCompletionAction, SessionEventSender, SidebarLayout, SidebarPluginSyncClaim,
-        SidebarPluginSyncState, SurfaceResizeDecision, SurfaceResizeOwnership,
+        SidebarPluginSyncState, SurfaceResizeDecision, SurfaceResizeOwnership, TerminalInput,
         WorkspaceRailSelection, browser_content_size_for_rect, browser_hover_forward_allowed,
         canonical_terminal_content, clamp_split_ratio_for_tab_bars, client_menu_item,
         disable_host_keyboard_protocol, enable_host_keyboard_protocol, forward_mux_event,
-        forward_mux_events, keyboard_protocol_accepts, outer_cursor_escape,
-        outer_cursor_escape_if_changed,
-        pane_context_menu_groups, pane_parts_for_rect, prepare_ordered_session,
-        preserve_client_view, rail_drag_width, record_surface_resize_dispatch_result,
-        sidebar_layout_for, sidebar_plugin_status_settles_passive_claim, start_ordered_session,
+        forward_mux_events, keyboard_protocol_accepts, negotiate_host_keyboard_protocol_with,
+        outer_cursor_escape, outer_cursor_escape_if_changed, pane_context_menu_groups,
+        pane_parts_for_rect, prepare_ordered_session, preserve_client_view, rail_drag_width,
+        record_surface_resize_dispatch_result, sidebar_layout_for,
+        sidebar_plugin_status_settles_passive_claim, start_ordered_session,
     };
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -10976,9 +11019,15 @@ mod tests {
     #[test]
     fn host_keyboard_protocol_reports_command_modifiers_and_is_restored() {
         let mut output = Vec::new();
+        let accepted = KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+            | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS
+            | KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES
+            | KeyboardEnhancementFlags::REPORT_ASSOCIATED_TEXT;
 
-        let ownership = enable_host_keyboard_protocol(&mut output).unwrap();
+        let ownership =
+            negotiate_host_keyboard_protocol_with(&mut output, || Ok(Some(accepted))).unwrap();
         assert!(ownership.pushed);
+        assert!(ownership.enhanced_input);
         disable_host_keyboard_protocol(&mut output, ownership).unwrap();
 
         assert_eq!(output, b"\x1b[>29u\x1b[<1u");
@@ -11019,6 +11068,41 @@ mod tests {
         assert!(!keyboard_protocol_accepts(requested, Some(partial)));
         assert!(!keyboard_protocol_accepts(requested, None));
         assert!(keyboard_protocol_accepts(requested, Some(requested)));
+    }
+
+    #[test]
+    fn partial_host_keyboard_protocol_is_popped_before_legacy_fallback() {
+        let mut output = Vec::new();
+        let accepted = KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+            | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS;
+
+        let ownership =
+            negotiate_host_keyboard_protocol_with(&mut output, || Ok(Some(accepted))).unwrap();
+
+        assert_eq!(ownership, super::HostKeyboardProtocolOwnership::default());
+        assert_eq!(output, b"\x1b[>29u\x1b[<1u");
+    }
+
+    #[test]
+    fn unverified_host_keyboard_metadata_is_not_routed() {
+        let input = TerminalInput::from_event(
+            Event::EnhancedKey(EnhancedKeyEvent {
+                key_event: KeyEvent::new(KeyCode::Char('л'), KeyModifiers::SUPER),
+                shifted_key: None,
+                base_layout_key: Some('k'),
+                text: "generated".to_string(),
+            }),
+            Some(false),
+            false,
+        );
+        let TerminalInput::Keyboard(input) = input else {
+            panic!("enhanced key did not become keyboard input");
+        };
+
+        let (logical, physical) = input.shortcut_keys();
+        assert_eq!(logical.code, KeyCode::Char('л'));
+        assert!(physical.is_none());
+        assert_eq!(input.associated_text_bytes(), 0);
     }
 
     #[test]
@@ -17667,6 +17751,7 @@ mod tests {
             machine_update_pump: None,
             machine_update_generation: 0,
             config: Config::default(),
+            enhanced_keyboard_input: true,
             chrome: ChromeTheme::dark(),
             default_colors: cmux_tui_core::DefaultColors::default(),
             tree: TreeView::default(),

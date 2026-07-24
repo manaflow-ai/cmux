@@ -9,6 +9,8 @@ use winapi::{
     um::wincon::{SetConsoleTitleW, ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT, ENABLE_PROCESSED_INPUT},
 };
 
+#[cfg(feature = "events")]
+use crate::event::KeyboardEnhancementFlags;
 use crate::{
     cursor,
     terminal::{ClearType, WindowSize},
@@ -71,6 +73,14 @@ pub(crate) fn window_size() -> io::Result<WindowSize> {
 #[cfg(feature = "events")]
 pub fn supports_keyboard_enhancement() -> std::io::Result<bool> {
     Ok(false)
+}
+
+/// Queries the terminal's currently active keyboard enhancement flags.
+///
+/// This always returns `Ok(None)` on Windows.
+#[cfg(feature = "events")]
+pub fn query_keyboard_enhancement_flags() -> std::io::Result<Option<KeyboardEnhancementFlags>> {
+    Ok(None)
 }
 
 pub(crate) fn clear(clear_type: ClearType) -> std::io::Result<()> {

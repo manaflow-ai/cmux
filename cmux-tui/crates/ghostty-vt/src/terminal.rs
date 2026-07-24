@@ -271,6 +271,7 @@ struct PromptSemanticTracker {
     primary: PromptSemantic,
     alternate: PromptSemantic,
     alternate_active: bool,
+    saved_screen_modes: [Option<bool>; 3],
     revision: u64,
 }
 
@@ -286,7 +287,7 @@ enum PromptTrackState {
         at_start: bool,
         parameter: u16,
         has_parameter: bool,
-        has_screen_mode: bool,
+        screen_modes: u8,
     },
 }
 
@@ -354,6 +355,7 @@ impl PromptSemanticTracker {
                         self.primary = PromptSemantic::Unknown;
                         self.alternate = PromptSemantic::Unknown;
                         self.alternate_active = false;
+                        self.saved_screen_modes = [None; 3];
                         PromptTrackState::Ground
                     }
                     0x1b => PromptTrackState::Escape,
@@ -386,7 +388,7 @@ impl PromptSemanticTracker {
                     mut at_start,
                     mut parameter,
                     mut has_parameter,
-                    mut has_screen_mode,
+                    mut screen_modes,
                 } => match byte {
                     b'?' if at_start => {
                         private = true;
@@ -396,7 +398,7 @@ impl PromptSemanticTracker {
                             at_start,
                             parameter,
                             has_parameter,
-                            has_screen_mode,
+                            screen_modes,
                         }
                     }
                     b'0'..=b'9' => {
@@ -409,12 +411,13 @@ impl PromptSemanticTracker {
                             at_start,
                             parameter,
                             has_parameter,
-                            has_screen_mode,
+                            screen_modes,
                         }
                     }
                     b';' => {
-                        has_screen_mode |=
-                            private && has_parameter && Self::is_screen_mode(parameter);
+                        if private && has_parameter {
+                            screen_modes |= Self::screen_mode_flag(parameter);
+                        }
                         at_start = false;
                         parameter = 0;
                         has_parameter = false;
@@ -423,15 +426,14 @@ impl PromptSemanticTracker {
                             at_start,
                             parameter,
                             has_parameter,
-                            has_screen_mode,
+                            screen_modes,
                         }
                     }
                     0x40..=0x7e => {
-                        has_screen_mode |=
-                            private && has_parameter && Self::is_screen_mode(parameter);
-                        if has_screen_mode && matches!(byte, b'h' | b'l') {
-                            self.alternate_active = byte == b'h';
+                        if private && has_parameter {
+                            screen_modes |= Self::screen_mode_flag(parameter);
                         }
+                        self.apply_screen_modes(byte, screen_modes);
                         PromptTrackState::Ground
                     }
                     0x1b => PromptTrackState::Escape,
@@ -447,12 +449,40 @@ impl PromptSemanticTracker {
             at_start: true,
             parameter: 0,
             has_parameter: false,
-            has_screen_mode: false,
+            screen_modes: 0,
         }
     }
 
-    fn is_screen_mode(mode: u16) -> bool {
-        matches!(mode, 47 | 1047 | 1049)
+    fn screen_mode_flag(mode: u16) -> u8 {
+        match mode {
+            47 => 1 << 0,
+            1047 => 1 << 1,
+            1049 => 1 << 2,
+            _ => 0,
+        }
+    }
+
+    fn apply_screen_modes(&mut self, action: u8, screen_modes: u8) {
+        match action {
+            b'h' | b'l' if screen_modes != 0 => self.alternate_active = action == b'h',
+            b's' => {
+                for (index, saved) in self.saved_screen_modes.iter_mut().enumerate() {
+                    if screen_modes & (1 << index) != 0 {
+                        *saved = Some(self.alternate_active);
+                    }
+                }
+            }
+            b'r' => {
+                for (index, saved) in self.saved_screen_modes.iter().enumerate() {
+                    if screen_modes & (1 << index) != 0
+                        && let Some(alternate_active) = saved
+                    {
+                        self.alternate_active = *alternate_active;
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 
     fn semantic(&self, screen: Screen) -> PromptSemantic {

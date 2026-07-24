@@ -1237,8 +1237,9 @@ pub struct Config {
     pub theme: Theme,
     pub theme_overrides: ThemeOverrides,
     pub terminal_defaults: DefaultColors,
-    /// Explicit Ghostty `macos-option-as-alt` policy. `None` includes unset,
-    /// invalid, and side-specific values that Kitty cannot disambiguate.
+    /// Explicit Ghostty `macos-option-as-alt` policy. `None` includes a
+    /// non-Ghostty host, unset or invalid values, and side-specific values that
+    /// Kitty cannot disambiguate.
     pub macos_option_as_alt: Option<bool>,
     pub cursor_style: Option<CursorShape>,
     pub cursor_blink: Option<bool>,
@@ -1291,7 +1292,9 @@ pub fn load() -> Config {
 
     let defaults = ghostty_defaults();
     config.terminal_defaults = defaults.colors;
-    config.macos_option_as_alt = defaults.macos_option_as_alt;
+    let term_program = std::env::var("TERM_PROGRAM").ok();
+    config.macos_option_as_alt =
+        ghostty_option_policy_for_host(term_program.as_deref(), defaults.macos_option_as_alt);
     let defaults = defaults.colors;
     if let Some(bg) = defaults.selection_bg {
         config.theme.selection_bg = Color::Rgb(bg.r, bg.g, bg.b);
@@ -1517,6 +1520,16 @@ pub fn load() -> Config {
     config.server.ws_token = raw.server.ws_token.filter(|value| !value.trim().is_empty());
     config.keys.apply(&raw.keys);
     config
+}
+
+fn ghostty_option_policy_for_host(
+    term_program: Option<&str>,
+    macos_option_as_alt: Option<bool>,
+) -> Option<bool> {
+    term_program
+        .is_some_and(|program| program.eq_ignore_ascii_case("ghostty"))
+        .then_some(macos_option_as_alt)
+        .flatten()
 }
 
 fn normalize_ssh_machine_port(id: &str, port: Option<u16>) -> Option<u16> {

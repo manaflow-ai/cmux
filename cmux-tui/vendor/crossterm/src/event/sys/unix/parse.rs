@@ -259,25 +259,11 @@ fn parse_csi_keyboard_enhancement_flags(buffer: &[u8]) -> io::Result<Option<Inte
         return Ok(None);
     }
 
-    let bits = buffer[3];
-    let mut flags = KeyboardEnhancementFlags::empty();
-
-    if bits & 1 != 0 {
-        flags |= KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES;
-    }
-    if bits & 2 != 0 {
-        flags |= KeyboardEnhancementFlags::REPORT_EVENT_TYPES;
-    }
-    if bits & 4 != 0 {
-        flags |= KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS;
-    }
-    if bits & 8 != 0 {
-        flags |= KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES;
-    }
-    // *Note*: this is not yet supported by crossterm.
-    // if bits & 16 != 0 {
-    //     flags |= KeyboardEnhancementFlags::REPORT_ASSOCIATED_TEXT;
-    // }
+    let bits = std::str::from_utf8(&buffer[3..buffer.len() - 1])
+        .map_err(|_| could_not_parse_event_error())?
+        .parse::<u8>()
+        .map_err(|_| could_not_parse_event_error())?;
+    let flags = KeyboardEnhancementFlags::from_bits_truncate(bits);
 
     Ok(Some(InternalEvent::KeyboardEnhancementFlags(flags)))
 }
