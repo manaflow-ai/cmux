@@ -122,6 +122,45 @@ struct CmxIrohClientSessionPoolSingleFlightTests {
         await endpoint.close()
     }
 
+    // Commit 2: this test depends on the pool's new injected clock parameter.
+    @Test
+    func wedgedRetiredDialDoesNotBlockRedialPastTheSettleBound() async throws {
+        let fixture = try SingleFlightPoolFixture()
+        let connection2 = TestIrohConnection(
+            remoteIdentity: fixture.remoteIdentity,
+            bidirectionalStreams: [fixture.controlStream()]
+        )
+        let endpoint = TestGatedDialEndpoint(localIdentity: fixture.localIdentity)
+        let pool = try await fixture.pool(
+            endpoint: endpoint,
+            generation: 1,
+            clock: ImmediateHostActivationClock()
+        )
+        let factory = CmxIrohByteTransportFactory(sessionPool: pool)
+        let transport1 = try factory.makeTransport(for: fixture.request)
+        let connect1 = Task {
+            try await transport1.connect()
+        }
+
+        #expect(await waitForDialCount(endpoint, atLeast: 1))
+        await pool.activate(runtimeGeneration: 2)
+
+        let transport2 = try factory.makeTransport(for: fixture.request)
+        let connect2 = Task {
+            try await transport2.connect()
+        }
+        #expect(await waitForDialCount(endpoint, atLeast: 2))
+        await endpoint.releaseNewestDial(with: connection2)
+        try await connect2.value
+
+        #expect(await connection2.observedCloseCallCount() == 0)
+        connect1.cancel()
+        await endpoint.close()
+        _ = try? await connect1.value
+        await transport2.close()
+        await pool.deactivate()
+    }
+
     private func waitForDialCount(
         _ endpoint: TestGatedDialEndpoint,
         atLeast expectedCount: Int
@@ -177,7 +216,8 @@ private struct SingleFlightPoolFixture {
 
     func pool(
         endpoint: any CmxIrohEndpoint,
-        generation: UInt64
+        generation: UInt64,
+        clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
     ) async throws -> CmxIrohClientSessionPool {
         let configuration = try CmxIrohEndpointConfiguration(
             secretKey: CmxIrohSecretKey(bytes: Data(repeating: 7, count: 32)),
@@ -193,7 +233,8 @@ private struct SingleFlightPoolFixture {
         let pool = CmxIrohClientSessionPool(
             supervisor: supervisor,
             contextProvider: TestIrohClientContextProvider(context: context),
-            protocolConfiguration: .testApplicationLanes
+            protocolConfiguration: .testApplicationLanes,
+            clock: clock
         )
         await pool.activate(runtimeGeneration: generation)
         return pool
