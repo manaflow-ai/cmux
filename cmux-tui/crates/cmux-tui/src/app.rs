@@ -4147,7 +4147,10 @@ impl App {
                 action = action.merge(RenderAction::Draw);
             }
             self.render_action(terminal, action)?;
-            if self.routing_refresh_pending {
+            // An immediate self-reschedule follows a Draw that consumed at
+            // least one queued input. Re-deferral or new mutations leave the
+            // flag clear and resume only after their completion event.
+            while self.routing_refresh_pending {
                 self.routing_refresh_pending = false;
                 let replay = self.replay_deferred_input()?;
                 self.render_action(terminal, replay)?;
@@ -5515,8 +5518,11 @@ impl App {
                     Some("Pointer input was discarded while the layout changed".to_string());
                 return Ok(RenderAction::Draw);
             }
-            AppEvent::Input(input @ (Event::Key(_) | Event::Paste(_)))
-                if (self.session.has_pending_mutations()
+            AppEvent::Input(input @ (Event::Key(_) | Event::Mouse(_) | Event::Paste(_)))
+                if !matches!(
+                    &input,
+                    Event::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. })
+                ) && (self.session.has_pending_mutations()
                     || self.session.remote_tree_is_stale()
                     || self.mux_recovery_generation.load(Ordering::Acquire) != 0
                     || self.routing_refresh_pending)
