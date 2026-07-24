@@ -76,6 +76,12 @@ case "${{@: -1}}" in
         printf '%s\\0' -c
         exit 17
         ;;
+      truncated)
+        printf '%s' -c
+        ;;
+      wrong_arity)
+        printf '%s\\0' -c
+        ;;
       override)
         printf '%s\\0' -c '{TRUST_OVERRIDE}'
         ;;
@@ -191,7 +197,7 @@ esac
         self.assertNotIn("hooks codex inject-resume-args", logged_cmux_calls)
 
     def test_resume_helper_empty_or_failed_partial_output_is_discarded(self) -> None:
-        for mode in ("empty", "partial"):
+        for mode in ("empty", "partial", "truncated", "wrong_arity"):
             with self.subTest(mode=mode):
                 args, _, result = self.run_wrapper(
                     ["resume", SESSION_ID],

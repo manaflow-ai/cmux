@@ -1996,10 +1996,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let olderPID = Int(Darwin.getpid())
         let deadPID = Int(Int32.max)
         let newerProcess = Process()
-        newerProcess.executableURL = URL(fileURLWithPath: "/bin/sleep")
-        newerProcess.arguments = ["30"]
+        let newerProcessInput = Pipe()
+        newerProcess.executableURL = URL(fileURLWithPath: "/bin/cat")
+        newerProcess.standardInput = newerProcessInput
         try newerProcess.run()
         defer {
+            try? newerProcessInput.fileHandleForWriting.close()
             if newerProcess.isRunning {
                 newerProcess.terminate()
             }
