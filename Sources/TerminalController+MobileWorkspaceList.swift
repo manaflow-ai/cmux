@@ -190,6 +190,8 @@ extension TerminalController {
     /// terminal-not-found check is enforced by the caller after the list is built.
     /// `notificationStore` defaults to the app-global store; tests inject one so
     /// the unread/activity fields are deterministic.
+    /// This overload is for single-payload callers, primarily tests. List builders
+    /// must call the `descriptionBudget` overload with one shared budget.
     func mobileWorkspacePayload(
         workspace: Workspace,
         windowID: UUID? = nil,

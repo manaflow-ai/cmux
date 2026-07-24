@@ -94,18 +94,7 @@ public enum MobileWorkspaceMetadataLimits {
     /// Conservative UTF-8 byte count for a string once encoded as JSON string
     /// contents, excluding the surrounding quotes and object-key overhead.
     public static func jsonEscapedUTF8ByteCount(_ value: String) -> Int {
-        var byteCount = 0
-        for scalar in value.unicodeScalars {
-            switch scalar.value {
-            case 0x22, 0x5c:
-                byteCount += 2
-            case 0x00..<0x20:
-                byteCount += 6
-            default:
-                byteCount += scalar.utf8.count
-            }
-        }
-        return byteCount
+        jsonEscapedUTF8ByteCount(value, stoppingAfter: Int.max)
     }
 
     private static func jsonEscapedUTF8ByteCount(
