@@ -81,11 +81,12 @@ extension ExternalTreeNode {
     }
 
     /// Plans a keyboard resize of the pane's controlling divider: walks the
-    /// tree for the splits enclosing `targetPaneId` (innermost first, the
-    /// legacy candidate order), picks the first split matching the resize
-    /// direction's orientation and child side, and converts `amountPixels`
-    /// into a divider delta along that split's axis, clamped to 0.1-0.9.
-    /// Returns `nil` when the pane is absent or no enclosing split matches.
+    /// tree for the splits enclosing `targetPaneId` (innermost first), prefers
+    /// the nearest split matching the requested edge, and falls back to the
+    /// nearest compatible opposite edge at an outer boundary. Converts
+    /// `amountPixels` into a divider delta along that split's axis, clamped to
+    /// 0.1-0.9. Returns `nil` when the pane is absent or no enclosing split
+    /// matches the direction's orientation.
     public func resizeDividerAdjustment(
         targetPaneId: String,
         direction: ResizeDirection,
@@ -98,16 +99,43 @@ extension ExternalTreeNode {
         let orientationMatches = candidates.filter { $0.orientation == direction.splitOrientation }
         guard !orientationMatches.isEmpty else { return nil }
 
-        guard let candidate = orientationMatches.first(where: {
+        let directCandidate = orientationMatches.first {
             $0.paneInFirstChild == direction.requiresPaneInFirstChild
-        }) else {
-            return nil
         }
+        let candidate = directCandidate ?? orientationMatches[0]
+        let sign = directCandidate == nil
+            ? -direction.dividerDeltaSign
+            : direction.dividerDeltaSign
 
         let delta = CGFloat(amountPixels) / candidate.axisPixels
-        let requested = candidate.dividerPosition + (direction.dividerDeltaSign * delta)
+        let requested = candidate.dividerPosition + (sign * delta)
         let clamped = min(max(requested, 0.1), 0.9)
-        return SplitDividerAdjustment(splitId: candidate.splitId, position: clamped)
+        let requestedShare = candidate.paneInFirstChild ? requested : 1 - requested
+        let actualShare = candidate.paneInFirstChild ? clamped : 1 - clamped
+        let initialShare = candidate.paneInFirstChild
+            ? candidate.dividerPosition
+            : 1 - candidate.dividerPosition
+        return SplitDividerAdjustment(
+            splitId: candidate.splitId,
+            position: clamped,
+            requestedFocusedBranchShare: requestedShare,
+            focusedBranchShare: actualShare,
+            initialFocusedBranchShare: initialShare,
+            focusedBranchIsFirst: candidate.paneInFirstChild
+        )
+    }
+
+    func dividerPosition(forSplitId splitId: UUID) -> CGFloat? {
+        switch self {
+        case .pane:
+            return nil
+        case .split(let split):
+            if split.id == splitId.uuidString {
+                return split.dividerPosition
+            }
+            return split.first.dividerPosition(forSplitId: splitId)
+                ?? split.second.dividerPosition(forSplitId: splitId)
+        }
     }
 
     private struct ResizeSplitCandidate {

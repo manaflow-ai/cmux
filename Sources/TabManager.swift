@@ -3904,6 +3904,36 @@ class TabManager: ObservableObject {
     }
 
     /// Resize split - not directly supported by bonsplit, but we can adjust divider positions
+    func resizeSelectedPane(
+        direction: ResizeDirection,
+        amountInPixels: CGFloat
+    ) -> PaneResizeResult {
+        guard amountInPixels.isFinite, amountInPixels > 0 else {
+            return .rejected(reason: "Resize amount must be a positive finite value.")
+        }
+        guard let workspace = selectedWorkspace else {
+            return .rejected(reason: "No workspace is selected.")
+        }
+        guard workspace.layoutMode != .canvas, !workspace.isRemoteTmuxMirror else {
+            return .unsupportedLayout
+        }
+        guard !workspace.bonsplitController.isSplitZoomed else {
+            return .rejected(reason: "Pane resizing is unavailable while a pane is zoomed.")
+        }
+        guard let panelId = workspace.focusedPanelId else {
+            return .rejected(reason: "No pane is focused.")
+        }
+
+        let roundedAmount = max(1, min(amountInPixels.rounded(), CGFloat(UInt16.max)))
+        return paneLayout.resizeSplitResult(
+            in: workspace.bonsplitController.treeSnapshot(),
+            targetPaneId: panelId.uuidString,
+            direction: direction,
+            amountPixels: UInt16(roundedAmount),
+            controller: workspace.bonsplitController
+        )
+    }
+
     func resizeSplit(tabId: UUID, surfaceId: UUID, direction: ResizeDirection, amount: UInt16) -> Bool {
         guard amount > 0,
               let tab = tabs.first(where: { $0.id == tabId }),
