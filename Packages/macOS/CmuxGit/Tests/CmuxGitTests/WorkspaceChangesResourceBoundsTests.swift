@@ -3,7 +3,7 @@ import Testing
 @testable import CmuxGit
 
 @Suite struct WorkspaceChangesResourceBoundsTests {
-    @Test func boundedSnapshotCommandPropagatesPartialResultAsTruncated() async {
+    @Test func boundedSnapshotCommandPropagatesPartialResultAsTruncated() async throws {
         let root = "/tmp/cmux-truncated-snapshot"
         let statusArguments = ["diff", "-M", "--name-status", "-z", "HEAD", "--"]
         let runner = FakeWorkspaceChangesGitRunner(results: [
@@ -30,7 +30,7 @@ import Testing
                 FakeWorkspaceChangesGitRunner.result(),
         ])
 
-        let files = await WorkspaceChangesService(runner: runner)
+        let files = try await WorkspaceChangesService(runner: runner)
             .changedFiles(forDirectory: root)
 
         #expect(files.isRepository)
@@ -56,6 +56,23 @@ import Testing
         #expect(clock.now - start < .seconds(2))
     }
 
+    @Test func plainSystemRunnerTerminatesAtWallDeadline() throws {
+        let runner = SystemWorkspaceChangesGitRunner(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            boundedCommandWallTimeLimit: 0.05
+        )
+        let clock = ContinuousClock()
+        let start = clock.now
+
+        let result = try runner.run(
+            arguments: ["-c", "while :; do :; done"],
+            in: FileManager.default.temporaryDirectory
+        )
+
+        #expect(result.standardOutputWasTruncated)
+        #expect(clock.now - start < .seconds(2))
+    }
+
     @Test func aggregateUntrackedBudgetSkipsUnreadableRemainder() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-untracked-aggregate-\(UUID().uuidString)", isDirectory: true)
@@ -74,6 +91,48 @@ import Testing
 
         #expect(files.map(\.path) == ["first.txt", "missing.txt"])
         #expect(files.map(\.additions) == [2, 0])
+        #expect(files.map(\.isBinary) == [false, true])
+    }
+
+    @Test func exhaustedLineBudgetStillClassifiesBinaryPrefix() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-untracked-classification-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("done".utf8).write(to: root.appendingPathComponent("first.txt"))
+        try Data([0x41, 0x00, 0x42]).write(to: root.appendingPathComponent("second.bin"))
+        let inspector = WorkspaceUntrackedFileInspector(
+            perFileReadByteCount: 4,
+            aggregateReadByteCount: 4
+        )
+
+        let files = try #require(inspector.inspect(
+            paths: ["first.txt", "second.bin"],
+            repoRoot: root.path
+        ))
+
+        #expect(files.map(\.additions) == [1, 0])
+        #expect(files.map(\.isBinary) == [false, true])
+    }
+
+    @Test func exhaustedClassificationBudgetFallsBackToBinary() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-untracked-safe-fallback-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("plain text\n".utf8).write(to: root.appendingPathComponent("unprobed.txt"))
+        let inspector = WorkspaceUntrackedFileInspector(
+            aggregateReadByteCount: 0,
+            aggregateClassificationByteCount: 0
+        )
+
+        let files = try #require(inspector.inspect(
+            paths: ["unprobed.txt"],
+            repoRoot: root.path
+        ))
+
+        #expect(files.first?.additions == 0)
+        #expect(files.first?.isBinary == true)
     }
 
     @Test func aggregateUntrackedInspectionObservesTaskCancellation() async {
@@ -98,5 +157,6 @@ import Testing
 
         #expect(files?.map(\.path) == ["missing-after-cancel.txt"])
         #expect(files?.map(\.additions) == [0])
+        #expect(files?.map(\.isBinary) == [true])
     }
 }

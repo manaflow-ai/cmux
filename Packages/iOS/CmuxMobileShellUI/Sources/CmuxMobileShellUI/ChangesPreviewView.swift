@@ -76,7 +76,7 @@ public struct ChangesPreviewView: View {
         switch mode {
         case "empty": .empty
         case "states": stateVariant == .loading ? .loading : .error
-        default: .loaded
+        default: .loaded(truncated: false)
         }
     }
 

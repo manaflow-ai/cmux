@@ -88,4 +88,53 @@ import Testing
             "--literal-pathspecs", "cat-file", "-s", "\(baseOID):large.bin",
         ]) == 1)
     }
+
+    @Test func baseCacheSkipsLeasedEntriesAndEvictsAfterRelease() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-base-cache-leases-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cache = WorkspaceChangesBaseContentCache(
+            byteBudget: 4,
+            maximumEntryCount: 2,
+            temporaryDirectory: root
+        )
+        let firstKey = WorkspaceChangesBaseContentCache.Key(
+            repoRoot: "/repo",
+            baseCommitOID: "abc",
+            path: "first"
+        )
+        let secondKey = WorkspaceChangesBaseContentCache.Key(
+            repoRoot: "/repo",
+            baseCommitOID: "abc",
+            path: "second"
+        )
+
+        let survivingURL = try await cache.withLeasedFileURL(
+            for: firstKey,
+            materialize: { destination in
+                try Data("111".utf8).write(to: destination)
+                return 3
+            },
+            operation: { firstURL in
+                let releasedURL = try await cache.withLeasedFileURL(
+                    for: secondKey,
+                    materialize: { destination in
+                        try Data("222".utf8).write(to: destination)
+                        return 3
+                    },
+                    operation: { secondURL in
+                        #expect(FileManager.default.fileExists(atPath: firstURL.path))
+                        #expect(FileManager.default.fileExists(atPath: secondURL.path))
+                        return secondURL
+                    }
+                )
+                #expect(FileManager.default.fileExists(atPath: firstURL.path))
+                #expect(!FileManager.default.fileExists(atPath: releasedURL.path))
+                return firstURL
+            }
+        )
+
+        #expect(FileManager.default.fileExists(atPath: survivingURL.path))
+    }
 }

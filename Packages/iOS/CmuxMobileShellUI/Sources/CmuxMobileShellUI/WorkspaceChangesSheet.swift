@@ -158,7 +158,9 @@ public struct WorkspaceChangesSheet: View {
                     isBinary: file.isBinary
                 )
             }
-            listState = files.isEmpty ? .empty : .loaded
+            listState = files.isEmpty
+                ? .empty
+                : .loaded(truncated: response.truncated)
         } catch is CancellationError {
             guard RecoverableCancellationErrorPolicy().shouldPublishFailure(
                 taskIsCancelled: Task.isCancelled

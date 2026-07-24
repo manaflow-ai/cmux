@@ -7,7 +7,7 @@ internal import UniformTypeIdentifiers
 struct WorkspaceChangesContentReader: Sendable, WorkspaceChangesContentFingerprintReading {
     private let regularFileOpener = WorkspaceChangesRegularFileOpener()
 
-    /// Reads artifact metadata and its size-and-mtime fingerprint.
+    /// Reads artifact metadata and its identity-bearing filesystem fingerprint.
     func stat(repoRoot: String, relativePath: String) throws -> WorkspaceChangesFileStat {
         let openedFile = try regularFileOpener.open(
             repoRoot: repoRoot,
@@ -79,11 +79,7 @@ struct WorkspaceChangesContentReader: Sendable, WorkspaceChangesContentFingerpri
         )
     }
 
-    /// Returns a size-and-mtime fingerprint for an existing path.
-    ///
-    /// A same-size write that deliberately preserves modification time can
-    /// evade this inexpensive fingerprint. The diff capture accepts that
-    /// residual and uses pre/post comparison to reject observable mutations.
+    /// Returns an identity-bearing filesystem fingerprint for an existing path.
     func contentFingerprint(repoRoot: String, relativePath: String) -> String? {
         guard let openedFile = try? regularFileOpener.open(
             repoRoot: repoRoot,
@@ -110,7 +106,11 @@ struct WorkspaceChangesContentReader: Sendable, WorkspaceChangesContentFingerpri
         let modifiedAtNanoseconds =
             Int64(metadata.st_mtimespec.tv_sec) * 1_000_000_000
             + Int64(metadata.st_mtimespec.tv_nsec)
-        return "stat:\(max(Int64(metadata.st_size), 0)):\(modifiedAtNanoseconds)"
+        let statusChangedAtNanoseconds =
+            Int64(metadata.st_ctimespec.tv_sec) * 1_000_000_000
+            + Int64(metadata.st_ctimespec.tv_nsec)
+        return "stat:\(max(Int64(metadata.st_size), 0)):\(modifiedAtNanoseconds):"
+            + "\(metadata.st_dev):\(metadata.st_ino):\(statusChangedAtNanoseconds)"
     }
 
     private func mimeType(path: String) -> String? {

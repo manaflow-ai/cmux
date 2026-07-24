@@ -63,14 +63,14 @@ public struct WorkspaceChangesService: Sendable {
         forDirectory directory: String,
         force: Bool = false
     ) async -> WorkspaceChangesSummary {
-        guard let scope = snapshotLoader.resolveScope(forDirectory: directory) else {
+        guard let scope = try? snapshotLoader.resolveScope(forDirectory: directory) else {
             return .notARepository
         }
         if !force,
            let cached = await summaryCache.summary(forRepoRoot: scope.repoRoot) {
             return cached
         }
-        guard let snapshot = snapshotLoader.loadSnapshot(scope: scope) else {
+        guard let snapshot = try? snapshotLoader.loadSnapshot(scope: scope) else {
             return .notARepository
         }
         let summary = WorkspaceChangesSummary(
@@ -90,16 +90,20 @@ public struct WorkspaceChangesService: Sendable {
     ///
     /// The returned file array is capped at 500 entries before untracked-file
     /// inspection. The file count covers the full result; line totals include
-    /// all tracked files plus inspected untracked files. Git failures use the
-    /// same not-a-repository sentinel as directories outside a repository.
+    /// all tracked files plus inspected untracked files. A directory outside a
+    /// repository returns the not-a-repository sentinel.
     ///
     /// - Parameter directory: An absolute workspace directory to inspect.
     /// - Returns: Changed-file metadata and aggregate totals.
-    public nonisolated func changedFiles(forDirectory directory: String) async -> WorkspaceChangedFiles {
-        guard let scope = snapshotLoader.resolveScope(forDirectory: directory),
-              let snapshot = snapshotLoader.loadSnapshot(scope: scope) else {
+    /// - Throws: ``WorkspaceChangesServiceError/gitFailure`` when Git cannot execute
+    ///   or fails while producing a repository snapshot.
+    public nonisolated func changedFiles(
+        forDirectory directory: String
+    ) async throws -> WorkspaceChangedFiles {
+        guard let scope = try snapshotLoader.resolveScope(forDirectory: directory) else {
             return .notARepository
         }
+        let snapshot = try snapshotLoader.loadSnapshot(scope: scope)
         return changedFilesValue(from: snapshot)
     }
 
@@ -120,12 +124,13 @@ public struct WorkspaceChangesService: Sendable {
         path: String,
         revision: WorkspaceChangesFileRevision
     ) async throws -> WorkspaceChangesFileStat {
-        let location = try await authorizedFileLocation(
+        let authorizedFile = try await authorizedFile(
             forDirectory: directory,
             path: path,
             revision: revision,
             fetchOffset: nil
         )
+        let location = try await materializedLocation(for: authorizedFile)
         do {
             return try contentReader.stat(
                 repoRoot: location.repoRoot,
@@ -159,33 +164,43 @@ public struct WorkspaceChangesService: Sendable {
         offset: Int64,
         length: Int
     ) async throws -> WorkspaceChangesFileChunk {
-        let location = try await authorizedFileLocation(
+        let clampedOffset = max(0, offset)
+        let authorizedFile = try await authorizedFile(
             forDirectory: directory,
             path: path,
             revision: revision,
-            fetchOffset: max(0, offset)
+            fetchOffset: clampedOffset
         )
         let clampedLength = ChatArtifactTransferPolicy.defaultPolicy.clampedChunkLength(length)
         do {
+            if authorizedFile.baseBlobSize != nil {
+                return try await fetchBaseFile(
+                    authorizedFile,
+                    offset: clampedOffset,
+                    length: clampedLength
+                )
+            }
             return try contentReader.fetch(
-                repoRoot: location.repoRoot,
-                relativePath: location.relativePath,
-                offset: max(0, offset),
+                repoRoot: authorizedFile.snapshot.scope.repoRoot,
+                relativePath: authorizedFile.relativePath,
+                offset: clampedOffset,
                 length: clampedLength
             )
         } catch ArtifactByteReader.Error.fileNotFound {
             throw WorkspaceChangesServiceError.fileNotFound
+        } catch let error as WorkspaceChangesServiceError {
+            throw error
         } catch {
             throw WorkspaceChangesServiceError.gitFailure
         }
     }
 
-    private nonisolated func authorizedFileLocation(
+    private nonisolated func authorizedFile(
         forDirectory directory: String,
         path: String,
         revision: WorkspaceChangesFileRevision,
         fetchOffset: Int64?
-    ) async throws -> (repoRoot: String, relativePath: String) {
+    ) async throws -> WorkspaceChangesAuthorizedPathCache.AuthorizedFile {
         let cacheKey = WorkspaceChangesAuthorizedPathCache.Key(
             directory: directory,
             path: path,
@@ -196,9 +211,9 @@ public struct WorkspaceChangesService: Sendable {
                key: cacheKey,
                offset: fetchOffset
            ) {
-            return try await materializedLocation(for: cached)
+            return cached
         }
-        guard let scope = snapshotLoader.resolveScope(forDirectory: directory) else {
+        guard let scope = try snapshotLoader.resolveScope(forDirectory: directory) else {
             throw WorkspaceChangesServiceError.notARepository
         }
         let normalizedPath = try pathValidator.validatedPath(path, repoRoot: scope.repoRoot)
@@ -240,7 +255,7 @@ public struct WorkspaceChangesService: Sendable {
             for: cacheKey,
             awaitsInitialFetch: fetchOffset == nil
         )
-        return try await materializedLocation(for: authorizedFile)
+        return authorizedFile
     }
 
     private nonisolated func authorizationSnapshot(
@@ -252,9 +267,7 @@ public struct WorkspaceChangesService: Sendable {
         ) {
             return cached
         }
-        guard let snapshot = snapshotLoader.loadSnapshot(scope: scope) else {
-            throw WorkspaceChangesServiceError.gitFailure
-        }
+        let snapshot = try snapshotLoader.loadSnapshot(scope: scope)
         let currentPaths = Set(snapshot.files.map(\.path))
         let basePaths = Set(snapshot.files.flatMap { file in
             if let oldPath = file.oldPath {
@@ -275,31 +288,70 @@ public struct WorkspaceChangesService: Sendable {
         for authorizedFile: WorkspaceChangesAuthorizedPathCache.AuthorizedFile
     ) async throws -> (repoRoot: String, relativePath: String) {
         let scope = authorizedFile.snapshot.scope
-        guard let blobSize = authorizedFile.baseBlobSize else {
+        guard authorizedFile.baseBlobSize != nil else {
             return (scope.repoRoot, authorizedFile.relativePath)
         }
-        let key = WorkspaceChangesBaseContentCache.Key(
+        let key = baseContentKey(for: authorizedFile)
+        let fileURL = try await baseContentCache.fileURL(for: key) { destination in
+            try materializeBaseContent(authorizedFile, to: destination)
+        }
+        return (fileURL.deletingLastPathComponent().path, fileURL.lastPathComponent)
+    }
+
+    private nonisolated func fetchBaseFile(
+        _ authorizedFile: WorkspaceChangesAuthorizedPathCache.AuthorizedFile,
+        offset: Int64,
+        length: Int
+    ) async throws -> WorkspaceChangesFileChunk {
+        let key = baseContentKey(for: authorizedFile)
+        let reader = contentReader
+        return try await baseContentCache.withLeasedFileURL(
+            for: key,
+            materialize: { destination in
+                try materializeBaseContent(authorizedFile, to: destination)
+            },
+            operation: { fileURL in
+                try reader.fetch(
+                    repoRoot: fileURL.deletingLastPathComponent().path,
+                    relativePath: fileURL.lastPathComponent,
+                    offset: offset,
+                    length: length
+                )
+            }
+        )
+    }
+
+    private nonisolated func baseContentKey(
+        for authorizedFile: WorkspaceChangesAuthorizedPathCache.AuthorizedFile
+    ) -> WorkspaceChangesBaseContentCache.Key {
+        let scope = authorizedFile.snapshot.scope
+        return WorkspaceChangesBaseContentCache.Key(
             repoRoot: scope.repoRoot,
             baseCommitOID: scope.diffBaseCommitOID,
             path: authorizedFile.relativePath
         )
-        let runner = self.runner
-        let object = "\(scope.diffBaseCommitOID):\(authorizedFile.relativePath)"
-        let repoURL = URL(fileURLWithPath: scope.repoRoot, isDirectory: true)
-        let fileURL = try await baseContentCache.fileURL(for: key) { destination in
-            let result = try runner.run(
-                arguments: ["--literal-pathspecs", "show", object],
-                in: repoURL,
-                writingOutputTo: destination,
-                maximumOutputByteCount: blobSize
-            )
-            guard result.exitCode == 0,
-                  !result.standardOutputWasTruncated else {
-                throw WorkspaceChangesServiceError.fileNotFound
-            }
-            return blobSize
+    }
+
+    private nonisolated func materializeBaseContent(
+        _ authorizedFile: WorkspaceChangesAuthorizedPathCache.AuthorizedFile,
+        to destination: URL
+    ) throws -> Int64 {
+        guard let blobSize = authorizedFile.baseBlobSize else {
+            throw WorkspaceChangesServiceError.fileNotFound
         }
-        return (fileURL.deletingLastPathComponent().path, fileURL.lastPathComponent)
+        let scope = authorizedFile.snapshot.scope
+        let object = "\(scope.diffBaseCommitOID):\(authorizedFile.relativePath)"
+        let result = try runner.run(
+            arguments: ["--literal-pathspecs", "show", object],
+            in: URL(fileURLWithPath: scope.repoRoot, isDirectory: true),
+            writingOutputTo: destination,
+            maximumOutputByteCount: blobSize
+        )
+        guard result.exitCode == 0,
+              !result.standardOutputWasTruncated else {
+            throw WorkspaceChangesServiceError.fileNotFound
+        }
+        return blobSize
     }
 
 }

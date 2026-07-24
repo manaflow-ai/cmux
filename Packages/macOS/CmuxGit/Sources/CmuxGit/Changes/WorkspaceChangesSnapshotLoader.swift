@@ -4,6 +4,7 @@ import Foundation
 struct WorkspaceChangesSnapshotLoader: Sendable {
     static let maximumFileCount = 500
     static let maximumSnapshotCommandOutputByteCount = 32 * 1024 * 1024
+    private static let emptyTreeOID = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
     private let runner: any WorkspaceChangesGitRunning
     private let parser = WorkspaceChangesParser()
@@ -13,29 +14,37 @@ struct WorkspaceChangesSnapshotLoader: Sendable {
         self.runner = runner
     }
 
-    func resolveScope(forDirectory directory: String) -> WorkspaceChangesScope? {
+    func resolveScope(
+        forDirectory directory: String
+    ) throws(WorkspaceChangesServiceError) -> WorkspaceChangesScope? {
         let directoryURL = URL(fileURLWithPath: directory, isDirectory: true)
-        guard let rootResult = try? runner.run(
-            arguments: ["rev-parse", "--show-toplevel"],
-            in: directoryURL
-        ), rootResult.exitCode == 0 else { return nil }
+        let rootResult: WorkspaceChangesGitResult
+        do {
+            rootResult = try runner.run(
+                arguments: ["rev-parse", "--show-toplevel"],
+                in: directoryURL
+            )
+        } catch {
+            throw .gitFailure
+        }
+        guard rootResult.exitCode == 0 else { return nil }
         let repoRoot = String(decoding: rootResult.output, as: UTF8.self)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !repoRoot.isEmpty else { return nil }
+        guard !repoRoot.isEmpty else { throw .gitFailure }
 
-        let branch = output(
+        let branch = try output(
             arguments: ["symbolic-ref", "--quiet", "--short", "HEAD"],
             repoRoot: repoRoot,
             acceptedExitCodes: [0, 1]
         )
-        let defaultRef = resolveDefaultBranch(repoRoot: repoRoot)
+        let defaultRef = try resolveDefaultBranch(repoRoot: repoRoot)
         let baseRef: String?
         let diffBase: String
         if let branch,
            let defaultRef,
            branch != defaultRef,
            defaultRef != "origin/\(branch)",
-           let mergeBase = output(
+           let mergeBase = try output(
                arguments: ["merge-base", "HEAD", defaultRef],
                repoRoot: repoRoot,
                acceptedExitCodes: [0]
@@ -44,38 +53,56 @@ struct WorkspaceChangesSnapshotLoader: Sendable {
             diffBase = mergeBase
         } else {
             baseRef = nil
+            // This is the designed default-branch behavior: there is no comparison
+            // branch on the default branch, so HEAD intentionally shows uncommitted work.
             diffBase = "HEAD"
         }
-        guard let diffBaseCommitOID = output(
+        let verifiedBaseCommitOID = try output(
             arguments: ["rev-parse", "--verify", "\(diffBase)^{commit}"],
             repoRoot: repoRoot,
             acceptedExitCodes: [0]
-        ) else { return nil }
+        )
+        let resolvedDiffBase: String
+        let diffBaseCommitOID: String
+        if let verifiedBaseCommitOID {
+            resolvedDiffBase = diffBase
+            diffBaseCommitOID = verifiedBaseCommitOID
+        } else if diffBase == "HEAD" {
+            resolvedDiffBase = Self.emptyTreeOID
+            diffBaseCommitOID = Self.emptyTreeOID
+        } else {
+            throw .gitFailure
+        }
         return WorkspaceChangesScope(
             repoRoot: repoRoot,
             branch: branch,
             baseRef: baseRef,
-            diffBase: diffBase,
+            diffBase: resolvedDiffBase,
             diffBaseCommitOID: diffBaseCommitOID
         )
     }
 
-    func loadSnapshot(scope: WorkspaceChangesScope) -> WorkspaceChangesSnapshot? {
-        guard let statusResult = run(
+    func loadSnapshot(
+        scope: WorkspaceChangesScope
+    ) throws(WorkspaceChangesServiceError) -> WorkspaceChangesSnapshot {
+        let statusResult = try run(
             ["diff", "-M", "--name-status", "-z", scope.diffBase, "--"],
             repoRoot: scope.repoRoot,
             maximumOutputByteCount: Self.maximumSnapshotCommandOutputByteCount
-        ), succeededOrTruncated(statusResult),
-        let numstatResult = run(
+        )
+        guard succeededOrTruncated(statusResult) else { throw .gitFailure }
+        let numstatResult = try run(
             ["diff", "-M", "--numstat", "-z", scope.diffBase, "--"],
             repoRoot: scope.repoRoot,
             maximumOutputByteCount: Self.maximumSnapshotCommandOutputByteCount
-        ), succeededOrTruncated(numstatResult),
-        let untrackedResult = run(
+        )
+        guard succeededOrTruncated(numstatResult) else { throw .gitFailure }
+        let untrackedResult = try run(
             ["ls-files", "--others", "--exclude-standard", "-z"],
             repoRoot: scope.repoRoot,
             maximumOutputByteCount: Self.maximumSnapshotCommandOutputByteCount
-        ), succeededOrTruncated(untrackedResult) else { return nil }
+        )
+        guard succeededOrTruncated(untrackedResult) else { throw .gitFailure }
 
         var cappedSelection = WorkspaceChangesCappedFileSelection(
             maximumCount: Self.maximumFileCount
@@ -129,7 +156,7 @@ struct WorkspaceChangesSnapshotLoader: Sendable {
             paths: cappedUntrackedPaths,
             repoRoot: scope.repoRoot
         ) else {
-            return nil
+            throw .gitFailure
         }
         let untrackedByPath = Dictionary(
             uniqueKeysWithValues: inspectedUntrackedFiles.map { ($0.path, $0) }
@@ -141,7 +168,7 @@ struct WorkspaceChangesSnapshotLoader: Sendable {
                 if let untracked = untrackedByPath[cappedFile.path] {
                     files.append(untracked)
                 } else {
-                    return nil
+                    throw .gitFailure
                 }
             } else {
                 let stat = statsByPath[cappedFile.path]
@@ -172,8 +199,10 @@ struct WorkspaceChangesSnapshotLoader: Sendable {
         )
     }
 
-    private func resolveDefaultBranch(repoRoot: String) -> String? {
-        if let symbolic = output(
+    private func resolveDefaultBranch(
+        repoRoot: String
+    ) throws(WorkspaceChangesServiceError) -> String? {
+        if let symbolic = try output(
             arguments: ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
             repoRoot: repoRoot,
             acceptedExitCodes: [0, 1]
@@ -181,10 +210,10 @@ struct WorkspaceChangesSnapshotLoader: Sendable {
             return symbolic
         }
         for candidate in ["origin/main", "origin/master", "main", "master"] {
-            guard let result = run(
+            let result = try run(
                 ["rev-parse", "--verify", "--quiet", "\(candidate)^{commit}"],
                 repoRoot: repoRoot
-            ) else { return nil }
+            )
             if result.exitCode == 0 { return candidate }
         }
         return nil
@@ -194,31 +223,42 @@ struct WorkspaceChangesSnapshotLoader: Sendable {
         arguments: [String],
         repoRoot: String,
         acceptedExitCodes: Set<Int32>
-    ) -> String? {
-        guard let result = run(arguments, repoRoot: repoRoot),
-              acceptedExitCodes.contains(result.exitCode) else { return nil }
+    ) throws(WorkspaceChangesServiceError) -> String? {
+        let result = try run(arguments, repoRoot: repoRoot)
+        guard acceptedExitCodes.contains(result.exitCode) else { return nil }
         let trimmed = String(decoding: result.output, as: UTF8.self)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private func run(_ arguments: [String], repoRoot: String) -> WorkspaceChangesGitResult? {
-        try? runner.run(
-            arguments: arguments,
-            in: URL(fileURLWithPath: repoRoot, isDirectory: true)
-        )
+    private func run(
+        _ arguments: [String],
+        repoRoot: String
+    ) throws(WorkspaceChangesServiceError) -> WorkspaceChangesGitResult {
+        do {
+            return try runner.run(
+                arguments: arguments,
+                in: URL(fileURLWithPath: repoRoot, isDirectory: true)
+            )
+        } catch {
+            throw .gitFailure
+        }
     }
 
     private func run(
         _ arguments: [String],
         repoRoot: String,
         maximumOutputByteCount: Int
-    ) -> WorkspaceChangesGitResult? {
-        try? runner.run(
-            arguments: arguments,
-            in: URL(fileURLWithPath: repoRoot, isDirectory: true),
-            maximumOutputByteCount: maximumOutputByteCount
-        )
+    ) throws(WorkspaceChangesServiceError) -> WorkspaceChangesGitResult {
+        do {
+            return try runner.run(
+                arguments: arguments,
+                in: URL(fileURLWithPath: repoRoot, isDirectory: true),
+                maximumOutputByteCount: maximumOutputByteCount
+            )
+        } catch {
+            throw .gitFailure
+        }
     }
 
     private func succeededOrTruncated(_ result: WorkspaceChangesGitResult) -> Bool {

@@ -9,5 +9,12 @@ public enum WorkspaceChangesListState: Sendable, Equatable {
     /// The workspace directory is not inside a Git repository.
     case notARepository
     /// Changed-file snapshots are ready.
-    case loaded
+    /// - Parameter truncated: Whether the host omitted files beyond its list cap.
+    case loaded(truncated: Bool)
+
+    /// Whether the loaded list should explain that additional files were omitted.
+    public var showsTruncatedFilesFooter: Bool {
+        guard case .loaded(truncated: true) = self else { return false }
+        return true
+    }
 }

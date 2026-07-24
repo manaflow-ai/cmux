@@ -4,7 +4,7 @@ internal import Foundation
 struct WorkspaceChangesContentResponse<Value: Decodable & Sendable>: Decodable, Sendable {
     /// Artifact-compatible response value decoded from the flat payload.
     let value: Value
-    /// Size-and-modification-time fingerprint, when supplied by the host.
+    /// Identity-bearing filesystem fingerprint, when supplied by the host.
     let contentFingerprint: String?
 
     private enum CodingKeys: String, CodingKey {

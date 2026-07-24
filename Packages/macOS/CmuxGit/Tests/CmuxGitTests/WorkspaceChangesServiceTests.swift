@@ -15,7 +15,7 @@ import Testing
         try repo.git(["add", "staged.txt"])
         try repo.write("untracked.txt", "one\ntwo\n")
 
-        let result = await WorkspaceChangesService().changedFiles(forDirectory: repo.root.path)
+        let result = try await WorkspaceChangesService().changedFiles(forDirectory: repo.root.path)
 
         #expect(result.isRepository)
         #expect(result.branch == "feature/changes")
@@ -32,7 +32,7 @@ import Testing
         try repo.makeBaseline()
         try repo.write("tracked.txt", "changed\n")
 
-        let result = await WorkspaceChangesService().changedFiles(forDirectory: repo.root.path)
+        let result = try await WorkspaceChangesService().changedFiles(forDirectory: repo.root.path)
 
         #expect(result.branch == "main")
         #expect(result.baseRef == nil)
@@ -44,7 +44,7 @@ import Testing
         try repo.makeBaseline()
         try repo.write("new.txt", "one\ntwo\nthree\n")
 
-        let result = await WorkspaceChangesService().changedFiles(forDirectory: repo.root.path)
+        let result = try await WorkspaceChangesService().changedFiles(forDirectory: repo.root.path)
         let file = try #require(result.files.first(where: { $0.path == "new.txt" }))
 
         #expect(file.status == .untracked)
@@ -60,7 +60,7 @@ import Testing
         try repo.commit("baseline")
         try repo.git(["mv", "old-name.txt", "new-name.txt"])
 
-        let result = await WorkspaceChangesService().changedFiles(forDirectory: repo.root.path)
+        let result = try await WorkspaceChangesService().changedFiles(forDirectory: repo.root.path)
         let file = try #require(result.files.first)
         let diff = try await WorkspaceChangesService().fileDiff(
             forDirectory: repo.root.path,
@@ -83,7 +83,7 @@ import Testing
         try repo.write("binary.dat", Data([0, 1, 9, 3, 4]))
         let service = WorkspaceChangesService()
 
-        let files = await service.changedFiles(forDirectory: repo.root.path)
+        let files = try await service.changedFiles(forDirectory: repo.root.path)
         let file = try #require(files.files.first)
         let diff = try await service.fileDiff(forDirectory: repo.root.path, path: "binary.dat")
 
@@ -102,7 +102,7 @@ import Testing
         try repo.remove("delete-me.txt")
 
         let service = WorkspaceChangesService()
-        let result = await service.changedFiles(forDirectory: repo.root.path)
+        let result = try await service.changedFiles(forDirectory: repo.root.path)
         let file = try #require(result.files.first)
         let diff = try await service.fileDiff(
             forDirectory: repo.root.path,
@@ -119,10 +119,44 @@ import Testing
         let service = WorkspaceChangesService()
 
         let summary = await service.summary(forDirectory: directory.root.path)
-        let files = await service.changedFiles(forDirectory: directory.root.path)
+        let files = try await service.changedFiles(forDirectory: directory.root.path)
 
         #expect(summary == .notARepository)
         #expect(files == .notARepository)
+    }
+
+    @Test func unbornRepositoryListsUntrackedFilesAgainstEmptyTree() async throws {
+        let repo = try WorkspaceChangesGitRepositoryFixture()
+        try repo.write("first.txt", "one\ntwo\n")
+
+        let result = try await WorkspaceChangesService()
+            .changedFiles(forDirectory: repo.root.path)
+
+        #expect(result.isRepository)
+        #expect(result.branch == "main")
+        #expect(result.baseRef == nil)
+        #expect(result.files == [
+            WorkspaceChangedFile(
+                path: "first.txt",
+                oldPath: nil,
+                status: .untracked,
+                additions: 2,
+                deletions: 0,
+                isBinary: false
+            )
+        ])
+    }
+
+    @Test func runnerExecutionFailureMapsToGitFailure() async {
+        let runner = FakeWorkspaceChangesGitRunner(
+            results: [:],
+            beforeRun: { _, _ in throw CocoaError(.executableNotLoadable) }
+        )
+
+        await #expect(throws: WorkspaceChangesServiceError.gitFailure) {
+            try await WorkspaceChangesService(runner: runner)
+                .changedFiles(forDirectory: "/tmp/cmux-runner-failure")
+        }
     }
 
     @Test func fileDiffRejectsEscapingPath() async throws {
@@ -237,7 +271,7 @@ import Testing
         try repo.git(["add", "feature.txt"])
         try repo.commit("feature")
 
-        let result = await WorkspaceChangesService().changedFiles(forDirectory: repo.root.path)
+        let result = try await WorkspaceChangesService().changedFiles(forDirectory: repo.root.path)
 
         #expect(result.baseRef == "main")
         #expect(result.files.map(\.path) == ["feature.txt"])

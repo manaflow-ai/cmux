@@ -8151,6 +8151,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             fullSnapshotWorkspaceIDs: response.workspaces.map(\.id)
         )
         if !changesSummaryWorkspaceIDs.isEmpty {
+            // Repo-dirtiness filesystem invalidation is a known follow-up. Deltas,
+            // TTL, trailing expiry, and force are this PR's bounded approximation.
             scheduleWorkspaceChangesSummaryRefresh(
                 workspaceIDs: changesSummaryWorkspaceIDs
             )

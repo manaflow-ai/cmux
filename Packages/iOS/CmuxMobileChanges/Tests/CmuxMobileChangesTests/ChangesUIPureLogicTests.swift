@@ -233,16 +233,26 @@ import Testing
         #expect(cache.presentations["file-7"] != nil)
     }
 
+    @Test func loadedListStateSurfacesOnlyTruncatedSnapshots() {
+        #expect(WorkspaceChangesListState.loaded(truncated: true).showsTruncatedFilesFooter)
+        #expect(!WorkspaceChangesListState.loaded(truncated: false).showsTruncatedFilesFooter)
+        #expect(!WorkspaceChangesListState.loading.showsTruncatedFilesFooter)
+    }
+
     @Test func expansionRevisionPolicyReloadsOnlyForKnownMismatches() {
         let policy = DiffExpansionRevisionPolicy()
 
         #expect(policy.decision(
-            diffContentFingerprint: "10:1:2",
-            fetchedContentFingerprints: ["10:1:2", "10:1:2"]
+            diffContentFingerprint: "stat:10:1:2:3:4",
+            fetchedContentFingerprints: ["stat:10:1:2:3:4", "stat:10:1:2:3:4"]
         ) == .accept)
         #expect(policy.decision(
-            diffContentFingerprint: "10:1:2",
-            fetchedContentFingerprints: ["10:1:3"]
+            diffContentFingerprint: "stat:10:1:2:3:4",
+            fetchedContentFingerprints: ["stat:10:1:2:4:4"]
+        ) == .reloadDiff)
+        #expect(policy.decision(
+            diffContentFingerprint: "stat:10:1",
+            fetchedContentFingerprints: ["stat:10:1"]
         ) == .reloadDiff)
         #expect(policy.decision(
             diffContentFingerprint: nil,

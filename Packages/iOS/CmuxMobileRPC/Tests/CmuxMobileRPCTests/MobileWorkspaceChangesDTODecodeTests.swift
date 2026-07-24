@@ -113,7 +113,7 @@ import Testing
           "unified_diff": "@@ -1 +1,2 @@\\n-old\\n+new\\n+line\\n",
           "truncated": true,
           "diff_total_lines": 12004,
-          "content_fingerprint": "42:100:200"
+          "content_fingerprint": "stat:42:100:2:300:200"
         }
         """.utf8)
 
@@ -126,7 +126,7 @@ import Testing
         #expect(response.unifiedDiff.hasPrefix("@@ -1 +1,2 @@"))
         #expect(response.truncated)
         #expect(response.diffTotalLines == 12_004)
-        #expect(response.contentFingerprint == "42:100:200")
+        #expect(response.contentFingerprint == "stat:42:100:2:300:200")
     }
 
     @Test func fileDiffTreatsMissingFieldsAsDefaults() throws {

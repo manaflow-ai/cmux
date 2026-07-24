@@ -5,6 +5,7 @@ internal import Foundation
 struct WorkspaceUntrackedFileInspector: Sendable {
     static let maximumReadByteCount = 10 * 1024 * 1024
     static let maximumAggregateReadByteCount = 64 * 1024 * 1024
+    static let maximumAggregateClassificationByteCount = 4 * 1024 * 1024
     static let binaryScanByteCount = 8 * 1024
     private static let readChunkByteCount = 64 * 1024
 
@@ -15,14 +16,17 @@ struct WorkspaceUntrackedFileInspector: Sendable {
 
     private let perFileReadByteCount: Int
     private let aggregateReadByteCount: Int
+    private let aggregateClassificationByteCount: Int
     private let regularFileOpener = WorkspaceChangesRegularFileOpener()
 
     init(
         perFileReadByteCount: Int = Self.maximumReadByteCount,
-        aggregateReadByteCount: Int = Self.maximumAggregateReadByteCount
+        aggregateReadByteCount: Int = Self.maximumAggregateReadByteCount,
+        aggregateClassificationByteCount: Int = Self.maximumAggregateClassificationByteCount
     ) {
         self.perFileReadByteCount = max(0, perFileReadByteCount)
         self.aggregateReadByteCount = max(0, aggregateReadByteCount)
+        self.aggregateClassificationByteCount = max(0, aggregateClassificationByteCount)
     }
 
     func inspect(path: String, repoRoot: String) -> WorkspaceChangedFile? {
@@ -35,24 +39,47 @@ struct WorkspaceUntrackedFileInspector: Sendable {
 
     func inspect(paths: [String], repoRoot: String) -> [WorkspaceChangedFile]? {
         var remainingByteCount = aggregateReadByteCount
+        var remainingClassificationByteCount = aggregateClassificationByteCount
         var files: [WorkspaceChangedFile] = []
         files.reserveCapacity(paths.count)
 
         for path in paths {
-            guard !Task.isCancelled, remainingByteCount > 0 else {
-                files.append(zeroAdditionFile(path: path))
+            guard !Task.isCancelled else {
+                files.append(zeroAdditionFile(path: path, isBinary: true))
                 continue
             }
-            guard let inspection = inspect(
+            if remainingByteCount > 0 {
+                guard let inspection = inspect(
+                    path: path,
+                    repoRoot: repoRoot,
+                    maximumReadByteCount: min(perFileReadByteCount, remainingByteCount)
+                ) else {
+                    files.append(zeroAdditionFile(path: path, isBinary: true))
+                    continue
+                }
+                files.append(inspection.file)
+                remainingByteCount -= inspection.readByteCount
+                continue
+            }
+
+            let probeByteCount = min(
+                Self.binaryScanByteCount,
+                remainingClassificationByteCount
+            )
+            guard probeByteCount > 0,
+                  let classification = inspect(
+                      path: path,
+                      repoRoot: repoRoot,
+                      maximumReadByteCount: probeByteCount
+                  ) else {
+                files.append(zeroAdditionFile(path: path, isBinary: true))
+                continue
+            }
+            remainingClassificationByteCount -= classification.readByteCount
+            files.append(zeroAdditionFile(
                 path: path,
-                repoRoot: repoRoot,
-                maximumReadByteCount: min(perFileReadByteCount, remainingByteCount)
-            ) else {
-                files.append(zeroAdditionFile(path: path))
-                continue
-            }
-            files.append(inspection.file)
-            remainingByteCount -= inspection.readByteCount
+                isBinary: classification.file.isBinary
+            ))
         }
         return files
     }
@@ -133,14 +160,14 @@ struct WorkspaceUntrackedFileInspector: Sendable {
         )
     }
 
-    private func zeroAdditionFile(path: String) -> WorkspaceChangedFile {
+    private func zeroAdditionFile(path: String, isBinary: Bool) -> WorkspaceChangedFile {
         WorkspaceChangedFile(
             path: path,
             oldPath: nil,
             status: .untracked,
             additions: 0,
             deletions: 0,
-            isBinary: false
+            isBinary: isBinary
         )
     }
 }

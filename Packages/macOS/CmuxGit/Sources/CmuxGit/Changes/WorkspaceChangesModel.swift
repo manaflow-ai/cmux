@@ -201,10 +201,7 @@ public struct WorkspaceFileDiff: Sendable, Equatable {
     public let truncated: Bool
     /// Number of lines in the full diff, or `nil` when bounded reading stopped early.
     public let totalLineCount: Int?
-    /// Size-and-modification-time fingerprint for the current working file.
-    ///
-    /// A metadata-preserving same-size edit is the accepted residual of this
-    /// inexpensive fingerprint.
+    /// Size, timestamps, device, and inode fingerprint for the current working file.
     public let contentFingerprint: String?
 
     /// Creates a bounded file-diff value.

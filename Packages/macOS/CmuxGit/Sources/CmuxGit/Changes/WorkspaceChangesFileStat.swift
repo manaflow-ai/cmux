@@ -5,7 +5,7 @@ public import Foundation
 public struct WorkspaceChangesFileStat: Sendable, Equatable {
     /// Artifact-compatible metadata for the authorized file.
     public let artifactStat: ChatArtifactStat
-    /// Size-and-modification-time fingerprint for the returned revision.
+    /// Size, timestamps, device, and inode fingerprint for the returned revision.
     public let contentFingerprint: String?
 
     /// The authorized file's byte size.
@@ -24,7 +24,7 @@ public struct WorkspaceChangesFileStat: Sendable, Equatable {
     /// Creates fingerprinted workspace-change metadata.
     /// - Parameters:
     ///   - artifactStat: Artifact-compatible file metadata.
-    ///   - contentFingerprint: Size-and-modification-time fingerprint.
+    ///   - contentFingerprint: Identity-bearing filesystem fingerprint.
     public init(
         artifactStat: ChatArtifactStat,
         contentFingerprint: String?

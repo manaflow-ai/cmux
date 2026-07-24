@@ -5,7 +5,7 @@ public import Foundation
 public struct WorkspaceChangesFileChunk: Sendable, Equatable {
     /// Artifact-compatible byte chunk.
     public let artifactChunk: ChatArtifactChunk
-    /// Size-and-modification-time fingerprint for the returned revision.
+    /// Size, timestamps, device, and inode fingerprint for the returned revision.
     public let contentFingerprint: String?
 
     /// Raw bytes in this chunk.
@@ -20,7 +20,7 @@ public struct WorkspaceChangesFileChunk: Sendable, Equatable {
     /// Creates a fingerprinted workspace-change byte chunk.
     /// - Parameters:
     ///   - artifactChunk: Artifact-compatible byte chunk.
-    ///   - contentFingerprint: Size-and-modification-time fingerprint.
+    ///   - contentFingerprint: Identity-bearing filesystem fingerprint.
     public init(
         artifactChunk: ChatArtifactChunk,
         contentFingerprint: String?

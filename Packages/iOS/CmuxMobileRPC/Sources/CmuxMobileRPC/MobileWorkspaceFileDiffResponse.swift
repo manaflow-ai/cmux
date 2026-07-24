@@ -20,7 +20,7 @@ public struct MobileWorkspaceFileDiffResponse: Decodable, Sendable, Equatable {
     public let truncated: Bool
     /// Number of lines in the full diff, when reported by the host.
     public let diffTotalLines: Int?
-    /// Size-and-modification-time fingerprint for the current working file.
+    /// Size, timestamps, device, and inode fingerprint for the current working file.
     public let contentFingerprint: String?
 
     private enum CodingKeys: String, CodingKey {

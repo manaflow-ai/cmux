@@ -21,14 +21,11 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
     }
 
     func run(arguments: [String], in directory: URL) throws -> WorkspaceChangesGitResult {
-        let process = configuredProcess(arguments: arguments, directory: directory)
-        let outputPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = FileHandle.nullDevice
-        try process.run()
-        let output = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        return WorkspaceChangesGitResult(output: output, exitCode: process.terminationStatus)
+        try run(
+            arguments: arguments,
+            in: directory,
+            maximumOutputByteCount: Int.max
+        )
     }
 
     func run(

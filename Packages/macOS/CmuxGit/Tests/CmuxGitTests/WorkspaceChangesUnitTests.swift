@@ -166,7 +166,7 @@ import Testing
         #expect(captures.count == 2)
     }
 
-    @Test func serviceUsesInjectedRunnerAndParsers() async {
+    @Test func serviceUsesInjectedRunnerAndParsers() async throws {
         let root = "/tmp/cmux-fake-repo"
         let runner = FakeWorkspaceChangesGitRunner(results: [
             ["rev-parse", "--show-toplevel"]: .init(output: Data("\(root)\n".utf8), exitCode: 0),
@@ -182,7 +182,7 @@ import Testing
             ["ls-files", "--others", "--exclude-standard", "-z"]: FakeWorkspaceChangesGitRunner.result(),
         ])
 
-        let files = await WorkspaceChangesService(runner: runner).changedFiles(forDirectory: root)
+        let files = try await WorkspaceChangesService(runner: runner).changedFiles(forDirectory: root)
 
         #expect(files.baseRef == "main")
         #expect(files.files == [
@@ -197,7 +197,7 @@ import Testing
         ])
     }
 
-    @Test func streamedSnapshotCapsFarLargerInputButKeepsFullTotals() async {
+    @Test func streamedSnapshotCapsFarLargerInputButKeepsFullTotals() async throws {
         let root = "/tmp/cmux-fake-large-repo"
         let paths = (0..<2_000).map { String(format: "File-%04d.swift", $0) }
         let reversePaths = paths.reversed()
@@ -216,7 +216,7 @@ import Testing
             ["ls-files", "--others", "--exclude-standard", "-z"]: FakeWorkspaceChangesGitRunner.result(),
         ])
 
-        let files = await WorkspaceChangesService(runner: runner).changedFiles(forDirectory: root)
+        let files = try await WorkspaceChangesService(runner: runner).changedFiles(forDirectory: root)
 
         #expect(files.files.count == 500)
         #expect(files.files.first?.path == "File-0000.swift")
@@ -367,7 +367,7 @@ import Testing
             ["ls-files", "--others", "--exclude-standard", "-z"]: FakeWorkspaceChangesGitRunner.result("zzz-untracked.txt\0"),
         ])
 
-        let files = await WorkspaceChangesService(runner: runner)
+        let files = try await WorkspaceChangesService(runner: runner)
             .changedFiles(forDirectory: rootURL.path)
 
         // The injected runner rejects every unconfigured command, including

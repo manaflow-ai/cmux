@@ -74,8 +74,14 @@ extension TerminalController {
         guard case .local(let directory) = resolution else {
             return mobileWorkspaceChangesDirectoryErrorResult(resolution, workspaceID: workspaceID)
         }
-        let changed = await MobileHostService.shared.workspaceChangesService
-            .changedFiles(forDirectory: directory)
+        guard let changed = try? await MobileHostService.shared.workspaceChangesService
+            .changedFiles(forDirectory: directory) else {
+            return .err(
+                code: "internal_error",
+                message: Self.mobileWorkspaceChangesReadFailed,
+                data: nil
+            )
+        }
         guard changed.isRepository, let repoRoot = changed.repoRoot else {
             return .err(code: "not_a_repo", message: Self.mobileWorkspaceChangesNotARepository, data: [
                 "workspace_id": workspaceID.uuidString,

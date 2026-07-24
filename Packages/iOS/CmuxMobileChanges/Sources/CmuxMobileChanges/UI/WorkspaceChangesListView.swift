@@ -64,13 +64,26 @@ public struct WorkspaceChangesListView: View {
                     emptyView
                 case .notARepository:
                     notARepositoryView
-                case .loaded:
+                case .loaded(let truncated):
                     ForEach(rowSnapshots) { snapshot in
                         WorkspaceChangedFileRow(
                             snapshot: snapshot,
                             theme: theme,
                             onSelect: actions.onSelectFile
                         )
+                    }
+                    if truncated {
+                        Text(String(
+                            localized: "changes.files.truncated",
+                            defaultValue: "Showing the first 500 changed files. See the rest on your Mac.",
+                            bundle: .module
+                        ))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .listRowSeparator(.hidden)
                     }
                 }
             } header: {

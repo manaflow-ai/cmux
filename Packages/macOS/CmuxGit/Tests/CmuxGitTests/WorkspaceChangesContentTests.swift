@@ -58,7 +58,7 @@ import Testing
         )
 
         let fingerprint = try #require(diff.contentFingerprint)
-        #expect(fingerprint.hasPrefix("stat:"))
+        #expect(fingerprint.split(separator: ":").count == 6)
         #expect(stat.contentFingerprint == fingerprint)
         #expect(chunk.contentFingerprint == fingerprint)
         #expect(chunk.data == Data("after\n".utf8))
@@ -156,8 +156,8 @@ import Testing
             }
         )
         let fingerprintReader = SequencedWorkspaceChangesContentFingerprintReader([
-            "stat:7:1", "stat:12:2",
-            "stat:12:2", "stat:13:3",
+            "stat:7:1:2:3:4", "stat:12:2:2:3:5",
+            "stat:12:2:2:3:5", "stat:13:3:2:3:6",
         ])
         let service = WorkspaceChangesService(
             runner: runner,

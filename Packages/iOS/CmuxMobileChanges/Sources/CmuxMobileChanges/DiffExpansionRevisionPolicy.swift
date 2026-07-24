@@ -21,10 +21,29 @@ public struct DiffExpansionRevisionPolicy: Sendable {
         guard let expected = diffContentFingerprint else {
             return .accept
         }
-        guard !fetchedContentFingerprints.isEmpty,
-              fetchedContentFingerprints.allSatisfy({ $0 == expected }) else {
+        guard isIdentityBearing(expected),
+              !fetchedContentFingerprints.isEmpty,
+              fetchedContentFingerprints.allSatisfy({
+                  guard let observed = $0 else { return false }
+                  return isIdentityBearing(observed) && observed == expected
+              }) else {
             return .reloadDiff
         }
         return .accept
+    }
+
+    private func isIdentityBearing(_ fingerprint: String) -> Bool {
+        let components = fingerprint.split(separator: ":", omittingEmptySubsequences: false)
+        guard components.count == 6,
+              components[0] == "stat",
+              let size = Int64(components[1]),
+              size >= 0,
+              Int64(components[2]) != nil,
+              UInt64(components[3]) != nil,
+              UInt64(components[4]) != nil,
+              Int64(components[5]) != nil else {
+            return false
+        }
+        return true
     }
 }

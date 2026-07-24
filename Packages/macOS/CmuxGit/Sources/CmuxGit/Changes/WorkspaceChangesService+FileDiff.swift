@@ -9,7 +9,7 @@ extension WorkspaceChangesService {
     /// default. A requested line budget scales the byte budget proportionally,
     /// up to the 1,000,000-line guard and 6 MiB response budget.
     ///
-    /// If the current file's size-and-mtime fingerprint changes while Git
+    /// If the current file's identity-bearing filesystem fingerprint changes while Git
     /// captures the diff, the capture is retried once. A second unstable
     /// capture fails instead of publishing content from an unpinned revision.
     ///
@@ -25,13 +25,11 @@ extension WorkspaceChangesService {
         path: String,
         maxLines: Int? = nil
     ) async throws -> WorkspaceFileDiff {
-        guard let scope = snapshotLoader.resolveScope(forDirectory: directory) else {
+        guard let scope = try snapshotLoader.resolveScope(forDirectory: directory) else {
             throw WorkspaceChangesServiceError.notARepository
         }
         let normalizedPath = try pathValidator.validatedPath(path, repoRoot: scope.repoRoot)
-        guard let snapshot = snapshotLoader.loadSnapshot(scope: scope) else {
-            throw WorkspaceChangesServiceError.gitFailure
-        }
+        let snapshot = try snapshotLoader.loadSnapshot(scope: scope)
         guard let file = snapshot.files.first(where: { $0.path == normalizedPath }) else {
             throw WorkspaceChangesServiceError.fileNotChanged
         }

@@ -14,7 +14,7 @@ import Testing
           "modified_at": 100,
           "kind": "text",
           "mime_type": "text/plain",
-          "content_fingerprint": "42:100:200"
+          "content_fingerprint": "stat:42:100:2:300:200"
         }
         """.utf8)
 
@@ -24,7 +24,7 @@ import Testing
         )
 
         #expect(response.value.size == 42)
-        #expect(response.contentFingerprint == "42:100:200")
+        #expect(response.contentFingerprint == "stat:42:100:2:300:200")
     }
 
     @Test func decodesLegacyArtifactChunkWithoutFingerprint() throws {
