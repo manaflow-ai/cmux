@@ -51,6 +51,7 @@ import Testing
             DiagnosticFailureKind.connectionClosed
         ),
         ("ConnectionLost(LocallyClosed)", DiagnosticFailureKind.cancelled),
+        ("outgoing connection cancelled", DiagnosticFailureKind.cancelled),
         (
             "No addressing information available\nCaused by:\n    All address lookup services failed or produced no results",
             DiagnosticFailureKind.dnsFailed
