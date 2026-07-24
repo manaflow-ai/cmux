@@ -104,6 +104,8 @@ public final class MobileIrohRuntimeComposition:
 
     /// Broker-verified personal-account Mac routes and live discovery candidates.
     public let routeCatalog: MobileIrohRouteCatalog
+    /// Device-local authenticated address suggestions shared with the mobile shell.
+    public let privateNetworkSuggestionStore: MobilePrivateNetworkSuggestionStore
 
     private let appInstances: CmxIrohAppInstanceRepository
     private let identities: CmxIrohIdentityRepository
@@ -138,6 +140,7 @@ public final class MobileIrohRuntimeComposition:
 
     private weak var auth: AuthCoordinator?
     private var authObservationTask: Task<Void, Never>?
+    private var privateNetworkSuggestionObservationTask: Task<Void, Never>?
     private var transitionTask: Task<Void, Never>?
     private let connectionReadiness = MobileIrohConnectionReadinessSignal()
     private var sceneTransitionTask: Task<Void, Never>?
@@ -173,6 +176,9 @@ public final class MobileIrohRuntimeComposition:
     /// - Parameters:
     ///   - apiBaseURL: The authenticated cmux web API origin.
     ///   - reachability: The process-wide network path observer.
+    ///   - discoveryCompatibilityPolicy: The accepted Mac build scope.
+    ///   - privateNetworkSuggestionStore: Process-memory authenticated address
+    ///     suggestions shared with the mobile shell.
     ///   - defaults: This app installation's defaults domain.
     ///   - infoDictionary: Build metadata used to derive tagged-build scope.
     ///   - bundleIdentifier: The installed app identifier used as a scope fallback.
@@ -180,6 +186,8 @@ public final class MobileIrohRuntimeComposition:
         apiBaseURL: String,
         reachability: any ReachabilityProviding,
         discoveryCompatibilityPolicy: MobileMacBuildCompatibilityPolicy? = nil,
+        privateNetworkSuggestionStore: MobilePrivateNetworkSuggestionStore =
+            MobilePrivateNetworkSuggestionStore(),
         defaults: UserDefaults = .standard,
         infoDictionary: [String: Any]? = Bundle.main.infoDictionary,
         bundleIdentifier: String? = Bundle.main.bundleIdentifier,
@@ -309,6 +317,7 @@ public final class MobileIrohRuntimeComposition:
                 bundleIdentifier: bundleIdentifier
             ),
             discoveryCompatibilityPolicy: discoveryCompatibilityPolicy,
+            privateNetworkSuggestionStore: privateNetworkSuggestionStore,
             now: { Date() },
             lanPeerDiscovery: lanPeerDiscovery,
             startNetworkPathObservation: {
@@ -350,6 +359,8 @@ public final class MobileIrohRuntimeComposition:
         deviceID: @escaping @Sendable () -> String,
         tag: String,
         discoveryCompatibilityPolicy: MobileMacBuildCompatibilityPolicy? = nil,
+        privateNetworkSuggestionStore: MobilePrivateNetworkSuggestionStore =
+            MobilePrivateNetworkSuggestionStore(),
         now: @escaping @Sendable () -> Date,
         routeCatalog: MobileIrohRouteCatalog = MobileIrohRouteCatalog(),
         lanPeerDiscovery: CmxIrohLANPeerDiscovery? = nil,
@@ -381,6 +392,7 @@ public final class MobileIrohRuntimeComposition:
         self.deviceID = deviceID
         self.tag = tag
         self.discoveryCompatibilityPolicy = discoveryCompatibilityPolicy
+        self.privateNetworkSuggestionStore = privateNetworkSuggestionStore
         self.now = now
         self.routeCatalog = routeCatalog
         self.lanPeerDiscovery = lanPeerDiscovery
@@ -414,6 +426,14 @@ public final class MobileIrohRuntimeComposition:
     /// - Parameter auth: The process-owned authentication coordinator.
     public func configure(auth: AuthCoordinator) {
         self.auth = auth
+        privateNetworkSuggestionObservationTask?.cancel()
+        privateNetworkSuggestionObservationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for await _ in self.privateNetworkSuggestionStore.updates() {
+                guard !Task.isCancelled else { return }
+                self.publishIrohSettingsUpdate()
+            }
+        }
         authObservationTask?.cancel()
         authObservationTask = Task { @MainActor [weak self, weak auth] in
             guard let auth else { return }
@@ -781,6 +801,7 @@ public final class MobileIrohRuntimeComposition:
             ?? observedAccountID
             ?? lastKnownBindingAccountID
         observedAuthState = MobileIrohAuthState(accountID: nil)
+        privateNetworkSuggestionStore.removeAll()
         lifecycleRevision &+= 1
         let revision = lifecycleRevision
         let previous = transitionTask
@@ -1888,7 +1909,10 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
             if privateNetworkMacsByID[id] == nil {
                 privateNetworkMacsByID[id] = .init(
                     id: id,
-                    displayName: mac.displayName ?? ""
+                    displayName: mac.displayName ?? "",
+                    suggestedAddresses: privateNetworkSuggestionStore.suggestions(
+                        forMacDeviceID: id
+                    )
                 )
             }
         }
@@ -1896,7 +1920,10 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
             if privateNetworkMacsByID[configuration.macDeviceID] == nil {
                 privateNetworkMacsByID[configuration.macDeviceID] = .init(
                     id: configuration.macDeviceID,
-                    displayName: configuration.macDisplayName
+                    displayName: configuration.macDisplayName,
+                    suggestedAddresses: privateNetworkSuggestionStore.suggestions(
+                        forMacDeviceID: configuration.macDeviceID
+                    )
                 )
             }
         }

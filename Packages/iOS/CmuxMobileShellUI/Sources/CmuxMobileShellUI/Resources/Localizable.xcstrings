@@ -1,6 +1,55 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "mobile.iroh.private.custom.suggestion.add" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Add Address" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "アドレスを追加" } }
+      }
+    },
+    "mobile.iroh.private.custom.suggestion.added" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Address Added" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "アドレスを追加済み" } }
+      }
+    },
+    "mobile.iroh.private.custom.suggestion.header" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Suggested by %@" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@ からの提案" } }
+      }
+    },
+    "mobile.iroh.private.custom.suggestion.kind.local" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Local network" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ローカルネットワーク" } }
+      }
+    },
+    "mobile.iroh.private.custom.suggestion.kind.other" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Private network" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "プライベートネットワーク" } }
+      }
+    },
+    "mobile.iroh.private.custom.suggestion.kind.vpn" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "VPN tunnel" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "VPN トンネル" } }
+      }
+    },
+    "mobile.iroh.private.custom.suggestion.summary" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%1$@ · %2$@" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%1$@ · %2$@" } }
+      }
+    },
     "^[%lld file](inflect: true)" : {
       "extractionState" : "manual",
       "localizations" : {
