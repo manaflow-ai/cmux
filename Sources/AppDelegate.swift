@@ -12918,6 +12918,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
+        if shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
+            let shortcutWindow = resolvedShortcutEventWindow(event) ?? shortcutRoutingActiveWindow
+            if browserResponderHasMarkedText(shortcutWindow?.firstResponder) {
+                clearConfiguredShortcutChordState()
+                return false
+            }
+        }
+
         // `charactersIgnoringModifiers` can be nil for some synthetic NSEvents and certain special keys.
         // Treat nil as "" and rely on keyCode/layout-aware fallback logic where needed.
         // When a non-Latin input source is active (Korean, Chinese, Japanese, etc.),
@@ -13304,10 +13312,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            titlebarAccessoryController.isNotificationsPopoverShown(),
            (notificationStore?.notifications.isEmpty ?? false) {
             return true
-        }
-
-        if shouldBypassPrintableOptionTextForShortcutRouting(event: event) {
-            return false
         }
 
         let canvasSurfaceDigitShortcutIsActive =
@@ -15194,7 +15198,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Resolves a right-sidebar mode shortcut after applying the action's
     /// effective `when` clause.
     func rightSidebarModeShortcut(for event: NSEvent) -> RightSidebarMode? {
-        KeyboardShortcutSettingsObserver.shared.rightSidebarModeShortcutMatcher.modeShortcut(for: event) { [self] action in
+        let shortcutWindow = resolvedShortcutEventWindow(event) ?? event.window ?? shortcutRoutingActiveWindow
+        if shortcutRoutingShouldBypassForPrintableOptionText(event: event),
+           browserResponderHasMarkedText(shortcutWindow?.firstResponder) {
+            return nil
+        }
+        return KeyboardShortcutSettingsObserver.shared.rightSidebarModeShortcutMatcher.modeShortcut(for: event) { [self] action in
             shortcutWhenClauseAllows(action: action, event: event)
         }
     }
@@ -15230,22 +15239,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> Int? {
         if let digit = numberedConfiguredShortcutDigit(event: event, action: action), shortcutWhenClauseAllows(action: action, event: event) { return digit }
         return nil
-    }
-
-    fileprivate func shouldBypassPrintableOptionTextForShortcutRouting(event: NSEvent) -> Bool {
-        guard shortcutRoutingShouldBypassForPrintableOptionText(event: event) else {
-            return false
-        }
-
-        if routableNumberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) != nil {
-            return false
-        }
-
-        if routableNumberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) != nil {
-            return false
-        }
-
-        return true
     }
 
     private func tabManagerForNumberedShortcut(event: NSEvent) -> TabManager? {
@@ -17075,13 +17068,17 @@ private extension NSWindow {
             return true
         }
         let browserWebKitKeyDownReentry = firstResponderWebView != nil && cmuxBrowserWebKitKeyDownDispatchIsActive()
-        if AppDelegate.shared?.shouldBypassPrintableOptionTextForShortcutRouting(event: event) == true {
+        if shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
             if browserWebKitKeyDownReentry { return false }
+            if !firstResponderHasMarkedText,
+               AppDelegate.shared?.handleConfiguredShortcutKeyEquivalent(event) == true {
+                return true
+            }
             let textInputTarget: NSResponder? = firstResponderGhosttyView
                 ?? firstResponderWebView
                 ?? self.firstResponder
             if let textInputTarget, textInputTarget !== self {
-                if cmuxForceDispatchKeyDownOnce(event, to: textInputTarget, reason: "printable Option text") {
+                if cmuxForceDispatchKeyDownOnce(event, to: textInputTarget, reason: "unmatched Option input") {
                     return true
                 }
                 // Same event already in flight on this stack (WebKit replay /
