@@ -21,9 +21,9 @@ use tokio::io::AsyncReadExt;
 use tokio::net::TcpStream;
 use tokio::process::Command;
 use tokio::sync::{Mutex, oneshot, watch};
-use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
+use tokio_tungstenite::tungstenite::{Error as WebSocketError, Message};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async_with_config};
 use url::Url;
 use zeroize::{Zeroize, Zeroizing};
@@ -1114,10 +1114,26 @@ async fn connect_relay_socket_once(
         {
             Err(RelaySocketConnectError::Authentication)
         }
-        Err(_) => Err(RelaySocketConnectError::Provider(ProviderError::Transport(
-            "relay WebSocket connection failed".into(),
-        ))),
+        Err(error) => Err(RelaySocketConnectError::Provider(relay_connect_error(error))),
     }
+}
+
+fn relay_connect_error(error: WebSocketError) -> ProviderError {
+    let detail = match error {
+        WebSocketError::ConnectionClosed => "connection closed".into(),
+        WebSocketError::AlreadyClosed => "connection was already closed".into(),
+        WebSocketError::Io(error) => format!("I/O error: {error}"),
+        WebSocketError::Tls(error) => format!("TLS error: {error}"),
+        WebSocketError::Capacity(error) => format!("capacity error: {error}"),
+        WebSocketError::Protocol(error) => format!("protocol error: {error}"),
+        WebSocketError::WriteBufferFull(_) => "write buffer was full".into(),
+        WebSocketError::Utf8(_) => "invalid UTF-8".into(),
+        WebSocketError::AttackAttempt => "attack attempt detected".into(),
+        WebSocketError::Url(error) => format!("URL error: {error}"),
+        WebSocketError::Http(response) => format!("HTTP status {}", response.status()),
+        WebSocketError::HttpFormat(_) => "invalid HTTP handshake".into(),
+    };
+    ProviderError::Transport(format!("relay WebSocket connection failed: {detail}"))
 }
 
 fn bearer_header(credential: &RelayCredential) -> Result<HeaderValue, ProviderError> {

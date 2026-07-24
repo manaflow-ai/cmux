@@ -889,6 +889,9 @@ fn retryable_connection_error(error: &ConnectionError) -> bool {
     matches!(
         error,
         ConnectionError::Provider(ProviderError::Transport(_))
+            | ConnectionError::Provider(ProviderError::Link(
+                LinkError::Closed | LinkError::Transport(_)
+            ))
             | ConnectionError::Crypto(CryptoError::LinkError(_))
             | ConnectionError::Crypto(CryptoError::Link(_))
             | ConnectionError::Crypto(CryptoError::UnexpectedEof)
