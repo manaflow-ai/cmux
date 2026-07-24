@@ -331,15 +331,15 @@ extension RemoteTmuxControlConnection {
             // surface REUSED across reconnect: if it was on the alt screen before and the
             // remote pane is now on primary, force it back (1049l) so the capture doesn't
             // paint onto a stale alt screen.
-            if lines.first?.trimmingCharacters(in: .whitespaces) == "1" {
-                appendPaneSeedPrefix(
-                    paneId: paneId, seedID: seedID, data: Self.altScreenEnterSequence
-                )
-            } else {
-                appendPaneSeedPrefix(
-                    paneId: paneId, seedID: seedID, data: Self.altScreenExitSequence
-                )
-            }
+            let screenSelection = lines.first?.trimmingCharacters(in: .whitespaces) == "1"
+                ? Self.altScreenEnterSequence
+                : Self.altScreenExitSequence
+            var prefix = screenSelection
+            // DECSTBM is screen-local and survives on a reused surface. Reset it on
+            // the selected screen before painting the capture so stale margins cannot
+            // scroll or clip snapshot rows. The authoritative pane state follows.
+            prefix.append(Data("\u{1b}[r".utf8))
+            appendPaneSeedPrefix(paneId: paneId, seedID: seedID, data: prefix)
         case .perWindowSize:
             // A successful per-window size push replies with an empty block;
             // the interesting outcome (%error -> capability fallback) is
