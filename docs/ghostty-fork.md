@@ -16,6 +16,9 @@ Current cmux pinned fork patch head: `ade1de1f4`. It adds nonblocking renderer
 lifecycle-state publication to the indented hard-newline and presentation-token
 runtime in `b211341be`, and includes the fork's consumed-Alt text fix through
 `1c1dc5721`.
+The corresponding universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-ade1de1f4213bdf34a387b255906ce2aae0c4da2-crashsubdir-cmux-crash-v1
+and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Nonblocking renderer lifecycle state
 
