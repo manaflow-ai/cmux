@@ -3097,7 +3097,7 @@ mod tests {
         collision.apply(&raw);
         assert_eq!(
             collision.shortcut_labels(Action::NewPaneSmart),
-            ["Alt-n n"],
+            Vec::<String>::new(),
             "the prefix chord must not remain advertised as a modeless action"
         );
         assert_eq!(collision.shortcut_label(Action::SendPrefix).as_deref(), Some("Alt-n Alt-n"));
