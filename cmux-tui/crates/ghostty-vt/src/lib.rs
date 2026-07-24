@@ -15,7 +15,8 @@ pub use ghostty_vt_sys as sys;
 
 pub use key::{KeyAction, KeyEncoder, KeyInput, Mods, key_input_from_chord};
 pub use kitty::{
-    KittyGraphicsSnapshot, KittyImage, KittyImageFormat, KittyPlacement, KittyPlacementKey,
+    KittyGraphicsSnapshot, KittyImage, KittyImageAlias, KittyImageFormat, KittyPlacement,
+    KittyPlacementKey,
 };
 pub use mouse::{MouseAction, MouseButton, MouseEncoder, MouseEncoders, MouseInput};
 pub use render::{
@@ -24,7 +25,7 @@ pub use render::{
     RenderState, StyledRun, UnderlineStyle, rows_to_runs,
 };
 pub use terminal::{
-    Callbacks, NotifyFn, PtyWriteFn, Rgb, Screen, Scrollbar, Terminal, parse_color,
+    Callbacks, NotifyFn, PtyWriteFn, Rgb, Screen, Scrollbar, Terminal, VtReplay, parse_color,
     parse_palette_entry,
 };
 

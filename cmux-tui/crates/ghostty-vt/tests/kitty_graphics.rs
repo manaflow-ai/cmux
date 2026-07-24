@@ -145,7 +145,7 @@ fn replay_reconstructs_preexisting_images_and_placements() {
     source.vt_write(&kitty("a=T,t=d,f=32,i=21,p=2,s=1,v=1,c=2,r=2,z=4,q=2", "/wAAfw=="));
     let expected = source.kitty_graphics_snapshot().unwrap();
 
-    let replay = source.vt_replay().unwrap();
+    let replay = source.vt_replay_bytes().unwrap();
     let mut mirror = terminal();
     mirror.vt_write(&replay);
     let actual = mirror.kitty_graphics_snapshot().unwrap();
@@ -170,7 +170,7 @@ fn replay_preserves_native_and_single_axis_placement_sizing() {
     source.vt_write(b"\x1b[3;1H");
     source.vt_write(&kitty("a=p,i=23,p=3,r=2,C=1,q=2", ""));
 
-    let replay = source.vt_replay().unwrap();
+    let replay = source.vt_replay_bytes().unwrap();
     let mut mirror = terminal();
     mirror.vt_write(&replay);
     let actual = mirror.kitty_graphics_snapshot().unwrap();
@@ -195,7 +195,7 @@ fn replay_keeps_an_unplaced_image_for_a_post_attach_placement() {
     assert!(before_place.image(22).is_some());
     assert!(before_place.placements.is_empty());
 
-    let replay = source.vt_replay().unwrap();
+    let replay = source.vt_replay_bytes().unwrap();
     let mut mirror = terminal();
     mirror.vt_write(&replay);
     assert!(mirror.kitty_graphics_snapshot().unwrap().image(22).is_some());
@@ -219,8 +219,13 @@ fn replay_keeps_a_number_only_image_for_a_post_attach_number_placement() {
     assert!(source.kitty_graphics_snapshot().unwrap().placements.is_empty());
 
     let replay = source.vt_replay().unwrap();
+    assert_eq!(
+        replay.kitty_image_aliases,
+        vec![ghostty_vt::KittyImageAlias { image_id: assigned_id, image_number: 77 }]
+    );
     let mut mirror = terminal();
-    mirror.vt_write(&replay);
+    mirror.vt_write(&replay.bytes);
+    mirror.restore_kitty_image_aliases(&replay.kitty_image_aliases).unwrap();
 
     let place_by_number = kitty("a=p,I=77,p=8,c=1,r=1,q=2", "");
     let place_by_id = kitty(&format!("a=p,i={assigned_id},p=9,c=1,r=1,q=2"), "");
@@ -233,13 +238,78 @@ fn replay_keeps_a_number_only_image_for_a_post_attach_number_placement() {
     assert_eq!(mirrored.placements.len(), 2);
     assert!(mirrored.placements.iter().all(|placement| placement.image_id == assigned_id));
     assert_eq!(
-        mirrored
-            .placements
-            .iter()
-            .map(|placement| placement.placement_id)
-            .collect::<Vec<_>>(),
+        mirrored.placements.iter().map(|placement| placement.placement_id).collect::<Vec<_>>(),
         vec![8, 9]
     );
+}
+
+#[test]
+fn replay_preserves_duplicate_number_history_and_source_generation_order() {
+    let mut source = terminal();
+    source.vt_write(&kitty("a=t,t=d,f=24,I=77,s=1,v=1,q=2", "/wAA"));
+    let first_id = source.kitty_graphics_snapshot().unwrap().images[0].id;
+    source.vt_write(&kitty("a=t,t=d,f=24,I=77,s=1,v=1,q=2", "AP8A"));
+    let source_images = source.kitty_graphics_snapshot().unwrap().images;
+    let newest_id =
+        source_images.iter().max_by_key(|image| image.generation).expect("newest image").id;
+    assert_ne!(first_id, newest_id);
+
+    let replay = source.vt_replay().unwrap();
+    assert_eq!(replay.kitty_image_aliases.len(), 2);
+    let mut mirror = terminal();
+    mirror.vt_write(&replay.bytes);
+    mirror.restore_kitty_image_aliases(&replay.kitty_image_aliases).unwrap();
+
+    let delete_newest = kitty(&format!("a=d,d=I,i={newest_id},q=2"), "");
+    source.vt_write(&delete_newest);
+    mirror.vt_write(&delete_newest);
+    let place_older = kitty("a=p,I=77,p=10,c=1,r=1,q=2", "");
+    source.vt_write(&place_older);
+    mirror.vt_write(&place_older);
+    assert_eq!(source.kitty_graphics_snapshot().unwrap().placements[0].image_id, first_id);
+    assert_eq!(mirror.kitty_graphics_snapshot().unwrap().placements[0].image_id, first_id);
+}
+
+#[test]
+fn replay_aliases_follow_generation_order_and_exclude_omitted_images() {
+    let mut source = terminal();
+    source.vt_write(&kitty("a=t,t=d,f=24,i=90,s=1,v=1,q=2", "/wAA"));
+    source.vt_write(&kitty("a=t,t=d,f=24,i=10,s=1,v=1,q=2", "AP8A"));
+    source
+        .restore_kitty_image_aliases(&[
+            ghostty_vt::KittyImageAlias { image_id: 90, image_number: 88 },
+            ghostty_vt::KittyImageAlias { image_id: 10, image_number: 88 },
+        ])
+        .unwrap();
+    source.vt_write(&kitty("a=t,t=d,f=24,i=91,s=100,v=1,q=2", &encode_base64(&vec![255; 300])));
+    source
+        .restore_kitty_image_aliases(&[ghostty_vt::KittyImageAlias {
+            image_id: 91,
+            image_number: 91,
+        }])
+        .unwrap();
+
+    let full = source.vt_replay().unwrap();
+    assert_eq!(
+        full.kitty_image_aliases,
+        vec![
+            ghostty_vt::KittyImageAlias { image_id: 90, image_number: 88 },
+            ghostty_vt::KittyImageAlias { image_id: 10, image_number: 88 },
+            ghostty_vt::KittyImageAlias { image_id: 91, image_number: 91 },
+        ]
+    );
+    let mut mirror = terminal();
+    mirror.vt_write(&full.bytes);
+    mirror.restore_kitty_image_aliases(&full.kitty_image_aliases).unwrap();
+    mirror.vt_write(&kitty("a=p,I=88,p=11,c=1,r=1,q=2", ""));
+    assert_eq!(mirror.kitty_graphics_snapshot().unwrap().placements[0].image_id, 10);
+
+    let bounded = source.vt_replay_bounded(256).unwrap();
+    assert!(
+        bounded.kitty_image_aliases.iter().all(|alias| alias.image_id != 91),
+        "alias sidecar must not name an image omitted from bounded replay"
+    );
+    assert!(!String::from_utf8_lossy(&bounded.bytes).contains("i=91"));
 }
 
 #[test]

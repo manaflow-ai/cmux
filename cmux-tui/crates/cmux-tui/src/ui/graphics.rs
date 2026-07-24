@@ -984,6 +984,7 @@ mod tests {
     fn terminal_placement_clips_to_pane_and_adjusts_source_pixels() {
         let inner_image = KittyImage {
             id: 3,
+            number: 0,
             generation: 1,
             width: 100,
             height: 80,
@@ -1029,6 +1030,7 @@ mod tests {
     fn terminal_offsets_at_right_and_bottom_edges_are_contained_inside_pane() {
         let inner_image = KittyImage {
             id: 4,
+            number: 0,
             generation: 1,
             width: 100,
             height: 100,

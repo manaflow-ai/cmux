@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use base64::Engine as _;
 use ghostty_vt_sys as sys;
 
-use crate::kitty::{self, KittyGraphicsSnapshot, KittyImageIdTracker, MAX_KITTY_IMAGE_BYTES};
+use crate::kitty::{self, KittyGraphicsSnapshot, KittyImageAlias, MAX_KITTY_IMAGE_BYTES};
 use crate::render::{Cell, CursorShape, read_grid_ref_cell, terminal_palette};
 use crate::{Result, check};
 
@@ -13,6 +13,13 @@ static NEXT_TERMINAL_ID: AtomicU64 = AtomicU64::new(1);
 const VT_REPLAY_ESTIMATED_BYTES_PER_CELL: u64 = 32;
 const DEFAULT_KITTY_IMAGE_STORAGE_LIMIT: u64 = MAX_KITTY_IMAGE_BYTES as u64;
 const KITTY_REPLAY_CHUNK: usize = 4096;
+
+/// Terminal state replay plus Kitty aliases that cannot share one APC command.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct VtReplay {
+    pub bytes: Vec<u8>,
+    pub kitty_image_aliases: Vec<KittyImageAlias>,
+}
 
 /// RGB color triple.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -235,7 +242,6 @@ pub struct Terminal {
     instance_id: u64,
     mouse_mode_revision: u64,
     mouse_mode_scan: MouseModeScan,
-    kitty_image_ids: KittyImageIdTracker,
     // Heap-pinned so the userdata pointer stays valid for the terminal's
     // lifetime.
     callbacks: Box<Callbacks>,
@@ -853,7 +859,6 @@ impl Terminal {
             instance_id: NEXT_TERMINAL_ID.fetch_add(1, Ordering::Relaxed),
             mouse_mode_revision: 0,
             mouse_mode_scan: MouseModeScan::default(),
-            kitty_image_ids: KittyImageIdTracker::default(),
             callbacks: Box::new(callbacks),
             cursor_override: CursorOverrideTracker::default(),
             palette_override: Box::default(),
@@ -902,12 +907,7 @@ impl Terminal {
         }
         self.cursor_override.write(data);
         self.palette_override.write(data);
-        self.kitty_image_ids.write(data);
         unsafe { sys::ghostty_terminal_vt_write(self.raw, data.as_ptr(), data.len()) }
-    }
-
-    pub(crate) fn known_kitty_image_ids(&self) -> impl Iterator<Item = u32> + '_ {
-        self.kitty_image_ids.ids()
     }
 
     /// Whether the current cursor style/blink came from an active DECSCUSR
@@ -1059,6 +1059,36 @@ impl Terminal {
     /// Copy the active screen's Kitty image storage into owned Rust values.
     pub fn kitty_graphics_snapshot(&self) -> Result<KittyGraphicsSnapshot> {
         kitty::snapshot(self, &mut Default::default(), true)
+    }
+
+    /// Restore number aliases after replaying Kitty images by stable ID.
+    pub fn restore_kitty_image_aliases(&mut self, aliases: &[KittyImageAlias]) -> Result<()> {
+        if aliases.is_empty() {
+            return Ok(());
+        }
+
+        let mut graphics: sys::GhosttyKittyGraphics = ptr::null_mut();
+        check(unsafe {
+            sys::ghostty_terminal_get(
+                self.raw,
+                sys::GHOSTTY_TERMINAL_DATA_KITTY_GRAPHICS,
+                (&mut graphics as *mut sys::GhosttyKittyGraphics).cast(),
+            )
+        })?;
+        if graphics.is_null() {
+            return Err(crate::Error::NoValue);
+        }
+
+        for alias in aliases {
+            check(unsafe {
+                sys::ghostty_kitty_graphics_image_set_number(
+                    graphics,
+                    alias.image_id,
+                    alias.image_number,
+                )
+            })?;
+        }
+        Ok(())
     }
 
     /// Set the active terminal's bounded Kitty image storage in bytes.
@@ -1330,13 +1360,20 @@ impl Terminal {
         Ok(String::from_utf8_lossy(&self.format(opts)?).into_owned())
     }
 
-    /// VT-sequence replay of the terminal's current state: feeding the
-    /// returned bytes into a fresh terminal of the same size reproduces
+    /// Replay of the terminal's current state.
+    ///
+    /// Feeding `bytes` into a fresh terminal of the same size and restoring
+    /// `kitty_image_aliases` reproduces
     /// the screen contents, styles, cursor, modes, palette, keyboard
     /// state, charsets, and tabstops. This is the attach primitive: a new
     /// frontend replays this, then follows the live pty stream.
-    pub fn vt_replay(&mut self) -> Result<Vec<u8>> {
-        self.vt_replay_with_selection(None)
+    pub fn vt_replay(&mut self) -> Result<VtReplay> {
+        self.vt_replay_with_selection_state(None)
+    }
+
+    /// Byte-only compatibility replay. This discards Kitty number aliases.
+    pub fn vt_replay_bytes(&mut self) -> Result<Vec<u8>> {
+        Ok(self.vt_replay()?.bytes)
     }
 
     /// VT replay bounded to `max_bytes`, retaining the newest complete rows.
@@ -1348,16 +1385,21 @@ impl Terminal {
     /// A pathological screen whose newest row alone exceeds the budget falls
     /// back to a terminal reset so callers can still attach and receive live
     /// output instead of entering a permanent overflow loop.
-    pub fn vt_replay_bounded(&mut self, max_bytes: usize) -> Result<Vec<u8>> {
+    pub fn vt_replay_bounded(&mut self, max_bytes: usize) -> Result<VtReplay> {
         let graphics = kitty_replay_bounded(
             &self.kitty_graphics_snapshot()?,
             max_bytes.saturating_div(2),
             self.cell_pixel_size(),
         );
-        let text_budget = max_bytes.saturating_sub(graphics.len());
-        let mut replay = self.vt_replay_text_bounded(text_budget)?;
-        replay.extend_from_slice(&graphics);
-        Ok(replay)
+        let text_budget = max_bytes.saturating_sub(graphics.bytes.len());
+        let mut bytes = self.vt_replay_text_bounded(text_budget)?;
+        bytes.extend_from_slice(&graphics.bytes);
+        Ok(VtReplay { bytes, kitty_image_aliases: graphics.aliases })
+    }
+
+    /// Bounded byte-only compatibility replay. This discards Kitty aliases.
+    pub fn vt_replay_bounded_bytes(&mut self, max_bytes: usize) -> Result<Vec<u8>> {
+        Ok(self.vt_replay_bounded(max_bytes)?.bytes)
     }
 
     fn vt_replay_text_bounded(&mut self, max_bytes: usize) -> Result<Vec<u8>> {
@@ -1431,20 +1473,18 @@ impl Terminal {
         self.vt_replay_with_selection_bounded(Some(&selection), max_bytes)
     }
 
-    fn vt_replay_with_selection(
+    fn vt_replay_with_selection_state(
         &mut self,
         selection: Option<&sys::GhosttySelection>,
-    ) -> Result<Vec<u8>> {
+    ) -> Result<VtReplay> {
         let suffix = self.cursor_position_escape();
-        let mut replay = self.format(Self::vt_replay_options(selection))?;
+        let mut bytes = self.format(Self::vt_replay_options(selection))?;
         if let Some(suffix) = suffix {
-            replay.extend_from_slice(&suffix);
+            bytes.extend_from_slice(&suffix);
         }
-        replay.extend_from_slice(&kitty_replay(
-            &self.kitty_graphics_snapshot()?,
-            self.cell_pixel_size(),
-        ));
-        Ok(replay)
+        let graphics = kitty_replay(&self.kitty_graphics_snapshot()?, self.cell_pixel_size());
+        bytes.extend_from_slice(&graphics.bytes);
+        Ok(VtReplay { bytes, kitty_image_aliases: graphics.aliases })
     }
 
     fn vt_replay_with_selection_bounded(
@@ -1614,7 +1654,12 @@ fn minimal_vt_replay(max_bytes: usize) -> Vec<u8> {
     if max_bytes >= RESET.len() { RESET.to_vec() } else { Vec::new() }
 }
 
-fn kitty_replay(snapshot: &KittyGraphicsSnapshot, cell_pixels: (u32, u32)) -> Vec<u8> {
+struct KittyReplay {
+    bytes: Vec<u8>,
+    aliases: Vec<KittyImageAlias>,
+}
+
+fn kitty_replay(snapshot: &KittyGraphicsSnapshot, cell_pixels: (u32, u32)) -> KittyReplay {
     kitty_replay_bounded(snapshot, usize::MAX, cell_pixels)
 }
 
@@ -1622,8 +1667,9 @@ fn kitty_replay_bounded(
     snapshot: &KittyGraphicsSnapshot,
     max_bytes: usize,
     cell_pixels: (u32, u32),
-) -> Vec<u8> {
-    let mut replay = Vec::new();
+) -> KittyReplay {
+    let mut bytes = Vec::new();
+    let mut aliases = Vec::new();
     for image in &snapshot.images {
         let placements = snapshot
             .placements
@@ -1656,12 +1702,19 @@ fn kitty_replay_bounded(
                 bundle.extend_from_slice(&command);
             }
         }
-        if replay.len().saturating_add(bundle.len()) > max_bytes {
+        if bytes.len().saturating_add(bundle.len()) > max_bytes {
             continue;
         }
-        replay.extend_from_slice(&bundle);
+        bytes.extend_from_slice(&bundle);
+        if image.number != 0 {
+            aliases.push((
+                image.generation,
+                KittyImageAlias { image_id: image.id, image_number: image.number },
+            ));
+        }
     }
-    replay
+    aliases.sort_by_key(|(generation, alias)| (*generation, alias.image_id));
+    KittyReplay { bytes, aliases: aliases.into_iter().map(|(_, alias)| alias).collect() }
 }
 
 fn kitty_replay_placement(
@@ -1932,10 +1985,10 @@ mod tests {
         }
         source.vt_write(b"LATEST-VISIBLE-CONTENT");
 
-        let full = source.vt_replay().unwrap();
+        let full = source.vt_replay_bytes().unwrap();
         assert!(full.len() > 32 * 1024);
 
-        let bounded = source.vt_replay_bounded(32 * 1024).unwrap();
+        let bounded = source.vt_replay_bounded_bytes(32 * 1024).unwrap();
         assert!(bounded.len() <= 32 * 1024);
 
         let mut restored = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
@@ -1951,9 +2004,9 @@ mod tests {
         }
         source.vt_write(b"LATEST-VISIBLE-CONTENT");
 
-        let full = source.vt_replay().unwrap();
+        let full = source.vt_replay_bytes().unwrap();
         assert!(full.len() < 8 * 1024 * 1024);
-        assert_eq!(source.vt_replay_bounded(8 * 1024 * 1024).unwrap(), full);
+        assert_eq!(source.vt_replay_bounded_bytes(8 * 1024 * 1024).unwrap(), full);
     }
 
     #[test]

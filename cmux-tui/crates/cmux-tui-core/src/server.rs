@@ -2325,6 +2325,18 @@ fn terminal_colors_json(colors: TerminalColors) -> Value {
     })
 }
 
+fn kitty_image_aliases_json(aliases: &[ghostty_vt::KittyImageAlias]) -> Vec<Value> {
+    aliases
+        .iter()
+        .map(|alias| {
+            json!({
+                "image_id": alias.image_id,
+                "image_number": alias.image_number,
+            })
+        })
+        .collect()
+}
+
 fn rgb_hex(color: Rgb) -> String {
     format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
 }
@@ -3128,7 +3140,8 @@ fn handle_command(
             Ok(json!({
                 "cols": cols,
                 "rows": rows,
-                "data": base64::engine::general_purpose::STANDARD.encode(replay),
+                "data": base64::engine::general_purpose::STANDARD.encode(replay.bytes),
+                "kitty_image_aliases": kitty_image_aliases_json(&replay.kitty_image_aliases),
             }))
         }
         Command::NewTab { pane, cwd, cols, rows } => {
@@ -3901,6 +3914,7 @@ fn handle_command(
                     return Err(error.into());
                 }
             };
+            let initial_aliases = kitty_image_aliases_json(&attach.kitty_image_aliases);
             if let Err(error) = writer.send_initial(
                 &json!({
                     "event": "vt-state",
@@ -3908,6 +3922,7 @@ fn handle_command(
                     "cols": attach.cols,
                     "rows": attach.rows,
                     "data": base64::engine::general_purpose::STANDARD.encode(attach.replay),
+                    "kitty_image_aliases": initial_aliases,
                     "colors": terminal_colors_json(attach.colors),
                 }),
                 &outbound_stream,
@@ -3963,13 +3978,21 @@ fn handle_command(
                                 "surface": surface_id,
                                 "data": base64::engine::general_purpose::STANDARD.encode(chunk),
                             }),
-                            AttachFrame::Resized { cols, rows, replay, colors } => {
+                            AttachFrame::Resized {
+                                cols,
+                                rows,
+                                replay,
+                                kitty_image_aliases,
+                                colors,
+                            } => {
                                 json!({
                                     "event": "resized",
                                     "surface": surface_id,
                                     "cols": cols,
                                     "rows": rows,
                                     "replay": base64::engine::general_purpose::STANDARD.encode(replay),
+                                    "kitty_image_aliases":
+                                        kitty_image_aliases_json(&kitty_image_aliases),
                                     "colors": terminal_colors_json(*colors),
                                 })
                             }

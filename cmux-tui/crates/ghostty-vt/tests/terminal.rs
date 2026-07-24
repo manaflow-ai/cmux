@@ -216,8 +216,8 @@ fn vt_replay_restores_cursor_position_after_tabstops() {
     let expected = source.cursor_position().unwrap();
     assert_eq!(expected, (16, 0));
 
-    let full = source.vt_replay().unwrap();
-    let bounded = source.vt_replay_bounded(8 * 1024 * 1024).unwrap();
+    let full = source.vt_replay_bytes().unwrap();
+    let bounded = source.vt_replay_bounded_bytes(8 * 1024 * 1024).unwrap();
     for replay in [&full, &bounded] {
         let mut mirror = Terminal::new(104, 39, 0, Callbacks::default()).unwrap();
         mirror.vt_write(replay);

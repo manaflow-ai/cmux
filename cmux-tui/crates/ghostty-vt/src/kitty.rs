@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap};
 use std::ffi::c_void;
 use std::io::Cursor;
 use std::mem::size_of;
@@ -11,9 +11,19 @@ use crate::terminal::Terminal;
 use crate::{Error, Result, check};
 
 pub(crate) const MAX_KITTY_IMAGE_BYTES: usize = 10_000_000;
-const MAX_TRACKED_IMAGE_IDS: usize = 65_536;
-const MAX_KITTY_HEADER_BYTES: usize = 4_096;
 const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
+
+#[cfg(test)]
+static SNAPSHOT_IMAGE_VISITS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+#[cfg(test)]
+fn record_snapshot_image_visit() {
+    SNAPSHOT_IMAGE_VISITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[cfg(not(test))]
+fn record_snapshot_image_visit() {}
 
 /// Pixel format stored in an owned Kitty graphics snapshot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -42,11 +52,22 @@ impl KittyImageFormat {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KittyImage {
     pub id: u32,
+    pub number: u32,
     pub generation: u64,
     pub width: u32,
     pub height: u32,
     pub format: KittyImageFormat,
     pub data: Arc<[u8]>,
+}
+
+/// The two aliases of a numbered Kitty image.
+///
+/// Kitty forbids specifying `i` and `I` in one graphics command, so byte
+/// replay restores the stable ID and attach transports this alias separately.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KittyImageAlias {
+    pub image_id: u32,
+    pub image_number: u32,
 }
 
 /// Stable identity within one sorted snapshot.
@@ -105,119 +126,12 @@ impl KittyGraphicsSnapshot {
     }
 }
 
-/// Bounded scanner for explicit image IDs in Kitty APC headers.
-///
-/// libghostty can look an image up by ID but cannot enumerate images with no
-/// placements. Remembering IDs from the byte stream lets attach replay cover
-/// the gap between an `a=t` transmission and a later `a=p`.
-pub(crate) struct KittyImageIdTracker {
-    scan: KittyScanState,
-    known: BTreeSet<u32>,
-    order: VecDeque<u32>,
-}
+struct ImageIterator(sys::GhosttyKittyGraphicsImageIterator);
 
-impl Default for KittyImageIdTracker {
-    fn default() -> Self {
-        Self { scan: KittyScanState::Ground, known: BTreeSet::new(), order: VecDeque::new() }
+impl Drop for ImageIterator {
+    fn drop(&mut self) {
+        unsafe { sys::ghostty_kitty_graphics_image_iterator_free(self.0) };
     }
-}
-
-impl KittyImageIdTracker {
-    pub(crate) fn write(&mut self, data: &[u8]) {
-        for &byte in data {
-            let state = std::mem::replace(&mut self.scan, KittyScanState::Ground);
-            self.scan = match state {
-                KittyScanState::Ground => match byte {
-                    0x1b => KittyScanState::Escape,
-                    0x9f => KittyScanState::ApcType,
-                    _ => KittyScanState::Ground,
-                },
-                KittyScanState::Escape => match byte {
-                    b'_' => KittyScanState::ApcType,
-                    0x1b => KittyScanState::Escape,
-                    _ => KittyScanState::Ground,
-                },
-                KittyScanState::ApcType => match byte {
-                    b'G' => KittyScanState::KittyHeader(Vec::new()),
-                    0x1b => KittyScanState::OtherEscape,
-                    0x9c => KittyScanState::Ground,
-                    _ => KittyScanState::Other,
-                },
-                KittyScanState::KittyHeader(mut header) => match byte {
-                    b';' => {
-                        if let Some(id) = kitty_header_image_id(&header) {
-                            self.remember(id);
-                        }
-                        KittyScanState::KittyPayload
-                    }
-                    0x1b => KittyScanState::OtherEscape,
-                    0x9c => KittyScanState::Ground,
-                    _ if header.len() < MAX_KITTY_HEADER_BYTES => {
-                        header.push(byte);
-                        KittyScanState::KittyHeader(header)
-                    }
-                    _ => KittyScanState::Other,
-                },
-                KittyScanState::KittyPayload => match byte {
-                    0x1b => KittyScanState::KittyPayloadEscape,
-                    0x9c => KittyScanState::Ground,
-                    _ => KittyScanState::KittyPayload,
-                },
-                KittyScanState::KittyPayloadEscape => match byte {
-                    b'\\' | 0x9c => KittyScanState::Ground,
-                    0x1b => KittyScanState::KittyPayloadEscape,
-                    _ => KittyScanState::KittyPayload,
-                },
-                KittyScanState::Other => match byte {
-                    0x1b => KittyScanState::OtherEscape,
-                    0x9c => KittyScanState::Ground,
-                    _ => KittyScanState::Other,
-                },
-                KittyScanState::OtherEscape => match byte {
-                    b'\\' | 0x9c => KittyScanState::Ground,
-                    0x1b => KittyScanState::OtherEscape,
-                    _ => KittyScanState::Other,
-                },
-            };
-        }
-    }
-
-    pub(crate) fn ids(&self) -> impl Iterator<Item = u32> + '_ {
-        self.known.iter().copied()
-    }
-
-    fn remember(&mut self, id: u32) {
-        if id == 0 || self.known.contains(&id) {
-            return;
-        }
-        if self.known.len() == MAX_TRACKED_IMAGE_IDS
-            && let Some(oldest) = self.order.pop_front()
-        {
-            self.known.remove(&oldest);
-        }
-        self.known.insert(id);
-        self.order.push_back(id);
-    }
-}
-
-enum KittyScanState {
-    Ground,
-    Escape,
-    ApcType,
-    KittyHeader(Vec<u8>),
-    KittyPayload,
-    KittyPayloadEscape,
-    Other,
-    OtherEscape,
-}
-
-fn kitty_header_image_id(header: &[u8]) -> Option<u32> {
-    header.split(|byte| *byte == b',').find_map(|parameter| {
-        let mut parts = parameter.splitn(2, |byte| *byte == b'=');
-        let key = parts.next()?;
-        let value = parts.next()?;
-        (key == b"i").then(|| std::str::from_utf8(value).ok()?.parse().ok()).flatten()
-    })
 }
 
 struct PlacementIterator(sys::GhosttyKittyGraphicsPlacementIterator);
@@ -302,6 +216,24 @@ pub(crate) fn snapshot(
         return Ok(KittyGraphicsSnapshot::default());
     }
 
+    let mut images = BTreeMap::<u32, KittyImage>::new();
+    if include_unplaced {
+        let mut raw_images: sys::GhosttyKittyGraphicsImageIterator = ptr::null_mut();
+        check(unsafe {
+            sys::ghostty_kitty_graphics_image_iterator_new(ptr::null(), graphics, &mut raw_images)
+        })?;
+        let images_iterator = ImageIterator(raw_images);
+        loop {
+            let raw_image = unsafe { sys::ghostty_kitty_graphics_image_next(images_iterator.0) };
+            if raw_image.is_null() {
+                break;
+            }
+            record_snapshot_image_visit();
+            let image = copy_image(raw_image, pixel_cache)?;
+            images.insert(image.id, image);
+        }
+    }
+
     let mut raw_iterator: sys::GhosttyKittyGraphicsPlacementIterator = ptr::null_mut();
     check(unsafe {
         sys::ghostty_kitty_graphics_placement_iterator_new(ptr::null(), &mut raw_iterator)
@@ -315,7 +247,6 @@ pub(crate) fn snapshot(
         )
     })?;
 
-    let mut images = BTreeMap::<u32, KittyImage>::new();
     let mut placements = Vec::new();
     while unsafe { sys::ghostty_kitty_graphics_placement_next(iterator.0) } {
         let image_id = placement_value::<u32>(
@@ -387,18 +318,6 @@ pub(crate) fn snapshot(
         });
     }
 
-    if include_unplaced {
-        for image_id in terminal.known_kitty_image_ids() {
-            if images.contains_key(&image_id) {
-                continue;
-            }
-            let raw_image = unsafe { sys::ghostty_kitty_graphics_image(graphics, image_id) };
-            if !raw_image.is_null() {
-                images.insert(image_id, copy_image(raw_image, pixel_cache)?);
-            }
-        }
-    }
-
     placements.sort_by_key(|placement| PlacementSortKey::from(&*placement));
     let mut ordinals = BTreeMap::<(u32, u32), u32>::new();
     for placement in &mut placements {
@@ -440,6 +359,7 @@ fn copy_image(
     pixel_cache: &mut HashMap<u64, Arc<[u8]>>,
 ) -> Result<KittyImage> {
     let id = image_value(image, sys::GHOSTTY_KITTY_IMAGE_DATA_ID)?;
+    let number = image_value(image, sys::GHOSTTY_KITTY_IMAGE_DATA_NUMBER)?;
     let generation = image_value(image, sys::GHOSTTY_KITTY_IMAGE_DATA_GENERATION)?;
     let width = image_value(image, sys::GHOSTTY_KITTY_IMAGE_DATA_WIDTH)?;
     let height = image_value(image, sys::GHOSTTY_KITTY_IMAGE_DATA_HEIGHT)?;
@@ -455,7 +375,15 @@ fn copy_image(
             }
             _ => KittyImageFormat::Rgba,
         };
-        return Ok(KittyImage { id, generation, width, height, format, data: data.clone() });
+        return Ok(KittyImage {
+            id,
+            number,
+            generation,
+            width,
+            height,
+            format,
+            data: data.clone(),
+        });
     }
     if data_ptr.is_null() && data_len != 0 {
         return Err(Error::InvalidValue);
@@ -490,7 +418,7 @@ fn copy_image(
         return Err(Error::InvalidValue);
     }
     pixel_cache.insert(generation, data.clone());
-    Ok(KittyImage { id, generation, width, height, format, data })
+    Ok(KittyImage { id, number, generation, width, height, format, data })
 }
 
 pub(crate) fn install_png_decoder() -> Result<()> {
@@ -638,13 +566,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn scanner_tracks_split_kitty_headers_without_buffering_payloads() {
-        let mut tracker = KittyImageIdTracker::default();
-        tracker.write(b"before\x1b_Ga=t,t=d,i=");
-        tracker.write(b"42,s=1,v=1;");
-        tracker.write(&vec![b'A'; MAX_KITTY_HEADER_BYTES * 2]);
-        tracker.write(b"\x1b\\after");
-        assert_eq!(tracker.ids().collect::<Vec<_>>(), vec![42]);
+    fn snapshot_enumerates_each_stored_image_once() {
+        let mut terminal = Terminal::new(20, 8, 100, crate::Callbacks::default()).unwrap();
+        for number in 1..=64 {
+            terminal.vt_write(
+                format!("\x1b_Ga=t,t=d,f=24,I={number},s=1,v=1,q=2;AAAA\x1b\\").as_bytes(),
+            );
+        }
+        terminal.vt_write(b"\x1b_Ga=t,t=d,f=24,s=1,v=1,q=2;AAEA\x1b\\");
+
+        SNAPSHOT_IMAGE_VISITS.store(0, std::sync::atomic::Ordering::Relaxed);
+        let graphics = snapshot(&terminal, &mut HashMap::new(), true).unwrap();
+
+        assert_eq!(graphics.images.len(), 65);
+        assert_eq!(
+            SNAPSHOT_IMAGE_VISITS.load(std::sync::atomic::Ordering::Relaxed),
+            graphics.images.len()
+        );
+        assert_eq!(graphics.images.iter().filter(|image| image.number == 0).count(), 1);
     }
 
     #[test]

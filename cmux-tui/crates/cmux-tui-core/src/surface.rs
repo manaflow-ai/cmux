@@ -193,6 +193,7 @@ pub struct AttachStream {
     pub cols: u16,
     pub rows: u16,
     pub replay: Vec<u8>,
+    pub kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
     pub colors: TerminalColors,
     pub stream: AttachFrameReceiver,
     pub(crate) lifecycle: AttachLifecycle,
@@ -201,7 +202,13 @@ pub struct AttachStream {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AttachFrame {
     Output(Vec<u8>),
-    Resized { cols: u16, rows: u16, replay: Vec<u8>, colors: Box<TerminalColors> },
+    Resized {
+        cols: u16,
+        rows: u16,
+        replay: Vec<u8>,
+        kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
+        colors: Box<TerminalColors>,
+    },
     ColorsChanged(Arc<TerminalColors>),
 }
 
@@ -243,7 +250,11 @@ impl AttachFrame {
         size_of::<Self>()
             + match self {
                 Self::Output(bytes) => bytes.capacity(),
-                Self::Resized { replay, .. } => replay.capacity() + size_of::<TerminalColors>(),
+                Self::Resized { replay, kitty_image_aliases, .. } => {
+                    replay.capacity()
+                        + kitty_image_aliases.capacity() * size_of::<ghostty_vt::KittyImageAlias>()
+                        + size_of::<TerminalColors>()
+                }
                 Self::ColorsChanged(_) => size_of::<TerminalColors>(),
             }
     }
@@ -1121,7 +1132,8 @@ impl Surface {
         Ok(AttachStream {
             cols,
             rows,
-            replay,
+            replay: replay.bytes,
+            kitty_image_aliases: replay.kitty_image_aliases,
             colors,
             stream: AttachFrameReceiver { receiver: rx, queued_bytes },
             lifecycle,
@@ -1456,7 +1468,13 @@ impl PtySurface {
         self.attach_colors_pending.store(false, Ordering::Release);
         self.attach_colors_force_pending.store(false, Ordering::Release);
         *self.last_attach_colors.lock().unwrap() = Some(Box::new(live_colors));
-        self.broadcast_attach_frame(AttachFrame::Resized { cols, rows, replay, colors });
+        self.broadcast_attach_frame(AttachFrame::Resized {
+            cols,
+            rows,
+            replay: replay.bytes,
+            kitty_image_aliases: replay.kitty_image_aliases,
+            colors,
+        });
         true
     }
 
@@ -1483,7 +1501,13 @@ impl PtySurface {
         let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
         let _ = self.build_frame_locked(&mut term, generation, false);
         let colors = Box::new(self.terminal_colors_locked(&mut term, defaults));
-        self.broadcast_attach_frame(AttachFrame::Resized { cols, rows, replay, colors });
+        self.broadcast_attach_frame(AttachFrame::Resized {
+            cols,
+            rows,
+            replay: replay.bytes,
+            kitty_image_aliases: replay.kitty_image_aliases,
+            colors,
+        });
         true
     }
 }

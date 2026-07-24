@@ -279,7 +279,13 @@ impl RemoteSurface {
         self.mouse_encoders.lock().unwrap().reset_motion_dedupe();
     }
     /// Apply an ordered attach-stream resize marker to the mirror terminal.
-    pub(super) fn apply_stream_resize(&self, cols: u16, rows: u16, replay: Option<&[u8]>) {
+    pub(super) fn apply_stream_resize(
+        &self,
+        cols: u16,
+        rows: u16,
+        replay: Option<&[u8]>,
+        kitty_image_aliases: &[ghostty_vt::KittyImageAlias],
+    ) {
         let (cols, rows) = (cols.max(1), rows.max(1));
         let cell_pixels = *self.cell_pixels.lock().unwrap();
         let mut term = self.term.lock().unwrap();
@@ -288,11 +294,13 @@ impl RemoteSurface {
         {
             let _ = fresh.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1));
             fresh.vt_write(replay);
+            let _ = fresh.restore_kitty_image_aliases(kitty_image_aliases);
             *term = fresh;
             self.sync_mouse_encoders(&term);
             return;
         }
         let _ = term.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1));
+        let _ = term.restore_kitty_image_aliases(kitty_image_aliases);
         self.sync_mouse_encoders(&term);
     }
 
@@ -663,12 +671,9 @@ impl RemoteSession {
                     id,
                     format!("vt-state cols={cols} rows={rows} bytes={}", replay.len()),
                 );
+                let kitty_image_aliases = parse_kitty_image_aliases(&value);
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
-                    surface.apply_stream_resize(cols, rows, None);
-                    let mut term = surface.term.lock().unwrap();
-                    term.vt_write(&replay);
-                    surface.sync_mouse_encoders(&term);
-                    drop(term);
+                    surface.apply_stream_resize(cols, rows, Some(&replay), &kitty_image_aliases);
                     surface.dirty.store(true, Ordering::Release);
                 }
                 self.emit(MuxEvent::SurfaceOutput(id));
@@ -730,6 +735,7 @@ impl RemoteSession {
                     .or_else(|| value.get("data"))
                     .and_then(|v| v.as_str())
                     .and_then(|data| base64::engine::general_purpose::STANDARD.decode(data).ok());
+                let kitty_image_aliases = parse_kitty_image_aliases(&value);
                 self.log_frame(
                     id,
                     format!(
@@ -738,7 +744,12 @@ impl RemoteSession {
                     ),
                 );
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
-                    surface.apply_stream_resize(cols, rows, replay.as_deref());
+                    surface.apply_stream_resize(
+                        cols,
+                        rows,
+                        replay.as_deref(),
+                        &kitty_image_aliases,
+                    );
                     surface.dirty.store(true, Ordering::Release);
                     self.emit(MuxEvent::SurfaceResized {
                         surface: id,
@@ -754,7 +765,7 @@ impl RemoteSession {
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
                     let cols = value.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
                     let rows = value.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16;
-                    surface.apply_stream_resize(cols, rows, None);
+                    surface.apply_stream_resize(cols, rows, None, &[]);
                     surface.update_browser_state(&value);
                     surface.dirty.store(true, Ordering::Release);
                 }
@@ -1354,6 +1365,20 @@ impl Drop for RemoteSession {
             let _ = fs::write(frames, format!("{text}\n"));
         }
     }
+}
+
+fn parse_kitty_image_aliases(value: &Value) -> Vec<ghostty_vt::KittyImageAlias> {
+    value
+        .get("kitty_image_aliases")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|alias| {
+            let image_id = u32::try_from(alias.get("image_id")?.as_u64()?).ok()?;
+            let image_number = u32::try_from(alias.get("image_number")?.as_u64()?).ok()?;
+            Some(ghostty_vt::KittyImageAlias { image_id, image_number })
+        })
+        .collect()
 }
 
 fn dump_mirror(surface: &RemoteSurface) -> String {
@@ -2182,7 +2207,7 @@ mod tests {
         let server_text = server.plain_text().unwrap();
         let server_oldest = server.selection_text_absolute((0, 0), (4, 0)).unwrap();
         assert_eq!(server_oldest, "srv00");
-        let replay = server.vt_replay().unwrap();
+        let replay = server.vt_replay_bytes().unwrap();
 
         let surface = RemoteSurface {
             id: 1,
@@ -2199,7 +2224,7 @@ mod tests {
             mirror.vt_write(b"mirror-only\r\nstate\r\n");
         }
 
-        surface.apply_stream_resize(8, 4, Some(&replay));
+        surface.apply_stream_resize(8, 4, Some(&replay), &[]);
         let scrollback_rows = {
             let mut mirror = surface.term.lock().unwrap();
             assert_eq!(mirror.plain_text().unwrap(), server_text);
@@ -2207,7 +2232,7 @@ mod tests {
             mirror.scrollback_rows()
         };
 
-        surface.apply_stream_resize(8, 4, Some(&replay));
+        surface.apply_stream_resize(8, 4, Some(&replay), &[]);
         let mut mirror = surface.term.lock().unwrap();
         assert_eq!(mirror.plain_text().unwrap(), server_text);
         assert_eq!(mirror.scrollback_rows(), scrollback_rows);
@@ -2236,7 +2261,7 @@ mod tests {
         }
         authoritative.resize(8, 4, 8, 16).unwrap();
         let expected = authoritative.plain_text().unwrap();
-        let replay = authoritative.vt_replay().unwrap();
+        let replay = authoritative.vt_replay_bytes().unwrap();
         session.handle_line(json!({
             "event": "resized",
             "surface": 7,
@@ -2246,6 +2271,93 @@ mod tests {
         }));
 
         assert_eq!(surface.term.lock().unwrap().plain_text().unwrap(), expected);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn real_server_attach_and_resize_preserve_kitty_number_aliases() {
+        let mux = cmux_tui_core::Mux::new(
+            format!("remote-kitty-aliases-{}", std::process::id()),
+            cmux_tui_core::SurfaceOptions {
+                command: Some(vec!["/bin/cat".to_string()]),
+                ..Default::default()
+            },
+        );
+        let authoritative = mux.new_workspace(None, Some((20, 4))).unwrap();
+        authoritative
+            .try_with_terminal(|terminal| {
+                terminal.vt_write(b"\x1b_Ga=t,t=d,f=24,I=77,s=1,v=1,q=2;/wAA\x1b\\");
+            })
+            .unwrap();
+        let image_id = authoritative
+            .try_with_terminal(|terminal| terminal.kitty_graphics_snapshot().unwrap().images[0].id)
+            .unwrap();
+
+        let socket = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
+        let remote = RemoteSession::connect(&socket).unwrap();
+        let mirror = remote
+            .try_ensure_surface_with_kind(
+                authoritative.id,
+                SurfaceKind::Pty,
+                Some((20, 4)),
+            )
+            .unwrap()
+            .unwrap();
+
+        let wait_for = |mut predicate: Box<dyn FnMut() -> bool>| {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !predicate() {
+                assert!(Instant::now() < deadline, "remote mirror did not converge");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        };
+        wait_for(Box::new({
+            let mirror = mirror.clone();
+            move || {
+                mirror
+                    .term
+                    .lock()
+                    .unwrap()
+                    .kitty_graphics_snapshot()
+                    .unwrap()
+                    .image(image_id)
+                    .is_some_and(|image| image.number == 77)
+            }
+        }));
+
+        mux.resize_surface(authoritative.id, 21, 4).unwrap();
+        wait_for(Box::new({
+            let mirror = mirror.clone();
+            move || {
+                let terminal = mirror.term.lock().unwrap();
+                terminal.cols() == 21
+                    && terminal
+                        .kitty_graphics_snapshot()
+                        .unwrap()
+                        .image(image_id)
+                        .is_some_and(|image| image.number == 77)
+            }
+        }));
+
+        authoritative.write_bytes(b"\x1b_Ga=p,I=77,p=12,c=1,r=1,q=2;\x1b\\\n").unwrap();
+        wait_for(Box::new({
+            let mirror = mirror.clone();
+            move || {
+                mirror
+                    .term
+                    .lock()
+                    .unwrap()
+                    .kitty_graphics_snapshot()
+                    .unwrap()
+                    .placements
+                    .iter()
+                    .any(|placement| placement.image_id == image_id && placement.placement_id == 12)
+            }
+        }));
+
+        remote.begin_shutdown();
+        mux.close_surface(authoritative.id);
+        cmux_tui_core::server::cleanup(&socket);
     }
 
     #[cfg(unix)]
@@ -2506,10 +2618,10 @@ mod tests {
     fn ordered_resize_replay_recovers_from_stale_initial_replay() {
         let mut server = Terminal::new(12, 3, 100, Callbacks::default()).unwrap();
         server.vt_write(b"\x1b[7m%\x1b[0m");
-        let stale_replay = server.vt_replay().unwrap();
+        let stale_replay = server.vt_replay_bytes().unwrap();
 
         server.resize(10, 3, 8, 16).unwrap();
-        let resize_replay = server.vt_replay().unwrap();
+        let resize_replay = server.vt_replay_bytes().unwrap();
         let prompt = b"\r\x1b[Klawrence";
         server.vt_write(prompt);
         let server_text = server.plain_text().unwrap();
@@ -2525,9 +2637,9 @@ mod tests {
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         };
-        surface.apply_stream_resize(12, 3, None);
+        surface.apply_stream_resize(12, 3, None, &[]);
         surface.term.lock().unwrap().vt_write(&stale_replay);
-        surface.apply_stream_resize(10, 3, Some(&resize_replay));
+        surface.apply_stream_resize(10, 3, Some(&resize_replay), &[]);
         let mut mirror = surface.term.lock().unwrap();
         mirror.vt_write(prompt);
 
