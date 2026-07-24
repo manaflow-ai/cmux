@@ -103,22 +103,31 @@ extension CMUXCLI {
             return []
         }
         let policy = CodexResumeTrustPolicy()
-        guard let effectiveDirectory = policy.effectiveWorkingDirectory(
-            arguments: arguments,
-            currentDirectory: currentDirectory
+        // Gate every subprocess behind a confirmed resume. Fresh Codex
+        // launches only need the normal hook injection.
+        guard
+            let appServerConfigurationArguments = policy
+                .appServerConfigurationArguments(arguments: arguments),
+            let effectiveDirectory = policy.effectiveWorkingDirectory(
+                arguments: arguments,
+                currentDirectory: currentDirectory
+            )
+        else {
+            return []
+        }
+        guard let projectDecisions = codexEffectiveProjectDecisionPaths(
+            environment: environment,
+            appServerConfigurationArguments: appServerConfigurationArguments,
+            currentDirectory: effectiveDirectory,
+            policy: policy
         ) else {
             return []
         }
-        let configContents = codexUserConfigContents(
-            environment,
-            selectedProfile: policy.selectedProfile(arguments: arguments)
-        )
         return policy.undecidedProjectOverride(
             arguments: arguments,
             currentDirectory: currentDirectory,
             repositoryRoot: codexCommonRepositoryRoot(currentDirectory: effectiveDirectory),
-            userConfigContents: configContents.base,
-            profileConfigContents: configContents.profile
+            effectiveProjectDecisionPaths: projectDecisions
         )
     }
 
@@ -135,31 +144,73 @@ extension CMUXCLI {
         return decoded.count == arguments.count ? decoded : nil
     }
 
-    private func codexUserConfigContents(
-        _ environment: [String: String],
-        selectedProfile: String?
-    ) -> (base: String?, profile: String?) {
-        let codexHome: URL
-        if let configuredHome = normalizedHookValue(environment["CODEX_HOME"]) {
-            codexHome = URL(fileURLWithPath: configuredHome, isDirectory: true)
-        } else {
-            codexHome = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".codex", isDirectory: true)
+    private func codexEffectiveProjectDecisionPaths(
+        environment: [String: String],
+        appServerConfigurationArguments: [String],
+        currentDirectory: String,
+        policy: CodexResumeTrustPolicy
+    ) -> Set<String>? {
+        guard let executablePath = normalizedHookValue(
+            environment["CMUX_AGENT_LAUNCH_EXECUTABLE"]
+        ),
+            executablePath.hasPrefix("/"),
+            FileManager.default.isExecutableFile(atPath: executablePath),
+            let request = codexConfigReadRequest(currentDirectory: currentDirectory)
+        else {
+            return nil
         }
-        let base = try? String(
-            contentsOf: codexHome.appendingPathComponent("config.toml", isDirectory: false),
-            encoding: .utf8
+
+        let result = CLIProcessRunner.runJSONLinesProcess(
+            executablePath: executablePath,
+            arguments: appServerConfigurationArguments + ["app-server", "--stdio"],
+            stdinText: request,
+            responseID: 2,
+            currentDirectoryPath: currentDirectory,
+            timeout: 5
         )
-        let profile = selectedProfile.flatMap {
-            try? String(
-                contentsOf: codexHome.appendingPathComponent(
-                    "\($0).config.toml",
-                    isDirectory: false
-                ),
-                encoding: .utf8
-            )
+        guard result.status == 0, !result.timedOut else {
+            return nil
         }
-        return (base, profile)
+        return policy.effectiveProjectDecisionPaths(
+            appServerOutput: result.stdout,
+            responseID: 2
+        )
+    }
+
+    private func codexConfigReadRequest(currentDirectory: String) -> String? {
+        let messages: [[String: Any]] = [
+            [
+                "method": "initialize",
+                "id": 1,
+                "params": [
+                    "clientInfo": [
+                        "name": "cmux",
+                        "title": "cmux",
+                        "version": "1",
+                    ],
+                ],
+            ],
+            [
+                "method": "initialized",
+            ],
+            [
+                "method": "config/read",
+                "id": 2,
+                "params": [
+                    "includeLayers": false,
+                    "cwd": currentDirectory,
+                ],
+            ],
+        ]
+        var lines: [String] = []
+        for message in messages {
+            guard let data = try? JSONSerialization.data(withJSONObject: message),
+                  let line = String(data: data, encoding: .utf8) else {
+                return nil
+            }
+            lines.append(line)
+        }
+        return lines.joined(separator: "\n") + "\n"
     }
 
     /// Mirrors Codex's trust lookup for linked worktrees: project decisions may

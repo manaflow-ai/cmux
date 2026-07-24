@@ -4,11 +4,11 @@ import Foundation
 /// Keeps unattended Codex resume non-interactive without granting project trust.
 ///
 /// Codex prompts when the active working directory and its repository root have
-/// no explicit `projects.<path>.trust_level` decision. A cmux auto-resume cannot
-/// answer that prompt safely, so an undecided resume receives an invocation-only
-/// `untrusted` override. Explicit trusted or untrusted decisions in the user's
-/// config, and explicit root- or resume-scoped launch overrides, remain
-/// authoritative.
+/// no explicit project trust decision. A cmux auto-resume cannot answer that
+/// prompt safely, so an undecided resume receives an invocation-only `untrusted`
+/// override. The caller supplies project decisions from Codex's own effective
+/// configuration, preserving system, enterprise, managed, user, profile,
+/// project, and command-line layers.
 public struct CodexResumeTrustPolicy: Sendable, Equatable {
     public init() {}
 
@@ -19,28 +19,28 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
         arguments: [String],
         currentDirectory: String,
         repositoryRoot: String?,
-        userConfigContents: String?,
-        profileConfigContents: String? = nil
+        effectiveProjectDecisionPaths: Set<String>
     ) -> [String] {
-        guard resumeSubcommandIndex(arguments) != nil else { return [] }
+        guard isResumeInvocation(arguments: arguments) else { return [] }
 
         let currentDirectory = effectiveWorkingDirectory(
             arguments: arguments,
             currentDirectory: currentDirectory
         )
         guard let currentDirectory else { return [] }
+
         var candidates = Set<String>()
         for path in [currentDirectory, repositoryRoot].compactMap({ normalizedAbsolutePath($0) }) {
             candidates.insert(path)
             candidates.insert(canonicalProjectPath(path))
         }
 
-        if argumentsContainProjectTrustDecision(arguments, candidates: candidates)
-            || [userConfigContents, profileConfigContents].contains(where: {
-                userConfigContainsProjectTrustDecision($0, candidates: candidates)
-            }) {
-            return []
+        var decisions = Set<String>()
+        for path in effectiveProjectDecisionPaths.compactMap({ normalizedAbsolutePath($0) }) {
+            decisions.insert(path)
+            decisions.insert(canonicalProjectPath(path))
         }
+        guard candidates.isDisjoint(with: decisions) else { return [] }
 
         // Codex canonicalizes its cwd before looking up `projects.<path>`.
         // macOS exposes `/tmp` as a symlink to `/private/tmp`, so targeting the
@@ -51,6 +51,157 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
             "-c",
             "projects={\"\(escapedDirectory)\"={trust_level=\"untrusted\"}}",
         ]
+    }
+
+    /// Whether the captured invocation contains a real `resume` subcommand.
+    /// Unknown global options fail closed because their values could be named
+    /// `resume`.
+    public func isResumeInvocation(arguments: [String]) -> Bool {
+        resumeSubcommandIndex(arguments) != nil
+    }
+
+    /// Root arguments for an authoritative `codex app-server config/read`.
+    ///
+    /// The app server loads every Codex configuration layer itself. Profile and
+    /// `-c` options from both the global and resume scopes are replayed as root
+    /// options so the returned `projects` map matches the resumed invocation.
+    /// Prompt text after `--` is never interpreted as configuration.
+    public func appServerConfigurationArguments(arguments: [String]) -> [String]? {
+        guard let resumeIndex = resumeSubcommandIndex(arguments) else { return nil }
+
+        var profile: String?
+        var forwardedArguments: [String] = []
+        var index = executableArgumentStart(arguments)
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--" {
+                break
+            }
+            if index == resumeIndex {
+                index += 1
+                continue
+            }
+            // A remote TUI gets effective config from its remote app server.
+            // Querying a new local app server would not describe that session.
+            if argument == "--remote" || argument.hasPrefix("--remote=") {
+                return nil
+            }
+            if argument == "-c" || argument == "--config" {
+                guard index + 1 < arguments.count else { return nil }
+                forwardedArguments.append(contentsOf: ["-c", arguments[index + 1]])
+                index += 2
+                continue
+            }
+            if argument.hasPrefix("-c=") {
+                let value = String(argument.dropFirst("-c=".count))
+                forwardedArguments.append(contentsOf: ["-c", value])
+            } else if argument.hasPrefix("--config=") {
+                let value = String(argument.dropFirst("--config=".count))
+                forwardedArguments.append(contentsOf: ["-c", value])
+            } else if argument == "-p" || argument == "--profile" {
+                guard index + 1 < arguments.count,
+                      let value = normalizedProfileName(arguments[index + 1]) else {
+                    return nil
+                }
+                profile = value
+                index += 2
+                continue
+            } else if argument.hasPrefix("-p=") {
+                guard let value = normalizedProfileName(
+                    String(argument.dropFirst("-p=".count))
+                ) else {
+                    return nil
+                }
+                profile = value
+            } else if argument.hasPrefix("--profile=") {
+                guard let value = normalizedProfileName(
+                    String(argument.dropFirst("--profile=".count))
+                ) else {
+                    return nil
+                }
+                profile = value
+            } else if argument == "--strict-config" {
+                forwardedArguments.append(argument)
+            } else if argument == "-i" || argument == "--image"
+                || argument.hasPrefix("-i=") || argument.hasPrefix("--image=")
+            {
+                // Image accepts a variable number of values. Do not risk
+                // mistaking a later image path for a configuration option.
+                return nil
+            } else if appServerIgnoredValueOptions.contains(argument) {
+                guard index + 1 < arguments.count else { return nil }
+                index += 2
+                continue
+            } else if appServerIgnoredFlags.contains(argument)
+                || recognizedInlineOption(argument)
+            {
+                // These options cannot alter project trust.
+            } else if argument.hasPrefix("-") {
+                // Unknown future options may consume a following value.
+                return nil
+            }
+            index += 1
+        }
+
+        var result: [String] = []
+        if let profile {
+            result.append(contentsOf: ["--profile", profile])
+        }
+        result.append(contentsOf: forwardedArguments)
+        return result
+    }
+
+    /// Extracts decided project paths from a `config/read` JSONL response.
+    ///
+    /// Missing `projects` is a valid empty configuration. Malformed output,
+    /// an RPC error, or an unexpected `projects` shape returns nil so the caller
+    /// can fail closed and leave Codex's trust picker intact.
+    public func effectiveProjectDecisionPaths(
+        appServerOutput: String,
+        responseID: Int = 2
+    ) -> Set<String>? {
+        for line in appServerOutput.split(whereSeparator: \.isNewline) {
+            guard let data = String(line).data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  (object["id"] as? NSNumber)?.intValue == responseID else {
+                continue
+            }
+            guard object["error"] == nil,
+                  let result = object["result"] as? [String: Any],
+                  let config = result["config"] as? [String: Any] else {
+                return nil
+            }
+            guard let rawProjects = config["projects"] else {
+                return []
+            }
+            if rawProjects is NSNull {
+                return []
+            }
+            guard let projects = rawProjects as? [String: Any] else {
+                return nil
+            }
+
+            var decisions = Set<String>()
+            for (path, rawProject) in projects {
+                guard let project = rawProject as? [String: Any] else {
+                    return nil
+                }
+                guard let rawTrustLevel = project["trust_level"] else {
+                    continue
+                }
+                guard let trustLevel = rawTrustLevel as? String,
+                      trustLevel == "trusted" || trustLevel == "untrusted" else {
+                    return nil
+                }
+                guard let normalized = normalizedAbsolutePath(path) else {
+                    continue
+                }
+                decisions.insert(normalized)
+                decisions.insert(canonicalProjectPath(normalized))
+            }
+            return decisions
+        }
+        return nil
     }
 
     /// Resolves Codex's effective working root, including a global or
@@ -94,17 +245,14 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
             absoluteDirectory = (baseDirectory as NSString)
                 .appendingPathComponent(selectedDirectory)
         }
-        guard let normalized = normalizedAbsolutePath(absoluteDirectory) else {
-            return nil
-        }
-        return normalized
+        return normalizedAbsolutePath(absoluteDirectory)
     }
 
     /// Returns the profile selected for the resumed invocation. Codex accepts
     /// the option in either the global or resume argument scope and uses the
     /// last occurrence.
     public func selectedProfile(arguments: [String]) -> String? {
-        guard resumeSubcommandIndex(arguments) != nil else { return nil }
+        guard isResumeInvocation(arguments: arguments) else { return nil }
         let valueOptions: Set<String> = [
             "-c", "--config",
             "--enable", "--disable",
@@ -228,367 +376,31 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
         ].contains { argument.hasPrefix($0) }
     }
 
-    private func argumentsContainProjectTrustDecision(
-        _ arguments: [String],
-        candidates: Set<String>
-    ) -> Bool {
-        let nonConfigValueOptions: Set<String> = [
+    private var appServerIgnoredValueOptions: Set<String> {
+        [
             "--enable", "--disable",
-            "-i", "--image",
             "-m", "--model",
-            "--remote", "--remote-auth-token-env",
+            "--remote-auth-token-env",
             "--local-provider",
-            "-p", "--profile",
             "-s", "--sandbox",
             "-C", "--cd",
             "--add-dir",
             "-a", "--ask-for-approval",
         ]
-        var index = executableArgumentStart(arguments)
-        while index < arguments.count {
-            let argument = arguments[index]
-            if argument == "--" {
-                break
-            }
-            if (argument == "-c" || argument == "--config"), index + 1 < arguments.count {
-                if projectTrustOverrideMatches(arguments[index + 1], candidates: candidates) {
-                    return true
-                }
-                index += 2
-                continue
-            }
-            if argument.hasPrefix("-c="),
-               projectTrustOverrideMatches(
-                   String(argument.dropFirst("-c=".count)),
-                   candidates: candidates
-               ) {
-                return true
-            }
-            if argument.hasPrefix("--config="),
-               projectTrustOverrideMatches(
-                   String(argument.dropFirst("--config=".count)),
-                   candidates: candidates
-               ) {
-                return true
-            }
-            if nonConfigValueOptions.contains(argument) {
-                guard index + 1 < arguments.count else { break }
-                index += 2
-                continue
-            }
-            index += 1
-        }
-        return false
     }
 
-    private func projectTrustOverrideMatches(
-        _ override: String,
-        candidates: Set<String>
-    ) -> Bool {
-        guard let equals = unquotedIndex(of: "=", in: override) else { return false }
-        let key = override[..<equals].trimmingCharacters(in: .whitespaces)
-        let value = override[override.index(after: equals)...]
-            .trimmingCharacters(in: .whitespaces)
-        if key == "projects" {
-            return candidates.contains { inlineProjectDecision(override, path: $0) }
-        }
-        guard isCLITrustLevelValue(value),
-              let path = projectPathFromEffectiveCLITrustKey(key) else {
-            return false
-        }
-        return candidates.contains(normalizedAbsolutePath(path) ?? path)
-    }
-
-    /// Codex CLI overrides split key paths on literal dots without parsing
-    /// quoted TOML key segments. Only an unquoted path without dots is an
-    /// effective dotted `projects.<path>.trust_level` override.
-    private func projectPathFromEffectiveCLITrustKey(_ key: String) -> String? {
-        let prefix = "projects."
-        let suffix = ".trust_level"
-        guard key.hasPrefix(prefix),
-              key.hasSuffix(suffix),
-              key.count >= prefix.count + suffix.count else {
-            return nil
-        }
-        let start = key.index(key.startIndex, offsetBy: prefix.count)
-        let end = key.index(key.endIndex, offsetBy: -suffix.count)
-        guard start <= end else { return nil }
-        let path = String(key[start..<end])
-        guard path.hasPrefix("/"),
-              !path.contains(".") else {
-            return nil
-        }
-        return path
-    }
-
-    private func userConfigContainsProjectTrustDecision(
-        _ contents: String?,
-        candidates: Set<String>
-    ) -> Bool {
-        guard let contents else { return false }
-        var activeProjectPath: String?
-
-        for rawLine in contents.split(whereSeparator: \.isNewline) {
-            let line = stripTomlComment(String(rawLine))
-                .trimmingCharacters(in: .whitespaces)
-            guard !line.isEmpty else { continue }
-
-            if line.hasPrefix("[") {
-                activeProjectPath = projectPathFromTableHeader(line)
-                continue
-            }
-
-            if let activeProjectPath,
-               candidates.contains(normalizedAbsolutePath(activeProjectPath) ?? activeProjectPath),
-               let (key, value) = assignmentParts(line),
-               key == "trust_level",
-               isTrustLevelValue(value) {
-                return true
-            }
-
-            if let (key, value) = assignmentParts(line),
-               isTrustLevelValue(value),
-               let path = projectPathFromDottedTrustKey(key),
-               candidates.contains(normalizedAbsolutePath(path) ?? path) {
-                return true
-            }
-
-            // Codex rewrites project decisions as explicit tables. Supporting
-            // the common one-line inline form keeps manually authored config
-            // from being needlessly downgraded; an ambiguous parse fails closed
-            // and returns an untrusted invocation override.
-            for candidate in candidates where inlineProjectDecision(line, path: candidate) {
-                return true
-            }
-        }
-        return false
-    }
-
-    private func projectPathFromTableHeader(_ line: String) -> String? {
-        guard line.hasPrefix("["),
-              line.hasSuffix("]"),
-              !line.hasPrefix("[[") else {
-            return nil
-        }
-        let body = line.dropFirst().dropLast()
-            .trimmingCharacters(in: .whitespaces)
-        guard body.hasPrefix("projects.") else { return nil }
-        return parseTomlQuotedString(
-            String(body.dropFirst("projects.".count))
-                .trimmingCharacters(in: .whitespaces)
-        )
-    }
-
-    private func projectPathFromDottedTrustKey(_ key: String) -> String? {
-        guard key.hasPrefix("projects.") else { return nil }
-        let remainder = String(key.dropFirst("projects.".count))
-        guard let quoted = leadingTomlQuotedString(remainder) else { return nil }
-        let suffix = remainder[quoted.endIndex...]
-            .trimmingCharacters(in: .whitespaces)
-        guard suffix == ".trust_level" else { return nil }
-        return quoted.value
-    }
-
-    private func leadingTomlQuotedString(
-        _ value: String
-    ) -> (value: String, endIndex: String.Index)? {
-        guard let quote = value.first, quote == "\"" || quote == "'" else {
-            return nil
-        }
-        var result = ""
-        var index = value.index(after: value.startIndex)
-        var escaping = false
-        while index < value.endIndex {
-            let character = value[index]
-            if quote == "\"", escaping {
-                switch character {
-                case "b": result.append("\u{08}")
-                case "t": result.append("\t")
-                case "n": result.append("\n")
-                case "f": result.append("\u{0c}")
-                case "r": result.append("\r")
-                case "\"": result.append("\"")
-                case "\\": result.append("\\")
-                default: return nil
-                }
-                escaping = false
-            } else if quote == "\"", character == "\\" {
-                escaping = true
-            } else if character == quote {
-                return (result, value.index(after: index))
-            } else {
-                result.append(character)
-            }
-            index = value.index(after: index)
-        }
-        return nil
-    }
-
-    private func parseTomlQuotedString(_ value: String) -> String? {
-        guard let parsed = leadingTomlQuotedString(value),
-              parsed.endIndex == value.endIndex else {
-            return nil
-        }
-        return parsed.value
-    }
-
-    private func assignmentParts(_ line: String) -> (key: String, value: String)? {
-        guard let equals = unquotedIndex(of: "=", in: line) else { return nil }
-        return (
-            line[..<equals].trimmingCharacters(in: .whitespaces),
-            line[line.index(after: equals)...].trimmingCharacters(in: .whitespaces)
-        )
-    }
-
-    private func unquotedIndex(of needle: Character, in value: String) -> String.Index? {
-        var quote: Character?
-        var escaping = false
-        for index in value.indices {
-            let character = value[index]
-            if let activeQuote = quote {
-                if activeQuote == "\"", escaping {
-                    escaping = false
-                } else if activeQuote == "\"", character == "\\" {
-                    escaping = true
-                } else if character == activeQuote {
-                    quote = nil
-                }
-            } else if character == "\"" || character == "'" {
-                quote = character
-            } else if character == needle {
-                return index
-            }
-        }
-        return nil
-    }
-
-    private func stripTomlComment(_ line: String) -> String {
-        guard let comment = unquotedIndex(of: "#", in: line) else { return line }
-        return String(line[..<comment])
-    }
-
-    private func isTrustLevelValue(_ rawValue: String) -> Bool {
-        guard let value = parseTomlQuotedString(rawValue) else { return false }
-        return value == "trusted" || value == "untrusted"
-    }
-
-    private func isCLITrustLevelValue(_ rawValue: String) -> Bool {
-        if isTrustLevelValue(rawValue) {
-            return true
-        }
-        // Codex treats a config override value as a raw string literal when
-        // TOML parsing fails, so unquoted trusted/untrusted are effective CLI
-        // decisions even though the persisted config requires quoted strings.
-        let value = rawValue.trimmingCharacters(in: .whitespaces)
-        return value == "trusted" || value == "untrusted"
-    }
-
-    private func inlineProjectDecision(_ line: String, path: String) -> Bool {
-        guard let (key, value) = assignmentParts(line),
-              key == "projects",
-              let projects = inlineTableEntries(value) else {
-            return false
-        }
-        for project in projects {
-            guard parseTomlQuotedString(project.key) == path,
-                  let settings = inlineTableEntries(project.value) else {
-                continue
-            }
-            if settings.contains(where: {
-                $0.key == "trust_level" && isTrustLevelValue($0.value)
-            }) {
-                return true
-            }
-        }
-        return false
-    }
-
-    private func inlineTableEntries(
-        _ rawValue: String
-    ) -> [(key: String, value: String)]? {
-        let value = rawValue.trimmingCharacters(in: .whitespaces)
-        guard value.first == "{", value.last == "}" else { return nil }
-        let inner = String(value.dropFirst().dropLast())
-        guard !inner.trimmingCharacters(in: .whitespaces).isEmpty else {
-            return []
-        }
-        guard let segments = topLevelSegments(inner, separatedBy: ",") else {
-            return nil
-        }
-        var entries: [(key: String, value: String)] = []
-        for segment in segments {
-            guard let equals = topLevelIndex(of: "=", in: segment) else {
-                return nil
-            }
-            let key = segment[..<equals].trimmingCharacters(in: .whitespaces)
-            let entryValue = segment[segment.index(after: equals)...]
-                .trimmingCharacters(in: .whitespaces)
-            guard !key.isEmpty, !entryValue.isEmpty else { return nil }
-            entries.append((key, entryValue))
-        }
-        return entries
-    }
-
-    private func topLevelSegments(
-        _ value: String,
-        separatedBy separator: Character
-    ) -> [String]? {
-        var result: [String] = []
-        var start = value.startIndex
-        var quote: Character?
-        var escaping = false
-        var braceDepth = 0
-        var bracketDepth = 0
-        var index = value.startIndex
-        while index < value.endIndex {
-            let character = value[index]
-            if let activeQuote = quote {
-                if activeQuote == "\"", escaping {
-                    escaping = false
-                } else if activeQuote == "\"", character == "\\" {
-                    escaping = true
-                } else if character == activeQuote {
-                    quote = nil
-                }
-            } else {
-                switch character {
-                case "\"", "'":
-                    quote = character
-                case "{":
-                    braceDepth += 1
-                case "}":
-                    guard braceDepth > 0 else { return nil }
-                    braceDepth -= 1
-                case "[":
-                    bracketDepth += 1
-                case "]":
-                    guard bracketDepth > 0 else { return nil }
-                    bracketDepth -= 1
-                case separator where braceDepth == 0 && bracketDepth == 0:
-                    result.append(String(value[start..<index]))
-                    start = value.index(after: index)
-                default:
-                    break
-                }
-            }
-            index = value.index(after: index)
-        }
-        guard quote == nil, !escaping, braceDepth == 0, bracketDepth == 0 else {
-            return nil
-        }
-        result.append(String(value[start...]))
-        return result
-    }
-
-    private func topLevelIndex(
-        of needle: Character,
-        in value: String
-    ) -> String.Index? {
-        guard let segments = topLevelSegments(value, separatedBy: needle),
-              segments.count == 2 else {
-            return nil
-        }
-        return value.index(value.startIndex, offsetBy: segments[0].count)
+    private var appServerIgnoredFlags: Set<String> {
+        [
+            "--oss",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--dangerously-bypass-hook-trust",
+            "--yolo",
+            "--search",
+            "--no-alt-screen",
+            "--last",
+            "--all",
+            "--include-non-interactive",
+        ]
     }
 
     private func normalizedAbsolutePath(_ path: String?) -> String? {

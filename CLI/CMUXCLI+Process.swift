@@ -281,6 +281,60 @@ private final class CLIProcessOutputBuffer: @unchecked Sendable {
     }
 }
 
+private final class CLIJSONLineResponseBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private let responseID: Int
+    private let maxBytes: Int
+    private var data = Data()
+    private var scanOffset = 0
+    private var matchedResponse = false
+    private var exceededLimit = false
+
+    init(responseID: Int, maxBytes: Int) {
+        self.responseID = responseID
+        self.maxBytes = max(1, maxBytes)
+    }
+
+    func append(_ chunk: Data) -> (matched: Bool, limitExceeded: Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard !matchedResponse, !exceededLimit else {
+            return (matchedResponse, exceededLimit)
+        }
+
+        let remaining = maxBytes - data.count
+        if remaining > 0 {
+            data.append(contentsOf: chunk.prefix(remaining))
+        }
+
+        while scanOffset < data.endIndex,
+              let newline = data[scanOffset...].firstIndex(of: 0x0a) {
+            let line = data[scanOffset..<newline]
+            scanOffset = data.index(after: newline)
+            guard let object = try? JSONSerialization.jsonObject(
+                with: Data(line)
+            ) as? [String: Any],
+                  (object["id"] as? NSNumber)?.intValue == responseID else {
+                continue
+            }
+            matchedResponse = true
+            break
+        }
+
+        if !matchedResponse, chunk.count > remaining {
+            exceededLimit = true
+        }
+        return (matchedResponse, exceededLimit)
+    }
+
+    func snapshot() -> (data: Data, matched: Bool, limitExceeded: Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (data, matchedResponse, exceededLimit)
+    }
+}
+
 enum CLIProcessRunner {
     static func runProcess(
         executablePath: String,
@@ -474,6 +528,152 @@ enum CLIProcessRunner {
         return CLIProcessDataResult(
             status: timedOut ? 124 : process.terminationStatus,
             stdout: stdoutBuffer.get(),
+            stderr: stderr,
+            timedOut: timedOut
+        )
+    }
+
+    /// Runs a JSONL process until it emits the requested response id.
+    ///
+    /// stdin remains open after the requests are written because app servers
+    /// may cancel in-flight requests as soon as their transport reaches EOF.
+    /// The child is stopped after the matching response, process exit, output
+    /// limit, or timeout.
+    static func runJSONLinesProcess(
+        executablePath: String,
+        arguments: [String],
+        stdinText: String,
+        responseID: Int,
+        currentDirectoryPath: String? = nil,
+        timeout: TimeInterval,
+        maxOutputBytes: Int = 8 * 1024 * 1024
+    ) -> CLIProcessResult {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+        if let currentDirectoryPath {
+            process.currentDirectoryURL = URL(
+                fileURLWithPath: currentDirectoryPath,
+                isDirectory: true
+            )
+        }
+
+        let stdinPipe = Pipe()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardInput = stdinPipe
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        let finished = DispatchSemaphore(value: 0)
+        let responseOrExit = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in
+            finished.signal()
+            responseOrExit.signal()
+        }
+
+        let stdoutFinished = DispatchSemaphore(value: 0)
+        let stderrFinished = DispatchSemaphore(value: 0)
+        let stdoutBuffer = CLIJSONLineResponseBuffer(
+            responseID: responseID,
+            maxBytes: maxOutputBytes
+        )
+        let stderrBuffer = CLIProcessOutputBuffer()
+
+        DispatchQueue.global(qos: .utility).async {
+            var signaledResponse = false
+            let handle = stdoutPipe.fileHandleForReading
+            while true {
+                let chunk: Data
+                do {
+                    guard let next = try handle.read(upToCount: 64 * 1024),
+                          !next.isEmpty else {
+                        break
+                    }
+                    chunk = next
+                } catch {
+                    break
+                }
+                let state = stdoutBuffer.append(chunk)
+                if !signaledResponse, state.matched || state.limitExceeded {
+                    signaledResponse = true
+                    responseOrExit.signal()
+                }
+            }
+            stdoutFinished.signal()
+        }
+        DispatchQueue.global(qos: .utility).async {
+            stderrBuffer.set(stderrPipe.fileHandleForReading.readDataToEndOfFileOrEmpty())
+            stderrFinished.signal()
+        }
+
+        do {
+            try cliRunProcess(process)
+        } catch {
+            try? stdinPipe.fileHandleForWriting.close()
+            try? stdoutPipe.fileHandleForWriting.close()
+            try? stderrPipe.fileHandleForWriting.close()
+            stdoutFinished.wait()
+            stderrFinished.wait()
+            return CLIProcessResult(
+                status: 1,
+                stdout: "",
+                stderr: error.localizedDescription,
+                timedOut: false
+            )
+        }
+
+        if let input = stdinText.data(using: .utf8) {
+            _ = cliWrite(
+                input,
+                to: stdinPipe.fileHandleForWriting,
+                onBrokenPipe: .ignore
+            )
+        }
+
+        let waitResult = responseOrExit.wait(timeout: .now() + timeout)
+        try? stdinPipe.fileHandleForWriting.close()
+        if process.isRunning {
+            terminate(process: process, finished: finished)
+        }
+
+        stdoutFinished.wait()
+        stderrFinished.wait()
+
+        let output = stdoutBuffer.snapshot()
+        let matchedResponse = output.matched
+        let timedOut = waitResult == .timedOut && !matchedResponse
+        let stdout = String(data: output.data, encoding: .utf8) ?? ""
+        var stderr = String(data: stderrBuffer.get(), encoding: .utf8) ?? ""
+
+        if timedOut {
+            if stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                stderr = "process timed out"
+            } else if !stderr.contains("process timed out") {
+                stderr += "\nprocess timed out"
+            }
+        } else if output.limitExceeded {
+            if stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                stderr = "process output exceeded \(maxOutputBytes) bytes"
+            }
+        } else if !matchedResponse,
+                  stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            stderr = "process exited before JSON response \(responseID)"
+        }
+
+        let status: Int32
+        if matchedResponse {
+            status = 0
+        } else if timedOut {
+            status = 124
+        } else if output.limitExceeded {
+            status = 1
+        } else {
+            status = process.terminationStatus == 0 ? 1 : process.terminationStatus
+        }
+        return CLIProcessResult(
+            status: status,
+            stdout: stdout,
             stderr: stderr,
             timedOut: timedOut
         )

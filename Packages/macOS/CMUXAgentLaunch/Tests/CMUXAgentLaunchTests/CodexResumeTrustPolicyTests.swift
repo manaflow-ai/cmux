@@ -14,10 +14,7 @@ struct CodexResumeTrustPolicyTests {
                 arguments: ["/Users/me/.bun/bin/codex", "resume", "SID", "--yolo"],
                 currentDirectory: "/Users/me/worktree",
                 repositoryRoot: "/Users/me/repo",
-                userConfigContents: """
-                [projects."/Users/me"]
-                trust_level = "trusted"
-                """
+                effectiveProjectDecisionPaths: ["/Users/me"]
             ) == [
                 "-c",
                 #"projects={"/Users/me/worktree"={trust_level="untrusted"}}"#,
@@ -25,17 +22,14 @@ struct CodexResumeTrustPolicyTests {
         )
     }
 
-    @Test("Explicit cwd and repository decisions remain authoritative")
-    func explicitConfigDecisionsRemainAuthoritative() {
+    @Test("Effective cwd and repository decisions remain authoritative")
+    func effectiveDecisionsRemainAuthoritative() {
         #expect(
             policy.undecidedProjectOverride(
                 arguments: ["codex", "resume", "SID"],
                 currentDirectory: "/Users/me/worktree",
                 repositoryRoot: "/Users/me/repo",
-                userConfigContents: """
-                [projects."/Users/me/worktree"]
-                trust_level = "untrusted"
-                """
+                effectiveProjectDecisionPaths: ["/Users/me/worktree"]
             ).isEmpty
         )
         #expect(
@@ -43,156 +37,73 @@ struct CodexResumeTrustPolicyTests {
                 arguments: ["codex", "resume", "SID"],
                 currentDirectory: "/Users/me/worktree",
                 repositoryRoot: "/Users/me/repo",
-                userConfigContents: """
-                [projects."/Users/me/repo"]
-                trust_level = "trusted"
-                """
+                effectiveProjectDecisionPaths: ["/Users/me/repo"]
             ).isEmpty
         )
     }
 
-    @Test("Root-scoped project trust applies to resume")
-    func rootScopedLaunchOverrideRemainsAuthoritative() {
-        #expect(
-            policy.undecidedProjectOverride(
-                arguments: [
-                    "codex",
-                    "-c",
-                    #"projects={"/Users/me/repo"={trust_level="trusted"}}"#,
-                    "resume",
-                    "SID",
-                ],
-                currentDirectory: "/Users/me/worktree",
-                repositoryRoot: "/Users/me/repo",
-                userConfigContents: nil
-            ).isEmpty
-        )
-    }
-
-    @Test("Project trust after resume remains authoritative")
-    func resumeScopedLaunchOverrideRemainsAuthoritative() {
-        #expect(
-            policy.undecidedProjectOverride(
-                arguments: [
-                    "codex",
-                    "resume",
-                    "SID",
-                    "-c",
-                    #"projects={"/Users/me/repo"={trust_level="trusted"}}"#,
-                ],
-                currentDirectory: "/Users/me/worktree",
-                repositoryRoot: "/Users/me/repo",
-                userConfigContents: nil
-            ).isEmpty
-        )
-    }
-
-    @Test("Prompt text after -- cannot masquerade as project trust")
-    func promptTextAfterEndOfOptionsIsNotAuthoritative() {
-        #expect(
-            policy.undecidedProjectOverride(
-                arguments: [
-                    "codex",
-                    "resume",
-                    "SID",
-                    "--",
-                    #"--config=projects./Users/me/repo.trust_level=trusted"#,
-                ],
-                currentDirectory: "/Users/me/worktree",
-                repositoryRoot: "/Users/me/repo",
-                userConfigContents: nil
-            ) == [
-                "-c",
-                #"projects={"/Users/me/worktree"={trust_level="untrusted"}}"#,
-            ]
-        )
-    }
-
-    @Test("Unquoted resume trust values follow Codex's raw string fallback")
-    func unquotedResumeTrustValueRemainsAuthoritative() {
-        #expect(
-            policy.undecidedProjectOverride(
-                arguments: [
-                    "codex",
-                    "resume",
-                    "SID",
-                    "-c",
-                    "projects./Users/me/repo.trust_level=trusted",
-                ],
-                currentDirectory: "/Users/me/worktree",
-                repositoryRoot: "/Users/me/repo",
-                userConfigContents: nil
-            ).isEmpty
-        )
-    }
-
-    @Test("Malformed resume trust key fails closed without trapping")
-    func malformedResumeTrustKeyFailsClosed() {
-        #expect(
-            policy.undecidedProjectOverride(
-                arguments: [
-                    "codex",
-                    "resume",
-                    "SID",
-                    "-c",
-                    #"projects.trust_level="trusted""#,
-                ],
-                currentDirectory: "/Users/me/worktree",
-                repositoryRoot: nil,
-                userConfigContents: nil
-            ) == [
-                "-c",
-                #"projects={"/Users/me/worktree"={trust_level="untrusted"}}"#,
-            ]
-        )
-    }
-
-    @Test("Ineffective quoted dotted launch override is replaced")
-    func ineffectiveQuotedDottedOverrideIsReplaced() {
-        #expect(
-            policy.undecidedProjectOverride(
-                arguments: [
-                    "codex",
-                    "-c",
-                    #"projects."/Users/me/work.tree".trust_level="trusted""#,
-                    "resume",
-                    "SID",
-                ],
-                currentDirectory: "/Users/me/work.tree",
-                repositoryRoot: nil,
-                userConfigContents: nil
-            ) == [
-                "-c",
-                #"projects={"/Users/me/work.tree"={trust_level="untrusted"}}"#,
-            ]
-        )
-    }
-
-    @Test("Fresh sessions never receive an automatic trust decision")
+    @Test("Fresh sessions never receive or query an automatic trust decision")
     func freshSessionsRemainInteractive() {
+        let arguments = ["codex", "--model", "gpt-5.6"]
+        #expect(policy.appServerConfigurationArguments(arguments: arguments) == nil)
         #expect(
             policy.undecidedProjectOverride(
-                arguments: ["codex", "--model", "gpt-5.6"],
+                arguments: arguments,
                 currentDirectory: "/Users/me/worktree",
                 repositoryRoot: "/Users/me/repo",
-                userConfigContents: nil
+                effectiveProjectDecisionPaths: []
             ).isEmpty
         )
     }
 
-    @Test("A value named resume does not turn a fresh launch into a resume")
+    @Test("An option value named resume remains a fresh launch")
     func optionValueNamedResumeRemainsFresh() {
+        let arguments = ["codex", "--add-dir", "resume"]
+        #expect(policy.appServerConfigurationArguments(arguments: arguments) == nil)
+        #expect(policy.isResumeInvocation(arguments: arguments) == false)
+    }
+
+    @Test("Effective config query replays profile, config, and strict mode")
+    func appServerArgumentsReplayConfiguration() {
         #expect(
-            policy.undecidedProjectOverride(
-                arguments: ["codex", "--add-dir", "resume"],
-                currentDirectory: "/Users/me/worktree",
-                repositoryRoot: "/Users/me/repo",
-                userConfigContents: nil
-            ).isEmpty
+            policy.appServerConfigurationArguments(
+                arguments: [
+                    "codex",
+                    "-c",
+                    #"projects={"/Users/me/root"={trust_level="trusted"}}"#,
+                    "--profile",
+                    "global",
+                    "resume",
+                    "SID",
+                    "--profile=restored",
+                    "--config=projects./Users/me/resume.trust_level=untrusted",
+                    "--strict-config",
+                    "--",
+                    "-c",
+                    "projects.ignored.trust_level=trusted",
+                ]
+            ) == [
+                "--profile",
+                "restored",
+                "-c",
+                #"projects={"/Users/me/root"={trust_level="trusted"}}"#,
+                "-c",
+                "projects./Users/me/resume.trust_level=untrusted",
+                "--strict-config",
+            ]
         )
     }
 
-    @Test("The last selected Codex profile applies to resume trust")
+    @Test("Remote app-server resumes fail closed")
+    func remoteResumeDoesNotQueryLocalConfig() {
+        #expect(
+            policy.appServerConfigurationArguments(
+                arguments: ["codex", "--remote", "unix:///tmp/codex.sock", "resume", "SID"]
+            ) == nil
+        )
+    }
+
+    @Test("The last selected Codex profile applies")
     func selectedResumeProfileUsesLastOccurrence() {
         #expect(
             policy.selectedProfile(
@@ -211,19 +122,6 @@ struct CodexResumeTrustPolicyTests {
                 arguments: ["codex", "--profile", "resume", "fresh prompt"]
             ) == nil
         )
-        #expect(
-            policy.selectedProfile(
-                arguments: [
-                    "codex",
-                    "--config",
-                    "-p",
-                    "resume",
-                    "SID",
-                    "--profile",
-                    "restored",
-                ]
-            ) == "restored"
-        )
     }
 
     @Test("Codex -C selects the trust lookup directory")
@@ -239,7 +137,7 @@ struct CodexResumeTrustPolicyTests {
                 ],
                 currentDirectory: "/Users/me/worktree",
                 repositoryRoot: nil,
-                userConfigContents: nil
+                effectiveProjectDecisionPaths: []
             ) == [
                 "-c",
                 #"projects={"/Users/me/other-worktree"={trust_level="untrusted"}}"#,
@@ -247,32 +145,46 @@ struct CodexResumeTrustPolicyTests {
         )
     }
 
-    @Test("Inline project decisions are recognized")
-    func inlineProjectDecisionsAreRecognized() {
+    @Test("Effective config response extracts system and managed project decisions")
+    func effectiveConfigResponseExtractsProjectDecisions() {
+        let output = """
+        {"id":1,"result":{"userAgent":"test"}}
+        {"method":"config/changed","params":{}}
+        {"id":2,"result":{"config":{"projects":{"/Users/me/system":{"trust_level":"trusted"},"/Users/me/managed":{"trust_level":"untrusted"},"relative":{"trust_level":"trusted"},"/Users/me/empty":{}}},"origins":{},"layers":null}}
+        """
         #expect(
-            policy.undecidedProjectOverride(
-                arguments: ["codex", "resume", "SID"],
-                currentDirectory: "/Users/me/worktree",
-                repositoryRoot: "/Users/me/repo",
-                userConfigContents:
-                    #"projects = { "/Users/me/repo" = { trust_level = "trusted" } }"#
-            ).isEmpty
+            policy.effectiveProjectDecisionPaths(appServerOutput: output) == [
+                "/Users/me/system",
+                "/Users/me/managed",
+            ]
         )
     }
 
-    @Test("Inline trust belongs to the matching project entry")
-    func inlineTrustBelongsToMatchingProjectEntry() {
+    @Test("Missing projects is a valid empty effective configuration")
+    func effectiveConfigWithoutProjectsIsEmpty() {
         #expect(
-            policy.undecidedProjectOverride(
-                arguments: ["codex", "resume", "SID"],
-                currentDirectory: "/Users/me/worktree",
-                repositoryRoot: nil,
-                userConfigContents:
-                    #"projects = { "/Users/me/worktree" = {}, "/Users/me/other" = { trust_level = "trusted" } }"#
-            ) == [
-                "-c",
-                #"projects={"/Users/me/worktree"={trust_level="untrusted"}}"#,
-            ]
+            policy.effectiveProjectDecisionPaths(
+                appServerOutput: #"{"id":2,"result":{"config":{},"origins":{},"layers":null}}"#
+            ) == []
+        )
+    }
+
+    @Test("Malformed and error responses fail closed")
+    func invalidEffectiveConfigResponseFailsClosed() {
+        #expect(
+            policy.effectiveProjectDecisionPaths(
+                appServerOutput: #"{"id":2,"error":{"code":-32603,"message":"failed"}}"#
+            ) == nil
+        )
+        #expect(
+            policy.effectiveProjectDecisionPaths(
+                appServerOutput: #"{"id":2,"result":{"config":{"projects":[]},"origins":{}}}"#
+            ) == nil
+        )
+        #expect(
+            policy.effectiveProjectDecisionPaths(
+                appServerOutput: #"{"id":2,"result":{"config":{"projects":{"/Users/me":{"trust_level":"future"}}}}}"#
+            ) == nil
         )
     }
 
@@ -297,7 +209,7 @@ struct CodexResumeTrustPolicyTests {
                 arguments: ["codex", "resume", "SID"],
                 currentDirectory: alias.path,
                 repositoryRoot: nil,
-                userConfigContents: nil
+                effectiveProjectDecisionPaths: []
             ) == [
                 "-c",
                 #"projects={"\#(canonical)"={trust_level="untrusted"}}"#,
@@ -305,7 +217,7 @@ struct CodexResumeTrustPolicyTests {
         )
     }
 
-    @Test("Codex honors a trust decision for the logical symlink path")
+    @Test("Codex honors a decision for the logical symlink path")
     func logicalSymlinkDecisionRemainsAuthoritative() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -321,10 +233,7 @@ struct CodexResumeTrustPolicyTests {
                 arguments: ["codex", "resume", "SID"],
                 currentDirectory: alias.path,
                 repositoryRoot: nil,
-                userConfigContents: """
-                [projects."\(alias.path)"]
-                trust_level = "trusted"
-                """
+                effectiveProjectDecisionPaths: [alias.path]
             ).isEmpty
         )
     }
@@ -336,7 +245,7 @@ struct CodexResumeTrustPolicyTests {
                 arguments: ["codex", "resume", "SID"],
                 currentDirectory: "/tmp",
                 repositoryRoot: nil,
-                userConfigContents: nil
+                effectiveProjectDecisionPaths: []
             ) == [
                 "-c",
                 #"projects={"/private/tmp"={trust_level="untrusted"}}"#,

@@ -487,16 +487,15 @@ cmux_codex_read_resume_args() {
 }
 
 if cmux_codex_read_inject_args; then
-    # The trust helper parses the captured argv and emits nothing for a fresh
-    # launch. Ask it for every invocation so `resume --last` and named-session
-    # resumes receive the same suffix even though neither exposes a UUID for the
-    # synthetic SessionStart rebind above.
-    cmux_codex_read_resume_args || cmux_codex_resume_args=()
-    if (( ${#cmux_codex_resume_args[@]} > 0 )); then
-        cmux_codex_resume_index="$(
-            cmux_codex_resume_subcommand_index "$@"
-        )" || cmux_codex_resume_index=""
-        if [[ -n "$cmux_codex_resume_index" ]]; then
+    # Only resumes need an effective-config query. Keep fresh launches on the
+    # single hook-injection CLI call, while still covering `resume --last` and
+    # named-session resumes that do not expose a UUID for the rebind above.
+    cmux_codex_resume_index="$(
+        cmux_codex_resume_subcommand_index "$@"
+    )" || cmux_codex_resume_index=""
+    if [[ -n "$cmux_codex_resume_index" ]]; then
+        cmux_codex_read_resume_args || cmux_codex_resume_args=()
+        if (( ${#cmux_codex_resume_args[@]} > 0 )); then
             cmux_codex_user_args=("$@")
             cmux_codex_resume_terminator=-1
             for (( cmux_codex_arg_index = cmux_codex_resume_index + 1;
