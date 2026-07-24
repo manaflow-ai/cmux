@@ -242,7 +242,6 @@ struct PromptSemanticTracker {
     alternate: PromptSemantic,
     alternate_active: bool,
     revision: u64,
-    command_revision: u64,
 }
 
 #[derive(Default)]
@@ -437,10 +436,6 @@ impl PromptSemanticTracker {
         self.revision
     }
 
-    fn command_revision(&self) -> u64 {
-        self.command_revision
-    }
-
     fn current_mut(&mut self) -> &mut PromptSemantic {
         if self.alternate_active { &mut self.alternate } else { &mut self.primary }
     }
@@ -462,9 +457,6 @@ impl PromptSemanticTracker {
         };
         *self.current_mut() = semantic;
         self.revision = self.revision.wrapping_add(1);
-        if action == b'C' {
-            self.command_revision = self.command_revision.wrapping_add(1);
-        }
     }
 }
 
@@ -1268,6 +1260,74 @@ impl Terminal {
         Some((x, y))
     }
 
+    /// Clear retained history and complete rows before the active prompt
+    /// without writing bytes to the child process.
+    ///
+    /// Cursor movement is applied only when OSC 133 identifies a visible
+    /// prompt row and the cursor can be restored without losing pending-wrap
+    /// or origin-mode state. Otherwise this fails closed to scrollback-only
+    /// erasure, preserving every visible row.
+    pub fn clear_history_preserving_prompt(&mut self) -> Vec<u8> {
+        const CLEAR_SCROLLBACK: &[u8] = b"\x1b[3J";
+
+        if self.active_screen() == Screen::Alternate {
+            return Vec::new();
+        }
+
+        let mut clear = CLEAR_SCROLLBACK.to_vec();
+        let Some((cursor_x, cursor_y)) = self.cursor_position() else {
+            self.vt_write(&clear);
+            return clear;
+        };
+        if !self.cursor_is_at_prompt() || self.cursor_pending_wrap() || self.mode(6, false) {
+            self.vt_write(&clear);
+            return clear;
+        }
+        let Some(prompt_y) = self.active_prompt_start_row(cursor_y) else {
+            self.vt_write(&clear);
+            return clear;
+        };
+        if prompt_y == 0 {
+            self.vt_write(&clear);
+            return clear;
+        }
+
+        for row in 0..prompt_y {
+            clear.extend_from_slice(format!("\x1b[{};1H\x1b[2K", u32::from(row) + 1).as_bytes());
+        }
+        clear.extend_from_slice(
+            format!("\x1b[{};{}H", u32::from(cursor_y) + 1, u32::from(cursor_x) + 1).as_bytes(),
+        );
+        self.vt_write(&clear);
+        clear
+    }
+
+    fn cursor_pending_wrap(&self) -> bool {
+        self.get::<bool>(sys::GHOSTTY_TERMINAL_DATA_CURSOR_PENDING_WRAP).unwrap_or(true)
+    }
+
+    fn active_prompt_start_row(&self, cursor_y: u16) -> Option<u16> {
+        (0..=cursor_y)
+            .rev()
+            .find(|&y| self.active_row_prompt_semantic(y) == Some(sys::GHOSTTY_ROW_SEMANTIC_PROMPT))
+    }
+
+    fn active_row_prompt_semantic(&self, y: u16) -> Option<sys::GhosttyRowSemanticPrompt> {
+        let grid_ref = self.grid_ref(sys::GHOSTTY_POINT_TAG_ACTIVE, 0, u64::from(y))?;
+        let mut row = sys::GhosttyRow::default();
+        check(unsafe { sys::ghostty_grid_ref_row(&grid_ref, &mut row) }).ok()?;
+        let mut semantic = sys::GHOSTTY_ROW_SEMANTIC_NONE;
+        check(unsafe {
+            sys::ghostty_row_get(
+                row,
+                sys::GHOSTTY_ROW_DATA_SEMANTIC_PROMPT,
+                (&mut semantic as *mut sys::GhosttyRowSemanticPrompt).cast(),
+            )
+        })
+        .ok()?;
+        Some(semantic)
+    }
+
     pub fn resize(
         &mut self,
         cols: u16,
@@ -1372,11 +1432,6 @@ impl Terminal {
     /// Monotonic revision of recognized OSC 133 prompt-phase markers.
     pub fn prompt_semantic_revision(&self) -> u64 {
         self.prompt_semantic.revision()
-    }
-
-    /// Monotonic revision of OSC 133 `C` command-execution markers.
-    pub fn prompt_command_revision(&self) -> u64 {
-        self.prompt_semantic.command_revision()
     }
 
     /// Whether any mouse tracking mode is enabled by the application.
@@ -1943,6 +1998,43 @@ mod tests {
     }
 
     #[test]
+    fn clear_history_preserves_the_active_prompt_and_cursor() {
+        let mut terminal = Terminal::new(20, 4, 1_000, Callbacks::default()).unwrap();
+        for line in 0..10 {
+            terminal.vt_write(format!("history-{line}\r\n").as_bytes());
+        }
+        terminal.vt_write(b"\x1b]133;A\x07prompt> \x1b]133;B\x07pending");
+        let cursor_before = terminal.cursor_position();
+
+        let clear = terminal.clear_history_preserving_prompt();
+
+        assert_eq!(terminal.history_rows(), 0);
+        assert_eq!(terminal.cursor_position(), cursor_before);
+        let viewport = terminal.viewport_text().unwrap();
+        assert!(viewport.contains("prompt> pending"));
+        assert!(!viewport.contains("history-"));
+        assert!(!clear.contains(&b'\x0c'));
+    }
+
+    #[test]
+    fn clear_history_fails_closed_when_pending_wrap_cannot_be_restored() {
+        let mut terminal = Terminal::new(10, 3, 1_000, Callbacks::default()).unwrap();
+        for line in 0..5 {
+            terminal.vt_write(format!("old-{line}\r\n").as_bytes());
+        }
+        terminal.vt_write(b"\x1b]133;A\x07$ \x1b]133;B\x0712345678");
+        assert!(terminal.cursor_pending_wrap());
+        let viewport_before = terminal.viewport_text().unwrap();
+
+        let clear = terminal.clear_history_preserving_prompt();
+
+        assert_eq!(clear, b"\x1b[3J");
+        assert_eq!(terminal.history_rows(), 0);
+        assert_eq!(terminal.viewport_text().unwrap(), viewport_before);
+        assert!(terminal.cursor_pending_wrap());
+    }
+
+    #[test]
     fn prompt_semantic_tracking_ignores_utf8_continuation_bytes_that_resemble_c1() {
         let mut tracker = PromptSemanticTracker::default();
         tracker.feed(b"\x1b]133;A\x07\x1b]133;B\x07");
@@ -1969,21 +2061,6 @@ mod tests {
         tracker.feed(b"\x1b]133;A;redraw=1\x1b\\");
         assert_eq!(tracker.semantic(Screen::Primary), PromptSemantic::Prompt);
         assert_eq!(tracker.revision(), revision.wrapping_add(1));
-    }
-
-    #[test]
-    fn prompt_command_revision_advances_only_when_execution_begins() {
-        let mut tracker = PromptSemanticTracker::default();
-        let initial = tracker.command_revision();
-
-        tracker.feed(b"\x1b]133;A\x07prompt> \x1b]133;B\x07");
-        assert_eq!(tracker.command_revision(), initial);
-
-        tracker.feed(b"\x1b]133;C\x07");
-        assert_eq!(tracker.command_revision(), initial.wrapping_add(1));
-
-        tracker.feed(b"\x1b]133;D;0\x07\x1b]133;A\x07\x1b]133;B\x07");
-        assert_eq!(tracker.command_revision(), initial.wrapping_add(1));
     }
 
     #[test]

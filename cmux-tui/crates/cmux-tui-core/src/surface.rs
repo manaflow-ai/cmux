@@ -407,12 +407,6 @@ pub struct PtySurface {
     term: Mutex<Terminal>,
     mouse_encoders: Mutex<MouseEncoders>,
     writer: Mutex<Box<dyn Write + Send>>,
-    /// Potentially command-advancing input blocks prompt redraw until OSC 133
-    /// reports execution and the shell reaches an active prompt again.
-    prompt_submission: Mutex<PromptSubmissionState>,
-    /// Streaming parser state for potentially command-advancing input and
-    /// bracketed-paste markers that may be split across consecutive writes.
-    prompt_input: Mutex<PromptInputParser>,
     master: Mutex<Box<dyn MasterPty + Send>>,
     killer: Mutex<Box<dyn ChildKiller + Send>>,
     pid: Option<u32>,
@@ -446,103 +440,6 @@ pub struct PtySurface {
     render: Mutex<RenderHub>,
     render_generation: AtomicU64,
     frame_requests: SyncSender<u64>,
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-enum PromptSubmissionState {
-    #[default]
-    Idle,
-    Writing,
-    AwaitingCommandCompletion(u64),
-}
-
-struct PromptSubmission {
-    command_revision_before_write: u64,
-}
-
-#[derive(Debug, Default)]
-struct PromptInputParser {
-    bracketed_paste: bool,
-    pending_escape: Vec<u8>,
-}
-
-impl PromptInputParser {
-    const MAX_PENDING_ESCAPE: usize = 64;
-    const PASTE_START: &'static [u8] = b"\x1b[200~";
-    const PASTE_END: &'static [u8] = b"\x1b[201~";
-
-    fn advance(&mut self, bytes: &[u8]) -> bool {
-        let mut may_submit = false;
-        for &byte in bytes {
-            may_submit |= self.advance_byte(byte);
-        }
-        may_submit
-    }
-
-    fn has_ambiguous_escape(&self) -> bool {
-        !self.bracketed_paste && !self.pending_escape.is_empty()
-    }
-
-    fn advance_byte(&mut self, byte: u8) -> bool {
-        if self.pending_escape.is_empty() {
-            if byte == b'\x1b' {
-                self.pending_escape.push(byte);
-                return false;
-            }
-            return !self.bracketed_paste && byte.is_ascii_control();
-        }
-
-        if self.pending_escape.len() == 1 {
-            return match byte {
-                b'[' | b'O' => {
-                    self.pending_escape.push(byte);
-                    false
-                }
-                b'\x1b' => !self.bracketed_paste,
-                _ => {
-                    let may_submit = !self.bracketed_paste;
-                    self.pending_escape.clear();
-                    may_submit
-                }
-            };
-        }
-
-        if (0x40..=0x7e).contains(&byte) {
-            self.pending_escape.push(byte);
-            let starts_paste = self.pending_escape == Self::PASTE_START;
-            let ends_paste = self.pending_escape == Self::PASTE_END;
-            let was_bracketed_paste = self.bracketed_paste;
-            self.pending_escape.clear();
-            let may_submit = if starts_paste && !was_bracketed_paste {
-                self.bracketed_paste = true;
-                false
-            } else if ends_paste && was_bracketed_paste {
-                self.bracketed_paste = false;
-                false
-            } else {
-                !was_bracketed_paste
-            };
-            return may_submit;
-        }
-
-        if (0x20..=0x3f).contains(&byte) {
-            if self.pending_escape.len() >= Self::MAX_PENDING_ESCAPE {
-                self.pending_escape.clear();
-                return !self.bracketed_paste;
-            }
-            self.pending_escape.push(byte);
-            return false;
-        }
-
-        let may_submit = !self.bracketed_paste;
-        self.pending_escape.clear();
-        may_submit | self.advance_byte(byte)
-    }
-}
-
-#[cfg(test)]
-fn input_may_submit_prompt(bytes: &[u8]) -> bool {
-    PromptInputParser::default().advance(bytes)
 }
 
 impl std::fmt::Debug for Surface {
@@ -632,8 +529,6 @@ impl Surface {
             term: Mutex::new(term),
             mouse_encoders: Mutex::new(mouse_encoders),
             writer: Mutex::new(writer),
-            prompt_submission: Mutex::new(PromptSubmissionState::Idle),
-            prompt_input: Mutex::new(PromptInputParser::default()),
             master: Mutex::new(pty.master),
             killer: Mutex::new(killer),
             pid,
@@ -775,8 +670,6 @@ impl Surface {
             term: Mutex::new(term),
             mouse_encoders: Mutex::new(mouse_encoders),
             writer: Mutex::new(Box::new(std::io::sink())),
-            prompt_submission: Mutex::new(PromptSubmissionState::Idle),
-            prompt_input: Mutex::new(PromptInputParser::default()),
             master: Mutex::new(Box::new(TestMasterPty {
                 size: Mutex::new(PtySize {
                     rows: opts.rows,
@@ -840,10 +733,7 @@ impl Surface {
             ));
         };
         let mut writer = pty.writer.lock().unwrap();
-        let submission = pty.begin_prompt_submission(bytes);
-        let result = writer.write_all(bytes).and_then(|()| writer.flush());
-        pty.finish_prompt_submission(submission, result.is_ok());
-        result
+        writer.write_all(bytes).and_then(|()| writer.flush())
     }
 
     /// Write a protocol input payload, conditionally applying bracketed-paste
@@ -863,16 +753,7 @@ impl Surface {
             term.mode(2004, false)
         };
         let mut writer = pty.writer.lock().unwrap();
-        let submission = if bracketed {
-            pty.begin_prompt_submission_parts([
-                b"\x1b[200~".as_slice(),
-                bytes,
-                b"\x1b[201~".as_slice(),
-            ])
-        } else {
-            pty.begin_prompt_submission(bytes)
-        };
-        let result = (|| {
+        (|| {
             if bracketed {
                 writer.write_all(b"\x1b[200~")?;
             }
@@ -881,9 +762,7 @@ impl Surface {
                 writer.write_all(b"\x1b[201~")?;
             }
             writer.flush()
-        })();
-        pty.finish_prompt_submission(submission, result.is_ok());
-        result
+        })()
     }
 
     /// Run `f` with exclusive access to the terminal state.
@@ -1012,10 +891,10 @@ impl Surface {
         Ok(())
     }
 
-    /// Clear retained primary-screen output. A shell is asked to redraw only
-    /// when OSC 133 metadata identifies an active prompt; otherwise only
-    /// scrollback is discarded so visible input remains untouched and no bytes
-    /// are sent to the child. Attached byte frontends receive the same VT erase
+    /// Clear retained primary-screen output inside the emulator without
+    /// writing to the child process. Complete rows before an OSC 133 prompt are
+    /// erased when the cursor can be restored exactly; otherwise visible rows
+    /// are preserved. Attached byte frontends receive the same VT erase
     /// sequence. Alternate-screen applications are left untouched.
     pub fn clear_history(&self) -> anyhow::Result<()> {
         self.clear_history_or_encode_key(None)
@@ -1029,15 +908,11 @@ impl Surface {
         &self,
         fallback_key: Option<&KeyInput>,
     ) -> anyhow::Result<()> {
-        const CLEAR_PROMPT_HISTORY_AND_SCREEN: &[u8] = b"\x1b[2J\x1b[3J\x1b[H";
-        const CLEAR_SCROLLBACK: &[u8] = b"\x1b[3J";
-        const REDRAW_PROMPT: &[u8] = b"\x0c";
-
         let Some(pty) = self.as_pty() else {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
         let mut writer = pty.writer.lock().unwrap();
-        let (scroll_changed, redraw_prompt) = {
+        let scroll_changed = {
             let mut term = pty.term.lock().unwrap();
             if term.active_screen() == Screen::Alternate {
                 let Some(input) = fallback_key else { return Ok(()) };
@@ -1048,23 +923,14 @@ impl Surface {
                 if encoded.is_empty() {
                     return Ok(());
                 }
-                let submission = pty.begin_prompt_submission_with_terminal(&encoded, &term);
                 drop(term);
-                let result = writer.write_all(&encoded).and_then(|()| writer.flush());
-                if let Some(submission) = submission {
-                    pty.finish_prompt_submission(Some(submission), result.is_ok());
-                }
-                return result.map_err(Into::into);
+                return writer
+                    .write_all(&encoded)
+                    .and_then(|()| writer.flush())
+                    .map_err(Into::into);
             }
-            let prompt_metadata_ready = pty.prompt_metadata_ready(&term);
-            let redraw_prompt = prompt_metadata_ready && term.cursor_is_at_prompt();
-            let clear = if redraw_prompt {
-                CLEAR_PROMPT_HISTORY_AND_SCREEN.to_vec()
-            } else {
-                CLEAR_SCROLLBACK.to_vec()
-            };
             let before = terminal_scroll_position(&term);
-            term.vt_write(&clear);
+            let clear = term.clear_history_preserving_prompt();
             pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
             pty.broadcast_attach_output(&clear);
             let after = terminal_scroll_position(&term);
@@ -1073,12 +939,7 @@ impl Surface {
             }
             let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
             let _ = pty.build_frame_locked(&mut term, generation, false);
-            ((before != after).then_some(after), redraw_prompt)
-        };
-        let redraw_result = if redraw_prompt {
-            writer.write_all(REDRAW_PROMPT).and_then(|()| writer.flush())
-        } else {
-            Ok(())
+            (before != after).then_some(after)
         };
         drop(writer);
         if let Some((offset, at_bottom)) = scroll_changed
@@ -1087,7 +948,7 @@ impl Surface {
             mux.emit(MuxEvent::ScrollChanged { surface: self.id, offset, at_bottom });
         }
         pty.mark_output_dirty();
-        redraw_result.map_err(Into::into)
+        Ok(())
     }
 
     pub fn set_default_colors(&self, colors: DefaultColors) {
@@ -1508,96 +1369,6 @@ impl ChildKiller for TestChildKiller {
 }
 
 impl PtySurface {
-    fn begin_prompt_submission(&self, bytes: &[u8]) -> Option<PromptSubmission> {
-        self.begin_prompt_submission_parts([bytes])
-    }
-
-    fn begin_prompt_submission_parts<'a>(
-        &self,
-        parts: impl IntoIterator<Item = &'a [u8]>,
-    ) -> Option<PromptSubmission> {
-        let may_submit = {
-            let mut parser = self.prompt_input.lock().unwrap();
-            let mut may_submit = false;
-            for bytes in parts {
-                may_submit |= parser.advance(bytes);
-            }
-            may_submit
-        };
-        if !may_submit {
-            return None;
-        }
-        let term = self.term.lock().unwrap();
-        if !term.cursor_is_at_prompt() {
-            return None;
-        }
-        Some(self.start_prompt_submission_with_terminal(&term))
-    }
-
-    fn begin_prompt_submission_with_terminal(
-        &self,
-        bytes: &[u8],
-        term: &Terminal,
-    ) -> Option<PromptSubmission> {
-        if !self.prompt_input.lock().unwrap().advance(bytes) || !term.cursor_is_at_prompt() {
-            return None;
-        }
-        Some(self.start_prompt_submission_with_terminal(term))
-    }
-
-    fn start_prompt_submission_with_terminal(&self, term: &Terminal) -> PromptSubmission {
-        let command_revision_before_write = term.prompt_command_revision();
-        *self.prompt_submission.lock().unwrap() = PromptSubmissionState::Writing;
-        PromptSubmission { command_revision_before_write }
-    }
-
-    fn finish_prompt_submission(&self, submission: Option<PromptSubmission>, succeeded: bool) {
-        let Some(submission) = submission else { return };
-        let term = self.term.lock().unwrap();
-        self.finish_prompt_submission_with_terminal(submission, succeeded, &term);
-    }
-
-    fn finish_prompt_submission_with_terminal(
-        &self,
-        submission: PromptSubmission,
-        succeeded: bool,
-        term: &Terminal,
-    ) {
-        let next = if succeeded
-            && term.prompt_command_revision() != submission.command_revision_before_write
-            && term.cursor_is_at_prompt()
-        {
-            PromptSubmissionState::Idle
-        } else {
-            // An input write can race the shell consuming it. Only OSC 133 C
-            // followed by an active prompt proves that a redraw cannot reach
-            // the newly launched foreground process.
-            PromptSubmissionState::AwaitingCommandCompletion(
-                submission.command_revision_before_write,
-            )
-        };
-        *self.prompt_submission.lock().unwrap() = next;
-    }
-
-    fn prompt_metadata_ready(&self, term: &Terminal) -> bool {
-        if self.prompt_input.lock().unwrap().has_ambiguous_escape() {
-            return false;
-        }
-        let mut submission = self.prompt_submission.lock().unwrap();
-        match *submission {
-            PromptSubmissionState::Idle => true,
-            PromptSubmissionState::Writing => false,
-            PromptSubmissionState::AwaitingCommandCompletion(command_revision)
-                if term.prompt_command_revision() != command_revision
-                    && term.cursor_is_at_prompt() =>
-            {
-                *submission = PromptSubmissionState::Idle;
-                true
-            }
-            PromptSubmissionState::AwaitingCommandCompletion(_) => false,
-        }
-    }
-
     /// Snapshot colors from the terminal and the owning shared render state.
     /// Updating that state keeps Ghostty damage owned by the renderer without
     /// inventing a generation, building a viewport, or notifying subscribers.
@@ -1812,70 +1583,6 @@ mod tests {
         }
 
         fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-
-    #[derive(Clone, Default)]
-    struct FlushFailingWriter(Arc<Mutex<Vec<u8>>>);
-
-    impl Write for FlushFailingWriter {
-        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(bytes);
-            Ok(bytes.len())
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "flush outcome is ambiguous"))
-        }
-    }
-
-    struct PromptOutputDuringFlush {
-        written: Arc<Mutex<Vec<u8>>>,
-        surface: Weak<Surface>,
-        emitted: AtomicBool,
-    }
-
-    impl Write for PromptOutputDuringFlush {
-        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-            self.written.lock().unwrap().extend_from_slice(bytes);
-            Ok(bytes.len())
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            if !self.emitted.swap(true, Ordering::AcqRel)
-                && let Some(surface) = self.surface.upgrade()
-            {
-                surface.with_terminal(|term| {
-                    term.vt_write(
-                        b"\r\n\x1b]133;C\x07finished\r\n\x1b]133;D\x07\x1b]133;A\x07prompt> \x1b]133;B\x07",
-                    );
-                });
-            }
-            Ok(())
-        }
-    }
-
-    struct PromptRedrawDuringFlush {
-        written: Arc<Mutex<Vec<u8>>>,
-        surface: Weak<Surface>,
-        emitted: AtomicBool,
-    }
-
-    impl Write for PromptRedrawDuringFlush {
-        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-            self.written.lock().unwrap().extend_from_slice(bytes);
-            Ok(bytes.len())
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            if !self.emitted.swap(true, Ordering::AcqRel)
-                && let Some(surface) = self.surface.upgrade()
-            {
-                surface.with_terminal(|term| {
-                    term.vt_write(b"\r\x1b]133;A\x07prompt> \x1b]133;B\x07");
-                });
-            }
             Ok(())
         }
     }
@@ -2225,149 +1932,34 @@ mod tests {
             term.vt_write(b"\x1b]133;A\x07prompt> ");
             assert!(term.history_rows() > 0);
         });
+        let attach = surface.attach_stream().unwrap();
+        let mut mirror =
+            Terminal::new(attach.cols, attach.rows, 10_000, Callbacks::default()).unwrap();
+        mirror.vt_write(&attach.replay);
 
         surface.clear_history().unwrap();
 
+        let AttachFrame::Output(clear) =
+            attach.stream.recv_timeout(Duration::from_secs(1)).unwrap()
+        else {
+            panic!("clear did not reach the attach mirror");
+        };
+        mirror.vt_write(&clear);
         surface.with_terminal(|term| {
             assert_eq!(term.history_rows(), 0);
             let viewport = term.viewport_text().unwrap();
-            assert!(viewport.contains("prompt> "));
+            assert!(viewport.contains("prompt>"));
             assert!(!viewport.contains("history-"));
+            assert_eq!(mirror.viewport_text().unwrap(), viewport);
+            assert_eq!(mirror.cursor_position(), term.cursor_position());
         });
+        assert_eq!(mirror.history_rows(), 0);
         assert!(writer.0.lock().unwrap().is_empty());
     }
 
     #[test]
-    fn clear_history_waits_for_prompt_metadata_after_submitting_input() {
-        let mux = Mux::new_for_test("clear-delayed-prompt-output", SurfaceOptions::default());
-        let surface =
-            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
-        let writer = CapturingWriter::default();
-        *surface.as_pty().unwrap().writer.lock().unwrap() = Box::new(writer.clone());
-        let before = surface
-            .with_terminal(|term| {
-                for line in 0..40 {
-                    term.vt_write(format!("history-{line}\r\n").as_bytes());
-                }
-                term.vt_write(b"\x1b]133;A\x07prompt> \x1b]133;B\x07sleep 1");
-                assert!(term.history_rows() > 0);
-                term.viewport_text().unwrap()
-            })
-            .unwrap();
-
-        // Enter reaches the child before its delayed OSC 133 output. Clearing
-        // in this window must not inject Ctrl-L into the new foreground job.
-        surface.write_bytes(b"\r").unwrap();
-        surface.clear_history().unwrap();
-
-        surface.with_terminal(|term| {
-            assert_eq!(term.history_rows(), 0);
-            assert_eq!(term.viewport_text().unwrap(), before);
-        });
-        assert_eq!(&*writer.0.lock().unwrap(), b"\r");
-
-        surface.with_terminal(|term| {
-            term.vt_write(
-                b"\r\n\x1b]133;C\x07finished\r\n\x1b]133;D\x07\x1b]133;A\x07prompt> \x1b]133;B\x07",
-            );
-        });
-        surface.clear_history().unwrap();
-
-        surface.with_terminal(|term| {
-            assert_eq!(term.history_rows(), 0);
-            assert!(term.viewport_text().unwrap().trim().is_empty());
-        });
-        assert_eq!(&*writer.0.lock().unwrap(), b"\r\x0c");
-    }
-
-    #[test]
-    fn clear_history_waits_after_kitty_encoded_enter() {
-        let mux = Mux::new_for_test("clear-kitty-enter", SurfaceOptions::default());
-        let surface =
-            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
-        let writer = CapturingWriter::default();
-        *surface.as_pty().unwrap().writer.lock().unwrap() = Box::new(writer.clone());
-        let before = surface
-            .with_terminal(|term| {
-                for line in 0..40 {
-                    term.vt_write(format!("history-{line}\r\n").as_bytes());
-                }
-                term.vt_write(b"\x1b]133;A\x07prompt> \x1b]133;B\x07sleep 1");
-                term.viewport_text().unwrap()
-            })
-            .unwrap();
-
-        surface.write_bytes(b"\x1b[13u").unwrap();
-        surface.clear_history().unwrap();
-
-        surface.with_terminal(|term| {
-            assert_eq!(term.history_rows(), 0);
-            assert_eq!(term.viewport_text().unwrap(), before);
-        });
-        assert_eq!(&*writer.0.lock().unwrap(), b"\x1b[13u");
-    }
-
-    #[test]
-    fn clear_history_waits_after_fragmented_kitty_enter() {
-        let input = b"\x1b[13;9u";
-        for split in 1..input.len() {
-            let mux = Mux::new_for_test("clear-fragmented-kitty-enter", SurfaceOptions::default());
-            let surface =
-                Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux))
-                    .unwrap();
-            let writer = CapturingWriter::default();
-            *surface.as_pty().unwrap().writer.lock().unwrap() = Box::new(writer.clone());
-            let before = surface
-                .with_terminal(|term| {
-                    for line in 0..40 {
-                        term.vt_write(format!("history-{line}\r\n").as_bytes());
-                    }
-                    term.vt_write(b"\x1b]133;A\x07prompt> \x1b]133;B\x07sleep 1");
-                    term.viewport_text().unwrap()
-                })
-                .unwrap();
-
-            surface.write_bytes(&input[..split]).unwrap();
-            surface.write_bytes(&input[split..]).unwrap();
-            surface.clear_history().unwrap();
-
-            surface.with_terminal(|term| {
-                assert_eq!(term.history_rows(), 0, "split {split}");
-                assert_eq!(term.viewport_text().unwrap(), before, "split {split}");
-            });
-            assert_eq!(&*writer.0.lock().unwrap(), input, "split {split}");
-        }
-    }
-
-    #[test]
-    fn prompt_submission_detector_recognizes_encoded_enter_forms() {
-        for input in [
-            b"\x1b[13u".as_slice(),
-            b"\x1b[13;2u",
-            b"\x1b[57414u",
-            b"\x1bOM",
-            b"\x1bO2M",
-            b"\x1b[27;2;13~",
-        ] {
-            assert!(input_may_submit_prompt(input), "missed {input:?}");
-        }
-        assert!(!input_may_submit_prompt(b"\x1b[200~\x1b[13u\n\x1bOM\x1b[201~"));
-    }
-
-    #[test]
-    fn prompt_submission_detector_fails_closed_for_custom_control_bindings() {
-        assert!(input_may_submit_prompt(b"\x0f"), "Ctrl-O may be rebound to accept-line");
-        assert!(
-            input_may_submit_prompt(b"\x1b[A"),
-            "escape sequences may be rebound to accept-line"
-        );
-        assert!(!input_may_submit_prompt(b"printable text"));
-        assert!(!input_may_submit_prompt(b"\x1b[200~\x0f\x1b[A\x1b[201~"));
-    }
-
-    #[test]
-    fn clear_history_serializes_prompt_check_with_concurrent_input() {
-        let mux = Mux::new_for_test("clear-concurrent-enter", SurfaceOptions::default());
+    fn terminal_query_response_does_not_change_clear_history_safety() {
+        let mux = Mux::new_for_test("clear-after-query-response", SurfaceOptions::default());
         let surface =
             Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
         let writer = CapturingWriter::default();
@@ -2376,253 +1968,19 @@ mod tests {
             for line in 0..40 {
                 term.vt_write(format!("history-{line}\r\n").as_bytes());
             }
-            term.vt_write(b"\x1b]133;A\x07prompt> \x1b]133;B\x07sleep 1");
+            term.vt_write(b"\x1b]133;A\x07prompt> ");
         });
 
-        let pty = surface.as_pty().unwrap();
-        let mut writer_guard = pty.writer.lock().unwrap();
-        let clear_surface = surface.clone();
-        let clear = std::thread::spawn(move || clear_surface.clear_history());
-        let deadline = Instant::now() + Duration::from_millis(200);
-        let cleared_before_writer_release = loop {
-            let cleared = surface
-                .with_terminal(|term| term.viewport_text().unwrap().trim().is_empty())
-                .unwrap();
-            if cleared || Instant::now() >= deadline {
-                break cleared;
-            }
-            std::thread::sleep(Duration::from_millis(1));
-        };
-
-        let submission = pty.begin_prompt_submission(b"\r");
-        let result = writer_guard.write_all(b"\r").and_then(|()| writer_guard.flush());
-        pty.finish_prompt_submission(submission, result.is_ok());
-        result.unwrap();
-        drop(writer_guard);
-        clear.join().unwrap().unwrap();
-
-        assert!(
-            !cleared_before_writer_release,
-            "clear-history inspected the prompt without owning the PTY writer"
-        );
-        assert_eq!(&*writer.0.lock().unwrap(), b"\r");
-    }
-
-    #[test]
-    fn clear_history_accepts_prompt_metadata_processed_during_the_input_write() {
-        let mux = Mux::new_for_test("clear-fast-prompt-output", SurfaceOptions::default());
-        let surface =
-            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
-        surface.with_terminal(|term| {
-            for line in 0..40 {
-                term.vt_write(format!("history-{line}\r\n").as_bytes());
-            }
-            term.vt_write(b"\x1b]133;A\x07prompt> \x1b]133;B\x07true");
-        });
-        let written = Arc::new(Mutex::new(Vec::new()));
-        *surface.as_pty().unwrap().writer.lock().unwrap() = Box::new(PromptOutputDuringFlush {
-            written: written.clone(),
-            surface: Arc::downgrade(&surface),
-            emitted: AtomicBool::new(false),
-        });
-
-        surface.write_bytes(b"\r").unwrap();
+        surface.write_bytes(b"\x1b[?1;2c").unwrap();
         surface.clear_history().unwrap();
 
         surface.with_terminal(|term| {
+            let viewport = term.viewport_text().unwrap();
             assert_eq!(term.history_rows(), 0);
-            assert!(term.viewport_text().unwrap().trim().is_empty());
+            assert!(viewport.contains("prompt>"));
+            assert!(!viewport.contains("history-"));
         });
-        assert_eq!(&*written.lock().unwrap(), b"\r\x0c");
-    }
-
-    #[test]
-    fn clear_history_rejects_prompt_redraw_processed_before_input_delivery() {
-        let mux = Mux::new_for_test("clear-pre-submit-prompt-redraw", SurfaceOptions::default());
-        let surface =
-            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
-        surface.with_terminal(|term| {
-            for line in 0..40 {
-                term.vt_write(format!("history-{line}\r\n").as_bytes());
-            }
-            term.vt_write(b"\x1b]133;A\x07prompt> \x1b]133;B\x07sleep 1");
-        });
-        let written = Arc::new(Mutex::new(Vec::new()));
-        *surface.as_pty().unwrap().writer.lock().unwrap() = Box::new(PromptRedrawDuringFlush {
-            written: written.clone(),
-            surface: Arc::downgrade(&surface),
-            emitted: AtomicBool::new(false),
-        });
-
-        surface.write_bytes(b"\r").unwrap();
-        surface.clear_history().unwrap();
-
-        assert_eq!(
-            &*written.lock().unwrap(),
-            b"\r",
-            "an in-write prompt redraw is not proof that Enter reached the child"
-        );
-    }
-
-    #[test]
-    fn clear_history_rejects_prompt_redraw_after_input_delivery_without_execution() {
-        let mux = Mux::new_for_test("clear-post-submit-prompt-redraw", SurfaceOptions::default());
-        let surface =
-            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
-        let writer = CapturingWriter::default();
-        *surface.as_pty().unwrap().writer.lock().unwrap() = Box::new(writer.clone());
-        let before = surface
-            .with_terminal(|term| {
-                for line in 0..40 {
-                    term.vt_write(format!("history-{line}\r\n").as_bytes());
-                }
-                term.vt_write(b"\x1b]133;A\x07prompt> \x1b]133;B\x07sleep 1");
-                term.viewport_text().unwrap()
-            })
-            .unwrap();
-
-        surface.write_bytes(b"\r").unwrap();
-        surface.with_terminal(|term| {
-            term.vt_write(b"\r\x1b]133;A\x07prompt> \x1b]133;B\x07");
-        });
-        surface.clear_history().unwrap();
-
-        surface.with_terminal(|term| {
-            assert_eq!(term.history_rows(), 0);
-            assert_eq!(term.viewport_text().unwrap(), before);
-        });
-        assert_eq!(
-            &*writer.0.lock().unwrap(),
-            b"\r",
-            "a prompt redraw without OSC 133 C must not release Ctrl-L"
-        );
-    }
-
-    #[test]
-    fn clear_history_guards_custom_control_submission_bindings() {
-        let mux = Mux::new_for_test("clear-custom-submit", SurfaceOptions::default());
-        let surface =
-            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
-        let writer = CapturingWriter::default();
-        *surface.as_pty().unwrap().writer.lock().unwrap() = Box::new(writer.clone());
-        let before = surface
-            .with_terminal(|term| {
-                for line in 0..40 {
-                    term.vt_write(format!("history-{line}\r\n").as_bytes());
-                }
-                term.vt_write(b"\x1b]133;A\x07prompt> \x1b]133;B\x07custom binding");
-                term.viewport_text().unwrap()
-            })
-            .unwrap();
-
-        surface.write_bytes(b"\x0f").unwrap();
-        surface.clear_history().unwrap();
-
-        surface.with_terminal(|term| {
-            assert_eq!(term.history_rows(), 0);
-            assert_eq!(term.viewport_text().unwrap(), before);
-        });
-        assert_eq!(
-            &*writer.0.lock().unwrap(),
-            b"\x0f",
-            "Ctrl-L must wait because Ctrl-O may submit the prompt"
-        );
-
-        surface.with_terminal(|term| {
-            term.vt_write(
-                b"\r\n\x1b]133;C\x07finished\r\n\x1b]133;D\x07\x1b]133;A\x07prompt> \x1b]133;B\x07",
-            );
-        });
-        surface.clear_history().unwrap();
-
-        assert_eq!(
-            &*writer.0.lock().unwrap(),
-            b"\x0f\x0c",
-            "OSC 133 execution and a returned prompt release the guard"
-        );
-    }
-
-    #[test]
-    fn clear_history_keeps_the_prompt_guard_closed_after_an_ambiguous_flush_failure() {
-        let mux = Mux::new_for_test("clear-ambiguous-enter", SurfaceOptions::default());
-        let surface =
-            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
-        let writer = FlushFailingWriter::default();
-        *surface.as_pty().unwrap().writer.lock().unwrap() = Box::new(writer.clone());
-        let before = surface
-            .with_terminal(|term| {
-                for line in 0..40 {
-                    term.vt_write(format!("history-{line}\r\n").as_bytes());
-                }
-                term.vt_write(b"\x1b]133;A\x07prompt> \x1b]133;B\x07sleep 1");
-                term.viewport_text().unwrap()
-            })
-            .unwrap();
-
-        assert!(surface.write_bytes(b"\r").is_err());
-        surface.clear_history().unwrap();
-
-        surface.with_terminal(|term| {
-            assert_eq!(term.history_rows(), 0);
-            assert_eq!(term.viewport_text().unwrap(), before);
-        });
-        assert_eq!(&*writer.0.lock().unwrap(), b"\r");
-    }
-
-    #[test]
-    fn clear_history_keeps_prompt_redraw_ready_after_bracketed_multiline_paste() {
-        let mux = Mux::new_for_test("clear-bracketed-paste", SurfaceOptions::default());
-        let surface =
-            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
-        let writer = CapturingWriter::default();
-        *surface.as_pty().unwrap().writer.lock().unwrap() = Box::new(writer.clone());
-        surface.with_terminal(|term| {
-            for line in 0..40 {
-                term.vt_write(format!("history-{line}\r\n").as_bytes());
-            }
-            term.vt_write(b"\x1b]133;A\x07prompt> \x1b]133;B\x07first\nsecond");
-        });
-
-        surface.write_bytes(b"\x1b[200~first\nsecond\x1b[201~").unwrap();
-        surface.clear_history().unwrap();
-
-        surface.with_terminal(|term| {
-            assert_eq!(term.history_rows(), 0);
-            assert!(term.viewport_text().unwrap().trim().is_empty());
-        });
-        assert_eq!(&*writer.0.lock().unwrap(), b"\x1b[200~first\nsecond\x1b[201~\x0c");
-    }
-
-    #[test]
-    fn clear_history_keeps_prompt_redraw_ready_after_fragmented_bracketed_paste() {
-        let input = b"\x1b[200~first\nsecond\x1b[201~";
-        let mut expected = input.to_vec();
-        expected.push(b'\x0c');
-        for split in 1..input.len() {
-            let mux =
-                Mux::new_for_test("clear-fragmented-bracketed-paste", SurfaceOptions::default());
-            let surface =
-                Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux))
-                    .unwrap();
-            let writer = CapturingWriter::default();
-            *surface.as_pty().unwrap().writer.lock().unwrap() = Box::new(writer.clone());
-            surface.with_terminal(|term| {
-                for line in 0..40 {
-                    term.vt_write(format!("history-{line}\r\n").as_bytes());
-                }
-                term.vt_write(b"\x1b]133;A\x07prompt> \x1b]133;B\x07first\nsecond");
-            });
-
-            surface.write_bytes(&input[..split]).unwrap();
-            surface.write_bytes(&input[split..]).unwrap();
-            surface.clear_history().unwrap();
-
-            surface.with_terminal(|term| {
-                assert_eq!(term.history_rows(), 0, "split {split}");
-                assert!(term.viewport_text().unwrap().trim().is_empty(), "split {split}");
-            });
-            assert_eq!(&*writer.0.lock().unwrap(), &expected, "split {split}");
-        }
+        assert_eq!(&*writer.0.lock().unwrap(), b"\x1b[?1;2c");
     }
 
     #[test]

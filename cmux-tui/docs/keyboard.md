@@ -58,7 +58,7 @@ These defaults come from `Keys::default`.
 
 Directional focus follows Zellij's pane memory: when several panes share the requested edge, cmux-tui returns to the pane focused most recently.
 
-On a primary screen with OSC 133 prompt metadata, `Cmd-k` clears visible prior output and asks the shell to redraw its prompt and edit buffer. Without prompt metadata, it clears retained scrollback while leaving visible rows untouched so wrapped input cannot be truncated. In alternate-screen applications, modeless `Cmd-k` is forwarded to the application.
+On a primary screen with OSC 133 prompt metadata, `Cmd-k` clears retained scrollback and complete visible rows before the prompt inside the terminal emulator. The prompt, edit buffer, and cursor stay in place, and cmux-tui sends no input to the shell. Without prompt metadata, it clears retained scrollback while leaving visible rows untouched so wrapped input cannot be truncated. In alternate-screen applications, modeless `Cmd-k` is forwarded to the application.
 
 The screen bindings intentionally match tmux: `c` creates a screen, `n` and `p` switch screens, `&` closes a screen, `,` renames a screen, `z` zooms a pane, `o` cycles panes, `{` and `}` swap panes, and number keys select visible screens. Screens are numbered from 0, so `Ctrl-b 0` selects screen 0 and `Ctrl-b 1` selects screen 1.
 
@@ -84,7 +84,7 @@ Zellij's modal `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are a 
 
 ## Modeless Command/Super Layer
 
-`Cmd-k` / `Super-k` clears prior PTY output, then asks the child to redraw its active prompt and edit buffer. cmux-tui enables the Kitty keyboard protocol so compatible hosts report the Command/Super modifier. Host-owned shortcuts such as `Cmd-t`, `Cmd-w`, and `Cmd-d` remain unbound because terminals consume them before a nested TUI can receive them. Their working cmux-tui equivalents are `Alt-t`, `Ctrl-b X`, and `Ctrl-b %`.
+`Cmd-k` / `Super-k` clears prior PTY output inside the terminal emulator while preserving the active prompt and edit buffer. cmux-tui enables the Kitty keyboard protocol so compatible hosts report the Command/Super modifier. Host-owned shortcuts such as `Cmd-t`, `Cmd-w`, and `Cmd-d` remain unbound because terminals consume them before a nested TUI can receive them. Their working cmux-tui equivalents are `Alt-t`, `Ctrl-b X`, and `Ctrl-b %`.
 
 Set `keys.super_shortcuts` to `false` to remove the default Command/Super bindings. Explicit `cmd+...`, `command+...`, and `super+...` bindings still work.
 

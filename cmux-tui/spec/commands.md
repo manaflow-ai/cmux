@@ -645,7 +645,7 @@ Example:
 | status | implemented |
 | since | protocol 9 with `clear-history-v1` |
 
-On a primary screen with OSC 133 prompt metadata, clears visible prior output and retained scrollback, then sends form-feed to the child so it can redraw the active prompt and edit buffer. Without prompt metadata, clears retained scrollback while leaving visible rows untouched so multiline or wrapped input cannot be truncated. The authoritative server terminal and attached frontend mirrors receive the same VT erase sequence.
+On a primary screen with OSC 133 prompt metadata, clears retained scrollback and complete visible rows before the active prompt inside the terminal emulator. The prompt, edit buffer, and cursor remain in place, and no bytes are written to the child process. If prompt location or cursor state cannot be restored exactly, only retained scrollback is cleared. The authoritative server terminal and attached frontend mirrors receive the same VT erase sequence.
 
 Clients must require `identify.capabilities` to contain `clear-history-v1` before sending this command.
 
