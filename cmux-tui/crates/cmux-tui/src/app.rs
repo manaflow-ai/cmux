@@ -13850,6 +13850,62 @@ mod tests {
     }
 
     #[test]
+    fn deferred_terminal_press_cannot_retarget_repainted_content() {
+        let mux = Mux::new(
+            "deferred-terminal-content-generation-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "IFS= read -r _; printf replacement; sleep 30".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_visible = false;
+        app.sync_layout((40, 15));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let content = app.pane_areas[0].content;
+        let press = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 4,
+            row: content.y + 2,
+            modifiers: KeyModifiers::NONE,
+        };
+
+        app.pointer_route_phase = PointerRoutePhase::DrawPending;
+        app.handle(AppEvent::Input(Event::Mouse(press))).unwrap();
+        assert_eq!(app.deferred_input.len(), 1);
+        assert!(app.drag.is_none());
+
+        surface.write_bytes(b"repaint\n").unwrap();
+        loop {
+            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            let repaint = app.handle(event).unwrap();
+            if repaint != RenderAction::None {
+                app.render_action(&mut terminal, repaint).unwrap();
+                break;
+            }
+        }
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::Fresh);
+        app.replay_deferred_input().unwrap();
+
+        assert!(
+            app.drag.is_none(),
+            "a press rendered for old terminal content must not arm selection on its replacement"
+        );
+        assert!(app.selection.is_none());
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn deferred_untracked_wheel_fails_closed_when_screen_semantics_change() {
         for (name, initial, transition, expected_screen) in [
             (
