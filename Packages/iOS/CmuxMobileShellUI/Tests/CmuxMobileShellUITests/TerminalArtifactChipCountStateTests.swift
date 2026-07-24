@@ -68,6 +68,35 @@ struct TerminalArtifactChipCountStateTests {
         ).outcome == .reported(.init(count: 12, surfaceGeneration: 7)))
     }
 
+    @Test("reset forgets the remembered session total")
+    func resetForgetsSessionTotal() throws {
+        var state = TerminalArtifactChipCountState()
+        let seeded = try request(from: state.trigger(
+            localCount: 3,
+            surfaceGeneration: 7,
+            supportsSessionCount: true
+        ))
+        _ = state.complete(
+            seeded,
+            sessionTotal: 12,
+            currentSurfaceGeneration: 7,
+            freshestLocalCount: 3
+        )
+        state.reset()
+
+        let fresh = try request(from: state.trigger(
+            localCount: 2,
+            surfaceGeneration: 8,
+            supportsSessionCount: true
+        ))
+        #expect(state.complete(
+            fresh,
+            sessionTotal: nil,
+            currentSurfaceGeneration: 8,
+            freshestLocalCount: 2
+        ).outcome == .reported(.init(count: 2, surfaceGeneration: 8)))
+    }
+
     @Test("responses from an old state or surface generation are dropped")
     func staleResponses() throws {
         var resetState = TerminalArtifactChipCountState()

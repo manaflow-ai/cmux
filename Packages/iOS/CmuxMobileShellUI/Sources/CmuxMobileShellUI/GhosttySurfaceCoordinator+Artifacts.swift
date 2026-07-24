@@ -109,23 +109,41 @@ extension GhosttySurfaceRepresentable.Coordinator {
             }
         }
 
+        /// How long a zero count must persist before the chip fades out.
+        /// Streaming output re-scans the viewport on every settle, so counts
+        /// dip to zero for well under this window while paths scroll.
+        static let artifactChipHideGracePeriod: Duration = .seconds(2)
+
         /// Projects the workspace's value count into a small SwiftUI chip hosted
         /// by the terminal surface, preserving the dock's keyboard geometry.
+        ///
+        /// Shows are immediate; hides wait out ``artifactChipHideGracePeriod``
+        /// so the transient zeros produced by streaming output and reconnect
+        /// resets do not flicker the chip. Disabling the chip and dismantling
+        /// the surface still unmount immediately.
         @MainActor
         func updateArtifactChip(count: Int) {
             visibleArtifactCount = count
             guard let surfaceView else { return }
-            let enabled = artifactChipGate.isEnabled
-            let renderState = (count: count, enabled: enabled)
-            if let lastArtifactChipRender, lastArtifactChipRender == renderState {
-                return
-            }
-            lastArtifactChipRender = renderState
-            guard enabled, count > 0 else {
+            switch artifactChipVisibility.update(
+                count: count,
+                enabled: artifactChipGate.isEnabled
+            ) {
+            case .none:
+                break
+            case .hideNow:
+                cancelArtifactChipHide()
                 surfaceView.mountArtifactChipView(nil, animated: true)
-                return
+            case .scheduleHide:
+                scheduleArtifactChipHide()
+            case .mount(let count):
+                cancelArtifactChipHide()
+                mountArtifactChip(count: count, on: surfaceView)
             }
+        }
 
+        @MainActor
+        private func mountArtifactChip(count: Int, on surfaceView: GhosttySurfaceView) {
             let chip = TerminalArtifactChipView(count: count) { [weak self] in
                 self?.requestArtifactFilesFromChip()
             }
@@ -144,6 +162,28 @@ extension GhosttySurfaceRepresentable.Coordinator {
         }
 
         @MainActor
+        private func scheduleArtifactChipHide() {
+            guard artifactChipHideTask == nil else { return }
+            artifactChipHideTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                try? await self.artifactChipHideClock.sleep(
+                    for: Self.artifactChipHideGracePeriod,
+                    tolerance: nil
+                )
+                guard !Task.isCancelled else { return }
+                self.artifactChipHideTask = nil
+                self.artifactChipVisibility.hideCompleted()
+                self.surfaceView?.mountArtifactChipView(nil, animated: true)
+            }
+        }
+
+        @MainActor
+        private func cancelArtifactChipHide() {
+            artifactChipHideTask?.cancel()
+            artifactChipHideTask = nil
+        }
+
+        @MainActor
         private func requestArtifactFilesFromChip() {
             guard artifactChipGate.isEnabled else { return }
             guard let surfaceView, let chipView = artifactChipController?.view else { return }
@@ -158,6 +198,8 @@ extension GhosttySurfaceRepresentable.Coordinator {
 
         @MainActor
         func tearDownArtifactChip() {
+            cancelArtifactChipHide()
+            artifactChipVisibility.reset()
             surfaceView?.mountArtifactChipView(nil, animated: false)
             artifactChipController = nil
         }

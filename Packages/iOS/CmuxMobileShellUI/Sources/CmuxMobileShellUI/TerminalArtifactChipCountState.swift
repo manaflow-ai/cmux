@@ -41,6 +41,10 @@ struct TerminalArtifactChipCountState: Sendable {
     private var inFlight: Request?
     private var trailing: Pending?
     private var consecutiveRearmCount = 0
+    /// Last successful session total, held across transient scan failures so
+    /// the chip does not regress to the viewport-only count (which oscillates
+    /// while output streams) whenever one RPC drops.
+    private var lastSessionTotal: Int?
 
     static let maxConsecutiveRearms = 3
 
@@ -49,6 +53,7 @@ struct TerminalArtifactChipCountState: Sendable {
         inFlight = nil
         trailing = nil
         consecutiveRearmCount = 0
+        lastSessionTotal = nil
     }
 
     mutating func trigger(
@@ -81,11 +86,20 @@ struct TerminalArtifactChipCountState: Sendable {
             return .stale
         }
         inFlight = nil
+        if let sessionTotal {
+            lastSessionTotal = sessionTotal
+        }
 
         let outcome: CompletionOutcome
         if request.surfaceGeneration == currentSurfaceGeneration {
-            let count = sessionTotal.map { $0 > 0 ? $0 : request.localCount }
-                ?? request.localCount
+            let count: Int
+            if let sessionTotal {
+                count = sessionTotal > 0 ? sessionTotal : request.localCount
+            } else if let lastSessionTotal, lastSessionTotal > 0 {
+                count = lastSessionTotal
+            } else {
+                count = request.localCount
+            }
             outcome = .reported(Report(
                 count: count,
                 surfaceGeneration: request.surfaceGeneration
