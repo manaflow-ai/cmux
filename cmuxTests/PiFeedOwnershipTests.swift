@@ -234,7 +234,7 @@ struct PiFeedOwnershipTests {
 
         let store = WorkstreamStore(ringCapacity: 100)
         FeedCoordinator.shared.install(store: store)
-        let sessionId = "pi-coalesced-transcript-batch"
+        let sessionId = "coalesced-transcript-batch"
         let events = (0..<64).map { index in
             WorkstreamEvent(
                 sessionId: sessionId,

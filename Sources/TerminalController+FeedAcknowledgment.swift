@@ -21,7 +21,7 @@ extension TerminalController {
             timeout: deliveryTimeout
         ) { result in
             let ingestion: FeedBatchIngestion? = self.v2MainSync {
-                result.commit {
+                let committed: FeedBatchIngestion? = result.commit {
                     guard ContinuousClock.now < deliveryDeadline else { return .unavailable }
                     guard FeedCoordinator.shared.store != nil else { return .unavailable }
                     let authoritativeEvents: [WorkstreamEvent]
@@ -43,13 +43,16 @@ extension TerminalController {
                         }
                         itemIds.append(itemId)
                     }
-                    if itemIds.count == authoritativeEvents.count {
-                        self.v2NoteCoalescedFeedTranscriptEvents(authoritativeEvents)
-                    } else {
+                    if itemIds.count != authoritativeEvents.count {
                         return .unavailable
                     }
                     return .accepted(events: authoritativeEvents, itemIds: itemIds)
                 }
+                if let committed,
+                   case .accepted(let authoritativeEvents, _) = committed {
+                    self.v2NoteCoalescedFeedTranscriptEvents(authoritativeEvents)
+                }
+                return committed
             }
 
             if let ingestion,
@@ -138,9 +141,11 @@ extension TerminalController {
             onAcceptedOnMainActor: { authoritativeEvent in
                 acceptedEvent?.value = authoritativeEvent
                 self.v2ApplyIMessageModeSideEffects(for: authoritativeEvent)
-                self.agentChatTranscriptService?.noteHookEvent(authoritativeEvent)
             },
             onAccepted: { authoritativeEvent in
+                self.v2MainSync {
+                    self.agentChatTranscriptService?.noteHookEvent(authoritativeEvent)
+                }
                 CmuxEventBus.shared.publishWorkstreamEvent(authoritativeEvent, phase: "received")
                 if !waitsForDecision {
                     let acknowledgment = FeedCoordinator.IngestBlockingResult.acknowledged(itemId: nil)
