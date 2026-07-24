@@ -28,6 +28,7 @@ extension TerminalController {
             scrollbackLines: scrollbackLines,
             anchor: anchor
         )?.frame else { return nil }
+        MobileTerminalRenderObserver.shared.adoptReplayBaseline(frame, surfaceID: surfaceID)
         return MobileTerminalRenderObserver.shared.decorateReplayFrame(frame)
     }
 

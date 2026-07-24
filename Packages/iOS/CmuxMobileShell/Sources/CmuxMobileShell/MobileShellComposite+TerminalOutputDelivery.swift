@@ -216,6 +216,9 @@ extension MobileShellComposite {
         if renderGrid.anchor == .screen, let historyRows = renderGrid.historyRows {
             terminalRenderGridHistoryContinuityBySurfaceID[renderGrid.surfaceID] = historyRows
         }
+        if renderGrid.full, renderGrid.scrollbackRows > 0 {
+            terminalMirrorHydrationNeededSurfaceIDs.remove(renderGrid.surfaceID)
+        }
     }
 
     /// Whether a surface currently has an attached output stream consumer.
@@ -500,6 +503,7 @@ extension MobileShellComposite {
         // Rebuilt surface: nothing pre-barrier is visible anymore.
         rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
         terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
+        terminalMirrorHydrationNeededSurfaceIDs.insert(surfaceID)
         MobileDebugLog.anchormux("terminal.output.reset surface=\(surfaceID)")
         requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
     }
@@ -517,6 +521,7 @@ extension MobileShellComposite {
         rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridHistoryContinuityBySurfaceID.removeValue(forKey: surfaceID)
+        terminalMirrorHydrationNeededSurfaceIDs.insert(surfaceID)
         terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
         terminalFullReplacementSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalFullReplacementGenerationBySurfaceID.removeValue(forKey: surfaceID)
@@ -564,6 +569,7 @@ extension MobileShellComposite {
         let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
         rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
         terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
+        terminalMirrorHydrationNeededSurfaceIDs.insert(surfaceID)
         MobileDebugLog.anchormux("terminal.output.replay_requested surface=\(surfaceID)")
         requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
     }

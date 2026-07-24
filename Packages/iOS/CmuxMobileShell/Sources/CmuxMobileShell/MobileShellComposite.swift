@@ -879,6 +879,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// longer realign the grid or scrollback, so delivery requests a full
     /// replay instead.
     var terminalRenderGridHistoryContinuityBySurfaceID: [String: UInt64]
+    /// Surfaces whose local mirror lost (or never had) its deep scrollback:
+    /// cold attach and post-rebuild resets. Only these replays request the
+    /// full hydration window; steady-state replays (barrier follow-ups, theme
+    /// resets) request none and replay as history-preserving repaints.
+    var terminalMirrorHydrationNeededSurfaceIDs: Set<String>
     var terminalReplaySurfaceIDsInFlight: Set<String>
     var terminalReplayRequestIDsInFlightBySurfaceID: [String: UUID]
     var terminalReplayTasksBySurfaceID: [String: Task<Void, Never>]
@@ -1110,6 +1115,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pendingTerminalInputDroppedRenderGridSurfaceIDs = []
         self.terminalActiveScreenBySurfaceID = [:]
         self.terminalRenderGridHistoryContinuityBySurfaceID = [:]
+        self.terminalMirrorHydrationNeededSurfaceIDs = []
         self.terminalReplaySurfaceIDsInFlight = []
         self.terminalReplayRequestIDsInFlightBySurfaceID = [:]
         self.terminalReplayTasksBySurfaceID = [:]
@@ -5830,6 +5836,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pendingTerminalInputDroppedRenderGridSurfaceIDs = []
         terminalActiveScreenBySurfaceID = [:]
         terminalRenderGridHistoryContinuityBySurfaceID = [:]
+        terminalMirrorHydrationNeededSurfaceIDs = []
         terminalReplaySurfaceIDsInFlight = []
         terminalReplayRequestIDsInFlightBySurfaceID = [:]
         terminalReplayBarrierTokensInFlightBySurfaceID = [:]
@@ -7465,6 +7472,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
         terminalActiveScreenBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridHistoryContinuityBySurfaceID.removeValue(forKey: surfaceID)
+        terminalMirrorHydrationNeededSurfaceIDs.remove(surfaceID)
         // Tell the Mac this device is no longer viewing the surface so it can unpin and clear its border.
         clearTerminalViewport(surfaceID: surfaceID)
     }
@@ -7651,12 +7659,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                 }
                 // Screen-anchored replays hydrate this device's deep local
-                // scrollback in one pass, so every replay reset (cold attach,
-                // resync, resize) restores the history the user can scroll.
-                if self?.usesScreenAnchoredRenderGrid == true {
+                // scrollback only when the mirror has none (cold attach, a
+                // rebuilt-blank surface). Steady-state replays request no
+                // scrollback and replay as history-preserving repaints, so
+                // replay-barrier churn during streaming stays cheap and never
+                // destroys locally accumulated history.
+                if let self, self.usesScreenAnchoredRenderGrid {
                     params["anchor"] = MobileTerminalRenderGridFrame.Anchor.screen.rawValue
-                    params["max_scrollback_rows"] =
-                        MobileTerminalRenderGridFrame.screenAnchorScrollbackRowBudget
+                    let needsHydration =
+                        self.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == nil
+                        || self.terminalMirrorHydrationNeededSurfaceIDs.contains(surfaceID)
+                    params["max_scrollback_rows"] = needsHydration
+                        ? MobileTerminalRenderGridFrame.screenAnchorScrollbackRowBudget
+                        : 0
                 }
                 let request = try MobileCoreRPCClient.requestData(
                     method: "mobile.terminal.replay",

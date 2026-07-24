@@ -289,3 +289,78 @@ private func screenFrame(
     )
     #expect(scrolling.scrolledRows == 1)
 }
+
+@Test func screenAnchorScrollbackFreeFullPreservesLocalHistory() throws {
+    let full = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 20,
+        renderEpoch: "epoch-1",
+        renderRevision: 20,
+        columns: 12,
+        rows: 3,
+        cursor: .init(row: 2, column: 0),
+        full: true,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "alpha"),
+            .init(row: 1, column: 0, text: "bravo"),
+        ],
+        anchor: .screen,
+        historyRows: 500
+    )
+
+    let replay = String(decoding: full.vtPatchBytes(), as: UTF8.self)
+
+    // No scrollback erase and no line-feed flow: the consumer's local
+    // history survives; rows repaint in place by absolute position.
+    #expect(!replay.contains("\u{1B}[3J"))
+    #expect(!replay.contains("\r\n"))
+    #expect(replay.contains("\u{1B}[1;1H\u{1B}[2K"))
+    #expect(replay.contains("\u{1B}[3;1H\u{1B}[2K"))
+    #expect(replay.contains("alpha"))
+    #expect(replay.contains("bravo"))
+}
+
+@Test func hydratingScreenAnchorFullKeepsResetFlow() throws {
+    let full = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 20,
+        renderEpoch: "epoch-1",
+        renderRevision: 20,
+        columns: 12,
+        rows: 2,
+        cursor: .init(row: 1, column: 0),
+        full: true,
+        rowSpans: [.init(row: 0, column: 0, text: "tail")],
+        scrollbackRows: 2,
+        scrollbackSpans: [
+            .init(row: 0, column: 0, text: "old1"),
+            .init(row: 1, column: 0, text: "old2"),
+        ],
+        anchor: .screen,
+        historyRows: 500
+    )
+
+    let replay = String(decoding: full.vtPatchBytes(), as: UTF8.self)
+
+    // Hydration replaces the mirror wholesale: reset + natural flow.
+    #expect(replay.contains("\u{1B}[3J"))
+    #expect(replay.contains("\r\n"))
+    #expect(replay.contains("old1"))
+    #expect(replay.contains("old2"))
+    #expect(replay.contains("tail"))
+}
+
+@Test func viewportAnchoredFullKeepsResetFlow() throws {
+    let full = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 20,
+        columns: 12,
+        rows: 2,
+        rowSpans: [.init(row: 0, column: 0, text: "v1full")]
+    )
+
+    let replay = String(decoding: full.vtPatchBytes(), as: UTF8.self)
+
+    #expect(full.anchor == .viewport)
+    #expect(replay.contains("\u{1B}[3J"))
+}

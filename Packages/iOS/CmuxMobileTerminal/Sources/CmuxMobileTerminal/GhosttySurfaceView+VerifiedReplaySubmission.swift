@@ -190,12 +190,17 @@ private func exportVerifiedReplayGridSynchronously(
     _ read: VerifiedReplaySurfaceRead
 ) -> MobileTerminalRenderGridFrame? {
     let exported = read.surfaceID.withCString { pointer in
-        ghostty_surface_render_grid_json(
+        // Screen-anchored frames verify against the ACTIVE area so a locally
+        // scrolled viewport cannot fail the read-back; viewport-anchored (v1)
+        // frames keep the historical viewport read.
+        ghostty_surface_render_grid_json_v2(
             read.surface,
             pointer,
             UInt(read.surfaceID.utf8.count),
             read.stateSeq,
-            0
+            0,
+            false,
+            read.anchor == .screen
         )
     }
     defer { ghostty_string_free(exported) }

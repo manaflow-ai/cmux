@@ -149,12 +149,27 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         bytes.append(oscColorOrResetBytes(12, reset: 112, frame.terminalCursorColor))
         appendPaletteRestore(to: &bytes)
         bytes.append(sgrBytes(for: defaultStyle))
+        // A screen-anchored full without scrollback preserves the consumer's
+        // local history: it repaints the active grid in place instead of
+        // resetting the terminal. Screen-anchored consumers accumulate deep
+        // local scrollback (hydrated once, then grown by scrolling deltas),
+        // and mid-stream authoritative repaints - theme changes, replay
+        // barriers, resyncs - must not destroy it or yank a locally scrolled
+        // viewport. Hydrating fulls (scrollback rows present) and viewport-
+        // anchored (v1) fulls keep the historical reset+flow.
+        let preservesLocalHistory = frame.anchor == .screen
+            && frame.activeScreen == .primary
+            && frame.scrollbackRows == 0
         // DECSC at home with the default pen resets each screen's saved
         // cursor to the RIS baseline; a stale DECSC from the reused surface
         // must not survive the replay, and the snapshot cursor is never
         // saved (a later bare DECRC/?1048l restore should land on the
         // default, matching what RIS left behind).
-        bytes.append(Data("\u{1B}[H\u{1B}7\u{1B}[2J\u{1B}[3J\u{1B}[?1049h".utf8))
+        if preservesLocalHistory {
+            bytes.append(Data("\u{1B}[H\u{1B}7\u{1B}[?1049h".utf8))
+        } else {
+            bytes.append(Data("\u{1B}[H\u{1B}7\u{1B}[2J\u{1B}[3J\u{1B}[?1049h".utf8))
+        }
 
         bytes.append(Data(hyperlinkStateReset.utf8))
         bytes.append(Data(semanticPromptReset.utf8))
@@ -191,6 +206,24 @@ public struct MobileTerminalRenderGridReplay: Sendable {
                 defaultStyle: defaultStyle,
                 terminateLast: false
             )
+        } else if preservesLocalHistory {
+            // Repaint the active grid in place (clear each row, then paint its
+            // spans by absolute position). No line feeds at the bottom row, so
+            // nothing is pushed into - and nothing erases - local scrollback.
+            for row in 0..<frame.rows {
+                bytes.append(sgrBytes(for: defaultStyle))
+                bytes.append(Data("\u{1B}[\(row + 1);1H\u{1B}[2K".utf8))
+            }
+            var activeStyleID: Int?
+            for span in frame.rowSpans {
+                guard !span.text.isEmpty else { continue }
+                let style = activeStyleID != span.styleID ? stylesByID[span.styleID] : nil
+                appendSpanReplay(span, row: span.row, style: style, to: &bytes)
+                if activeStyleID != span.styleID, style != nil {
+                    activeStyleID = span.styleID
+                }
+            }
+            bytes.append(sgrBytes(for: defaultStyle))
         } else {
             // Primary: scrollback then the viewport as one continuous flow so
             // the scrollback naturally lands in the client's history.

@@ -334,9 +334,13 @@ final class MobileTerminalRenderObserver {
         forceIncludeTheme: Bool,
         sharedTheme: inout (config: TerminalTheme?, theme: TerminalTheme, revision: UInt64)?
     ) -> MobileTerminalRenderGridFrame? {
-        let fullScrollbackTarget = anchor == .screen
-            ? MobileTerminalRenderGridFrame.screenAnchorScrollbackRowBudget
-            : 0
+        // Event-lane fulls stay scrollback-free for BOTH anchors: a screen-
+        // anchored full without scrollback replays as a history-preserving
+        // in-place repaint on the consumer, so deep hydration is needed only
+        // on the explicit replay RPC (cold attach / surface rebuild). Carrying
+        // 4000 rows here would turn every mid-stream reset into a multi-MB
+        // frame and starve the event lane during replay-barrier churn.
+        let fullScrollbackTarget = 0
         var scrollbackLines = 0
         var allowScrollbackRequest = true
         while true {
@@ -413,6 +417,22 @@ final class MobileTerminalRenderObserver {
     private func refreshTerminalTheme() {
         cachedTerminalTheme = TerminalTheme.currentMacTerminalThemeSnapshot()
         hasLoadedTerminalTheme = true
+    }
+
+    /// Rebase the screen-anchored delta chain onto an authoritative replay
+    /// frame served outside the event lane (the `mobile.terminal.replay` RPC).
+    /// The next emitted delta is then diffed against exactly the state the
+    /// consumer just applied, so its `deltaBaseHistoryRows` chains from the
+    /// replay even while output streams. Without this, a mid-stream replay
+    /// leaves the emission baseline behind the delivered state and every
+    /// subsequent delta breaks the consumer's continuity check.
+    ///
+    /// Shared across screen-anchored subscribers: a replay served to one phone
+    /// rebases the chain for all of them; the others recover through their own
+    /// continuity check. Same-surface multi-phone viewing is rare.
+    func adoptReplayBaseline(_ frame: MobileTerminalRenderGridFrame, surfaceID: UUID) {
+        guard frame.anchor == .screen else { return }
+        renderGridStatesBySurfaceID[surfaceID, default: [:]][.screen] = frame.emissionState
     }
 
     func decorateReplayFrame(_ frame: MobileTerminalRenderGridFrame) -> MobileTerminalRenderGridFrame {
