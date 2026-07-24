@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{
     Receiver, RecvError, RecvTimeoutError, SyncSender, TryRecvError, TrySendError, sync_channel,
 };
-use std::sync::{Arc, Mutex, TryLockError, Weak};
+use std::sync::{Arc, Condvar, Mutex, TryLockError, Weak};
 use std::time::{Duration, Instant};
 
 use ghostty_vt::{
@@ -603,12 +603,256 @@ enum PtyRuntime {
     Local {
         writer: Box<dyn Write + Send>,
         master: Box<dyn MasterPty + Send>,
-        killer: Box<dyn ChildKiller + Send>,
+        process: LocalProcess,
     },
     #[cfg(unix)]
     Hosted(Box<crate::terminal_host_runtime::HostAttachment>),
     #[cfg(unix)]
     ExitedHosted,
+}
+
+enum LocalProcess {
+    Owned(Arc<LocalPtyProcess>),
+    #[cfg(test)]
+    Untracked(Box<dyn ChildKiller + Send>),
+}
+
+impl LocalProcess {
+    fn request_hangup(&mut self) -> bool {
+        match self {
+            Self::Owned(process) => process.request_hangup(),
+            #[cfg(test)]
+            Self::Untracked(killer) => killer.kill().is_ok(),
+        }
+    }
+
+    fn terminate_and_wait(&mut self, master: &dyn MasterPty, deadline: Instant) -> bool {
+        match self {
+            Self::Owned(process) => process.terminate_and_wait(master, deadline),
+            #[cfg(test)]
+            Self::Untracked(killer) => killer.kill().is_ok(),
+        }
+    }
+}
+
+struct LocalPtyProcess {
+    killer: Mutex<Box<dyn ChildKiller + Send>>,
+    #[cfg(unix)]
+    pid: Option<u32>,
+    exited: (Mutex<bool>, Condvar),
+    #[cfg(unix)]
+    pty_drained: AtomicBool,
+    #[cfg(unix)]
+    child_waitable: AtomicBool,
+    #[cfg(unix)]
+    termination_started: AtomicBool,
+    #[cfg(unix)]
+    child_signal_lock: Mutex<()>,
+    #[cfg(unix)]
+    child_reaped: AtomicBool,
+    #[cfg(unix)]
+    group_escalation_complete: AtomicBool,
+}
+
+impl LocalPtyProcess {
+    fn new(pid: Option<u32>, killer: Box<dyn ChildKiller + Send>) -> Arc<Self> {
+        #[cfg(not(unix))]
+        let _ = pid;
+        Arc::new(Self {
+            killer: Mutex::new(killer),
+            #[cfg(unix)]
+            pid,
+            exited: (Mutex::new(false), Condvar::new()),
+            #[cfg(unix)]
+            pty_drained: AtomicBool::new(false),
+            #[cfg(unix)]
+            child_waitable: AtomicBool::new(false),
+            #[cfg(unix)]
+            termination_started: AtomicBool::new(false),
+            #[cfg(unix)]
+            child_signal_lock: Mutex::new(()),
+            #[cfg(unix)]
+            child_reaped: AtomicBool::new(false),
+            #[cfg(unix)]
+            group_escalation_complete: AtomicBool::new(false),
+        })
+    }
+
+    fn spawn_reaper(
+        self: &Arc<Self>,
+        mut child: Box<dyn portable_pty::Child + Send + Sync>,
+    ) -> std::io::Result<()> {
+        let process = self.clone();
+        std::thread::Builder::new().name("surface-child".into()).spawn(move || {
+            #[cfg(unix)]
+            {
+                let observed_without_reaping = process
+                    .pid
+                    .and_then(|pid| libc::pid_t::try_from(pid).ok())
+                    .is_some_and(|pid| wait_for_local_child_without_reaping(pid).is_ok());
+                if observed_without_reaping {
+                    process.child_waitable.store(true, Ordering::Release);
+                    process.exited.1.notify_all();
+                    loop {
+                        let signal = process.child_signal_lock.lock().unwrap();
+                        let escalation_complete =
+                            process.group_escalation_complete.load(Ordering::Acquire);
+                        let termination_started =
+                            process.termination_started.load(Ordering::Acquire);
+                        let pty_drained = process.pty_drained.load(Ordering::Acquire);
+                        if escalation_complete || (!termination_started && pty_drained) {
+                            let _ = child.wait();
+                            process.child_reaped.store(true, Ordering::Release);
+                            drop(signal);
+                            break;
+                        }
+                        drop(signal);
+                        let state = process.exited.0.lock().unwrap();
+                        let _state = process
+                            .exited
+                            .1
+                            .wait_while(state, |_| {
+                                !process.group_escalation_complete.load(Ordering::Acquire)
+                                    && (process.termination_started.load(Ordering::Acquire)
+                                        || !process.pty_drained.load(Ordering::Acquire))
+                            })
+                            .unwrap();
+                    }
+                } else {
+                    let _ = child.wait();
+                    process.child_reaped.store(true, Ordering::Release);
+                    process.child_waitable.store(true, Ordering::Release);
+                }
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = child.wait();
+            }
+            *process.exited.0.lock().unwrap() = true;
+            process.exited.1.notify_all();
+        })?;
+        Ok(())
+    }
+
+    fn request_hangup(&self) -> bool {
+        self.killer.lock().unwrap().kill().is_ok()
+    }
+
+    fn mark_pty_drained(&self) {
+        #[cfg(unix)]
+        {
+            self.pty_drained.store(true, Ordering::Release);
+            self.exited.1.notify_all();
+        }
+    }
+
+    fn wait_for_exit_until(&self, deadline: Instant) -> bool {
+        let exited = self.exited.0.lock().unwrap();
+        if *exited {
+            return true;
+        }
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            return false;
+        };
+        let (exited, _) =
+            self.exited.1.wait_timeout_while(exited, remaining, |exited| !*exited).unwrap();
+        *exited
+    }
+
+    #[cfg(unix)]
+    fn wait_for_child_waitable_until(&self, deadline: Instant) {
+        if self.child_waitable.load(Ordering::Acquire) {
+            return;
+        }
+        let state = self.exited.0.lock().unwrap();
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else { return };
+        let _ = self
+            .exited
+            .1
+            .wait_timeout_while(state, remaining, |_| !self.child_waitable.load(Ordering::Acquire))
+            .unwrap();
+    }
+
+    #[cfg(unix)]
+    fn signal_terminal_process_groups(&self, master: &dyn MasterPty, signal: libc::c_int) {
+        let _signal = self.child_signal_lock.lock().unwrap();
+        if self.child_reaped.load(Ordering::Acquire) {
+            return;
+        }
+        let mut groups = self
+            .pid
+            .and_then(|pid| libc::pid_t::try_from(pid).ok())
+            .into_iter()
+            .chain(master.process_group_leader())
+            .collect::<Vec<_>>();
+        groups.sort_unstable();
+        groups.dedup();
+        // portable-pty creates a new session for the shell. Signal its
+        // original group and the current foreground job group, while never
+        // addressing the mux's own process group.
+        let mux_group = unsafe { libc::getpgrp() };
+        for group in groups.into_iter().filter(|group| *group > 0 && *group != mux_group) {
+            let _ = unsafe { libc::killpg(group, signal) };
+        }
+    }
+
+    fn terminate_and_wait(&self, master: &dyn MasterPty, deadline: Instant) -> bool {
+        #[cfg(unix)]
+        {
+            {
+                let _signal = self.child_signal_lock.lock().unwrap();
+                if self.child_reaped.load(Ordering::Acquire) {
+                    return true;
+                }
+                self.termination_started.store(true, Ordering::Release);
+            }
+            self.signal_terminal_process_groups(master, libc::SIGHUP);
+            let _ = self.request_hangup();
+            self.wait_for_child_waitable_until(
+                deadline.min(Instant::now() + Duration::from_millis(250)),
+            );
+            // SIGHUP is cooperative. Escalate every owned terminal group so
+            // an ignoring shell or foreground job cannot survive a successful
+            // shutdown acknowledgement.
+            self.signal_terminal_process_groups(master, libc::SIGKILL);
+            self.group_escalation_complete.store(true, Ordering::Release);
+            self.exited.1.notify_all();
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = master;
+            let _ = self.request_hangup();
+        }
+        self.wait_for_exit_until(deadline)
+    }
+}
+
+impl Drop for LocalPtyProcess {
+    fn drop(&mut self) {
+        let _ = self.killer.get_mut().map(|killer| killer.kill());
+    }
+}
+
+#[cfg(unix)]
+fn wait_for_local_child_without_reaping(pid: libc::pid_t) -> std::io::Result<()> {
+    loop {
+        let mut status = std::mem::MaybeUninit::<libc::siginfo_t>::uninit();
+        let result = unsafe {
+            libc::waitid(
+                libc::P_PID,
+                pid as libc::id_t,
+                status.as_mut_ptr(),
+                libc::WEXITED | libc::WNOWAIT,
+            )
+        };
+        if result == 0 {
+            return Ok(());
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
 }
 
 #[cfg(unix)]
@@ -676,19 +920,22 @@ impl Surface {
         #[cfg(unix)]
         if let Some(root) = opts.terminal_host_root.clone() {
             let default_colors = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
+            let launch_cancelled = || mux.upgrade().is_none_or(|mux| mux.is_shutting_down());
             let attachment = match terminal_id {
                 Some(terminal_id) => {
-                    crate::terminal_host_runtime::launch_terminal_host_with_identity(
+                    crate::terminal_host_runtime::launch_terminal_host_with_identity_cancellable(
                         &opts,
                         &root,
                         default_colors,
                         terminal_id,
+                        &launch_cancelled,
                     )?
                 }
-                None => crate::terminal_host_runtime::launch_terminal_host(
+                None => crate::terminal_host_runtime::launch_terminal_host_cancellable(
                     &opts,
                     &root,
                     default_colors,
+                    &launch_cancelled,
                 )?,
             };
             return Self::spawn_hosted(id, opts, mux, attachment, true);
@@ -720,10 +967,12 @@ impl Surface {
             cmd.cwd(cwd);
         }
 
-        let mut child = pty.slave.spawn_command(cmd)?;
+        let child = pty.slave.spawn_command(cmd)?;
         let pid = child.process_id();
         drop(pty.slave);
         let killer = child.clone_killer();
+        let process = LocalPtyProcess::new(pid, killer);
+        let reader_process = process.clone();
         let mut reader = pty.master.try_clone_reader()?;
         let writer = pty.master.take_writer()?;
 
@@ -768,7 +1017,11 @@ impl Surface {
             meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
             term: Mutex::new(term),
             mouse_encoders: Mutex::new(mouse_encoders),
-            runtime: Mutex::new(PtyRuntime::Local { writer, master: pty.master, killer }),
+            runtime: Mutex::new(PtyRuntime::Local {
+                writer,
+                master: pty.master,
+                process: LocalProcess::Owned(process.clone()),
+            }),
             host_identity: None,
             pid,
             command: argv,
@@ -795,10 +1048,14 @@ impl Surface {
             frame_requests,
         }));
 
-        spawn_frame_producer(&surface, frame_rx)?;
+        process.spawn_reaper(child)?;
+        if let Err(error) = spawn_frame_producer(&surface, frame_rx) {
+            let _ = surface.terminate_for_server_shutdown(Instant::now() + Duration::from_secs(2));
+            return Err(error);
+        }
 
         // PTY reader: pty bytes -> terminal state -> SurfaceOutput events.
-        std::thread::Builder::new().name(format!("surface-{id}-reader")).spawn({
+        let reader = std::thread::Builder::new().name(format!("surface-{id}-reader")).spawn({
             let surface = surface.clone();
             move || {
                 let mut buf = [0u8; 64 * 1024];
@@ -872,16 +1129,16 @@ impl Surface {
                 if let Some(pty) = surface.as_pty() {
                     pty.dead.store(true, Ordering::Release);
                 }
+                reader_process.mark_pty_drained();
                 if let Some(mux) = mux.upgrade() {
                     mux.surface_exited(surface.id);
                 }
             }
-        })?;
-
-        // Child reaper: avoid zombies; the reader thread handles EOF.
-        std::thread::Builder::new().name(format!("surface-{id}-wait")).spawn(move || {
-            let _ = child.wait();
-        })?;
+        });
+        if let Err(error) = reader {
+            let _ = surface.terminate_for_server_shutdown(Instant::now() + Duration::from_secs(2));
+            return Err(error.into());
+        }
 
         Ok(surface)
     }
@@ -1498,7 +1755,7 @@ impl Surface {
                         pixel_height: 0,
                     }),
                 }),
-                killer: Box::new(TestChildKiller),
+                process: LocalProcess::Untracked(Box::new(TestChildKiller)),
             }),
             host_identity: None,
             pid: Some(id as u32),
@@ -1525,6 +1782,18 @@ impl Surface {
             render_generation: AtomicU64::new(1),
             frame_requests,
         })))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_server_shutdown_failure_for_test(&self, fail: bool) {
+        let Self::Pty(pty) = self else { return };
+        let mut runtime = pty.runtime.lock().unwrap();
+        let PtyRuntime::Local { process, .. } = &mut *runtime else { return };
+        *process = LocalProcess::Untracked(if fail {
+            Box::new(TestFailingChildKiller)
+        } else {
+            Box::new(TestChildKiller)
+        });
     }
 
     fn as_pty(&self) -> Option<&PtySurface> {
@@ -2069,10 +2338,7 @@ impl Surface {
             Surface::Pty(pty) => {
                 let mut runtime = pty.runtime.lock().unwrap();
                 match &mut *runtime {
-                    PtyRuntime::Local { killer, .. } => {
-                        let _ = killer.kill();
-                        true
-                    }
+                    PtyRuntime::Local { process, .. } => process.request_hangup(),
                     #[cfg(unix)]
                     PtyRuntime::Hosted(host) => {
                         // The host owns record cleanup and removes it only
@@ -2094,27 +2360,29 @@ impl Surface {
 
     /// Start runtime termination. Durable terminal-host death is confirmed
     /// separately through the process-bound discovery record.
-    pub(crate) fn terminate_for_server_shutdown(&self, timeout: Duration) {
+    pub(crate) fn terminate_for_server_shutdown(&self, deadline: Instant) -> bool {
         match self {
-            #[cfg(unix)]
             Surface::Pty(pty) => {
                 let mut runtime = pty.runtime.lock().unwrap();
                 match &mut *runtime {
+                    #[cfg(unix)]
                     PtyRuntime::Hosted(host) => {
+                        let timeout = deadline
+                            .saturating_duration_since(Instant::now())
+                            .min(Duration::from_millis(100));
                         let _ = host.terminate_with_timeout(timeout);
+                        true
                     }
-                    PtyRuntime::Local { killer, .. } => {
-                        let _ = killer.kill();
+                    PtyRuntime::Local { master, process, .. } => {
+                        process.terminate_and_wait(master.as_ref(), deadline)
                     }
-                    PtyRuntime::ExitedHosted => {}
+                    #[cfg(unix)]
+                    PtyRuntime::ExitedHosted => true,
                 }
-            }
-            #[cfg(not(unix))]
-            Surface::Pty(_) => {
-                let _ = self.terminate_runtime();
             }
             Surface::Browser(browser) => {
                 browser.kill();
+                true
             }
         }
     }
@@ -2307,6 +2575,21 @@ impl ChildKiller for TestChildKiller {
 
     fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
         Box::new(TestChildKiller)
+    }
+}
+
+#[cfg(test)]
+#[derive(Debug)]
+struct TestFailingChildKiller;
+
+#[cfg(test)]
+impl ChildKiller for TestFailingChildKiller {
+    fn kill(&mut self) -> std::io::Result<()> {
+        Err(std::io::Error::other("forced shutdown failure"))
+    }
+
+    fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+        Box::new(TestFailingChildKiller)
     }
 }
 

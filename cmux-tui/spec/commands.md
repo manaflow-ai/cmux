@@ -248,7 +248,7 @@ Example:
 | status | implemented |
 | since | protocol 9 additive extension |
 
-Requests an orderly server exit after the success response is queued. The command is accepted only on the local Unix-domain socket. Stopping the mux exits every pane process. Shutdown first fences new surface creation and waits for in-flight creation. It then tombstones all hosted terminals in one registry transaction, clears the complete topology in one state mutation, and terminates pane runtimes before returning success.
+Requests an orderly server exit after the success response is queued. The command is accepted only on the local Unix-domain socket. Stopping the mux exits every pane process. Shutdown uses one five-second deadline to fence new surface creation, drain in-flight creation, tombstone all hosted terminals in one registry transaction, clear the complete topology in one state mutation, and terminate pane runtimes. A success response means every tracked pane process was confirmed terminated before that deadline.
 
 Params: none.
 
@@ -261,7 +261,7 @@ Errors:
 | `shutdown is only available over the local session socket` | Request arrived over WebSocket |
 | `bad request: ...` | Malformed request envelope |
 
-CLI mapping: `cmux-tui server stop`; `cmux-tui server status` uses `identify` and does not issue this command. When an older Unix server does not implement `shutdown`, a newer client verifies that the PID reported by `identify` owns the connected Unix socket, then starts a detached helper. The helper reconnects, verifies the same PID again, closes every surface reported by `list-workspaces`, and signals that verified process. Cleanup survives the caller's pane exit. If either socket-owner check or orderly pane cleanup fails, the helper leaves the server running and reports the failure.
+CLI mapping: `<launcher> server stop`; `<launcher> server status` uses `identify` and does not issue this command. `<launcher>` is the current executable invocation, such as `cmux-tui` for a native binary or `cmux` for the packaged npm and Python launchers. Upgrade recovery instructions use that same launcher for both stop and restart commands. When an older Unix server does not implement `shutdown`, a newer client verifies that the PID reported by `identify` owns the connected Unix socket, then starts a detached helper. The helper reconnects, verifies the same PID again, closes every surface reported by `list-workspaces`, and signals that verified process. Cleanup survives the caller's pane exit. If either socket-owner check or orderly pane cleanup fails, the helper leaves the server running and reports the failure.
 
 `cmux-tui server status` compares the local server's distribution version, source build, terminal-engine build, and protocol with the client. Plain output reports both versions and protocols plus localized mismatch reasons. JSON output is:
 

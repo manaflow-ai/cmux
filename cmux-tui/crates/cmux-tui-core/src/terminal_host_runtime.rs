@@ -293,6 +293,8 @@ mod unix {
     const HOST_PTY_DRAIN_GRACE: Duration = Duration::from_millis(250);
     const HOST_FORCED_DRAIN_WINDOW: Duration = Duration::from_millis(100);
     const HOST_LAUNCH_ROLLBACK_WAIT: Duration = Duration::from_secs(4);
+    const HOST_LAUNCH_TIMEOUT: Duration = Duration::from_secs(10);
+    const HOST_LAUNCH_CANCEL_POLL: Duration = Duration::from_millis(25);
 
     struct SpawnedHostProcess {
         child: Option<std::process::Child>,
@@ -322,6 +324,15 @@ mod unix {
                     Ok(None) | Err(_) => return false,
                 }
             }
+        }
+
+        fn detach_reaper(mut self) {
+            let Some(mut child) = self.child.take() else { return };
+            let _ = thread::Builder::new().name("terminal-host-detached-reaper".into()).spawn(
+                move || {
+                    let _ = child.wait();
+                },
+            );
         }
     }
 
@@ -808,8 +819,23 @@ mod unix {
         root: &Path,
         default_colors: DefaultColors,
     ) -> anyhow::Result<HostAttachment> {
+        launch_terminal_host_cancellable(options, root, default_colors, &|| false)
+    }
+
+    pub(crate) fn launch_terminal_host_cancellable(
+        options: &SurfaceOptions,
+        root: &Path,
+        default_colors: DefaultColors,
+        cancelled: &dyn Fn() -> bool,
+    ) -> anyhow::Result<HostAttachment> {
         let terminal_id = TerminalId::random()?;
-        launch_terminal_host_with_identity(options, root, default_colors, terminal_id)
+        launch_terminal_host_with_identity_cancellable(
+            options,
+            root,
+            default_colors,
+            terminal_id,
+            cancelled,
+        )
     }
 
     /// Launch using a registry-reserved stable UUID. The workspace registry
@@ -820,6 +846,22 @@ mod unix {
         root: &Path,
         default_colors: DefaultColors,
         terminal_id: TerminalId,
+    ) -> anyhow::Result<HostAttachment> {
+        launch_terminal_host_with_identity_cancellable(
+            options,
+            root,
+            default_colors,
+            terminal_id,
+            &|| false,
+        )
+    }
+
+    pub(crate) fn launch_terminal_host_with_identity_cancellable(
+        options: &SurfaceOptions,
+        root: &Path,
+        default_colors: DefaultColors,
+        terminal_id: TerminalId,
+        cancelled: &dyn Fn() -> bool,
     ) -> anyhow::Result<HostAttachment> {
         prepare_private_dir(root)?;
         let owner_token = CapabilityToken::random()?;
@@ -881,8 +923,13 @@ mod unix {
         let host_pid = process.child_mut().id();
         let mut stdin =
             process.child_mut().stdin.take().context("open terminal-host bootstrap stdin")?;
-        let mut stdout =
+        let stdout =
             process.child_mut().stdout.take().context("open terminal-host bootstrap stdout")?;
+        let mut stdout = CancellableHostReader {
+            reader: stdout,
+            deadline: Instant::now() + HOST_LAUNCH_TIMEOUT,
+            cancelled,
+        };
 
         let bootstrap = HostBootstrap {
             min_version: PROTOCOL_VERSION,
@@ -891,7 +938,20 @@ mod unix {
             owner_token,
         };
         write_frame(&mut stdin, &bootstrap.into_frame(1))?;
-        let ready_frame = read_required_frame(&mut stdout, "bootstrap ready")?;
+        let ready_frame = match read_required_frame(&mut stdout, "bootstrap ready") {
+            Ok(frame) => frame,
+            Err(error) => {
+                if cancelled() && record_path.exists() {
+                    // Publication transfers PTY ownership to the durable
+                    // record. Keep that host discoverable so the shutdown
+                    // coordinator can terminate it through the authenticated
+                    // endpoint instead of killing the host and orphaning its
+                    // shell.
+                    process.detach_reaper();
+                }
+                return Err(error);
+            }
+        };
         if ready_frame.kind != MessageKind::Ready {
             anyhow::bail!("terminal host returned {:?} instead of Ready", ready_frame.kind);
         }
@@ -903,7 +963,15 @@ mod unix {
         let mut launch_frame = Frame::new(MessageKind::Launch, launch.encode()?);
         launch_frame.request_id = 2;
         write_frame(&mut stdin, &launch_frame)?;
-        let launched_frame = read_required_frame(&mut stdout, "launch ready")?;
+        let launched_frame = match read_required_frame(&mut stdout, "launch ready") {
+            Ok(frame) => frame,
+            Err(error) => {
+                if cancelled() && record_path.exists() {
+                    process.detach_reaper();
+                }
+                return Err(error);
+            }
+        };
         if launched_frame.kind != MessageKind::Ready || launched_frame.request_id != 2 {
             anyhow::bail!("terminal host did not acknowledge launch");
         }
@@ -931,7 +999,63 @@ mod unix {
         // row Exited.
         let mut attachment = connect_record(record, record_path)?;
         attachment.launch_process = Some(process);
+        if cancelled() {
+            drop(attachment);
+            anyhow::bail!("terminal host launch cancelled because the server is shutting down");
+        }
         Ok(attachment)
+    }
+
+    struct CancellableHostReader<'a, R> {
+        reader: R,
+        deadline: Instant,
+        cancelled: &'a dyn Fn() -> bool,
+    }
+
+    impl<R: Read + AsRawFd> Read for CancellableHostReader<'_, R> {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            loop {
+                if (self.cancelled)() {
+                    return Err(std::io::Error::new(
+                        // `Read::read_exact` transparently retries
+                        // `Interrupted`, so cancellation needs a terminal
+                        // error kind to release the surface-creation permit.
+                        std::io::ErrorKind::ConnectionAborted,
+                        "terminal host launch cancelled during server shutdown",
+                    ));
+                }
+                let Some(remaining) = self.deadline.checked_duration_since(Instant::now()) else {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "terminal host launch timed out",
+                    ));
+                };
+                let wait = remaining.min(HOST_LAUNCH_CANCEL_POLL);
+                let timeout_ms = wait.as_millis().max(1).min(i32::MAX as u128) as i32;
+                let mut descriptor = libc::pollfd {
+                    fd: self.reader.as_raw_fd(),
+                    events: libc::POLLIN | libc::POLLHUP,
+                    revents: 0,
+                };
+                let result = unsafe { libc::poll(&mut descriptor, 1, timeout_ms) };
+                if result > 0 {
+                    if descriptor.revents & libc::POLLNVAL != 0 {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::BrokenPipe,
+                            "terminal host bootstrap pipe became invalid",
+                        ));
+                    }
+                    return self.reader.read(buffer);
+                }
+                if result == 0 {
+                    continue;
+                }
+                let error = std::io::Error::last_os_error();
+                if error.kind() != std::io::ErrorKind::Interrupted {
+                    return Err(error);
+                }
+            }
+        }
     }
 
     pub fn adopt_terminal_host(
@@ -1184,7 +1308,7 @@ mod unix {
         let terminal_id = TerminalId::from_bytes(decode_hex_array(&record.terminal_id)?);
         let incarnation = HostIncarnation::from_bytes(decode_hex_array(&record.incarnation)?);
         let owner_token = CapabilityToken::from_bytes(decode_hex_array(&record.owner_token)?);
-        let mut stream = connect_with_retry(Path::new(&record.endpoint))?;
+        let mut stream = connect_with_timeout(Path::new(&record.endpoint), handshake_timeout)?;
         stream.set_read_timeout(Some(handshake_timeout))?;
         stream.set_write_timeout(Some(handshake_timeout))?;
         let hello = ClientHello {
@@ -1251,20 +1375,18 @@ mod unix {
         Ok(attachment)
     }
 
-    fn connect_with_retry(path: &Path) -> anyhow::Result<UnixStream> {
-        let mut last_error = None;
-        for _ in 0..100 {
-            match UnixStream::connect(path) {
+    fn connect_with_timeout(path: &Path, timeout: Duration) -> anyhow::Result<UnixStream> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            let error = match UnixStream::connect(path) {
                 Ok(stream) => return Ok(stream),
-                Err(error) => {
-                    last_error = Some(error);
-                    thread::sleep(Duration::from_millis(10));
-                }
-            }
+                Err(error) => error,
+            };
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return Err(error.into());
+            };
+            thread::sleep(remaining.min(Duration::from_millis(10)));
         }
-        Err(last_error
-            .unwrap_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "host missing"))
-            .into())
     }
 
     fn read_required_frame(reader: &mut impl Read, context: &str) -> anyhow::Result<Frame> {
@@ -1990,6 +2112,12 @@ mod unix {
     ) -> anyhow::Result<()> {
         if args.iter().map(String::as_str).ne(["--bootstrap-stdio"]) {
             anyhow::bail!("hidden mode requires --bootstrap-stdio");
+        }
+        if let Ok(delay) = std::env::var("CMUX_TUI_TEST_BOOTSTRAP_READY_DELAY_MS")
+            && let Ok(delay) = delay.parse::<u64>()
+            && delay > 0
+        {
+            thread::sleep(Duration::from_millis(delay.min(5_000)));
         }
         let bootstrapped = crate::terminal_host::bootstrap_stdio_once(reader, writer)?;
         let Some(launch_frame) = read_frame(reader, MAX_LAUNCH_PAYLOAD)? else {
@@ -3399,13 +3527,16 @@ mod unix {
 }
 
 #[cfg(unix)]
-pub(crate) use unix::adopt_terminal_host_with_timeout;
-#[cfg(unix)]
 pub use unix::{
     HostAttachment, adopt_terminal_host, isolate_terminal_host_process_fds, launch_terminal_host,
     launch_terminal_host_with_identity, load_terminal_host_records,
     remove_stale_terminal_host_record, serve_terminal_host_stdio, terminal_host_record_liveness,
     terminal_host_root, validate_terminal_host_record,
+};
+#[cfg(unix)]
+pub(crate) use unix::{
+    adopt_terminal_host_with_timeout, launch_terminal_host_cancellable,
+    launch_terminal_host_with_identity_cancellable,
 };
 
 #[cfg(not(unix))]

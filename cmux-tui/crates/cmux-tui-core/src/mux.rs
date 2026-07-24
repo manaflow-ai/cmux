@@ -6,7 +6,7 @@ use std::fmt;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, TryLockError, Weak};
 use std::thread::ThreadId;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -43,7 +43,6 @@ const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
 const PROVIDER_WORKSPACE_AUTHORITY_MIN_BYTES: usize = 32;
 const PROVIDER_WORKSPACE_AUTHORITY_MAX_BYTES: usize = 512;
 const SHUTDOWN_TERMINATION_TIMEOUT: Duration = Duration::from_millis(100);
-const SHUTDOWN_HOST_EXIT_TIMEOUT: Duration = Duration::from_secs(4);
 const SHUTDOWN_FANOUT_WORKERS: usize = 128;
 
 /// An opaque per-mux credential provisioned by the external machine
@@ -619,12 +618,26 @@ impl SurfaceCreationGate {
         Ok(SurfaceCreationGuard { gate: self, thread })
     }
 
-    fn stop_and_wait(&self) {
+    fn stop(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.shutting_down = true;
+        self.idle.notify_all();
+    }
+
+    fn stop_and_wait_until(&self, deadline: Instant) -> bool {
         let mut state = self.state.lock().unwrap();
         state.shutting_down = true;
         while !state.active_threads.is_empty() {
-            state = self.idle.wait(state).unwrap();
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            let (next, timeout) = self.idle.wait_timeout(state, remaining).unwrap();
+            state = next;
+            if timeout.timed_out() && !state.active_threads.is_empty() {
+                return false;
+            }
         }
+        true
     }
 }
 
@@ -773,6 +786,8 @@ pub struct Mux {
     subscribers: MuxEventBroadcaster,
     shutdown_requested: AtomicBool,
     surface_creations: SurfaceCreationGate,
+    shutdown_coordinator: Mutex<()>,
+    shutdown_surfaces: Mutex<Vec<Arc<Surface>>>,
     next_id: AtomicU64,
     next_notification_id: AtomicU64,
     next_active_at: AtomicU64,
@@ -1001,6 +1016,8 @@ impl Mux {
             subscribers: MuxEventBroadcaster::default(),
             shutdown_requested: AtomicBool::new(false),
             surface_creations: SurfaceCreationGate::default(),
+            shutdown_coordinator: Mutex::new(()),
+            shutdown_surfaces: Mutex::new(Vec::new()),
             next_id: AtomicU64::new(next_id),
             next_notification_id: AtomicU64::new(1),
             next_active_at: AtomicU64::new(1),
@@ -3615,8 +3632,11 @@ impl Mux {
 
     pub fn shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
-        self.surface_creations.stop_and_wait();
-        let surfaces = self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
+        let deadline = Instant::now() + crate::server::SERVER_SHUTDOWN_TIMEOUT;
+        let _ = self.surface_creations.stop_and_wait_until(deadline);
+        let mut surfaces =
+            self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
+        surfaces.extend(self.shutdown_surfaces.lock().unwrap().drain(..));
         for surface in surfaces {
             surface.disconnect_for_daemon_shutdown();
         }
@@ -3637,11 +3657,15 @@ impl Mux {
     /// terminal in one transaction, detach the complete topology in one
     /// state mutation, and terminate each runtime before acknowledging the
     /// shutdown request. A failed durable commit leaves topology untouched;
-    /// a failed host termination leaves the fence closed so a retry cannot
-    /// race a new PTY into the session.
+    /// a failed runtime termination keeps process ownership and the fence
+    /// closed so a retry cannot race a new PTY into the session.
     pub fn close_all_surfaces_for_shutdown(&self) -> anyhow::Result<usize> {
+        let deadline = Instant::now() + crate::server::SERVER_SHUTDOWN_TIMEOUT;
+        let _coordinator = self.lock_shutdown_coordinator_until(deadline)?;
         self.shutting_down.store(true, Ordering::Release);
-        self.surface_creations.stop_and_wait();
+        if !self.surface_creations.stop_and_wait_until(deadline) {
+            anyhow::bail!("surface creation did not stop before the shutdown deadline");
+        }
 
         #[cfg(unix)]
         let terminal_host_records = {
@@ -3653,7 +3677,7 @@ impl Mux {
             }
         };
 
-        let (surfaces, tree_changed) = {
+        let (mut surfaces, tree_changed) = {
             let mutation = WorkspaceMutation::local("cmux-tui-shutdown");
             let mut registry = self.workspace_registry.lock().unwrap();
             let terminals = registry
@@ -3688,6 +3712,7 @@ impl Mux {
             }
             (surfaces, tree_changed)
         };
+        surfaces.extend(self.shutdown_surfaces.lock().unwrap().drain(..));
 
         self.pending_workspace_surfaces.lock().unwrap().clear();
         self.agent_records.lock().unwrap().clear();
@@ -3704,34 +3729,79 @@ impl Mux {
             self.emit(MuxEvent::TreeChanged);
         }
 
-        bounded_shutdown_fanout(&surfaces, |surface| {
-            surface.terminate_for_server_shutdown(SHUTDOWN_TERMINATION_TIMEOUT);
+        let failed_surfaces = Mutex::new(Vec::<Arc<Surface>>::new());
+        bounded_shutdown_fanout(&surfaces, deadline, |surface, deadline| {
+            if !surface.terminate_for_server_shutdown(deadline) {
+                failed_surfaces.lock().unwrap().push(surface.clone());
+            }
         });
+        let mut failed_surfaces = failed_surfaces.into_inner().unwrap();
+        failed_surfaces.sort_by_key(|surface| surface.id);
+        let failed_surface_ids =
+            failed_surfaces.iter().map(|surface| surface.id).collect::<Vec<_>>();
+        *self.shutdown_surfaces.lock().unwrap() = failed_surfaces;
 
         #[cfg(unix)]
-        {
+        let failed_hosts = {
             let failed = Mutex::new(Vec::new());
-            bounded_shutdown_fanout(&terminal_host_records, |(path, record)| {
-                if !terminate_and_confirm_terminal_host_record(
-                    record,
-                    path,
-                    SHUTDOWN_HOST_EXIT_TIMEOUT,
-                ) {
-                    failed.lock().unwrap().push(record.terminal_id.clone());
-                }
-            });
+            bounded_shutdown_fanout(
+                &terminal_host_records,
+                deadline,
+                |(path, record), deadline| {
+                    if !terminate_and_confirm_terminal_host_record(record, path, deadline) {
+                        failed.lock().unwrap().push(record.terminal_id.clone());
+                    }
+                },
+            );
             let mut failed = failed.into_inner().unwrap();
-            if !failed.is_empty() {
-                failed.sort();
-                anyhow::bail!(
-                    "could not terminate {} terminal host(s): {}",
-                    failed.len(),
-                    failed.join(", ")
-                );
-            }
+            failed.sort();
+            failed
+        };
+
+        let mut failures = Vec::new();
+        if !failed_surface_ids.is_empty() {
+            failures.push(format!(
+                "could not terminate {} surface process(es): {}",
+                failed_surface_ids.len(),
+                failed_surface_ids
+                    .into_iter()
+                    .map(|surface| surface.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+        #[cfg(unix)]
+        if !failed_hosts.is_empty() {
+            failures.push(format!(
+                "could not terminate {} terminal host(s): {}",
+                failed_hosts.len(),
+                failed_hosts.join(", ")
+            ));
+        }
+        if !failures.is_empty() {
+            anyhow::bail!("{}", failures.join("; "));
         }
 
         Ok(surfaces.len())
+    }
+
+    fn lock_shutdown_coordinator_until(
+        &self,
+        deadline: Instant,
+    ) -> anyhow::Result<MutexGuard<'_, ()>> {
+        loop {
+            match self.shutdown_coordinator.try_lock() {
+                Ok(coordinator) => return Ok(coordinator),
+                Err(TryLockError::Poisoned(_)) => {
+                    anyhow::bail!("shutdown coordinator is unavailable")
+                }
+                Err(TryLockError::WouldBlock) => {}
+            }
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                anyhow::bail!("another shutdown request exceeded the shutdown deadline");
+            };
+            std::thread::sleep(remaining.min(Duration::from_millis(10)));
+        }
     }
 
     /// Atomically reserve a daemon handoff while proving no other native
@@ -3750,12 +3820,16 @@ impl Mux {
     /// and remain available for the replacement daemon to adopt.
     pub fn request_daemon_shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
-        self.surface_creations.stop_and_wait();
+        self.surface_creations.stop();
         self.daemon_shutdown_requested.store(true, Ordering::Release);
     }
 
     pub fn daemon_shutdown_requested(&self) -> bool {
         self.daemon_shutdown_requested.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn is_shutting_down(&self) -> bool {
+        self.shutting_down.load(Ordering::Acquire)
     }
 
     /// Update options used for future surface/browser launches.
@@ -7498,9 +7572,8 @@ fn cleanup_terminal_host_record(
 fn terminate_and_confirm_terminal_host_record(
     record: &crate::terminal_host_runtime::TerminalHostRecord,
     record_path: &Path,
-    timeout: Duration,
+    deadline: Instant,
 ) -> bool {
-    let deadline = Instant::now() + timeout;
     let mut termination_sent = false;
     let mut last_terminate_attempt = None;
     loop {
@@ -7527,7 +7600,9 @@ fn terminate_and_confirm_terminal_host_record(
             termination_sent = terminate_host_record_with_timeout(
                 record.clone(),
                 record_path.to_path_buf(),
-                SHUTDOWN_TERMINATION_TIMEOUT,
+                deadline
+                    .saturating_duration_since(Instant::now())
+                    .min(SHUTDOWN_TERMINATION_TIMEOUT),
             );
             last_terminate_attempt = Some(Instant::now());
         }
@@ -7539,7 +7614,11 @@ fn terminate_and_confirm_terminal_host_record(
     }
 }
 
-fn bounded_shutdown_fanout<T: Sync>(items: &[T], operation: impl Fn(&T) + Sync) {
+fn bounded_shutdown_fanout<T: Sync>(
+    items: &[T],
+    deadline: Instant,
+    operation: impl Fn(&T, Instant) + Sync,
+) {
     if items.is_empty() {
         return;
     }
@@ -7553,7 +7632,7 @@ fn bounded_shutdown_fanout<T: Sync>(items: &[T], operation: impl Fn(&T) + Sync) 
                 loop {
                     let index = next.fetch_add(1, Ordering::Relaxed);
                     let Some(item) = items.get(index) else { break };
-                    operation(item);
+                    operation(item, deadline);
                 }
             });
         }
@@ -9796,19 +9875,42 @@ mod tests {
     }
 
     #[test]
+    fn failed_surface_shutdown_retains_process_ownership_for_retry() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let owned = mux.surface(surface.id).unwrap();
+        owned.set_server_shutdown_failure_for_test(true);
+
+        let error = mux.close_all_surfaces_for_shutdown().unwrap_err();
+
+        assert!(error.to_string().contains("could not terminate 1 surface process"));
+        assert!(mux.surface(surface.id).is_none());
+        assert_eq!(mux.shutdown_surfaces.lock().unwrap().len(), 1);
+
+        owned.set_server_shutdown_failure_for_test(false);
+        assert_eq!(mux.close_all_surfaces_for_shutdown().unwrap(), 1);
+        assert!(mux.shutdown_surfaces.lock().unwrap().is_empty());
+    }
+
+    #[test]
     fn shutdown_fanout_runs_terminations_concurrently() {
         let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
         let (started_tx, started_rx) = std::sync::mpsc::sync_channel(8);
         let worker = std::thread::spawn({
             let gate = gate.clone();
             move || {
-                bounded_shutdown_fanout(&[(); 8], |_| {
-                    started_tx.send(()).unwrap();
-                    let (released, wake) = &*gate;
-                    let released =
-                        wake.wait_while(released.lock().unwrap(), |released| !*released).unwrap();
-                    drop(released);
-                });
+                bounded_shutdown_fanout(
+                    &[(); 8],
+                    Instant::now() + Duration::from_secs(1),
+                    |_, _| {
+                        started_tx.send(()).unwrap();
+                        let (released, wake) = &*gate;
+                        let released = wake
+                            .wait_while(released.lock().unwrap(), |released| !*released)
+                            .unwrap();
+                        drop(released);
+                    },
+                );
             }
         });
 
@@ -9826,6 +9928,36 @@ mod tests {
         wake.notify_all();
         worker.join().unwrap();
         assert_eq!(started, 8);
+    }
+
+    #[test]
+    fn shutdown_fanout_reuses_one_deadline_across_worker_batches() {
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let observed = Mutex::new(Vec::new());
+
+        bounded_shutdown_fanout(
+            &[(); SHUTDOWN_FANOUT_WORKERS * 2 + 1],
+            deadline,
+            |_, item_deadline| {
+                observed.lock().unwrap().push(item_deadline);
+            },
+        );
+
+        let observed = observed.into_inner().unwrap();
+        assert_eq!(observed.len(), SHUTDOWN_FANOUT_WORKERS * 2 + 1);
+        assert!(observed.into_iter().all(|item_deadline| item_deadline == deadline));
+    }
+
+    #[test]
+    fn surface_creation_fence_has_a_bounded_wait() {
+        let gate = SurfaceCreationGate::default();
+        let creation = gate.begin().unwrap();
+        let started = Instant::now();
+
+        assert!(!gate.stop_and_wait_until(started + Duration::from_millis(25)));
+
+        drop(creation);
+        assert!(started.elapsed() < Duration::from_millis(250));
     }
 
     #[test]

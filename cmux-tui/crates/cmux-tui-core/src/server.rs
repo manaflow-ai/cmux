@@ -58,6 +58,9 @@ use crate::{
 const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
 pub const SERVER_SHUTDOWN_CAPABILITY: &str = "server-shutdown-v1";
+/// Maximum wall-clock time the server spends draining a shutdown request.
+/// Clients add their own transport margin to this server-owned bound.
+pub const SERVER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
     "provider-managed-workspace-authority-v2";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);

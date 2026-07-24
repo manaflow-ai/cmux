@@ -40,7 +40,10 @@ try {
   process.exit(1);
 }
 
-const result = spawnSync(binPath, process.argv.slice(2), { stdio: "inherit" });
+const result = spawnSync(binPath, process.argv.slice(2), {
+  argv0: "cmux",
+  stdio: "inherit",
+});
 
 if (result.error) {
   console.error(`cmux: failed to launch ${binPath}: ${result.error.message}`);

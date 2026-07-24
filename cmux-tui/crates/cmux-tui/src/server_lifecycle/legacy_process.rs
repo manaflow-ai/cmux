@@ -264,19 +264,35 @@ fn process_snapshot(pid: libc::pid_t) -> io::Result<Option<ProcessSnapshot>> {
 
 #[cfg(target_os = "linux")]
 fn direct_child_pids(parent: libc::pid_t) -> io::Result<Vec<libc::pid_t>> {
-    let path = format!("/proc/{parent}/task/{parent}/children");
-    let children = match std::fs::read_to_string(path) {
-        Ok(children) => children,
+    let task_root = format!("/proc/{parent}/task");
+    let tasks = match std::fs::read_dir(task_root) {
+        Ok(tasks) => tasks,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(error),
     };
-    let mut pids = children
-        .split_whitespace()
-        .map(|pid| {
-            pid.parse::<libc::pid_t>().map_err(|_| io::Error::other("invalid child process id"))
-        })
-        .collect::<io::Result<Vec<_>>>()?;
-    pids.retain(|pid| *pid > 1);
+    let mut pids = HashSet::new();
+    for task in tasks {
+        let task = match task {
+            Ok(task) => task,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error),
+        };
+        let children = match std::fs::read_to_string(task.path().join("children")) {
+            Ok(children) => children,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error),
+        };
+        for pid in children.split_whitespace() {
+            let pid = pid
+                .parse::<libc::pid_t>()
+                .map_err(|_| io::Error::other("invalid child process id"))?;
+            if pid > 1 {
+                pids.insert(pid);
+            }
+        }
+    }
+    let mut pids = pids.into_iter().collect::<Vec<_>>();
+    pids.sort_unstable();
     Ok(pids)
 }
 

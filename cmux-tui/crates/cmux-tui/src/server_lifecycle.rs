@@ -7,7 +7,9 @@ use std::time::{Duration, Instant};
 
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::release::ReleaseIdentity;
-use cmux_tui_core::server::{PROTOCOL_VERSION, SERVER_SHUTDOWN_CAPABILITY};
+use cmux_tui_core::server::{
+    PROTOCOL_VERSION, SERVER_SHUTDOWN_CAPABILITY, SERVER_SHUTDOWN_TIMEOUT,
+};
 use serde_json::{Value, json};
 
 #[cfg(unix)]
@@ -24,6 +26,9 @@ const LEGACY_STABLE_EMPTY_SCANS: usize = 2;
 #[cfg(unix)]
 const LEGACY_MAX_SCAN_ROUNDS: usize = 64;
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
+const SHUTDOWN_TRANSPORT_MARGIN: Duration = Duration::from_secs(5);
+const SHUTDOWN_RESPONSE_TIMEOUT: Duration =
+    SERVER_SHUTDOWN_TIMEOUT.saturating_add(SHUTDOWN_TRANSPORT_MARGIN);
 
 type TransportReader = BufReader<Box<dyn transport::Stream>>;
 
@@ -186,19 +191,26 @@ impl ServerLifecycle {
             return self.stop_legacy_server();
         }
 
+        self.reader
+            .get_mut()
+            .set_read_timeout(Some(SHUTDOWN_RESPONSE_TIMEOUT))
+            .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.transport_failed))?;
         write_json_line(
             self.reader.get_mut(),
             &json!({"id": SHUTDOWN_REQUEST_ID, "cmd": "shutdown"}),
         )
         .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.transport_failed))?;
 
-        let accepted = match read_shutdown_response(&mut self.reader, SHUTDOWN_REQUEST_ID) {
-            Ok(response) => response.get("ok").and_then(Value::as_bool) == Some(true),
+        let response = match read_shutdown_response(&mut self.reader, SHUTDOWN_REQUEST_ID) {
+            Ok(response) => response,
             Err(_error) if connection_is_gone(&self.path) => return Ok(()),
             Err(error) => return Err(error),
         };
-        if accepted {
+        if response.get("ok").and_then(Value::as_bool) == Some(true) {
             return wait_for_disconnect(&mut self.reader);
+        }
+        if let Some(error) = response.get("error").and_then(Value::as_str) {
+            anyhow::bail!("{}: {error}", crate::localization::catalog().server.shutdown_failed);
         }
         anyhow::bail!(crate::localization::catalog().server.shutdown_failed)
     }
@@ -382,9 +394,16 @@ pub(crate) fn incompatible_server_message(identity: &ServerIdentity, path: &Path
         .map(|reason| reason.message(messages))
         .collect::<Vec<_>>()
         .join(messages.reason_separator);
-    let command = format!("cmux-tui server stop --socket {}", shell_quote(path));
-    let restart =
-        format!("{}{}{}", messages.restart_before_command, command, messages.restart_after_command);
+    let launcher = current_launcher_command();
+    let command = format!("{launcher} server stop --socket {}", shell_quote(path));
+    let restart = format!(
+        "{}{}{}{}{}",
+        messages.restart_before_command,
+        command,
+        messages.restart_between_commands,
+        launcher,
+        messages.restart_after_command
+    );
     format!(
         "{}\n\n{}: v{} {} {}\n{}: v{} {} {}\n{}: {}\n\n{}\n{}\n{}",
         messages.incompatible_local_server,
@@ -404,6 +423,15 @@ pub(crate) fn incompatible_server_message(identity: &ServerIdentity, path: &Path
     )
 }
 
+fn current_launcher_command() -> String {
+    std::env::args_os()
+        .next()
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .map(|path| shell_quote(&path))
+        .unwrap_or_else(|| "cmux-tui".to_string())
+}
+
 pub(crate) fn write_json_line(writer: &mut dyn Write, value: &Value) -> std::io::Result<()> {
     serde_json::to_writer(&mut *writer, value).map_err(std::io::Error::other)?;
     writer.write_all(b"\n")
@@ -414,7 +442,7 @@ fn read_response(reader: &mut TransportReader, request_id: u64) -> anyhow::Resul
 }
 
 fn read_shutdown_response(reader: &mut TransportReader, request_id: u64) -> anyhow::Result<Value> {
-    read_matching_response(reader, request_id, true)
+    read_matching_response_with_timeout(reader, request_id, true, SHUTDOWN_RESPONSE_TIMEOUT)
 }
 
 fn read_matching_response(
@@ -422,7 +450,21 @@ fn read_matching_response(
     request_id: u64,
     accept_unidentified_error: bool,
 ) -> anyhow::Result<Value> {
-    let deadline = Instant::now() + RESPONSE_TIMEOUT;
+    read_matching_response_with_timeout(
+        reader,
+        request_id,
+        accept_unidentified_error,
+        RESPONSE_TIMEOUT,
+    )
+}
+
+fn read_matching_response_with_timeout(
+    reader: &mut TransportReader,
+    request_id: u64,
+    accept_unidentified_error: bool,
+    timeout: Duration,
+) -> anyhow::Result<Value> {
+    let deadline = Instant::now() + timeout;
     let mut line = String::new();
     loop {
         match reader.read_line(&mut line) {
@@ -548,7 +590,12 @@ mod tests {
         assert!(message.contains("source build differs"));
         assert!(message.contains("terminal engine build differs"));
         assert!(message.contains("protocol differs"));
-        assert!(message.contains("cmux-tui server stop --socket '/tmp/test socket'"));
+        let launcher = current_launcher_command();
+        assert!(
+            message.contains(&format!("{launcher} server stop --socket '/tmp/test socket'")),
+            "{message}"
+        );
+        assert!(message.contains(&format!("then run `{launcher}` again")), "{message}");
         assert!(message.contains("Stopping exits pane processes."));
     }
 
