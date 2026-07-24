@@ -65,7 +65,7 @@ struct CJKIMEMarkedSelectionTests {
         #expect(substring?.string == expected)
     }
 
-    @Test func keyDownThatStartsPreeditStaysComposing() throws {
+    @Test func keyDownThatStartsPreeditOwnsItsPressAndRelease() throws {
         let hostedTerminal = try makeHostedTerminalWindow()
         let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
         let previousInterpretHook = cjkIMEInterpretKeyEventsHook
@@ -88,6 +88,115 @@ struct CJKIMEMarkedSelectionTests {
         }
 
         var recordedKeys: [RecordedKey] = []
+        var releasedKeyCodes: [UInt32] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            if keyEvent.action == GHOSTTY_ACTION_PRESS {
+                recordedKeys.append(RecordedKey(
+                    keyCode: keyEvent.keycode,
+                    text: keyEvent.text.map(String.init(cString:)),
+                    composing: keyEvent.composing
+                ))
+            } else if keyEvent.action == GHOSTTY_ACTION_RELEASE {
+                releasedKeyCodes.append(keyEvent.keycode)
+            }
+        }
+
+        let event = try keyEvent(
+            text: "5",
+            keyCode: UInt16(kVK_ANSI_5),
+            windowNumber: hostedTerminal.window.windowNumber
+        )
+        hostedTerminal.window.makeFirstResponder(hostedTerminal.surfaceView)
+        hostedTerminal.surfaceView.keyDown(with: event)
+        let keyUp = try #require(NSEvent.keyEvent(
+            with: .keyUp,
+            location: event.locationInWindow,
+            modifierFlags: event.modifierFlags,
+            timestamp: event.timestamp + 0.01,
+            windowNumber: event.windowNumber,
+            context: nil,
+            characters: event.characters ?? "",
+            charactersIgnoringModifiers: event.charactersIgnoringModifiers ?? "",
+            isARepeat: false,
+            keyCode: event.keyCode
+        ))
+        hostedTerminal.surfaceView.keyUp(with: keyUp)
+
+        #expect(hostedTerminal.surfaceView.hasMarkedText())
+        #expect(recordedKeys.isEmpty)
+        #expect(releasedKeyCodes.isEmpty)
+    }
+
+    @Test func textInputConsumptionWithoutCallbacksDoesNotSynthesizeFallback() throws {
+        let hostedTerminal = try makeHostedTerminalWindow()
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            hostedTerminal.window.orderOut(nil)
+            withExtendedLifetime(hostedTerminal.surface) {}
+        }
+
+        installCJKIMEInterpretKeyEventsSwizzle()
+        cjkIMEInterpretKeyEventsHook = { candidateView, _ in
+            candidateView === hostedTerminal.surfaceView
+        }
+
+        var pressedKeyCodes: [UInt32] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
+            pressedKeyCodes.append(keyEvent.keycode)
+        }
+
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.shift],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: hostedTerminal.window.windowNumber,
+            context: nil,
+            characters: " ",
+            charactersIgnoringModifiers: " ",
+            isARepeat: false,
+            keyCode: UInt16(kVK_Space)
+        ))
+        hostedTerminal.window.makeFirstResponder(hostedTerminal.surfaceView)
+        hostedTerminal.surfaceView.keyDown(with: event)
+
+        #expect(pressedKeyCodes.isEmpty)
+    }
+
+    @Test func textInputCommandAfterPreeditCommitReplaysPhysicalKey() throws {
+        let hostedTerminal = try makeHostedTerminalWindow()
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            hostedTerminal.window.orderOut(nil)
+            withExtendedLifetime(hostedTerminal.surface) {}
+        }
+
+        hostedTerminal.surfaceView.setMarkedText(
+            "preedit",
+            selectedRange: NSRange(location: 7, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+        installCJKIMEInterpretKeyEventsSwizzle()
+        cjkIMEInterpretKeyEventsHook = { candidateView, _ in
+            guard candidateView === hostedTerminal.surfaceView else { return false }
+            candidateView.insertText(
+                "committed",
+                replacementRange: NSRange(location: NSNotFound, length: 0)
+            )
+            candidateView.doCommand(by: NSSelectorFromString("insertNewline:"))
+            return true
+        }
+
+        var recordedKeys: [RecordedKey] = []
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
             previousKeyEventObserver?(keyEvent)
             guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
@@ -99,16 +208,16 @@ struct CJKIMEMarkedSelectionTests {
         }
 
         let event = try keyEvent(
-            text: "5",
-            keyCode: UInt16(kVK_ANSI_5),
+            text: "\r",
+            keyCode: UInt16(kVK_Return),
             windowNumber: hostedTerminal.window.windowNumber
         )
         hostedTerminal.window.makeFirstResponder(hostedTerminal.surfaceView)
         hostedTerminal.surfaceView.keyDown(with: event)
 
-        #expect(hostedTerminal.surfaceView.hasMarkedText())
         #expect(recordedKeys == [
-            RecordedKey(keyCode: UInt32(kVK_ANSI_5), text: "5", composing: true),
+            RecordedKey(keyCode: 0, text: "committed", composing: false),
+            RecordedKey(keyCode: UInt32(kVK_Return), text: nil, composing: false),
         ])
     }
 

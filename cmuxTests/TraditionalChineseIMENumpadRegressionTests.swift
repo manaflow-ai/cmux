@@ -17,7 +17,7 @@ struct TraditionalChineseIMENumpadRegressionTests {
         let surfaceView: GhosttyNSView
     }
 
-    @Test func keypadCommitDuringTextInterpretationSendsOneKey() throws {
+    @Test func deferredKeypadCommitAfterTextInterpretationSendsOneKey() throws {
         let hostedTerminal = try makeHostedTerminalWindow()
         let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
         let previousInterpretHook = cjkIMEInterpretKeyEventsHook
@@ -31,10 +31,12 @@ struct TraditionalChineseIMENumpadRegressionTests {
         installCJKIMEInterpretKeyEventsSwizzle()
         cjkIMEInterpretKeyEventsHook = { candidateView, _ in
             guard candidateView === hostedTerminal.surfaceView else { return false }
-            candidateView.insertText(
-                "1",
-                replacementRange: NSRange(location: NSNotFound, length: 0)
-            )
+            DispatchQueue.main.async {
+                candidateView.insertText(
+                    "1",
+                    replacementRange: NSRange(location: NSNotFound, length: 0)
+                )
+            }
             return true
         }
 
@@ -62,6 +64,7 @@ struct TraditionalChineseIMENumpadRegressionTests {
         ))
         hostedTerminal.window.makeFirstResponder(hostedTerminal.surfaceView)
         hostedTerminal.surfaceView.keyDown(with: event)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
         #expect(pressedText == ["1"])
     }
