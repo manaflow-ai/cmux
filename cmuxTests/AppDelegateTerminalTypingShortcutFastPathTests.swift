@@ -34,7 +34,7 @@ struct AppDelegateTerminalTypingShortcutFastPathTests {
         terminalPanel.hostedView.setVisibleInUI(true)
         terminalPanel.hostedView.setActive(true)
         terminalPanel.hostedView.moveFocus()
-        window.displayIfNeeded()
+        mainWindow.displayIfNeeded()
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         #expect(
