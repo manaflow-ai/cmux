@@ -13315,13 +13315,13 @@ mod tests {
 
             // A concurrent frontend can invalidate routing after the press.
             // The release still belongs to the armed stable workspace ID.
-            app.routing_refresh_pending = true;
+            app.pointer_route_phase = PointerRoutePhase::DrawPending;
             app.handle(event(MouseEventKind::Up(MouseButton::Left))).unwrap();
             assert_eq!(app.tree.active_workspace, 0);
 
             let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
             app.handle(settled).unwrap();
-            app.routing_refresh_pending = false;
+            app.pointer_route_phase = PointerRoutePhase::Fresh;
             assert_eq!(mux.with_state(|state| state.active_workspace), 0);
         }
 
@@ -13382,7 +13382,7 @@ mod tests {
         app.handle(event(MouseEventKind::Down(MouseButton::Left))).unwrap();
         assert!(matches!(app.drag, Some(Drag::TabArm { surface, .. }) if surface == first.id));
 
-        app.routing_refresh_pending = true;
+        app.pointer_route_phase = PointerRoutePhase::DrawPending;
         app.handle(event(MouseEventKind::Up(MouseButton::Left))).unwrap();
         assert_eq!(app.active_surface(), Some(first.id));
 
@@ -13390,7 +13390,7 @@ mod tests {
             let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
             app.handle(settled).unwrap();
         }
-        app.routing_refresh_pending = false;
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
         assert_eq!(mux.active_surface(), Some(first.id));
 
         let workspace = mux.with_state(|state| state.workspaces[state.active_workspace].id);
@@ -14246,7 +14246,7 @@ mod tests {
         assert!(app.pending_pointer_motion.is_none());
         assert!(app.deferred_input.is_empty());
 
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -14771,6 +14771,8 @@ mod tests {
         let surface = 77;
         app.session.remote = true;
         app.replace_tree(notify_tree(surface, false));
+        app.rendered_terminal_sizes.insert(surface, (12, 5));
+        app.rendered_terminal_bounds.insert(surface, Rect { x: 2, y: 3, width: 12, height: 5 });
         app.deferred_input.push_back(DeferredInput {
             event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             destination: Some(surface),
@@ -14786,6 +14788,8 @@ mod tests {
         );
         assert!(!app.tab_locations.contains_key(&surface));
         assert!(app.tree.workspaces[0].screens[0].panes[0].tabs.is_empty());
+        assert!(!app.rendered_terminal_sizes.contains_key(&surface));
+        assert!(!app.rendered_terminal_bounds.contains_key(&surface));
 
         // Simulate the stale cached remote tree being painted before the
         // authoritative exit refresh arrives. The exited-surface guard must
@@ -15572,6 +15576,35 @@ mod tests {
     }
 
     #[test]
+    fn session_presentation_reset_clears_rendered_terminal_caches() {
+        let mux = Mux::new("reset-rendered-terminal-state-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.rendered_terminal_sizes.insert(77, (12, 5));
+        app.rendered_terminal_bounds.insert(77, Rect { x: 2, y: 3, width: 12, height: 5 });
+
+        app.reset_session_presentation(TreeView::default());
+
+        assert!(app.rendered_terminal_sizes.is_empty());
+        assert!(app.rendered_terminal_bounds.is_empty());
+    }
+
+    #[test]
+    fn session_presentation_reset_discards_the_previous_pointer_frame() {
+        let mux = Mux::new("reset-rendered-pointer-frame-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.rendered_pointer_frame.pairing = Some((
+            41,
+            Rect { x: 1, y: 1, width: 20, height: 10 },
+            Rect { x: 3, y: 8, width: 6, height: 1 },
+            Rect { x: 12, y: 8, width: 6, height: 1 },
+        ));
+
+        app.reset_session_presentation(TreeView::default());
+
+        assert!(app.rendered_pointer_frame.pairing.is_none());
+    }
+
+    #[test]
     fn pointer_motion_continues_during_non_routing_background_mutation() {
         let mux = Mux::new("background-pointer-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -15823,7 +15856,7 @@ mod tests {
         );
         assert!(app.deferred_input.is_empty());
         assert!(app.pending_pointer_motion.is_none());
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -16043,7 +16076,7 @@ mod tests {
             "focus loss must enqueue mouseReleased for the browser that owns the press"
         );
         assert!(app.drag.is_none());
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -18609,6 +18642,59 @@ mod tests {
         assert_eq!(app.workspace_rail_scroll, 6);
         assert!(!app.quit);
         assert_eq!(requests.lock().unwrap().as_slice(), &[MachineRequest::Switch(MachineKey(41))]);
+    }
+
+    #[test]
+    fn machine_session_replacement_settles_pointer_capture_on_the_old_session() {
+        let first = Mux::new("machine-pointer-reset-first", SurfaceOptions::default());
+        first.new_workspace(None, None).unwrap();
+        let second = Mux::new("machine-pointer-reset-second", SurfaceOptions::default());
+        let (mut app, _events) = test_app_with_events(Session::Local(first));
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        app.session.operations.enqueue_session_mutation(
+            "block old session before pointer settlement",
+            false,
+            move || {
+                started_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+                Ok(())
+            },
+        );
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        app.drag =
+            Some(Drag::ResizeSplit { horizontal: Some((1, PaneEdge::Right)), vertical: None });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        let old_pending_pointer_mutations = app.session.pending_pointer_mutations.clone();
+        let (session, event_worker, mux_titles, mux_recovery_generation) = prepare_ordered_session(
+            Session::Local(second),
+            app.pty_input.sender(),
+            app.app_events.clone(),
+            2,
+        )
+        .unwrap();
+        let tree = session.tree();
+
+        app.install_prepared_machine_session(super::PreparedMachineSession {
+            session,
+            event_worker,
+            generation: 2,
+            mux_titles,
+            mux_recovery_generation,
+            tree,
+            label: "second".into(),
+            session_available: true,
+            color_error: None,
+        });
+
+        let pending_pointer_settlement = old_pending_pointer_mutations.load(Ordering::Acquire);
+        release_tx.send(()).unwrap();
+        assert_eq!(
+            pending_pointer_settlement, 1,
+            "the split settlement must be queued against the old session before replacement"
+        );
+        assert!(app.drag.is_none());
+        assert!(app.active_pointer_buttons.is_empty());
     }
 
     #[test]
