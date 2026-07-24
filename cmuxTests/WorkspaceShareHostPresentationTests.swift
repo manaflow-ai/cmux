@@ -346,7 +346,9 @@ struct WorkspaceShareSocketRequestTests {
 
         await socket.start()
         #expect(await waitForReconnect(lifecycle))
-        #expect(await socket.reconnectAfterOutboundBackpressure())
+        #expect(
+            await socket.reconnectAfterOutboundBackpressure(connection: 1)
+        )
         await socket.stop()
     }
 
@@ -383,12 +385,20 @@ struct WorkspaceShareSocketRequestTests {
         )
         let replacementID = ObjectIdentifier(replacement)
 
-        await socket.installWebSocketTaskForTesting(original)
+        await socket.installWebSocketTaskForTesting(
+            original,
+            connection: 1
+        )
         await socket.setBeforeCriticalBackpressureLifecycleStateForTesting {
-            await socket.installWebSocketTaskForTesting(replacement)
+            await socket.installWebSocketTaskForTesting(
+                replacement,
+                connection: 2
+            )
         }
 
-        #expect(await socket.reconnectAfterOutboundBackpressure())
+        #expect(
+            await socket.reconnectAfterOutboundBackpressure(connection: 1)
+        )
         #expect(
             await socket.currentWebSocketTaskIDForTesting()
                 == replacementID
@@ -397,6 +407,70 @@ struct WorkspaceShareSocketRequestTests {
             !(await socket
                 .criticalBackpressureCancellationIDsForTesting())
                 .contains(replacementID)
+        )
+        await socket.stop()
+    }
+
+    @Test("Delayed acknowledgement cannot affect a replacement socket")
+    func delayedAcknowledgementPreservesReplacementSocket() async throws {
+        let lifecycle = WorkspaceShareSessionLifecycle()
+        await lifecycle.start()
+        await lifecycle.connectionOpened()
+        let socket = ShareSocket(
+            endpoint: ShareSocket.Endpoint(
+                wsUrl: "ws://127.0.0.1:1/connect",
+                token: "valid-token"
+            ),
+            refresh: {
+                ShareSocket.Endpoint(
+                    wsUrl: "ws://127.0.0.1:1/connect",
+                    token: "valid-token"
+                )
+            },
+            lifecycle: lifecycle
+        )
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let original = session.webSocketTask(
+            with: try #require(URL(string: "ws://127.0.0.1:1/original"))
+        )
+        let replacement = session.webSocketTask(
+            with: try #require(URL(string: "ws://127.0.0.1:1/replacement"))
+        )
+        let replacementID = ObjectIdentifier(replacement)
+        let nonce = try #require(ShareAckNonce(rawValue: "stale-ack"))
+
+        await socket.installWebSocketTaskForTesting(
+            original,
+            connection: 1
+        )
+        await socket.installWebSocketTaskForTesting(
+            replacement,
+            connection: 2
+        )
+
+        #expect(!socket.beginAcknowledgementBarrier(connection: 1))
+        #expect(
+            socket.sendAcknowledgement(
+                nonce: nonce,
+                connection: 1
+            ) == .staleConnection
+        )
+        #expect(
+            await socket.reconnectAfterOutboundBackpressure(connection: 1)
+        )
+        #expect(
+            await socket.currentWebSocketTaskIDForTesting()
+                == replacementID
+        )
+        #expect(
+            !(await socket
+                .criticalBackpressureCancellationIDsForTesting())
+                .contains(replacementID)
+        )
+        #expect(
+            socket.send(.chat(text: "replacement stays open", bubble: nil))
+                == .admitted
         )
         await socket.stop()
     }
