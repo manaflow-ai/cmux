@@ -106,11 +106,16 @@ extension TextBoxInputTextView {
         guard let reservation = pendingPasteReservations[id] else {
             return false
         }
+        guard let textStorage else { return false }
         guard let markerRange = pendingAttachmentUploadPlaceholderRange(
             id: id
-        ), let textStorage else {
-            pendingPasteReservations[id] = nil
-            return false
+        ) else {
+            return restorePendingPasteReservationWithoutMarker(
+                id: id,
+                reservation: reservation,
+                in: textStorage,
+                notifyingTextChange: notifyingTextChange
+            )
         }
 
         let selectionBeforeRestore = selectedRange()
@@ -186,16 +191,84 @@ extension TextBoxInputTextView {
         }
     }
 
+    /// Cancels reservations touched by an AppKit edit before their markers can be deleted.
+    @MainActor
+    func handleTextChangeTouchingPendingPasteReservation(
+        in affectedRange: NSRange,
+        replacementString: String?
+    ) -> Bool {
+        guard let replacementString,
+              let textStorage else {
+            return false
+        }
+
+        let restorations = pendingPasteReservations.compactMap {
+            id,
+            reservation -> TextBoxPendingPasteEditRestoration? in
+            guard let markerRange = pendingAttachmentUploadPlaceholderRange(
+                id: id
+            ), NSIntersectionRange(markerRange, affectedRange).length > 0 else {
+                return nil
+            }
+            return TextBoxPendingPasteEditRestoration(
+                id: id,
+                markerRange: markerRange,
+                originalSelection: reservation.originalAttributedSelection
+            )
+        }.sorted { $0.markerRange.location < $1.markerRange.location }
+        guard !restorations.isEmpty else { return false }
+
+        let restoredEditRange = Self.editRange(
+            affectedRange,
+            afterApplying: restorations
+        )
+        for restoration in restorations.reversed() {
+            activePastePreparationTasks.removeValue(
+                forKey: restoration.id
+            )?.cancel()
+            pendingPasteReservations[restoration.id] = nil
+            performWithoutUndoRegistration {
+                textStorage.replaceCharacters(
+                    in: restoration.markerRange,
+                    with: restoration.originalSelection
+                )
+            }
+        }
+        normalizeTextBaselineOffsets()
+        recenterSingleLineTextContainer()
+
+        if replacementString.isEmpty,
+           restorations.count == 1,
+           affectedRange == restorations[0].markerRange {
+            setSelectedRange(restoredEditRange)
+            didChangeText()
+            return true
+        }
+
+        insertText(
+            replacementString,
+            replacementRange: restoredEditRange
+        )
+        return true
+    }
+
     @MainActor
     private func restorePendingPasteReservationForCommit(
         id: UUID
     ) -> (replacementRange: NSRange, selection: NSRange)? {
         guard let reservation = pendingPasteReservations[id],
-              let markerRange = pendingAttachmentUploadPlaceholderRange(
-                id: id
-              ),
               let textStorage else {
-            pendingPasteReservations[id] = nil
+            return nil
+        }
+        guard let markerRange = pendingAttachmentUploadPlaceholderRange(
+            id: id
+        ) else {
+            _ = restorePendingPasteReservationWithoutMarker(
+                id: id,
+                reservation: reservation,
+                in: textStorage,
+                notifyingTextChange: true
+            )
             return nil
         }
 
@@ -244,6 +317,80 @@ extension TextBoxInputTextView {
             )
         }
         setSelectedRange(selectionAfterInsertion)
+    }
+
+    @MainActor
+    private func restorePendingPasteReservationWithoutMarker(
+        id: UUID,
+        reservation: TextBoxPendingPasteReservation,
+        in textStorage: NSTextStorage,
+        notifyingTextChange: Bool
+    ) -> Bool {
+        let restoreLocation = min(
+            reservation.originalSelectionRange.location,
+            textStorage.length
+        )
+        let restoreRange = NSRange(location: restoreLocation, length: 0)
+        performWithoutUndoRegistration {
+            textStorage.replaceCharacters(
+                in: restoreRange,
+                with: reservation.originalAttributedSelection
+            )
+        }
+        pendingPasteReservations[id] = nil
+        setSelectedRange(
+            NSRange(
+                location: restoreLocation,
+                length: reservation.originalAttributedSelection.length
+            )
+        )
+        normalizeTextBaselineOffsets()
+        recenterSingleLineTextContainer()
+        if notifyingTextChange {
+            didChangeText()
+        }
+        return true
+    }
+
+    private static func editRange(
+        _ range: NSRange,
+        afterApplying restorations: [TextBoxPendingPasteEditRestoration]
+    ) -> NSRange {
+        let start = translatedEditBoundary(
+            range.location,
+            through: restorations,
+            useRestoredEndInsideMarker: false
+        )
+        let end = translatedEditBoundary(
+            NSMaxRange(range),
+            through: restorations,
+            useRestoredEndInsideMarker: true
+        )
+        return NSRange(location: start, length: max(0, end - start))
+    }
+
+    private static func translatedEditBoundary(
+        _ boundary: Int,
+        through restorations: [TextBoxPendingPasteEditRestoration],
+        useRestoredEndInsideMarker: Bool
+    ) -> Int {
+        var offset = 0
+        for restoration in restorations {
+            let markerRange = restoration.markerRange
+            if boundary <= markerRange.location {
+                break
+            }
+            if boundary >= NSMaxRange(markerRange) {
+                offset += restoration.originalSelection.length
+                    - markerRange.length
+                continue
+            }
+            return markerRange.location + offset
+                + (useRestoredEndInsideMarker
+                    ? restoration.originalSelection.length
+                    : 0)
+        }
+        return boundary + offset
     }
 
     @MainActor

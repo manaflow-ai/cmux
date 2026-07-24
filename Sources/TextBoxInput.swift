@@ -3608,9 +3608,8 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     override func shouldChangeText(in affectedCharRange: NSRange, replacementString: String?) -> Bool {
-        guard super.shouldChangeText(in: affectedCharRange, replacementString: replacementString) else {
-            return false
-        }
+        if handleTextChangeTouchingPendingPasteReservation(in: affectedCharRange, replacementString: replacementString) { return false }
+        guard super.shouldChangeText(in: affectedCharRange, replacementString: replacementString) else { return false }
         queueAutomaticAttachmentFileCleanup(in: affectedCharRange)
         return true
     }
