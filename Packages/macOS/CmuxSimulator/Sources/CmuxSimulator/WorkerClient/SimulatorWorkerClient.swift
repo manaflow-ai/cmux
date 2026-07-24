@@ -97,12 +97,15 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
     ///   - environment: Additional child environment values.
     ///   - ackTimeout: Ordered ping deadline before the worker is considered hung.
     ///   - simulatorControl: Injected public Simulator control service.
+    ///   - cameraCleanupOwnershipScope: Shared cleanup ownership for this client and its service.
     public init(
         executableURL: URL,
         arguments: [String] = [SimulatorWorkerClient.workerModeArgument],
         environment: [String: String] = [:],
         ackTimeout: Duration = .seconds(3),
-        simulatorControl: any SimulatorControlling = SimulatorControlService()
+        simulatorControl: (any SimulatorControlling)? = nil,
+        cameraCleanupOwnershipScope: SimulatorCameraCleanupOwnershipScope =
+            SimulatorCameraCleanupOwnershipScope()
     ) {
         let cameraSharedMemoryToken = environment[SimulatorCameraSharedMemory.tokenEnvironmentKey]
             ?? UUID().uuidString.lowercased()
@@ -116,8 +119,10 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
         self.replayTimeout = .seconds(120)
         self.launcher = SimulatorProcessWorkerLauncher()
         self.sleeper = ContinuousSimulatorWorkerSleeper()
-        self.simulatorControl = simulatorControl
-        self.cameraCleanupCoordinator = SimulatorCameraCleanupCoordinator()
+        self.simulatorControl = simulatorControl ?? SimulatorControlService(
+            cameraCleanupOwnershipScope: cameraCleanupOwnershipScope
+        )
+        self.cameraCleanupCoordinator = cameraCleanupOwnershipScope.coordinator
     }
 
     init(

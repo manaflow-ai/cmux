@@ -35,7 +35,8 @@ public struct SimulatorWorkerClientFactory: Sendable {
             environment: [:],
             ackTimeout: ackTimeout,
             simulatorControl: simulatorControl ?? SimulatorControlService(
-                locationOwnershipScope: locationOwnershipScope
+                locationOwnershipScope: locationOwnershipScope,
+                cameraCleanupOwnershipScope: cameraCleanupOwnershipScope
             ),
             launcher: SimulatorProcessWorkerLauncher(),
             sleeper: ContinuousSimulatorWorkerSleeper(),

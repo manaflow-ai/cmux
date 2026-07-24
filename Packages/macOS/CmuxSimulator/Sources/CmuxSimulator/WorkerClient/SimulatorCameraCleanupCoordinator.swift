@@ -134,14 +134,14 @@ actor SimulatorCameraCleanupCoordinator {
         owners: [Target: UUID],
         result: SimulatorCameraCleanupResult
     ) {
-        for (target, owner) in owners where ownerByTarget[target] == owner {
-            ownerByTarget.removeValue(forKey: target)
-        }
         guard result == .completed else { return }
         for (target, revision) in revisions
         where revisionByTarget[target] == revision {
             tailByTarget.removeValue(forKey: target)
             revisionByTarget.removeValue(forKey: target)
+            if let owner = owners[target], ownerByTarget[target] == owner {
+                ownerByTarget.removeValue(forKey: target)
+            }
         }
     }
 
@@ -153,11 +153,6 @@ actor SimulatorCameraCleanupCoordinator {
             let observedRevision = revisionByTarget[target]
             let result = await pendingCleanup.value
             guard revisionByTarget[target] == observedRevision else { continue }
-            if case .failed = result {
-                tailByTarget.removeValue(forKey: target)
-                revisionByTarget.removeValue(forKey: target)
-                ownerByTarget.removeValue(forKey: target)
-            }
             return result
         }
         return Task.isCancelled

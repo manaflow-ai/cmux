@@ -18,6 +18,7 @@ public actor SimulatorControlService: SimulatorControlling {
     let now: @Sendable () -> Date
     let routeSleep: @Sendable (Duration) async throws -> Void
     let locationOwnershipRegistry: SimulatorLocationOwnershipRegistry
+    let cameraCleanupOwnershipStore: SimulatorCrossProcessOwnershipStore
     let fractionalDateFormatter: ISO8601DateFormatter
     let internetDateFormatter: ISO8601DateFormatter
     let mutationGate = SimulatorMutationGate()
@@ -35,6 +36,7 @@ public actor SimulatorControlService: SimulatorControlling {
     ///   - currentDirectoryURL: Working directory passed to child commands.
     ///   - makeUUID: Identifier source used to name private staging files.
     ///   - now: Injected wall clock used to estimate a paused route position.
+    ///   - cameraCleanupOwnershipScope: Shared camera cleanup ownership for this service graph.
     ///   - routeSleep: Injected monotonic delay used to complete or restart routes.
     public init(
         commands: any CommandRunning = CommandRunner(),
@@ -45,6 +47,8 @@ public actor SimulatorControlService: SimulatorControlling {
         makeUUID: @escaping @Sendable () -> UUID = UUID.init,
         now: @escaping @Sendable () -> Date = Date.init,
         locationOwnershipScope: SimulatorLocationOwnershipScope = SimulatorLocationOwnershipScope(),
+        cameraCleanupOwnershipScope: SimulatorCameraCleanupOwnershipScope =
+            SimulatorCameraCleanupOwnershipScope(),
         routeSleep: @escaping @Sendable (Duration) async throws -> Void = {
             try await ContinuousClock().sleep(for: $0)
         }
@@ -64,6 +68,7 @@ public actor SimulatorControlService: SimulatorControlling {
         self.makeUUID = makeUUID
         self.now = now
         self.locationOwnershipRegistry = locationOwnershipScope.registry
+        self.cameraCleanupOwnershipStore = cameraCleanupOwnershipScope.ownershipStore
         self.routeSleep = routeSleep
         let fractionalDateFormatter = ISO8601DateFormatter()
         fractionalDateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]

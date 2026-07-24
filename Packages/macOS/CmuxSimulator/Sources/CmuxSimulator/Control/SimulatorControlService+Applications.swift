@@ -109,9 +109,8 @@ extension SimulatorControlService {
         try await mutationGate.withLocks([
             .application(deviceIdentifier: deviceID, bundleIdentifier: bundleIdentifier),
         ]) {
-            let ownership = SimulatorCrossProcessOwnershipStore()
             let components = [deviceID, bundleIdentifier]
-            guard ownership.isCurrent(
+            guard cameraCleanupOwnershipStore.isCurrent(
                 ownershipToken,
                 namespace: "camera",
                 components: components
@@ -119,7 +118,7 @@ extension SimulatorControlService {
             _ = try? await output(arguments: [
                 "simctl", "terminate", deviceID, bundleIdentifier,
             ])
-            guard ownership.isCurrent(
+            guard cameraCleanupOwnershipStore.isCurrent(
                 ownershipToken,
                 namespace: "camera",
                 components: components
