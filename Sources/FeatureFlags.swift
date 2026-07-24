@@ -57,8 +57,10 @@ final class CmuxFeatureFlags {
 
     private static let overrideKeyPrefix = "cmux.flags.override."
     private static let remoteCacheKeyPrefix = "cmux.flags.remote."
+    private static let releaseControlProductWideDistinctID = "cmux-desktop-release-control"
     private static let releaseControlDistinctIDKey = "cmux.flags.releaseControlDistinctID"
-    private static let releaseControlDistinctIDPrefix = "cmux-desktop-release-control-"
+    private static let releaseControlDistinctIDPrefix =
+        releaseControlProductWideDistinctID + "-"
 
     // Order is load-bearing for the typed accessors below. A keyed lookup would
     // repeat flag-key literals and violate the feature-flag lint's single
@@ -249,6 +251,7 @@ final class CmuxFeatureFlags {
 
     init(
         defaults: UserDefaults = .standard,
+        telemetryEnabled: Bool = TelemetrySettings.enabledForCurrentLaunch,
         remoteFlagValueProvider: @escaping (String) -> Any? = { PostHogSDK.shared.getFeatureFlag($0) },
         remoteFlagLoader: (@Sendable () async -> [String: Bool]?)? = nil
     ) {
@@ -257,12 +260,14 @@ final class CmuxFeatureFlags {
         if let remoteFlagLoader {
             self.remoteFlagLoader = remoteFlagLoader
         } else {
-            let distinctID = Self.releaseControlDistinctID(defaults: defaults)
-            let personProperties = Self.releaseControlPersonProperties()
+            let target = Self.releaseControlTarget(
+                telemetryEnabled: telemetryEnabled,
+                defaults: defaults
+            )
             self.remoteFlagLoader = {
                 await CmuxFeatureFlags.loadPostHogControlPlaneFlags(
-                    distinctID: distinctID,
-                    personProperties: personProperties
+                    distinctID: target.distinctID,
+                    personProperties: target.personProperties
                 )
             }
         }
@@ -283,8 +288,9 @@ final class CmuxFeatureFlags {
     }
 
     /// Loads release-control values without initializing analytics. The request
-    /// uses a separate anonymous installation identity so percentage rollouts
-    /// remain stable without reusing PostHog's analytics identity.
+    /// uses a separate anonymous installation identity only when telemetry is
+    /// enabled. Opted-out launches use one product-wide ID without targeting
+    /// properties, preserving a non-identifying emergency kill switch.
     func start() {
         guard refreshTimer == nil else { return }
         refreshRemoteFlags()
@@ -320,10 +326,33 @@ final class CmuxFeatureFlags {
         postChangeIfNeeded(previousResolutions: previousResolutions)
     }
 
-    static func postHogControlPlaneRequest() -> URLRequest? {
-        postHogControlPlaneRequest(
-            distinctID: releaseControlDistinctID(defaults: .standard),
-            personProperties: releaseControlPersonProperties()
+    static func postHogControlPlaneRequest(
+        telemetryEnabled: Bool = TelemetrySettings.enabledForCurrentLaunch,
+        defaults: UserDefaults = .standard,
+        bundle: Bundle = .main
+    ) -> URLRequest? {
+        let target = releaseControlTarget(
+            telemetryEnabled: telemetryEnabled,
+            defaults: defaults,
+            bundle: bundle
+        )
+        return postHogControlPlaneRequest(
+            distinctID: target.distinctID,
+            personProperties: target.personProperties
+        )
+    }
+
+    private static func releaseControlTarget(
+        telemetryEnabled: Bool,
+        defaults: UserDefaults,
+        bundle: Bundle = .main
+    ) -> (distinctID: String, personProperties: [String: String]) {
+        guard telemetryEnabled else {
+            return (releaseControlProductWideDistinctID, [:])
+        }
+        return (
+            releaseControlDistinctID(defaults: defaults),
+            releaseControlPersonProperties(bundle: bundle)
         )
     }
 
@@ -377,11 +406,12 @@ final class CmuxFeatureFlags {
         request.httpMethod = "POST"
         request.timeoutInterval = 10
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let context: [String: Any] = personProperties.isEmpty
+            ? [:]
+            : ["personProperties": personProperties]
         request.httpBody = try? JSONSerialization.data(withJSONObject: [
             "distinctId": distinctID,
-            "context": [
-                "personProperties": personProperties,
-            ],
+            "context": context,
         ])
         return request
     }

@@ -511,15 +511,10 @@ extension CMUXCLI {
             throw CLIError(message: simulatorSubcommandUsage())
         }
         let parsed = try parseSimulatorArguments(Array(commandArgs.dropFirst()))
-        let window = try normalizeWindowHandle(windowOverride, client: client)
-        let surface = try normalizeSurfaceHandle(
-            parsed.surface,
-            client: client,
-            windowHandle: window
-        )
         var params = try simulatorRoutingParams(
-            normalizedSurface: surface,
-            window: window
+            surface: parsed.surface,
+            client: client,
+            windowOverride: windowOverride
         )
 
         if let request = try simulatorAgentRequest(subcommand: subcommand, arguments: parsed) {
@@ -636,24 +631,37 @@ extension CMUXCLI {
         windowOverride: String?
     ) throws -> [String: Any] {
         let window = try normalizeWindowHandle(windowOverride, client: client)
+        let callerWorkspace = Self.callerWorkspaceForSurfaceHandle(
+            surface,
+            windowRaw: window
+        )
+        let workspace = try normalizeWorkspaceHandle(
+            callerWorkspace,
+            client: client,
+            windowHandle: window
+        )
         let normalizedSurface = try normalizeSurfaceHandle(
             surface,
             client: client,
+            workspaceHandle: workspace,
             windowHandle: window
         )
         return try simulatorRoutingParams(
             normalizedSurface: normalizedSurface,
-            window: window
+            window: window,
+            workspace: workspace
         )
     }
 
     private func simulatorRoutingParams(
         normalizedSurface: String?,
-        window: String?
+        window: String?,
+        workspace: String?
     ) throws -> [String: Any] {
-        if window != nil || normalizedSurface != nil {
+        if window != nil || workspace != nil || normalizedSurface != nil {
             var params: [String: Any] = [:]
             if let window { params["window_id"] = window }
+            if let workspace { params["workspace_id"] = workspace }
             if let normalizedSurface { params["surface_id"] = normalizedSurface }
             return params
         }

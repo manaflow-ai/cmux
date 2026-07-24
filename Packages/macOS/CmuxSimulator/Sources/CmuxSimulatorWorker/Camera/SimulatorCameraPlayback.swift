@@ -57,6 +57,16 @@ struct SimulatorCameraPlayback: Sendable {
         let asset = AVURLAsset(url: url)
         guard let tracks = try? await asset.loadTracks(withMediaType: .video),
               let track = tracks.first else { return }
+        let loopDelayMilliseconds: Int64?
+        if loops {
+            guard let duration = try? await asset.load(.duration),
+                  let delay = Self.loopDelayMilliseconds(
+                      assetDurationSeconds: CMTimeGetSeconds(duration)
+                  ) else { return }
+            loopDelayMilliseconds = delay
+        } else {
+            loopDelayMilliseconds = nil
+        }
         repeat {
             guard !Task.isCancelled,
                   let (reader, output) = try? makeReader(asset: asset, track: track)
@@ -95,6 +105,16 @@ struct SimulatorCameraPlayback: Sendable {
             let completed = reader.status == .completed
             reader.cancelReading()
             if !completed { return }
+            if let loopDelayMilliseconds {
+                do {
+                    try await timing.sleep(
+                        until: playbackStart + .milliseconds(loopDelayMilliseconds),
+                        tolerance: .milliseconds(2)
+                    )
+                } catch {
+                    return
+                }
+            }
         } while loops && !Task.isCancelled
     }
 
@@ -107,6 +127,15 @@ struct SimulatorCameraPlayback: Sendable {
         let milliseconds = (elapsed * 1_000).rounded()
         guard milliseconds.isFinite,
               milliseconds >= 0,
+              milliseconds < Double(Int64.max) else { return nil }
+        return Int64(milliseconds)
+    }
+
+    static func loopDelayMilliseconds(assetDurationSeconds: Double) -> Int64? {
+        guard assetDurationSeconds.isFinite, assetDurationSeconds > 0 else { return nil }
+        let milliseconds = ceil(assetDurationSeconds * 1_000)
+        guard milliseconds.isFinite,
+              milliseconds >= 1,
               milliseconds < Double(Int64.max) else { return nil }
         return Int64(milliseconds)
     }
