@@ -42,7 +42,11 @@ struct WorkspaceDiffTruncator {
     }
 
     func truncate(_ diff: String) -> (text: String, truncated: Bool, totalLineCount: Int) {
-        let lines = diff.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        // Split on the literal newline, not Character: Swift treats "\r\n" as
+        // one grapheme cluster, so a Character split never breaks CRLF lines
+        // and collapses entire CRLF hunk bodies into one mega-line (the iOS
+        // UnifiedDiffParser makes the same choice for the same reason).
+        let lines = diff.components(separatedBy: "\n")
         guard diff.utf8.count > maximumBytes || lines.count > maximumLines else {
             return (diff, false, lines.count)
         }
