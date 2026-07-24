@@ -5628,14 +5628,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> (workspace: Workspace, tabManager: TabManager)? {
         if let preferredWorkspaceId,
            let manager = tabManagerFor(tabId: preferredWorkspaceId),
-           let workspace = manager.tabs.first(where: { $0.id == preferredWorkspaceId }),
+           let workspace = manager.workspacesById[preferredWorkspaceId],
            workspace.panels[panelId] != nil,
            workspace.surfaceIdFromPanelId(panelId) != nil {
             return (workspace, manager)
         }
 
         if let located = locateSurface(surfaceId: panelId),
-           let workspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
+           let workspace = located.tabManager.workspacesById[located.workspaceId],
            workspace.panels[panelId] != nil,
            workspace.surfaceIdFromPanelId(panelId) != nil {
             return (workspace, located.tabManager)
@@ -5643,7 +5643,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if let preferredWorkspaceId,
            let manager = tabManagerFor(tabId: preferredWorkspaceId) ?? tabManager,
-           let workspace = manager.tabs.first(where: { $0.id == preferredWorkspaceId }),
+           let workspace = manager.workspacesById[preferredWorkspaceId],
            workspace.panels[panelId] != nil,
            workspace.surfaceIdFromPanelId(panelId) != nil {
             return (workspace, manager)

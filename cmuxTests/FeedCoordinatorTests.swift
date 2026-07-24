@@ -469,6 +469,139 @@ struct FeedCoordinatorTests {
         }
     }
 
+    @Test func blockingIngestUsesOneEndToEndDeadline() async {
+        await MainActor.run {
+            FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
+        }
+
+        let event = WorkstreamEvent(
+            sessionId: "single-deadline-test",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            toolName: "Bash",
+            requestId: "single-deadline-request"
+        )
+        let done = DispatchSemaphore(value: 0)
+        let commitStarted = DispatchSemaphore(value: 0)
+        let releaseCommit = DispatchSemaphore(value: 0)
+        defer { releaseCommit.signal() }
+        let resultBox = IngestResultBox()
+        let ingestStartedAt = ContinuousClock.now
+        DispatchQueue.global(qos: .userInitiated).async {
+            resultBox.value = FeedCoordinator.shared.ingestBlocking(
+                event: event,
+                waitTimeout: 1,
+                onAcceptedOnMainActor: { _ in
+                    commitStarted.signal()
+                    releaseCommit.wait()
+                }
+            )
+            done.signal()
+        }
+
+        guard waitForFeedTestSignal(commitStarted, timeout: .now() + 1) == .success else {
+            Issue.record("blocking ingress never reached its commit boundary")
+            return
+        }
+        // Consume part of the one-second deadline only after the main-actor
+        // callback proves waiter registration and event insertion are committing.
+        try? await Task.sleep(for: .milliseconds(400))
+        releaseCommit.signal()
+
+        guard waitForFeedTestSignal(done, timeout: .now() + 2) == .success else {
+            Issue.record("blocking ingress did not return")
+            return
+        }
+        let elapsed = ingestStartedAt.duration(to: .now)
+        #expect(
+            elapsed < .milliseconds(1_250),
+            "ordered admission and user decision must share one timeout budget"
+        )
+        guard case .timedOut = resultBox.value else {
+            Issue.record("expected the unresolved permission request to time out")
+            return
+        }
+    }
+
+    @Test func zeroWaitAcknowledgmentIncludesInsertedItem() async {
+        await MainActor.run {
+            let store = WorkstreamStore(ringCapacity: 10)
+            FeedCoordinator.shared.install(store: store)
+        }
+
+        let event = WorkstreamEvent(
+            sessionId: "pi-authoritative-ack-test",
+            hookEventName: .postToolUse,
+            source: "pi",
+            cwd: "/tmp",
+            toolName: "Bash",
+            toolInputJSON: #"{"kind":"object"}"#,
+            requestId: "pi-authoritative-ack-request"
+        )
+        let resultBox = FeedV2CallResultBox()
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                resultBox.value = TerminalController.shared.v2IngestAcknowledgedFeedEvents([event])
+                continuation.resume()
+            }
+        }
+        guard case .ok(let rawPayload) = resultBox.value,
+              let payload = rawPayload as? [String: Any],
+              let rawItemId = payload["item_id"] as? String,
+              let itemId = UUID(uuidString: rawItemId) else {
+            Issue.record("zero-wait acknowledgment must identify the inserted Feed item")
+            return
+        }
+        let inserted = await MainActor.run {
+            FeedCoordinator.shared.store.items.contains(where: { $0.id == itemId })
+        }
+        #expect(inserted)
+    }
+
+    @Test func zeroWaitOneWayTelemetryDoesNotSynchronouslyHopToMainActor() async {
+        await MainActor.run {
+            let store = WorkstreamStore(ringCapacity: 10)
+            FeedCoordinator.shared.install(store: store)
+        }
+
+        let event = WorkstreamEvent(
+            sessionId: "one-way-telemetry-test",
+            hookEventName: .postToolUse,
+            source: "claude",
+            cwd: "/tmp",
+            toolName: "Bash",
+            toolInputJSON: #"{"kind":"object"}"#,
+            requestId: "synthesized-one-way-request"
+        )
+        let mainActorBlocked = DispatchSemaphore(value: 0)
+        let releaseMainActor = DispatchSemaphore(value: 0)
+        DispatchQueue.main.async {
+            mainActorBlocked.signal()
+            _ = releaseMainActor.wait(timeout: .now() + 2)
+        }
+        #expect(mainActorBlocked.wait(timeout: .now() + 1) == .success)
+        defer { releaseMainActor.signal() }
+
+        let done = DispatchSemaphore(value: 0)
+        let resultBox = IngestResultBox()
+        DispatchQueue.global(qos: .userInitiated).async {
+            resultBox.value = FeedCoordinator.shared.ingestBlocking(
+                event: event,
+                waitTimeout: 0
+            )
+            done.signal()
+        }
+
+        #expect(
+            done.wait(timeout: .now() + 0.2) == .success,
+            "one-way telemetry must return while its main-actor insertion remains queued"
+        )
+        guard case .acknowledged(itemId: nil) = resultBox.value else {
+            Issue.record("one-way telemetry must not claim an authoritative inserted item")
+            return
+        }
+    }
+
     @Test func blockingIngestSkipsNotificationWhenPermissionResolvesBeforeDisplay() async {
         let requestId = "auto-allow-request"
         let notifications = NotificationRequestRecorder()
@@ -612,6 +745,118 @@ struct FeedCoordinatorTests {
         #expect(FeedCoordinator.lifecycleStatusKey(forSource: "opencode") == "opencode")
     }
 
+    @Test func workstreamPublicationCarriesAuthoritativeTargetAndError() throws {
+        let bus = CmuxEventBus(retainedEventLimit: 4)
+        let workspaceId = UUID().uuidString
+        let surfaceId = UUID().uuidString
+        let event = WorkstreamEvent(
+            sessionId: "pi-event-publishing-test",
+            hookEventName: .postToolUse,
+            source: "pi",
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            toolName: "Bash",
+            isError: true,
+            requestId: "pi-event-publishing-request"
+        )
+
+        bus.publishWorkstreamEvent(event, phase: "received")
+
+        let publishedEvents = bus.retainedSnapshot()
+        #expect(
+            publishedEvents.compactMap { $0["name"] as? String }
+                == ["agent.hook.PostToolUse", "feed.item.received"]
+        )
+        for publishedEvent in publishedEvents {
+            #expect(publishedEvent["workspace_id"] as? String == workspaceId)
+            #expect(publishedEvent["surface_id"] as? String == surfaceId)
+            let payload = try #require(publishedEvent["payload"] as? [String: Any])
+            #expect(payload["workspace_id"] as? String == workspaceId)
+            #expect(payload["surface_id"] as? String == surfaceId)
+            #expect(payload["is_error"] as? Bool == true)
+        }
+    }
+
+    @Test func zeroWaitAcceptedEventCallbackRunsOffMainActor() async {
+        await MainActor.run {
+            FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
+        }
+        let event = WorkstreamEvent(
+            sessionId: "pi-off-main-publication-test",
+            hookEventName: .postToolUse,
+            source: "pi",
+            requestId: "pi-off-main-publication-request"
+        )
+
+        let callbackWasOnMain = await withCheckedContinuation { continuation in
+            let result = FeedCoordinator.shared.ingestBlocking(
+                event: event,
+                waitTimeout: 0,
+                onAccepted: { _ in
+                    continuation.resume(returning: Thread.isMainThread)
+                }
+            )
+            guard case .acknowledged(itemId: nil) = result else {
+                Issue.record("zero-wait telemetry must acknowledge before asynchronous acceptance")
+                return
+            }
+        }
+
+        #expect(!callbackWasOnMain)
+    }
+
+    @Test func acknowledgedBatchCannotOvertakeEarlierZeroWaitDelivery() async {
+        await MainActor.run {
+            FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
+        }
+        let deliveries = AttentionSurfaceRecorder()
+        let firstDeliveryStarted = DispatchSemaphore(value: 0)
+        let releaseFirstDelivery = DispatchSemaphore(value: 0)
+        defer { releaseFirstDelivery.signal() }
+
+        let firstEvent = WorkstreamEvent(
+            sessionId: "pi-ingress-order-first",
+            hookEventName: .postToolUse,
+            source: "pi",
+            requestId: "pi-ingress-order-first-request"
+        )
+        let firstResult = FeedCoordinator.shared.ingestBlocking(
+            event: firstEvent,
+            waitTimeout: 0,
+            onAccepted: { event in
+                firstDeliveryStarted.signal()
+                _ = releaseFirstDelivery.wait(timeout: .now() + 2)
+                deliveries.record(event)
+            }
+        )
+        guard case .acknowledged(itemId: nil) = firstResult else {
+            Issue.record("zero-wait Feed ingress must acknowledge before delivery")
+            return
+        }
+        #expect(firstDeliveryStarted.wait(timeout: .now() + 1) == .success)
+
+        let secondEvent = WorkstreamEvent(
+            sessionId: "pi-ingress-order-second",
+            hookEventName: .postToolUse,
+            source: "pi",
+            requestId: "pi-ingress-order-second-request"
+        )
+        let secondDeliveryFinished = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = TerminalController.shared.v2IngestAcknowledgedFeedEvents([secondEvent])
+            deliveries.record(secondEvent)
+            secondDeliveryFinished.signal()
+        }
+
+        #expect(
+            secondDeliveryFinished.wait(timeout: .now() + 0.2) == .timedOut,
+            "acknowledged Feed ingress must remain behind earlier zero-wait delivery"
+        )
+        releaseFirstDelivery.signal()
+        #expect(secondDeliveryFinished.wait(timeout: .now() + 2) == .success)
+        #expect(deliveries.events.map(\.sessionId) == [firstEvent.sessionId, secondEvent.sessionId])
+    }
+
     private static func resetFeedCoordinatorTestHooks() {
         let reset: @Sendable () -> Void = {
             MainActor.assumeIsolated {
@@ -629,11 +874,23 @@ struct FeedCoordinatorTests {
     }
 }
 
+private func waitForFeedTestSignal(
+    _ semaphore: DispatchSemaphore,
+    timeout: DispatchTime
+) -> DispatchTimeoutResult {
+    semaphore.wait(timeout: timeout)
+}
+
 private final class IngestResultBox: @unchecked Sendable {
     var value: FeedCoordinator.IngestBlockingResult?
 }
 
-private final class AttentionSurfaceRecorder: @unchecked Sendable {
+// Written once on a socket worker and read only after its continuation resumes.
+private final class FeedV2CallResultBox: @unchecked Sendable {
+    var value: TerminalController.V2CallResult?
+}
+
+final class AttentionSurfaceRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var recordedEvents: [WorkstreamEvent] = []
 

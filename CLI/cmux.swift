@@ -1797,7 +1797,7 @@ final class SocketClient {
     }
 
     private let path: String
-    private var socketFD: Int32 = -1
+    private(set) var socketFD: Int32 = -1
     private var lastConfiguredReceiveTimeout: TimeInterval?
     private var lastOperationTelemetry: CLISocketOperationTelemetry.State?
     private static let defaultResponseTimeoutSeconds: TimeInterval = 15.0
@@ -1943,8 +1943,10 @@ final class SocketClient {
     }
 
     func send(command: String, responseTimeout: TimeInterval? = nil) throws -> String {
+        let requestedResponseTimeout = responseTimeout ?? Self.responseTimeoutSeconds
+        let responseDeadline: ContinuousClock.Instant = .now + .seconds(requestedResponseTimeout)
         if relayEndpoint != nil, socketFD < 0 {
-            try connect()
+            try connectWithoutRetry(responseTimeout: requestedResponseTimeout)
         }
         guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
         let shouldCloseAfterSend = relayEndpoint != nil
@@ -1954,7 +1956,12 @@ final class SocketClient {
             }
         }
 
-        let initialResponseTimeout = responseTimeout ?? Self.responseTimeoutSeconds
+        let initialResponseTimeout: TimeInterval
+        if shouldCloseAfterSend {
+            initialResponseTimeout = try remainingSocketTimeout(until: responseDeadline)
+        } else {
+            initialResponseTimeout = requestedResponseTimeout
+        }
         if lastConfiguredReceiveTimeout != initialResponseTimeout {
             try configureReceiveTimeout(initialResponseTimeout)
         }
@@ -1979,7 +1986,10 @@ final class SocketClient {
         var receivedCompleteResponse = false
 
         while true {
-            let currentTimeout = sawNewline ? Self.multilineResponseIdleTimeoutSeconds : initialResponseTimeout
+            let remaining = try remainingSocketTimeout(until: responseDeadline)
+            let currentTimeout = sawNewline
+                ? min(Self.multilineResponseIdleTimeoutSeconds, remaining)
+                : remaining
             operation.phase = sawNewline ? .readMultilineResponse : .waitForResponse
             operation.sawNewline = sawNewline
             operation.timeout = currentTimeout
@@ -2212,8 +2222,10 @@ final class SocketClient {
     }
 
     private func connectToRelay(endpoint: RelayEndpoint, responseTimeout: TimeInterval? = nil) throws {
+        let deadline: ContinuousClock.Instant = .now
+            + .seconds(responseTimeout ?? Self.responseTimeoutSeconds)
         let credentials = try Self.relayCredentials(for: endpoint)
-        let timeout = responseTimeout ?? Self.responseTimeoutSeconds
+        let timeout = try remainingSocketTimeout(until: deadline)
 
         socketFD = socket(AF_INET, SOCK_STREAM, 0)
         guard socketFD >= 0 else {
@@ -2255,15 +2267,31 @@ final class SocketClient {
         }
 
         do {
-            try authenticateRelay(credentials: credentials, responseTimeout: timeout)
+            try authenticateRelay(credentials: credentials, deadline: deadline)
         } catch {
             close()
             throw error
         }
     }
 
-    private func authenticateRelay(credentials: RelayCredentials, responseTimeout: TimeInterval) throws {
-        let challengeLine = try readLine(responseTimeout: responseTimeout)
+    private func remainingSocketTimeout(until deadline: ContinuousClock.Instant) throws -> TimeInterval {
+        let components = ContinuousClock.now.duration(to: deadline).components
+        let remaining = TimeInterval(components.seconds)
+            + TimeInterval(components.attoseconds) / 1_000_000_000_000_000_000
+        guard remaining > 0 else {
+            throw CLIError(message: String(
+                localized: "cli.socket.error.commandTimedOut",
+                defaultValue: "Command timed out"
+            ))
+        }
+        return remaining
+    }
+
+    private func authenticateRelay(
+        credentials: RelayCredentials,
+        deadline: ContinuousClock.Instant
+    ) throws {
+        let challengeLine = try readLine(deadline: deadline)
         guard let challengeData = challengeLine.data(using: .utf8),
               let challenge = try JSONSerialization.jsonObject(with: challengeData) as? [String: Any],
               (challenge["protocol"] as? String) == "cmux-relay-auth",
@@ -2282,13 +2310,14 @@ final class SocketClient {
             "relay_id": relayID,
             "mac": Self.hexString(from: mac),
         ])
+        try configureSocketWriteSafety(remainingSocketTimeout(until: deadline))
         try writeAll(
             authPayload + Data([0x0A]),
             timeoutMessage: "Relay command timed out",
             failureMessage: "Failed to write to relay socket"
         )
 
-        let authResponseLine = try readLine(responseTimeout: responseTimeout)
+        let authResponseLine = try readLine(deadline: deadline)
         guard let authResponseData = authResponseLine.data(using: .utf8),
               let authResponse = try JSONSerialization.jsonObject(with: authResponseData) as? [String: Any],
               (authResponse["ok"] as? Bool) == true else {
@@ -2331,7 +2360,7 @@ final class SocketClient {
         }
     }
 
-    private func writeAllNonBlocking(
+    func writeAllNonBlocking(
         _ data: Data,
         deadline: Date,
         timeoutMessage: String,
@@ -2407,7 +2436,7 @@ final class SocketClient {
         }
     }
 
-    private func configureSocketWriteSafety(_ timeout: TimeInterval) throws {
+    func configureSocketWriteSafety(_ timeout: TimeInterval) throws {
         var interval = Self.socketTimeval(for: timeout)
         let sendTimeoutResult = withUnsafePointer(to: &interval) { ptr in
             setsockopt(
@@ -2439,11 +2468,14 @@ final class SocketClient {
 #endif
     }
 
-    private func readLine(maxBytes: Int = 16 * 1024, responseTimeout: TimeInterval? = nil) throws -> String {
+    private func readLine(
+        maxBytes: Int = 16 * 1024,
+        deadline: ContinuousClock.Instant
+    ) throws -> String {
         var data = Data()
 
         while data.count < maxBytes {
-            try configureReceiveTimeout(responseTimeout ?? Self.responseTimeoutSeconds)
+            try configureReceiveTimeout(remainingSocketTimeout(until: deadline))
 
             var byte: UInt8 = 0
             let count = Darwin.read(socketFD, &byte, 1)
@@ -2474,7 +2506,7 @@ final class SocketClient {
         return line.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func configureReceiveTimeout(_ timeout: TimeInterval) throws {
+    func configureReceiveTimeout(_ timeout: TimeInterval) throws {
         var interval = Self.socketTimeval(for: timeout)
         let result = withUnsafePointer(to: &interval) { ptr in
             setsockopt(
@@ -30154,6 +30186,9 @@ export default CMUXSessionRestore;
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let directWorkspaceArg = hookWsFlag ?? normalizedHookValue(env["CMUX_WORKSPACE_ID"])
         let explicitSurfaceFlag = optionValue(hookArgs, name: "--surface")
+        let strictPiTarget = def.name == "pi"
+            ? try resolveStrictPiHookTarget(commandArgs: hookArgs, client: client)
+            : nil
         let directSurfaceArg = explicitSurfaceFlag
             ?? (hookWsFlag == nil ? normalizedHookValue(env["CMUX_SURFACE_ID"]) : nil)
         func resolveAccessibleWorkspaceId(_ raw: String?) -> String? {
@@ -30180,7 +30215,8 @@ export default CMUXSessionRestore;
         func resolveDefaultSurfaceId(workspaceId: String) -> String? {
             try? resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
         }
-        let resolvedDirectWorkspaceArg = resolveAccessibleWorkspaceId(directWorkspaceArg)
+        let resolvedDirectWorkspaceArg = strictPiTarget?.workspaceId
+            ?? resolveAccessibleWorkspaceId(directWorkspaceArg)
         // Only an EXPLICIT --workspace flag that fails to resolve is a hard, hook-dropping error. A
         // stale/invalid AMBIENT CMUX_WORKSPACE_ID must not abort routing — treated as absent, it falls
         // through to the PID/TTY binding below, which is ground truth.
@@ -30209,6 +30245,7 @@ export default CMUXSessionRestore;
         }
 #endif
         let resolvedDirectSurfaceArg: String? = {
+            if let strictPiTarget { return strictPiTarget.surfaceId }
             guard let directSurfaceArg else { return nil }
             guard let workspaceId = resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId else { return nil }
             return resolveAccessibleSurfaceId(directSurfaceArg, workspaceId: workspaceId)
@@ -30390,6 +30427,12 @@ export default CMUXSessionRestore;
                 )
 #endif
                 return nil
+            }
+            // Strict Pi resolution has already validated or app-authoritatively
+            // rehomed the target. Reusing it avoids a redundant workspace-wide
+            // surface snapshot and preserves the selected workspace boundary.
+            if let strictPiTarget {
+                return strictPiTarget
             }
             func resolveTarget(
                 workspaceId: String,
@@ -31726,7 +31769,7 @@ export default CMUXSessionRestore;
             break
         }
 
-        print("{}")
+        print(def.name == "pi" ? piHookResolvedTargetOutput(strictPiTarget) : "{}")
     }
 
     // MARK: - Feed telemetry helper
@@ -31735,7 +31778,7 @@ export default CMUXSessionRestore;
     /// so session-start / prompt-submit / stop events show up in Feed's
     /// "All" view even when no permission/plan/question event fires.
     /// Failures are swallowed.
-    private func sendBestEffortFeedTelemetry(socketPath: String, line: String, socketPassword: String?) {
+    func sendBestEffortFeedTelemetry(socketPath: String, line: String, socketPassword: String?) {
         let oneWayClient = SocketClient(path: socketPath)
         defer { oneWayClient.close() }
         do {
@@ -33743,16 +33786,18 @@ export default CMUXSessionRestore;
 
         let commandEvent = optionValue(commandArgs, name: "--event")
 
-        // Read stdin. Claude, Codex, and the other agents all pipe hook
-        // JSON through stdin; unknown inputs fall through to `{}`. Codex feed
-        // events are telemetry, and native lifecycle hooks can carry arbitrary
-        // transcript fragments or tool output, so cap every Codex feed
-        // invocation before JSON decoding without changing other agents'
-        // actionable hook reads.
+        // Read stdin. Claude, Codex, and the other agents all pipe hook JSON
+        // through stdin; unknown inputs fall through to `{}`. Codex lifecycle
+        // payloads and Pi's compacted terminal batches are bounded before JSON
+        // decoding without changing other agents' actionable hook reads.
         let stdinData: Data
-        let shouldBoundCodexFeedStdin = source == "codex"
-        if shouldBoundCodexFeedStdin {
-            guard let boundedData = Self.readBoundedFeedHookStdin() else {
+        let feedHookStdinLimit: Int? = switch source {
+        case "codex": Self.feedHookMaxStdinBytes
+        case "pi": Self.piFeedHookMaxStdinBytes
+        default: nil
+        }
+        if let feedHookStdinLimit {
+            guard let boundedData = Self.readBoundedFeedHookStdin(maxBytes: feedHookStdinLimit) else {
                 print("{}")
                 return
             }
@@ -33804,6 +33849,19 @@ export default CMUXSessionRestore;
         // Other agents fall back to getppid() which walks up one
         // level — close enough to catch most kill scenarios.
         let agentPid = agentPidForFeedSource(source, env: env)
+        if source == "pi",
+           let compactedFeedOutput = try routePiCompactedFeedEvents(
+                commandArgs: commandArgs,
+                rawObject: stdinObj,
+                agentPid: agentPid,
+                fallbackWorkspaceId: env["CMUX_WORKSPACE_ID"],
+                client: client,
+                socketPath: socketPath,
+                socketPassword: socketPassword
+           ) {
+            print(compactedFeedOutput)
+            return
+        }
         let sessionId = firstString(
             in: stdinObj,
             keys: ["session_id", "sessionId", "conversation_id", "conversationId"]
@@ -33826,7 +33884,10 @@ export default CMUXSessionRestore;
         let shouldUseCodexPostToolUseResponse = source == "codex"
             && hookEventName == "PostToolUse"
             && postToolUseResponseInput != nil
-        let feedToolInput = shouldUseCodexPostToolUseResponse
+        let shouldUsePiPostToolUseResult = source == "pi"
+            && hookEventName == "PostToolUse"
+            && postToolUseResponseInput != nil
+        let feedToolInput = shouldUseCodexPostToolUseResponse || shouldUsePiPostToolUseResult
             ? postToolUseResponseInput
             : toolRequestInput
         if let cwd = firstString(in: stdinObj, keys: ["cwd", "working_directory", "workingDirectory"])
@@ -33835,11 +33896,18 @@ export default CMUXSessionRestore;
             eventDict["cwd"] = cwd
         }
         if !toolName.isEmpty { eventDict["tool_name"] = toolName }
+        if let isError = stdinObj["is_error"] as? Bool ?? stdinObj["isError"] as? Bool {
+            eventDict["is_error"] = isError
+        }
         let promptText = hookEventName == "UserPromptSubmit" ? feedPromptText(from: stdinObj) : nil
         if let feedToolInput {
-            eventDict["tool_input"] = shouldUseCodexPostToolUseResponse
-                ? Self.sanitizedPostToolUseFeedValue(feedToolInput)
-                : feedToolInput
+            if shouldUseCodexPostToolUseResponse {
+                eventDict["tool_input"] = Self.sanitizedPostToolUseFeedValue(feedToolInput)
+            } else if shouldUsePiPostToolUseResult {
+                eventDict["tool_input"] = Self.sanitizedPiPostToolUseFeedValue(feedToolInput)
+            } else {
+                eventDict["tool_input"] = feedToolInput
+            }
         }
         if let context = feedContextForEvent(
             source: source,
@@ -33872,6 +33940,7 @@ export default CMUXSessionRestore;
         // is 125s so the socket always returns before Claude
         // would kill the hook subprocess itself.
         let waitTimeout: Double = isActionable ? 120 : 0
+        let shouldAwaitTelemetryIngestion = source == "pi"
         let params: [String: Any] = [
             "event": eventDict,
             "wait_timeout_seconds": waitTimeout,
@@ -33881,13 +33950,13 @@ export default CMUXSessionRestore;
             "method": "feed.push",
             "params": params,
         ]
-        if waitTimeout > 0 {
+        if waitTimeout > 0 || shouldAwaitTelemetryIngestion {
             request["id"] = UUID().uuidString
         }
-        let payload = try JSONSerialization.data(withJSONObject: request)
-        let line = String(data: payload, encoding: .utf8) ?? "{}"
 
-        if waitTimeout == 0 {
+        if waitTimeout == 0 && !shouldAwaitTelemetryIngestion {
+            let payload = try JSONSerialization.data(withJSONObject: request)
+            let line = String(data: payload, encoding: .utf8) ?? "{}"
             if let client {
                 _ = try? client.sendOneWay(command: line, writeTimeout: 0.05)
             } else if let socketPath {
@@ -33917,6 +33986,9 @@ export default CMUXSessionRestore;
                 )
             } catch {
                 feedClient.close()
+                if source == "pi" {
+                    throw error
+                }
                 print("{}")
                 return
             }
@@ -33927,17 +33999,39 @@ export default CMUXSessionRestore;
             return
         }
 
+        if shouldAwaitTelemetryIngestion {
+            if let target = try resolvePiFeedClaim(commandArgs: commandArgs, client: activeClient) {
+                if let workspaceId = target.workspaceId {
+                    eventDict["workspace_id"] = workspaceId
+                }
+                eventDict["surface_id"] = target.surfaceId
+                request["params"] = [
+                    "event": eventDict,
+                    "wait_timeout_seconds": waitTimeout,
+                ]
+            }
+        }
+        let payload = try JSONSerialization.data(withJSONObject: request)
+        let line = String(data: payload, encoding: .utf8) ?? "{}"
         let response: String
         do {
             response = try activeClient.send(
                 command: line,
-                responseTimeout: waitTimeout + 5
+                responseTimeout: shouldAwaitTelemetryIngestion ? 4 : waitTimeout + 5
             )
         } catch {
+            if shouldAwaitTelemetryIngestion {
+                throw error
+            }
             print("{}")
             return
         }
 
+        if shouldAwaitTelemetryIngestion {
+            let acknowledgedTarget = try validatePiFeedAcknowledgment(response)
+            print(piHookResolvedTargetOutput(acknowledgedTarget))
+            return
+        }
         guard let respData = response.data(using: .utf8),
               let respObj = try? JSONSerialization.jsonObject(with: respData) as? [String: Any],
               let ok = respObj["ok"] as? Bool, ok,
@@ -33967,19 +34061,21 @@ export default CMUXSessionRestore;
     }
 
     private static let feedHookMaxStdinBytes = 1 * 1024 * 1024
+    private static let piFeedHookMaxStdinBytes = 128 * 1024
 
     private static func readBoundedFeedHookStdin(
+        maxBytes: Int,
         handle: FileHandle = .standardInput
     ) -> Data? {
         var data = Data()
-        while data.count <= feedHookMaxStdinBytes {
-            let remainingBytes = feedHookMaxStdinBytes + 1 - data.count
+        while data.count <= maxBytes {
+            let remainingBytes = maxBytes + 1 - data.count
             let chunkSize = min(64 * 1024, remainingBytes)
             let chunk = (try? handle.read(upToCount: chunkSize)) ?? Data()
             guard !chunk.isEmpty else { return data }
             data.append(chunk)
         }
-        guard data.count <= feedHookMaxStdinBytes else {
+        guard data.count <= maxBytes else {
             while !((try? handle.read(upToCount: 64 * 1024)) ?? Data()).isEmpty {}
             return nil
         }

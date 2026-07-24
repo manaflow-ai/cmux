@@ -97,6 +97,46 @@ class FakeUnixServer:
             self.handler(conn, self.stop_event)
 
 
+class FakeTCPRelay:
+    def __init__(self, handler: Callable[[socket.socket, threading.Event], None]) -> None:
+        self.handler = handler
+        self.stop_event = threading.Event()
+        self.ready_event = threading.Event()
+        self.thread = threading.Thread(target=self._serve, daemon=True)
+        self.server: socket.socket | None = None
+        self.endpoint = ""
+
+    def __enter__(self) -> "FakeTCPRelay":
+        self.thread.start()
+        if not self.ready_event.wait(timeout=2.0):
+            raise RuntimeError("fake TCP relay did not become ready")
+        return self
+
+    def __exit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
+        self.stop_event.set()
+        if self.server is not None:
+            self.server.close()
+        self.thread.join(timeout=2.0)
+
+    def _serve(self) -> None:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+            self.server = server
+            server.bind(("127.0.0.1", 0))
+            server.listen(1)
+            server.settimeout(0.1)
+            self.endpoint = f"127.0.0.1:{server.getsockname()[1]}"
+            self.ready_event.set()
+            while not self.stop_event.is_set():
+                try:
+                    conn, _ = server.accept()
+                except socket.timeout:
+                    continue
+                except OSError:
+                    return
+                self.handler(conn, self.stop_event)
+                return
+
+
 def read_one_command(conn: socket.socket, stop_event: threading.Event) -> bytes:
     conn.settimeout(0.1)
     chunks: list[bytes] = []
@@ -148,6 +188,27 @@ def capabilities_response_handler(conn: socket.socket, stop_event: threading.Eve
     )
 
 
+def trickle_relay_challenge_handler(conn: socket.socket, stop_event: threading.Event) -> None:
+    with conn:
+        challenge = (
+            b'{"protocol":"cmux-relay-auth","version":1,'
+            b'"relay_id":"deadline-test","nonce":"slow"}\n'
+        )
+        for byte in challenge:
+            if stop_event.is_set():
+                return
+            try:
+                conn.sendall(bytes([byte]))
+            except OSError:
+                return
+            time.sleep(0.01)
+        if not read_one_command(conn, stop_event):
+            return
+        conn.sendall(b'{"ok":true}\n')
+        if read_one_command(conn, stop_event).startswith(b"ping\n"):
+            conn.sendall(b"PONG\n")
+
+
 def run_cli(cli_path: str, socket_path: str, timeout: float = 3.0, args: tuple[str, ...] = ("ping",)) -> RunResult:
     env = dict(os.environ)
     env["CMUX_SOCKET_PATH"] = socket_path
@@ -155,6 +216,9 @@ def run_cli(cli_path: str, socket_path: str, timeout: float = 3.0, args: tuple[s
     env["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "0.2"
     env["CMUX_CLI_SENTRY_DISABLED"] = "1"
     env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+    if socket_path.startswith("127.0.0.1:"):
+        env["CMUX_RELAY_ID"] = "deadline-test"
+        env["CMUX_RELAY_TOKEN"] = "11" * 32
     started = time.monotonic()
     try:
         proc = subprocess.run(
@@ -208,6 +272,16 @@ def main() -> int:
                 failures.append(f"no-reply socket did not surface timeout: {merged!r}")
             if result.elapsed > 1.5:
                 failures.append(f"no-reply socket took too long: {result.elapsed:.3f}s")
+
+        with FakeTCPRelay(trickle_relay_challenge_handler) as relay:
+            result = run_cli(cli_path, relay.endpoint)
+            merged = f"{result.stdout}\n{result.stderr}"
+            if result.returncode == 0:
+                failures.append("trickled relay authentication unexpectedly succeeded")
+            if "timed out" not in merged.lower():
+                failures.append(f"trickled relay authentication did not surface timeout: {merged!r}")
+            if result.elapsed > 0.7:
+                failures.append(f"trickled relay authentication exceeded its deadline: {result.elapsed:.3f}s")
 
         with FakeUnixServer(close_after_command_handler) as server:
             result = run_cli(cli_path, server.path, args=("capabilities",))
