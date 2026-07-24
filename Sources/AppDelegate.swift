@@ -13847,7 +13847,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             action: .decreaseWorkspaceTerminalFontSize
         )
         let equalizeSplitsMatches = matchConfiguredShortcut(event: event, action: .equalizeSplits)
-        let explicitFontSizeActionMatches =
+        let fontSizeActionMatches =
+            increaseWorkspaceTerminalFontSizeMatches || decreaseWorkspaceTerminalFontSizeMatches
+        let matchingFontSizeActionIsExplicit =
             (
                 increaseWorkspaceTerminalFontSizeMatches
                 && KeyboardShortcutSettings.hasExplicitShortcutOverride(
@@ -13860,13 +13862,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     for: .decreaseWorkspaceTerminalFontSize
                 )
             )
-        if equalizeSplitsMatches,
-           KeyboardShortcutSettings.hasExplicitShortcutOverride(for: .equalizeSplits),
-           !explicitFontSizeActionMatches {
-            performEqualizeSplitsShortcut()
-            return true
-        }
-        if increaseWorkspaceTerminalFontSizeMatches || decreaseWorkspaceTerminalFontSizeMatches {
+        // These defaults are new. If their stroke was already assigned to any
+        // explicit action that has not consumed the event earlier, keep routing
+        // so that action's existing handler below retains upgrade precedence.
+        let matchingExplicitActionShouldPreemptFontSizeDefault =
+            fontSizeActionMatches
+            && !matchingFontSizeActionIsExplicit
+            && KeyboardShortcutSettings.Action.allCases.contains { action in
+                guard action != .increaseWorkspaceTerminalFontSize,
+                      action != .decreaseWorkspaceTerminalFontSize,
+                      KeyboardShortcutSettings.hasExplicitShortcutOverride(for: action) else {
+                    return false
+                }
+                return matchConfiguredShortcut(event: event, action: action)
+            }
+        if fontSizeActionMatches && !matchingExplicitActionShouldPreemptFontSizeDefault {
             let routedContext = preferredMainWindowContextForShortcutRouting(event: event)
             let routedManager = routedContext?.tabManager ?? tabManager
             let routedWindowDock = routedContext?.existingWindowDock()

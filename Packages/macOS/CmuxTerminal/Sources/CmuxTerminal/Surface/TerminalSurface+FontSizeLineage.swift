@@ -21,7 +21,7 @@ extension TerminalSurface {
     ) -> Bool {
         guard deltaRuntimePoints.isFinite, deltaRuntimePoints != 0 else { return false }
 
-        if surface != nil {
+        if liveSurfaceForGhosttyAccess(reason: "fontSize.adjust") != nil {
             let verb = deltaRuntimePoints > 0 ? "increase_font_size" : "decrease_font_size"
             let action = "\(verb):\(abs(deltaRuntimePoints))"
             guard performExplicitInputBindingAction(action) else { return false }
@@ -31,7 +31,10 @@ extension TerminalSurface {
 
         let percent = globalFontMagnificationPercent()
         let currentRuntimePoints: Float32
-        if let lineage = lastKnownFontSizeLineage {
+        // After one native lifetime, non-explicit lineage is descendant-only;
+        // this surface itself follows the current configured fallback.
+        if let lineage = lastKnownFontSizeLineage,
+           lineage.isExplicitOverride || runtimeSurfaceGeneration == 0 {
             currentRuntimePoints = CmuxSurfaceConfigTemplate.runtimeFontSize(
                 fromBasePoints: lineage.basePoints,
                 percent: percent
