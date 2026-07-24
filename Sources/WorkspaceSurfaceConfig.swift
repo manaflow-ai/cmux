@@ -72,7 +72,24 @@ extension Workspace {
         byRuntimePoints deltaRuntimePoints: Float32,
         additionalTerminalPanels: [TerminalPanel] = []
     ) -> Int {
-        guard deltaRuntimePoints.isFinite, deltaRuntimePoints != 0 else { return 0 }
+        adjustTerminalFontSizes(
+            byOrderedRuntimePointDeltas: [deltaRuntimePoints],
+            additionalTerminalPanels: additionalTerminalPanels
+        )
+    }
+
+    /// Applies ordered, same-direction runs to every terminal while each
+    /// surface reduces them against its own native bounds.
+    @discardableResult
+    func adjustTerminalFontSizes(
+        byOrderedRuntimePointDeltas orderedRuntimePointDeltas: [Float32],
+        additionalTerminalPanels: [TerminalPanel] = []
+    ) -> Int {
+        guard !orderedRuntimePointDeltas.isEmpty,
+              orderedRuntimePointDeltas.allSatisfy(\.isFinite),
+              orderedRuntimePointDeltas.contains(where: { $0 != 0 }) else {
+            return 0
+        }
 
         let terminalPanels = terminalPanelsForFontSizeChange(
             additionalTerminalPanels: additionalTerminalPanels
@@ -82,7 +99,7 @@ extension Workspace {
         var adjustedTerminalPanels: [TerminalPanel] = []
         for terminalPanel in terminalPanels {
             if terminalPanel.surface.adjustFontSize(
-                byRuntimePoints: deltaRuntimePoints,
+                byOrderedRuntimePointDeltas: orderedRuntimePointDeltas,
                 fallbackRuntimePoints: configuredRuntimePoints
             ) {
                 adjustedCount += 1
@@ -92,6 +109,9 @@ extension Workspace {
 
         refreshTerminalFontSizeInheritanceSource(
             changedTerminalPanels: adjustedTerminalPanels
+        )
+        _dockSplit?.rememberTerminalFontSizeLineageForNewTerminals(
+            fallback: lastRememberedTerminalFontSizeLineageForConfigInheritance()
         )
         return adjustedCount
     }
@@ -123,6 +143,14 @@ extension Workspace {
         refreshTerminalFontSizeInheritanceSource(
             changedTerminalPanels: resetTerminalPanels
         )
+        rememberTerminalFontSizeLineageForConfigInheritance(
+            configuredTerminalFontSizeLineage(
+                configuredRuntimePoints: configuredRuntimePoints
+            )
+        )
+        _dockSplit?.rememberTerminalFontSizeLineageForNewTerminals(
+            fallback: lastRememberedTerminalFontSizeLineageForConfigInheritance()
+        )
         return resetCount
     }
 
@@ -149,6 +177,20 @@ extension Workspace {
             GhosttyConfig.load(
                 globalFontMagnificationPercent: GlobalFontMagnification.storedPercent
             ).fontSize
+        )
+    }
+
+    private func configuredTerminalFontSizeLineage(
+        configuredRuntimePoints: Float32
+    ) -> TerminalFontSizeLineage {
+        TerminalFontSizeLineage(
+            basePoints: CmuxSurfaceConfigTemplate.baseFontSize(
+                fromRuntimePoints: TerminalFontSizePolicy().clampedRuntimePoints(
+                    configuredRuntimePoints
+                ),
+                percent: GlobalFontMagnification.storedPercent
+            ),
+            isExplicitOverride: false
         )
     }
 

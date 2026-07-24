@@ -40,20 +40,32 @@ private struct WorkspaceGroupNewWorkspaceTarget {
 }
 
 enum PendingWorkspaceTerminalFontSizeChange: Equatable {
-    case relative(Float32)
-    case resetThen(Float32)
+    case relative([Float32])
+    case resetThen([Float32])
 
     mutating func appendAdjustment(_ deltaRuntimePoints: Float32) {
+        guard deltaRuntimePoints.isFinite, deltaRuntimePoints != 0 else { return }
         switch self {
-        case .relative(let existingDelta):
-            self = .relative(existingDelta + deltaRuntimePoints)
-        case .resetThen(let existingDelta):
-            self = .resetThen(existingDelta + deltaRuntimePoints)
+        case .relative(var runs):
+            Self.append(deltaRuntimePoints, to: &runs)
+            self = .relative(runs)
+        case .resetThen(var runs):
+            Self.append(deltaRuntimePoints, to: &runs)
+            self = .resetThen(runs)
         }
     }
 
     mutating func appendReset() {
-        self = .resetThen(0)
+        self = .resetThen([])
+    }
+
+    private static func append(_ deltaRuntimePoints: Float32, to runs: inout [Float32]) {
+        if let last = runs.last,
+           (last > 0) == (deltaRuntimePoints > 0) {
+            runs[runs.count - 1] = last + deltaRuntimePoints
+        } else {
+            runs.append(deltaRuntimePoints)
+        }
     }
 }
 
@@ -14214,11 +14226,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         tabManager: TabManager?,
         deferFlush: Bool
     ) {
+        if action == .resetWorkspaceTerminalFontSize, deferFlush {
+            return
+        }
         var request = pendingWorkspaceTerminalFontSizeRequests[workspace.id]
             ?? PendingWorkspaceTerminalFontSizeRequest(
                 workspace: workspace,
                 tabManager: tabManager,
-                change: .relative(0)
+                change: .relative([])
             )
 
         if action == .resetWorkspaceTerminalFontSize {
@@ -14265,7 +14280,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         pendingWorkspaceTerminalFontSizeRequests.removeAll(keepingCapacity: true)
 
         for request in requests {
-            if case .relative(let delta) = request.change, delta == 0 {
+            if case .relative(let runs) = request.change, runs.isEmpty {
                 continue
             }
 
@@ -14279,18 +14294,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             } ?? []
 
             switch request.change {
-            case .relative(let delta):
+            case .relative(let runs):
                 request.workspace.adjustTerminalFontSizes(
-                    byRuntimePoints: delta,
+                    byOrderedRuntimePointDeltas: runs,
                     additionalTerminalPanels: additionalTerminalPanels
                 )
-            case .resetThen(let delta):
+            case .resetThen(let runs):
                 request.workspace.resetTerminalFontSizes(
                     additionalTerminalPanels: additionalTerminalPanels
                 )
-                if delta != 0 {
+                if !runs.isEmpty {
                     request.workspace.adjustTerminalFontSizes(
-                        byRuntimePoints: delta,
+                        byOrderedRuntimePointDeltas: runs,
                         additionalTerminalPanels: additionalTerminalPanels
                     )
                 }
@@ -15120,6 +15135,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func debugFlushPendingWorkspaceTerminalFontSizeChanges() {
         flushPendingWorkspaceTerminalFontSizeChanges()
+    }
+
+    var debugPendingWorkspaceTerminalFontSizeChangeCount: Int {
+        pendingWorkspaceTerminalFontSizeRequests.count
     }
 
     // Debug/test hook: mirrors local monitor routing (keyDown + keyUp lifecycle).

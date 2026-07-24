@@ -2213,6 +2213,9 @@ final class Workspace: Identifiable, ObservableObject {
             },
             settings: settings
         )
+        store.rememberTerminalFontSizeLineageForNewTerminals(
+            fallback: lastRememberedTerminalFontSizeLineageForConfigInheritance()
+        )
         _dockSplit = store
         return store
     }

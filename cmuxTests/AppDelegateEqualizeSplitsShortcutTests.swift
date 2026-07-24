@@ -381,30 +381,61 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
     }
 
+    func testWorkspaceTerminalFontSizeResetRepeatDoesNotQueueFanout() {
+        withTemporaryShortcut(action: .resetWorkspaceTerminalFontSize) {
+            guard let appDelegate = AppDelegate.shared else {
+                XCTFail("Expected AppDelegate.shared")
+                return
+            }
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            guard let window = window(withId: windowId),
+                  let repeatedEvent = makeKeyDownEvent(
+                    key: "0",
+                    modifiers: [.command, .control],
+                    keyCode: 29,
+                    windowNumber: window.windowNumber,
+                    isARepeat: true
+                  ) else {
+                XCTFail("Expected repeated Cmd+Ctrl+0 event")
+                return
+            }
+
+#if DEBUG
+            appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: repeatedEvent))
+            XCTAssertEqual(
+                appDelegate.debugPendingWorkspaceTerminalFontSizeChangeCount,
+                0
+            )
+#else
+            XCTFail("Workspace font-size coalescer hooks are only available in DEBUG")
+#endif
+        }
+    }
+
     func testPendingWorkspaceTerminalFontSizeChangePreservesResetOrdering() {
-        var change = PendingWorkspaceTerminalFontSizeChange.relative(-1)
+        var change = PendingWorkspaceTerminalFontSizeChange.relative([-1])
         change.appendAdjustment(-1)
-        XCTAssertEqual(change, .relative(-2))
+        XCTAssertEqual(change, .relative([-2]))
 
         change.appendReset()
-        XCTAssertEqual(change, .resetThen(0))
+        XCTAssertEqual(change, .resetThen([]))
 
         change.appendAdjustment(1)
-        XCTAssertEqual(change, .resetThen(1))
+        XCTAssertEqual(change, .resetThen([1]))
 
         change.appendReset()
-        XCTAssertEqual(change, .resetThen(0))
+        XCTAssertEqual(change, .resetThen([]))
     }
 
     func testPendingWorkspaceTerminalFontSizeChangePreservesOppositeDirections() {
-        var change = PendingWorkspaceTerminalFontSizeChange.relative(1)
+        var change = PendingWorkspaceTerminalFontSizeChange.relative([1])
         change.appendAdjustment(-1)
 
-        XCTAssertNotEqual(
-            change,
-            .relative(0),
-            "Opposite runs cannot cancel before each terminal applies native bounds"
-        )
+        XCTAssertEqual(change, .relative([1, -1]))
     }
 
     func testExplicitWorkspaceFontSizeBindingWinsOverAnotherImplicitFontSizeDefault() {

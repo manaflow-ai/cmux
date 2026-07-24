@@ -19,36 +19,42 @@ extension TerminalSurface {
         byRuntimePoints deltaRuntimePoints: Float32,
         fallbackRuntimePoints: Float32? = nil
     ) -> Bool {
-        guard deltaRuntimePoints.isFinite, deltaRuntimePoints != 0 else { return false }
+        adjustFontSize(
+            byOrderedRuntimePointDeltas: [deltaRuntimePoints],
+            fallbackRuntimePoints: fallbackRuntimePoints
+        )
+    }
 
-        if let runtimeSurface = liveSurfaceForGhosttyAccess(reason: "fontSize.adjust") {
-            if let currentRuntimePoints =
-                    GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(runtimeSurface),
-               currentRuntimePoints.isFinite {
-                if deltaRuntimePoints < 0,
-                   currentRuntimePoints <= TerminalFontSizePolicy.minimumRuntimePoints {
-                    return false
-                }
-                if deltaRuntimePoints > 0,
-                   currentRuntimePoints >= TerminalFontSizePolicy.maximumRuntimePoints {
-                    return false
-                }
-            }
-            let verb = deltaRuntimePoints > 0 ? "increase_font_size" : "decrease_font_size"
-            let action = "\(verb):\(abs(deltaRuntimePoints))"
-            guard performExplicitInputBindingAction(action) else { return false }
-            followsConfiguredFontSize = false
-            _ = fontSizeLineageSnapshot()
-            return true
+    /// Applies ordered point-size runs while rebuilding the live font once.
+    ///
+    /// Each run clamps independently to Ghostty's native range. This preserves
+    /// input order at the bounds, then sends only the final net delta to a live
+    /// surface so auto-repeat batching cannot rebuild the font for every event.
+    @MainActor
+    @discardableResult
+    public func adjustFontSize(
+        byOrderedRuntimePointDeltas orderedRuntimePointDeltas: [Float32],
+        fallbackRuntimePoints: Float32? = nil
+    ) -> Bool {
+        guard !orderedRuntimePointDeltas.isEmpty,
+              orderedRuntimePointDeltas.allSatisfy(\.isFinite) else {
+            return false
         }
+        let orderedRuntimePointDeltas = orderedRuntimePointDeltas.filter { $0 != 0 }
+        guard !orderedRuntimePointDeltas.isEmpty else { return false }
 
+        let runtimeSurface = liveSurfaceForGhosttyAccess(reason: "fontSize.adjust")
         let percent = globalFontMagnificationPercent()
         let currentRuntimePoints: Float32
-        // After one native lifetime, non-explicit lineage is descendant-only;
-        // this surface itself follows the current configured fallback.
-        if !followsConfiguredFontSize,
+        if let runtimeSurface,
+           let observedRuntimePoints =
+                GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(runtimeSurface) {
+            currentRuntimePoints = observedRuntimePoints
+        } else if !followsConfiguredFontSize,
            let lineage = lastKnownFontSizeLineage,
            lineage.isExplicitOverride || runtimeSurfaceGeneration == 0 {
+            // After one native lifetime, non-explicit lineage is descendant-only;
+            // this surface itself follows the current configured fallback.
             currentRuntimePoints = CmuxSurfaceConfigTemplate.runtimeFontSize(
                 fromBasePoints: lineage.basePoints,
                 percent: percent
@@ -61,10 +67,27 @@ extension TerminalSurface {
             return false
         }
 
-        let adjustedRuntimePoints = TerminalFontSizePolicy().clampedRuntimePoints(
-            currentRuntimePoints + deltaRuntimePoints
-        )
-        guard adjustedRuntimePoints != currentRuntimePoints else { return false }
+        let policy = TerminalFontSizePolicy()
+        let boundedCurrentRuntimePoints = policy.clampedRuntimePoints(currentRuntimePoints)
+        let adjustedRuntimePoints = orderedRuntimePointDeltas.reduce(
+            boundedCurrentRuntimePoints
+        ) { current, delta in
+            policy.clampedRuntimePoints(current + delta)
+        }
+        let netRuntimePointDelta = adjustedRuntimePoints - boundedCurrentRuntimePoints
+        guard netRuntimePointDelta != 0 else { return false }
+
+        if runtimeSurface != nil {
+            let verb = netRuntimePointDelta > 0
+                ? "increase_font_size"
+                : "decrease_font_size"
+            let action = "\(verb):\(abs(netRuntimePointDelta))"
+            guard performExplicitInputBindingAction(action) else { return false }
+            followsConfiguredFontSize = false
+            _ = fontSizeLineageSnapshot()
+            return true
+        }
+
         followsConfiguredFontSize = false
         recordCurrentFontSizeLineage(
             TerminalFontSizeLineage(
@@ -104,7 +127,25 @@ extension TerminalSurface {
             isExplicitOverride: false
         )
 
-        if liveSurfaceForGhosttyAccess(reason: "fontSize.reset") != nil {
+        if let runtimeSurface = liveSurfaceForGhosttyAccess(reason: "fontSize.reset") {
+            let nativeIsExplicitOverride =
+                ghostty_surface_font_size_adjusted(runtimeSurface)
+            let observedRuntimePoints =
+                GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(runtimeSurface)
+            let nativeMatchesTarget = observedRuntimePoints.map {
+                abs($0 - targetRuntimePoints) < 0.000_1
+            } ?? followsConfiguredFontSize
+            if !nativeIsExplicitOverride, nativeMatchesTarget {
+                let durableStateChanged =
+                    !followsConfiguredFontSize
+                    || lastKnownFontSizeLineage.map { $0 != targetLineage } == true
+                followsConfiguredFontSize = true
+                if lastKnownFontSizeLineage != nil {
+                    recordCurrentFontSizeLineage(targetLineage)
+                }
+                return durableStateChanged
+            }
+
             guard performExplicitInputBindingAction("reset_font_size") else { return false }
             followsConfiguredFontSize = true
             recordCurrentFontSizeLineage(targetLineage)
@@ -112,9 +153,17 @@ extension TerminalSurface {
             return true
         }
 
+        let alreadyFollowsTarget =
+            followsConfiguredFontSize
+            && (
+                lastKnownFontSizeLineage == nil
+                    || lastKnownFontSizeLineage == targetLineage
+            )
         followsConfiguredFontSize = true
-        recordCurrentFontSizeLineage(targetLineage)
-        return true
+        if !alreadyFollowsTarget {
+            recordCurrentFontSizeLineage(targetLineage)
+        }
+        return !alreadyFollowsTarget
     }
 
     /// Captures the current font size and its surface-local ownership state.
