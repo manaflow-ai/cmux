@@ -110,14 +110,14 @@ extension BrowserDesignModeController {
                 viewBounds: capture.viewBounds
             )
             let pngData = try BrowserScreenshotPasteboardWriter.pngData(for: crop)
-            let screenshotURL = try await screenshotStore.save(
+            let screenshotURL = try await artifactStore.saveScreenshot(
                 pngData,
                 surfaceID: surfaceID,
                 retention: .liveContext
             )
             unregisteredScreenshotURL = screenshotURL
             guard operation == operationRevision else {
-                await screenshotStore.remove(screenshotURL)
+                await artifactStore.remove(screenshotURL)
                 return
             }
             let value = try await evaluate(
@@ -142,7 +142,7 @@ extension BrowserDesignModeController {
                 in: webView
             )
             guard operation == operationRevision else {
-                await screenshotStore.remove(screenshotURL)
+                await artifactStore.remove(screenshotURL)
                 return
             }
             let next = try BrowserDesignModeSupport.decodeSnapshot(value)
@@ -155,12 +155,12 @@ extension BrowserDesignModeController {
             isComposerPresented = true
         } catch is CancellationError {
             if let unregisteredScreenshotURL {
-                await screenshotStore.remove(unregisteredScreenshotURL)
+                await artifactStore.remove(unregisteredScreenshotURL)
             }
             await cancelAnnotationCapture(id: request.id, in: webView, reportError: false)
         } catch {
             if let unregisteredScreenshotURL {
-                await screenshotStore.remove(unregisteredScreenshotURL)
+                await artifactStore.remove(unregisteredScreenshotURL)
             }
             BrowserDesignModeSupport.record(error, operation: "annotationCapture")
             await cancelAnnotationCapture(id: request.id, in: webView, reportError: true)

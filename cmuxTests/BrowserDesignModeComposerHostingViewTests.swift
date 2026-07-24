@@ -25,7 +25,7 @@ struct BrowserDesignModeComposerHostingViewTests {
             surfaceID: UUID(),
             script: BrowserDesignModeScript(),
             promptFormatter: BrowserDesignModePromptFormatter(),
-            screenshotStore: BrowserDesignModeScreenshotStore(directory: URL.temporaryDirectory),
+            artifactStore: BrowserDesignModeArtifactStore(directory: URL.temporaryDirectory),
             javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator(),
             screenshotEvaluator: BrowserDesignModeScreenshotEvaluator(),
             canEnable: { true },

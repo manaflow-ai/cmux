@@ -3019,7 +3019,7 @@ final class BrowserPanel: Panel, ObservableObject {
         surfaceID: id,
         script: BrowserDesignModeScript(),
         promptFormatter: BrowserDesignModePromptFormatter(),
-        screenshotStore: BrowserDesignModeScreenshotStore(
+        artifactStore: BrowserDesignModeArtifactStore(
             directory: FileManager.default.temporaryDirectory
                 .appendingPathComponent("cmux-browser-design-mode", isDirectory: true)
         ),

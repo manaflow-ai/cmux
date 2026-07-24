@@ -49,7 +49,7 @@ final class BrowserDesignModeController {
     @ObservationIgnored let surfaceID: UUID
     @ObservationIgnored private let script: BrowserDesignModeScript
     @ObservationIgnored private let promptFormatter: BrowserDesignModePromptFormatter
-    @ObservationIgnored let screenshotStore: BrowserDesignModeScreenshotStore
+    @ObservationIgnored let artifactStore: BrowserDesignModeArtifactStore
     @ObservationIgnored private let javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator
     @ObservationIgnored let screenshotEvaluator: BrowserDesignModeScreenshotEvaluator
     @ObservationIgnored private let canEnable: @MainActor @Sendable () -> Bool
@@ -89,7 +89,7 @@ final class BrowserDesignModeController {
         surfaceID: UUID,
         script: BrowserDesignModeScript,
         promptFormatter: BrowserDesignModePromptFormatter,
-        screenshotStore: BrowserDesignModeScreenshotStore,
+        artifactStore: BrowserDesignModeArtifactStore,
         javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator,
         screenshotEvaluator: BrowserDesignModeScreenshotEvaluator,
         canEnable: @escaping @MainActor @Sendable () -> Bool,
@@ -99,7 +99,7 @@ final class BrowserDesignModeController {
         self.surfaceID = surfaceID
         self.script = script
         self.promptFormatter = promptFormatter
-        self.screenshotStore = screenshotStore
+        self.artifactStore = artifactStore
         self.javaScriptEvaluator = javaScriptEvaluator
         self.screenshotEvaluator = screenshotEvaluator
         self.canEnable = canEnable
@@ -487,7 +487,6 @@ final class BrowserDesignModeController {
             let capture = try await captureStableSelection(in: webView)
             guard operation == operationRevision else { return }
             apply(capture.snapshot)
-
             guard !capture.snapshot.selections.isEmpty else {
                 throw BrowserScreenshotError.invalidSelection
             }
@@ -508,30 +507,31 @@ final class BrowserDesignModeController {
                         viewBounds: capture.viewBounds
                     )
                     let pngData = try BrowserScreenshotPasteboardWriter.pngData(for: crop)
-                    screenshotPaths.append(try await screenshotStore.save(pngData, surfaceID: surfaceID).path)
+                    screenshotPaths.append(try await artifactStore.saveScreenshot(
+                        pngData, surfaceID: surfaceID
+                    ).path)
                 } catch BrowserScreenshotError.invalidSelection {
                     screenshotPaths.append(nil)
                 }
             }
             guard operation == operationRevision else { return }
-            // Full-viewport shot for spatial context (layout around the
-            // selections), alongside the per-selection crops.
             var pageScreenshotPath: String?
             if let pagePNG = try? BrowserScreenshotPasteboardWriter.pngData(for: capture.image) {
-                pageScreenshotPath = try? await screenshotStore.save(pagePNG, surfaceID: surfaceID).path
+                pageScreenshotPath = try? await artifactStore.saveScreenshot(pagePNG, surfaceID: surfaceID).path
             }
             guard operation == operationRevision else { return }
-            let pageURL = webView.url?.absoluteString ?? "about:blank"
-            let prompt = promptFormatter.format(
-                BrowserDesignModePromptContext(
-                    pageURL: pageURL,
-                    snapshot: capture.snapshot,
-                    screenshotPaths: screenshotPaths,
-                    requestedChange: requestedChange,
-                    pageScreenshotPath: pageScreenshotPath,
-                    prompt: promptRuns
-                )
+            let context = BrowserDesignModePromptContext(
+                pageURL: webView.url?.absoluteString ?? "about:blank",
+                snapshot: capture.snapshot,
+                screenshotPaths: screenshotPaths,
+                requestedChange: requestedChange,
+                pageScreenshotPath: pageScreenshotPath,
+                prompt: promptRuns
             )
+            let contextJSON = try promptFormatter.contextJSON(for: context)
+            let contextJSONPath = try await artifactStore.saveContextJSON(contextJSON, surfaceID: surfaceID).path
+            guard operation == operationRevision else { return }
+            let prompt = promptFormatter.format(context, contextJSONPath: contextJSONPath)
             guard !prompt.isEmpty else { throw BrowserDesignModeError.invalidRuntimeResponse }
             guard operation == operationRevision else { return }
             guard clipboardWriter(prompt) else { throw BrowserScreenshotError.pasteboardWriteFailed }
@@ -592,9 +592,9 @@ final class BrowserDesignModeController {
         }
         annotationScreenshotPaths = annotationScreenshotPaths.filter { liveSelectors.contains($0.key) }
         if !releasedPaths.isEmpty {
-            Task { [screenshotStore] in
+            Task { [artifactStore] in
                 for path in releasedPaths {
-                    await screenshotStore.release(URL(fileURLWithPath: path))
+                    await artifactStore.release(URL(fileURLWithPath: path))
                 }
             }
         }
@@ -650,9 +650,9 @@ final class BrowserDesignModeController {
         let releasedPaths = Array(annotationScreenshotPaths.values)
         annotationScreenshotPaths.removeAll()
         if !releasedPaths.isEmpty {
-            Task { [screenshotStore] in
+            Task { [artifactStore] in
                 for path in releasedPaths {
-                    await screenshotStore.release(URL(fileURLWithPath: path))
+                    await artifactStore.release(URL(fileURLWithPath: path))
                 }
             }
         }
