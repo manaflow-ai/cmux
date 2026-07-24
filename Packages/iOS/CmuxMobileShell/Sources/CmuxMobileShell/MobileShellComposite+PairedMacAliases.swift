@@ -12,6 +12,27 @@ extension MobileShellComposite {
         )
     }
 
+    /// Build-channel labels for the computer pickers, keyed by pairing entry
+    /// id, resolved with the same priority as the Computers sheet badge: live
+    /// presence first, then the stored instance tag while offline.
+    public func pairedMacBuildLabelsByEntryID() -> [String: String] {
+        Self.buildLabelsByEntryID(for: displayPairedMacs) { macDeviceID, instanceTag in
+            presenceSummary(for: macDeviceID, instanceTag: instanceTag)?.buildLabel
+        }
+    }
+
+    /// Shared label derivation for store-backed pickers and store-free
+    /// DEBUG fixtures (which pass a lookup that always returns `nil`).
+    public static func buildLabelsByEntryID(
+        for macs: [MobilePairedMac],
+        presenceBuildLabel: (String, String?) -> String?
+    ) -> [String: String] {
+        macs.reduce(into: [String: String]()) { result, mac in
+            result[mac.id] = presenceBuildLabel(mac.macDeviceID, mac.instanceTag)
+                ?? MacBuildChannel().label(bundleID: nil, tag: mac.instanceTag)
+        }
+    }
+
     /// Stored ids represented by a visible paired-Mac row.
     public func pairedMacAliasIDs(
         for macDeviceID: String,

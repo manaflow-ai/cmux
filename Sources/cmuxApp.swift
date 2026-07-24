@@ -43,6 +43,7 @@ enum CmuxMain {
             runSidebarInterpreterWorker()
             exit(0)
         }
+        SurfaceResumeApprovalStore.preloadSigningSecret()
         cmuxApp.main()
     }
 }
