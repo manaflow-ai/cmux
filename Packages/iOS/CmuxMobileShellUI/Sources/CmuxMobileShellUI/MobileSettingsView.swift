@@ -186,6 +186,23 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsTerminalShortcuts")
                 }
 
+                Section {
+                    Toggle(isOn: $displaySettings.hapticFeedbackEnabled) {
+                        Text(L10n.string(
+                            "mobile.settings.hapticFeedback",
+                            defaultValue: "Haptic Feedback"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsHapticFeedbackToggle")
+                } header: {
+                    Text(L10n.string("mobile.settings.haptics", defaultValue: "Haptics"))
+                } footer: {
+                    Text(L10n.string(
+                        "mobile.settings.hapticFeedbackFooter",
+                        defaultValue: "When off, cmux does not vibrate for actions, confirmations, warnings, or errors."
+                    ))
+                }
+
                 Section(L10n.string("mobile.settings.betaFeatures", defaultValue: "Beta Features")) {
                     Toggle(isOn: $displaySettings.taskComposerEnabled) {
                         Text(L10n.string(
