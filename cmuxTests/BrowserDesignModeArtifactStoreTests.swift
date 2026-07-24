@@ -149,6 +149,33 @@ struct BrowserDesignModeArtifactStoreTests {
         #expect(!FileManager.default.fileExists(atPath: contextURL.path))
     }
 
+    @Test func validationKeepsArtifactReadableThroughConcurrentPruning() async throws {
+        let directory = URL.temporaryDirectory
+            .appendingPathComponent("cmux-design-mode-handoff-race-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let validatingStore = BrowserDesignModeArtifactStore(directory: directory)
+        let competingStore = BrowserDesignModeArtifactStore(directory: directory)
+        let artifact = try await validatingStore.saveContextJSON(
+            Data("{}".utf8),
+            surfaceID: UUID()
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 0)],
+            ofItemAtPath: artifact.path
+        )
+        for value in 0..<99 {
+            _ = try await competingStore.saveScreenshot(
+                Data([UInt8(value)]),
+                surfaceID: UUID()
+            )
+        }
+
+        #expect(await validatingStore.artifactsExist(at: [artifact.path]))
+        _ = try await competingStore.saveScreenshot(Data([255]), surfaceID: UUID())
+
+        #expect(FileManager.default.fileExists(atPath: artifact.path))
+    }
+
     @Test func liveContextFromAnEarlierAppSessionBecomesPrunable() async throws {
         let directory = URL.temporaryDirectory
             .appendingPathComponent("cmux-design-mode-session-pruning-test-\(UUID().uuidString)", isDirectory: true)
