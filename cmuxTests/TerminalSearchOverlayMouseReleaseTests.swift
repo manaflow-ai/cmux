@@ -96,6 +96,8 @@ struct TerminalSearchOverlayMouseReleaseTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
+        window.animationBehavior = .none
         let contentView = try #require(window.contentView)
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]

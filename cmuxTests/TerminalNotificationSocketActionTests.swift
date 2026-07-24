@@ -305,6 +305,8 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
                 backing: .buffered,
                 defer: false
             )
+            testWindow.isReleasedWhenClosed = false
+            testWindow.animationBehavior = .none
             testWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(registeredWindowId.uuidString)")
             testWindow.makeKeyAndOrderFront(nil)
             windowId = registeredWindowId

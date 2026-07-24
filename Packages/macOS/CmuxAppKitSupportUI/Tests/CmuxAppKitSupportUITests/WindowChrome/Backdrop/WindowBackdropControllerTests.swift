@@ -97,6 +97,7 @@ import Testing
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.contentView = contentView
         return window
     }

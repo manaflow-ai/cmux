@@ -897,9 +897,20 @@ jobs:
           if [ "${HOST_DEATHS:-0}" -ne 0 ]; then
             echo "::error::app host died ${HOST_DEATHS} time(s); every verdict pending in those launches is lost"
             echo "Tests that started but never reported (the last one named is where a host died):"
+            # Both harnesses, because they announce tests in different shapes and this shard may be
+            # either. swift-testing prints "Test foo() started"; XCTest prints
+            # "Test Case '-[Suite testFoo]' started". Matching only the first form made this list
+            # empty for a shard of XCTest suites — which is most of them — and an empty list reads
+            # as "nothing was lost" at the exact moment something was.
             comm -23 \
-              <(grep -oE "Test [A-Za-z0-9_]+\(\)" "$TEST_OUTPUT" | sed 's/^Test //' | sort -u) \
-              <(grep -oE "(✔|✘) Test [A-Za-z0-9_]+\(\)" "$TEST_OUTPUT" | sed -E 's/^(✔|✘) Test //' | sort -u) \
+              <({ grep -oE "Test [A-Za-z0-9_]+\(\)" "$TEST_OUTPUT" | sed 's/^Test //'
+                  grep -oE "Test Case '-\[[A-Za-z0-9_.]+ [A-Za-z0-9_]+\]' started" "$TEST_OUTPUT" \
+                    | sed -E "s/^Test Case '-\[//; s/\]' started$//"
+                } | sort -u) \
+              <({ grep -oE "(✔|✘) Test [A-Za-z0-9_]+\(\)" "$TEST_OUTPUT" | sed -E 's/^(✔|✘) Test //'
+                  grep -oE "Test Case '-\[[A-Za-z0-9_.]+ [A-Za-z0-9_]+\]' (passed|failed)" "$TEST_OUTPUT" \
+                    | sed -E "s/^Test Case '-\[//; s/\]' (passed|failed)$//"
+                } | sort -u) \
               | head -20 || true
             exit 1
           fi

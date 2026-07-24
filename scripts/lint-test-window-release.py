@@ -43,28 +43,83 @@ REPO = Path(__file__).resolve().parent.parent
 BASELINE = REPO / "scripts" / "lint-test-window-release-baseline.tsv"
 TEST_DIRS = ("cmuxTests", "cmuxUITests")
 
+
+def test_roots() -> list[Path]:
+    """Every directory whose windows this check governs.
+
+    The app's two test targets, plus each package's Tests directory. Scoping to the app targets
+    alone left six package test files building windows with nothing watching them, and one of those
+    had already been fixed by hand — the pattern spreads to wherever the check is not looking.
+    """
+    roots = [REPO / name for name in TEST_DIRS]
+    roots += sorted(
+        path
+        for path in (REPO / "Packages").glob("*/*/Tests")
+        if path.is_dir()
+    )
+    return [path for path in roots if path.is_dir()]
+
 CLASS_DECL = re.compile(r"^\s*(?:public|internal|private|fileprivate|final|@\w+|\s)*class\s+(\w+)\s*:\s*([^{]+)")
+ALIAS_DECL = re.compile(r"^\s*(?:public|internal|private|fileprivate|\s)*typealias\s+(\w+)\s*=\s*([\w.]+)")
+SKIP_DIRS = {".git", "node_modules", ".build", "DerivedData", "web", "ghostty", ".zig-cache"}
+
+
+def strip_comment(line: str) -> str:
+    """Drop a trailing // comment, leaving quoted slashes alone.
+
+    Comments prove nothing. A commented-out flag line and a helper whose comment merely mentions
+    the flag both read as "flagged" if the raw text is searched.
+    """
+    in_string = False
+    index = 0
+    while index < len(line) - 1:
+        char = line[index]
+        if char == "\\" and in_string:
+            index += 2
+            continue
+        if char == '"':
+            in_string = not in_string
+        elif char == "/" and line[index + 1] == "/" and not in_string:
+            return line[:index]
+        index += 1
+    return line
+
+
+def swift_files() -> list[Path]:
+    return [
+        path
+        for path in REPO.rglob("*.swift")
+        if not any(part in SKIP_DIRS for part in path.parts)
+    ]
 
 
 def window_types() -> set[str]:
-    """NSWindow, NSPanel, and every class in the repo that inherits from one of them.
+    """NSWindow, NSPanel, and every class or alias in the repo that resolves to one of them.
 
     Matching on a name ending in Window or Panel is wrong: `BrowserPanel` is a cmux view type
-    whose `close()` has nothing to do with AppKit's, and treating it as a window produced
-    dozens of false reports. The inheritance graph is the only reliable answer.
+    whose `close()` has nothing to do with AppKit's, and treating it as a window produced dozens
+    of false reports. The inheritance graph is the only reliable answer.
+
+    Declarations are read from a form that joins continuation lines, because a base class written
+    on the line after the colon is a style this repo already uses, and a line-at-a-time scan does
+    not see it. Aliases count too, since `typealias ProbeWindow = NSWindow` builds a real NSWindow.
     """
     types = {"NSWindow", "NSPanel"}
     parents: dict[str, list[str]] = {}
-    for directory in ("Sources", "Packages", "cmuxTests", "cmuxUITests", "Native"):
-        root = REPO / directory
-        if not root.is_dir():
-            continue
-        for path in root.rglob("*.swift"):
-            for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-                match = CLASS_DECL.match(line)
-                if match:
-                    bases = [b.strip() for b in match.group(2).split(",")]
-                    parents.setdefault(match.group(1), []).extend(bases)
+    for path in swift_files():
+        text = path.read_text(encoding="utf-8", errors="replace")
+        # Join a declaration split across lines: `class X:` / `    NSWindow {`.
+        joined = re.sub(r":\s*\n\s*", ": ", text)
+        joined = re.sub(r",\s*\n\s*", ", ", joined)
+        for line in joined.splitlines():
+            match = CLASS_DECL.match(line)
+            if match:
+                bases = [b.strip() for b in match.group(2).split(",")]
+                parents.setdefault(match.group(1), []).extend(bases)
+                continue
+            match = ALIAS_DECL.match(line)
+            if match:
+                parents.setdefault(match.group(1), []).append(match.group(2).split(".")[-1])
     # Resolve transitively; the graph is tiny, so iterate to a fixed point.
     changed = True
     while changed:
@@ -76,12 +131,31 @@ def window_types() -> set[str]:
     return types
 
 
-TYPE = "|".join(sorted(re.escape(t) for t in window_types()))
-ASSIGNED = re.compile(rf"(?:\b(?:let|var)\s+)?(\w+)\s*(?::[^=]+)?=\s*(?:try\s+)?\w*\(?\s*(?:{TYPE})\(")
-CONSTRUCTS = re.compile(rf"\b(?:{TYPE})\(")
+REPO_TYPES = window_types()
+
+
+def patterns_for(types: set[str]) -> tuple[str, re.Pattern, re.Pattern]:
+    """Build the construction patterns for a type set.
+
+    The set is per file: a suite that declares its own NSWindow subclass or aliases one locally
+    still builds a real window, and a repo-wide set computed once would miss a declaration that
+    only exists in the file being read.
+    """
+    alternation = "|".join(sorted(re.escape(t) for t in types))
+    return (
+        alternation,
+        re.compile(
+            rf"(?:\b(?:let|var)\s+)?(\w+)\s*(?::[^=]+)?=\s*(?:try\s+)?\w*\(?\s*(?:{alternation})\s*(?:\.init)?\s*\("
+        ),
+        re.compile(rf"\b(?:{alternation})\s*(?:\.init)?\s*\("),
+    )
+
+
+TYPE, ASSIGNED, CONSTRUCTS = patterns_for(REPO_TYPES)
 FUNC = re.compile(r"^(\s*)(?:@\w+\s+)*(?:private|internal|public|fileprivate|static|final|\s)*func\s+(\w+)")
 RETURNS_WINDOW = re.compile(rf"->\s*[\w.]*(?:Window|Panel)[?!]?\s*\{{?\s*$")
 FLAG = "isReleasedWhenClosed = false"
+FLAG_RE = r"isReleasedWhenClosed\s*=\s*false\b"
 
 
 class Site:
@@ -130,9 +204,36 @@ def enclosing(blocks, index: int) -> tuple[str, int, int, str]:
     return best
 
 
+def local_window_types(text: str) -> set[str]:
+    """Window classes and aliases declared in this file, resolved against the repo-wide set."""
+    types = set(REPO_TYPES)
+    joined = re.sub(r":\s*\n\s*", ": ", text)
+    joined = re.sub(r",\s*\n\s*", ", ", joined)
+    pending: dict[str, list[str]] = {}
+    for line in joined.splitlines():
+        match = CLASS_DECL.match(line)
+        if match:
+            pending.setdefault(match.group(1), []).extend(
+                b.strip() for b in match.group(2).split(",")
+            )
+            continue
+        match = ALIAS_DECL.match(line)
+        if match:
+            pending.setdefault(match.group(1), []).append(match.group(2).split(".")[-1])
+    changed = True
+    while changed:
+        changed = False
+        for name, bases in pending.items():
+            if name not in types and any(b in types for b in bases):
+                types.add(name)
+                changed = True
+    return types
+
+
 def sites_in(path: Path, rel: str | None = None) -> list[Site]:
     text = path.read_text(encoding="utf-8", errors="replace")
     lines = text.splitlines()
+    TYPE, ASSIGNED, CONSTRUCTS = patterns_for(local_window_types(text))
     blocks = function_blocks(lines)
     rel = rel or str(path)
     found: list[Site] = []
@@ -143,7 +244,7 @@ def sites_in(path: Path, rel: str | None = None) -> list[Site]:
     flagging_helpers = {
         name
         for name, start, end, _ in blocks
-        if any(FLAG in b for b in lines[start : end + 1])
+        if any(re.search(FLAG_RE, strip_comment(b)) for b in lines[start : end + 1])
     }
 
     for i, line in enumerate(lines):
@@ -157,42 +258,62 @@ def sites_in(path: Path, rel: str | None = None) -> list[Site]:
         name, start, end, sig = enclosing(blocks, i)
         site = Site(rel, i + 1, window, name)
         body = lines[start : end + 1]
+        # Comments prove nothing. A commented-out flag line, or a helper whose comment merely
+        # mentions the flag, both read as "flagged" against the raw text.
+        code = [strip_comment(b) for b in body]
 
-        # The flag may be set before the construction (a `trackTestWindow`-style wrapper sets
-        # it on the way in) or after it, so search the whole enclosing function.
-        wrapper = re.search(rf"=\s*(?:try\s+)?(\w+)\(\s*(?:{TYPE})\(", line)
+        # The flag may be set before the construction — a `trackTestWindow`-style wrapper sets it
+        # on the way in — so the whole enclosing function is searched, and a wrapper counts only
+        # if it sets the flag in code.
+        wrapper = re.search(rf"=\s*(?:try\s+)?(\w+)\(\s*(?:{TYPE})\s*(?:\.init)?\s*\(", line)
         if wrapper and wrapper.group(1) in flagging_helpers:
             site.flagged = True
             found.append(site)
             continue
 
         if window == "<inline>":
-            site.flagged = any(FLAG in b for b in body)
+            site.flagged = any(FLAG in b for b in code)
         else:
-            site.flagged = any(f"{window}.{FLAG}" in b for b in body)
-            # A window handed to a helper that sets the flag counts as flagged.
-            if not site.flagged and any(
-                FLAG in b for b in body
-            ) and any(re.search(rf"\w+\(\s*{re.escape(window)}\b", b) for b in body):
-                site.flagged = True
+            w = re.escape(window)
+            # The name needs a boundary in front of it: without one, `w` is a suffix of `preview`
+            # and the flag set on `preview` marks `w` flagged.
+            set_false = [
+                j for j, b in enumerate(code) if re.search(rf"(?<![\w.]){w}\s*\.\s*{FLAG_RE}", b)
+            ]
+            set_true = [
+                j
+                for j, b in enumerate(code)
+                if re.search(rf"(?<![\w.]){w}\s*\.\s*isReleasedWhenClosed\s*=\s*true\b", b)
+            ]
+            # Setting it back to true undoes the fix, so the last assignment is the one that counts.
+            site.flagged = bool(set_false) and (not set_true or max(set_false) > max(set_true))
 
         if window != "<inline>":
             w = re.escape(window)
+            # `window?.close()` is a close. The optional chain is already used in cmuxTests, and
+            # a regex with a literal dot silently files those windows as never-closed.
             site.closed = any(
-                re.search(rf"\b{w}\.(?:close|performClose)\b", b)
+                re.search(rf"\b{w}\s*\??\.\s*(?:close|performClose)\b", b)
                 or re.search(rf"\b\w*(?:close|teardown|dismiss)\w*\([^)]*\b{w}\b", b, re.I)
-                for b in body
+                # Handed to something that closes it later: `holder.window = held`.
+                or re.search(rf"\.\w*[Ww]indow\w*\s*=\s*{w}\b", b)
+                for b in code
             )
-            site.escapes = bool(RETURNS_WINDOW.search(sig)) and any(
-                re.search(rf"^\s*return\s+{w}\b", b) for b in body
+            # A window that leaves the function is closed somewhere this analysis cannot see, so
+            # returning one is enough on its own — the return type may be a tuple, an optional, a
+            # protocol, or carry a trailing comment, none of which a signature match catches.
+            site.escapes = any(re.search(rf"\breturn\b[^/]*\b{w}\b", b) for b in code) or (
+                bool(RETURNS_WINDOW.search(sig)) and window in sig
             )
             site.ordered_front = any(
-                re.search(rf"\b{w}\.(?:makeKeyAndOrderFront|orderFront|orderFrontRegardless)\b", b)
-                for b in body
+                re.search(rf"\b{w}\s*\??\.\s*(?:makeKeyAndOrderFront|orderFront|orderFrontRegardless)\b", b)
+                for b in code
             )
         else:
-            site.closed = any(re.search(r"\.(?:close|performClose)\(", b) for b in body)
-            site.escapes = bool(RETURNS_WINDOW.search(sig))
+            site.closed = any(re.search(r"\??\.(?:close|performClose)\(", b) for b in code)
+            site.escapes = bool(RETURNS_WINDOW.search(sig)) or any(
+                re.search(r"^\s*return\b", b) for b in code
+            )
 
         found.append(site)
     return found
@@ -200,10 +321,7 @@ def sites_in(path: Path, rel: str | None = None) -> list[Site]:
 
 def scan() -> list[Site]:
     out: list[Site] = []
-    for directory in TEST_DIRS:
-        root = REPO / directory
-        if not root.is_dir():
-            continue
+    for root in test_roots():
         for path in sorted(root.rglob("*.swift")):
             out += sites_in(path, str(path.relative_to(REPO)))
     return out

@@ -77,6 +77,7 @@ import Testing
             backing: .buffered,
             defer: true
         )
+        window.isReleasedWhenClosed = false
         let contentView = NSView(frame: contentRect)
         window.contentView = contentView
         return (window, contentView)

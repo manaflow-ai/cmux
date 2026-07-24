@@ -35,6 +35,7 @@ import Testing
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.contentView = hosting
         window.orderBack(nil)
         hosting.layoutSubtreeIfNeeded()

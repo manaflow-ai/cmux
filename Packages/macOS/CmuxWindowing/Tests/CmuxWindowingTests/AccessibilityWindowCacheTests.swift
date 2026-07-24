@@ -13,6 +13,7 @@ struct AccessibilityWindowCacheTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         return window
     }
 

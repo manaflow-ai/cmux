@@ -447,6 +447,7 @@ struct BrowserPaneFileDropUploadRegressionTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         let root = NSView(frame: window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 360, height: 240))
         root.autoresizingMask = [.width, .height]
         window.contentView = root

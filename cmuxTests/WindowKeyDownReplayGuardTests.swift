@@ -80,6 +80,7 @@ struct WindowKeyDownReplayGuardTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 
@@ -96,6 +97,7 @@ struct WindowKeyDownReplayGuardTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 
@@ -113,6 +115,7 @@ struct WindowKeyDownReplayGuardTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 

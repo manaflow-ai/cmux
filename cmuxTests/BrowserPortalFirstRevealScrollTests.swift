@@ -35,6 +35,8 @@ struct BrowserPortalFirstRevealScrollTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
+        window.animationBehavior = .none
         window.contentView = contentView
         let anchor = NSView(frame: anchorFrame)
         contentView.addSubview(anchor)

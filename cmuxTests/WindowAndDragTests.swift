@@ -2339,6 +2339,7 @@ final class WindowMoveSuppressionHitPathTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         let contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = contentView
         return (window, contentView)

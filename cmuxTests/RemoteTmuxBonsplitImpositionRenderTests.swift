@@ -89,6 +89,8 @@ import Testing
             contentRect: NSRect(x: 0, y: 0, width: windowWidth, height: windowHeight),
             styleMask: [.titled, .closable], backing: .buffered, defer: false
         )
+        window.isReleasedWhenClosed = false
+        window.animationBehavior = .none
         let contentView = try #require(window.contentView)
         hostingView.frame = contentView.bounds
         hostingView.autoresizingMask = [.width, .height]
