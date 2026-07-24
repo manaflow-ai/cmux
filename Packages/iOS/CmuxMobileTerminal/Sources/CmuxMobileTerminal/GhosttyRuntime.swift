@@ -263,6 +263,17 @@ public final class GhosttyRuntime {
             return true
         }
 
+        if action.tag == GHOSTTY_ACTION_RENDER {
+            guard target.tag == GHOSTTY_TARGET_SURFACE,
+                  let surface = target.target.surface else { return false }
+            let surfaceBits = Int(bitPattern: surface)
+            Task { @MainActor in
+                guard let surface = ghostty_surface_t(bitPattern: surfaceBits) else { return }
+                GhosttySurfaceView.requestRender(for: surface)
+            }
+            return true
+        }
+
         if action.tag == GHOSTTY_ACTION_SET_TITLE {
             guard target.tag == GHOSTTY_TARGET_SURFACE,
                   let surface = target.target.surface,

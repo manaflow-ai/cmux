@@ -41,6 +41,11 @@ extension GhosttySurfaceView {
         return view
     }
 
+    @MainActor
+    static func requestRender(for surface: ghostty_surface_t) {
+        view(for: surface)?.drawForWakeup()
+    }
+
     static func surfaceIdentifier(for surface: ghostty_surface_t) -> UInt {
         UInt(bitPattern: UnsafeRawPointer(surface))
     }
