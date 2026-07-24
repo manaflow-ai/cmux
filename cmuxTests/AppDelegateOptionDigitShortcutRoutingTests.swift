@@ -20,6 +20,14 @@ private final class OptionDigitFocusableTestView: NSView {
         lastKeyDownCharactersIgnoringModifiers = event.charactersIgnoringModifiers
     }
 }
+
+private final class MarkedOptionTextView: NSTextView {
+    var keyDownCallCount = 0
+
+    override func keyDown(with event: NSEvent) {
+        keyDownCallCount += 1
+    }
+}
 #endif
 
 @MainActor
@@ -192,6 +200,54 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
                     #expect(appDelegate.debugHandleCustomShortcut(event: event))
                 }
             }
+        }
+    }
+
+    @Test
+    func markedTextWinsOverConfiguredPrintableOptionShortcut() throws {
+        try withIsolatedShortcutRoutingState {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let testWindow = try #require(self.window(withId: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let selectedWorkspace = manager.addTab(select: true)
+            let textView = MarkedOptionTextView(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+            testWindow.contentView?.addSubview(textView)
+            testWindow.makeKeyAndOrderFront(nil)
+            #expect(testWindow.makeFirstResponder(textView))
+            textView.setMarkedText(
+                "marked",
+                selectedRange: NSRange(location: 6, length: 0),
+                replacementRange: NSRange(location: NSNotFound, length: 0)
+            )
+            #expect(textView.hasMarkedText())
+
+            let reboundBack = StoredShortcut(
+                key: "y",
+                command: false,
+                shift: false,
+                option: true,
+                control: false
+            )
+            try withTemporaryShortcut(action: .focusHistoryBack, shortcut: reboundBack) {
+                let event = try #require(makeKeyEvent(
+                    modifierFlags: [.option],
+                    characters: "¥",
+                    charactersIgnoringModifiers: "y",
+                    keyCode: 16,
+                    windowNumber: testWindow.windowNumber
+                ))
+
+                #expect(!appDelegate.debugHandleCustomShortcut(event: event))
+                #expect(manager.selectedTabId == selectedWorkspace.id)
+                #expect(testWindow.performKeyEquivalent(with: event))
+                #expect(textView.keyDownCallCount == 1)
+                #expect(textView.hasMarkedText())
+                #expect(manager.selectedTabId == selectedWorkspace.id)
+            }
+            textView.unmarkText()
         }
     }
 

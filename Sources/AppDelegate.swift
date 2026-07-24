@@ -12918,6 +12918,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
+        if shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
+            let shortcutWindow = resolvedShortcutEventWindow(event) ?? shortcutRoutingActiveWindow
+            if browserResponderHasMarkedText(shortcutWindow?.firstResponder) {
+                clearConfiguredShortcutChordState()
+                return false
+            }
+        }
+
         // `charactersIgnoringModifiers` can be nil for some synthetic NSEvents and certain special keys.
         // Treat nil as "" and rely on keyCode/layout-aware fallback logic where needed.
         // When a non-Latin input source is active (Korean, Chinese, Japanese, etc.),
@@ -17057,7 +17065,8 @@ private extension NSWindow {
         let browserWebKitKeyDownReentry = firstResponderWebView != nil && cmuxBrowserWebKitKeyDownDispatchIsActive()
         if shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
             if browserWebKitKeyDownReentry { return false }
-            if AppDelegate.shared?.handleConfiguredShortcutKeyEquivalent(event) == true {
+            if !firstResponderHasMarkedText,
+               AppDelegate.shared?.handleConfiguredShortcutKeyEquivalent(event) == true {
                 return true
             }
             let textInputTarget: NSResponder? = firstResponderGhosttyView
