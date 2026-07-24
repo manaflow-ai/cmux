@@ -698,7 +698,11 @@ fn run_server_lifecycle(global: &GlobalArgs, flags: &FlagMap) -> i32 {
         "status" => print_server_status(global.json, lifecycle.probe()),
         "stop" => match lifecycle.stop() {
             Ok(()) => {
-                println!("{}", messages.stopped);
+                if global.json {
+                    println!("{}", json!({"stopped": true}));
+                } else {
+                    println!("{}", messages.stopped);
+                }
                 0
             }
             Err(error) => {
@@ -714,11 +718,15 @@ fn print_server_status(json_output: bool, probe: &crate::server_lifecycle::Serve
     let messages = &crate::localization::catalog().server;
     let server = &probe.identity;
     let client = ReleaseIdentity::current(PROTOCOL_VERSION);
-    let compatible = probe.is_compatible();
+    let mismatches = probe.mismatches();
+    let compatible = mismatches.is_empty();
     if json_output {
+        let mismatch_reasons =
+            mismatches.iter().map(|mismatch| mismatch.code()).collect::<Vec<_>>();
         let value = json!({
             "running": true,
             "compatible": compatible,
+            "mismatch_reasons": mismatch_reasons,
             "server": {
                 "version": server.release.version,
                 "protocol": server.release.protocol,
@@ -756,6 +764,14 @@ fn print_server_status(json_output: bool, probe: &crate::server_lifecycle::Serve
             messages.status_label,
             if compatible { messages.compatible } else { messages.incompatible },
         );
+        if !mismatches.is_empty() {
+            let reasons = mismatches
+                .into_iter()
+                .map(|mismatch| mismatch.message(messages))
+                .collect::<Vec<_>>()
+                .join(messages.reason_separator);
+            println!("{}: {}", messages.reason_label, reasons);
+        }
         0
     }
 }

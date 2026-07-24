@@ -120,7 +120,9 @@ When the stream ends, it sends:
 
 ## Client Compatibility
 
-Direct local clients require the server's distribution version, build commit, Ghostty commit, and protocol to match exactly. `identify`, `cmux-tui server status`, and `cmux-tui server stop` bypass that check so an upgraded client can inspect and stop an older server. All other local CLI commands and TUI attach paths reject a mismatch before loading or mutating session state.
+Direct local clients require the server's distribution version, source build, terminal-engine build, and protocol to match exactly. Ordinary source builds derive both build identities automatically, including a deterministic fingerprint when the source tree is dirty. `identify`, `cmux-tui server status`, and `cmux-tui server stop` bypass that check so an upgraded client can inspect and stop an older server. All other local CLI commands and TUI attach paths reject a mismatch before loading or mutating session state.
+
+When an older local server lacks orderly shutdown, the replacement client verifies from the Unix socket that the reported server PID is the connected peer. It refuses to signal an unverified process.
 
 Remote transports require protocol v9 but do not require the same release build. They reject protocol-v8 servers before loading their workspace tree because v8 does not define stack layout nodes or `new-pane`.
 

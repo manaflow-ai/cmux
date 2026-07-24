@@ -14,6 +14,11 @@ clients can distinguish releases even though the Cargo crate version remains
 fixed. Cutting a stable TUI release is just creating a `cmux-tui-vX.Y.Z` tag on
 `main`.
 
+The workflow also stamps the repository and terminal-engine commits. Ordinary
+source builds derive those identities automatically and add a deterministic
+content fingerprint for dirty trees. Explicit workflow stamps remain the
+canonical distribution identity.
+
 ## Packages
 
 - npm `cmux`: launcher package for `npx cmux`.

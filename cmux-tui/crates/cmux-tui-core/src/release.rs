@@ -61,11 +61,14 @@ pub fn distribution_version() -> &'static str {
 pub fn stamped_build_commit() -> Option<&'static str> {
     option_env!("CMUX_TUI_BUILD_COMMIT")
         .or(option_env!("CMUX_MUX_BUILD_COMMIT"))
+        .or(option_env!("CMUX_TUI_SOURCE_COMMIT"))
         .filter(|commit| !commit.is_empty())
 }
 
 pub fn stamped_ghostty_commit() -> Option<&'static str> {
-    option_env!("CMUX_TUI_GHOSTTY_COMMIT").filter(|commit| !commit.is_empty())
+    option_env!("CMUX_TUI_GHOSTTY_COMMIT")
+        .or(option_env!("CMUX_TUI_SOURCE_GHOSTTY_COMMIT"))
+        .filter(|commit| !commit.is_empty())
 }
 
 fn optional_string(data: &Value, key: &str) -> Option<String> {
@@ -94,6 +97,8 @@ mod tests {
     #[test]
     fn exact_matching_includes_source_identities() {
         let current = ReleaseIdentity::current(9);
+        assert!(current.build_commit.is_some());
+        assert!(current.ghostty_commit.is_some());
         let mut other = current.clone();
         assert!(current.exactly_matches(&other));
 

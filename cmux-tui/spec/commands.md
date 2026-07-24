@@ -180,7 +180,7 @@ Result:
 object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:string|null,protocol:uint32,capabilities:array<string>,session:string,pid:uint32,registry_id:string,generation:string,workspace_revision:uint64}
 ```
 
-`build_commit` and `ghostty_commit` are additive build-stamp fields. They are omitted or `null` when the binary was built without the corresponding stamp, so clients must preserve compatibility with older servers and unstamped local builds.
+`build_commit` and `ghostty_commit` are additive build-stamp fields. Current source builds derive them from the repository and terminal-engine checkout. A dirty source build appends a deterministic content fingerprint. Distribution builds may override both stamps explicitly. Older binaries can omit the fields or return `null`, so clients must preserve compatibility with those identities.
 
 `capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits.
 
@@ -261,7 +261,21 @@ Errors:
 | `shutdown is only available over the local session socket` | Request arrived over WebSocket |
 | `bad request: ...` | Malformed request envelope |
 
-CLI mapping: `cmux-tui server stop`; `cmux-tui server status` uses `identify` and does not issue this command. When an older Unix server does not implement `shutdown`, a newer client closes every surface reported by `list-workspaces` before signaling the PID reported by `identify`. If orderly pane cleanup fails, the client leaves the server running and reports the failure.
+CLI mapping: `cmux-tui server stop`; `cmux-tui server status` uses `identify` and does not issue this command. When an older Unix server does not implement `shutdown`, a newer client first verifies that the PID reported by `identify` owns the connected Unix socket. It then closes every surface reported by `list-workspaces` before signaling that verified process. If socket ownership cannot be verified or orderly pane cleanup fails, the client leaves the server running and reports the failure.
+
+`cmux-tui server status` compares the local server's distribution version, source build, terminal-engine build, and protocol with the client. Plain output reports both versions and protocols plus localized mismatch reasons. JSON output is:
+
+```text
+object{
+  running:true,
+  compatible:boolean,
+  mismatch_reasons:array<"distribution-version"|"source-build"|"terminal-engine"|"protocol">,
+  server:object{version:string,protocol:uint32},
+  client:object{version:string,protocol:uint32}
+}
+```
+
+`cmux-tui server stop` prints a localized confirmation. With `--json`, it prints `object{stopped:true}`.
 
 Example:
 
