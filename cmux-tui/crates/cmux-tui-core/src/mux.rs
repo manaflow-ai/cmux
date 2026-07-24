@@ -7776,12 +7776,18 @@ fn move_tab_in_state(
     let new_idx = index.min(target.tabs.len());
     target.tabs.insert(new_idx, surface);
     target.active_tab = new_idx;
-    if let Some((wi, si)) = state.screen_of(target_pane) {
+    let destination_path = if let Some((wi, si)) = state.screen_of(target_pane) {
         state.active_workspace = wi;
         let ws = &mut state.workspaces[wi];
         ws.active_screen = si;
         let screen = &mut ws.screens[si];
         screen.active_pane = target_pane;
+        Some((ws.id, screen.id))
+    } else {
+        None
+    };
+    if let Some((workspace, screen)) = destination_path {
+        mux.subscribers.update_surface_session_path(surface, workspace, screen, target_pane);
     }
     (true, topology_changed)
 }

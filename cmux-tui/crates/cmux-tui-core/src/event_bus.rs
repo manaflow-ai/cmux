@@ -79,6 +79,29 @@ impl MuxEventBroadcaster {
         }))
     }
 
+    pub(crate) fn update_surface_session_path(
+        &self,
+        surface: SurfaceId,
+        workspace: WorkspaceId,
+        screen: ScreenId,
+        pane: PaneId,
+    ) {
+        let mut subscribers = self.subscribers.lock().unwrap();
+        subscribers.retain_mut(|subscriber| {
+            if subscriber.mailbox.upgrade().is_none() {
+                return false;
+            }
+            if let MuxEventFilter::SurfaceSession(scope) = &mut subscriber.filter
+                && scope.surface == surface
+            {
+                scope.workspace = workspace;
+                scope.screen = screen;
+                scope.pane = pane;
+            }
+            true
+        });
+    }
+
     fn subscribe_with_filter(&self, filter: MuxEventFilter) -> MuxEventReceiver {
         let mailbox = Arc::new(MuxEventMailbox::default());
         self.subscribers
