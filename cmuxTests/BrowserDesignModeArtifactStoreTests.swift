@@ -10,6 +10,62 @@ import Testing
 
 @Suite(.serialized)
 struct BrowserDesignModeArtifactStoreTests {
+    @Test @MainActor func browserPanelsRetainIndependentHandoffs() async throws {
+        let directory = URL.temporaryDirectory.appendingPathComponent(
+            "cmux-design-mode-independent-handoff-test-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let firstStore = BrowserDesignModeArtifactStore(directory: directory)
+        let secondStore = BrowserDesignModeArtifactStore(directory: directory)
+        let firstController = BrowserDesignModeController(
+            surfaceID: UUID(),
+            script: BrowserDesignModeScript(),
+            promptFormatter: BrowserDesignModePromptFormatter(),
+            artifactStore: firstStore,
+            javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator(),
+            screenshotEvaluator: BrowserDesignModeScreenshotEvaluator(),
+            canEnable: { true },
+            clipboardWriter: { _ in true },
+            onActivityChanged: {}
+        )
+        let secondController = BrowserDesignModeController(
+            surfaceID: UUID(),
+            script: BrowserDesignModeScript(),
+            promptFormatter: BrowserDesignModePromptFormatter(),
+            artifactStore: secondStore,
+            javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator(),
+            screenshotEvaluator: BrowserDesignModeScreenshotEvaluator(),
+            canEnable: { true },
+            clipboardWriter: { _ in true },
+            onActivityChanged: {}
+        )
+        let first = try await firstStore.saveContextJSON(Data("first".utf8), surfaceID: UUID())
+        let second = try await secondStore.saveContextJSON(Data("second".utf8), surfaceID: UUID())
+
+        #expect(try await firstController.deliverHandoff(
+            prompt: "first",
+            artifactPaths: [first.path],
+            operation: 0
+        ))
+        #expect(try await secondController.deliverHandoff(
+            prompt: "second",
+            artifactPaths: [second.path],
+            operation: 0
+        ))
+
+        for value in 0..<99 {
+            _ = try await secondStore.saveScreenshot(
+                Data([UInt8(value)]),
+                surfaceID: UUID(),
+                retention: .liveContext
+            )
+        }
+
+        #expect(FileManager.default.fileExists(atPath: first.path))
+        #expect(FileManager.default.fileExists(atPath: second.path))
+    }
+
     @Test @MainActor func clipboardHandoffLeaseSurvivesUntilSuccessfulReplacement() async throws {
         let directory = URL.temporaryDirectory.appendingPathComponent(
             "cmux-design-mode-clipboard-lease-test-\(UUID().uuidString)",
