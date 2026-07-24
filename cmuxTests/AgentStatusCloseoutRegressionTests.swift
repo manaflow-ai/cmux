@@ -149,6 +149,101 @@ struct AgentStatusCloseoutRegressionTests {
         #expect(evidence?.lifecycleRevision == 3)
         #expect(workspace.agentLifecycleStatesByPanelId[panelID]?["codex"] == .idle)
     }
+
+    @Test("Resolving a newer overlapping Codex approval preserves the older approval")
+    func overlappingCodexApprovalsResolveIndependently() {
+        let runtime = CodexPermissionRuntimeGeneration(
+            pid: 4_242,
+            pidStartSeconds: 10,
+            pidStartMicroseconds: 20
+        )
+        let olderIdentity = CodexPermissionSignalIdentity(
+            turnID: "turn-1",
+            requestID: "call-1"
+        )
+        let newerIdentity = CodexPermissionSignalIdentity(
+            turnID: "turn-1",
+            requestID: "call-2"
+        )
+        let olderNotificationID = UUID()
+        let older = CodexPermissionTransitionMachine.reduce(
+            current: nil,
+            event: .permissionRequested,
+            identity: olderIdentity,
+            runtime: runtime,
+            notificationID: olderNotificationID
+        )
+        let newer = CodexPermissionTransitionMachine.reduce(
+            current: older.state,
+            event: .permissionRequested,
+            identity: newerIdentity,
+            runtime: runtime,
+            notificationID: UUID()
+        )
+
+        let newerCompleted = CodexPermissionTransitionMachine.reduce(
+            current: newer.state,
+            event: .toolCompleted,
+            identity: newerIdentity,
+            runtime: runtime
+        )
+
+        #expect(newerCompleted.state.phase == .needsInput)
+        #expect(newerCompleted.state.identity == olderIdentity)
+        #expect(newerCompleted.state.notificationID == olderNotificationID)
+    }
+
+    @Test("A prompt boundary preserves Codex permission tombstones")
+    func codexPermissionTombstoneSurvivesPromptBoundary() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-ordering-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = ClaudeHookSessionStore(processEnv: [
+            "CMUX_CLAUDE_HOOK_STATE_PATH": root
+                .appendingPathComponent("sessions.json")
+                .path,
+        ])
+        let sessionID = "boundary-tombstone-session"
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let requestID = "call-1"
+        let pid = Int(getpid())
+        let requested = try #require(store.recordCodexPermissionNeedsInput(
+            sessionId: sessionID,
+            workspaceId: workspaceID,
+            surfaceId: surfaceID,
+            cwd: root.path,
+            requestId: requestID,
+            pid: pid
+        ))
+        let completed = try #require(store.recordCodexToolCompleted(
+            sessionId: sessionID,
+            workspaceId: workspaceID,
+            surfaceId: surfaceID,
+            cwd: root.path,
+            requestId: requestID,
+            pid: pid
+        ))
+        let boundary = try #require(store.advanceCodexRuntimeStatusOrdering(
+            sessionId: sessionID,
+            pid: pid
+        ))
+        let replayed = try #require(store.recordCodexPermissionNeedsInput(
+            sessionId: sessionID,
+            workspaceId: workspaceID,
+            surfaceId: surfaceID,
+            cwd: root.path,
+            requestId: requestID,
+            pid: pid
+        ))
+
+        #expect(completed.state.resolvedIdentities.contains(requested.state.identity))
+        #expect(boundary.revision > completed.state.revision)
+        #expect(replayed.accepted == false)
+        #expect(replayed.state.revision == boundary.revision)
+    }
 }
 
 extension AgentNotificationRegressionTests {
