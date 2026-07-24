@@ -948,7 +948,14 @@ class _PythonSleepVisitor(ast.NodeVisitor):
         self._bind(node.name)
         parent = self._lexical_parent()
         previous_scope = self.scope
-        self.scope = _PythonScope("class", parent, {})
+        _, global_names, nonlocal_names = _python_function_bindings(node.body)
+        self.scope = _PythonScope(
+            "class",
+            parent,
+            {},
+            global_names,
+            nonlocal_names,
+        )
         for statement in node.body:
             self.visit(statement)
         self.scope = previous_scope
@@ -1271,6 +1278,11 @@ def _unescaped_token_index(line: str, token: str, start: int) -> int:
     return -1
 
 
+def _has_odd_trailing_backslashes(line: str) -> bool:
+    """Return whether a physical line ends in an unescaped backslash."""
+    return (len(line) - len(line.rstrip("\\"))) % 2 == 1
+
+
 @dataclass
 class _ShellExpansionFrame:
     """Parser state for executable substitutions inside an unquoted heredoc."""
@@ -1448,15 +1460,145 @@ def _shell_arithmetic_ranges(
     return ranges, depth
 
 
+_SHELL_COMMAND_START = re.compile(
+    r"^|(?<!\\)\$\(|(?<!\\)[;&|({`]"
+)
+_SHELL_CONTROL_PREFIX = re.compile(
+    r"(?:if|elif|while|until|then|do|else)\b"
+)
+_SHELL_ASSIGNMENT_START = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
+
+
+def _shell_assignment_word_end(line: str, start: int) -> Optional[int]:
+    """Return the end of one shell assignment word, including expansions."""
+    assignment = _SHELL_ASSIGNMENT_START.match(line, start)
+    if assignment is None:
+        return None
+
+    index = assignment.end()
+    quote: Optional[str] = None
+    expansions: list[str] = []
+    while index < len(line):
+        char = line[index]
+        if quote == "'":
+            if char == "'":
+                quote = None
+            index += 1
+            continue
+        if quote in ('"', "`"):
+            if char == "\\":
+                index = min(len(line), index + 2)
+                continue
+            if char == quote:
+                quote = None
+                index += 1
+                continue
+            index += 1
+            continue
+
+        if char == "\\":
+            index = min(len(line), index + 2)
+            continue
+        if char in ("'", '"', "`"):
+            quote = char
+            index += 1
+            continue
+        if line.startswith("$(", index):
+            expansions.append(")")
+            index += 2
+            continue
+        if line.startswith("${", index):
+            expansions.append("}")
+            index += 2
+            continue
+        if expansions:
+            if char == expansions[-1]:
+                expansions.pop()
+            elif char == "(" and expansions[-1] == ")":
+                expansions.append(")")
+            elif char == "{" and expansions[-1] == "}":
+                expansions.append("}")
+            index += 1
+            continue
+        if char.isspace() or char in ";&|()<>":
+            break
+        index += 1
+    return index
+
+
+def _shell_prefixed_sleep_position(
+    raw_line: str,
+    masked_line: str,
+    start: int,
+) -> Optional[int]:
+    """Find a sleep command after shell control/assignment prefix words."""
+    index = start
+    saw_assignment = False
+    while True:
+        while index < len(raw_line) and raw_line[index].isspace():
+            index += 1
+
+        if raw_line.startswith("!", index):
+            index += 1
+            continue
+
+        control = _SHELL_CONTROL_PREFIX.match(raw_line, index)
+        if control is not None:
+            index = control.end()
+            continue
+
+        if raw_line.startswith("time", index) and (
+            index + 4 == len(raw_line)
+            or raw_line[index + 4].isspace()
+        ):
+            index += 4
+            while index < len(raw_line) and raw_line[index].isspace():
+                index += 1
+            if raw_line.startswith("-p", index) and (
+                index + 2 == len(raw_line)
+                or raw_line[index + 2].isspace()
+            ):
+                index += 2
+            continue
+
+        assignment_end = _shell_assignment_word_end(raw_line, index)
+        if assignment_end is None:
+            break
+        saw_assignment = True
+        index = assignment_end
+
+    if (
+        saw_assignment
+        and masked_line.startswith("sleep", index)
+        and (
+            index + len("sleep") == len(masked_line)
+            or masked_line[index + len("sleep")].isspace()
+        )
+    ):
+        return index
+    return None
+
+
 def _shell_real_sleep_positions(
+    raw_lines: list[str],
     masked_lines: list[str],
 ) -> dict[int, set[int]]:
     positions: dict[int, set[int]] = {}
-    for line_index, line in enumerate(masked_lines):
-        for match in _SHELL_BARE_SLEEP.finditer(line):
+    for line_index, (raw_line, masked_line) in enumerate(
+        zip(raw_lines, masked_lines)
+    ):
+        for match in _SHELL_BARE_SLEEP.finditer(masked_line):
             positions.setdefault(line_index, set()).add(
                 match.start() + match.group().rfind("sleep")
             )
+        for command_start in _SHELL_COMMAND_START.finditer(masked_line):
+            sleep_position = _shell_prefixed_sleep_position(
+                raw_line,
+                masked_line,
+                command_start.end(),
+            )
+            if sleep_position is not None:
+                positions.setdefault(line_index, set()).add(sleep_position)
     return positions
 
 
@@ -1964,8 +2106,11 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
                 path_suffix in _JS_SUFFIXES
                 and template_interpolation_depths
             ):
-                opening = line.find("{", i)
-                closing = line.find("}", i)
+                structural_line = _mask_javascript_regex_literals(
+                    ["".join(masked)]
+                )[0]
+                opening = structural_line.find("{", i)
+                closing = structural_line.find("}", i)
                 braces = [index for index in (opening, closing) if index >= 0]
                 brace = min(braces) if braces else -1
                 if brace >= 0 and (
@@ -1998,7 +2143,11 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
         # Shell quotes may span physical lines; Swift/Python/JS single and
         # double quotes do not in the forms this conservative lexer supports.
         if quote in ('"', "'") and path_suffix != ".sh":
-            quote = None
+            if not (
+                path_suffix in _JS_SUFFIXES
+                and _has_odd_trailing_backslashes(line)
+            ):
+                quote = None
         masked_line = "".join(masked)
         if path_suffix == ".sh":
             arithmetic_ranges, shell_arithmetic_depth = (
@@ -2055,7 +2204,7 @@ def detect_sleep_then_assert(
         is_sleep = idx in known_sleep_lines
     else:
         is_sleep = bool(sleep_pattern and sleep_pattern.search(line))
-    if path_suffix == ".sh":
+    if path_suffix == ".sh" and known_sleep_lines is None:
         is_sleep = bool(_SHELL_BARE_SLEEP.search(line))
     if not is_sleep:
         return False
@@ -2157,10 +2306,8 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
         if suffix in (".py", ".swift")
         else bool(sleep_pattern and sleep_pattern.search(text))
     )
-    if not has_sleep_candidate and suffix == ".sh":
-        has_sleep_candidate = any(
-            _SHELL_BARE_SLEEP.search(line) for line in code_lines
-        )
+    if suffix == ".sh":
+        has_sleep_candidate = "sleep" in text
     masked_lines = (
         _mask_noncode(raw_lines, suffix) if has_sleep_candidate else code_lines
     )
@@ -2183,7 +2330,10 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
         known_sleep_positions = _javascript_real_sleep_positions(masked_lines)
         known_sleep_lines = set(known_sleep_positions)
     elif suffix == ".sh" and has_sleep_candidate:
-        known_sleep_positions = _shell_real_sleep_positions(masked_lines)
+        known_sleep_positions = _shell_real_sleep_positions(
+            raw_lines,
+            masked_lines,
+        )
         known_sleep_lines = set(known_sleep_positions)
         assertion_enclosed_sleep_positions = (
             _shell_asserted_substitution_sleep_positions(
