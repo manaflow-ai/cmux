@@ -3168,7 +3168,7 @@ struct CMUXCLI {
         return true
     }
 
-    func run() throws {
+    func run() async throws {
         let processEnv = ProcessInfo.processInfo.environment
         let cliBundleIdentifier = CLISocketPathResolver.currentAppBundleIdentifier()
         var explicitSocketPath: String? = nil
@@ -3264,6 +3264,7 @@ struct CMUXCLI {
         if command == "help" { print(usage()); return }; if command == "remote-daemon-status" { try runRemoteDaemonStatus(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
+        if command == "worktree" { try await runWorktreeNamespace(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "welcome" { printWelcome(); return }
         if command == "sessions" || command == "session-debug" { try runSessionsCommand(commandArgs: command == "session-debug" ? ["debug"] + commandArgs : commandArgs, jsonOutput: jsonOutput, processEnv: processEnv); return }
         if command == "__sigpipe-probe" { try runSIGPIPEProbe(commandArgs: commandArgs); return }
@@ -14937,6 +14938,8 @@ struct CMUXCLI {
     /// Return the help/usage text for a subcommand, or nil if the command is unknown.
     private func subcommandUsage(_ command: String) -> String? {
         switch command {
+        case "worktree":
+            return worktreeUsage()
         case "remotes", "remote":
             return Self.remotesUsage
         case "todo":
@@ -35133,6 +35136,7 @@ export default CMUXSessionRestore;
           docs [settings|shortcuts|api|browser|agents|dock|sidebars]
           settings [open [target]|path|docs|<target>]
           config <doctor|check|validate|path|paths|docs|documentation|reload>
+          worktree <list|create|remove|prune|status>
           shortcuts
           disable-browser | enable-browser | browser-status
           agent-hibernation <on|off>
@@ -35321,15 +35325,9 @@ export default CMUXSessionRestore;
 
 }
 
-private enum CMUXCLIOutput {
-    static func writeStandardError(_ message: String) {
-        cliWriteStderr(message)
-    }
-}
-
 @main
 struct CMUXTermMain {
-    static func main() {
+    static func main() async {
         let initialSIGPIPEInspectionPayload = CMUXCLI.currentSIGPIPEInspectionPayload()
         _ = signal(SIGPIPE, SIG_DFL)
         configureCLIStdioNoSIGPIPE()
@@ -35338,9 +35336,9 @@ struct CMUXTermMain {
             initialSIGPIPEInspectionPayload: initialSIGPIPEInspectionPayload
         )
         do {
-            try cli.run()
+            try await cli.run()
         } catch {
-            CMUXCLIOutput.writeStandardError("Error: \(error)\n")
+            cliWriteStderr("Error: \(error)\n")
             let exitCode = (error as? CLIError)?.exitCode ?? 1
             exit(exitCode)
         }
