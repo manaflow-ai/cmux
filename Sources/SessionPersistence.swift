@@ -707,6 +707,14 @@ enum SurfaceResumeApprovalStore {
     private static let settingsRecordsKey = "resumeCommands"
     private static let keychainService = "com.cmuxterm.app.surface-resume-approvals"
     private static let keychainAccount = "hmac-secret-v1"
+    private static let signingSecretCache = SurfaceResumeApprovalSigningSecretCache(
+        loader: {
+            SurfaceResumeApprovalStore.loadOrCreateSigningSecret(fileManager: .default)
+        },
+        schedule: { job in
+            DispatchQueue.global(qos: .utility).async(execute: job)
+        }
+    )
 
     struct StoredFile: Codable {
         var version: Int
@@ -1024,6 +1032,20 @@ enum SurfaceResumeApprovalStore {
            !data.isEmpty {
             return data
         }
+        if fileManager === FileManager.default {
+            return signingSecretCache.value(isMainThread: Thread.isMainThread)
+        }
+        guard !Thread.isMainThread else { return nil }
+        return loadOrCreateSigningSecret(fileManager: fileManager)
+    }
+
+    /// Starts the one-time Keychain/file lookup early while preserving the
+    /// nonblocking contract for the app's main thread.
+    static func preloadSigningSecret() {
+        _ = defaultSigningSecret()
+    }
+
+    private static func loadOrCreateSigningSecret(fileManager: FileManager) -> Data? {
         if let data = keychainSecret(), !data.isEmpty {
             return data
         }

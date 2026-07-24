@@ -12,9 +12,39 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork patch head: `b211341be`. It combines indented
-hard-newline link continuations with the presentation-token runtime from
-`24284c3ba` and is published through
+Current cmux pinned fork patch head: `ade1de1f4`. It adds nonblocking renderer
+lifecycle-state publication to the indented hard-newline and presentation-token
+runtime in `b211341be`, and includes the fork's consumed-Alt text fix through
+`1c1dc5721`.
+
+### Nonblocking renderer lifecycle state
+
+- Commits:
+  - `2d99010ff` (test: cover nonblocking renderer lifecycle state)
+  - `ca21db1bb` (fix: publish renderer lifecycle state without blocking)
+  - `ade1de1f4` (merge the current fork `main`)
+- Files:
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+  - `src/renderer/Thread.zig`
+- Summary:
+  - Publishes surface visibility, focus, and macOS display ID into independent
+    atomic latest-value slots instead of waiting for capacity in the bounded
+    renderer mailbox.
+  - Applies those coalesced values on the renderer thread after ordered mailbox
+    work, so an older compatibility message cannot overwrite a newer lifecycle
+    request.
+  - Keeps embedder UI executors nonblocking even when the renderer thread is
+    wedged or its mailbox is full. The renderer wakeup remains the signal that
+    drives the next drain.
+  - Conflict note: future surface lifecycle or renderer-mailbox changes must
+    preserve the invariant that UI-thread visibility, focus, and display-ID
+    calls never wait for renderer progress. New idempotent lifecycle fields
+    should use the same latest-value publication path rather than a `.forever`
+    mailbox push.
+
+The previous `b211341be` pin combines indented hard-newline link continuations
+with the presentation-token runtime from `24284c3ba` and is published through
 https://github.com/manaflow-ai/ghostty/pull/124.
 The corresponding universal ReleaseFast GhosttyKit archive is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b211341be1ba902e772f57fc67c3e65d35205676-crashsubdir-cmux-crash-v1
