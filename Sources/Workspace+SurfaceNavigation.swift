@@ -4,11 +4,12 @@ import Foundation
 
 /// Surface navigation and sidebar status helpers extracted from `Workspace.swift`, which sits at its file-length budget.
 extension Workspace {
-    /// Moves the focused surface into an existing neighboring bonsplit pane.
+    /// Moves the focused surface into the neighboring bonsplit pane, creating
+    /// an equal split in that direction when no neighboring pane exists.
     ///
-    /// This intentionally delegates the mutation to `moveSurface` so keyboard,
-    /// command-palette, menu, and local tab-context pane actions share the same
-    /// ownership transfer, source-pane cleanup, and focus restoration path.
+    /// Existing-pane moves delegate to `moveSurface`; missing-pane moves use
+    /// Bonsplit's moving-tab split path so both cases preserve the live panel
+    /// identity, source-pane validity, and focus.
     @discardableResult
     func moveSelectedSurfaceToAdjacentPane(_ direction: NavigationDirection) -> Bool {
         guard let panelId = focusedPanelId else { return false }

@@ -8928,17 +8928,58 @@ final class Workspace: Identifiable, ObservableObject {
         guard layoutMode != .canvas,
               !isRemoteTmuxMirror,
               panels[panelId] != nil,
-              let sourcePaneId = paneId(forPanelId: panelId),
-              let targetPaneId = bonsplitController.adjacentPane(to: sourcePaneId, direction: direction) else {
+              let sourcePaneId = paneId(forPanelId: panelId) else {
             return false
         }
         clearSplitZoom()
-        return moveSurface(
-            panelId: panelId,
-            toPane: targetPaneId,
-            atIndex: insertionIndexAfterSelectedTab(in: targetPaneId),
-            focus: true
-        )
+
+        if let targetPaneId = bonsplitController.adjacentPane(to: sourcePaneId, direction: direction) {
+            return moveSurface(
+                panelId: panelId,
+                toPane: targetPaneId,
+                atIndex: insertionIndexAfterSelectedTab(in: targetPaneId),
+                focus: true
+            )
+        }
+
+        guard let tabId = surfaceIdFromPanelId(panelId) else { return false }
+        let orientation: SplitOrientation
+        let insertFirst: Bool
+        switch direction {
+        case .left:
+            orientation = .horizontal
+            insertFirst = true
+        case .right:
+            orientation = .horizontal
+            insertFirst = false
+        case .up:
+            orientation = .vertical
+            insertFirst = true
+        case .down:
+            orientation = .vertical
+            insertFirst = false
+        }
+
+        // Splitting the source leaf keeps the orthogonal extent inherited from
+        // its parent column/row. Bonsplit's 0.5 default makes the two children
+        // equal along the requested axis. Its moving-tab path also preserves a
+        // source pane when this is its only surface; didSplitPane replaces that
+        // path's placeholder with a real terminal.
+        guard let newPaneId = bonsplitController.splitPane(
+            sourcePaneId,
+            orientation: orientation,
+            movingTab: tabId,
+            insertFirst: insertFirst
+        ) else {
+            return false
+        }
+
+        bonsplitController.focusPane(newPaneId)
+        bonsplitController.selectTab(tabId)
+        focusPanel(panelId)
+        scheduleMovedTerminalRefresh(panelId: panelId)
+        scheduleTerminalGeometryReconcile()
+        return true
     }
 
     func detachSurface(panelId: UUID) -> DetachedSurfaceTransfer? {
