@@ -33,25 +33,32 @@ class CodexWrapperResumeTrustTests(unittest.TestCase):
         resume_helper_mode: str = "override",
         hostile_bash_on_path: bool = False,
         trusted_codex_from_home: bool = False,
+        trusted_codex_from_custom_path: bool = False,
         hostile_codex_on_path: bool = False,
     ) -> tuple[list[str], str, subprocess.CompletedProcess[str]]:
         with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as raw:
             root = Path(raw)
             home = root / "home"
+            project = root / "project"
             wrapper = root / "cmux-codex-wrapper"
             real_codex = (
                 home / ".local" / "bin" / "codex"
                 if trusted_codex_from_home
-                else root / "codex-real"
+                else (
+                    home / "Library" / "pnpm" / "codex"
+                    if trusted_codex_from_custom_path
+                    else root / "codex-real"
+                )
             )
             fake_cmux = root / "cmux"
             args_log = root / "args.bin"
             cmux_log = root / "cmux.log"
             socket_path = root / "cmux.sock"
-            hostile_bin = root / "hostile-bin"
+            hostile_bin = project / "hostile-bin"
 
             shutil.copy2(SOURCE_WRAPPER, wrapper)
             wrapper.chmod(0o755)
+            project.mkdir()
             real_codex.parent.mkdir(parents=True, exist_ok=True)
             make_executable(
                 real_codex,
@@ -116,7 +123,7 @@ esac
                     "HOME": str(home),
                 }
             )
-            if not trusted_codex_from_home:
+            if not trusted_codex_from_home and not trusted_codex_from_custom_path:
                 env["CMUX_CUSTOM_CODEX_PATH"] = str(real_codex)
             if hostile_bash_on_path or hostile_codex_on_path:
                 hostile_bin.mkdir(parents=True)
@@ -135,12 +142,16 @@ printf 'hostile-codex-ran\\n' >> "$FAKE_CMUX_LOG"
 exit 98
 """,
                 )
+            lookup_path = env.get("PATH", "")
+            if trusted_codex_from_custom_path:
+                lookup_path = f"{lookup_path}:{real_codex.parent}"
             if hostile_bash_on_path or hostile_codex_on_path:
-                env["PATH"] = f"{hostile_bin}:{env.get('PATH', '')}"
+                lookup_path = f"{hostile_bin}:{lookup_path}"
+            env["PATH"] = lookup_path
             try:
                 result = subprocess.run(
                     [str(wrapper), *arguments],
-                    cwd=root,
+                    cwd=project,
                     env=env,
                     capture_output=True,
                     text=True,
@@ -332,6 +343,19 @@ exit 98
         args, logged_cmux_calls, result = self.run_wrapper(
             ["--yolo"],
             trusted_codex_from_home=True,
+            hostile_codex_on_path=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(args, ["--enable", "hooks", "--yolo"])
+        self.assertNotIn("hostile-codex-ran", logged_cmux_calls)
+
+    def test_custom_install_outside_project_beats_project_path_candidate(
+        self,
+    ) -> None:
+        args, logged_cmux_calls, result = self.run_wrapper(
+            ["--yolo"],
+            trusted_codex_from_custom_path=True,
             hostile_codex_on_path=True,
         )
 
