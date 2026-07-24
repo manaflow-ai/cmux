@@ -22,7 +22,7 @@ import {
   IrohQuotaExceededError,
 } from "./errors";
 import type { PairGrantPeer } from "./crypto";
-import type { IrohBindingQuota, IrohChallengeQuota } from "./config";
+import type { IrohChallengeQuota } from "./config";
 import {
   nextPathHintExpiry,
   parseIrohPathHint,
@@ -93,7 +93,6 @@ export type IrohRepositoryShape = {
     readonly nonceHash: string;
     readonly payload: IrohRegistrationPayload;
     readonly now: Date;
-    readonly bindingQuota: IrohBindingQuota;
   }) => Effect.Effect<IrohRegistrationCommit, RepositoryError>;
   readonly discoverySnapshot: (input: {
     readonly userId: string;
@@ -265,7 +264,7 @@ function makeLiveRepository(): IrohRepositoryShape {
         await assertIrohUserMutationAllowed(tx, input.userId);
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:endpoint:${input.payload.endpointId}`}, 0))`);
-        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:app:${input.payload.appInstanceId}`}, 0))`);
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:slot:${input.userId}:${input.payload.deviceId}:${input.payload.tag}`}, 0))`);
         const [challenge] = await tx
           .select()
           .from(irohRegistrationChallenges)
@@ -280,30 +279,46 @@ function makeLiveRepository(): IrohRepositoryShape {
         if (challenge.expiresAt <= input.now) throw new IrohForbiddenError({ code: "challenge_expired" });
         if (challenge.nonceHash !== input.nonceHash) throw new IrohForbiddenError({ code: "invalid_challenge_nonce" });
 
-        const [existingApp] = await tx
+        // The binding slot is keyed on (user, device, tag). A reinstall, a
+        // sign-out/in, or a key rotation reuses the same slot and overwrites it
+        // in place (newest authenticated registration wins), preserving the row
+        // id so existing pair grants keep resolving. There is no generation gate:
+        // a reinstall resets identity_generation to 1, and gating on it would
+        // reintroduce the wedge that stranded a computer behind its own past self.
+        const [existingSlot] = await tx
           .select()
           .from(irohEndpointBindings)
           .where(and(
-            eq(irohEndpointBindings.appInstanceId, input.payload.appInstanceId),
+            eq(irohEndpointBindings.userId, input.userId),
+            eq(irohEndpointBindings.deviceUuid, input.payload.deviceId),
+            eq(irohEndpointBindings.tag, input.payload.tag),
             isNull(irohEndpointBindings.revokedAt),
           ))
           .for("update")
           .limit(1);
 
-        if (existingApp) {
-          if (
-            existingApp.userId !== input.userId ||
-            existingApp.endpointId !== input.payload.endpointId ||
-            existingApp.identityGeneration !== input.payload.identityGeneration ||
-            existingApp.deviceUuid !== input.payload.deviceId ||
-            existingApp.tag !== input.payload.tag ||
-            existingApp.platform !== input.payload.platform
-          ) {
-            throw new IrohConflictError({ code: "binding_replacement_requires_revocation" });
-          }
+        // The endpoint id is a global cryptographic identity: no OTHER live
+        // binding may claim it. Self is excluded so a slot can rotate its own key.
+        const [endpointOwner] = await tx
+          .select({ id: irohEndpointBindings.id })
+          .from(irohEndpointBindings)
+          .where(and(
+            eq(irohEndpointBindings.endpointId, input.payload.endpointId),
+            isNull(irohEndpointBindings.revokedAt),
+            existingSlot ? ne(irohEndpointBindings.id, existingSlot.id) : undefined,
+          ))
+          .for("update")
+          .limit(1);
+        if (endpointOwner) throw new IrohConflictError({ code: "endpoint_already_bound" });
+
+        if (existingSlot) {
           const [updated] = await tx
             .update(irohEndpointBindings)
             .set({
+              appInstanceId: input.payload.appInstanceId,
+              platform: input.payload.platform,
+              endpointId: input.payload.endpointId,
+              identityGeneration: input.payload.identityGeneration,
               displayName: input.payload.displayName ?? null,
               pairingEnabled: input.payload.pairingEnabled,
               capabilities: [...input.payload.capabilities],
@@ -314,7 +329,7 @@ function makeLiveRepository(): IrohRepositoryShape {
               lastSeenAt: input.now,
               updatedAt: input.now,
             })
-            .where(eq(irohEndpointBindings.id, existingApp.id))
+            .where(eq(irohEndpointBindings.id, existingSlot.id))
             .returning();
           await tx
             .update(irohRegistrationChallenges)
@@ -323,72 +338,6 @@ function makeLiveRepository(): IrohRepositoryShape {
           if (!updated) throw new Error("binding update returned no row");
           return { binding: updated, created: false };
         }
-
-        const [endpointOwner] = await tx
-          .select({ id: irohEndpointBindings.id })
-          .from(irohEndpointBindings)
-          .where(and(
-            eq(irohEndpointBindings.endpointId, input.payload.endpointId),
-            isNull(irohEndpointBindings.revokedAt),
-          ))
-          .for("update")
-          .limit(1);
-        if (endpointOwner) throw new IrohConflictError({ code: "endpoint_already_bound" });
-
-        let [deviceTotal] = await tx
-          .select({ total: count() })
-          .from(irohEndpointBindings)
-          .where(and(
-            eq(irohEndpointBindings.userId, input.userId),
-            eq(irohEndpointBindings.deviceUuid, input.payload.deviceId),
-            isNull(irohEndpointBindings.revokedAt),
-          ));
-        let deviceBindingCount = deviceTotal?.total ?? 0;
-        if (deviceBindingCount >= input.bindingQuota.device) {
-          const recycled = await recycleStaleBindings(tx, {
-            userId: input.userId,
-            deviceUuid: input.payload.deviceId,
-            now: input.now,
-            staleAfterMs: input.bindingQuota.staleAfterMs,
-            count: deviceBindingCount - input.bindingQuota.device + 1,
-          });
-          deviceBindingCount -= recycled;
-          if (deviceBindingCount >= input.bindingQuota.device) {
-            throw new IrohQuotaExceededError({ code: "too_many_device_bindings", retryAfterSeconds: 86_400 });
-          }
-        }
-
-        const [userTotal] = await tx
-          .select({ total: count() })
-          .from(irohEndpointBindings)
-          .where(and(
-            eq(irohEndpointBindings.userId, input.userId),
-            isNull(irohEndpointBindings.revokedAt),
-          ));
-        let userBindingCount = userTotal?.total ?? 0;
-        if (userBindingCount >= input.bindingQuota.account) {
-          const recycled = await recycleStaleBindings(tx, {
-            userId: input.userId,
-            now: input.now,
-            staleAfterMs: input.bindingQuota.staleAfterMs,
-            count: userBindingCount - input.bindingQuota.account + 1,
-          });
-          userBindingCount -= recycled;
-          if (userBindingCount >= input.bindingQuota.account) {
-            throw new IrohQuotaExceededError({ code: "too_many_bindings", retryAfterSeconds: 86_400 });
-          }
-        }
-
-        [deviceTotal] = await tx
-          .select({ total: count() })
-          .from(irohEndpointBindings)
-          .where(and(
-            eq(irohEndpointBindings.userId, input.userId),
-            eq(irohEndpointBindings.deviceUuid, input.payload.deviceId),
-            isNull(irohEndpointBindings.revokedAt),
-          ));
-        deviceBindingCount = deviceTotal?.total ?? 0;
-        const usesDeviceOverride = deviceBindingCount >= input.bindingQuota.baselineDevice;
 
         const [binding] = await tx
           .insert(irohEndpointBindings)
@@ -407,7 +356,6 @@ function makeLiveRepository(): IrohRepositoryShape {
             directPortV6: input.payload.directPorts?.ipv6 ?? null,
             pathHints: accountPrivatePathHints,
             pathHintsNextExpiry: nextPathHintExpiry(accountPrivatePathHints),
-            deviceLimitOverrideUsed: usesDeviceOverride,
             lastSeenAt: input.now,
             registeredAt: input.now,
             updatedAt: input.now,
@@ -881,47 +829,6 @@ function makeLiveRepository(): IrohRepositoryShape {
   };
 }
 
-async function recycleStaleBindings(
-  tx: CloudDbTransaction,
-  input: {
-    readonly userId: string;
-    readonly deviceUuid?: string;
-    readonly now: Date;
-    readonly staleAfterMs: number | null;
-    readonly count: number;
-  },
-): Promise<number> {
-  if (input.staleAfterMs === null || input.count <= 0) return 0;
-  const staleBefore = new Date(input.now.getTime() - input.staleAfterMs);
-  const candidates = await tx
-    .select({ id: irohEndpointBindings.id })
-    .from(irohEndpointBindings)
-    .where(and(
-      eq(irohEndpointBindings.userId, input.userId),
-      input.deviceUuid === undefined
-        ? undefined
-        : eq(irohEndpointBindings.deviceUuid, input.deviceUuid),
-      isNull(irohEndpointBindings.revokedAt),
-      lte(irohEndpointBindings.lastSeenAt, staleBefore),
-    ))
-    .orderBy(
-      asc(irohEndpointBindings.lastSeenAt),
-      asc(irohEndpointBindings.registeredAt),
-      asc(irohEndpointBindings.id),
-    )
-    .limit(input.count)
-    .for("update");
-  if (candidates.length < input.count) return 0;
-  const bindingIds = candidates.map((candidate) => candidate.id);
-  const revoked = await revokeActiveBindings(tx, {
-    userId: input.userId,
-    bindingIds,
-    now: input.now,
-    reason: "stale_development_binding",
-  });
-  return revoked.length;
-}
-
 async function revokeActiveBindings(
   tx: CloudDbTransaction,
   input: {
@@ -1362,9 +1269,6 @@ function databaseConflict(cause: unknown): IrohConflictError | null {
   if (candidate?.code !== "23505") return null;
   if (candidate.constraint === "iroh_endpoint_bindings_active_endpoint_unique") {
     return new IrohConflictError({ code: "endpoint_already_bound" });
-  }
-  if (candidate.constraint === "iroh_endpoint_bindings_active_app_instance_unique") {
-    return new IrohConflictError({ code: "binding_replacement_requires_revocation" });
   }
   return null;
 }

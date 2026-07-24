@@ -397,7 +397,6 @@ describe("Iroh trust broker database behavior", () => {
         pathHints: [],
       },
       now: NOW,
-      bindingQuota: { account: 32, device: 8, baselineDevice: 8, staleAfterMs: null },
     }));
     const results = await Promise.allSettled([register(), register()]);
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
@@ -417,96 +416,6 @@ describe("Iroh trust broker database behavior", () => {
     expect({ bindings, consumed }).toEqual({ bindings: "1", consumed: "1" });
     expect(nextExpiry).toBeNull();
     expect(pathHints).toEqual([]);
-  });
-
-  dbTest("recycles the least-recently-seen stale development binding under pressure", async () => {
-    const repo = requiredRepository();
-    const userId = "user-development-recycling";
-    const deviceId = randomUUID();
-    const oldestId = await insertBinding({
-      userId,
-      deviceUuid: deviceId,
-      endpointId: "21".repeat(32),
-    });
-    const newerInactiveId = await insertBinding({
-      userId,
-      deviceUuid: deviceId,
-      endpointId: "22".repeat(32),
-    });
-    await insertBinding({ userId, deviceUuid: deviceId, endpointId: "23".repeat(32) });
-    await insertBinding({ userId, deviceUuid: deviceId, endpointId: "24".repeat(32) });
-    await requiredSql()`
-      update iroh_endpoint_bindings
-      set last_seen_at = case id
-        when ${oldestId} then ${new Date(NOW.getTime() - 72 * 60 * 60 * 1_000)}
-        when ${newerInactiveId} then ${new Date(NOW.getTime() - 48 * 60 * 60 * 1_000)}
-        else ${NOW}
-      end
-      where user_id = ${userId}
-    `;
-
-    const appInstanceId = randomUUID();
-    const endpointId = "25".repeat(32);
-    const nonceHash = "26".repeat(32);
-    const challenge = await Effect.runPromise(repo.issueChallenge({
-      userId,
-      deviceUuid: deviceId,
-      appInstanceId,
-      tag: "newest",
-      endpointId,
-      identityGeneration: 1,
-      payloadSha256: "27".repeat(32),
-      nonceHash,
-      now: NOW,
-      expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
-    }));
-    await Effect.runPromise(repo.consumeChallengeAndRegister({
-      userId,
-      challengeId: challenge.id,
-      nonceHash,
-      payload: {
-        route_contract_version: 1,
-        deviceId,
-        appInstanceId,
-        tag: "newest",
-        platform: "mac",
-        endpointId,
-        identityGeneration: 1,
-        pairingEnabled: true,
-        capabilities: [],
-        pathHints: [],
-      },
-      now: NOW,
-      bindingQuota: {
-        account: 8,
-        device: 4,
-        baselineDevice: 8,
-        staleAfterMs: 24 * 60 * 60 * 1_000,
-      },
-    }));
-
-    const [state] = await requiredSql()<Array<{
-      active: string;
-      oldestReason: string | null;
-      newerInactive: boolean;
-      generation: number;
-    }>>`
-      select
-        (select count(*)::text from iroh_endpoint_bindings
-          where user_id = ${userId} and revoked_at is null) as active,
-        (select revoked_reason from iroh_endpoint_bindings
-          where id = ${oldestId}) as "oldestReason",
-        exists(select 1 from iroh_endpoint_bindings
-          where id = ${newerInactiveId} and revoked_at is null) as "newerInactive",
-        (select lan_discovery_generation from iroh_account_security_states
-          where user_id = ${userId}) as generation
-    `;
-    expect(state).toEqual({
-      active: "4",
-      oldestReason: "stale_development_binding",
-      newerInactive: true,
-      generation: 2,
-    });
   });
 
   dbTest("persists account-private path hints already filtered by the trust broker", async () => {
@@ -568,7 +477,6 @@ describe("Iroh trust broker database behavior", () => {
         pathHints,
       },
       now: NOW,
-      bindingQuota: { account: 32, device: 8, baselineDevice: 8, staleAfterMs: null },
     }));
 
     const [stored] = await requiredSql()<Array<{
@@ -632,7 +540,6 @@ describe("Iroh trust broker database behavior", () => {
         nonceHash,
         payload,
         now,
-        bindingQuota: { account: 32, device: 8, baselineDevice: 8, staleAfterMs: null },
       }));
     };
 
@@ -676,7 +583,7 @@ describe("Iroh trust broker database behavior", () => {
     expect(stored).toEqual({ directPortV4: null, directPortV6: null });
   });
 
-  dbTest("requires revocation before changing an active binding platform", async () => {
+  dbTest("overwrites the same (user, device, tag) slot in place when the platform changes", async () => {
     const repo = requiredRepository();
     const userId = "user-platform-change";
     const deviceId = randomUUID();
@@ -714,28 +621,33 @@ describe("Iroh trust broker database behavior", () => {
           pathHints: [],
         },
         now,
-        bindingQuota: { account: 32, device: 8, baselineDevice: 8, staleAfterMs: null },
       });
     };
 
-    await Effect.runPromise(await register("mac", "5", NOW));
-    const changed = await Effect.runPromiseExit(await register(
+    const first = await Effect.runPromise(await register("mac", "5", NOW));
+    const second = await Effect.runPromise(await register(
       "ios",
       "6",
       new Date(NOW.getTime() + 1_000),
     ));
-    expect(changed._tag).toBe("Failure");
-    const causeError = changed._tag === "Failure"
-      ? (changed.cause as unknown as { error?: unknown }).error
-      : undefined;
-    expect(causeError).toMatchObject({
-      _tag: "IrohConflictError",
-      code: "binding_replacement_requires_revocation",
-    });
-    const [{ platform }] = await requiredSql()<Array<{ platform: string }>>`
-      select platform from iroh_endpoint_bindings where app_instance_id = ${appInstanceId}
+    // Newest authenticated registration wins in place: the row id is preserved
+    // so any pair grant that referenced it keeps resolving.
+    expect(second.created).toBe(false);
+    expect(second.binding.id).toBe(first.binding.id);
+    const [state] = await requiredSql()<Array<{
+      platform: string;
+      pairingEnabled: boolean;
+      active: string;
+    }>>`
+      select
+        platform,
+        pairing_enabled as "pairingEnabled",
+        (select count(*)::text from iroh_endpoint_bindings
+          where user_id = ${userId} and revoked_at is null) as active
+      from iroh_endpoint_bindings
+      where id = ${first.binding.id}
     `;
-    expect(platform).toBe("mac");
+    expect(state).toEqual({ platform: "ios", pairingEnabled: false, active: "1" });
   });
 
   dbTest("serializes an account-wide registration challenge rate cap", async () => {
@@ -853,12 +765,14 @@ describe("Iroh trust broker database behavior", () => {
     expect((await issue(secondAppInstanceId, 4))._tag).toBe("Success");
   });
 
-  dbTest("enforces globally unique active EndpointIDs and app instances", async () => {
+  dbTest("enforces globally unique active EndpointIDs", async () => {
     const appInstanceId = randomUUID();
     const endpointId = "40".repeat(32);
     await insertBinding({ userId: "user-a", appInstanceId, endpointId });
     await expectPostgresError(insertBinding({ userId: "user-b", endpointId }), "23505");
-    await expectPostgresError(insertBinding({ userId: "user-b", appInstanceId, endpointId: "41".repeat(32) }), "23505");
+    // The app instance id is no longer a uniqueness key: two active bindings may
+    // share it (the slot is keyed on user + device + tag instead).
+    await insertBinding({ userId: "user-b", appInstanceId, endpointId: "41".repeat(32) });
     await expectPostgresError(insertBinding({ userId: "user-a", endpointId: "not-an-endpoint" }), "23514");
     await expectPostgresError(requiredSql()`
       insert into iroh_endpoint_bindings (
@@ -874,6 +788,137 @@ describe("Iroh trust broker database behavior", () => {
         'user-a', ${randomUUID()}, ${randomUUID()}, 'stable', 'mac', ${"43".repeat(32)}, 2147483648
       )
     `, "22003");
+  });
+
+  dbTest("rejects a second active binding for the same (user, device, tag) slot", async () => {
+    const deviceUuid = randomUUID();
+    await insertBinding({
+      userId: "user-slot-unique",
+      deviceUuid,
+      endpointId: "44".repeat(32),
+    });
+    // insertBinding always writes tag 'stable', so a second active row for the
+    // same (user, device, tag) must trip the slot unique index that replaced the
+    // old per-app-instance one.
+    await expectPostgresError(
+      insertBinding({
+        userId: "user-slot-unique",
+        deviceUuid,
+        endpointId: "45".repeat(32),
+      }),
+      "23505",
+    );
+  });
+
+  dbTest("re-keys a reinstalled slot in place and frees its old endpoint", async () => {
+    const repo = requiredRepository();
+    const userId = "user-slot-reinstall";
+    const deviceId = randomUUID();
+    const firstEndpoint = "46".repeat(32);
+    const rotatedEndpoint = "47".repeat(32);
+
+    const register = async (input: {
+      appInstanceId: string;
+      endpointId: string;
+      tag: string;
+      identityGeneration: number;
+      suffix: string;
+      now: Date;
+    }) => {
+      const nonceHash = input.suffix.repeat(64);
+      const challenge = await Effect.runPromise(repo.issueChallenge({
+        userId,
+        deviceUuid: deviceId,
+        appInstanceId: input.appInstanceId,
+        tag: input.tag,
+        endpointId: input.endpointId,
+        identityGeneration: input.identityGeneration,
+        payloadSha256: `${input.suffix}${"0".repeat(63)}`,
+        nonceHash,
+        now: input.now,
+        expiresAt: new Date(input.now.getTime() + 5 * 60 * 1_000),
+      }));
+      return Effect.runPromise(repo.consumeChallengeAndRegister({
+        userId,
+        challengeId: challenge.id,
+        nonceHash,
+        payload: {
+          route_contract_version: 1,
+          deviceId,
+          appInstanceId: input.appInstanceId,
+          tag: input.tag,
+          platform: "ios",
+          endpointId: input.endpointId,
+          identityGeneration: input.identityGeneration,
+          pairingEnabled: true,
+          capabilities: [],
+          pathHints: [],
+        },
+        now: input.now,
+      }));
+    };
+
+    const firstApp = randomUUID();
+    const first = await register({
+      appInstanceId: firstApp,
+      endpointId: firstEndpoint,
+      tag: "stable",
+      identityGeneration: 2,
+      suffix: "1",
+      now: NOW,
+    });
+    expect(first.created).toBe(true);
+
+    // Reinstall: fresh app instance, rotated endpoint, generation reset to 1.
+    // Newest-authenticated-wins is not generation-gated, so the lower generation
+    // still overwrites the slot in place instead of being rejected as stale.
+    const reinstallApp = randomUUID();
+    const reinstalled = await register({
+      appInstanceId: reinstallApp,
+      endpointId: rotatedEndpoint,
+      tag: "stable",
+      identityGeneration: 1,
+      suffix: "2",
+      now: new Date(NOW.getTime() + 1_000),
+    });
+    expect(reinstalled.created).toBe(false);
+    expect(reinstalled.binding.id).toBe(first.binding.id);
+    expect(reinstalled.binding.endpointId).toBe(rotatedEndpoint);
+    expect(reinstalled.binding.appInstanceId).toBe(reinstallApp);
+    expect(reinstalled.binding.identityGeneration).toBe(1);
+
+    // A different tag on the same device is a distinct slot, not a replacement.
+    const secondTag = await register({
+      appInstanceId: randomUUID(),
+      endpointId: "48".repeat(32),
+      tag: "nightly",
+      identityGeneration: 1,
+      suffix: "3",
+      now: NOW,
+    });
+    expect(secondTag.created).toBe(true);
+    expect(secondTag.binding.id).not.toBe(first.binding.id);
+
+    const [state] = await requiredSql()<Array<{
+      active: string;
+      slotEndpoint: string;
+      oldEndpointFree: boolean;
+    }>>`
+      select
+        (select count(*)::text from iroh_endpoint_bindings
+          where user_id = ${userId} and revoked_at is null) as active,
+        (select endpoint_id from iroh_endpoint_bindings
+          where id = ${first.binding.id}) as "slotEndpoint",
+        not exists(
+          select 1 from iroh_endpoint_bindings
+          where endpoint_id = ${firstEndpoint} and revoked_at is null
+        ) as "oldEndpointFree"
+    `;
+    expect(state).toEqual({
+      active: "2",
+      slotEndpoint: rotatedEndpoint,
+      oldEndpointFree: true,
+    });
   });
 
   dbTest("enforces the UDP port range for each direct-address family", async () => {
@@ -1123,16 +1168,22 @@ describe("Iroh trust broker database behavior", () => {
   dbTest("rejects pair-grant peers that resolve to one physical device", async () => {
     const userId = "user-pair-same-device";
     const deviceUuid = randomUUID();
+    // Two distinct slots on the same physical device: same device_uuid, different
+    // tags. The same-device pair-grant guard keys on device_uuid alone, so it
+    // must still reject these even though they are separate (user, device, tag)
+    // slots under the re-keyed binding model.
     const initiatorId = await insertBinding({
       userId,
       deviceUuid,
       platform: "ios",
+      tag: "stable",
       endpointId: "54".repeat(32),
     });
     const acceptorId = await insertBinding({
       userId,
       deviceUuid,
       platform: "mac",
+      tag: "nightly",
       endpointId: "55".repeat(32),
     });
     const exit = await Effect.runPromiseExit(requiredRepository().recordPairGrant({
@@ -1619,6 +1670,7 @@ async function insertBinding(input: {
   readonly appInstanceId?: string;
   readonly endpointId: string;
   readonly platform?: "mac" | "ios";
+  readonly tag?: string;
   readonly pathHints?: unknown[];
 }): Promise<string> {
   const [row] = await requiredSql()<Array<{ id: string }>>`
@@ -1627,7 +1679,7 @@ async function insertBinding(input: {
       identity_generation, pairing_enabled, capabilities, path_hints,
       path_hints_next_expiry
     ) values (
-      ${input.userId}, ${input.deviceUuid ?? randomUUID()}, ${input.appInstanceId ?? randomUUID()}, 'stable',
+      ${input.userId}, ${input.deviceUuid ?? randomUUID()}, ${input.appInstanceId ?? randomUUID()}, ${input.tag ?? "stable"},
       ${input.platform ?? "mac"}, ${input.endpointId}, 1, true, '[]'::jsonb,
       ${requiredSql().json((input.pathHints ?? []) as never)},
       ${earliestStoredHintExpiry(input.pathHints ?? [])}

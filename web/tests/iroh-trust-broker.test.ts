@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
 import * as Effect from "effect/Effect";
 import {
-  bindingQuotaForUser,
   challengeQuotaForUser,
   developmentBindingQuotaAllowed,
   type IrohTrustBrokerConfigShape,
@@ -245,21 +244,24 @@ describe("Iroh trust broker registration", () => {
     await expectEffectFailure(replay.broker.register(USER_A, request, NOW), "IrohConflictError");
   });
 
-  test("requires revocation/reapproval for endpoint or generation replacement", async () => {
+  test("overwrites the slot in place when the endpoint or generation changes", async () => {
     const fixture = makeFixture();
     await Effect.runPromise(fixture.broker.register(USER_A, await fixture.signedRegistration(), NOW));
+    const slotId = fixture.repository.bindings[0]!.id;
+    // A rotated endpoint and a bumped generation reuse the same (user, device,
+    // tag) slot: newest-authenticated-wins overwrites it in place instead of
+    // demanding the operator revoke the previous binding first.
     const replacement = makeFixture({
       repository: fixture.repository,
       appInstanceId: fixture.appInstanceId,
       deviceId: fixture.deviceId,
       identityGeneration: 2,
     });
-    await expectEffectFailure(
-      replacement.broker.register(USER_A, await replacement.signedRegistration(), NOW),
-      "IrohConflictError",
-    );
+    await Effect.runPromise(replacement.broker.register(USER_A, await replacement.signedRegistration(), NOW));
     expect(fixture.repository.bindings).toHaveLength(1);
-    expect(fixture.repository.bindings[0]!.endpointId).toBe(fixture.endpointId);
+    expect(fixture.repository.bindings[0]!.id).toBe(slotId);
+    expect(fixture.repository.bindings[0]!.endpointId).toBe(replacement.endpointId);
+    expect(fixture.repository.bindings[0]!.identityGeneration).toBe(2);
   });
 });
 
@@ -663,18 +665,9 @@ describe("developer binding override", () => {
     expect(developmentBindingQuotaAllowed(base, USER_B)).toBe(false);
     expect(developmentBindingQuotaAllowed({ ...base, deploymentEnvironment: "production" }, USER_A)).toBe(false);
     expect(developmentBindingQuotaAllowed({ ...base, deviceLimitOverrideEnabled: false }, USER_A)).toBe(false);
-    expect(bindingQuotaForUser(base, USER_A)).toEqual({
-      account: 256,
-      device: 128,
-      baselineDevice: 8,
-      staleAfterMs: 24 * 60 * 60 * 1_000,
-    });
-    expect(bindingQuotaForUser(base, USER_B)).toEqual({
-      account: 32,
-      device: 8,
-      baselineDevice: 8,
-      staleAfterMs: null,
-    });
+    // The override now only widens the challenge-issuance quota. Binding counts
+    // are no longer capped: the slot is keyed on (user, device, tag) and the
+    // newest authenticated registration overwrites it in place.
     expect(challengeQuotaForUser(base, USER_A)).toEqual({
       account: 2_048,
       deviceInstance: 128,
@@ -687,149 +680,6 @@ describe("developer binding override", () => {
     });
   });
 
-  test("supports forty concurrent tagged bindings under an explicit development quota", async () => {
-    const repository = new MemoryRepository();
-    const deviceId = randomUUID();
-    for (let index = 0; index < 40; index += 1) {
-      repository.bindings.push(binding({
-        deviceUuid: deviceId,
-        appInstanceId: randomUUID(),
-        endpointId: index.toString(16).padStart(64, "0"),
-      }));
-    }
-    const fixture = makeFixture({
-      repository,
-      deviceId,
-      developmentBindingLimits: {
-        account: 256,
-        device: 128,
-      },
-    });
-
-    await Effect.runPromise(fixture.broker.register(
-      USER_A,
-      await fixture.signedRegistration(),
-      NOW,
-    ));
-
-    expect(repository.bindings.filter((row) => !row.revokedAt)).toHaveLength(41);
-    expect(repository.bindings.at(-1)?.deviceLimitOverrideUsed).toBe(true);
-  });
-
-  test("retains the production device limit", async () => {
-    const repository = new MemoryRepository();
-    const deviceId = randomUUID();
-    for (let index = 0; index < 8; index += 1) {
-      repository.bindings.push(binding({
-        deviceUuid: deviceId,
-        lastSeenAt: index === 0
-          ? new Date(NOW.getTime() - 30 * 24 * 60 * 60 * 1_000)
-          : NOW,
-      }));
-    }
-    const fixture = makeFixture({ repository, deviceId });
-
-    await expectEffectFailure(
-      fixture.broker.register(USER_A, await fixture.signedRegistration(), NOW),
-      "IrohQuotaExceededError",
-    );
-    expect(repository.bindings).toHaveLength(8);
-    expect(repository.bindings.every((row) => row.revokedAt === null)).toBe(true);
-  });
-
-  test("retains explicit upper bounds for development bindings", async () => {
-    const deviceRepository = new MemoryRepository();
-    const deviceId = randomUUID();
-    for (let index = 0; index < 128; index += 1) {
-      deviceRepository.bindings.push(binding({ deviceUuid: deviceId }));
-    }
-    const deviceFixture = makeFixture({
-      repository: deviceRepository,
-      deviceId,
-      developmentBindingLimits: { account: 256, device: 128 },
-    });
-    await expectEffectFailure(
-      deviceFixture.broker.register(USER_A, await deviceFixture.signedRegistration(), NOW),
-      "IrohQuotaExceededError",
-    );
-
-    const accountRepository = new MemoryRepository();
-    for (let index = 0; index < 256; index += 1) {
-      accountRepository.bindings.push(binding());
-    }
-    const accountFixture = makeFixture({
-      repository: accountRepository,
-      developmentBindingLimits: { account: 256, device: 128 },
-    });
-    await expectEffectFailure(
-      accountFixture.broker.register(USER_A, await accountFixture.signedRegistration(), NOW),
-      "IrohQuotaExceededError",
-    );
-
-    expect(deviceRepository.bindings).toHaveLength(128);
-    expect(accountRepository.bindings).toHaveLength(256);
-  });
-
-  test("recycles the least-recently-seen inactive device binding first", async () => {
-    const repository = new MemoryRepository();
-    const deviceId = randomUUID();
-    const oldest = binding({
-      deviceUuid: deviceId,
-      lastSeenAt: new Date(NOW.getTime() - 48 * 60 * 60 * 1_000),
-      registeredAt: new Date(NOW.getTime() - 72 * 60 * 60 * 1_000),
-    });
-    const newerInactive = binding({
-      deviceUuid: deviceId,
-      lastSeenAt: new Date(NOW.getTime() - 36 * 60 * 60 * 1_000),
-      registeredAt: new Date(NOW.getTime() - 48 * 60 * 60 * 1_000),
-    });
-    repository.bindings.push(oldest, newerInactive);
-    for (let index = 0; index < 126; index += 1) {
-      repository.bindings.push(binding({ deviceUuid: deviceId }));
-    }
-    const fixture = makeFixture({
-      repository,
-      deviceId,
-      developmentBindingLimits: { account: 256, device: 128 },
-    });
-
-    const registration = await Effect.runPromise(fixture.broker.register(
-      USER_A,
-      await fixture.signedRegistration(),
-      NOW,
-    )) as { binding: { app_instance_id: string } };
-
-    expect(oldest.revokedReason).toBe("stale_development_binding");
-    expect(oldest.revokedAt).toEqual(NOW);
-    expect(newerInactive.revokedAt).toBeNull();
-    expect(repository.bindings.filter((row) => !row.revokedAt)).toHaveLength(128);
-    expect(registration.binding.app_instance_id).toBe(fixture.appInstanceId);
-  });
-
-  test("recycles the least-recently-seen inactive account binding first", async () => {
-    const repository = new MemoryRepository();
-    const oldest = binding({
-      lastSeenAt: new Date(NOW.getTime() - 72 * 60 * 60 * 1_000),
-    });
-    const newerInactive = binding({
-      lastSeenAt: new Date(NOW.getTime() - 48 * 60 * 60 * 1_000),
-    });
-    repository.bindings.push(oldest, newerInactive, binding(), binding());
-    const fixture = makeFixture({
-      repository,
-      developmentBindingLimits: { account: 4, device: 4 },
-    });
-
-    await Effect.runPromise(fixture.broker.register(
-      USER_A,
-      await fixture.signedRegistration(),
-      NOW,
-    ));
-
-    expect(oldest.revokedReason).toBe("stale_development_binding");
-    expect(newerInactive.revokedAt).toBeNull();
-    expect(repository.bindings.filter((row) => !row.revokedAt)).toHaveLength(4);
-  });
 });
 
 type MutableBinding = IrohBindingRecord & {
@@ -883,20 +733,34 @@ class MemoryRepository implements IrohRepositoryShape {
     if (challenge.consumedAt) return Effect.fail(new IrohConflictError({ code: "challenge_replayed" }));
     if (challenge.expiresAt <= input.now) return Effect.fail(new IrohForbiddenError({ code: "challenge_expired" }));
     if (challenge.nonceHash !== input.nonceHash) return Effect.fail(new IrohForbiddenError({ code: "invalid_challenge_nonce" }));
-    const existing = this.bindings.find((row) => row.appInstanceId === input.payload.appInstanceId && !row.revokedAt);
+    const directPorts = (input.payload as IrohRegistrationPayload & {
+      directPorts?: TestDirectPorts;
+    }).directPorts;
+    // The slot is keyed on (user, device, tag). A reinstall, sign-out/in, or key
+    // rotation reuses it and the newest authenticated registration overwrites it
+    // in place, preserving the row id. There is no generation gate and no cap.
+    const existing = this.bindings.find((row) =>
+      row.userId === input.userId &&
+      row.deviceUuid === input.payload.deviceId &&
+      row.tag === input.payload.tag &&
+      !row.revokedAt);
+    // The endpoint id is a global identity: no OTHER live binding may claim it.
+    // Self is excluded so a slot can rotate its own key.
+    if (this.bindings.some((row) =>
+      row.endpointId === input.payload.endpointId &&
+      !row.revokedAt &&
+      row !== existing)) {
+      return Effect.fail(new IrohConflictError({ code: "endpoint_already_bound" }));
+    }
     if (existing) {
-      if (
-        existing.userId !== input.userId ||
-        existing.endpointId !== input.payload.endpointId ||
-        existing.identityGeneration !== input.payload.identityGeneration ||
-        existing.deviceUuid !== input.payload.deviceId ||
-        existing.tag !== input.payload.tag ||
-        existing.platform !== input.payload.platform
-      ) return Effect.fail(new IrohConflictError({ code: "binding_replacement_requires_revocation" }));
       challenge.consumedAt = input.now;
-      const directPorts = (input.payload as IrohRegistrationPayload & {
-        directPorts?: TestDirectPorts;
-      }).directPorts;
+      existing.appInstanceId = input.payload.appInstanceId;
+      existing.platform = input.payload.platform;
+      existing.endpointId = input.payload.endpointId;
+      existing.identityGeneration = input.payload.identityGeneration;
+      existing.displayName = input.payload.displayName ?? null;
+      existing.pairingEnabled = input.payload.pairingEnabled;
+      existing.capabilities = [...input.payload.capabilities];
       existing.directPortV4 = directPorts?.ipv4 ?? null;
       existing.directPortV6 = directPorts?.ipv6 ?? null;
       existing.pathHints = [...input.payload.pathHints];
@@ -904,44 +768,6 @@ class MemoryRepository implements IrohRepositoryShape {
       existing.updatedAt = input.now;
       return Effect.succeed({ binding: existing, created: false });
     }
-    if (this.bindings.some((row) => row.endpointId === input.payload.endpointId && !row.revokedAt)) {
-      return Effect.fail(new IrohConflictError({ code: "endpoint_already_bound" }));
-    }
-    const recycle = (rows: MutableBinding[], limit: number): boolean => {
-      if (input.bindingQuota.staleAfterMs === null || rows.length < limit) return rows.length < limit;
-      const count = rows.length - limit + 1;
-      const staleBefore = new Date(input.now.getTime() - input.bindingQuota.staleAfterMs);
-      const candidates = rows
-        .filter((row) => row.lastSeenAt <= staleBefore)
-        .sort((left, right) =>
-          left.lastSeenAt.getTime() - right.lastSeenAt.getTime() ||
-          left.registeredAt.getTime() - right.registeredAt.getTime() ||
-          left.id.localeCompare(right.id))
-        .slice(0, count);
-      if (candidates.length < count) return false;
-      for (const candidate of candidates) {
-        candidate.revokedAt = input.now;
-        candidate.revokedReason = "stale_development_binding";
-        candidate.pathHints = [];
-        candidate.pathHintsNextExpiry = null;
-        candidate.updatedAt = input.now;
-      }
-      this.lanGenerations.set(input.userId, (this.lanGenerations.get(input.userId) ?? 1) + 1);
-      return true;
-    };
-    let activeUser = this.bindings.filter((row) => row.userId === input.userId && !row.revokedAt);
-    let activeDevice = activeUser.filter((row) => row.deviceUuid === input.payload.deviceId);
-    if (!recycle(activeDevice, input.bindingQuota.device)) {
-      return Effect.fail(new IrohQuotaExceededError({ code: "too_many_device_bindings", retryAfterSeconds: 86_400 }));
-    }
-    activeUser = this.bindings.filter((row) => row.userId === input.userId && !row.revokedAt);
-    if (!recycle(activeUser, input.bindingQuota.account)) {
-      return Effect.fail(new IrohQuotaExceededError({ code: "too_many_bindings", retryAfterSeconds: 86_400 }));
-    }
-    activeDevice = this.bindings.filter((row) =>
-      row.userId === input.userId &&
-      row.deviceUuid === input.payload.deviceId &&
-      !row.revokedAt);
     const inserted = binding({
       userId: input.userId,
       deviceUuid: input.payload.deviceId,
@@ -953,14 +779,9 @@ class MemoryRepository implements IrohRepositoryShape {
       identityGeneration: input.payload.identityGeneration,
       pairingEnabled: input.payload.pairingEnabled,
       capabilities: [...input.payload.capabilities],
-      directPortV4: (input.payload as IrohRegistrationPayload & {
-        directPorts?: TestDirectPorts;
-      }).directPorts?.ipv4 ?? null,
-      directPortV6: (input.payload as IrohRegistrationPayload & {
-        directPorts?: TestDirectPorts;
-      }).directPorts?.ipv6 ?? null,
+      directPortV4: directPorts?.ipv4 ?? null,
+      directPortV6: directPorts?.ipv6 ?? null,
       pathHints: [...input.payload.pathHints],
-      deviceLimitOverrideUsed: activeDevice.length >= input.bindingQuota.baselineDevice,
       registeredAt: input.now,
       updatedAt: input.now,
       lastSeenAt: input.now,
