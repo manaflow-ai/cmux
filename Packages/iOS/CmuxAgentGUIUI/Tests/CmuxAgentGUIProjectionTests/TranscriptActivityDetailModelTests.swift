@@ -81,7 +81,30 @@ struct TranscriptActivityDetailModelTests {
         #expect(metadata != "1024")
     }
 
+    @Test("sparse activity details fail open instead of trapping")
+    func sparseActivityDetailsFailOpen() {
+        let model = Self.model(
+            payload: .unknown(UnknownPayload(rawKind: "")),
+            itemKind: .unknown(""),
+            itemSummary: ""
+        )
+
+        #expect(model.title == "Activity")
+        #expect(model.sections.count == 1)
+        #expect(model.sections.first?.label == .summary)
+        #expect(model.sections.first?.value == "Activity")
+        #expect(model.sections.first?.isCode == false)
+    }
+
     private static func model(payload: EntryPayload) -> TranscriptActivityDetailModel {
+        model(payload: payload, itemKind: .tool, itemSummary: "summary")
+    }
+
+    private static func model(
+        payload: EntryPayload,
+        itemKind: TranscriptActivityKind,
+        itemSummary: String
+    ) -> TranscriptActivityDetailModel {
         let journal = JournalID(rawValue: "detail")
         let entry = EntrySnapshot(
             journalID: journal,
@@ -92,8 +115,8 @@ struct TranscriptActivityDetailModelTests {
         )
         let item = TranscriptActivityItem(
             id: .entry(journalID: journal, seq: entry.seq),
-            kind: .tool,
-            summary: "summary",
+            kind: itemKind,
+            summary: itemSummary,
             isRunning: false,
             sourceEntry: entry
         )
