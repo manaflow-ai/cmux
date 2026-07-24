@@ -541,7 +541,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
 
                 manager.selectTab(firstWorkspace)
                 XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: increaseEvent))
-                appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
+                appDelegate.debugDrainAllPendingWorkspaceTerminalFontSizeChanges()
 #else
                 XCTFail("Workspace font-size coalescer hooks are only available in DEBUG")
                 return
@@ -559,8 +559,52 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
     }
 
+    func testWorkspaceTerminalFontSizeDrainBudgetCapsLiveActionsAndPanelVisits() {
+        var liveBudget = WorkspaceTerminalFontSizeDrainBudget()
+        for _ in 0..<4 {
+            XCTAssertTrue(
+                liveBudget.reserve(
+                    panelHasLiveSurface: true,
+                    nativeActionUpperBound: 2
+                )
+            )
+        }
+        XCTAssertEqual(
+            liveBudget.liveActionUpperBound,
+            WorkspaceTerminalFontSizeDrainBudget.maximumLiveActionsPerDrain
+        )
+        XCTAssertFalse(
+            liveBudget.reserve(
+                panelHasLiveSurface: true,
+                nativeActionUpperBound: 1
+            )
+        )
+
+        var panelBudget = WorkspaceTerminalFontSizeDrainBudget()
+        for _ in 0..<WorkspaceTerminalFontSizeDrainBudget.maximumPanelVisitsPerDrain {
+            XCTAssertTrue(
+                panelBudget.reserve(
+                    panelHasLiveSurface: false,
+                    nativeActionUpperBound: 2
+                )
+            )
+        }
+        XCTAssertFalse(
+            panelBudget.reserve(
+                panelHasLiveSurface: false,
+                nativeActionUpperBound: 2
+            )
+        )
+
+        var requestBudget = WorkspaceTerminalFontSizeDrainBudget()
+        for _ in 0..<WorkspaceTerminalFontSizeDrainBudget.maximumRequestVisitsPerDrain {
+            XCTAssertTrue(requestBudget.reserveRequestVisit())
+        }
+        XCTAssertFalse(requestBudget.reserveRequestVisit())
+    }
+
     func testPendingWorkspaceTerminalFontSizeChangePreservesResetOrdering() {
-        var change = PendingWorkspaceTerminalFontSizeChange.relative([-1])
+        var change = WorkspaceTerminalFontSizeChange.relative([-1])
         change.appendAdjustment(-1)
         XCTAssertEqual(change, .relative([-2]))
 
@@ -575,7 +619,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
     }
 
     func testPendingWorkspaceTerminalFontSizeChangePreservesOppositeDirections() {
-        var change = PendingWorkspaceTerminalFontSizeChange.relative([1])
+        var change = WorkspaceTerminalFontSizeChange.relative([1])
         change.appendAdjustment(-1)
 
         XCTAssertEqual(change, .relative([1, -1]))
