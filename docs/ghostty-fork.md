@@ -12,13 +12,30 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork patch head: `b211341be`. It combines indented
-hard-newline link continuations with the presentation-token runtime from
-`24284c3ba` and is published through
-https://github.com/manaflow-ai/ghostty/pull/124.
+Current cmux pinned fork patch head: `ff362c99c`. It adds nullable CoreText
+display-name handling on top of the `b211341be` link and presentation runtime
+and is published through https://github.com/manaflow-ai/ghostty/pull/133.
 The corresponding universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b211341be1ba902e772f57fc67c3e65d35205676-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-ff362c99c0a23d71a5b5ecaa9a6463bda1fc9d3f-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
+
+### Nullable CoreText display names
+
+- Commits:
+  - `5d6586eb9` (test: preserve nullable CoreText display names)
+  - `ff362c99c` (fix: guard null CoreText display names)
+- Files:
+  - `pkg/macos/text/font.zig`
+  - `src/font/DeferredFace.zig`
+- Summary:
+  - Preserves the nullable `CTFontCopyDisplayName` result instead of converting
+    address zero into a non-optional pointer.
+  - Falls back to the CoreText family name and records family, bold/italic
+    traits, variation count, deferred-cache state, and the null OS result.
+  - Copies Core Foundation names into the caller buffer before releasing the
+    copied strings.
+  - Conflict note: future CoreText wrapper changes must preserve nullability and
+    ownership for APIs whose names follow Core Foundation's Copy rule.
 
 ### Indented hard-newline link continuations
 
