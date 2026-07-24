@@ -262,53 +262,73 @@ fn legacy_server_process_helper() {
         .map(|value| value.parse::<u32>().unwrap())
         .unwrap_or_else(std::process::id);
     let listener = transport::listen(&socket).unwrap();
-    let mut stream = listener.accept().unwrap();
-    let mut reader = BufReader::new(stream.try_clone_box().unwrap());
-    let mut request = String::new();
+    let serve_probe_and_reject = |stream: &mut Box<dyn transport::Stream>| {
+        let mut reader = BufReader::new(stream.try_clone_box().unwrap());
+        let mut request = String::new();
+        reader.read_line(&mut request).unwrap();
+        let identify_request: serde_json::Value = serde_json::from_str(&request).unwrap();
+        assert_eq!(identify_request["cmd"].as_str(), Some("identify"));
+        let release = cmux_tui_core::release::ReleaseIdentity::current(
+            cmux_tui_core::server::PROTOCOL_VERSION,
+        );
+        let (version, build_commit, ghostty_commit, protocol) = if scenario == "compatible-failure"
+        {
+            (release.version, release.build_commit, release.ghostty_commit, release.protocol)
+        } else {
+            ("0.0.0-stale".to_string(), None, None, 8)
+        };
+        writeln!(
+            stream,
+            "{}",
+            serde_json::json!({
+                "id": identify_request["id"],
+                "ok": true,
+                "data": {
+                    "app": "cmux-tui",
+                    "session": "test",
+                    "pid": reported_pid,
+                    "version": version,
+                    "build_commit": build_commit,
+                    "ghostty_commit": ghostty_commit,
+                    "protocol": protocol,
+                },
+            })
+        )
+        .unwrap();
 
-    reader.read_line(&mut request).unwrap();
-    let identify_request: serde_json::Value = serde_json::from_str(&request).unwrap();
-    assert_eq!(identify_request["cmd"].as_str(), Some("identify"));
-    writeln!(
-        stream,
-        "{}",
-        serde_json::json!({
-            "id": identify_request["id"],
-            "ok": true,
-            "data": {
-                "app": "cmux-tui",
-                "session": "test",
-                "pid": reported_pid,
-                "version": "0.0.0-stale",
-                "protocol": 8,
-            },
-        })
-    )
-    .unwrap();
+        request.clear();
+        reader.read_line(&mut request).unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&request).unwrap()["cmd"].as_str(),
+            Some("shutdown")
+        );
+        writeln!(
+            stream,
+            "{}",
+            serde_json::json!({
+                "id": serde_json::Value::Null,
+                "ok": false,
+                "error": "bad request",
+            })
+        )
+        .unwrap();
+    };
 
-    request.clear();
-    reader.read_line(&mut request).unwrap();
-    assert_eq!(
-        serde_json::from_str::<serde_json::Value>(&request).unwrap()["cmd"].as_str(),
-        Some("shutdown")
-    );
-    writeln!(
-        stream,
-        "{}",
-        serde_json::json!({
-            "id": serde_json::Value::Null,
-            "ok": false,
-            "error": "bad request",
-        })
-    )
-    .unwrap();
-
-    request.clear();
-    if reader.read_line(&mut request).unwrap() == 0 {
+    let mut initial_stream = listener.accept().unwrap();
+    let caller_pid = initial_stream.peer_process_id().unwrap().unwrap();
+    serve_probe_and_reject(&mut initial_stream);
+    drop(initial_stream);
+    if matches!(scenario.as_str(), "spoofed-pid" | "compatible-failure") {
         loop {
             std::thread::park();
         }
     }
+
+    let mut stream = listener.accept().unwrap();
+    serve_probe_and_reject(&mut stream);
+    let mut reader = BufReader::new(stream.try_clone_box().unwrap());
+    let mut request = String::new();
+    reader.read_line(&mut request).unwrap();
     let list_request: serde_json::Value = serde_json::from_str(&request).unwrap();
     assert_eq!(list_request["cmd"].as_str(), Some("list-workspaces"));
     if scenario == "cleanup-failure" {
@@ -326,7 +346,7 @@ fn legacy_server_process_helper() {
             std::thread::park();
         }
     }
-    assert_eq!(scenario, "success");
+    assert!(matches!(scenario.as_str(), "success" | "kill-caller"));
     writeln!(
         stream,
         "{}",
@@ -362,6 +382,10 @@ fn legacy_server_process_helper() {
             })
         )
         .unwrap();
+        if scenario == "kill-caller" && expected_surface == 41 {
+            let caller_pid = libc::pid_t::try_from(caller_pid).unwrap();
+            assert_eq!(unsafe { libc::kill(caller_pid, libc::SIGKILL) }, 0);
+        }
     }
     loop {
         std::thread::park();
@@ -784,6 +808,54 @@ fn server_status_and_stop_control_a_compatible_headless_session() {
 
 #[cfg(unix)]
 #[test]
+fn server_stop_drains_many_hosted_panes_before_acknowledging() {
+    let mut server = HeadlessServer::start("server-stop-many-panes");
+    let applied = cli(
+        &server,
+        &[
+            "--json",
+            "apply-layout",
+            "--layout",
+            r#"{"type":"stack","panes":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32],"expanded":1}"#,
+        ],
+    );
+    assert_success(&applied);
+    let applied: serde_json::Value = serde_json::from_slice(&applied.stdout).unwrap();
+    let surfaces = applied["panes"].as_array().unwrap();
+    assert_eq!(surfaces.len(), 32);
+    let first_surface = surfaces[0]["surface"].as_u64().unwrap();
+    let info = cli(&server, &["--json", "process-info", "--surface", &first_surface.to_string()]);
+    assert_success(&info);
+    let first_terminal_pid = u32::try_from(
+        serde_json::from_slice::<serde_json::Value>(&info.stdout).unwrap()["pid"].as_u64().unwrap(),
+    )
+    .unwrap();
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&server.state, "main");
+    let host_pids = terminal_host_pids(&host_root);
+    assert_eq!(host_pids.len(), 32);
+
+    let stop_started = Instant::now();
+    let stop = cli(&server, &["--json", "server", "stop"]);
+
+    assert_success(&stop);
+    assert!(stop_started.elapsed() < Duration::from_secs(5));
+    assert!(server.child.wait().unwrap().success());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline
+        && (host_pids.iter().copied().any(process_exists)
+            || process_exists(first_terminal_pid)
+            || process_group_exists(first_terminal_pid))
+    {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!host_pids.iter().copied().any(process_exists));
+    assert!(!process_exists(first_terminal_pid));
+    assert!(!process_group_exists(first_terminal_pid));
+    assert!(!server.socket.exists());
+}
+
+#[cfg(unix)]
+#[test]
 fn server_stop_falls_back_when_an_older_server_rejects_shutdown() {
     let mut server = LegacyServerProcess::start("legacy-server-stop", "success", None);
 
@@ -797,6 +869,41 @@ fn server_stop_falls_back_when_an_older_server_rejects_shutdown() {
     assert_success(&output);
     let status = server.child.wait().unwrap();
     assert_eq!(status.signal(), Some(libc::SIGTERM));
+}
+
+#[cfg(unix)]
+#[test]
+fn detached_legacy_stop_survives_the_calling_pane_process_exit() {
+    let mut server = LegacyServerProcess::start("legacy-server-detached", "kill-caller", None);
+
+    let output = Command::new(bin())
+        .args(["server", "stop", "--socket"])
+        .arg(&server.socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.signal(), Some(libc::SIGKILL));
+    let status = server.child.wait().unwrap();
+    assert_eq!(status.signal(), Some(libc::SIGTERM));
+}
+
+#[cfg(unix)]
+#[test]
+fn server_stop_does_not_force_kill_a_compatible_server_after_shutdown_failure() {
+    let mut server =
+        LegacyServerProcess::start("server-shutdown-failure", "compatible-failure", None);
+
+    let output = Command::new(bin())
+        .args(["server", "stop", "--socket"])
+        .arg(&server.socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("could not stop cleanly"));
+    assert!(server.child.try_wait().unwrap().is_none());
 }
 
 #[cfg(unix)]
@@ -875,7 +982,10 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
 
     let identify = cli(&server, &["identify"]);
     assert_success(&identify);
-    assert!(String::from_utf8_lossy(&identify.stdout).starts_with("cmux-tui version="));
+    let identify = String::from_utf8(identify.stdout).unwrap();
+    assert!(identify.starts_with("cmux-tui session=main protocol="));
+    assert!(identify.contains(" pid="));
+    assert!(identify.contains(" version="));
 
     let identify_json = cli(&server, &["--json", "identify"]);
     assert_success(&identify_json);

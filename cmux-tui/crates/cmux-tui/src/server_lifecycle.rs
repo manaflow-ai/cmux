@@ -1,6 +1,8 @@
 use std::collections::HashSet;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use cmux_tui_core::platform::transport;
@@ -184,23 +186,25 @@ impl ServerLifecycle {
             Err(_error) if connection_is_gone(&self.path) => return Ok(()),
             Err(error) => return Err(error),
         };
-        if !accepted {
-            self.stop_legacy_server()?;
+        if accepted {
+            return wait_for_disconnect(&mut self.reader);
         }
-        wait_for_disconnect(&mut self.reader)
+        if self.probe.is_compatible() {
+            anyhow::bail!(crate::localization::catalog().server.shutdown_failed);
+        }
+        self.stop_legacy_server()
     }
 
     #[cfg(unix)]
-    fn stop_legacy_server(&mut self) -> anyhow::Result<()> {
+    fn stop_legacy_server(self) -> anyhow::Result<()> {
         let pid = verified_legacy_pid(self.probe.identity.pid, self.peer_process_id)?;
-        self.close_legacy_surfaces().map_err(|_| {
-            anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
-        })?;
-        terminate_legacy_server(pid)
+        let result = run_detached_legacy_stop(&self.path, pid);
+        drop(self.reader);
+        result
     }
 
     #[cfg(not(unix))]
-    fn stop_legacy_server(&mut self) -> anyhow::Result<()> {
+    fn stop_legacy_server(self) -> anyhow::Result<()> {
         anyhow::bail!(crate::localization::catalog().server.shutdown_unsupported)
     }
 
@@ -238,6 +242,72 @@ impl ServerLifecycle {
         }
         Ok(())
     }
+}
+
+#[cfg(unix)]
+fn run_detached_legacy_stop(path: &Path, expected_pid: libc::pid_t) -> anyhow::Result<()> {
+    use std::os::unix::process::CommandExt;
+
+    let executable = std::env::current_exe().map_err(|_| {
+        anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
+    })?;
+    let mut command = Command::new(executable);
+    command
+        .arg("__legacy-stop-helper")
+        .arg(path)
+        .arg(expected_pid.to_string())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setsid() < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let output = command.output().map_err(|_| {
+        anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
+    })?;
+    if output.status.success() {
+        return Ok(());
+    }
+    anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed)
+}
+
+#[cfg(unix)]
+pub(crate) fn run_legacy_stop_helper(args: &[String]) -> anyhow::Result<()> {
+    let [path, expected_pid] = args else {
+        anyhow::bail!(crate::localization::catalog().server.shutdown_unsupported);
+    };
+    let expected_pid =
+        expected_pid.parse::<libc::pid_t>().ok().filter(|pid| *pid > 1).ok_or_else(|| {
+            anyhow::anyhow!(crate::localization::catalog().server.shutdown_unsupported)
+        })?;
+    let mut lifecycle = ServerLifecycle::connect(PathBuf::from(path))?;
+    let actual_pid = verified_legacy_pid(lifecycle.probe.identity.pid, lifecycle.peer_process_id)?;
+    if actual_pid != expected_pid {
+        anyhow::bail!(crate::localization::catalog().server.legacy_peer_mismatch);
+    }
+
+    write_json_line(
+        lifecycle.reader.get_mut(),
+        &json!({"id": SHUTDOWN_REQUEST_ID, "cmd": "shutdown"}),
+    )
+    .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.transport_failed))?;
+    let response = read_shutdown_response(&mut lifecycle.reader, SHUTDOWN_REQUEST_ID)?;
+    if response.get("ok").and_then(Value::as_bool) == Some(true) {
+        return wait_for_disconnect(&mut lifecycle.reader);
+    }
+    if lifecycle.probe.is_compatible() {
+        anyhow::bail!(crate::localization::catalog().server.shutdown_failed);
+    }
+    lifecycle.close_legacy_surfaces().map_err(|_| {
+        anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
+    })?;
+    terminate_legacy_server(actual_pid)?;
+    wait_for_disconnect(&mut lifecycle.reader)
 }
 
 #[cfg(unix)]

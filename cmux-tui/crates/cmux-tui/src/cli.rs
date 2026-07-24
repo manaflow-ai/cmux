@@ -1430,9 +1430,11 @@ fn print_empty(_: &Value, _: &mut dyn Write) -> io::Result<()> {
 fn print_identify(data: &Value, out: &mut dyn Write) -> io::Result<()> {
     writeln!(
         out,
-        "cmux-tui version={} protocol={}",
-        data.get("version").and_then(Value::as_str).unwrap_or(""),
+        "cmux-tui session={} protocol={} pid={} version={}",
+        data.get("session").and_then(Value::as_str).unwrap_or(""),
         data.get("protocol").and_then(Value::as_u64).unwrap_or(0),
+        data.get("pid").and_then(Value::as_u64).unwrap_or(0),
+        data.get("version").and_then(Value::as_str).unwrap_or(""),
     )
 }
 

@@ -635,6 +635,15 @@ fn main() {
         }
         return;
     }
+    #[cfg(unix)]
+    if raw_args.first().map(String::as_str) == Some("__legacy-stop-helper") {
+        discard_provider_secret_environment();
+        if let Err(error) = server_lifecycle::run_legacy_stop_helper(&raw_args[1..]) {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     if let Err(error) = harden_provider_secret_process() {
         eprintln!("cmux-tui: cannot protect machine-provider credentials: {error}");
         std::process::exit(1);

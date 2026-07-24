@@ -62,6 +62,7 @@ pub(crate) struct ServerMessages {
     pub legacy_peer_mismatch: &'static str,
     #[cfg(unix)]
     pub legacy_signal_failed: &'static str,
+    pub shutdown_failed: &'static str,
     pub shutdown_unsupported: &'static str,
     pub shutdown_timed_out: &'static str,
 }
@@ -234,6 +235,7 @@ static ENGLISH: Catalog = Catalog {
         legacy_peer_mismatch: "The older server's reported process does not own its socket.",
         #[cfg(unix)]
         legacy_signal_failed: "The verified older server process could not be stopped.",
+        shutdown_failed: "the server could not stop cleanly",
         shutdown_unsupported: "this server cannot be stopped by this client",
         shutdown_timed_out: "the server did not stop within 10 seconds",
     },
@@ -359,6 +361,7 @@ static JAPANESE: Catalog = Catalog {
         legacy_peer_mismatch: "古いサーバーが報告したプロセスはソケットを所有していません。",
         #[cfg(unix)]
         legacy_signal_failed: "検証済みの古いサーバープロセスを停止できませんでした。",
+        shutdown_failed: "サーバーを正常に停止できませんでした",
         shutdown_unsupported: "このクライアントからこのサーバーを停止できません",
         shutdown_timed_out: "10 秒以内にサーバーが停止しませんでした",
     },

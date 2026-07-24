@@ -4,9 +4,10 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::thread::ThreadId;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
@@ -41,6 +42,8 @@ const WORKSPACE_KEY_MAX_BYTES: usize = 256;
 const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
 const PROVIDER_WORKSPACE_AUTHORITY_MIN_BYTES: usize = 32;
 const PROVIDER_WORKSPACE_AUTHORITY_MAX_BYTES: usize = 512;
+const SHUTDOWN_TERMINATION_TIMEOUT: Duration = Duration::from_millis(100);
+const SHUTDOWN_FANOUT_WORKERS: usize = 128;
 
 /// An opaque per-mux credential provisioned by the external machine
 /// provider. Debug output is deliberately redacted.
@@ -588,6 +591,65 @@ impl Drop for PendingWorkspaceSurface<'_> {
     }
 }
 
+#[derive(Default)]
+struct SurfaceCreationState {
+    shutting_down: bool,
+    active_threads: HashMap<ThreadId, usize>,
+}
+
+#[derive(Default)]
+struct SurfaceCreationGate {
+    state: Mutex<SurfaceCreationState>,
+    idle: std::sync::Condvar,
+}
+
+impl SurfaceCreationGate {
+    fn begin(&self) -> anyhow::Result<SurfaceCreationGuard<'_>> {
+        let thread = std::thread::current().id();
+        let mut state = self.state.lock().unwrap();
+        if let Some(depth) = state.active_threads.get_mut(&thread) {
+            *depth = depth.saturating_add(1);
+        } else {
+            if state.shutting_down {
+                anyhow::bail!("server is shutting down");
+            }
+            state.active_threads.insert(thread, 1);
+        }
+        Ok(SurfaceCreationGuard { gate: self, thread })
+    }
+
+    fn stop_and_wait(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.shutting_down = true;
+        while !state.active_threads.is_empty() {
+            state = self.idle.wait(state).unwrap();
+        }
+    }
+}
+
+struct SurfaceCreationGuard<'a> {
+    gate: &'a SurfaceCreationGate,
+    thread: ThreadId,
+}
+
+impl Drop for SurfaceCreationGuard<'_> {
+    fn drop(&mut self) {
+        let mut state = self.gate.state.lock().unwrap();
+        let remove = {
+            let depth =
+                state.active_threads.get_mut(&self.thread).expect("surface creation guard tracked");
+            *depth -= 1;
+            *depth == 0
+        };
+        if remove {
+            state.active_threads.remove(&self.thread);
+        }
+        if state.active_threads.is_empty() {
+            self.gate.idle.notify_all();
+        }
+    }
+}
+
 enum SurfaceResizeRestore {
     Complete(bool),
     Pending(Receiver<SurfaceResizeOutcome>),
@@ -709,6 +771,7 @@ pub struct Mux {
     state: Mutex<State>,
     subscribers: MuxEventBroadcaster,
     shutdown_requested: AtomicBool,
+    surface_creations: SurfaceCreationGate,
     next_id: AtomicU64,
     next_notification_id: AtomicU64,
     next_active_at: AtomicU64,
@@ -935,6 +998,7 @@ impl Mux {
             }),
             subscribers: MuxEventBroadcaster::default(),
             shutdown_requested: AtomicBool::new(false),
+            surface_creations: SurfaceCreationGate::default(),
             next_id: AtomicU64::new(next_id),
             next_notification_id: AtomicU64::new(1),
             next_active_at: AtomicU64::new(1),
@@ -1194,6 +1258,7 @@ impl Mux {
         terminal_id: &str,
         options: &SurfaceOptions,
     ) -> anyhow::Result<Option<RunPlacement>> {
+        let _creation = self.begin_surface_creation()?;
         let terminal = self.workspace_registry.lock().unwrap().terminal_record(terminal_id)?;
         let Some(terminal) = terminal.filter(|terminal| {
             terminal.lifecycle == TerminalLifecycle::Exited && terminal.incarnation.is_some()
@@ -1328,6 +1393,7 @@ impl Mux {
         incarnation: &str,
         surface: Arc<Surface>,
     ) -> anyhow::Result<()> {
+        let _creation = self.begin_surface_creation()?;
         if surface.is_dead() {
             self.transition_terminal_lifecycle(
                 "terminal-exited",
@@ -1607,6 +1673,10 @@ impl Mux {
 
     fn next_id(&self) -> u64 {
         self.next_id.fetch_add(1, Ordering::Relaxed)
+    }
+
+    fn begin_surface_creation(&self) -> anyhow::Result<SurfaceCreationGuard<'_>> {
+        self.surface_creations.begin()
     }
 
     fn next_active_at(&self) -> u64 {
@@ -3059,6 +3129,7 @@ impl Mux {
         incarnation: &str,
         workspace_key: &str,
     ) -> anyhow::Result<SurfaceId> {
+        let _creation = self.begin_surface_creation()?;
         let mut registry = self.workspace_registry.lock().unwrap();
         commit_terminal_transition(
             &mut registry,
@@ -3541,6 +3612,7 @@ impl Mux {
 
     pub fn shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
+        self.surface_creations.stop_and_wait();
         let surfaces = self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
         for surface in surfaces {
             surface.disconnect_for_daemon_shutdown();
@@ -3556,6 +3628,117 @@ impl Mux {
 
     pub fn shutdown_requested(&self) -> bool {
         self.shutdown_requested.load(Ordering::Acquire)
+    }
+
+    /// Permanently fence new surface creation, tombstone every durable
+    /// terminal in one transaction, detach the complete topology in one
+    /// state mutation, and terminate each runtime before acknowledging the
+    /// shutdown request. A failed durable commit leaves topology untouched;
+    /// a failed host termination leaves the fence closed so a retry cannot
+    /// race a new PTY into the session.
+    pub fn close_all_surfaces_for_shutdown(&self) -> anyhow::Result<usize> {
+        self.shutting_down.store(true, Ordering::Release);
+        self.surface_creations.stop_and_wait();
+
+        let (surfaces, tree_changed) = {
+            let mutation = WorkspaceMutation::local("cmux-tui-shutdown");
+            let mut registry = self.workspace_registry.lock().unwrap();
+            let terminals = registry
+                .terminal_snapshot()?
+                .terminals
+                .into_iter()
+                .map(|terminal| (terminal.terminal_id, terminal.incarnation))
+                .collect::<Vec<_>>();
+            let batch = registry.close_terminals_atomically(&mutation, &terminals)?;
+
+            let (surfaces, tree_changed) = {
+                let mut state = self.state.lock().unwrap();
+                let tree_changed = !state.surfaces.is_empty()
+                    || !state.panes.is_empty()
+                    || state.workspaces.iter().any(|workspace| !workspace.screens.is_empty());
+                let surfaces =
+                    state.surfaces.drain().map(|(_, surface)| surface).collect::<Vec<_>>();
+                for workspace in &mut state.workspaces {
+                    workspace.screens.clear();
+                    workspace.active_screen = 0;
+                }
+                if !state.panes.is_empty() {
+                    state.pane_revision = state.pane_revision.saturating_add(1);
+                }
+                state.panes.clear();
+                state.split_screens.clear();
+                (surfaces, tree_changed)
+            };
+
+            if batch.closed != 0 {
+                self.emit_terminal_registry_changed(&registry, batch.revision);
+            }
+            (surfaces, tree_changed)
+        };
+
+        self.pending_workspace_surfaces.lock().unwrap().clear();
+        self.agent_records.lock().unwrap().clear();
+        self.surface_notifications.lock().unwrap().clear();
+        self.sidebar_plugin.lock().unwrap().surface = None;
+        {
+            let mut sizing = self.client_sizing.lock().unwrap();
+            sizing.surfaces.clear();
+            sizing.report_order.clear();
+            let attached_clients = self.control_clients.attached_client_ids();
+            self.reconcile_latest_client_size(&sizing, &attached_clients);
+        }
+        if tree_changed {
+            self.emit(MuxEvent::TreeChanged);
+        }
+
+        #[cfg(unix)]
+        let terminated_hosts = Mutex::new(HashSet::new());
+        bounded_shutdown_fanout(&surfaces, |surface| {
+            let accepted = surface.terminate_for_server_shutdown(SHUTDOWN_TERMINATION_TIMEOUT);
+            #[cfg(unix)]
+            if accepted && let Some(identity) = surface.terminal_host_identity() {
+                terminated_hosts
+                    .lock()
+                    .unwrap()
+                    .insert((identity.terminal_id, identity.incarnation));
+            }
+        });
+
+        #[cfg(unix)]
+        {
+            let terminated_hosts = terminated_hosts.into_inner().unwrap();
+            let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
+            if let Some(root) = root {
+                let records = crate::terminal_host_runtime::load_terminal_host_records(&root)
+                    .context("load terminal hosts for server shutdown")?;
+                let failed = Mutex::new(Vec::new());
+                bounded_shutdown_fanout(&records, |(path, record)| {
+                    if terminated_hosts
+                        .contains(&(record.terminal_id.clone(), record.incarnation.clone()))
+                    {
+                        return;
+                    }
+                    if !cleanup_terminal_host_record_with_timeout(
+                        record,
+                        path,
+                        SHUTDOWN_TERMINATION_TIMEOUT,
+                    ) {
+                        failed.lock().unwrap().push(record.terminal_id.clone());
+                    }
+                });
+                let mut failed = failed.into_inner().unwrap();
+                if !failed.is_empty() {
+                    failed.sort();
+                    anyhow::bail!(
+                        "could not terminate {} terminal host(s): {}",
+                        failed.len(),
+                        failed.join(", ")
+                    );
+                }
+            }
+        }
+
+        Ok(surfaces.len())
     }
 
     /// Atomically reserve a daemon handoff while proving no other native
@@ -3574,6 +3757,7 @@ impl Mux {
     /// and remain available for the replacement daemon to adopt.
     pub fn request_daemon_shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
+        self.surface_creations.stop_and_wait();
     }
 
     pub fn daemon_shutdown_requested(&self) -> bool {
@@ -3613,6 +3797,16 @@ impl Mux {
         rows: u16,
         relaunch: bool,
     ) -> SidebarPluginStatus {
+        let _creation = match self.begin_surface_creation() {
+            Ok(creation) => creation,
+            Err(error) => {
+                return SidebarPluginStatus {
+                    surface: None,
+                    error: Some(error.to_string()),
+                    retry_after: None,
+                };
+            }
+        };
         let now = Instant::now();
         let size = (cols.max(1), rows.max(1));
         let spawn_options = {
@@ -3791,6 +3985,7 @@ impl Mux {
         name: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        let _creation = self.begin_surface_creation()?;
         let workspace = self.create_empty_workspace(name, None, None)?.workspace;
         let (_, surface) =
             self.create_terminal_in_workspace_impl(workspace, None, None, None, size, None)?;
@@ -3970,6 +4165,7 @@ impl Mux {
         argv: Vec<String>,
         options: RunCommandOptions,
     ) -> anyhow::Result<RunPlacement> {
+        let _creation = self.begin_surface_creation()?;
         let RunCommandOptions { pane, new_workspace, workspace_key, cwd, name, size } = options;
         if workspace_key.is_some() && !new_workspace {
             anyhow::bail!("workspace key requires a new workspace");
@@ -4087,6 +4283,7 @@ impl Mux {
         cwd: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        let _creation = self.begin_surface_creation()?;
         // Validate the target before spawning a child.
         let workspace_key = {
             let state = self.state.lock().unwrap();
@@ -4175,6 +4372,7 @@ impl Mux {
         cwd: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        let _creation = self.begin_surface_creation()?;
         // Resolve and validate the target before spawning a child.
         let (target, empty_workspace) = {
             let state = self.state.lock().unwrap();
@@ -4396,6 +4594,7 @@ impl Mux {
         size: Option<(u16, u16)>,
         reservation: Option<TerminalReservationRequest>,
     ) -> anyhow::Result<(RunPlacement, Arc<Surface>)> {
+        let _creation = self.begin_surface_creation()?;
         {
             let state = self.state.lock().unwrap();
             if state.workspace_by_id(workspace).is_none() {
@@ -4611,6 +4810,7 @@ impl Mux {
         pane: Option<PaneId>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        let _creation = self.begin_surface_creation()?;
         let (target, empty_workspace) = {
             let state = self.state.lock().unwrap();
             let target = match pane {
@@ -4819,6 +5019,7 @@ impl Mux {
         url: String,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        let _creation = self.begin_surface_creation()?;
         let lifecycle = self.workspace_lifecycle(workspace);
         let workspace_lifecycle = lifecycle.lock().unwrap();
         if self.state.lock().unwrap().workspace_by_id(workspace).is_none() {
@@ -4922,6 +5123,9 @@ impl Mux {
         url: String,
         runtime: Arc<BrowserRuntime>,
     ) -> bool {
+        let Ok(_creation) = self.begin_surface_creation() else {
+            return false;
+        };
         let (pane_id, size) = {
             let state = self.state.lock().unwrap();
             let Some(pane_id) = state.pane_of(opener_surface) else {
@@ -5022,6 +5226,7 @@ impl Mux {
         dir: SplitDir,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        let _creation = self.begin_surface_creation()?;
         let cwd = self.pane_cwd(target);
         let workspace_key = self
             .workspace_key_for_pane(target)
@@ -5110,6 +5315,7 @@ impl Mux {
         target: PaneId,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        let _creation = self.begin_surface_creation()?;
         if self.state.lock().unwrap().screen_of(target).is_none() {
             anyhow::bail!("unknown pane {target}");
         }
@@ -6259,6 +6465,7 @@ impl Mux {
         layout: &LayoutSpec,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<AppliedLayout> {
+        let _creation = self.begin_surface_creation()?;
         let target_workspace = {
             let state = self.state.lock().unwrap();
             if let Some(id) = workspace
@@ -7239,6 +7446,23 @@ fn terminate_host_record(
 }
 
 #[cfg(unix)]
+fn terminate_host_record_with_timeout(
+    record: crate::terminal_host_runtime::TerminalHostRecord,
+    record_path: std::path::PathBuf,
+    timeout: Duration,
+) -> bool {
+    if let Ok(host) =
+        crate::terminal_host_runtime::adopt_terminal_host_with_timeout(record, record_path, timeout)
+    {
+        let terminated = host.terminate_with_timeout(timeout).is_ok();
+        host.disconnect();
+        terminated
+    } else {
+        false
+    }
+}
+
+#[cfg(unix)]
 fn terminal_host_record_liveness(
     record_path: &Path,
     record: &crate::terminal_host_runtime::TerminalHostRecord,
@@ -7274,6 +7498,50 @@ fn cleanup_terminal_host_record(
             terminate_host_record(record.clone(), record_path.to_path_buf())
         }
     }
+}
+
+#[cfg(unix)]
+fn cleanup_terminal_host_record_with_timeout(
+    record: &crate::terminal_host_runtime::TerminalHostRecord,
+    record_path: &Path,
+    timeout: Duration,
+) -> bool {
+    match terminal_host_record_liveness(record_path, record) {
+        TerminalHostLiveness::Dead => {
+            match crate::terminal_host_runtime::remove_stale_terminal_host_record(
+                record_path,
+                record,
+            ) {
+                Ok(removed) => removed,
+                Err(_) if !record_path.exists() => true,
+                Err(_) => false,
+            }
+        }
+        TerminalHostLiveness::Live | TerminalHostLiveness::Indeterminate => {
+            terminate_host_record_with_timeout(record.clone(), record_path.to_path_buf(), timeout)
+        }
+    }
+}
+
+fn bounded_shutdown_fanout<T: Sync>(items: &[T], operation: impl Fn(&T) + Sync) {
+    if items.is_empty() {
+        return;
+    }
+    let next = AtomicUsize::new(0);
+    let workers = items.len().min(SHUTDOWN_FANOUT_WORKERS);
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            let next = &next;
+            let operation = &operation;
+            scope.spawn(move || {
+                loop {
+                    let index = next.fetch_add(1, Ordering::Relaxed);
+                    let Some(item) = items.get(index) else { break };
+                    operation(item);
+                }
+            });
+        }
+    });
 }
 
 fn insert_surface_checked(state: &mut State, surface: Arc<Surface>) -> anyhow::Result<()> {
@@ -9487,6 +9755,137 @@ mod tests {
     }
 
     #[test]
+    fn server_shutdown_clears_many_surfaces_with_one_tree_event() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((120, 40))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        for _ in 0..450 {
+            mux.new_tab(Some(pane), None, None).unwrap();
+        }
+        let events = mux.subscribe();
+
+        assert_eq!(mux.close_all_surfaces_for_shutdown().unwrap(), 451);
+
+        mux.with_state(|state| {
+            assert!(state.surfaces.is_empty());
+            assert!(state.panes.is_empty());
+            assert!(state.split_screens.is_empty());
+            assert!(state.workspaces.iter().all(|workspace| workspace.screens.is_empty()));
+        });
+        let events = events.try_iter().collect::<Vec<_>>();
+        assert_eq!(events.iter().filter(|event| matches!(event, MuxEvent::TreeChanged)).count(), 1);
+        assert_eq!(events.len(), 1);
+        let error = mux.new_workspace(None, None).unwrap_err();
+        assert_eq!(error.to_string(), "server is shutting down");
+    }
+
+    #[test]
+    fn shutdown_fanout_runs_terminations_concurrently() {
+        let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(8);
+        let worker = std::thread::spawn({
+            let gate = gate.clone();
+            move || {
+                bounded_shutdown_fanout(&[(); 8], |_| {
+                    started_tx.send(()).unwrap();
+                    let (released, wake) = &*gate;
+                    let released =
+                        wake.wait_while(released.lock().unwrap(), |released| !*released).unwrap();
+                    drop(released);
+                });
+            }
+        });
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let mut started = 0;
+        while started < 8 {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else { break };
+            if started_rx.recv_timeout(remaining).is_err() {
+                break;
+            }
+            started += 1;
+        }
+        let (released, wake) = &*gate;
+        *released.lock().unwrap() = true;
+        wake.notify_all();
+        worker.join().unwrap();
+        assert_eq!(started, 8);
+    }
+
+    #[test]
+    fn server_shutdown_waits_for_in_flight_surface_creation() {
+        let mux = test_mux();
+        let workspace = mux.create_empty_workspace(Some("race".into()), None, None).unwrap();
+        let (creation_reached_tx, creation_reached_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_creation_tx, release_creation_rx) = std::sync::mpsc::sync_channel(1);
+        let release_creation_rx = Arc::new(Mutex::new(release_creation_rx));
+        *mux.terminal_create_after_materialization_lock.lock().unwrap() = Some(Arc::new({
+            move || {
+                creation_reached_tx.send(()).unwrap();
+                release_creation_rx.lock().unwrap().recv().unwrap();
+            }
+        }));
+
+        let create = std::thread::spawn({
+            let mux = mux.clone();
+            move || {
+                mux.create_terminal_surface_in_workspace(
+                    workspace.workspace,
+                    None,
+                    None,
+                    None,
+                    Some((80, 24)),
+                )
+                .unwrap()
+                .0
+                .id
+            }
+        });
+        creation_reached_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let (shutdown_done_tx, shutdown_done_rx) = std::sync::mpsc::sync_channel(1);
+        let shutdown = std::thread::spawn({
+            let mux = mux.clone();
+            move || {
+                shutdown_done_tx.send(mux.close_all_surfaces_for_shutdown().unwrap()).unwrap();
+            }
+        });
+        assert!(shutdown_done_rx.recv_timeout(Duration::from_millis(100)).is_err());
+
+        release_creation_tx.send(()).unwrap();
+        let created = create.join().unwrap();
+        assert_eq!(shutdown_done_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 1);
+        shutdown.join().unwrap();
+        assert!(mux.surface(created).is_none());
+        assert_eq!(
+            mux.new_tab(None, None, None).unwrap_err().to_string(),
+            "server is shutting down"
+        );
+        *mux.terminal_create_after_materialization_lock.lock().unwrap() = None;
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn server_shutdown_keeps_topology_when_terminal_batch_commit_fails() {
+        let mux = test_mux();
+        let workspace = mux.create_empty_workspace(Some("durable".into()), None, None).unwrap();
+        let terminal_id = "00000000000040008000000000000021";
+        let incarnation = "10000000000040008000000000000021";
+        let surface =
+            mux.seed_running_terminal_for_test(terminal_id, incarnation, &workspace.key).unwrap();
+        mux.set_terminal_close_failure_for_test(true).unwrap();
+
+        let error = mux.close_all_surfaces_for_shutdown().unwrap_err();
+
+        assert!(format!("{error:#}").contains("forced terminal close failure"));
+        assert!(mux.surface(surface).is_some());
+        assert!(mux.with_state(|state| state.pane_of(surface).is_some()));
+        mux.set_terminal_close_failure_for_test(false).unwrap();
+        assert_eq!(mux.close_all_surfaces_for_shutdown().unwrap(), 1);
+        assert!(mux.surface(surface).is_none());
+    }
+
+    #[test]
     fn closing_active_pane_focuses_most_recent_remaining_pane() {
         let mux = test_mux();
         let s1 = mux.new_workspace(None, None).unwrap();
@@ -10636,7 +11035,7 @@ mod tests {
         .unwrap();
         let surface = insert_terminal_identity_surface(&mux, TERMINAL, INCARNATION, &first.key);
 
-        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let calls = Arc::new(AtomicUsize::new(0));
         let (entered_tx, entered_rx) = std::sync::mpsc::channel();
         let (release_tx, release_rx) = std::sync::mpsc::channel();
         let release_rx = Arc::new(Mutex::new(release_rx));
@@ -10929,7 +11328,7 @@ mod tests {
     fn concurrent_empty_workspace_terminal_inherits_the_first_terminals_cwd() {
         let mux = test_mux();
         let workspace = mux.create_empty_workspace(Some("shared".into()), None, None).unwrap();
-        let empty_checks = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let empty_checks = Arc::new(AtomicUsize::new(0));
         let (second_checked_tx, second_checked_rx) = std::sync::mpsc::sync_channel(1);
         *mux.terminal_create_after_empty_check.lock().unwrap() = Some(Arc::new({
             move || {

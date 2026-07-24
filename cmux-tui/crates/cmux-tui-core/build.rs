@@ -23,6 +23,7 @@ fn main() {
     let repository_root =
         workspace_root.parent().expect("the cmux-tui workspace is inside the repository");
     let ghostty_root = env::var_os("CMUX_GHOSTTY_SRC")
+        .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| repository_root.join("ghostty"));
 
@@ -35,17 +36,21 @@ fn main() {
     track_git_identity(repository_root);
     track_git_identity(&ghostty_root);
 
-    if env::var_os("CMUX_TUI_BUILD_COMMIT").is_none()
-        && env::var_os("CMUX_MUX_BUILD_COMMIT").is_none()
+    if !nonempty_env("CMUX_TUI_BUILD_COMMIT")
+        && !nonempty_env("CMUX_MUX_BUILD_COMMIT")
         && let Some(identity) = source_identity(workspace_root, workspace_root)
     {
         println!("cargo:rustc-env=CMUX_TUI_SOURCE_COMMIT={identity}");
     }
-    if env::var_os("CMUX_TUI_GHOSTTY_COMMIT").is_none()
+    if !nonempty_env("CMUX_TUI_GHOSTTY_COMMIT")
         && let Some(identity) = source_identity(&ghostty_root, &ghostty_root)
     {
         println!("cargo:rustc-env=CMUX_TUI_SOURCE_GHOSTTY_COMMIT={identity}");
     }
+}
+
+fn nonempty_env(name: &str) -> bool {
+    env::var_os(name).is_some_and(|value| !value.is_empty())
 }
 
 fn source_identity(git_root: &Path, fallback_root: &Path) -> Option<String> {
@@ -81,7 +86,10 @@ fn directory_fingerprint(root: &Path) -> std::io::Result<u64> {
         entries.sort_by_key(|entry| entry.file_name());
         for entry in entries {
             let name = entry.file_name();
-            if matches!(name.to_str(), Some(".git" | "target" | "zig-cache" | "zig-out")) {
+            if matches!(
+                name.to_str(),
+                Some(".git" | "target" | ".zig-cache" | "zig-cache" | "zig-out")
+            ) {
                 continue;
             }
             let path = entry.path();
@@ -112,13 +120,21 @@ fn hash_bytes(hash: &mut u64, bytes: &[u8]) {
 
 fn track_git_identity(root: &Path) {
     let Some(head) = git_text(root, &["rev-parse", "--git-path", "HEAD"]) else { return };
-    println!("cargo:rerun-if-changed={head}");
+    println!("cargo:rerun-if-changed={}", resolve_git_path(root, &head).display());
     if let Some(reference) = git_text(root, &["symbolic-ref", "-q", "HEAD"])
         && let Some(reference_path) =
             git_text(root, &["rev-parse", "--git-path", reference.as_str()])
     {
-        println!("cargo:rerun-if-changed={reference_path}");
+        println!("cargo:rerun-if-changed={}", resolve_git_path(root, &reference_path).display());
     }
+    if let Some(packed_refs) = git_text(root, &["rev-parse", "--git-path", "packed-refs"]) {
+        println!("cargo:rerun-if-changed={}", resolve_git_path(root, &packed_refs).display());
+    }
+}
+
+fn resolve_git_path(root: &Path, value: &str) -> PathBuf {
+    let path = PathBuf::from(value);
+    if path.is_absolute() { path } else { root.join(path) }
 }
 
 fn git_text(root: &Path, args: &[&str]) -> Option<String> {

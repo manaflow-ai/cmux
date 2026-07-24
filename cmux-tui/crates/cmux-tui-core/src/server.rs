@@ -2969,11 +2969,7 @@ fn handle_command(
             if !mux.control_clients.is_unix(client) {
                 anyhow::bail!("shutdown is only available over the local session socket");
             }
-            let surfaces =
-                mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
-            for surface in surfaces {
-                mux.close_surface(surface)?;
-            }
+            mux.close_all_surfaces_for_shutdown()?;
             Ok(json!({}))
         }
         Command::ShutdownDaemon { pid, generation } => {
