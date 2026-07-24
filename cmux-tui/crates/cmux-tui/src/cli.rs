@@ -1813,6 +1813,22 @@ mod tests {
     }
 
     #[test]
+    fn generated_id_flags_reject_padded_short_id_lookalikes() {
+        let flags = FlagMap {
+            values: BTreeMap::from([
+                ("surface".to_string(), "000010".to_string()),
+                ("text".to_string(), "hello".to_string()),
+            ]),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            build_send(&flags).unwrap_err().0,
+            "--surface must be a canonical uint64; short ids are supported only by interactive attach"
+        );
+    }
+
+    #[test]
     fn scrollback_human_output_flattens_runs_one_row_per_line() {
         let data = json!({
             "rows": [

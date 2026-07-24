@@ -1917,11 +1917,17 @@ mod tests {
 
     struct AcknowledgingWriter {
         session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
+        requests: Option<Sender<Value>>,
     }
 
     impl RemoteMessageWriter for AcknowledgingWriter {
         fn send(&mut self, message: &str) -> io::Result<()> {
             let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+            if let Some(requests) = self.requests.as_ref() {
+                requests.send(request.clone()).map_err(|_| {
+                    io::Error::new(io::ErrorKind::BrokenPipe, "request reader exited")
+                })?;
+            }
             let id = request
                 .get("id")
                 .and_then(Value::as_u64)
@@ -1982,7 +1988,7 @@ mod tests {
     fn acknowledging_provider_session() -> Arc<RemoteSession> {
         let session_slot = Arc::new(Mutex::new(None));
         let session = test_session_with_provider_context(
-            Box::new(AcknowledgingWriter { session: session_slot.clone() }),
+            Box::new(AcknowledgingWriter { session: session_slot.clone(), requests: None }),
             HashSet::from([
                 cmux_tui_core::server::PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY.to_string()
             ]),
@@ -1990,6 +1996,17 @@ mod tests {
         );
         *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
         session
+    }
+
+    fn recording_acknowledging_session() -> (Arc<RemoteSession>, Receiver<Value>) {
+        let session_slot = Arc::new(Mutex::new(None));
+        let (requests, received_requests) = channel();
+        let session = test_session(Box::new(AcknowledgingWriter {
+            session: session_slot.clone(),
+            requests: Some(requests),
+        }));
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
+        (session, received_requests)
     }
 
     #[test]
@@ -2322,6 +2339,7 @@ mod tests {
 
         for event in [
             json!({"event": "title-changed", "surface": 8, "title": "changed"}),
+            json!({"event": "surface-output", "surface": 8}),
             json!({"event": "surface-exited", "surface": 8}),
             json!({"event": "client-list-invalidated"}),
             json!({"event": "client-attached", "client": 11, "transport": "unix"}),
@@ -2364,6 +2382,17 @@ mod tests {
             events.recv_timeout(Duration::from_secs(1)),
             Ok(MuxEvent::SurfaceExited(7))
         ));
+    }
+
+    #[test]
+    fn surface_event_scope_registers_a_filtered_server_subscription() {
+        let (session, requests) = recording_acknowledging_session();
+
+        let _ = session.scope_events_to_surface(7);
+
+        let request = requests.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(request.get("cmd").and_then(Value::as_str), Some("subscribe"));
+        assert_eq!(request.get("surface").and_then(Value::as_u64), Some(7));
     }
 
     #[test]
