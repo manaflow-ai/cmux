@@ -90,7 +90,8 @@ extension Workspace {
                 agentPIDIdentitiesForPanel[key] = agentPIDProcessIdentitiesByKey[key]
             }
             let statusKey = agentStatusKey(forAgentPIDKey: key)
-            if let statusEntry = statusEntries[statusKey] {
+            if let statusEntry = statusEntries[statusKey],
+               statusEntry.agentOwnerPanelID == nil || statusEntry.agentOwnerPanelID == panelId {
                 statusEntriesForPanel[statusKey] = statusEntry
             }
         }

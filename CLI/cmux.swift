@@ -27026,8 +27026,13 @@ struct CMUXCLI {
             defaultValue: "Codex is asking a question"
         )
         if let surfaceId, !surfaceId.isEmpty {
-            let payload = "Codex|\(sanitizeNotificationField(subtitle))|\(sanitizeNotificationField(body))"
-            _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
+            let meta = AgentHookNotifyCategory.needsPermission.metaSegment(
+                pending: false,
+                statusKey: "codex",
+                eventTime: agentEventTime
+            )
+            let payload = notificationPayload(title: "Codex", subtitle: subtitle, body: body, meta: meta)
+            _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
         }
         let statusValue = String(localized: "agent.codex.input.status.needsInput", defaultValue: "Codex needs input")
         _ = try? sendV1Command(
@@ -27045,8 +27050,18 @@ struct CMUXCLI {
     ) {
         let summary = summarizeCodexHookFailureCandidate(failure)
         if let surfaceId, !surfaceId.isEmpty {
-            let payload = "Codex|\(sanitizeNotificationField(summary.subtitle))|\(sanitizeNotificationField(summary.body))"
-            _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
+            let meta = AgentHookNotifyCategory.other.metaSegment(
+                pending: false,
+                statusKey: "codex",
+                eventTime: agentEventTime
+            )
+            let payload = notificationPayload(
+                title: "Codex",
+                subtitle: summary.subtitle,
+                body: summary.body,
+                meta: meta
+            )
+            _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
         }
         _ = try? sendV1Command(
             "set_status codex \(summary.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(agentEventTimeOption(agentEventTime))",
