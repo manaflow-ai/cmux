@@ -12908,6 +12908,48 @@ mod tests {
     }
 
     #[test]
+    fn unrelated_stale_tree_before_queued_attach_preserves_the_sync_failure() {
+        let session = crate::session::test_remote_session_without_provider_authority();
+        assert!(session.take_remote_tree_stale());
+        let surface = 77;
+        let (mut app, events) = test_app_with_events(session);
+        app.replace_tree(notify_tree(surface, false));
+
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        app.session.operations.enqueue_session_mutation("block attach lane", false, move || {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            Ok(())
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        app.session.attach_surface(surface, Some((80, 24)));
+        app.session.invalidate_remote_tree();
+        app.session.begin_shutdown();
+        release_tx.send(()).unwrap();
+
+        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            &settled,
+            AppEvent::SessionMutationSettled {
+                outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+                    surface: 77,
+                    operation: "attach",
+                    ..
+                },
+                ..
+            }
+        ));
+        app.handle(settled).unwrap();
+        assert!(app.status_message.as_deref().is_some_and(|message| {
+            message.contains("surface 77 attach failed")
+                && message.contains("remote response wait canceled for shutdown")
+        }));
+        assert!(app.session.surface_attach_failures.lock().unwrap().contains_key(&surface));
+    }
+
+    #[test]
     fn unrelated_stale_tree_during_attach_preserves_the_sync_failure() {
         let session = crate::session::test_remote_session_without_provider_authority();
         assert!(session.take_remote_tree_stale());
