@@ -869,19 +869,38 @@ class GhosttyApp {
         runtimeConfig.confirm_read_clipboard_cb = { userdata, content, state, _ in
             guard let content else { return }
             guard let callbackContext = GhosttyApp.callbackContext(from: userdata),
-                  let surface = callbackContext.runtimeSurface else { return }
+                  let requestSurface = callbackContext.runtimeSurface else { return }
 
-            ghostty_surface_complete_clipboard_request(surface, content, state, true)
+            let requestedContents = String(cString: content)
+            let stateBits: Int = state.map { Int(bitPattern: $0) } ?? 0
             DispatchQueue.main.async {
-                callbackContext.terminalSurface?.noteClipboardReadCompleted()
+                TerminalClipboardRuntimeBridge.handleReadConfirmation(
+                    contents: requestedContents,
+                    window: callbackContext.surfaceView?.window,
+                    requester: TerminalClipboardAccessPrompter.shared
+                ) { contents, confirmed in
+                    guard callbackContext.runtimeSurface == requestSurface else { return }
+                    let statePointer = stateBits == 0
+                        ? nil
+                        : UnsafeMutableRawPointer(bitPattern: stateBits)
+                    contents.withCString { pointer in
+                        ghostty_surface_complete_clipboard_request(
+                            requestSurface,
+                            pointer,
+                            statePointer,
+                            confirmed
+                        )
+                    }
+                    callbackContext.terminalSurface?.noteClipboardReadCompleted()
+                }
             }
         }
-        runtimeConfig.write_clipboard_cb = { _, location, content, len, _ in
-            // Write clipboard
-            guard let content = content, len > 0 else { return }
+        runtimeConfig.write_clipboard_cb = { userdata, location, content, len, requiresConfirmation in
+            guard let content, len > 0 else { return }
             let buffer = UnsafeBufferPointer(start: content, count: Int(len))
 
             var fallback: String?
+            var preferred: String?
             for item in buffer {
                 guard let dataPtr = item.data else { continue }
                 let value = String(cString: dataPtr)
@@ -889,8 +908,8 @@ class GhosttyApp {
                 if let mimePtr = item.mime {
                     let mime = String(cString: mimePtr)
                     if mime.hasPrefix("text/plain") {
-                        GhosttyApp.terminalPasteboard.writeString(value, to: location)
-                        return
+                        preferred = value
+                        break
                     }
                 }
 
@@ -899,8 +918,17 @@ class GhosttyApp {
                 }
             }
 
-            if let fallback {
-                GhosttyApp.terminalPasteboard.writeString(fallback, to: location)
+            guard let contents = preferred ?? fallback else { return }
+            let callbackContext = GhosttyApp.callbackContext(from: userdata)
+            DispatchQueue.main.async {
+                TerminalClipboardRuntimeBridge.handleWrite(
+                    contents: contents,
+                    requiresConfirmation: requiresConfirmation,
+                    window: callbackContext?.surfaceView?.window,
+                    requester: TerminalClipboardAccessPrompter.shared
+                ) {
+                    GhosttyApp.terminalPasteboard.writeString(contents, to: location)
+                }
             }
         }
         runtimeConfig.close_surface_cb = { userdata, needsConfirmClose in

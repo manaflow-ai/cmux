@@ -129,4 +129,46 @@ struct TerminalClipboardAccessTests {
         #expect(completions.first?.contents == expectedContents)
         #expect(completions.first?.confirmed == true)
     }
+
+    @Test
+    func promptTextEscapesControlCharacters() {
+        let contents = "\u{1B}]52;c;payload\u{7}"
+
+        #expect(
+            TerminalClipboardAccessPromptText.preview(contents)
+                == #"\u{1B}]52;c;payload\u{7}"#
+        )
+    }
+
+    @Test
+    func promptTextBoundsVisibleContents() {
+        let contents = String(
+            repeating: "a",
+            count: TerminalClipboardAccessPromptText.maximumVisibleScalarCount + 1
+        )
+
+        #expect(
+            TerminalClipboardAccessPromptText.preview(contents)
+                == String(
+                    repeating: "a",
+                    count: TerminalClipboardAccessPromptText.maximumVisibleScalarCount
+                ) + "\n…"
+        )
+    }
+
+    @Test
+    func missingWindowFailsClosed() {
+        let prompter = TerminalClipboardAccessPrompter()
+        var approved: Bool?
+
+        prompter.requestApproval(
+            operation: .read,
+            contents: "clipboard value",
+            window: nil
+        ) {
+            approved = $0
+        }
+
+        #expect(approved == false)
+    }
 }
