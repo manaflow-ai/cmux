@@ -985,6 +985,7 @@ final class ComputerUseRuntimeService {
     ) -> [String: Any]? {
         let authenticatedRequest: [String: Any] = [
             "auth_token": paths.authenticationToken,
+            "host_auth_token": paths.hostAuthenticationToken,
             "request": request,
         ]
         guard

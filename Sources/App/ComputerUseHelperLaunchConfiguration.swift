@@ -35,6 +35,8 @@ struct ComputerUseHelperLaunchConfiguration: Equatable, Sendable {
             "CUA_DRIVER_CURSOR_LABEL": "cmux",
             "CUA_DRIVER_STATE_DIR": paths.stateDirectoryURL.path,
             ComputerUseRuntimePaths.authenticationTokenEnvironmentKey: paths.authenticationToken,
+            ComputerUseRuntimePaths.hostAuthenticationTokenEnvironmentKey:
+                paths.hostAuthenticationToken,
             "CUA_DRIVER_SOCKET_AUTHORIZED_ROOT_PID":
                 String(rootProcessIdentity.pid),
             "CUA_DRIVER_SOCKET_AUTHORIZED_ROOT_START_SECONDS":

@@ -7,10 +7,17 @@ struct ComputerUseRuntimePaths: Sendable {
     static let stateDirectoryEnvironmentKey = "CMUX_CUA_STATE_DIR"
     static let runtimeScopeEnvironmentKey = "CMUX_CUA_RUNTIME_SCOPE"
     static let authenticationTokenEnvironmentKey = "CUA_DRIVER_SOCKET_AUTH_TOKEN"
+    static let hostAuthenticationTokenEnvironmentKey = "CUA_DRIVER_SOCKET_HOST_AUTH_TOKEN"
     static let authenticationTokenFileEnvironmentKey = "CMUX_CUA_AUTH_TOKEN_FILE"
 
     let scope: String
     let authenticationToken: String
+    /// Ephemeral capability reserved for host-only daemon operations.
+    ///
+    /// Unlike `authenticationToken`, this is never persisted or exposed to
+    /// terminal agents. A new cmux process therefore has to replace or relaunch
+    /// an orphaned helper before it can configure or stop that helper.
+    let hostAuthenticationToken: String
     let computerUseDirectoryURL: URL
     let runtimeDirectoryURL: URL
     let daemonSocketURL: URL
@@ -26,7 +33,8 @@ struct ComputerUseRuntimePaths: Sendable {
         userIdentifier: uid_t = getuid(),
         environment: [String: String] = ProcessInfo.processInfo.environment,
         bundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        authenticationToken: String? = nil
+        authenticationToken: String? = nil,
+        hostAuthenticationToken: String? = nil
     ) {
         let candidateScope: String
         if let rawTag = environment["CMUX_TAG"], !rawTag.isEmpty {
@@ -58,6 +66,8 @@ struct ComputerUseRuntimePaths: Sendable {
                 at: authenticationTokenFileURL,
                 ownedBy: userIdentifier
             )
+            ?? Self.makeAuthenticationToken()
+        self.hostAuthenticationToken = hostAuthenticationToken.flatMap(Self.nonEmptyToken)
             ?? Self.makeAuthenticationToken()
         stateDirectoryURL = computerUseDirectoryURL
             .appendingPathComponent("runtime", isDirectory: true)
