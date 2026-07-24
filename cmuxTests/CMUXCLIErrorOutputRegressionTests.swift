@@ -98,9 +98,13 @@ import Testing
         defer { try? FileManager.default.removeItem(at: home) }
         let stableSocketURL = try stableSocketURL(home: home)
 
-        let stableResponder = try UnixSocketResponder(path: stableSocketURL.path, response: "STABLE")
+        // The CLI only accepts OK / OK … / PONG / ERROR: … / JSON as a complete single-line
+        // reply. A bareword sends it into the multiline drain pass, where reconfiguring the
+        // receive timeout on an already-closed socket fails with EINVAL and the CLI reports
+        // "Invalid argument" instead of the reply it already has.
+        let stableResponder = try UnixSocketResponder(path: stableSocketURL.path, response: "OK STABLE")
         defer { stableResponder.stop() }
-        let taggedResponder = try UnixSocketResponder(path: taggedSocketPath, response: "TAGGED")
+        let taggedResponder = try UnixSocketResponder(path: taggedSocketPath, response: "OK TAGGED")
         defer { taggedResponder.stop() }
 
         let fakeCLIPath = try fakeTaggedBundledCLIPath(
@@ -127,9 +131,13 @@ import Testing
         XCTAssertEqual(result.status, 0, result.stdout)
         XCTAssertEqual(
             result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
-            "TAGGED",
+            "OK TAGGED",
             result.stdout
         )
+        // The point of this test: the tagged socket was chosen and the stable one was not. These
+        // hold whatever framing the reply uses, so a future reply change cannot make it vacuous.
+        XCTAssertEqual(taggedResponder.receivedRequests, ["ping"], result.stdout)
+        XCTAssertEqual(stableResponder.receivedRequests, [], result.stdout)
     }
 
     @Test func testBundledCLIInTaggedDebugAppTreatsCaseVariantStableEnvSocketAsImplicitDefault() throws {
@@ -561,9 +569,13 @@ import Testing
         defer { try? FileManager.default.removeItem(at: home) }
         let stableSocketURL = try stableSocketURL(home: home)
 
-        let stableResponder = try UnixSocketResponder(path: stableSocketURL.path, response: "STABLE")
+        // The CLI only accepts OK / OK … / PONG / ERROR: … / JSON as a complete single-line
+        // reply. A bareword sends it into the multiline drain pass, where reconfiguring the
+        // receive timeout on an already-closed socket fails with EINVAL and the CLI reports
+        // "Invalid argument" instead of the reply it already has.
+        let stableResponder = try UnixSocketResponder(path: stableSocketURL.path, response: "OK STABLE")
         defer { stableResponder.stop() }
-        let taggedResponder = try UnixSocketResponder(path: taggedSocketPath, response: "TAGGED")
+        let taggedResponder = try UnixSocketResponder(path: taggedSocketPath, response: "OK TAGGED")
         defer { taggedResponder.stop() }
 
         let fakeCLIPath = try fakeTaggedBundledCLIPath(
@@ -590,9 +602,13 @@ import Testing
         XCTAssertEqual(result.status, 0, result.stdout)
         XCTAssertEqual(
             result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
-            "TAGGED",
+            "OK TAGGED",
             result.stdout
         )
+        // The point of this test: the tagged socket was chosen and the stable one was not. These
+        // hold whatever framing the reply uses, so a future reply change cannot make it vacuous.
+        XCTAssertEqual(taggedResponder.receivedRequests, ["ping"], result.stdout)
+        XCTAssertEqual(stableResponder.receivedRequests, [], result.stdout)
     }
 
     @Test func testThemesSetReloadsRunningAppAfterEveryThemeWrite() throws {
