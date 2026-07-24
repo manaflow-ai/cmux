@@ -88,6 +88,11 @@ public struct CustomSidebarDataContextBuilder {
             fields["pr"] = firstPullRequest
             fields["prs"] = .array(workspace.pullRequestValues)
         }
+        let statuses = workspace.statusEntries.map(statusValue(_:))
+        fields["statuses"] = .array(statuses)
+        if let firstStatus = statuses.first {
+            fields["status"] = firstStatus
+        }
         if let progress = workspace.progress {
             var progressFields: [String: SwiftValue] = ["value": .double(progress.value)]
             if let label = progress.label {
@@ -110,6 +115,25 @@ public struct CustomSidebarDataContextBuilder {
                 "state": .string(remote.stateRawValue),
                 "connected": .bool(remote.isConnected),
             ])
+        }
+        return .object(fields)
+    }
+
+    private func statusValue(_ status: SidebarStatusEntry) -> SwiftValue {
+        var fields: [String: SwiftValue] = [
+            "key": .string(status.key),
+            "value": .string(status.value),
+            "priority": .int(status.priority),
+            "format": .string(status.format.rawValue),
+        ]
+        if let icon = status.icon, !icon.isEmpty {
+            fields["icon"] = .string(icon)
+        }
+        if let color = status.color, !color.isEmpty {
+            fields["color"] = .string(color)
+        }
+        if let url = status.url {
+            fields["url"] = .string(url.absoluteString)
         }
         return .object(fields)
     }

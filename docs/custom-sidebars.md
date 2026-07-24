@@ -134,6 +134,16 @@ with:
   `progress` (`{ value: 0..1, label }`), `latestMessage` (last agent message),
   `latestPrompt` (last submitted prompt), `latestAt` (epoch), `remote`
   (`{ target, state, connected }`).
+  - `status` — the first native sidebar status entry in display order; omitted
+    when no visible status exists.
+  - `statuses` — every visible native sidebar status entry in display order;
+    always present and empty when none exist.
+
+  Status entries contain `key`, `value`, optional `icon`, optional `color`,
+  optional `url`, `priority`, and `format` (`plain` or `markdown`). Agent
+  integrations populate these values through cmux's built-in hooks, so custom
+  sidebars should render the supplied text/icon/color instead of inferring
+  lifecycle state from strings.
 - `tabs` (per workspace) — array of surfaces. Always: `id`, `title`,
   `focused` (Bool), `pinned` (Bool). When available: `directory`, `branch` +
   `dirty`, `ports` (array of Int).
