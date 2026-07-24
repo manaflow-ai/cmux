@@ -12595,6 +12595,23 @@ mod tests {
     }
 
     #[test]
+    fn paint_marks_the_pointer_route_stale_until_rendered() {
+        let mux = Mux::new("paint-pointer-route-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.replace_tree(notify_tree(41, false));
+        assert!(app.mux_titles.push(41, "updated-title".to_string()));
+
+        let action = app.handle(AppEvent::MuxTitlesReady).unwrap();
+
+        assert_eq!(action, RenderAction::Paint);
+        assert_eq!(
+            app.pointer_route_phase,
+            PointerRoutePhase::NeedsRender,
+            "Paint rebuilds hit regions, so pointer routing must stay blocked until it renders"
+        );
+    }
+
+    #[test]
     fn title_ingress_reapplies_after_old_and_future_tree_snapshots() {
         let mux = Mux::new("title-snapshot-order-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
