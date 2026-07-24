@@ -1,3 +1,5 @@
+import Foundation
+
 /// Shared bounds for workspace metadata that travels between Mac and iOS.
 public enum MobileWorkspaceMetadataLimits {
     /// Keep durable workspace descriptions well below the 8 MiB mobile frame cap.

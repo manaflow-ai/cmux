@@ -79,9 +79,13 @@ extension WorkspaceShellView {
                 failure: WorkspaceCustomizationSaveFailure? = nil
             ) async -> WorkspaceCustomizationSaveResult {
                 await refreshAfterAttemptIfNeeded()
-                let authoritativeDraft = store.workspaces
+                let refreshedDraft = store.workspaces
                     .first(where: { $0.id == id })
                     .map(WorkspaceCustomizationDraft.init(workspace:)) ?? landedDraft
+                let authoritativeDraft = landedDraft.rebasingUntouchedFields(
+                    from: refreshedDraft,
+                    comparedTo: current
+                )
                 return .failure(
                     rebasedTo: authoritativeDraft == initialDraft ? nil : authoritativeDraft,
                     failure: failure

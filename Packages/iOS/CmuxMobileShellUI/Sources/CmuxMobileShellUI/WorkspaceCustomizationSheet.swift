@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
@@ -141,6 +142,16 @@ struct WorkspaceCustomizationSheet: View {
                         defaultValue: "Shown in the workspace list above live activity."
                     )
                 )
+                if descriptionExceedsLimit {
+                    Text(
+                        L10n.string(
+                            "mobile.workspace.customize.description.tooLong",
+                            defaultValue: "Description must be 4 KB or less."
+                        )
+                    )
+                    .foregroundStyle(.red)
+                    .accessibilityIdentifier("MobileWorkspaceDescriptionTooLong")
+                }
             }
         }
     }
@@ -181,8 +192,22 @@ struct WorkspaceCustomizationSheet: View {
     private var canSave: Bool {
         saveTask == nil
             && !draft.name.isEmpty
+            && !descriptionExceedsLimit
             && (!usesCustomColor || customColor.hexString != nil)
             && draft != initialDraft
+    }
+
+    private var descriptionExceedsLimit: Bool {
+        normalizedDescriptionByteCount
+            > MobileWorkspaceMetadataLimits.customDescriptionMaxUTF8Bytes
+    }
+
+    private var normalizedDescriptionByteCount: Int {
+        let description = customDescription
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return description.utf8.count
     }
 
     private func submit() {

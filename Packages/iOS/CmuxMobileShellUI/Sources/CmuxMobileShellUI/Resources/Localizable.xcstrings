@@ -648,6 +648,13 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "保存" } }
       }
     },
+    "mobile.workspace.customize.description.tooLong" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Description must be 4 KB or less." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "説明は4 KB以下にしてください。" } }
+      }
+    },
     "mobile.iroh.private" : {
       "extractionState" : "manual",
       "localizations" : {
