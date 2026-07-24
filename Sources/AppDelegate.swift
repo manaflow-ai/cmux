@@ -13304,6 +13304,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if shouldBypassPrintableOptionTextForShortcutRouting(event: event) {
+            if armConfiguredGlobalSearchPrintableOptionChordIfNeeded(event: event) {
+                return true
+            }
             return false
         }
 
@@ -15261,6 +15264,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         return true
+    }
+
+    private func armConfiguredGlobalSearchPrintableOptionChordIfNeeded(event: NSEvent) -> Bool {
+        guard activeConfiguredShortcutChordPrefixForCurrentEvent == nil else {
+            return false
+        }
+
+        let action = KeyboardShortcutSettings.Action.globalSearch
+        let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+        guard action.allowsPrintableOptionTextMatch,
+              shortcut.hasChord,
+              matchShortcutStroke(
+                event: event,
+                stroke: shortcut.firstStroke,
+                allowPrintableOptionTextMatch: true
+              ),
+              shortcutWhenClauseAllows(action: action, event: event) else {
+            return false
+        }
+
+        return armConfiguredShortcutChordIfNeeded(event: event, actions: [action])
     }
 
     private func tabManagerForNumberedShortcut(event: NSEvent) -> TabManager? {
