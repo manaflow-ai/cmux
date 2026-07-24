@@ -4273,6 +4273,17 @@ impl App {
         let mut replay_ready =
             !self.deferred_input.is_empty() || self.pending_pointer_motion.is_some();
         while !self.quit && !crate::shutdown_requested() {
+            if replay_ready {
+                let replay = self.replay_deferred_input_batch()?;
+                self.render_action(terminal, replay.action)?;
+                self.retry_pending_surface_attach();
+                replay_ready = matches!(
+                    replay.disposition,
+                    DeferredReplayDisposition::RenderBoundary | DeferredReplayDisposition::Yield
+                ) && (!self.deferred_input.is_empty()
+                    || self.pending_pointer_motion.is_some());
+                continue;
+            }
             // Block for the first event, then drain whatever queued so a
             // torrent of pty output coalesces into one frame.
             let timeout = if self.shake_frames > 0
@@ -4284,29 +4295,24 @@ impl App {
                 Duration::from_millis(250)
             };
             let mut action = RenderAction::None;
-            let first = if replay_ready {
-                replay_ready = false;
-                None
-            } else {
-                match rx.recv_timeout(timeout) {
-                    Ok(event) => Some(event),
-                    Err(RecvTimeoutError::Timeout) => {
-                        if self.shake_frames > 0 {
-                            action = RenderAction::Draw;
-                        }
-                        if self.auto_scroll_selection_tick() {
-                            action = action.merge(RenderAction::Draw);
-                        }
-                        if self.expire_toast() {
-                            action = action.merge(RenderAction::Draw);
-                        }
-                        if self.tick_sidebar_files() {
-                            action = action.merge(RenderAction::Draw);
-                        }
-                        None
+            let first = match rx.recv_timeout(timeout) {
+                Ok(event) => Some(event),
+                Err(RecvTimeoutError::Timeout) => {
+                    if self.shake_frames > 0 {
+                        action = RenderAction::Draw;
                     }
-                    Err(RecvTimeoutError::Disconnected) => break,
+                    if self.auto_scroll_selection_tick() {
+                        action = action.merge(RenderAction::Draw);
+                    }
+                    if self.expire_toast() {
+                        action = action.merge(RenderAction::Draw);
+                    }
+                    if self.tick_sidebar_files() {
+                        action = action.merge(RenderAction::Draw);
+                    }
+                    None
                 }
+                Err(RecvTimeoutError::Disconnected) => break,
             };
             if let Some(event) = first {
                 action = action.merge(self.handle(event)?);
@@ -4861,7 +4867,8 @@ impl App {
                 }
                 let pointer = self.pending_pointer_motion.take().unwrap();
                 replayed += 1;
-                let pointer_action = self.handle(AppEvent::Input(Event::Mouse(pointer.event)))?;
+                let pointer_action =
+                    self.handle_replayed_input(Event::Mouse(pointer.event), pointer.sequence)?;
                 action = action.merge(pointer_action);
                 continue;
             }
@@ -4892,11 +4899,7 @@ impl App {
                 self.mark_pointer_route_for_rebuild(action);
                 continue;
             }
-            let input_action = if matches!(input.event, Event::Key(_) | Event::Paste(_)) {
-                self.handle_replayed_non_pointer_input(input.event)?
-            } else {
-                self.handle(AppEvent::Input(input.event))?
-            };
+            let input_action = self.handle_replayed_input(input.event, input.sequence)?;
             action = action.merge(input_action);
         }
         let has_remaining_input =
@@ -5665,14 +5668,19 @@ impl App {
     }
 
     fn handle(&mut self, event: AppEvent) -> anyhow::Result<RenderAction> {
-        let action = self.handle_inner(event, false)?;
+        let action = self.handle_inner(event, false, None)?;
         self.mark_pointer_route_for_rebuild(action);
         Ok(action)
     }
 
-    fn handle_replayed_non_pointer_input(&mut self, input: Event) -> anyhow::Result<RenderAction> {
-        debug_assert!(matches!(input, Event::Key(_) | Event::Paste(_)));
-        let action = self.handle_inner(AppEvent::Input(input), true)?;
+    fn handle_replayed_input(
+        &mut self,
+        input: Event,
+        sequence: u64,
+    ) -> anyhow::Result<RenderAction> {
+        let replaying_non_pointer = matches!(input, Event::Key(_) | Event::Paste(_));
+        let action =
+            self.handle_inner(AppEvent::Input(input), replaying_non_pointer, Some(sequence))?;
         self.mark_pointer_route_for_rebuild(action);
         Ok(action)
     }
@@ -5681,6 +5689,7 @@ impl App {
         &mut self,
         event: AppEvent,
         replaying_non_pointer: bool,
+        input_sequence: Option<u64>,
     ) -> anyhow::Result<RenderAction> {
         let event = match event {
             AppEvent::SessionScoped { generation, event }
@@ -5741,9 +5750,7 @@ impl App {
                 if self.pointer_route_is_stale()
                     && !self.input_can_update_pending_mutation(&input) =>
             {
-                self.status_message =
-                    Some("Pointer input was discarded while the layout changed".to_string());
-                return Ok(RenderAction::Draw);
+                return Ok(self.defer_input(input));
             }
             AppEvent::Input(input @ (Event::Key(_) | Event::Mouse(_) | Event::Paste(_)))
                 if self.missing_input_surface(&input).is_some()
@@ -6137,7 +6144,9 @@ impl App {
                 Ok(RenderAction::Draw)
             }
             AppEvent::Input(Event::Key(key)) => self.handle_key(key),
-            AppEvent::Input(Event::Mouse(mouse)) => self.handle_mouse(mouse),
+            AppEvent::Input(Event::Mouse(mouse)) => {
+                self.handle_mouse_with_sequence(mouse, input_sequence)
+            }
             AppEvent::Input(Event::Paste(text)) => {
                 self.status_message = None;
                 if self.pairing_dialog.is_some() {
@@ -8567,10 +8576,24 @@ impl App {
         self.tree.workspaces.iter().position(|ws| ws.id == workspace)
     }
 
+    #[cfg(test)]
     fn handle_mouse(&mut self, mouse: MouseEvent) -> anyhow::Result<RenderAction> {
-        // Every routable physical sample supersedes passive motion retained
-        // from an older route or missing surface.
-        self.pending_pointer_motion = None;
+        self.handle_mouse_with_sequence(mouse, None)
+    }
+
+    fn handle_mouse_with_sequence(
+        &mut self,
+        mouse: MouseEvent,
+        replay_sequence: Option<u64>,
+    ) -> anyhow::Result<RenderAction> {
+        // A live physical sample supersedes retained motion. Replayed input
+        // only supersedes motion that was retained earlier in the same
+        // sequence, preserving newer samples until their chronological turn.
+        if replay_sequence.is_none_or(|sequence| {
+            self.pending_pointer_motion.as_ref().is_none_or(|pending| pending.sequence <= sequence)
+        }) {
+            self.pending_pointer_motion = None;
+        }
         // This TUI tracks one active pointer button. Ignore additional presses
         // until its release so a second button cannot orphan the inner app's
         // pressed state.
@@ -14711,15 +14734,21 @@ mod tests {
     #[test]
     fn event_loop_renders_paint_before_following_pointer_input() {
         let mux = Mux::new("event-loop-paint-pointer-test", SurfaceOptions::default());
-        let mut app = test_app(Session::Local(mux));
+        mux.new_workspace(None, Some((80, 24))).unwrap();
+        let (mut app, mutation_events) = test_app_with_events(Session::Local(mux));
+        app.sidebar_visible = false;
+        app.sync_layout((100, 12));
+        while app.session.has_pending_mutations() {
+            app.handle(mutation_events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
         let (events, receiver) = std::sync::mpsc::channel();
         events.send(AppEvent::Mux(MuxEvent::SurfaceOutput(999))).unwrap();
         events
             .send(AppEvent::Input(Event::Mouse(MouseEvent {
-                kind: MouseEventKind::ScrollDown,
+                kind: MouseEventKind::Down(MouseButton::Right),
                 column: 14,
                 row: 6,
-                modifiers: KeyModifiers::NONE,
+                modifiers: KeyModifiers::SHIFT,
             })))
             .unwrap();
         drop(events);
@@ -14727,10 +14756,13 @@ mod tests {
 
         app.event_loop(&mut terminal, receiver).unwrap();
 
-        assert_ne!(
-            app.status_message.as_deref(),
-            Some("Pointer input was discarded while the layout changed"),
-            "routine paints must render before later pointer input is dispatched"
+        assert!(
+            app.menu.is_some(),
+            "the pointer input after a routine paint must open its context menu: status={:?}, \
+             deferred={}, panes={:?}",
+            app.status_message,
+            app.deferred_input.len(),
+            app.pane_areas
         );
     }
 
@@ -14762,9 +14794,9 @@ mod tests {
         app.replay_deferred_input().unwrap();
 
         assert_eq!(
-            app.pending_pointer_motion.map(|pending| pending.event),
-            Some(newer_motion),
-            "an older replayed click must not erase newer retained motion"
+            app.hover,
+            Some((newer_motion.column, newer_motion.row)),
+            "newer retained motion must replay after the older click"
         );
     }
 
