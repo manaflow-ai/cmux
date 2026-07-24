@@ -172,11 +172,11 @@ struct ComputerUseUXTests {
     }
 
     @MainActor
-    @Test func onboardingRetriesUntilPermissionsAreVerified() {
-        #expect(ComputerUseOnboardingWindowController.shouldPresentAutomatically(
+    @Test func onboardingAppearsAutomaticallyOnlyOnFirstComputerUse() {
+        #expect(!ComputerUseOnboardingWindowController.shouldPresentAutomatically(
             seen: true, featureEnabled: true, permissionStatusIsKnown: true,
             accessibilityGranted: false, screenRecordingGranted: true))
-        #expect(ComputerUseOnboardingWindowController.shouldPresentAutomatically(
+        #expect(!ComputerUseOnboardingWindowController.shouldPresentAutomatically(
             seen: true, featureEnabled: true, permissionStatusIsKnown: false,
             accessibilityGranted: true, screenRecordingGranted: true))
         #expect(ComputerUseOnboardingWindowController.shouldPresentAutomatically(
