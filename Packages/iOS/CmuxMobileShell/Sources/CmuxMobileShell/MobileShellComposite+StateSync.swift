@@ -53,6 +53,8 @@ extension MobileShellComposite {
             return
         }
         let result: MobileSyncApplyResult
+        let changesSummaryRefreshScope: WorkspaceChangesSummaryRefreshScope
+        let removedWorkspaceIDs: [String]
         switch header.collection {
         case .workspaces:
             guard let delta = try? JSONDecoder().decode(
@@ -65,6 +67,8 @@ extension MobileShellComposite {
                 return
             }
             result = stateSyncMirror.workspaces.apply(delta: delta)
+            changesSummaryRefreshScope = .workspaceDelta(delta.records.map(\.id))
+            removedWorkspaceIDs = delta.removedIDs
         case .groups:
             guard let delta = try? JSONDecoder().decode(
                 MobileSyncDeltaEvent<GroupSyncRecord>.self, from: payload
@@ -73,6 +77,8 @@ extension MobileShellComposite {
                 return
             }
             result = stateSyncMirror.groups.apply(delta: delta)
+            changesSummaryRefreshScope = .groupOnlyDelta
+            removedWorkspaceIDs = []
         default:
             // A newer Mac may sync collections this build does not know; they
             // are simply not mirrored here.
@@ -80,7 +86,10 @@ extension MobileShellComposite {
         }
         switch result {
         case .applied:
-            applyStateSyncProjection()
+            evictWorkspaceChangesSummaryState(workspaceIDs: removedWorkspaceIDs)
+            applyStateSyncProjection(
+                changesSummaryRefreshScope: changesSummaryRefreshScope
+            )
         case .staleIgnored:
             break
         case .gap:
@@ -242,7 +251,16 @@ extension MobileShellComposite {
             stateSyncAuthorityClientID = ObjectIdentifier(client)
             switch result {
             case .applied:
-                applyStateSyncProjection()
+                evictWorkspaceChangesSummaryState(
+                    workspaceIDs: response.workspaces?.removedIDs ?? []
+                )
+                let changesSummaryRefreshScope: WorkspaceChangesSummaryRefreshScope =
+                    response.workspaces?.mode == .snapshot
+                        ? .fullSnapshot
+                        : .workspaceDelta(response.workspaces?.records.map(\.id) ?? [])
+                applyStateSyncProjection(
+                    changesSummaryRefreshScope: changesSummaryRefreshScope
+                )
             case .staleIgnored:
                 break
             case .gap:
@@ -311,7 +329,9 @@ extension MobileShellComposite {
     /// Projects the mirror into the legacy full-list response shape and hands
     /// it to the shared apply path. The mirror always holds full records, so
     /// the projection is always a complete, ordered list.
-    private func applyStateSyncProjection() {
+    private func applyStateSyncProjection(
+        changesSummaryRefreshScope: WorkspaceChangesSummaryRefreshScope
+    ) {
         let workspaces = stateSyncMirror.workspaces.orderedRecords.map { record in
             MobileSyncWorkspaceListResponse.Workspace(
                 id: record.id,
@@ -355,7 +375,8 @@ extension MobileShellComposite {
                 createdWorkspaceID: nil,
                 createdTerminalID: nil
             ),
-            preferActiveTicketTarget: false
+            preferActiveTicketTarget: false,
+            changesSummaryRefreshScope: changesSummaryRefreshScope
         )
         syncSelectedTerminalForWorkspace()
     }
