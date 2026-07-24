@@ -61,7 +61,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     private var model: SidebarWorkspaceRowModel?
     private var actions: SidebarAppKitRowActions?
-    var stagePostUpdateActions: (([@MainActor () -> Void]) -> Void)?
     private var isPointerHovering = false
     private var contextMenuVisible = false
     private var contextMenuDidOpen: (() -> Void)?
@@ -248,19 +247,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         suspendPresentation()
         model = nil
         hintPill.resetForReuse()
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        // Detachment without a configure pass must not leave the status
-        // popover attached to an unmounted row (its presentation state is
-        // cell-local, so closing is the full teardown).
-        if window == nil {
-            if statusPopoverPresenter.isShown {
-                statusPopoverPresenter.close()
-            }
-            stagePostUpdateActions?(detachPresentation(commitEdits: true))
-        }
     }
 
     func setPresentationActive(_ isActive: Bool) {

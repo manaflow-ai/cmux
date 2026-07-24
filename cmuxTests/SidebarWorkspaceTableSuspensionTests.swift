@@ -196,7 +196,7 @@ struct SidebarWorkspaceTableSuspensionTests {
         )
         field.stringValue = "Detached rename"
 
-        window.contentView = nil
+        controller.dismantleContainerView(container)
 
         #expect(committedTitle == nil)
         await flushStagedTableMutations()

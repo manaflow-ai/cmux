@@ -35,4 +35,11 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
             selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId
         )
     }
+
+    static func dismantleNSView(
+        _ nsView: SidebarWorkspaceTableContainerView,
+        coordinator: SidebarWorkspaceTableController
+    ) {
+        coordinator.dismantleContainerView(nsView)
+    }
 }

@@ -133,6 +133,32 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         return container
     }
 
+    func dismantleContainerView(_ container: SidebarWorkspaceTableContainerView) {
+        guard containerView === container else { return }
+        mutationScheduler.cancelPendingApplyAndViewport()
+        previewBailoutTask?.cancel()
+        previewBailoutTask = nil
+        widthRemeasureTask?.cancel()
+        widthRemeasureTask = nil
+        let postUpdateActions = detachLoadedCells()
+        workspaceDragSessionDidEnd()
+        actions = nil
+        rows.removeAll(keepingCapacity: false)
+        workspaceIds.removeAll(keepingCapacity: false)
+        selectedScrollTargetWorkspaceId = nil
+        hoveredRowId = nil
+        contextMenuRowId = nil
+        selectionCoalescer.cancel()
+        clearDropViewActions(in: container)
+        setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)
+        container.tableView.workspaceController = nil
+        container.clipView.workspaceController = nil
+        container.tableView.dataSource = nil
+        container.tableView.delegate = nil
+        containerView = nil
+        mutationScheduler.stagePostUpdateActions(postUpdateActions)
+    }
+
     func setPresentationActive(_ isActive: Bool, workspaceIds liveWorkspaceIds: [UUID]) {
         guard isPresentationActive != isActive else {
             if !isActive {
@@ -1166,9 +1192,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private func configure(workspaceCell cell: SidebarWorkspaceRowTableCellView, at row: Int) {
         let configuration = rows[row]
         guard let model = configuration.appKitWorkspaceRowModel else { return }
-        cell.stagePostUpdateActions = { [weak self] actions in
-            self?.mutationScheduler.stagePostUpdateActions(actions)
-        }
         guard let actions = configuration.appKitWorkspaceRowActions else {
             cell.configurePresentation(model: model)
             return
