@@ -72,7 +72,7 @@ struct BrowserScreenshotCropTests {
 
     @Test
     func encodedCropUsesOnePixelPerSnapshotCoordinate() throws {
-        let source = try makeBitmapImage(width: 400, height: 300)
+        let source = try makePatternedBitmapImage()
 
         let cropped = try withImageFocusBackingScale(2) {
             try BrowserScreenshotCrop.croppedImage(
@@ -86,6 +86,10 @@ struct BrowserScreenshotCropTests {
 
         #expect(bitmap.pixelsWide == 200)
         #expect(bitmap.pixelsHigh == 100)
+        try expectColor(.red, atX: 25, y: 25, in: bitmap)
+        try expectColor(.green, atX: 175, y: 25, in: bitmap)
+        try expectColor(.blue, atX: 25, y: 75, in: bitmap)
+        try expectColor(.yellow, atX: 175, y: 75, in: bitmap)
     }
 
     /// Makes the legacy `NSImage.lockFocus()` path deterministically rasterize
@@ -108,7 +112,9 @@ struct BrowserScreenshotCropTests {
         return try operation()
     }
 
-    private func makeBitmapImage(width: Int, height: Int) throws -> NSImage {
+    private func makePatternedBitmapImage() throws -> NSImage {
+        let width = 400
+        let height = 300
         let bitmap = try #require(NSBitmapImageRep(
             bitmapDataPlanes: nil,
             pixelsWide: width,
@@ -121,10 +127,43 @@ struct BrowserScreenshotCropTests {
             bytesPerRow: 0,
             bitsPerPixel: 0
         ))
+        let context = try #require(NSGraphicsContext(bitmapImageRep: bitmap))
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        NSColor.magenta.setFill()
+        NSRect(x: 0, y: 0, width: width, height: height).fill()
+        NSColor.red.setFill()
+        NSRect(x: 100, y: 50, width: 100, height: 50).fill()
+        NSColor.green.setFill()
+        NSRect(x: 200, y: 50, width: 100, height: 50).fill()
+        NSColor.blue.setFill()
+        NSRect(x: 100, y: 100, width: 100, height: 50).fill()
+        NSColor.yellow.setFill()
+        NSRect(x: 200, y: 100, width: 100, height: 50).fill()
+        NSGraphicsContext.restoreGraphicsState()
+
         let size = NSSize(width: width, height: height)
         bitmap.size = size
         let image = NSImage(size: size)
         image.addRepresentation(bitmap)
         return image
+    }
+
+    private func expectColor(
+        _ expected: NSColor,
+        atX x: Int,
+        y: Int,
+        in bitmap: NSBitmapImageRep
+    ) throws {
+        let actualRGB = try #require(
+            bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB)
+        )
+        let expectedRGB = try #require(expected.usingColorSpace(.deviceRGB))
+        let tolerance = 0.02
+
+        #expect(abs(actualRGB.redComponent - expectedRGB.redComponent) < tolerance)
+        #expect(abs(actualRGB.greenComponent - expectedRGB.greenComponent) < tolerance)
+        #expect(abs(actualRGB.blueComponent - expectedRGB.blueComponent) < tolerance)
+        #expect(abs(actualRGB.alphaComponent - expectedRGB.alphaComponent) < tolerance)
     }
 }
