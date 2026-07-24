@@ -3019,10 +3019,25 @@ enum MenuPointerRegion {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PanePointerRegion {
-    BrowserCell { column: u16, row: u16 },
-    TerminalCell { column: u16, row: u16, semantics: Option<TerminalPointerSemanticSnapshot> },
+    BrowserCell {
+        column: u16,
+        row: u16,
+        content_generation: Option<u64>,
+    },
+    TerminalCell {
+        column: u16,
+        row: u16,
+        semantics: Option<TerminalPointerSemanticSnapshot>,
+        content_generation: Option<u64>,
+    },
     ContentPadding,
     Chrome,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PaneContentGeneration {
+    Terminal(u64),
+    Browser(u64),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -3164,6 +3179,7 @@ struct RenderedPointerFrame {
     hits: Arc<[RenderedHitRoute]>,
     panes: Arc<[RenderedPaneRoute]>,
     terminal_pointer_semantics: Arc<HashMap<SurfaceId, TerminalPointerSemanticSnapshot>>,
+    pane_content_generations: Arc<HashMap<SurfaceId, PaneContentGeneration>>,
     machine_context: Option<Arc<MachinePointerContext>>,
     pointer_map_generation: u64,
 }
@@ -3277,6 +3293,13 @@ impl RenderedPointerFrame {
                     Some(SurfaceKind::Browser) => PanePointerRegion::BrowserCell {
                         column: x.saturating_sub(pane.content.x),
                         row: y.saturating_sub(pane.content.y),
+                        content_generation: self
+                            .pane_content_generations
+                            .get(&pane.surface)
+                            .and_then(|generation| match generation {
+                                PaneContentGeneration::Browser(generation) => Some(*generation),
+                                PaneContentGeneration::Terminal(_) => None,
+                            }),
                     },
                     Some(SurfaceKind::Pty)
                         if pane.terminal_input.is_some_and(|rect| rect.contains(x, y)) =>
@@ -3287,6 +3310,15 @@ impl RenderedPointerFrame {
                             column: x.saturating_sub(input.x),
                             row: y.saturating_sub(input.y),
                             semantics,
+                            content_generation: self
+                                .pane_content_generations
+                                .get(&pane.surface)
+                                .and_then(|generation| match generation {
+                                    PaneContentGeneration::Terminal(generation) => {
+                                        Some(*generation)
+                                    }
+                                    PaneContentGeneration::Browser(_) => None,
+                                }),
                         }
                     }
                     Some(SurfaceKind::Pty) | None => PanePointerRegion::ContentPadding,
@@ -3462,6 +3494,9 @@ pub struct App {
     /// each rendered frame.
     pub(crate) rendered_terminal_pointer_semantics:
         HashMap<SurfaceId, TerminalPointerSemanticSnapshot>,
+    /// Content identity captured from the terminal or browser frame that was
+    /// actually drawn for each pane.
+    pub(crate) rendered_pane_content_generations: HashMap<SurfaceId, PaneContentGeneration>,
     desired_outer_cursor: OuterCursorSpec,
     applied_outer_cursor: Option<OuterCursorSpec>,
     pub graphics_writer: Option<GraphicsWriter>,
@@ -4492,6 +4527,7 @@ pub fn run_with_machine_updates(
         render_states: HashMap::new(),
         rendered_terminal_sizes: HashMap::new(),
         rendered_terminal_pointer_semantics: HashMap::new(),
+        rendered_pane_content_generations: HashMap::new(),
         desired_outer_cursor: OuterCursorSpec::Reset,
         applied_outer_cursor: None,
         graphics_writer,
@@ -5290,6 +5326,7 @@ impl App {
         self.pane_focus_history.sync_membership(&self.tree);
         self.rendered_terminal_sizes.clear();
         self.rendered_terminal_pointer_semantics.clear();
+        self.rendered_pane_content_generations.clear();
         self.rendered_terminal_bounds.clear();
         self.visible_size_surfaces.clear();
         self.pending_size_releases.clear();
@@ -5619,6 +5656,13 @@ impl App {
         } else {
             Arc::new(self.rendered_terminal_pointer_semantics.clone())
         };
+        let pane_content_generations = if *self.rendered_pointer_frame.pane_content_generations
+            == self.rendered_pane_content_generations
+        {
+            self.rendered_pointer_frame.pane_content_generations.clone()
+        } else {
+            Arc::new(self.rendered_pane_content_generations.clone())
+        };
         self.rendered_pointer_frame = RenderedPointerFrame {
             pairing,
             prompt,
@@ -5630,6 +5674,7 @@ impl App {
             hits,
             panes,
             terminal_pointer_semantics,
+            pane_content_generations,
             machine_context,
             pointer_map_generation,
         };
@@ -6025,6 +6070,7 @@ impl App {
         self.render_states.remove(&surface);
         self.rendered_terminal_sizes.remove(&surface);
         self.rendered_terminal_pointer_semantics.remove(&surface);
+        self.rendered_pane_content_generations.remove(&surface);
         self.rendered_terminal_bounds.remove(&surface);
         self.visible_size_surfaces.remove(&surface);
         self.pending_size_releases.remove(&surface);
@@ -6198,6 +6244,7 @@ impl App {
             return Ok(());
         }
         let placements = self.graphic_placements();
+        self.commit_rendered_pane_content_generations();
         self.mark_graphics_clean(&placements);
         if let Some(writer) = &self.graphics_writer {
             writer.submit(placements);
@@ -6205,8 +6252,9 @@ impl App {
         Ok(())
     }
 
-    fn graphic_placements(&self) -> Vec<GraphicPlacement> {
+    fn graphic_placements(&mut self) -> Vec<GraphicPlacement> {
         let mut placements = Vec::new();
+        let mut generations = Vec::new();
         for area in &self.pane_areas {
             let Some(surface) = self.session.surface(area.surface) else { continue };
             if surface.kind() != SurfaceKind::Browser {
@@ -6219,6 +6267,7 @@ impl App {
                 continue;
             }
             let Some(frame) = surface.browser_frame() else { continue };
+            generations.push((area.surface, frame.seq));
             placements.push(GraphicPlacement {
                 surface: area.surface,
                 rect: area.content,
@@ -6226,7 +6275,20 @@ impl App {
                 data_b64: frame.data_b64,
             });
         }
+        for (surface, generation) in generations {
+            self.rendered_pane_content_generations
+                .insert(surface, PaneContentGeneration::Browser(generation));
+        }
         placements
+    }
+
+    fn commit_rendered_pane_content_generations(&mut self) {
+        if *self.rendered_pointer_frame.pane_content_generations
+            != self.rendered_pane_content_generations
+        {
+            self.rendered_pointer_frame.pane_content_generations =
+                Arc::new(self.rendered_pane_content_generations.clone());
+        }
     }
 
     fn browser_graphic_occluded(&self, rect: Rect) -> bool {
@@ -12453,19 +12515,20 @@ mod tests {
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput,
         DeferredReplayDisposition, Drag, FocusTarget, ForwardMuxOutcome, GuardedMouseEncode,
         MachineActionWorker, MenuAction, MenuItem, MutationImpact, MuxTitleIngress, OrderedSession,
-        OuterCursorSpec, PaneArea, PaneEdge, PaneFocusHistory, PendingSessionMutation,
-        PendingSessionMutationState, PointerHitIdentity, PointerRouteIdentity, PointerRoutePhase,
-        Prompt, PromptTarget, PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction,
-        RenderedMenuLevel, RenderedPointerFrame, Selection, SessionCompletion,
-        SessionCompletionAction, SessionEventSender, SidebarLayout, SidebarPluginSyncClaim,
-        SidebarPluginSyncState, SurfaceResizeDecision, SurfaceResizeOwnership,
-        TerminalPointerAdmission, TerminalPointerAdmissionResult, TerminalPointerEncoding,
-        WorkspaceRailSelection, browser_content_size_for_rect, browser_hover_forward_allowed,
-        canonical_terminal_content, clamp_split_ratio_for_tab_bars, client_menu_item,
-        forward_mux_event, forward_mux_events, outer_cursor_escape, outer_cursor_escape_if_changed,
-        pane_context_menu_groups, pane_parts_for_rect, prepare_ordered_session,
-        preserve_client_view, rail_drag_width, record_surface_resize_dispatch_result,
-        sidebar_layout_for, sidebar_plugin_status_settles_passive_claim, start_ordered_session,
+        OuterCursorSpec, PaneArea, PaneContentGeneration, PaneEdge, PaneFocusHistory,
+        PendingSessionMutation, PendingSessionMutationState, PointerHitIdentity,
+        PointerRouteIdentity, PointerRoutePhase, Prompt, PromptTarget, PtyFailureIngress,
+        PtyMousePressResult, RailKind, RenderAction, RenderedMenuLevel, RenderedPaneRoute,
+        RenderedPointerFrame, Selection, SessionCompletion, SessionCompletionAction,
+        SessionEventSender, SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState,
+        SurfaceResizeDecision, SurfaceResizeOwnership, TerminalPointerAdmission,
+        TerminalPointerAdmissionResult, TerminalPointerEncoding, WorkspaceRailSelection,
+        browser_content_size_for_rect, browser_hover_forward_allowed, canonical_terminal_content,
+        clamp_split_ratio_for_tab_bars, client_menu_item, forward_mux_event, forward_mux_events,
+        outer_cursor_escape, outer_cursor_escape_if_changed, pane_context_menu_groups,
+        pane_parts_for_rect, prepare_ordered_session, preserve_client_view, rail_drag_width,
+        record_surface_resize_dispatch_result, sidebar_layout_for,
+        sidebar_plugin_status_settles_passive_claim, start_ordered_session,
     };
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -14260,6 +14323,71 @@ mod tests {
             Arc::ptr_eq(&levels, &routed),
             "motion routing must clone only the Arc, not menu items"
         );
+    }
+
+    #[test]
+    fn pane_pointer_routes_bind_rendered_content_generation() {
+        let pane_rect = Rect { x: 1, y: 2, width: 23, height: 10 };
+        let content = Rect { x: 2, y: 3, width: 20, height: 8 };
+        let content_click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 3,
+            row: content.y + 2,
+            modifiers: KeyModifiers::NONE,
+        };
+        let chrome_click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: pane_rect.x,
+            row: pane_rect.y,
+            modifiers: KeyModifiers::NONE,
+        };
+
+        for (kind, before, after, terminal_input) in [
+            (
+                SurfaceKind::Pty,
+                PaneContentGeneration::Terminal(10),
+                PaneContentGeneration::Terminal(11),
+                Some(content),
+            ),
+            (
+                SurfaceKind::Browser,
+                PaneContentGeneration::Browser(20),
+                PaneContentGeneration::Browser(21),
+                None,
+            ),
+        ] {
+            let pane = RenderedPaneRoute {
+                pane: 7,
+                surface: 9,
+                kind: Some(kind),
+                rect: pane_rect,
+                bar: None,
+                omnibar: None,
+                content,
+                track: None,
+                terminal_input,
+            };
+            let mut frame = RenderedPointerFrame {
+                panes: vec![pane].into(),
+                pane_content_generations: Arc::new(HashMap::from([(pane.surface, before)])),
+                ..Default::default()
+            };
+            let content_before = frame.route_for_mouse(&content_click);
+            let chrome_before = frame.route_for_mouse(&chrome_click);
+
+            frame.pane_content_generations = Arc::new(HashMap::from([(pane.surface, after)]));
+            let content_after = frame.route_for_mouse(&content_click);
+            let chrome_after = frame.route_for_mouse(&chrome_click);
+
+            assert_ne!(
+                content_before, content_after,
+                "{kind:?} content clicks must be invalidated by a rendered-content change"
+            );
+            assert_eq!(
+                chrome_before, chrome_after,
+                "{kind:?} content changes must not invalidate pane chrome"
+            );
+        }
     }
 
     #[test]
@@ -21502,6 +21630,7 @@ mod tests {
             render_states: HashMap::<u64, RenderState>::new(),
             rendered_terminal_sizes: HashMap::new(),
             rendered_terminal_pointer_semantics: HashMap::new(),
+            rendered_pane_content_generations: HashMap::new(),
             desired_outer_cursor: OuterCursorSpec::Reset,
             applied_outer_cursor: None,
             graphics_writer: None,

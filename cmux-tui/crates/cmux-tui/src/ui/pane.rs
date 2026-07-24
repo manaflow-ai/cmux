@@ -9,12 +9,12 @@
 use std::collections::{HashMap, HashSet};
 
 use cmux_tui_core::{BrowserStatus, Rect, SurfaceKind};
-use ghostty_vt::RenderState;
+use ghostty_vt::{Dirty, RenderState};
 use ratatui::Frame;
 use ratatui::style::{Color, Modifier, Style};
 
 use super::{thumb_geometry, truncate};
-use crate::app::{App, FocusTarget, Hit, PaneArea, PaneEdge, Selection};
+use crate::app::{App, FocusTarget, Hit, PaneArea, PaneContentGeneration, PaneEdge, Selection};
 use crate::config::{Theme, tab_label};
 use crate::session::{ClientInfo, TabNotificationView};
 
@@ -92,6 +92,7 @@ pub fn draw_all(app: &mut App, frame: &mut Frame) -> DrawCursors {
     let visible_surfaces: HashSet<_> = areas.iter().map(|area| area.surface).collect();
     app.rendered_terminal_bounds.retain(|surface, _| visible_surfaces.contains(surface));
     app.rendered_terminal_pointer_semantics.retain(|surface, _| visible_surfaces.contains(surface));
+    app.rendered_pane_content_generations.retain(|surface, _| visible_surfaces.contains(surface));
     let mut input_cursor = None;
     let mut terminal_cursor = None;
     for area in &areas {
@@ -342,6 +343,7 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     let rect = area.content;
     app.rendered_terminal_bounds.remove(&area.surface);
     app.rendered_terminal_pointer_semantics.remove(&area.surface);
+    let previous_content_generation = app.rendered_pane_content_generations.remove(&area.surface);
     if rect.width == 0 || rect.height == 0 {
         return DrawCursors::default();
     }
@@ -371,6 +373,12 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     app.rendered_terminal_bounds.insert(area.surface, live);
     app.rendered_terminal_sizes.insert(area.surface, render.frame.size);
     app.rendered_terminal_pointer_semantics.insert(area.surface, render.pointer_semantics);
+    let content_generation = match (render.frame.dirty, previous_content_generation) {
+        (Dirty::Clean, Some(PaneContentGeneration::Terminal(generation))) => generation,
+        _ => render.frame.seq,
+    };
+    app.rendered_pane_content_generations
+        .insert(area.surface, PaneContentGeneration::Terminal(content_generation));
     if focused && app.menu.is_none() && app.prompt.is_none() && app.pairing_dialog.is_none() {
         let (shape, blinking) = render.frame.cursor_visual;
         app.use_terminal_cursor_spec(
