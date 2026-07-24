@@ -135,7 +135,7 @@ extension RemoteTmuxController {
                 destination: host.destination, awaitingCredentials: readiness.awaitingCredentials)
         }
         // Same on the dedicated path: a mirror published, so the host authenticated.
-        Self.hostsAwaitingCredentials.remove(host.connectionHash)
+        Self.hostAuth.retire(host)
 
         if let bootstrapWorkspaceId,
            targetManager.tabs.count > 1,
@@ -520,7 +520,7 @@ extension RemoteTmuxController {
         // prompt that produced it and every later failure on this host — a plain network outage
         // included — would be reported as needing a login: the misdiagnosis this note exists to
         // prevent, in mirror image and permanent.
-        Self.hostsAwaitingCredentials.remove(key)
+        Self.hostAuth.retire(host)
         if loginOffers.hasOffer(host: key) {
             Self.logger.info("reconnect-auth: \(host.destination, privacy: .public) reconnected; offer released")
             if let offer = loginOffers.openedWorkspace(host: key) {
