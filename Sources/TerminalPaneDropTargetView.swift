@@ -298,9 +298,14 @@ final class PaneDropTargetView: NSView {
             return []
         }
 
-        if workspace.panels[dropContext.panelId] is SimulatorPanel {
+        let urls = DragOverlayRoutingPolicy.fileURLs(from: sender.draggingPasteboard)
+        if let operation = Self.simulatorFileDropOperation(
+            urls: urls,
+            workspace: workspace,
+            panelId: dropContext.panelId
+        ) {
             clearDragState(phase: "\(phase).simulator")
-            return .copy
+            return operation
         }
 
         let zone = fileDropZone(for: sender)
@@ -312,6 +317,20 @@ final class PaneDropTargetView: NSView {
         )
 #endif
         return .copy
+    }
+
+    static func simulatorFileDropOperation(
+        urls: [URL],
+        workspace: Workspace,
+        panelId: UUID
+    ) -> NSDragOperation? {
+        guard let canHandle = workspace.canHandleSimulatorExternalFileDrop(
+            urls: urls,
+            panelId: panelId
+        ) else {
+            return nil
+        }
+        return canHandle ? .copy : []
     }
 
     private func fileDropZone(for sender: any NSDraggingInfo) -> DropZone {

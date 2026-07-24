@@ -3,14 +3,35 @@ import CmuxWorkspaces
 import Foundation
 
 extension Workspace {
+    /// Returns whether a Simulator panel can accept at least one external file.
+    /// Returns `nil` when the target panel is not a Simulator.
+    func canHandleSimulatorExternalFileDrop(
+        urls: [URL],
+        panelId: UUID
+    ) -> Bool? {
+        guard let panel = panels[panelId] as? SimulatorPanel else { return nil }
+        guard CmuxFeatureFlags.shared.isSimulatorEnabled,
+              panel.isFeatureReady,
+              !urls.isEmpty else {
+            return false
+        }
+        return panel.coordinator.canImportDroppedFiles(urls)
+    }
+
     /// Imports external files into a Simulator panel without creating file-preview tabs.
     /// Returns `nil` when the target panel is not a Simulator.
     func handleSimulatorExternalFileDrop(urls: [URL], panelId: UUID) -> Bool? {
-        guard let panel = panels[panelId] as? SimulatorPanel else { return nil }
-        guard CmuxFeatureFlags.shared.isSimulatorEnabled, panel.isFeatureReady else { return false }
-        guard !urls.isEmpty else { return false }
+        guard let canHandle = canHandleSimulatorExternalFileDrop(
+            urls: urls,
+            panelId: panelId
+        ) else {
+            return nil
+        }
+        guard canHandle,
+              let panel = panels[panelId] as? SimulatorPanel else {
+            return false
+        }
         let coordinator = panel.coordinator
-        guard coordinator.canImportDroppedFiles(urls) else { return false }
         Task { @MainActor in await coordinator.importDroppedFiles(urls) }
         return true
     }
