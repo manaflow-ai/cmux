@@ -1487,6 +1487,78 @@ final class TerminalControllerSocketSecurityTests {
         )
     }
 
+    // Regression: `surface.close` with an explicitly-supplied but UNRESOLVABLE surface_id (a well-formed
+    // but stale `kind:N` ref) must be a hard error — it must NOT fall back to closing the focused surface,
+    // which is the *caller's own* surface (self-decapitation). Only an OMITTED surface_id may default to
+    // the focused surface. Before the fix, `uuid(params,"surface_id")` returned nil for the stale ref and
+    // the resolver's `?? focusedPanelId` fallback closed the caller's tab and reported ok:true.
+    @Test func testV2SurfaceCloseRejectsUnresolvableSurfaceIdAndPreservesFocusedSurface() throws {
+        let manager = TabManager()
+        defer {
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        // Two surfaces; the SECOND is focused — it is the stand-in for the caller's own tab.
+        let other = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: false))
+        let focused = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true))
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let response = try handleV2Request(
+            method: "surface.close",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": "surface:99999"  // well-formed ref, but no such surface -> must not resolve
+            ]
+        )
+
+        // Hard error, not a silent close.
+        XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
+        let error = try XCTUnwrap(response["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "not_found")
+        // The caller's own focused surface — and the other surface — must still be alive (not decapitated).
+        _ = try XCTUnwrap(workspace.panels[focused.id])
+        _ = try XCTUnwrap(workspace.panels[other.id])
+    }
+
+    @Test func testV2SurfaceCloseRejectsEmptyStringSurfaceIdAndPreservesFocusedSurface() throws {
+        let manager = TabManager()
+        defer {
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        // Two surfaces; the SECOND is focused — the stand-in for the caller's own tab.
+        let other = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: false))
+        let focused = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true))
+        TerminalController.shared.setActiveTabManager(manager)
+
+        // A raw-socket client sending an explicit *empty-string* surface_id must NOT
+        // silently degrade to the focused surface. `string()` normalises "" to nil, so
+        // the coordinator has to detect presence via `hasNonNull` rather than the
+        // trimming `string()` helper — otherwise "" reopens the self-decapitation hole
+        // that the unresolvable-ref guard closes for non-empty values.
+        let response = try handleV2Request(
+            method: "surface.close",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": ""
+            ]
+        )
+
+        // Hard error, not a silent close.
+        XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
+        let error = try XCTUnwrap(response["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "not_found")
+        // Neither the caller's focused surface nor the other surface may be closed.
+        _ = try XCTUnwrap(workspace.panels[focused.id])
+        _ = try XCTUnwrap(workspace.panels[other.id])
+    }
+
     @Test func testBrowserOpenSplitDoesNotExternallyOpenDiffViewerWhenBrowserDisabled() throws {
         let defaults = UserDefaults.standard
         let previousBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
