@@ -1505,6 +1505,12 @@ impl Keys {
                             );
                             continue;
                         };
+                        if chord == self.prefix && definition.action != Action::SendPrefix {
+                            eprintln!(
+                                "cmux-tui: ignoring key binding {name} = {raw_chord:?} because it conflicts with the prefix"
+                            );
+                            continue;
+                        }
                         self.bindings.retain(|(existing, _)| existing != &chord);
                         self.bindings.push((chord, definition.action));
                     }

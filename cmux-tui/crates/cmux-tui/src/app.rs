@@ -2999,7 +2999,7 @@ enum Drag {
     /// Text selection inside a pane's content rect.
     Select { content: Rect, auto_scroll: Option<i8>, col: u16 },
     /// Browser mouse drag inside a pane's content rect.
-    Browser { surface: SurfaceId, content: Rect },
+    Browser { surface: SurfaceId, content: Rect, position: (u16, u16) },
     /// Mouse reporting owned by the PTY application in this pane.
     PtyMouse {
         surface: SurfaceId,
@@ -8051,7 +8051,7 @@ impl App {
                 self.shortcut_help = if self.shortcut_help.is_some() {
                     None
                 } else {
-                    self.cancel_pty_mouse_drag();
+                    self.finish_active_drag_for_overlay();
                     Some(ShortcutHelp::from_config(&self.config))
                 };
                 self.menu = None;
@@ -9295,6 +9295,38 @@ impl App {
         }
     }
 
+    fn finish_active_drag_for_overlay(&mut self) {
+        if matches!(self.drag, Some(Drag::PtyMouse { .. })) {
+            self.cancel_pty_mouse_drag();
+            return;
+        }
+        match self.drag.take() {
+            Some(Drag::Browser { surface, content, position }) => {
+                self.send_browser_mouse(
+                    surface,
+                    content,
+                    position.0,
+                    position.1,
+                    BrowserMouseDispatch::new("mouseReleased", Some("left"), Some(1)),
+                );
+            }
+            Some(Drag::ResizeSplit { .. }) => self.session.settle_split_ratio(),
+            Some(
+                Drag::MachineArm { .. }
+                | Drag::TabArm { .. }
+                | Drag::Tab { .. }
+                | Drag::WorkspaceArm { .. }
+                | Drag::Workspace { .. }
+                | Drag::Select { .. }
+                | Drag::Scrollbar { .. }
+                | Drag::WorkspaceScrollbar { .. }
+                | Drag::RailResize(_),
+            )
+            | None => {}
+            Some(Drag::PtyMouse { .. }) => unreachable!("PTY drag returned before take"),
+        }
+    }
+
     fn forward_pty_mouse_at(
         &mut self,
         x: u16,
@@ -10092,8 +10124,11 @@ impl App {
                         y,
                         BrowserMouseDispatch::new("mousePressed", Some("left"), Some(1)),
                     );
-                    self.drag =
-                        Some(Drag::Browser { surface: area.surface, content: area.content });
+                    self.drag = Some(Drag::Browser {
+                        surface: area.surface,
+                        content: area.content,
+                        position: (x, y),
+                    });
                 } else if self.begin_pty_mouse_drag(x, y, MouseButton::Left, modifiers)
                     != PtyMousePressResult::NotOwned
                 {
@@ -10175,7 +10210,7 @@ impl App {
                 self.drag = Some(Drag::Select { content, auto_scroll, col: cx - content.x });
                 Ok(RenderAction::Draw)
             }
-            Some(Drag::Browser { surface, content }) => {
+            Some(Drag::Browser { surface, content, .. }) => {
                 let (surface, content) = (*surface, *content);
                 let cx = x.clamp(content.x, content.x + content.width.saturating_sub(1));
                 let cy = y.clamp(content.y, content.y + content.height.saturating_sub(1));
@@ -10186,6 +10221,7 @@ impl App {
                     cy,
                     BrowserMouseDispatch::new("mouseMoved", Some("left"), Some(1)),
                 );
+                self.drag = Some(Drag::Browser { surface, content, position: (cx, cy) });
                 Ok(RenderAction::Draw)
             }
             Some(Drag::PtyMouse { .. }) => Ok(RenderAction::None),
@@ -10294,7 +10330,7 @@ impl App {
             }
             return Ok(RenderAction::Draw);
         }
-        if let Some(Drag::Browser { surface, content }) = self.drag {
+        if let Some(Drag::Browser { surface, content, .. }) = self.drag {
             self.drag = None;
             let cx = x.clamp(content.x, content.x + content.width.saturating_sub(1));
             let cy = y.clamp(content.y, content.y + content.height.saturating_sub(1));
@@ -11603,14 +11639,16 @@ mod tests {
 
     #[test]
     fn opening_shortcut_help_releases_an_active_browser_mouse_press() {
-        let mux = Mux::new("shortcut-help-browser-release-test", SurfaceOptions::default());
+        let mux = Mux::new(
+            format!("shortcut-help-browser-release-test-{}", std::process::id()),
+            SurfaceOptions::default(),
+        );
         let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
-        let mut app = test_app(Session::Local(mux));
+        let mut app = test_app(Session::Local(mux.clone()));
         let (dispatcher, received) = BrowserInputDispatcher::blocked(2);
         app.browser_input = dispatcher;
         let content = Rect { x: 1, y: 1, width: 20, height: 8 };
-        app.last_browser_hover = Some((surface.id, 4, 3));
-        app.drag = Some(Drag::Browser { surface: surface.id, content });
+        app.drag = Some(Drag::Browser { surface: surface.id, content, position: (5, 4) });
 
         app.run_action(Action::ShowShortcuts).unwrap();
 
@@ -11620,6 +11658,7 @@ mod tests {
             received.recv_timeout(Duration::from_secs(1)).map(|event| event.kind),
             Some(BrowserInputKind::Mouse { event_type: "mouseReleased", .. })
         ));
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -15501,8 +15540,11 @@ mod tests {
             Ok(())
         });
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        app.drag =
-            Some(Drag::Browser { surface: 42, content: Rect { x: 2, y: 3, width: 20, height: 8 } });
+        app.drag = Some(Drag::Browser {
+            surface: 42,
+            content: Rect { x: 2, y: 3, width: 20, height: 8 },
+            position: (5, 5),
+        });
 
         app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
             kind: MouseEventKind::Up(MouseButton::Left),

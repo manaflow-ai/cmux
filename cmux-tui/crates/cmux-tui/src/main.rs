@@ -768,6 +768,7 @@ fn run_attach(args: Args) -> anyhow::Result<()> {
         if tab.kind != SurfaceKind::Pty {
             anyhow::bail!(messages.browser_not_terminal(reference));
         }
+        remote.scope_events_to_surface(surface);
         Some(surface)
     } else {
         None
