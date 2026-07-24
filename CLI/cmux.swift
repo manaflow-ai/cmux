@@ -30968,7 +30968,7 @@ export default CMUXSessionRestore;
 
             // Message-backed agents can name the workspace from the first prompt while work continues.
             if usesHookMessageCacheForAutoNaming(def), !suppressVisibleMutations {
-                spawnDetachedAgentAutoNameIfEnabled(
+                spawnDetachedAgentAutoNameIfSupported(
                     def: def,
                     sessionId: sessionId,
                     workspaceId: workspaceId,
@@ -30976,7 +30976,6 @@ export default CMUXSessionRestore;
                     transcriptPath: normalizedHookValue(input.transcriptPath ?? mapped?.transcriptPath),
                     cwd: hookCwd ?? mapped?.cwd,
                     env: env,
-                    client: client,
                     telemetry: telemetry
                 )
             }
@@ -31304,7 +31303,7 @@ export default CMUXSessionRestore;
 
             // Turn-end naming refreshes file-backed agents and incorporates the completed response.
             if !suppressVisibleMutations {
-                spawnDetachedAgentAutoNameIfEnabled(
+                spawnDetachedAgentAutoNameIfSupported(
                     def: def,
                     sessionId: sessionId,
                     workspaceId: workspaceId,
@@ -31312,7 +31311,6 @@ export default CMUXSessionRestore;
                     transcriptPath: normalizedHookValue(input.transcriptPath ?? mapped?.transcriptPath),
                     cwd: cwd,
                     env: env,
-                    client: client,
                     telemetry: telemetry
                 )
             }
