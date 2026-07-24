@@ -172,6 +172,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         rows = rows
             .filter { liveIds.contains($0.workspaceId) }
             .map { $0.presentationSnapshot() }
+        workspaceDragSessionDidEnd()
         actions = nil
         workspaceIds = liveWorkspaceIds
         selectedScrollTargetWorkspaceId = nil

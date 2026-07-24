@@ -10552,7 +10552,6 @@ struct VerticalTabsSidebar: View, Equatable {
     @Binding var sidebarRenderWorkerClient: RenderWorkerClient?
     @State var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State var pointerInteractionMonitor = SidebarPointerInteractionMonitor()
-    @State private var sidebarInteractionsAreActive = false
     @StateObject var dragAutoScrollController = SidebarDragAutoScrollController()
     @State private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
     @StateObject private var tabItemSettingsStore = SidebarTabItemSettingsStore(
@@ -10889,8 +10888,7 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     private func activateSidebarInteractions() {
-        guard !sidebarInteractionsAreActive else { return }
-        sidebarInteractionsAreActive = true
+        guard !pointerInteractionMonitor.isActive else { return }
         pointerInteractionMonitor.start { workspaceId in
             guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
 #if DEBUG
@@ -10921,8 +10919,7 @@ struct VerticalTabsSidebar: View, Equatable {
         appKitFrozenTableRowsBox.rows = nil
         appKitRowSnapshotCache.prune(keeping: [])
         if !workspaceSnapshotsById.isEmpty { workspaceSnapshotsById = [:] }
-        guard sidebarInteractionsAreActive else { return }
-        sidebarInteractionsAreActive = false
+        guard pointerInteractionMonitor.isActive else { return }
         pointerInteractionMonitor.stop()
         modifierKeyMonitor.stop()
         dragAutoScrollController.stop()
@@ -11193,23 +11190,31 @@ struct VerticalTabsSidebar: View, Equatable {
             scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
         }
         .onAppear {
-            if isPresented { refreshWorkspaceSnapshots() }
+            if isPresented, !featureFlags.isAppKitSidebarListEnabled {
+                refreshWorkspaceSnapshots()
+            }
         }
         .onChange(of: isPresented) { _, presented in
-            if presented {
-                refreshWorkspaceSnapshots()
-            } else {
+            if !presented {
                 workspaceSnapshotRefreshCoalescer.cancel()
+            } else if !featureFlags.isAppKitSidebarListEnabled {
+                refreshWorkspaceSnapshots()
             }
         }
         .onChange(of: renderContext.workspaceIds) { _, _ in
-            if isPresented { refreshWorkspaceSnapshots() }
+            if isPresented, !featureFlags.isAppKitSidebarListEnabled {
+                refreshWorkspaceSnapshots()
+            }
         }
         .onChange(of: renderContext.tabItemSettings) { _, _ in
-            if isPresented { refreshWorkspaceSnapshots() }
+            if isPresented, !featureFlags.isAppKitSidebarListEnabled {
+                refreshWorkspaceSnapshots()
+            }
         }
         .onChange(of: renderContext.showsAgentActivity) { _, _ in
-            if isPresented { refreshWorkspaceSnapshots() }
+            if isPresented, !featureFlags.isAppKitSidebarListEnabled {
+                refreshWorkspaceSnapshots()
+            }
         }
         .onDisappear {
             workspaceSnapshotRefreshCoalescer.cancel()
@@ -11527,6 +11532,7 @@ struct VerticalTabsSidebar: View, Equatable {
     private func appKitWorkspaceTableRows(
         renderContext: WorkspaceListRenderContext
     ) -> [SidebarWorkspaceTableRowConfiguration] {
+        appKitRowSnapshotCache.resetIfSettingsChanged(renderContext.tabItemSettings)
 #if DEBUG
         // One line per full row-projection rebuild: the countable signal for
         // whether a change class re-renders the sidebar subtree or skips it.
@@ -12121,6 +12127,12 @@ struct VerticalTabsSidebar: View, Equatable {
                 settings: settings,
                 showsAgentActivity: showsAgentActivity
             )
+            if featureFlags.isAppKitSidebarListEnabled {
+                guard appKitRowSnapshotCache.value(for: workspaceId) != snapshot else {
+                    continue
+                }
+                appKitRowSnapshotCache.store(snapshot, for: workspaceId)
+            }
             guard next[workspaceId] != snapshot else { continue }
             next[workspaceId] = snapshot
             changed = true
@@ -13885,11 +13897,13 @@ struct VerticalTabsSidebar: View, Equatable {
             indicatorScope: dragState.dropIndicatorScope
         )
         let settings = renderContext.tabItemSettings
-        let cachedWorkspaceSnapshot = workspaceSnapshotsById[tab.id]
         let expectedPresentationKey = SidebarWorkspaceSnapshotFactory.presentationKey(
             settings: settings,
             showsAgentActivity: renderContext.showsAgentActivity
         )
+        let cachedWorkspaceSnapshot = featureFlags.isAppKitSidebarListEnabled
+            ? appKitRowSnapshotCache.value(for: tab.id)
+            : workspaceSnapshotsById[tab.id]
         let workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
         if let cachedWorkspaceSnapshot,
            cachedWorkspaceSnapshot.presentationKey == expectedPresentationKey {
@@ -13900,6 +13914,9 @@ struct VerticalTabsSidebar: View, Equatable {
                 settings: settings,
                 showsAgentActivity: renderContext.showsAgentActivity
             )
+            if featureFlags.isAppKitSidebarListEnabled {
+                appKitRowSnapshotCache.store(workspaceSnapshot, for: tab.id)
+            }
         }
 
         let todoStatusResolution = WorkspaceTaskStatusOverride.effectiveStatus(

@@ -67,6 +67,8 @@ final class SidebarPointerInteractionMonitor {
     @ObservationIgnored private var geometryReconciliationTask: Task<Void, Never>?
     @ObservationIgnored private var geometryReconciliationGeneration: UInt = 0
 
+    var isActive: Bool { pointerEventMonitor != nil }
+
     func start(onMiddleClickWorkspace: @escaping (UUID) -> Void) {
         self.onMiddleClickWorkspace = onMiddleClickWorkspace
 
