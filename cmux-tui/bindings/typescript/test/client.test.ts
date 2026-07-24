@@ -480,6 +480,7 @@ test("attachSurface render mode yields Kitty pixels and placements with render e
       rows: [{ row: 0, runs: [{ text: "ok ", fg: "#00ff00", bg: null, attrs: 0 }] }],
       graphics: {
         generation: 4,
+        removed_image_ids: [99],
         placements: [{ ...renderGraphics.placements[0], viewport_col: 1 }],
       },
     });
@@ -524,6 +525,7 @@ test("attachSurface render mode yields Kitty pixels and placements with render e
     rows: [{ row: 0, runs: [{ text: "ok ", fg: "#00ff00", bg: null, attrs: 0 }] }],
     graphics: {
       generation: 4,
+      removed_image_ids: [99],
       placements: [{ ...renderGraphics.placements[0], viewport_col: 1 }],
     },
   });

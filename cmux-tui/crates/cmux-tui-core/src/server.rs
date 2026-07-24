@@ -4158,6 +4158,7 @@ pub fn cleanup(path: &Path) {
 mod tests {
     use super::*;
     use crate::{ProviderWorkspaceAuthority, SurfaceOptions};
+    use ghostty_vt::{Callbacks, RenderState, Terminal};
     use std::sync::mpsc::TryRecvError;
     use std::time::Duration;
 
@@ -4180,6 +4181,107 @@ mod tests {
             outbound: Arc::new(BoundedOutbound::default()),
             control: None,
         })
+    }
+
+    fn render_protocol_frame(
+        terminal: &mut Terminal,
+        render_state: &mut RenderState,
+    ) -> SurfaceRenderFrame {
+        render_state.update(terminal).unwrap();
+        SurfaceRenderFrame {
+            frame: render_state.build_frame().unwrap(),
+            scrollback_rows: 0,
+            palette_colors: [Rgb::default(); 256],
+            palette_overridden: [false; 256],
+        }
+    }
+
+    fn render_protocol_client(
+        terminal: &mut Terminal,
+        render_state: &mut RenderState,
+    ) -> RenderClientState {
+        RenderClientState::new(&render_protocol_frame(terminal, render_state))
+    }
+
+    const RED_IMAGE_41: &[u8] =
+        b"\x1b_Ga=T,t=d,f=24,i=41,p=7,s=1,v=1,c=1,r=1,q=2;/wAA\x1b\\";
+    const GREEN_IMAGE_42: &[u8] =
+        b"\x1b_Ga=T,t=d,f=24,i=42,p=8,s=1,v=1,c=1,r=1,q=2;AP8A\x1b\\";
+
+    #[test]
+    fn render_delta_omits_graphics_for_text_only_damage() {
+        let mut terminal = Terminal::new(10, 3, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(RED_IMAGE_41);
+        let mut render_state = RenderState::new().unwrap();
+        let mut client = render_protocol_client(&mut terminal, &mut render_state);
+
+        terminal.vt_write(b"text");
+        let frame = render_protocol_frame(&mut terminal, &mut render_state);
+        let delta = client.delta_json(1, &frame);
+
+        assert!(delta.get("graphics").is_none(), "{delta:#}");
+    }
+
+    #[test]
+    fn render_delta_sends_placement_geometry_without_unchanged_pixels() {
+        let mut terminal = Terminal::new(10, 3, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(RED_IMAGE_41);
+        let mut render_state = RenderState::new().unwrap();
+        let mut client = render_protocol_client(&mut terminal, &mut render_state);
+
+        terminal.vt_write(b"\x1b[3G\x1b_Ga=p,i=41,p=9,c=1,r=1,q=2;\x1b\\");
+        let frame = render_protocol_frame(&mut terminal, &mut render_state);
+        let delta = client.delta_json(1, &frame);
+        let graphics = &delta["graphics"];
+
+        assert!(graphics.get("images").is_none(), "{delta:#}");
+        assert!(graphics.get("removed_image_ids").is_none(), "{delta:#}");
+        assert_eq!(graphics["placements"].as_array().unwrap().len(), 2);
+        assert!(graphics["placements"].as_array().unwrap().iter().any(|placement| {
+            placement["placement_id"] == 9 && placement["viewport_col"] == 2
+        }));
+    }
+
+    #[test]
+    fn render_delta_upserts_only_images_with_changed_generations() {
+        let mut terminal = Terminal::new(10, 3, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(RED_IMAGE_41);
+        terminal.vt_write(GREEN_IMAGE_42);
+        let mut render_state = RenderState::new().unwrap();
+        let mut client = render_protocol_client(&mut terminal, &mut render_state);
+
+        terminal.vt_write(
+            b"\x1b_Ga=T,t=d,f=24,i=41,p=7,s=1,v=1,c=1,r=1,q=2;AAD/\x1b\\",
+        );
+        let frame = render_protocol_frame(&mut terminal, &mut render_state);
+        let delta = client.delta_json(1, &frame);
+        let images = delta["graphics"]["images"].as_array().unwrap();
+
+        assert_eq!(images.len(), 1, "{delta:#}");
+        assert_eq!(images[0]["id"], 41);
+        assert_eq!(images[0]["data"], "AAD/");
+    }
+
+    #[test]
+    fn render_delta_reports_deleted_image_ids_without_resending_survivors() {
+        let mut terminal = Terminal::new(10, 3, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(RED_IMAGE_41);
+        terminal.vt_write(GREEN_IMAGE_42);
+        let mut render_state = RenderState::new().unwrap();
+        let mut client = render_protocol_client(&mut terminal, &mut render_state);
+
+        terminal.vt_write(b"\x1b_Ga=d,d=I,i=41,q=2;\x1b\\");
+        let frame = render_protocol_frame(&mut terminal, &mut render_state);
+        let delta = client.delta_json(1, &frame);
+        let graphics = &delta["graphics"];
+
+        assert_eq!(graphics["removed_image_ids"], json!([41]));
+        assert!(graphics.get("images").is_none(), "{delta:#}");
+        assert!(graphics["placements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|placement| placement["image_id"] == 42));
     }
 
     #[test]

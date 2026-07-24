@@ -30,6 +30,13 @@ const graphics: RenderGraphics = {
     height: 1,
     format: "rgba",
     data: "/wAA/w==",
+  }, {
+    id: 10,
+    generation: 1,
+    width: 1,
+    height: 1,
+    format: "rgb",
+    data: "AP8A",
   }],
   placements: [{
     image_id: 9,
@@ -158,6 +165,7 @@ describe("render model", () => {
     expect(moved.graphics.images).toBe(initial.graphics.images);
     expect(moved.graphics.placements[0]?.viewport_col).toBe(2);
     expect(replaced.graphics.images[0]).toMatchObject({ generation: 3, data: "AAD//w==" });
+    expect(replaced.graphics.images[1]).toBe(initial.graphics.images[1]);
     expect(replaced.graphics.placements[0]?.viewport_col).toBe(3);
   });
 
@@ -165,7 +173,11 @@ describe("render model", () => {
     const initial = applySnapshot(snapshot());
     const textOnly = applyDelta(initial, delta({ rows: [row(0, "text")] }));
     const removed = applyDelta(textOnly, delta({
-      graphics: { generation: 5, images: [], placements: [] },
+      graphics: {
+        generation: 5,
+        removed_image_ids: [9, 10],
+        placements: [],
+      },
     }));
 
     expect(textOnly.graphics).toBe(initial.graphics);

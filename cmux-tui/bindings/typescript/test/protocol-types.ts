@@ -235,6 +235,7 @@ const renderDelta: RenderDeltaEvent = {
   rows: [],
   graphics: {
     generation: renderGraphics.generation,
+    removed_image_ids: [99],
     placements: renderGraphics.placements,
   },
 };
