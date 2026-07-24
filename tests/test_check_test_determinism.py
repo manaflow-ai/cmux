@@ -261,6 +261,14 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "pause(0.01)\n"
                     "assert finished\n"
                 ),
+                "same-line-import.py": (
+                    "import time; time.sleep(0.01)\n"
+                    "assert finished\n"
+                ),
+                "same-line-from-import.py": (
+                    "from trio import sleep as pause; await pause(0.01)\n"
+                    "assert finished\n"
+                ),
             }
         )
 
@@ -278,8 +286,16 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             "from-trio.py",
             "from-anyio.py",
             "from-gevent.py",
+            "same-line-import.py",
+            "same-line-from-import.py",
         ):
-            line = 4 if relative_path == "parenthesized-from-time.py" else 2
+            line = (
+                4
+                if relative_path == "parenthesized-from-time.py"
+                else 1
+                if relative_path.startswith("same-line-")
+                else 2
+            )
             self.assertIn(
                 f"fixtures/{relative_path}:{line}: sleep-then-assert:",
                 positive.stdout,
@@ -357,6 +373,10 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "star-import-shadow.py": (
                     "from fake_clock import *\n"
                     "time.sleep(0.01)\n"
+                    "assert finished\n"
+                ),
+                "same-line-import-shadow.py": (
+                    "import fake_clock as time; time.sleep(0.01)\n"
                     "assert finished\n"
                 ),
                 "lambda-parameter-shadow.py": (
@@ -439,6 +459,10 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "        time.sleep(0.01)\n"
                 "        assert finished\n"
             ),
+            "lambda-and-real-sleep.py": (
+                "values = [lambda time: None, time.sleep(0.01)]\n"
+                "assert finished\n"
+            ),
         }
 
         result = self.run_checker(fixtures)
@@ -453,6 +477,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             "nested-attribute-assignment.py": 2,
             "keyword-argument.py": 2,
             "class-method-global.py": 5,
+            "lambda-and-real-sleep.py": 1,
         }
         findings = [
             line
@@ -498,6 +523,10 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     'assert "$escaped" "$expected"\n'
                     'escaped_backtick="\\`sleep 1\\`"\n'
                     'assert "$escaped_backtick" "$expected"\n'
+                    "fixture='$(sleep 1)'\n"
+                    'assert "$fixture" "$expected"\n'
+                    "operator_fixture='before ; sleep 1'\n"
+                    'assert "$operator_fixture" "$expected"\n'
                 ),
             }
         )
