@@ -1,16 +1,20 @@
 public import Foundation
 
-/// Persists user-owned workspace identity independently from live workspace and session lifetimes.
+/// Persists bounded user-owned workspace identity independently from live workspace lifetimes.
 ///
 /// `UserDefaults` is the sole source of truth. The store deliberately keeps no
 /// in-memory mirror, so independently constructed window graphs cannot drift.
 @MainActor
 public struct WorkspaceDirectoryCustomizationStore {
-    /// The production defaults key for the encoded directory map.
+    /// The production defaults key for the versioned directory snapshot.
     public nonisolated static let defaultStorageKey = "workspaceDirectoryCustomizations.v1"
+
+    /// The maximum number of most-recently-mutated workspace roots retained.
+    public nonisolated static let defaultCapacity = 512
 
     private let defaults: UserDefaults?
     private let storageKey: String
+    private let capacity: Int
 
     /// Creates a store backed by the supplied defaults suite.
     ///
@@ -20,12 +24,15 @@ public struct WorkspaceDirectoryCustomizationStore {
     /// - Parameters:
     ///   - defaults: The defaults suite that owns the directory map.
     ///   - storageKey: The key under which the encoded map is stored.
+    ///   - capacity: The maximum retained roots, including explicit-clear tombstones.
     public init(
         defaults: UserDefaults? = nil,
-        storageKey: String = WorkspaceDirectoryCustomizationStore.defaultStorageKey
+        storageKey: String = WorkspaceDirectoryCustomizationStore.defaultStorageKey,
+        capacity: Int = WorkspaceDirectoryCustomizationStore.defaultCapacity
     ) {
         self.defaults = defaults
         self.storageKey = storageKey
+        self.capacity = max(1, capacity)
     }
 
     /// Returns the normalized stable key for a workspace root directory.
@@ -47,7 +54,7 @@ public struct WorkspaceDirectoryCustomizationStore {
     /// - Returns: The stored customization, or `nil` when none exists.
     public func customization(for directory: String?) -> WorkspaceDirectoryCustomization? {
         guard let key = directoryKey(for: directory) else { return nil }
-        return loadCustomizations()[key]
+        return loadSnapshot().entries[key]?.customization
     }
 
     /// Reads sticky identity for a batch of workspace roots with one defaults decode.
@@ -62,8 +69,10 @@ public struct WorkspaceDirectoryCustomizationStore {
     ) -> [String: WorkspaceDirectoryCustomization] {
         let keys = Set(directories.compactMap { directoryKey(for: $0) })
         guard !keys.isEmpty else { return [:] }
-        let storedCustomizations = loadCustomizations()
-        return storedCustomizations.filter { keys.contains($0.key) }
+        let entries = loadSnapshot().entries
+        return Dictionary(uniqueKeysWithValues: keys.compactMap { key in
+            entries[key].map { (key, $0.customization) }
+        })
     }
 
     /// Persists or clears the explicit label for a workspace root.
@@ -143,15 +152,19 @@ public struct WorkspaceDirectoryCustomizationStore {
         forKeys keys: Set<String>,
         transform: (WorkspaceDirectoryCustomization?) -> WorkspaceDirectoryCustomization
     ) {
-        var customizations = loadCustomizations()
-        for key in keys {
-            setCustomization(
-                transform(customizations[key]),
-                forKey: key,
-                in: &customizations
+        var snapshot = loadSnapshot()
+        for key in keys.sorted() {
+            let customization = transform(snapshot.entries[key]?.customization)
+            snapshot.set(
+                WorkspaceDirectoryCustomization(
+                    customTitle: normalizedValue(customization.customTitle),
+                    customColor: normalizedValue(customization.customColor)
+                ),
+                for: key
             )
         }
-        persist(customizations)
+        snapshot.trim(to: capacity)
+        persist(snapshot)
     }
 
     private func normalizedValue(_ value: String?) -> String? {
@@ -159,31 +172,42 @@ public struct WorkspaceDirectoryCustomizationStore {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private func setCustomization(
-        _ customization: WorkspaceDirectoryCustomization,
-        forKey key: String,
-        in customizations: inout [String: WorkspaceDirectoryCustomization]
-    ) {
-        customizations[key] = customization
-    }
-
-    private func loadCustomizations() -> [String: WorkspaceDirectoryCustomization] {
-        guard let data = defaults?.data(forKey: storageKey) else { return [:] }
-        // Invalid legacy/corrupt preference bytes behave as an empty map; the
-        // next explicit mutation rewrites the single owned defaults value.
-        return (try? JSONDecoder().decode(
+    private func loadSnapshot() -> WorkspaceDirectoryCustomizationPersistenceSnapshot {
+        guard let data = defaults?.data(forKey: storageKey) else {
+            return WorkspaceDirectoryCustomizationPersistenceSnapshot()
+        }
+        let decoder = JSONDecoder()
+        var snapshot: WorkspaceDirectoryCustomizationPersistenceSnapshot
+        var shouldRewrite = false
+        if let decoded = try? decoder.decode(
+            WorkspaceDirectoryCustomizationPersistenceSnapshot.self,
+            from: data
+        ), decoded.version == WorkspaceDirectoryCustomizationPersistenceSnapshot.currentVersion {
+            snapshot = decoded
+        } else if let legacy = try? decoder.decode(
             [String: WorkspaceDirectoryCustomization].self,
             from: data
-        )) ?? [:]
+        ) {
+            snapshot = WorkspaceDirectoryCustomizationPersistenceSnapshot(migrating: legacy)
+            shouldRewrite = true
+        } else {
+            snapshot = WorkspaceDirectoryCustomizationPersistenceSnapshot()
+        }
+        let previousCount = snapshot.entries.count
+        snapshot.trim(to: capacity)
+        if shouldRewrite || snapshot.entries.count != previousCount {
+            persist(snapshot)
+        }
+        return snapshot
     }
 
-    private func persist(_ customizations: [String: WorkspaceDirectoryCustomization]) {
+    private func persist(_ snapshot: WorkspaceDirectoryCustomizationPersistenceSnapshot) {
         guard let defaults else { return }
-        guard !customizations.isEmpty else {
+        guard !snapshot.entries.isEmpty else {
             defaults.removeObject(forKey: storageKey)
             return
         }
-        guard let data = try? JSONEncoder().encode(customizations) else { return }
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
         defaults.set(data, forKey: storageKey)
     }
 }

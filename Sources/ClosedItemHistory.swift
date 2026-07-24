@@ -190,7 +190,7 @@ final class ClosedItemHistoryStore: ObservableObject {
 
     func push(_ record: ClosedItemHistoryRecord) {
         records.append(record)
-        trimToCapacityIfNeeded()
+        if capacityPolicy.shouldTrim(afterInserting: record, totalCount: records.count) { trimToCapacityIfNeeded() }
         revision &+= 1
         persistRecords()
     }
@@ -249,7 +249,7 @@ final class ClosedItemHistoryStore: ObservableObject {
 
     func insert(_ record: ClosedItemHistoryRecord, at index: Int) {
         records.insert(record, at: min(max(0, index), records.count))
-        records = capacityPolicy.trimming(records, preserving: record.id)
+        if capacityPolicy.shouldTrim(afterInserting: record, totalCount: records.count) { records = capacityPolicy.trimming(records, preserving: record.id) }
         revision &+= 1
         persistRecords()
     }

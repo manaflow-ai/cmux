@@ -20,15 +20,31 @@ struct ClosedItemHistoryCapacityPolicy {
         return result
     }
 
+    func shouldTrim(
+        afterInserting record: ClosedItemHistoryRecord,
+        totalCount: Int
+    ) -> Bool {
+        if let totalCapacity, totalCount > totalCapacity {
+            return true
+        }
+        guard workspaceCapacity != nil else { return false }
+        if case .workspace = record.entry {
+            return true
+        }
+        return false
+    }
+
     private func trimTotalCapacity(
         in records: inout [ClosedItemHistoryRecord],
         preserving protectedRecordId: UUID?
     ) {
-        guard let totalCapacity else { return }
-        while records.count > totalCapacity {
-            let removalIndex = records.firstIndex { $0.id != protectedRecordId } ?? records.startIndex
-            records.remove(at: removalIndex)
-        }
+        guard let totalCapacity, records.count > totalCapacity else { return }
+        let overflow = records.count - totalCapacity
+        let removalIds = Set(records.lazy
+            .filter { $0.id != protectedRecordId }
+            .prefix(overflow)
+            .map(\.id))
+        records.removeAll { removalIds.contains($0.id) }
     }
 
     private func trimWorkspaceCapacity(
@@ -45,7 +61,7 @@ struct ClosedItemHistoryCapacityPolicy {
         let overflow = workspaceRecords.count - workspaceCapacity
         guard overflow > 0 else { return }
 
-        let removalIndexes = workspaceRecords
+        let removalIds = Set(workspaceRecords
             .filter { $0.element.id != protectedRecordId }
             .sorted { lhs, rhs in
                 if lhs.element.closedAt != rhs.element.closedAt {
@@ -54,11 +70,7 @@ struct ClosedItemHistoryCapacityPolicy {
                 return lhs.offset < rhs.offset
             }
             .prefix(overflow)
-            .map(\.offset)
-            .sorted(by: >)
-
-        for index in removalIndexes {
-            records.remove(at: index)
-        }
+            .map(\.element.id))
+        records.removeAll { removalIds.contains($0.id) }
     }
 }

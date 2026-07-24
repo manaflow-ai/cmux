@@ -127,4 +127,56 @@ struct WorkspaceDirectoryCustomizationStoreTests {
             ]
         )
     }
+
+    @Test("retention keeps the most recently mutated workspace roots")
+    func boundedRetention() throws {
+        let suiteName = "WorkspaceDirectoryCustomizationStore.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = WorkspaceDirectoryCustomizationStore(
+            defaults: defaults,
+            storageKey: "test.customizations",
+            capacity: 2
+        )
+        store.setCustomTitle("First", for: "/tmp/first")
+        store.setCustomTitle("Second", for: "/tmp/second")
+        store.setCustomColor("#111111", for: "/tmp/first")
+        store.setCustomTitle("Third", for: "/tmp/third")
+
+        #expect(store.customization(for: "/tmp/first")?.customColor == "#111111")
+        #expect(store.customization(for: "/tmp/second") == nil)
+        #expect(store.customization(for: "/tmp/third")?.customTitle == "Third")
+    }
+
+    @Test("legacy dictionary payloads migrate without losing customization")
+    func legacyPayloadMigration() throws {
+        let suiteName = "WorkspaceDirectoryCustomizationStore.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let storageKey = "test.customizations"
+        let legacy = [
+            "/tmp/legacy": WorkspaceDirectoryCustomization(
+                customTitle: "Legacy Label",
+                customColor: "#ABCDEF"
+            ),
+        ]
+        defaults.set(try JSONEncoder().encode(legacy), forKey: storageKey)
+
+        let store = WorkspaceDirectoryCustomizationStore(
+            defaults: defaults,
+            storageKey: storageKey
+        )
+        #expect(store.customization(for: "/tmp/legacy") == legacy["/tmp/legacy"])
+        store.setCustomTitle("Migrated Label", for: "/tmp/legacy")
+
+        let reloadedStore = WorkspaceDirectoryCustomizationStore(
+            defaults: defaults,
+            storageKey: storageKey
+        )
+        #expect(reloadedStore.customization(for: "/tmp/legacy")?.customTitle == "Migrated Label")
+        #expect(reloadedStore.customization(for: "/tmp/legacy")?.customColor == "#ABCDEF")
+    }
 }

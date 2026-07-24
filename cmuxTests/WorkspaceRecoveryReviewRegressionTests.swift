@@ -154,6 +154,35 @@ struct WorkspaceRecoveryReviewRegressionTests {
     }
 
     @Test
+    func legacyGeneratedSnapshotCannotSeedStickyProjectIdentity() throws {
+        let fixture = try makeCustomizationStore()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let directory = "/tmp/legacy-generated-workspace"
+
+        let sourceManager = TabManager(
+            initialWorkingDirectory: directory,
+            autoWelcomeIfNeeded: false
+        )
+        let sourceWorkspace = try #require(sourceManager.selectedWorkspace)
+        sourceWorkspace.setCustomTitle("cmux Pro")
+        sourceWorkspace.setCustomColor("#111111")
+        var snapshot = sourceManager.sessionSnapshot(includeScrollback: false)
+        snapshot.workspaces[0].customizationDirectory = nil
+        snapshot.workspaces[0].usesWorkspaceDirectoryCustomization = nil
+
+        let restoredManager = TabManager(
+            autoWelcomeIfNeeded: false,
+            workspaceDirectoryCustomizationStore: fixture.store
+        )
+        restoredManager.restoreSessionSnapshot(snapshot)
+
+        let restoredWorkspace = try #require(restoredManager.selectedWorkspace)
+        #expect(restoredWorkspace.customTitle == "cmux Pro")
+        #expect(restoredWorkspace.customizationDirectory == nil)
+        #expect(fixture.store.customization(for: directory) == nil)
+    }
+
+    @Test
     func loadTimeWorkspaceCapacityTrimIsPersisted() async throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appending(path: "cmux-closed-workspace-trim-\(UUID().uuidString)", directoryHint: .isDirectory)

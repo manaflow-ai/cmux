@@ -87,9 +87,14 @@ extension TabManager {
         guard let directoryKey = workspaceCustomizationDirectory(afterRestoring: snapshot) else {
             return
         }
+        let stored = cachedCustomizations[directoryKey]
+        let isLegacyInferredRoot = snapshot.usesWorkspaceDirectoryCustomization == nil
+            && snapshot.customizationDirectory == nil
+        guard !isLegacyInferredRoot || stored != nil else {
+            return
+        }
         workspace.customizationDirectory = directoryKey
-
-        if let stored = cachedCustomizations[directoryKey] {
+        if let stored {
             workspace.setCustomTitle(stored.customTitle)
             workspace.setCustomColor(stored.customColor)
             return
