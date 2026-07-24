@@ -10980,6 +10980,22 @@ mod tests {
     }
 
     #[test]
+    fn alt_binding_with_matching_associated_text_remains_active() {
+        let input = crate::keys::KeyboardInput::from(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT),
+            shifted_key: None,
+            base_layout_key: Some('j'),
+            text: "j".to_string(),
+        });
+        let (key, fallback) = input.shortcut_keys();
+
+        assert_eq!(
+            super::modeless_action_for_binding(&Config::default().keys, &key, fallback.as_ref()),
+            Some(Action::FocusDown)
+        );
+    }
+
+    #[test]
     fn option_generated_text_does_not_execute_a_prefixed_action() {
         let mux = Mux::new("option-prefix-action", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));

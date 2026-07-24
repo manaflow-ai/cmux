@@ -688,38 +688,48 @@ fn cleared_history_stays_cleared_after_daemon_reconnect() {
     let records = wait_for_host_records(&harness.host_root(), 1);
     assert!(records[0].1.supports_clear_history);
 
+    let host_pid = records[0].1.host_pid as libc::pid_t;
+    // SAFETY: the durable record identifies this harness's live terminal host.
+    assert_eq!(unsafe { libc::kill(host_pid, libc::SIGSTOP) }, 0);
+    std::thread::sleep(Duration::from_millis(50));
+    let resume_host = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(250));
+        // SAFETY: this resumes the same host stopped immediately above.
+        assert_eq!(unsafe { libc::kill(host_pid, libc::SIGCONT) }, 0);
+    });
+    let clear_started = Instant::now();
     request(
         &harness.socket,
         serde_json::json!({"id": 3, "cmd": "clear-history", "surface": original_surface}),
     );
-    let deadline = Instant::now() + Duration::from_secs(10);
-    loop {
-        let screen = request(
-            &harness.socket,
-            serde_json::json!({"id": 4, "cmd": "read-screen", "surface": original_surface}),
-        )["text"]
-            .as_str()
-            .unwrap()
-            .to_string();
-        let scrollback = request(
-            &harness.socket,
-            serde_json::json!({
-                "id": 5,
-                "cmd": "copy",
-                "surface": original_surface,
-                "mode": "scrollback",
-            }),
-        )["text"]
-            .as_str()
-            .unwrap()
-            .to_string();
-        if screen.contains(&prompt) && !screen.contains(&history) && !scrollback.contains(&history)
-        {
-            break;
-        }
-        assert!(Instant::now() < deadline, "host did not publish clear-history");
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    let clear_elapsed = clear_started.elapsed();
+    resume_host.join().unwrap();
+    assert!(
+        clear_elapsed >= Duration::from_millis(150),
+        "clear-history returned before the stopped host applied it: {clear_elapsed:?}"
+    );
+    let screen = request(
+        &harness.socket,
+        serde_json::json!({"id": 4, "cmd": "read-screen", "surface": original_surface}),
+    )["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let scrollback = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 5,
+            "cmd": "copy",
+            "surface": original_surface,
+            "mode": "scrollback",
+        }),
+    )["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(screen.contains(&prompt));
+    assert!(!screen.contains(&history));
+    assert!(!scrollback.contains(&history));
 
     harness.sigkill();
     harness.restart();
