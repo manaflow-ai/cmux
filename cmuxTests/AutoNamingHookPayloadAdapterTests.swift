@@ -41,14 +41,13 @@ import Testing
         ])
     }
 
-    @Test func hookMessageLineEquivalentsReachSharedThrottleFloor() {
-        let messages = [
-            AutoNamingTranscriptMessage(role: "user", text: "Name this workspace"),
-            AutoNamingTranscriptMessage(role: "assistant", text: "I can summarize it.")
-        ]
+    @Test func initialPromptReachesSharedThrottleFloor() {
+        // The first submitted prompt must be sufficient to start workspace naming.
+        let messages = [AutoNamingTranscriptMessage(role: "user", text: "Name this workspace")]
 
         let lineCount = engine.hookMessageLineEquivalentCount(messages)
         #expect(lineCount == engine.config.minTranscriptLines)
+        #expect(engine.hookMessageLineEquivalentCount([]) == 0)
 
         let decision = engine.throttleDecision(
             snapshot: AutoNamingSessionSnapshot(),
