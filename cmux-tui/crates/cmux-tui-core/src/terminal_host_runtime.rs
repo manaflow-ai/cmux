@@ -3160,7 +3160,7 @@ mod unix {
 
         #[test]
         fn default_host_cell_metrics_initialize_both_terminal_backends() {
-            let size = pty_size(80, 24, DEFAULT_CELL_PIXELS);
+            let size = pty_size(80, 24, DEFAULT_CELL_PIXELS).unwrap();
             assert_eq!(
                 (size.cols, size.rows, size.pixel_width, size.pixel_height),
                 (80, 24, 640, 384)
@@ -3176,6 +3176,25 @@ mod unix {
                 (graphics.placements[0].pixel_width, graphics.placements[0].pixel_height),
                 (8, 16)
             );
+        }
+
+        #[test]
+        fn pty_size_rejects_pixel_dimension_overflow() {
+            let maximum_cols = u16::MAX / DEFAULT_CELL_PIXELS.0;
+            let boundary = pty_size(maximum_cols, 24, DEFAULT_CELL_PIXELS).unwrap();
+            assert_eq!(
+                boundary.pixel_width,
+                maximum_cols * DEFAULT_CELL_PIXELS.0
+            );
+
+            let width_error =
+                pty_size(maximum_cols + 1, 24, DEFAULT_CELL_PIXELS).unwrap_err();
+            assert!(width_error.to_string().contains("pixel width"));
+
+            let maximum_rows = u16::MAX / DEFAULT_CELL_PIXELS.1;
+            let height_error =
+                pty_size(80, maximum_rows + 1, DEFAULT_CELL_PIXELS).unwrap_err();
+            assert!(height_error.to_string().contains("pixel height"));
         }
 
         #[test]
