@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 extension CMUXCLI {
@@ -103,8 +104,19 @@ extension CMUXCLI {
         let safeName = subcommand.replacingOccurrences(
             of: "[^A-Za-z0-9_-]", with: "-", options: .regularExpression
         )
-        let url = dir.appendingPathComponent("cmux-codex-hook-\(safeName).sh", isDirectory: false)
         let contents = "#!/bin/sh\n\(body)\n"
+        let contentID = SHA256.hash(data: Data(contents.utf8))
+            .prefix(8)
+            .reduce(into: "") { result, byte in
+                if byte < 16 { result.append("0") }
+                result.append(String(byte, radix: 16))
+            }
+        // Keep generated scripts immutable. Older cmux processes may still write
+        // the legacy path while newer Codex sessions reference this content ID.
+        let url = dir.appendingPathComponent(
+            "cmux-codex-hook-\(contentID)-\(safeName).sh",
+            isDirectory: false
+        )
         let fileManager = FileManager.default
         if let existing = try? String(contentsOf: url, encoding: .utf8), existing == contents {
             // Ensure it stays executable, then reuse.

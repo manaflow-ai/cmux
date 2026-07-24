@@ -422,12 +422,25 @@ extension CMUXCLI {
         if usesPinnedHookDispatch(def), command.contains(pinnedHookMarker(for: def)) {
             return true
         }
+        if def.name == "codex", isCmuxOwnedCodexHookScriptCommand(command) {
+            return true
+        }
         if def.events.contains(where: { hookCommandString(for: def, event: $0) == command })
             || def.feedHookEvents.contains(where: { feedHookCommandString(for: def, agentEvent: $0) == command })
         {
             return true
         }
         return includeLegacy && isLegacyCmuxOwnedHookCommand(command, for: def)
+    }
+
+    private static func isCmuxOwnedCodexHookScriptCommand(_ command: String) -> Bool {
+        guard let hooksDirectory = codexHookScriptsDirectory() else { return false }
+        let url = URL(fileURLWithPath: command, isDirectory: false)
+        let name = url.lastPathComponent
+        return name.hasPrefix("cmux-codex-hook-")
+            && name.hasSuffix(".sh")
+            && url.deletingLastPathComponent().standardizedFileURL
+                == hooksDirectory.standardizedFileURL
     }
 
     private static func isLegacyCmuxOwnedHookCommand(_ command: String, for def: AgentHookDef) -> Bool {
