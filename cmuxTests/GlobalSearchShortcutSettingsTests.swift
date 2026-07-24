@@ -51,7 +51,7 @@ final class GlobalSearchShortcutSettingsTests {
         #expect(!KeyboardShortcutSettings.Action.globalSearch.allowsBareFirstStroke)
     }
 
-    @Test func optionOnlyGlobalSearchRoutesBeforePrintableOptionTextBypass() throws {
+    @Test func optionOnlyGlobalSearchRoutesBeforeUnmatchedOptionTextInput() throws {
         let shortcut = StoredShortcut(
             key: "q",
             command: false,
@@ -78,7 +78,7 @@ final class GlobalSearchShortcutSettingsTests {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
 
         #expect(shortcutRoutingShouldBypassForPrintableOptionText(event: event))
-        #expect(!shortcut.matches(event: event))
+        #expect(shortcut.matches(event: event))
         #expect(appDelegate.matchCachedGlobalSearchShortcut(event: event))
     }
 
@@ -118,7 +118,7 @@ final class GlobalSearchShortcutSettingsTests {
 #endif
     }
 
-    @Test func optionOnlyGlobalSearchChordPrefixRoutesBeforePrintableOptionTextBypass() throws {
+    @Test func optionOnlyGlobalSearchChordPrefixRoutesBeforeUnmatchedOptionTextInput() throws {
 #if DEBUG
         let shortcut = StoredShortcut(
             key: "q",

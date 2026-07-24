@@ -7,6 +7,7 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
     let workspaceIds: [UUID]
     let selectedWorkspaceId: UUID?
     let selectedScrollTargetWorkspaceId: UUID?
+    let isPresented: Bool
 
 #if DEBUG
     @Environment(\.sidebarLazyContractProbe) private var sidebarLazyContractProbe
@@ -24,6 +25,8 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
 #if DEBUG
         context.coordinator.reconfigurationProbe = sidebarLazyContractProbe.tableRootViewReconfigure
 #endif
+        context.coordinator.setPresentationActive(isPresented, workspaceIds: workspaceIds)
+        guard isPresented else { return }
         context.coordinator.apply(
             rows: rows,
             actions: actions,
@@ -31,5 +34,12 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
             selectedWorkspaceId: selectedWorkspaceId,
             selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId
         )
+    }
+
+    static func dismantleNSView(
+        _ nsView: SidebarWorkspaceTableContainerView,
+        coordinator: SidebarWorkspaceTableController
+    ) {
+        coordinator.dismantleContainerView(nsView)
     }
 }

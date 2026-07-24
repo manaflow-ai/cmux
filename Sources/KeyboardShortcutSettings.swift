@@ -1591,7 +1591,6 @@ struct ShortcutStroke: Equatable, Hashable {
 
     func matches(
         event: NSEvent,
-        allowPrintableOptionTextMatch: Bool = false,
         layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
     ) -> Bool {
         let shortcutKey = key.lowercased()
@@ -1604,10 +1603,6 @@ struct ShortcutStroke: Equatable, Hashable {
         }
 
         guard event.type == .keyDown else { return false }
-        if !allowPrintableOptionTextMatch,
-           shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
-            return false
-        }
 
         return matches(
             keyCode: Self.recordableKey(from: event)?.keyCode ?? event.keyCode,
@@ -1625,6 +1620,10 @@ struct ShortcutStroke: Equatable, Hashable {
     ) -> Bool {
         let flags = Self.normalizedModifierFlags(from: modifierFlags)
         guard flags == self.modifierFlags else { return false }
+
+        if let recordedKeyCode = self.keyCode {
+            return keyCode == recordedKeyCode
+        }
 
         let shortcutKey = key.lowercased()
         if Self.usesDirectKeyCodeMatching(shortcutKey) {
@@ -1728,39 +1727,10 @@ struct ShortcutStroke: Equatable, Hashable {
         keyCode: UInt16,
         charactersIgnoringModifiers: String?
     ) -> String? {
-        // Prefer keyCode mapping so shifted symbol keys (e.g. "}") record as "]".
-        switch keyCode {
-        case 123: return "←" // left arrow
-        case 124: return "→" // right arrow
-        case 125: return "↓" // down arrow
-        case 126: return "↑" // up arrow
-        case 48: return "\t" // tab
-        case 49: return "space" // kVK_Space
-        case 36, 76: return "\r" // return, keypad enter
-        case 33: return "["  // kVK_ANSI_LeftBracket
-        case 30: return "]"  // kVK_ANSI_RightBracket
-        case 27: return "-"  // kVK_ANSI_Minus
-        case 24: return "="  // kVK_ANSI_Equal
-        case 43: return ","  // kVK_ANSI_Comma
-        case 47: return "."  // kVK_ANSI_Period
-        case 44: return "/"  // kVK_ANSI_Slash
-        case 41: return ";"  // kVK_ANSI_Semicolon
-        case 39: return "'"  // kVK_ANSI_Quote
-        case 50: return "`"  // kVK_ANSI_Grave
-        case 42: return "\\" // kVK_ANSI_Backslash
-        default:
-            break
-        }
-
-        guard let chars = charactersIgnoringModifiers?.lowercased(),
-              let char = chars.first else {
-            return nil
-        }
-
-        if char.isLetter || char.isNumber {
-            return String(char)
-        }
-        return nil
+        recordedShortcutKey(
+            keyCode: keyCode,
+            charactersIgnoringModifiers: charactersIgnoringModifiers
+        )
     }
 
     private static func recordableKey(

@@ -2,11 +2,6 @@ import CmuxCommandPalette
 import CmuxSettings
 
 extension KeyboardShortcutSettings.Action {
-    // An Option-only binding explicitly lets Global Search claim printable input while cmux is active.
-    var allowsPrintableOptionTextMatch: Bool {
-        self == .globalSearch
-    }
-
     var allowsBareFirstStroke: Bool {
         switch self {
         case .diffViewerScrollDown,
