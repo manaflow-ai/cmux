@@ -98,7 +98,20 @@ pub struct ClientHandshake {
     pub lane: Lane,
     pub lanes: Vec<Lane>,
     pub generation: u64,
+    pub connection_attempt: ConnectionAttemptId,
     pub resume: BTreeMap<Lane, u64>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ConnectionAttemptId(pub [u8; 16]);
+
+impl fmt::Debug for ConnectionAttemptId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for byte in self.0 {
+            write!(formatter, "{byte:02x}")?;
+        }
+        Ok(())
+    }
 }
 
 /// The non-authoritative network path that delivered an inbound link.
@@ -188,11 +201,13 @@ pub struct AcceptedSecureLink {
     pub lane: Lane,
     pub lanes: Vec<Lane>,
     pub generation: u64,
+    pub connection_attempt: ConnectionAttemptId,
 }
 
 pub(crate) struct VerifiedSecureLink {
     link: SecureLink,
     request: AuthRequest,
+    connection_attempt: ConnectionAttemptId,
     resume: BTreeMap<Lane, u64>,
 }
 
@@ -213,6 +228,7 @@ impl fmt::Debug for AcceptedSecureLink {
             .field("lane", &self.lane)
             .field("lanes", &self.lanes)
             .field("generation", &self.generation)
+            .field("connection_attempt", &self.connection_attempt)
             .finish()
     }
 }
@@ -241,6 +257,7 @@ struct ClientPrelude {
     lane: Lane,
     lanes: Vec<Lane>,
     generation: u64,
+    connection_attempt: ConnectionAttemptId,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -365,6 +382,7 @@ pub async fn initiate_secure_link(
         lane: config.lane,
         lanes: config.lanes,
         generation: config.generation,
+        connection_attempt: config.connection_attempt,
     };
     validate_lanes(prelude.lane, &prelude.lanes)?;
     let prelude_bytes = serde_json::to_vec(&prelude).map_err(CryptoError::Json)?;
@@ -480,6 +498,7 @@ pub(crate) async fn verify_secure_link(
             generation: prelude.generation,
             inbound,
         },
+        connection_attempt: prelude.connection_attempt,
         resume: hello.resume,
     })
 }
@@ -528,6 +547,7 @@ pub(crate) async fn authorize_secure_link(
         lane: verified.request.lane,
         lanes: verified.request.lanes,
         generation: verified.request.generation,
+        connection_attempt: verified.connection_attempt,
     })
 }
 
@@ -759,6 +779,7 @@ mod tests {
             lane: Lane::Interactive,
             lanes: vec![Lane::Interactive],
             generation: 0,
+            connection_attempt: ConnectionAttemptId([7; 16]),
             resume: BTreeMap::from([(Lane::Interactive, 9)]),
         }
     }
@@ -787,6 +808,7 @@ mod tests {
         let client_secure = client_result.unwrap();
         let accepted = server_result.unwrap();
         assert_eq!(accepted.grant.revocation_generation, 4);
+        assert_eq!(accepted.connection_attempt, ConnectionAttemptId([7; 16]));
         assert_eq!(accepted.resume.get(&Lane::Interactive), Some(&9));
         assert_eq!(accepted.session, SessionId([3; 16]));
         assert_eq!(accepted.lane, Lane::Interactive);

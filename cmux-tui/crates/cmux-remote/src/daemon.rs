@@ -27,7 +27,8 @@ use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, RwLock, Semaphore, mpsc, 
 
 use crate::connection::{ConnectionError, send_link_ready};
 use crate::crypto::{
-    AcceptedSecureLink, AuthKind, CryptoError, authorize_secure_link, verify_secure_link,
+    AcceptedSecureLink, AuthKind, ConnectionAttemptId, CryptoError, authorize_secure_link,
+    verify_secure_link,
 };
 pub use crate::crypto::{
     InboundAuthEvidence, NetworkPeer, VerifiedKernelPeer, VerifiedSshPrincipal,
@@ -651,7 +652,7 @@ pub struct RemoteDaemon {
 
 struct DaemonState {
     clients: HashMap<ClientKey, Arc<ServerConnection>>,
-    pending: HashMap<(ClientKey, u64), PendingLinks>,
+    pending: HashMap<(ClientKey, u64, ConnectionAttemptId), PendingLinks>,
     registration_locks: HashMap<ClientKey, Weak<Mutex<()>>>,
 }
 
@@ -796,7 +797,7 @@ impl RemoteDaemon {
         send_link_ready(&accepted.link, accepted.session, accepted.generation, daemon_resume)
             .await?;
 
-        let pending_key = (key.clone(), accepted.generation);
+        let pending_key = (key.clone(), accepted.generation, accepted.connection_attempt);
         let mut state = self.state.lock().await;
         let registry_matches = match (&existing, state.clients.get(&key)) {
             (Some(expected), Some(actual)) => {
@@ -1015,7 +1016,7 @@ impl RemoteDaemon {
             state.clients.get(key).is_some_and(|current| Arc::ptr_eq(current, connection));
         if matches {
             state.clients.remove(key);
-            state.pending.retain(|(pending_key, _), _| pending_key != key);
+            state.pending.retain(|(pending_key, _, _), _| pending_key != key);
         }
         matches
     }

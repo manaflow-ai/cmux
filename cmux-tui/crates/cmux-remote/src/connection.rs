@@ -12,7 +12,8 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, RwLock, oneshot, watch};
 
 use crate::crypto::{
-    ClientAuthMode, ClientHandshake, CryptoError, StaticIdentity, initiate_secure_link,
+    ClientAuthMode, ClientHandshake, ConnectionAttemptId, CryptoError, StaticIdentity,
+    initiate_secure_link,
 };
 use crate::link::{FrameLink, LaneMuxLink, LinkError, LinkRoute};
 use crate::observability::{ClientConnectionSnapshot, ConnectionState};
@@ -740,16 +741,23 @@ async fn establish_physical_links(
     generation: u64,
     resume: BTreeMap<Lane, u64>,
 ) -> Result<(LaneMuxLink, [u8; 32], BTreeMap<Lane, u64>), ConnectionError> {
+    let mut connection_attempt = [0_u8; 16];
+    getrandom::fill(&mut connection_attempt)
+        .map_err(|error| ConnectionError::Crypto(CryptoError::Random(error.to_string())))?;
+    let connection_attempt = ConnectionAttemptId(connection_attempt);
     let bindings = lane_bindings(config.lane_policy, group.capabilities());
     let first_lanes = bindings.first().expect("lane bindings are never empty").clone();
     let (_, first, daemon_resume) = authenticate_one(
         group.clone(),
         config,
         config.auth.clone(),
-        generation,
         first_lanes.clone(),
         resume.clone(),
-        config.expected_daemon,
+        LinkHandshakeContext {
+            generation,
+            expected_daemon: config.expected_daemon,
+            connection_attempt,
+        },
     )
     .await?;
     let daemon_key = first.remote_static();
@@ -765,10 +773,13 @@ async fn establish_physical_links(
             group.clone(),
             config,
             subsequent_auth.clone(),
-            generation,
             lanes,
             resume.clone(),
-            Some(daemon_key),
+            LinkHandshakeContext {
+                generation,
+                expected_daemon: Some(daemon_key),
+                connection_attempt,
+            },
         ));
     }
     while let Some(result) = pending.next().await {
@@ -784,34 +795,42 @@ async fn establish_physical_links(
     Ok((link, daemon_key, daemon_resume))
 }
 
+#[derive(Clone, Copy)]
+struct LinkHandshakeContext {
+    generation: u64,
+    expected_daemon: Option<[u8; 32]>,
+    connection_attempt: ConnectionAttemptId,
+}
+
 async fn authenticate_one(
     group: Arc<dyn LinkGroup>,
     config: &ClientConnectionConfig,
     auth: ClientAuthMode,
-    generation: u64,
     lanes: Vec<Lane>,
     resume: BTreeMap<Lane, u64>,
-    expected_daemon: Option<[u8; 32]>,
+    context: LinkHandshakeContext,
 ) -> Result<(Vec<Lane>, crate::crypto::SecureLink, BTreeMap<Lane, u64>), ConnectionError> {
     let primary = lanes[0];
-    let physical = group.open(LinkRequest { lane: primary, generation }).await?;
+    let physical =
+        group.open(LinkRequest { lane: primary, generation: context.generation }).await?;
     let secure = initiate_secure_link(
         physical,
         ClientHandshake {
             identity: config.identity.clone(),
-            expected_daemon,
+            expected_daemon: context.expected_daemon,
             auth,
             device_name: config.device_name.clone(),
             session: config.session,
             lane: primary,
             lanes: lanes.clone(),
-            generation,
+            generation: context.generation,
+            connection_attempt: context.connection_attempt,
             resume,
         },
     )
     .await?;
     let ready: LinkReady = receive_control(&secure).await?;
-    if ready.session != config.session || ready.generation != generation {
+    if ready.session != config.session || ready.generation != context.generation {
         return Err(ConnectionError::Protocol(
             "daemon link-ready metadata does not match the requested session".into(),
         ));

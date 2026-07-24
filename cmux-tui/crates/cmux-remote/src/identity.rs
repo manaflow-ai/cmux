@@ -1568,6 +1568,7 @@ mod tests {
                         lane: Lane::Control,
                         lanes: vec![Lane::Control],
                         generation: 0,
+                        connection_attempt: crate::crypto::ConnectionAttemptId([8; 16]),
                         resume: BTreeMap::new(),
                     },
                 )

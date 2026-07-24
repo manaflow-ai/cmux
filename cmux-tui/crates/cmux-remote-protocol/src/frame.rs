@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-pub const REMOTE_PROTOCOL_VERSION: u8 = 4;
+pub const REMOTE_PROTOCOL_VERSION: u8 = 5;
 pub const MAX_FRAME_PAYLOAD: usize = 48 * 1024;
 const MAGIC: [u8; 4] = *b"CMXR";
 const HEADER_BYTES: usize = 60;
@@ -381,8 +381,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn closed_remote_enums_use_protocol_four() {
-        assert_eq!(REMOTE_PROTOCOL_VERSION, 4);
+    fn connection_attempt_grouping_uses_protocol_five() {
+        assert_eq!(REMOTE_PROTOCOL_VERSION, 5);
     }
 
     #[test]
