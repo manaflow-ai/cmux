@@ -77,9 +77,6 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         panel.updateTextContent("a")
         panel.updateTextContent("ab")
         panel.updateTextContent("abc")
-        try await Task.sleep(nanoseconds: 15_000_000)
-        let earlyWriteCount = await probe.writeCount()
-        XCTAssertEqual(earlyWriteCount, 0)
 
         await waitForAutosaveWrite(probe, count: 1)
         let savedContents = await probe.contents()

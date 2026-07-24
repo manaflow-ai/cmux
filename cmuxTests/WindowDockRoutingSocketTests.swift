@@ -609,11 +609,12 @@ struct WindowDockRoutingSocketTests {
                 ]
             )
             #expect(response["ok"] as? Bool == true)
-            try await Task.sleep(nanoseconds: 50_000_000)
+            let notePanel = try #require(dock.notePanel)
+            await notePanel.loadTextContent().value
 
             #expect(try String(contentsOf: noteURL, encoding: .utf8) == "new socket text")
             #expect(dock.noteTextSnapshot == "new socket text")
-            #expect(dock.notePanel?.textContent == "new socket text")
+            #expect(notePanel.textContent == "new socket text")
         }
     }
 
