@@ -458,6 +458,31 @@ extension AgentNotificationRegressionTests {
         #expect(fixture.source.agentPIDs["claude_code"] == nil)
     }
 
+    @Test("Global lifecycle reset clears retained ordering watermarks")
+    func globalLifecycleResetClearsRetainedOrderingWatermarks() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+
+        #expect(fixture.source.setAgentLifecycle(
+            key: "claude_code",
+            panelId: fixture.panelId,
+            lifecycle: .running,
+            agentEventTime: 1_893_456_200
+        ))
+        #expect(fixture.source.clearAgentLifecycle(key: "claude_code", panelId: fixture.panelId))
+        #expect(fixture.source.agentLifecycleEventTimesByPanelId[fixture.panelId]?["claude_code"] == 1_893_456_200)
+
+        fixture.source.clearAllAgentLifecycleStates()
+
+        #expect(fixture.source.setAgentLifecycle(
+            key: "claude_code",
+            panelId: fixture.panelId,
+            lifecycle: .idle,
+            enforceAgentEventOrdering: true
+        ))
+        #expect(fixture.source.agentLifecycleStatesByPanelId[fixture.panelId]?["claude_code"] == .idle)
+    }
+
     @Test("An untimestamped teardown cannot clear timestamped agent runtime")
     func untimestampedAgentPIDClearCannotBypassOrderingWatermark() throws {
         let fixture = try makeFixture()
