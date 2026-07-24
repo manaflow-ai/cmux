@@ -259,6 +259,51 @@ public final class WorkspaceShareOutboundMailbox<Payload: Sendable>: Sendable {
         }
     }
 
+    /// Atomically admits an ACK and its required replay before releasing
+    /// ordinary work deferred behind the acknowledgement barrier.
+    ///
+    /// Both entries use reserved acknowledgement capacity and remain FIFO, so
+    /// the replay cannot be omitted or overtake the ACK that grants its credit.
+    /// Failure leaves the barrier active and admits neither entry.
+    @discardableResult
+    public func admitAcknowledgementAndReplayAndRelease(
+        acknowledgement: Payload,
+        acknowledgementByteCount: Int,
+        replay: Payload,
+        replayByteCount: Int
+    ) -> Bool {
+        state.withLock { state in
+            guard state.acknowledgementBarrierActive,
+                  !state.isStopped,
+                  acknowledgementByteCount >= 0,
+                  replayByteCount >= 0,
+                  state.pendingMessages <= maximumMessages,
+                  maximumMessages - state.pendingMessages >= 2,
+                  state.pendingBytes <= maximumBytes else {
+                return false
+            }
+            let availableBytes = maximumBytes - state.pendingBytes
+            guard acknowledgementByteCount <= availableBytes,
+                  replayByteCount <= availableBytes - acknowledgementByteCount else {
+                return false
+            }
+            state.append(Entry(
+                payload: acknowledgement,
+                byteCount: acknowledgementByteCount,
+                priority: .acknowledgement
+            ))
+            state.append(Entry(
+                payload: replay,
+                byteCount: replayByteCount,
+                priority: .acknowledgement
+            ))
+            state.pendingMessages += 2
+            state.pendingBytes += acknowledgementByteCount + replayByteCount
+            state.releaseDeferred()
+            return true
+        }
+    }
+
     /// Drops ordinary work admitted behind an unresolved or orphan marker.
     @discardableResult
     public func discardAcknowledgementBarrier() -> [Entry] {

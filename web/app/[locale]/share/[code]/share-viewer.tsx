@@ -3,7 +3,13 @@
 // Root client component for cmux.com/share/<code>: one server-selected
 // workspace, its exact split tree, remote cursors, and floating session chat.
 
-import { useCallback, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import { useTranslations } from "next-intl";
 
 import { participantColor } from "./share-colors";
@@ -126,7 +132,6 @@ function ActiveViewer({ client }: { client: ShareClient }): ReactNode {
   const canInteract = !session.reconnecting;
   const [registry] = useState(createPaneRectRegistry);
   const [workspaceEl, setWorkspaceEl] = useState<HTMLElement | null>(null);
-  const [cursorLayoutRevision, setCursorLayoutRevision] = useState(0);
   const [bubbleDraft, setBubbleDraft] = useState<{
     pos: CursorPos;
     clientX: number;
@@ -140,7 +145,6 @@ function ActiveViewer({ client }: { client: ShareClient }): ReactNode {
     clientY: number;
   } | null>(null);
   const shortcutCleanupRef = useRef<(() => void) | null>(null);
-  const resizeCleanupRef = useRef<(() => void) | null>(null);
 
   const resolvePointer = useCallback((): {
     pos: CursorPos;
@@ -169,17 +173,10 @@ function ActiveViewer({ client }: { client: ShareClient }): ReactNode {
     (element: HTMLElement | null): void => {
       shortcutCleanupRef.current?.();
       shortcutCleanupRef.current = null;
-      resizeCleanupRef.current?.();
-      resizeCleanupRef.current = null;
       setWorkspaceEl(element);
       if (!element) return;
       const ownerWindow = element.ownerDocument.defaultView;
       if (!ownerWindow) return;
-      const resizeObserver = new ResizeObserver(() => {
-        setCursorLayoutRevision((revision) => revision + 1);
-      });
-      resizeObserver.observe(element);
-      resizeCleanupRef.current = () => resizeObserver.disconnect();
       shortcutCleanupRef.current = installKeydownListener(ownerWindow, (event) => {
         if (!canInteract) return;
         const pointer = resolvePointer();
@@ -294,7 +291,6 @@ function ActiveViewer({ client }: { client: ShareClient }): ReactNode {
           activeWs={session.activeWs}
           registry={registry}
           container={workspaceEl}
-          layoutRevision={cursorLayoutRevision}
         />
 
         {bubbleDraft ? (
@@ -337,7 +333,6 @@ function CursorStoreLayer({
   activeWs,
   registry,
   container,
-  layoutRevision,
 }: {
   client: ShareClient;
   participants: Participant[];
@@ -345,10 +340,13 @@ function CursorStoreLayer({
   activeWs: string | null;
   registry: ReturnType<typeof createPaneRectRegistry>;
   container: HTMLElement | null;
-  layoutRevision: number;
 }): ReactNode {
   const cursors = useStoreValue(client.cursors);
-  void layoutRevision;
+  useSyncExternalStore(
+    registry.subscribe,
+    registry.getRevision,
+    registry.getRevision,
+  );
   return (
     <CursorLayer
       cursors={cursors}

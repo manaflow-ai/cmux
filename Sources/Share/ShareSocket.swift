@@ -71,6 +71,8 @@ actor ShareSocket {
     private let lifecycle: WorkspaceShareSessionLifecycle
     nonisolated private let outboundValidator =
         WorkspaceShareOutboundMessageValidator()
+    nonisolated private let connectionAdmission =
+        OSAllocatedUnfairLock(initialState: false)
 
     private var runTask: Task<Void, Never>?
     private var outboundWakeTask: Task<Void, Never>?
@@ -145,6 +147,7 @@ actor ShareSocket {
     }
 
     func stop() async {
+        setConnectionAdmission(false)
         guard !isStopped else { return }
         isStopped = true
         await lifecycle.stop()
@@ -171,8 +174,12 @@ actor ShareSocket {
         case .enqueued:
             return true
         case .dropped, .terminated:
+            setConnectionAdmission(false)
+            eventContinuation.finish()
             return false
         @unknown default:
+            setConnectionAdmission(false)
+            eventContinuation.finish()
             return false
         }
     }
@@ -180,12 +187,18 @@ actor ShareSocket {
 #if DEBUG
     @discardableResult
     nonisolated func enqueueEventForTesting(_ event: Event) -> Bool {
-        enqueueEvent(event)
+        if case .connectionStateChanged(true) = event {
+            setConnectionAdmission(true)
+        }
+        return enqueueEvent(event)
     }
 #endif
 
     @discardableResult
     nonisolated func send(_ message: ShareHostMessage) -> SendResult {
+        guard connectionAdmission.withLock({ $0 }) else {
+            return .backpressured
+        }
         guard let message = outboundValidator.prepareForTransport(message),
               let (outbound, priority) = Self.encode(message) else {
             shareSocketLogger.error("Dropping an unencodable share protocol message")
@@ -194,28 +207,59 @@ actor ShareSocket {
         return admit(outbound, priority: priority) ? .admitted : .backpressured
     }
 
-    /// Admits a hello caused by an already-accepted `resync` after its ACK.
-    ///
-    /// Unlike a new-connection hello, replay work uses the control lane so it
-    /// cannot overtake the acknowledgement that released resync credit.
+    /// Atomically admits an accepted resync's ACK and required hello replay.
     @discardableResult
-    nonisolated func sendResyncHello(
+    nonisolated func sendAcknowledgementAndResyncHello(
+        nonce: ShareAckNonce,
         shared: [ShareSharedWorkspace],
         layouts: [ShareWorkspaceLayout]
     ) -> SendResult {
-        let message = ShareHostMessage.hello(shared: shared, layouts: layouts)
-        guard let message = outboundValidator.prepareForTransport(message),
-              let (outbound, _) = Self.encode(message) else {
+        guard connectionAdmission.withLock({ $0 }) else {
+            return .backpressured
+        }
+        let acknowledgementMessage = ShareHostMessage.ack(nonce: nonce)
+        let replayMessage = ShareHostMessage.hello(
+            shared: shared,
+            layouts: layouts
+        )
+        guard let acknowledgementMessage =
+                outboundValidator.prepareForTransport(acknowledgementMessage),
+              let replayMessage =
+                outboundValidator.prepareForTransport(replayMessage),
+              let (acknowledgementOutbound, _) =
+                Self.encode(acknowledgementMessage),
+              let (replayOutbound, _) = Self.encode(replayMessage) else {
             shareSocketLogger.error("Dropping an invalid share resync hello")
             return .invalid
         }
-        return admit(outbound, priority: .control)
-            ? .admitted
-            : .backpressured
+        let acknowledgement = PendingOutbound(
+            outbound: acknowledgementOutbound,
+            completion: nil
+        )
+        let replay = PendingOutbound(
+            outbound: replayOutbound,
+            completion: nil
+        )
+        guard outboundMailbox.admitAcknowledgementAndReplayAndRelease(
+            acknowledgement: acknowledgement,
+            acknowledgementByteCount: acknowledgementOutbound.byteCount,
+            replay: replay,
+            replayByteCount: replayOutbound.byteCount
+        ) else {
+            shareSocketLogger.warning(
+                "Rejecting an outbound resync replay at the bounded mailbox"
+            )
+            return .backpressured
+        }
+        outboundWakeContinuation.yield(())
+        return .admitted
     }
 
     @discardableResult
     nonisolated func send(data: Data) -> SendResult {
+        guard connectionAdmission.withLock({ $0 }) else {
+            return .backpressured
+        }
         guard data.count < ShareProtocolConstants.binaryFrameByteLimit,
               ShareBinaryFrame.decode(data) != nil else {
             shareSocketLogger.warning(
@@ -266,6 +310,23 @@ actor ShareSocket {
             return
         }
         await lifecycle.sessionSynchronized()
+    }
+
+    /// Drops queued work and forces a fresh connection after critical
+    /// flow-control work cannot enter the bounded mailbox.
+    func reconnectAfterOutboundBackpressure() -> Bool {
+        setConnectionAdmission(false)
+        let discarded = outboundMailbox.discardAll()
+        resumeDiscarded(discarded)
+        guard !isStopped, let webSocketTask else {
+            return false
+        }
+        shareSocketLogger.error(
+            "Reconnecting after critical outbound share backpressure"
+        )
+        sendTask?.cancel()
+        webSocketTask.cancel(with: .goingAway, reason: nil)
+        return true
     }
 
     /// Blocks ordinary outbound work behind the marker paired with an
@@ -429,6 +490,7 @@ actor ShareSocket {
             let connection = nextConnectionGeneration
             nextConnectionGeneration &+= 1
             activeConnectionGeneration = connection
+            setConnectionAdmission(true)
             guard enqueueEvent(.connectionStateChanged(true)),
                   enqueueEvent(.opened(connection: connection)) else {
                 shareSocketLogger.error(
@@ -447,6 +509,7 @@ actor ShareSocket {
                 socketTask,
                 connection: connection
             )
+            setConnectionAdmission(false)
             enqueueEvent(.connectionStateChanged(false))
             closeCurrentConnection(session: session, task: socketTask)
             guard !isStopped else { return }
@@ -536,6 +599,7 @@ actor ShareSocket {
         task: URLSessionWebSocketTask
     ) {
         if webSocketTask === task {
+            setConnectionAdmission(false)
             sendTask?.cancel()
             webSocketTask = nil
             connectionNeedsHandshake = false
@@ -557,6 +621,7 @@ actor ShareSocket {
     }
 
     private func emitPermanentStop() {
+        setConnectionAdmission(false)
         enqueueEvent(.connectionStateChanged(false))
         enqueueEvent(.stopped)
         eventContinuation.finish()
@@ -614,6 +679,7 @@ actor ShareSocket {
     }
 
     deinit {
+        setConnectionAdmission(false)
         runTask?.cancel()
         outboundWakeContinuation.finish()
         outboundWakeTask?.cancel()
@@ -622,5 +688,9 @@ actor ShareSocket {
         urlSession?.invalidateAndCancel()
         resumeDiscarded(outboundMailbox.stop())
         eventContinuation.finish()
+    }
+
+    private nonisolated func setConnectionAdmission(_ accepting: Bool) {
+        connectionAdmission.withLock { $0 = accepting }
     }
 }

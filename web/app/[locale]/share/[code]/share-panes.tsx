@@ -21,17 +21,54 @@ import { keyEventToBytes } from "./terminal-keys";
 export interface PaneRectRegistry {
   register(paneKey: string, el: HTMLElement | null): void;
   get(paneKey: string): HTMLElement | null;
+  subscribe(listener: () => void): () => void;
+  getRevision(): number;
 }
 
-export function createPaneRectRegistry(): PaneRectRegistry {
+interface PaneResizeObserver {
+  observe(element: HTMLElement): void;
+  unobserve(element: HTMLElement): void;
+  disconnect(): void;
+}
+
+type PaneResizeObserverFactory = (
+  listener: () => void,
+) => PaneResizeObserver;
+
+export function createPaneRectRegistry(
+  createResizeObserver: PaneResizeObserverFactory = (listener) =>
+    new ResizeObserver(listener),
+): PaneRectRegistry {
   const panes = new Map<string, HTMLElement>();
+  const listeners = new Set<() => void>();
+  let revision = 0;
+  const publish = (): void => {
+    revision += 1;
+    for (const listener of listeners) listener();
+  };
+  const resizeObserver = createResizeObserver(publish);
   return {
     register(paneKey, el) {
-      if (el) panes.set(paneKey, el);
-      else panes.delete(paneKey);
+      const previous = panes.get(paneKey) ?? null;
+      if (previous === el) return;
+      if (previous) resizeObserver.unobserve(previous);
+      if (el) {
+        panes.set(paneKey, el);
+        resizeObserver.observe(el);
+      } else {
+        panes.delete(paneKey);
+      }
+      publish();
     },
     get(paneKey) {
       return panes.get(paneKey) ?? null;
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    getRevision() {
+      return revision;
     },
   };
 }

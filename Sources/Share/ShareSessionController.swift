@@ -605,23 +605,41 @@ final class ShareSessionController {
             }
             if shouldTeardownAfterAcknowledgement {
                 teardownSession(finalMessage: .ack(nonce: acknowledgedNonce))
-            } else {
-                let didAdmitAcknowledgement =
-                    socket?.send(.ack(nonce: acknowledgedNonce)) == .admitted
-                if !didAdmitAcknowledgement {
+            } else if let pendingResyncHello,
+                      case .hello(let shared, let layouts) = pendingResyncHello {
+                switch socket?.sendAcknowledgementAndResyncHello(
+                    nonce: acknowledgedNonce,
+                    shared: shared,
+                    layouts: layouts
+                ) ?? .backpressured {
+                case .admitted:
+                    lastSentFocusWs = nil
+                    sendFocusIfChanged()
+                    streamer.resendFullFrames()
+                case .invalid:
                     socket?.discardAcknowledgementBarrier()
+                    self.pendingResyncHello = nil
+                    failInvalidShareLayout()
+                    return
+                case .backpressured:
+                    self.pendingResyncHello = nil
+                    await reconnectAfterCriticalOutboundBackpressure()
+                    return
                 }
-                if didAdmitAcknowledgement,
-                   let pendingResyncHello,
-                   case .hello(let shared, let layouts) = pendingResyncHello {
-                    if socket?.sendResyncHello(
-                        shared: shared,
-                        layouts: layouts
-                    ) == .admitted {
-                        lastSentFocusWs = nil
-                        sendFocusIfChanged()
-                        streamer.resendFullFrames()
-                    }
+            } else {
+                switch socket?.send(.ack(nonce: acknowledgedNonce))
+                    ?? .backpressured {
+                case .admitted:
+                    break
+                case .invalid:
+                    socket?.discardAcknowledgementBarrier()
+                    self.pendingResyncHello = nil
+                    teardownSession()
+                    return
+                case .backpressured:
+                    self.pendingResyncHello = nil
+                    await reconnectAfterCriticalOutboundBackpressure()
+                    return
                 }
             }
             pendingResyncHello = nil
@@ -653,6 +671,17 @@ final class ShareSessionController {
             socket?.discardAcknowledgementBarrier()
             shouldTeardownAfterAcknowledgement = false
             pendingResyncHello = nil
+        }
+    }
+
+    private func reconnectAfterCriticalOutboundBackpressure() async {
+        socket?.discardAcknowledgementBarrier()
+        activeSocketConnection = nil
+        status = .reconnecting
+        guard let socket,
+              await socket.reconnectAfterOutboundBackpressure() else {
+            teardownSession()
+            return
         }
     }
 

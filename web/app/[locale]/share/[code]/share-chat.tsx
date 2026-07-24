@@ -16,9 +16,10 @@ import {
 export function submitChatDraft(
   draft: string,
   send: (text: string) => boolean,
-): string {
-  if (!draft.trim()) return draft;
-  return send(draft) ? "" : draft;
+  setDraft: (draft: string) => void,
+): void {
+  if (!draft.trim()) return;
+  if (send(draft)) setDraft("");
 }
 
 export function ChatPanel({
@@ -70,7 +71,7 @@ export function ChatPanel({
   }
 
   const submit = (): void => {
-    setDraft((current) => submitChatDraft(current, onSend));
+    submitChatDraft(draft, onSend, setDraft);
   };
 
   return (

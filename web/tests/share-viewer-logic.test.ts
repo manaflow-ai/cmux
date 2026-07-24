@@ -227,11 +227,11 @@ describe("chat draft admission", () => {
 
 describe("terminal-only split renderer", () => {
   test("publishes pane registration and inner resize geometry changes", () => {
-    let resize: (() => void) | null = null;
+    const resizeCallbacks: Array<() => void> = [];
     const observed: HTMLElement[] = [];
     const unobserved: HTMLElement[] = [];
     const registry = createPaneRectRegistry((onResize) => {
-      resize = onResize;
+      resizeCallbacks.push(onResize);
       return {
         observe(element) {
           observed.push(element);
@@ -253,7 +253,7 @@ describe("terminal-only split renderer", () => {
     expect(notifications).toBe(1);
     expect(observed).toEqual([pane]);
 
-    resize?.();
+    resizeCallbacks[0]?.();
     expect(registry.getRevision()).toBe(2);
     expect(notifications).toBe(2);
 
