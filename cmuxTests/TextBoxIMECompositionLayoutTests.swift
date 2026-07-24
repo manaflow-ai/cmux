@@ -8,27 +8,34 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite("TextBox IME composition layout", .serialized)
+@Suite("TextBox IME composition layout")
 struct TextBoxIMECompositionLayoutTests {
     @Test("printable Option shortcuts defer to active IME composition")
     @MainActor
     func printableOptionShortcutDefersDuringMarkedText() throws {
         let action = KeyboardShortcutSettings.Action.focusTextBoxInput
         let defaults = UserDefaults.standard
-        let originalPersistedShortcut = defaults.object(forKey: action.defaultsKey)
+        let originalPersistedShortcut = defaults.data(forKey: action.defaultsKey).flatMap {
+            try? JSONDecoder().decode(StoredShortcut.self, from: $0)
+        }
         let originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
             prefix: "cmux-text-box-ime-shortcut"
         )
         defer {
             if let originalPersistedShortcut {
-                defaults.set(originalPersistedShortcut, forKey: action.defaultsKey)
+                KeyboardShortcutSettings.setShortcut(originalPersistedShortcut, for: action)
             } else {
-                defaults.removeObject(forKey: action.defaultsKey)
+                KeyboardShortcutSettings.resetShortcut(for: action)
             }
             KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
         }
 
         let textView = makeTextView()
+        defer {
+            textView.unmarkText()
+            textView.onMarkedTextStateChanged = { _ in }
+            textView.onToggleFocus = {}
+        }
         var toggleFocusCount = 0
         textView.onToggleFocus = {
             toggleFocusCount += 1
