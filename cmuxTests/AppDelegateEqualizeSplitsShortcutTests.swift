@@ -189,6 +189,13 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                 return
             }
 
+            let windowDock = appDelegate.windowDock(forWindowId: windowId)
+            let dockPanel = TerminalPanel(
+                workspaceId: windowDock.workspaceId,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            windowDock.panels[dockPanel.id] = dockPanel
+
             window.makeKeyAndOrderFront(nil)
             window.displayIfNeeded()
             let configuredRuntimePoints = Float32(
@@ -199,6 +206,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             let beforeLineages = [
                 firstPanel.surface.fontSizeLineageSnapshot(),
                 secondPanel.surface.fontSizeLineageSnapshot(),
+                dockPanel.surface.fontSizeLineageSnapshot(),
             ]
 
 #if DEBUG
@@ -208,7 +216,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             return
 #endif
 
-            let surfaces = [firstPanel.surface, secondPanel.surface]
+            let surfaces = [firstPanel.surface, secondPanel.surface, dockPanel.surface]
             for (surface, beforeLineage) in zip(surfaces, beforeLineages) {
                 guard let afterLineage = surface.fontSizeLineageSnapshot() else {
                     XCTFail("Expected adjusted font-size lineage")
@@ -229,6 +237,112 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                 )
                 XCTAssertEqual(afterRuntimePoints, expectedRuntimePoints, accuracy: 0.001)
                 XCTAssertTrue(afterLineage.isExplicitOverride)
+            }
+        }
+    }
+
+    func testPersistedLegacyEqualizeShortcutWinsOverNewFontSizeDefault() {
+        withIsolatedShortcutFileStore {
+            withDefaultShortcutFallback(action: .increaseWorkspaceTerminalFontSize) {
+                withTemporaryShortcut(
+                    action: .equalizeSplits,
+                    shortcut: StoredShortcut(
+                        key: "=",
+                        command: true,
+                        shift: false,
+                        option: false,
+                        control: true
+                    )
+                ) {
+                    guard let appDelegate = AppDelegate.shared else {
+                        XCTFail("Expected AppDelegate.shared")
+                        return
+                    }
+
+                    let windowId = appDelegate.createMainWindow()
+                    defer { closeWindow(withId: windowId) }
+
+                    guard let window = window(withId: windowId),
+                          let manager = appDelegate.tabManagerFor(windowId: windowId),
+                          let workspace = manager.selectedWorkspace,
+                          let firstPanelId = workspace.focusedPanelId,
+                          let firstPanel = workspace.terminalPanel(for: firstPanelId),
+                          let secondPanel = workspace.newTerminalSplit(
+                            from: firstPanelId,
+                            orientation: .horizontal
+                          ),
+                          let split = shortcutRoutingSplitNodes(
+                            in: workspace.bonsplitController.treeSnapshot()
+                          ).first,
+                          let splitId = UUID(uuidString: split.id),
+                          let event = makeKeyDownEvent(
+                            key: "=",
+                            modifiers: [.command, .control],
+                            keyCode: 24,
+                            windowNumber: window.windowNumber
+                          ) else {
+                        XCTFail("Expected a split and legacy Cmd+Ctrl+= event")
+                        return
+                    }
+
+                    XCTAssertNil(firstPanel.surface.fontSizeLineageSnapshot())
+                    XCTAssertNil(secondPanel.surface.fontSizeLineageSnapshot())
+                    XCTAssertTrue(
+                        workspace.bonsplitController.setDividerPosition(0.2, forSplit: splitId)
+                    )
+
+                    window.makeKeyAndOrderFront(nil)
+#if DEBUG
+                    XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+                    XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+                    return
+#endif
+                    RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.35))
+
+                    guard let updatedSplit = shortcutRoutingSplitNodes(
+                        in: workspace.bonsplitController.treeSnapshot()
+                    ).first(where: { $0.id == split.id }) else {
+                        XCTFail("Expected split to remain present")
+                        return
+                    }
+                    XCTAssertEqual(updatedSplit.dividerPosition, 0.5, accuracy: 0.000_1)
+                    XCTAssertNil(firstPanel.surface.fontSizeLineageSnapshot())
+                    XCTAssertNil(secondPanel.surface.fontSizeLineageSnapshot())
+                }
+            }
+        }
+    }
+
+    func testWorkspaceFontSizeDefaultsAreNotSuppressedAfterRebinding() {
+        withIsolatedShortcutFileStore {
+            let cases: [
+                (
+                    action: KeyboardShortcutSettings.Action,
+                    key: String,
+                    keyCode: UInt16
+                )
+            ] = [
+                (.increaseWorkspaceTerminalFontSize, "=", 24),
+                (.decreaseWorkspaceTerminalFontSize, "-", 27),
+            ]
+
+            for testCase in cases {
+                guard let event = makeKeyDownEvent(
+                    key: testCase.key,
+                    modifiers: [.command, .control],
+                    keyCode: testCase.keyCode,
+                    windowNumber: 0
+                ) else {
+                    XCTFail("Expected workspace font-size shortcut event")
+                    continue
+                }
+                withTemporaryShortcut(action: testCase.action, shortcut: .unbound) {
+                    XCTAssertFalse(
+                        AppDelegate.shared?.shouldSuppressStaleCmuxMenuShortcut(event: event) ?? true,
+                        "\(testCase.action.rawValue) is routed without an NSMenu item"
+                    )
+                }
             }
         }
     }
@@ -348,6 +462,39 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             }
         }
         KeyboardShortcutSettings.setShortcut(shortcut ?? action.defaultShortcut, for: action)
+        body()
+    }
+
+    private func withDefaultShortcutFallback(
+        action: KeyboardShortcutSettings.Action,
+        _ body: () -> Void
+    ) {
+        let defaults = UserDefaults.standard
+        let originalValue = defaults.object(forKey: action.defaultsKey)
+        defaults.removeObject(forKey: action.defaultsKey)
+        defer {
+            if let originalValue {
+                defaults.set(originalValue, forKey: action.defaultsKey)
+            } else {
+                defaults.removeObject(forKey: action.defaultsKey)
+            }
+        }
+        body()
+    }
+
+    private func withIsolatedShortcutFileStore(_ body: () -> Void) {
+        let originalStore = KeyboardShortcutSettings.settingsFileStore
+        let settingsFileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-font-zoom-\(UUID().uuidString).json")
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        defer {
+            KeyboardShortcutSettings.settingsFileStore = originalStore
+            try? FileManager.default.removeItem(at: settingsFileURL)
+        }
         body()
     }
 

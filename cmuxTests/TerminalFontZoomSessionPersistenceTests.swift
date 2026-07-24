@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxRemoteSession
 import CmuxSettings
 import CmuxTerminalCore
 @testable import CmuxTerminal
@@ -230,6 +231,78 @@ struct TerminalFontZoomSessionPersistenceTests {
         )
         #expect(
             inheritedPanel.surface.fontSizeLineageSnapshot()
+                == TerminalFontSizeLineage(basePoints: 7, isExplicitOverride: true)
+        )
+    }
+
+    @Test("workspace font-size adjustment reaches remote tmux mirrors and seeds new panes")
+    func workspaceFontSizeAdjustmentIncludesRemoteTmuxMirrors() throws {
+        let workspace = Workspace()
+        let outerPanelID = try #require(workspace.focusedPanelId)
+        let outerPanel = try #require(workspace.panels[outerPanelID] as? TerminalPanel)
+        outerPanel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(basePoints: 8, isExplicitOverride: true)
+        )
+        workspace.rememberTerminalConfigInheritanceSource(outerPanel)
+
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"),
+            sessionName: "work"
+        )
+        let initialLayout = RemoteTmuxLayoutNode(
+            width: 80,
+            height: 24,
+            x: 0,
+            y: 0,
+            content: .horizontal([
+                RemoteTmuxLayoutNode(width: 40, height: 24, x: 0, y: 0, content: .pane(11)),
+                RemoteTmuxLayoutNode(width: 39, height: 24, x: 41, y: 0, content: .pane(22)),
+            ])
+        )
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 1,
+            panelId: outerPanelID,
+            connection: connection,
+            layout: initialLayout,
+            makePanel: { _ in workspace.makeRemoteTmuxPanePanel(onInput: { _ in }) }
+        )
+        workspace.setRemoteTmuxWindowMirror(mirror, forPanelId: outerPanelID)
+        defer {
+            workspace.setRemoteTmuxWindowMirror(nil, forPanelId: outerPanelID)
+            mirror.teardown()
+            workspace.teardownAllPanels()
+        }
+
+        let firstMirrorPanel = try #require(mirror.panel(forPane: 11))
+        let secondMirrorPanel = try #require(mirror.panel(forPane: 22))
+        firstMirrorPanel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(basePoints: 6, isExplicitOverride: true)
+        )
+        secondMirrorPanel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(basePoints: 4, isExplicitOverride: true)
+        )
+
+        #expect(workspace.adjustTerminalFontSizes(byRuntimePoints: -1) == 3)
+        #expect(outerPanel.surface.fontSizeLineageSnapshot()?.basePoints == 7)
+        #expect(firstMirrorPanel.surface.fontSizeLineageSnapshot()?.basePoints == 5)
+        #expect(secondMirrorPanel.surface.fontSizeLineageSnapshot()?.basePoints == 3)
+
+        mirror.reconcile(
+            layout: RemoteTmuxLayoutNode(
+                width: 80,
+                height: 24,
+                x: 0,
+                y: 0,
+                content: .horizontal([
+                    RemoteTmuxLayoutNode(width: 26, height: 24, x: 0, y: 0, content: .pane(11)),
+                    RemoteTmuxLayoutNode(width: 26, height: 24, x: 27, y: 0, content: .pane(22)),
+                    RemoteTmuxLayoutNode(width: 26, height: 24, x: 54, y: 0, content: .pane(33)),
+                ])
+            )
+        )
+        let newMirrorPanel = try #require(mirror.panel(forPane: 33))
+        #expect(
+            newMirrorPanel.surface.fontSizeLineageSnapshot()
                 == TerminalFontSizeLineage(basePoints: 7, isExplicitOverride: true)
         )
     }
