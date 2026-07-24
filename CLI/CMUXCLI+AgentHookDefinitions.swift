@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
@@ -437,8 +438,9 @@ extension CMUXCLI {
         guard let hooksDirectory = codexHookScriptsDirectory() else { return false }
         let url = URL(fileURLWithPath: command, isDirectory: false)
         let name = url.lastPathComponent
-        return name.hasPrefix("cmux-codex-hook-")
-            && name.hasSuffix(".sh")
+        let isGeneratedName = CodexHookScriptName(filename: name) != nil
+            || (name.hasPrefix("cmux-codex-hook-") && name.hasSuffix(".sh"))
+        return isGeneratedName
             && url.deletingLastPathComponent().standardizedFileURL
                 == hooksDirectory.standardizedFileURL
     }

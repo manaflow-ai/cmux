@@ -239,15 +239,14 @@ private let codexWrapperInjectedHookEvents: [String: (cmuxSubcommand: String, ti
 
 private func isCmuxCodexHookCommand(_ command: String, subcommand: String) -> Bool {
     let normalized = command.replacingOccurrences(of: "\\", with: "/")
+    let scriptFilename = cmuxCodexHookScriptFilename(from: normalized)
     let subcommands = [subcommand] + (codexWrapperInjectedHookSubcommandAliases[subcommand] ?? [])
     for candidate in subcommands {
-        if normalized.contains("/.cmux/hooks/cmux-codex-hook-\(candidate).sh") {
+        if scriptFilename == "cmux-codex-hook-\(candidate).sh" {
             return true
         }
-        if isContentAddressedCmuxCodexHookScript(
-            normalizedCommand: normalized,
-            subcommand: candidate
-        ) {
+        if let scriptFilename,
+           CodexHookScriptName(filename: scriptFilename)?.subcommand == candidate {
             return true
         }
         if command.contains("cmux-codex-hook") && command.contains("hooks codex \(candidate)") {
@@ -257,20 +256,21 @@ private func isCmuxCodexHookCommand(_ command: String, subcommand: String) -> Bo
     return false
 }
 
-private func isContentAddressedCmuxCodexHookScript(
-    normalizedCommand: String,
-    subcommand: String
-) -> Bool {
-    let prefix = "/.cmux/hooks/cmux-codex-hook-"
-    let suffix = "-\(subcommand).sh"
-    guard let prefixRange = normalizedCommand.range(of: prefix) else { return false }
-    let tail = normalizedCommand[prefixRange.upperBound...]
-    guard tail.hasSuffix(suffix) else { return false }
-    let contentID = tail.dropLast(suffix.count)
-    return contentID.count == 16
-        && contentID.utf8.allSatisfy { byte in
-            (48...57).contains(byte) || (97...102).contains(byte)
-        }
+private func cmuxCodexHookScriptFilename(from normalizedCommand: String) -> String? {
+    guard normalizedCommand.hasPrefix("/"),
+          normalizedCommand.rangeOfCharacter(from: .whitespacesAndNewlines) == nil
+    else {
+        return nil
+    }
+
+    let url = URL(fileURLWithPath: normalizedCommand, isDirectory: false).standardizedFileURL
+    let directoryComponents = url.deletingLastPathComponent().pathComponents
+    guard directoryComponents.count >= 2,
+          Array(directoryComponents.suffix(2)) == [".cmux", "hooks"]
+    else {
+        return nil
+    }
+    return url.lastPathComponent
 }
 
 private let codexWrapperInjectedHookSubcommandAliases: [String: [String]] = [

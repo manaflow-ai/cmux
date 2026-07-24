@@ -1,4 +1,4 @@
-import CryptoKit
+import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
@@ -101,20 +101,12 @@ extension CMUXCLI {
     /// directly rather than through a shell. Content is identical across
     /// invocations, so the file is only rewritten when missing or changed.
     static func writeCodexHookScript(subcommand: String, body: String, in dir: URL) -> String? {
-        let safeName = subcommand.replacingOccurrences(
-            of: "[^A-Za-z0-9_-]", with: "-", options: .regularExpression
-        )
         let contents = "#!/bin/sh\n\(body)\n"
-        let contentID = SHA256.hash(data: Data(contents.utf8))
-            .prefix(8)
-            .reduce(into: "") { result, byte in
-                if byte < 16 { result.append("0") }
-                result.append(String(byte, radix: 16))
-            }
+        let scriptName = CodexHookScriptName(contents: contents, subcommand: subcommand)
         // Keep generated scripts immutable. Older cmux processes may still write
         // the legacy path while newer Codex sessions reference this content ID.
         let url = dir.appendingPathComponent(
-            "cmux-codex-hook-\(contentID)-\(safeName).sh",
+            scriptName.filename,
             isDirectory: false
         )
         let fileManager = FileManager.default
