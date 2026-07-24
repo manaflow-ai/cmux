@@ -5622,6 +5622,29 @@ mod tests {
     }
 
     #[test]
+    fn client_sizing_command_reports_unknown_surface_before_client_errors() {
+        let mux = test_mux();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let missing_surface = 999_999;
+
+        let error = handle_command(
+            &mux,
+            client,
+            Command::SetClientSizing {
+                surface: missing_surface,
+                client: Some(client),
+                enabled: false,
+                exclusive: false,
+            },
+            &writer,
+        )
+        .unwrap_err();
+
+        assert_eq!(error.to_string(), format!("unknown surface {missing_surface}"));
+    }
+
+    #[test]
     fn client_sizing_command_only_changes_requested_surface() {
         let mux = test_mux();
         let current = mux.new_workspace(None, Some((120, 40))).unwrap();
