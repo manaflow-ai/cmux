@@ -2926,6 +2926,20 @@ mod tests {
     }
 
     #[test]
+    fn vt_replay_preserves_sparse_viewport_rows_without_scrolling_them_into_history() {
+        let mut source = Terminal::new(80, 24, 100, Callbacks::default()).unwrap();
+        source.vt_write(b"READY\r\n");
+        let expected = source.viewport_text().unwrap();
+        assert!(expected.contains("READY"));
+
+        let replay = source.vt_replay_bytes().unwrap();
+        let mut target = Terminal::new(80, 24, 100, Callbacks::default()).unwrap();
+        target.vt_write(&replay);
+
+        assert_eq!(target.viewport_text().unwrap(), expected);
+    }
+
+    #[test]
     fn theme_portable_replay_retains_aliases_for_admitted_kitty_images() {
         let mut source = Terminal::new(20, 4, 100, Callbacks::default()).unwrap();
         source.vt_write(b"\x1b_Ga=T,t=d,f=24,I=77,p=0,s=1,v=1,c=1,r=1,q=2;/wAA\x1b\\");
