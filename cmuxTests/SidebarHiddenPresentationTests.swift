@@ -37,6 +37,36 @@ struct SidebarHiddenPresentationTests {
     }
 
     @Test
+    func staleFocusHostTeardownDoesNotReplaceCurrentBoundary() throws {
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 180))
+        let firstHost = FocusProbeView(frame: root.bounds)
+        root.addSubview(firstHost)
+        let window = NSWindow(
+            contentRect: root.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = root
+        defer { window.close() }
+
+        let reference = SidebarFocusBoundaryReference()
+        reference.attach(firstHost)
+        firstHost.removeFromSuperview()
+        let replacementHost = FocusProbeView(frame: root.bounds)
+        root.addSubview(replacementHost)
+        reference.attach(replacementHost)
+        reference.attach(firstHost)
+
+        #expect(window.makeFirstResponder(replacementHost))
+        let firstResponder = try #require(window.firstResponder)
+        #expect(
+            reference.contains(firstResponder, in: window),
+            "Teardown from an older host must not overwrite its mounted replacement."
+        )
+    }
+
+    @Test
     func controllerHideReleasesLiveRowPayloadWithoutDiscardingRowIdentity() async {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()

@@ -265,6 +265,39 @@ struct SidebarWorkspaceTableSuspensionTests {
     }
 
     @Test
+    func transientWindowReparentingKeepsGroupHeaderActionsAttached() {
+        let cell = SidebarGroupHeaderTableCellView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 44)
+        )
+        var collapseToggles = 0
+        cell.configure(
+            model: makeGroupHeaderModel(),
+            actions: makeGroupHeaderActions { collapseToggles += 1 },
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+        let firstRoot = NSView(frame: cell.frame)
+        firstRoot.addSubview(cell)
+        let window = NSWindow(
+            contentRect: firstRoot.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = firstRoot
+        defer { window.close() }
+
+        let replacementRoot = NSView(frame: firstRoot.frame)
+        window.contentView = replacementRoot
+        replacementRoot.addSubview(firstRoot)
+
+        let chevron = Self.descendants(of: cell).compactMap { $0 as? SidebarHeaderGlyphButton }.first
+        chevron?.performClick(nil)
+        #expect(collapseToggles == 1, "A transient reparent must not detach group-header actions.")
+    }
+
+    @Test
     func mutationSchedulerCancelsHiddenWorkAndFlushesRevealOnce() async {
         var appliedInputs = 0
         var viewportFlushes = 0
@@ -346,6 +379,30 @@ struct SidebarWorkspaceTableSuspensionTests {
         ) { _, _ in
             AnyView(TestRowContent(token: contentToken))
         }
+    }
+
+    private func makeGroupHeaderModel() -> SidebarGroupHeaderRowModel {
+        SidebarGroupHeaderRowModel(
+            groupId: UUID(), anchorWorkspaceId: UUID(), name: "Group", iconSymbol: "folder",
+            tintHex: nil, isCollapsed: false, isPinned: false, isAnchorActive: false,
+            memberCount: 1, anchorUnreadCount: 0, canMarkRead: false, canMarkUnread: true,
+            hasLatestNotifications: false, canMarkAllRead: false, canMarkAllUnread: true,
+            shortcutHintText: nil, shortcutHintXOffset: 0, shortcutHintYOffset: 0,
+            fontScale: 1, globalFontMagnificationPercent: 100, cwdContextMenuItems: [],
+            rowSpacing: 2, isFirstRow: true, isBeingDragged: false,
+            topDropIndicatorVisible: false, bottomDropIndicatorVisible: false
+        )
+    }
+
+    private func makeGroupHeaderActions(
+        onToggleCollapsed: @escaping () -> Void
+    ) -> SidebarGroupHeaderRowActions {
+        SidebarGroupHeaderRowActions(
+            onToggleCollapsed: onToggleCollapsed, onFocusAnchor: {}, onTapPlus: {},
+            onRunResolvedItem: { _ in }, onRename: {}, onTogglePinned: {}, onMarkRead: {},
+            onMarkUnread: {}, onClearLatestNotifications: {}, onMarkAllRead: {},
+            onMarkAllUnread: {}, onUngroup: {}, onDelete: {}, onEditConfig: {}, onOpenDocs: {}
+        )
     }
 
     private func makeTableActions(
