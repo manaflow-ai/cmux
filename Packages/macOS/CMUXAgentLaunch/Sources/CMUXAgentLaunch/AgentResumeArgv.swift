@@ -65,6 +65,69 @@ private func codexCommandExecutableIndex(_ parts: [String]) -> Int? {
     return nil
 }
 
+/// Whether an `env` prefix changes how its bare utility name is resolved.
+///
+/// Wrapper command substitution is evaluated by the outer shell before
+/// `/usr/bin/env` applies these options. Without a captured absolute Codex
+/// executable, routing such a command through the wrapper could therefore
+/// launch a different installation. Leave that command untouched and let
+/// `env` perform its original lookup.
+private func codexEnvironmentChangesExecutableLookup(
+    _ parts: [String],
+    executableIndex: Int
+) -> Bool {
+    guard executableIndex > 0 else { return false }
+
+    for index in 1..<executableIndex {
+        let part = parts[index]
+        if isEnvironmentAssignment(part),
+           let equals = part.firstIndex(of: "="),
+           part[..<equals] == "PATH" {
+            return true
+        }
+        switch part {
+        case "-i", "--ignore-environment", "-C", "-P", "--chdir":
+            return true
+        case "--unset":
+            if index + 1 < executableIndex, parts[index + 1] == "PATH" {
+                return true
+            }
+        case let option where option.hasPrefix("--chdir="):
+            return true
+        case "--unset=PATH":
+            return true
+        default:
+            break
+        }
+
+        guard part.hasPrefix("-"),
+              !part.hasPrefix("--"),
+              part != "-" else {
+            continue
+        }
+        let options = Array(part.dropFirst())
+        for (offset, option) in options.enumerated() {
+            switch option {
+            case "i", "C", "P":
+                return true
+            case "u":
+                let attachedValue = String(options.dropFirst(offset + 1))
+                if attachedValue == "PATH"
+                    || (
+                        attachedValue.isEmpty
+                            && index + 1 < executableIndex
+                            && parts[index + 1] == "PATH"
+                    ) {
+                    return true
+                }
+            default:
+                continue
+            }
+        }
+    }
+    return false
+}
+
 /// Number of argv elements consumed by a supported `env` long option.
 ///
 /// Unknown options and split-string fail closed because their values can
@@ -371,11 +434,12 @@ public struct AgentResumeArgv: Sendable, Equatable {
     /// Renders shell command `parts` to quoted tokens, substituting
     /// ``codexWrapperShellExecutableToken`` for the first Codex executable token.
     ///
-    /// A bare `codex` uses the wrapper token directly. An absolute executable
-    /// whose basename is `codex` is routed through the same token with
-    /// ``codexCustomExecutableEnvironmentKey`` set, preserving the exact captured
-    /// installation while restoring cmux's hook injection. Every other token is
-    /// quoted normally. Call only for the codex kind.
+    /// A bare `codex` uses the wrapper token directly unless an `env` prefix
+    /// changes executable lookup without providing a captured identity. An
+    /// absolute executable whose basename is `codex` is routed through the same
+    /// token with ``codexCustomExecutableEnvironmentKey`` set, preserving the
+    /// exact captured installation while restoring cmux's hook injection. Every
+    /// other token is quoted normally. Call only for the codex kind.
     /// https://github.com/manaflow-ai/cmux/issues/5639
     public static func renderingCodexWrapperExecutable(
         parts: [String],
@@ -385,6 +449,13 @@ public struct AgentResumeArgv: Sendable, Equatable {
             return parts.map(quote)
         }
         let executable = parts[executableIndex]
+        if executable == "codex",
+           codexEnvironmentChangesExecutableLookup(
+               parts,
+               executableIndex: executableIndex
+           ) {
+            return parts.map(quote)
+        }
         let routesThroughCodexWrapper = executable == "codex"
             || (
                 executable.hasPrefix("/")

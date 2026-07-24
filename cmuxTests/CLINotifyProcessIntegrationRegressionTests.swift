@@ -191,7 +191,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
-    func testCodexResumeTrustCoalescesConcurrentEffectiveConfigProbes() throws {
+    func testCodexResumeTrustCoalescesOnlyConcurrentEffectiveConfigProbes() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-trust-probe-cache-\(UUID().uuidString)", isDirectory: true)
@@ -299,15 +299,15 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             )
         }
 
-        let cachedResult = runProcess(
+        let laterResult = runProcess(
             executablePath: cliPath,
             arguments: ["hooks", "codex", "inject-resume-args"],
             environment: environment,
             timeout: 2
         )
-        XCTAssertFalse(cachedResult.timedOut, cachedResult.stderr)
-        XCTAssertEqual(cachedResult.status, 0, cachedResult.stderr)
-        XCTAssertTrue(cachedResult.stdout.contains("trust_level=\"untrusted\""))
+        XCTAssertFalse(laterResult.timedOut, laterResult.stderr)
+        XCTAssertEqual(laterResult.status, 0, laterResult.stderr)
+        XCTAssertTrue(laterResult.stdout.contains("trust_level=\"untrusted\""))
 
         let invocationCount = try String(contentsOf: invocationLog, encoding: .utf8)
             .split(separator: "\n")
@@ -315,8 +315,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             .count
         XCTAssertEqual(
             invocationCount,
-            2,
-            "Equivalent concurrent and cached restores should share one isolated probe and its one fallback."
+            4,
+            "Concurrent restores should share two app-server attempts, while a later restore must probe again for config changes."
         )
     }
 

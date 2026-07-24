@@ -18,11 +18,12 @@
 # would break the user's `codex`. Each helper handles its own failures and the
 # script always reaches an `exec "$REAL_CODEX"`.
 
-# Keep the user's original lookup path solely for resolving the Codex command
-# they asked to run. Every utility used by this unattended trust-boundary
-# wrapper resolves from macOS system paths, so a project-controlled PATH cannot
-# replace bash, dirname, base64, nohup, mktemp, or another helper before Codex's
-# project decision applies.
+# Keep the user's original lookup path for the launched Codex process and for
+# non-session passthrough commands. Session entrypoints resolve Codex only from
+# an explicit absolute override or established user/system install roots, so a
+# project-controlled PATH cannot select executable code before Codex's project
+# trust decision applies. Every wrapper utility resolves from macOS system
+# paths for the same reason.
 cmux_codex_lookup_path="${PATH:-}"
 PATH="/usr/bin:/bin:/usr/sbin:/sbin"
 export PATH
@@ -54,25 +55,75 @@ cmux_codex_wrapper_is_self_or_shim() {
     return 1
 }
 
-# Find the real codex binary, skipping this wrapper and cmux's shell shims.
+# Return success only for an executable Codex candidate that is neither this
+# wrapper nor one of cmux's per-surface shims.
+cmux_codex_candidate_is_real() {
+    local candidate="$1"
+    [[ -f "$candidate" && -x "$candidate" ]] || return 1
+    ! cmux_codex_wrapper_is_self_or_shim "$candidate"
+}
+
+# Find the real Codex binary. An explicit absolute captured path is
+# authoritative. Non-session passthrough commands may preserve normal PATH
+# lookup, but session entrypoints inside cmux use only stable installation roots
+# controlled by the user or system, never a project-supplied PATH entry.
 find_real_codex() {
     local custom="${CMUX_CUSTOM_CODEX_PATH:-}"
     custom="${custom#"${custom%%[![:space:]]*}"}"  # trim leading whitespace
     custom="${custom%"${custom##*[![:space:]]}"}"  # trim trailing whitespace
-    if [[ -n "$custom" && -f "$custom" && -x "$custom" ]]; then
-        if ! cmux_codex_wrapper_is_self_or_shim "$custom"; then
-            printf '%s' "$custom"
-            return 0
-        fi
+    if [[ "$custom" == /* ]] && cmux_codex_candidate_is_real "$custom"; then
+        printf '%s' "$custom"
+        return 0
     fi
+
     local self_dir
     self_dir="$(cd "$(dirname "$0")" && pwd)"
-    local IFS=:
-    for d in $cmux_codex_lookup_path; do
-        [[ "$d" == "$self_dir" ]] && continue
-        local candidate="$d/codex"
-        cmux_codex_wrapper_is_self_or_shim "$candidate" && continue
-        [[ -x "$candidate" ]] && printf '%s' "$candidate" && return 0
+
+    if [[ "${IN_CMUX:-0}" != "1" ]] || ! should_inject_codex_hooks "$@"; then
+        local IFS=:
+        local d candidate
+        for d in $cmux_codex_lookup_path; do
+            [[ "$d" == "$self_dir" ]] && continue
+            candidate="$d/codex"
+            if cmux_codex_candidate_is_real "$candidate"; then
+                printf '%s' "$candidate"
+                return 0
+            fi
+        done
+    fi
+
+    local candidates=()
+    if [[ "${HOME:-}" == /* ]]; then
+        candidates+=(
+            "$HOME/.local/bin/codex"
+            "$HOME/.bun/bin/codex"
+            "$HOME/.nvm/current/bin/codex"
+            "$HOME/.volta/bin/codex"
+            "$HOME/.fnm/current/bin/codex"
+            "$HOME/.local/share/mise/shims/codex"
+            "$HOME/.asdf/shims/codex"
+            "$HOME/bin/codex"
+        )
+        local versioned_candidate
+        for versioned_candidate in \
+            "$HOME"/.nvm/versions/node/*/bin/codex \
+            "$HOME"/Library/Application\ Support/fnm/node-versions/*/installation/bin/codex \
+            "$HOME"/.local/share/fnm/node-versions/*/installation/bin/codex; do
+            candidates+=("$versioned_candidate")
+        done
+    fi
+    candidates+=(
+        "/opt/homebrew/bin/codex"
+        "/usr/local/bin/codex"
+        "/usr/bin/codex"
+        "/bin/codex"
+    )
+    local candidate
+    for candidate in "${candidates[@]}"; do
+        if cmux_codex_candidate_is_real "$candidate"; then
+            printf '%s' "$candidate"
+            return 0
+        fi
     done
     return 1
 }
@@ -361,7 +412,10 @@ fi
 
 # Resolve real codex up front; if it cannot be found we error like a missing
 # binary would (same as the claude wrapper) rather than silently succeeding.
-REAL_CODEX="$(find_real_codex)" || { echo "Error: codex not found in PATH" >&2; exit 127; }
+REAL_CODEX="$(find_real_codex "$@")" || {
+    echo "Error: codex not found in a trusted install location; set CMUX_CUSTOM_CODEX_PATH to its absolute path" >&2
+    exit 127
+}
 
 exec_real_codex() {
     PATH="$cmux_codex_lookup_path"

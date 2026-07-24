@@ -428,13 +428,13 @@ struct AgentResumeArgvTests {
                 "'-i'",
                 "'--'",
                 "'PROFILE=dogfood'",
-                wrapper,
+                "'codex'",
                 "'resume'",
                 "'SID'",
             ]
         )
         #expect(
-            AgentResumeArgv.renderingCodexWrapperExecutable(
+            !AgentResumeArgv.renderingCodexWrapperExecutable(
                 parts: [
                     "env",
                     "-iv",
@@ -470,6 +470,19 @@ struct AgentResumeArgvTests {
                 quote: quote
             ).contains(wrapper),
             "A split-string can contain env's real utility, so a later token is ambiguous."
+        )
+        #expect(
+            AgentResumeArgv.renderingCodexWrapperExecutable(
+                parts: [
+                    "env",
+                    "PATH=/opt/company/bin",
+                    "/opt/company/bin/codex",
+                    "resume",
+                    "SID",
+                ],
+                quote: quote
+            ).contains("'CMUX_CUSTOM_CODEX_PATH=/opt/company/bin/codex'"),
+            "A captured absolute executable remains authoritative when env changes PATH."
         )
     }
 

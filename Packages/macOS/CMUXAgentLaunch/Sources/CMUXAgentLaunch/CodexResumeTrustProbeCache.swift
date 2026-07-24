@@ -2,13 +2,15 @@ import CryptoKit
 import Darwin
 import Foundation
 
-/// A short-lived, process-shared cache for Codex effective-config probes.
+/// A process-shared coalescer for concurrent Codex effective-config probes.
 ///
 /// Restoring several panes launches one wrapper process per pane. Equivalent
 /// wrappers use one of 256 stable lock shards so only one process runs the
 /// heavyweight app-server probe; waiters wake when the kernel lock is released
-/// and then read its atomic cache record. The cache stores fail-closed failures
-/// as well as successes to prevent fallback probes from fanning out.
+/// and then read its atomic handoff record. A process that acquires the lock
+/// without first observing contention always probes again, so explicit config
+/// changes are visible to the next invocation instead of being hidden by a
+/// time-based cache.
 public struct CodexResumeTrustProbeCache: Sendable {
     private static let cacheLifetime: TimeInterval = 5
     private static let maximumEntryCount = 64
@@ -23,10 +25,10 @@ public struct CodexResumeTrustProbeCache: Sendable {
         self.directory = directory
     }
 
-    /// Returns the cached or freshly probed project decision paths.
+    /// Returns coalesced or freshly probed project decision paths.
     ///
-    /// `nil` remains the fail-closed result. Key components must describe every
-    /// input that can change the effective Codex config for this probe.
+    /// `nil` remains the fail-closed result. Key components identify equivalent
+    /// probes that may run concurrently during one multi-pane restore.
     public func resolve(
         keyComponents: [String],
         probe: () -> Set<String>?
@@ -40,11 +42,6 @@ public struct CodexResumeTrustProbeCache: Sendable {
             "\(key).json",
             isDirectory: false
         )
-        let initialLookup = lookup(at: cacheURL, key: key, now: Date())
-        if initialLookup.found {
-            return initialLookup.value
-        }
-
         let shard = Int(key.prefix(2), radix: 16) ?? 0
         let lockURL = directory.appendingPathComponent(
             String(format: "lock-%03d-of-%03d", shard, Self.lockShardCount),
@@ -60,21 +57,38 @@ public struct CodexResumeTrustProbeCache: Sendable {
         }
         defer { Darwin.close(lockFD) }
 
-        while flock(lockFD, LOCK_EX) != 0 {
-            guard errno == EINTR else {
+        var nonblockingStatus: Int32
+        repeat {
+            nonblockingStatus = flock(lockFD, LOCK_EX | LOCK_NB)
+        } while nonblockingStatus != 0 && errno == EINTR
+
+        let observedContention: Bool
+        if nonblockingStatus == 0 {
+            observedContention = false
+        } else {
+            guard errno == EWOULDBLOCK else {
                 return probe()
             }
+            while flock(lockFD, LOCK_EX) != 0 {
+                guard errno == EINTR else {
+                    return probe()
+                }
+            }
+            observedContention = true
         }
         defer { _ = flock(lockFD, LOCK_UN) }
 
-        let lockedLookup = lookup(at: cacheURL, key: key, now: Date())
-        if lockedLookup.found {
-            return lockedLookup.value
+        if observedContention {
+            let lockedLookup = lookup(at: cacheURL, key: key, now: Date())
+            if lockedLookup.found {
+                return lockedLookup.value
+            }
         }
 
+        try? FileManager.default.removeItem(at: cacheURL)
         let result = probe()
-        write(result, key: key, to: cacheURL)
         prune(now: Date())
+        write(result, key: key, to: cacheURL)
         return result
     }
 
