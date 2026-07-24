@@ -1431,6 +1431,74 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn replay_window_pressure_backpressures_until_ack_instead_of_failing_bulk_send() {
+        let directory = tempdir().unwrap();
+        let limits = SessionLimits { replay_frames_per_lane: 1, ..SessionLimits::default() };
+        let auth =
+            AuthDatabase::load_or_create(directory.path(), "replay-backpressure", true).unwrap();
+        let (daemon, mut accepted) = RemoteDaemon::new(auth, limits);
+        let group = Arc::new(FaultGroup {
+            daemon,
+            epochs: Mutex::new(Vec::new()),
+            evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
+        });
+        let client = ClientConnection::connect(
+            group,
+            ClientConnectionConfig {
+                identity: StaticIdentity::generate().unwrap(),
+                expected_daemon: None,
+                auth: ClientAuthMode::Carrier,
+                device_name: "replay-backpressure-client".into(),
+                session: SessionId([93; 16]),
+                lane_policy: LanePolicy::Single,
+                limits,
+                reconnect: ReconnectPolicy::default(),
+            },
+        )
+        .await
+        .unwrap();
+        let server =
+            tokio::time::timeout(Duration::from_secs(2), accepted.recv()).await.unwrap().unwrap();
+
+        server
+            .send(Lane::Bulk, 9, Bytes::from_static(b"first"), FrameFlags::empty())
+            .await
+            .unwrap();
+        let first = client.receive().await.unwrap().unwrap();
+        assert_eq!(first.payload, b"first".as_slice());
+
+        let second = tokio::spawn({
+            let server = server.clone();
+            async move {
+                server.send(Lane::Bulk, 9, Bytes::from_static(b"second"), FrameFlags::empty()).await
+            }
+        });
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert!(
+            !second.is_finished(),
+            "a full replay window failed the bulk stream instead of applying backpressure"
+        );
+
+        client
+            .send(Lane::Bulk, 10, Bytes::from_static(b"ack carrier"), FrameFlags::empty())
+            .await
+            .unwrap();
+        let acknowledgement = server.receive().await.unwrap().unwrap();
+        assert_eq!(acknowledgement.payload, b"ack carrier".as_slice());
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(1), second)
+                .await
+                .expect("bulk send remained blocked after its replay entry was acknowledged")
+                .unwrap()
+                .unwrap(),
+            2
+        );
+        let delivered = client.receive().await.unwrap().unwrap();
+        assert_eq!(delivered.sequence, 2);
+        assert_eq!(delivered.payload, b"second".as_slice());
+    }
+
+    #[tokio::test]
     async fn snapshot_refreshes_a_live_provider_path_without_reconnect() {
         let directory = tempdir().unwrap();
         let auth = AuthDatabase::load_or_create(directory.path(), "path-change", true).unwrap();
