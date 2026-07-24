@@ -19,8 +19,9 @@ use crate::terminal_host::{
     HostHello, HostIncarnation, HostReady, TerminalId,
 };
 use crate::terminal_host_protocol::{
-    FLAG_COLORS_FOLLOW, FLAG_VIEWER_SIZE_ACKS, Frame, MAX_FRAME_PAYLOAD, MessageKind,
-    PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED, read_frame, write_frame,
+    CLEAR_HISTORY_ACK_FAILED, CLEAR_HISTORY_ACK_OK, FLAG_COLORS_FOLLOW, FLAG_VIEWER_SIZE_ACKS,
+    Frame, MAX_FRAME_PAYLOAD, MessageKind, PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED,
+    read_frame, write_frame,
 };
 
 const HOST_RECORD_VERSION: u32 = 2;
@@ -30,7 +31,7 @@ const MAX_BLOB: usize = 8 * 1024 * 1024;
 const MAX_ARGV: usize = 256;
 const MAX_ENV: usize = 1024;
 const MAX_RENDERER_CAPABILITY_TTL: std::time::Duration = std::time::Duration::from_secs(60);
-const CAPABILITY_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+const CONTROL_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 const HOST_HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 const MAX_HOST_CLIENT_QUEUED_BYTES: usize = 8 * 1024 * 1024;
 const HOST_START_NONCE_LEN: usize = 32;
@@ -537,15 +538,30 @@ mod unix {
         Ok(colors)
     }
 
-    pub(crate) struct CapabilityResponses {
-        waiters: Mutex<HashMap<u64, SyncSender<Vec<u8>>>>,
+    struct ControlResponseWaiter {
+        kind: MessageKind,
+        sender: SyncSender<Vec<u8>>,
     }
 
-    impl CapabilityResponses {
-        pub(crate) fn resolve(&self, frame: &Frame) {
-            if let Some(waiter) = self.waiters.lock().unwrap().remove(&frame.request_id) {
-                let _ = waiter.try_send(frame.payload.clone());
+    pub(crate) struct ControlResponses {
+        waiters: Mutex<HashMap<u64, ControlResponseWaiter>>,
+    }
+
+    impl ControlResponses {
+        pub(crate) fn resolve(&self, frame: &Frame) -> bool {
+            let mut waiters = self.waiters.lock().unwrap();
+            let Some(waiter) = waiters.remove(&frame.request_id) else {
+                return false;
+            };
+            if waiter.kind != frame.kind {
+                return false;
             }
+            let _ = waiter.sender.try_send(frame.payload.clone());
+            true
+        }
+
+        pub(crate) fn cancel_all(&self) {
+            self.waiters.lock().unwrap().clear();
         }
     }
 
@@ -555,7 +571,7 @@ mod unix {
         pub snapshot: HostSnapshot,
         reader: Option<UnixStream>,
         writer: Arc<Mutex<UnixStream>>,
-        capability_responses: Arc<CapabilityResponses>,
+        control_responses: Arc<ControlResponses>,
         next_request: AtomicU64,
         viewer_size: Mutex<Option<(u16, u16)>>,
         /// Exact process ownership retained only between a successful launch
@@ -608,7 +624,21 @@ mod unix {
                 return Ok(false);
             }
             let payload = crate::server::encode_terminal_host_clear_history(fallback_key)?;
-            self.send(MessageKind::ClearHistory, &payload)?;
+            let response = self.send_control_request(
+                MessageKind::ClearHistory,
+                MessageKind::ClearHistoryAck,
+                payload,
+            )?;
+            match response.as_slice() {
+                [CLEAR_HISTORY_ACK_OK] => {}
+                [CLEAR_HISTORY_ACK_FAILED] => {
+                    anyhow::bail!("terminal host failed to apply clear-history")
+                }
+                _ => {
+                    self.disconnect();
+                    anyhow::bail!("terminal host returned a malformed clear-history response")
+                }
+            }
             Ok(true)
         }
 
@@ -682,8 +712,52 @@ mod unix {
             (self.record.clone(), self.record_path.clone())
         }
 
-        pub(crate) fn capability_responses(&self) -> Arc<CapabilityResponses> {
-            self.capability_responses.clone()
+        pub(crate) fn control_responses(&self) -> Arc<ControlResponses> {
+            self.control_responses.clone()
+        }
+
+        fn send_control_request(
+            &self,
+            request_kind: MessageKind,
+            response_kind: MessageKind,
+            payload: Vec<u8>,
+        ) -> anyhow::Result<Vec<u8>> {
+            let request_id = self.next_request.fetch_add(1, Ordering::Relaxed);
+            if request_id == 0 {
+                anyhow::bail!("terminal host control request id exhausted");
+            }
+            let (sender, receiver) = sync_channel(1);
+            {
+                let mut waiters = self.control_responses.waiters.lock().unwrap();
+                if waiters.contains_key(&request_id) {
+                    anyhow::bail!("terminal host control request id collision");
+                }
+                waiters.insert(request_id, ControlResponseWaiter { kind: response_kind, sender });
+            }
+            let mut frame = Frame::new(request_kind, payload);
+            frame.request_id = request_id;
+            let write_result = {
+                let mut writer = self.writer.lock().unwrap();
+                let result = write_frame(&mut *writer, &frame).map_err(protocol_io_error);
+                if result.is_err() {
+                    let _ = writer.shutdown(std::net::Shutdown::Both);
+                }
+                result
+            };
+            if let Err(error) = write_result {
+                self.control_responses.waiters.lock().unwrap().remove(&request_id);
+                return Err(error.into());
+            }
+            match receiver.recv_timeout(CONTROL_RESPONSE_TIMEOUT) {
+                Ok(payload) => Ok(payload),
+                Err(error) => {
+                    self.control_responses.waiters.lock().unwrap().remove(&request_id);
+                    self.disconnect();
+                    Err(anyhow::anyhow!(
+                        "terminal host did not acknowledge {request_kind:?}: {error}"
+                    ))
+                }
+            }
         }
 
         pub fn mint_renderer_grant(&self, ttl: Duration) -> anyhow::Result<RendererGrant> {
@@ -692,33 +766,14 @@ mod unix {
             }
             let ttl_ms = u32::try_from(ttl.as_millis())
                 .map_err(|_| anyhow::anyhow!("renderer capability TTL is too large"))?;
-            let request_id = self.next_request.fetch_add(1, Ordering::Relaxed);
-            let (sender, receiver) = sync_channel(1);
-            self.capability_responses.waiters.lock().unwrap().insert(request_id, sender);
             let mut payload = Vec::with_capacity(8);
             payload.extend_from_slice(&CapabilityRights::RENDERER.bits().to_le_bytes());
             payload.extend_from_slice(&ttl_ms.to_le_bytes());
-            let mut frame = Frame::new(MessageKind::MintCapability, payload);
-            frame.request_id = request_id;
-            let write_result = {
-                let mut writer = self.writer.lock().unwrap();
-                write_frame(&mut *writer, &frame).map_err(protocol_io_error)
-            };
-            if let Err(error) = write_result {
-                let _ = self.writer.lock().unwrap().shutdown(std::net::Shutdown::Both);
-                self.capability_responses.waiters.lock().unwrap().remove(&request_id);
-                return Err(error.into());
-            }
-            let payload = match receiver.recv_timeout(CAPABILITY_RESPONSE_TIMEOUT) {
-                Ok(payload) => payload,
-                Err(error) => {
-                    self.capability_responses.waiters.lock().unwrap().remove(&request_id);
-                    return Err(anyhow::anyhow!(
-                        "terminal host did not mint renderer grant: {error}"
-                    ));
-                }
-            };
+            let payload = self
+                .send_control_request(MessageKind::MintCapability, MessageKind::Capability, payload)
+                .context("terminal host did not mint renderer grant")?;
             if payload.len() != crate::terminal_host::CAPABILITY_TOKEN_LEN {
+                self.disconnect();
                 anyhow::bail!("terminal host returned a malformed renderer capability");
             }
             Ok(RendererGrant {
@@ -1234,9 +1289,7 @@ mod unix {
             snapshot,
             reader: Some(reader),
             writer: Arc::new(Mutex::new(stream)),
-            capability_responses: Arc::new(CapabilityResponses {
-                waiters: Mutex::new(HashMap::new()),
-            }),
+            control_responses: Arc::new(ControlResponses { waiters: Mutex::new(HashMap::new()) }),
             next_request: AtomicU64::new(2),
             // New hosts do not register Admin as a viewer. Initialize this as
             // if they did so the unconditional release below also upgrades
@@ -2499,7 +2552,9 @@ mod unix {
                         command_host.set_default_colors(colors);
                     }
                     MessageKind::ClearHistory => {
-                        if !granted_rights.contains(CapabilityRights::INPUT) {
+                        if !granted_rights.contains(CapabilityRights::INPUT)
+                            || frame.request_id == 0
+                        {
                             break;
                         }
                         let Ok(fallback_key) =
@@ -2507,13 +2562,25 @@ mod unix {
                         else {
                             break;
                         };
-                        if command_host.clear_history_or_encode_key(fallback_key.as_ref()).is_err()
+                        let status = if command_host
+                            .clear_history_or_encode_key(fallback_key.as_ref())
+                            .is_ok()
                         {
+                            CLEAR_HISTORY_ACK_OK
+                        } else {
+                            CLEAR_HISTORY_ACK_FAILED
+                        };
+                        let mut response = Frame::new(MessageKind::ClearHistoryAck, vec![status]);
+                        response.request_id = frame.request_id;
+                        let _broadcast = command_host.broadcast_lock.lock().unwrap();
+                        if !command_sender.try_send(response) {
                             break;
                         }
                     }
                     MessageKind::MintCapability => {
-                        if !granted_rights.contains(CapabilityRights::MINT_CAPABILITY) {
+                        if !granted_rights.contains(CapabilityRights::MINT_CAPABILITY)
+                            || frame.request_id == 0
+                        {
                             break;
                         }
                         let Ok(token) = mint_renderer_capability(&command_host, &frame.payload)

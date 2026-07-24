@@ -33,7 +33,8 @@ impl From<KeyEvent> for KeyboardInput {
 
 impl From<EnhancedKeyEvent> for KeyboardInput {
     fn from(event: EnhancedKeyEvent) -> Self {
-        let consumed_alt = option_generated_text(&event.key_event, event.text.as_str());
+        let consumed_alt =
+            option_generated_text(&event.key_event, event.shifted_key, event.text.as_str());
         Self {
             key_event: event.key_event,
             shifted_key: event.shifted_key,
@@ -325,7 +326,7 @@ pub fn key_input_from_enhanced(event: &EnhancedKeyEvent) -> Option<KeyInput> {
         event.shifted_key,
         event.base_layout_key,
         &event.text,
-        option_generated_text(&event.key_event, &event.text),
+        option_generated_text(&event.key_event, event.shifted_key, &event.text),
     )
 }
 
@@ -370,8 +371,30 @@ fn key_input_from_parts(
     Some(input)
 }
 
-fn option_generated_text(event: &KeyEvent, associated_text: &str) -> bool {
-    !associated_text.is_empty() && event.modifiers.contains(KeyModifiers::ALT)
+fn option_generated_text(
+    event: &KeyEvent,
+    shifted_key: Option<char>,
+    associated_text: &str,
+) -> bool {
+    // Kitty reports pressed modifiers and generated text, but no consumed-modifier
+    // mask. Preserve Alt when the text matches the reported layout identity,
+    // since real Alt/meta chords may include that associated text.
+    if associated_text.is_empty() || !event.modifiers.contains(KeyModifiers::ALT) {
+        return false;
+    }
+    let KeyCode::Char(unshifted) = event.code else {
+        return false;
+    };
+    let expected = if event.modifiers.contains(KeyModifiers::SHIFT) {
+        let Some(shifted) = shifted_key else {
+            return false;
+        };
+        shifted
+    } else {
+        unshifted
+    };
+    let mut produced = associated_text.chars();
+    produced.next() != Some(expected) || produced.next().is_some()
 }
 
 #[cfg(test)]
@@ -562,7 +585,7 @@ mod tests {
     fn shifted_option_generated_text_is_forwarded_as_text() {
         let event = EnhancedKeyEvent {
             key_event: KeyEvent::new(KeyCode::Char('2'), KeyModifiers::ALT | KeyModifiers::SHIFT),
-            shifted_key: Some('\u{20ac}'),
+            shifted_key: Some('@'),
             base_layout_key: Some('2'),
             text: "\u{20ac}".to_string(),
         };

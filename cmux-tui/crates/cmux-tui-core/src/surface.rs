@@ -930,7 +930,7 @@ impl Surface {
             std::thread::sleep(Duration::from_millis(delay_ms));
             anyhow::bail!("injected hosted surface setup failure after attachment");
         }
-        let mut capability_responses = attachment.capability_responses();
+        let mut control_responses = attachment.control_responses();
         let snapshot = attachment.snapshot.clone();
         let mut applied_color_overrides = snapshot.colors.clone();
         let title_changed = Arc::new(AtomicBool::new(false));
@@ -1006,14 +1006,18 @@ impl Surface {
                         )
                     {
                         let Some(pty) = surface.as_pty() else { break };
-                        if frame.kind == MessageKind::Capability && frame.request_id != 0 {
+                        if matches!(
+                            frame.kind,
+                            MessageKind::Capability | MessageKind::ClearHistoryAck
+                        ) && frame.request_id != 0
+                        {
                             if frame.version != PROTOCOL_VERSION
                                 || frame.flags != 0
                                 || frame.sequence != 0
+                                || !control_responses.resolve(&frame)
                             {
                                 break;
                             }
-                            capability_responses.resolve(&frame);
                             continue;
                         }
                         let Ok(transition) = stager.push(frame) else {
@@ -1199,6 +1203,7 @@ impl Surface {
                             HostedTransition::ResyncRequired => break,
                         }
                     }
+                    control_responses.cancel_all();
                     let Some(pty) = surface.as_pty() else { return };
                     if pty.owner_detaching.load(Ordering::Acquire) {
                         return;
@@ -1274,7 +1279,7 @@ impl Surface {
                             }
                         };
                         let replacement_snapshot = replacement.snapshot.clone();
-                        let replacement_capabilities = replacement.capability_responses();
+                        let replacement_control_responses = replacement.control_responses();
                         let installed = {
                             let mut runtime = pty.runtime.lock().unwrap();
                             if pty.owner_detaching.load(Ordering::Acquire) {
@@ -1371,7 +1376,7 @@ impl Surface {
                         };
                         pty.request_frame(generation);
                         reader = replacement_reader;
-                        capability_responses = replacement_capabilities;
+                        control_responses = replacement_control_responses;
                         sequence_boundary = replacement_snapshot.sequence_boundary;
                         pty.host_connection_state
                             .store(TerminalHostConnectionState::Connected as u8, Ordering::Release);
