@@ -222,18 +222,26 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private func detachLoadedCells() -> [@MainActor () -> Void] {
         var postUpdateActions: [@MainActor () -> Void] = []
         for cell in createdCellViews.allObjects {
-            switch cell {
-            case let cell as SidebarWorkspaceRowTableCellView:
-                postUpdateActions.append(contentsOf: cell.detachPresentation(commitEdits: true))
-            case let cell as SidebarGroupHeaderTableCellView:
-                cell.suspendPresentation()
-            case let cell as SidebarWorkspaceTableCellView:
-                cell.clearRetainedPayload()
-            default:
-                continue
-            }
+            postUpdateActions.append(contentsOf: detachPresentation(from: cell, commitEdits: true))
         }
         return postUpdateActions
+    }
+
+    private func detachPresentation(
+        from cell: NSView,
+        commitEdits: Bool
+    ) -> [@MainActor () -> Void] {
+        switch cell {
+        case let cell as SidebarWorkspaceRowTableCellView:
+            return cell.detachPresentation(commitEdits: commitEdits)
+        case let cell as SidebarGroupHeaderTableCellView:
+            cell.suspendPresentation()
+        case let cell as SidebarWorkspaceTableCellView:
+            cell.clearRetainedPayload()
+        default:
+            break
+        }
+        return []
     }
 
     func apply(
@@ -547,6 +555,15 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         createdCellViews.add(cell)
         configure(cell: cell, at: row)
         return cell
+    }
+
+    func tableView(_ tableView: NSTableView, didRemove rowView: NSTableRowView, forRow row: Int) {
+        guard let cell = rowView.view(atColumn: 0) else { return }
+        // Row retirement is the authoritative cleanup signal. A temporary
+        // whole-table window reparent leaves its row views installed, while
+        // an actual deletion/reload removes them through this callback.
+        let postUpdateActions = detachPresentation(from: cell, commitEdits: true)
+        mutationScheduler.stagePostUpdateActions(postUpdateActions)
     }
 
     func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
