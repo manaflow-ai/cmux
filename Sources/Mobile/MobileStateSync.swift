@@ -166,13 +166,15 @@ final class MobileStateSyncHost {
         }
         let latestNotification = notificationStore?.latestNotification(forTabId: workspace.id)
         let preview = cachedPreview(workspaceID: workspace.id, latestNotification: latestNotification)
+        let description = MobileWorkspaceMetadataLimits.projectedCustomDescription(
+            workspace.customDescription
+        )
         return WorkspaceSyncRecord(
             id: workspace.id.uuidString,
             windowID: windowID.uuidString,
             title: workspace.title,
-            customDescription: MobileWorkspaceMetadataLimits.boundedCustomDescription(
-                workspace.customDescription
-            ),
+            customDescription: description.value,
+            customDescriptionIsTruncated: description.isTruncated,
             customColorHex: workspace.customColor,
             currentDirectory: workspace.presentedCurrentDirectory,
             isSelected: isSelected,

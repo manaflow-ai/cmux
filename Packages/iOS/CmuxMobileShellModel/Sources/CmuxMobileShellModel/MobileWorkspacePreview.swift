@@ -54,6 +54,9 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     /// Kept separate from ``previewText`` so durable workspace context and live
     /// terminal activity can render together instead of replacing each other.
     public var customDescription: String?
+    /// True when ``customDescription`` is only the mobile-safe prefix of a
+    /// longer Mac-authored durable description.
+    public var customDescriptionIsTruncated: Bool
     /// The workspace's custom `#RRGGBB` accent color, when one was set on the Mac.
     /// This is workspace identity and must not be confused with
     /// ``machineCustomColor``, which colors the owning Mac's avatar.
@@ -130,6 +133,7 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         windowID: String? = nil,
         name: String,
         customDescription: String? = nil,
+        customDescriptionIsTruncated: Bool = false,
         customColorHex: String? = nil,
         currentDirectory: String? = nil,
         isPinned: Bool = false,
@@ -147,6 +151,7 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         self.windowID = windowID
         self.name = name
         self.customDescription = customDescription
+        self.customDescriptionIsTruncated = customDescriptionIsTruncated
         self.customColorHex = customColorHex
         self.currentDirectory = currentDirectory
         self.isPinned = isPinned

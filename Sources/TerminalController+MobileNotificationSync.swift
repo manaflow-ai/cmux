@@ -207,14 +207,19 @@ extension TerminalController {
     /// - Parameter rawAction: The raw `action` param value.
     /// - Returns: `true` when the normalized action is mobile-allowed.
     nonisolated static func mobileAllowsWorkspaceAction(_ rawAction: String?) -> Bool {
-        guard let trimmed = rawAction?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else { return false }
-        let normalized = trimmed.lowercased().replacingOccurrences(of: "-", with: "_")
+        guard let normalized = mobileWorkspaceActionKey(rawAction) else { return false }
         return [
             "pin", "unpin", "rename",
             "set_description", "clear_description",
             "set_color", "clear_color",
             "mark_read", "mark_unread",
         ].contains(normalized)
+    }
+
+    /// Normalized mobile workspace-action key.
+    nonisolated static func mobileWorkspaceActionKey(_ rawAction: String?) -> String? {
+        guard let trimmed = rawAction?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else { return nil }
+        return trimmed.lowercased().replacingOccurrences(of: "-", with: "_")
     }
 }

@@ -10,6 +10,7 @@ extension MobileWorkspacePreview {
             windowID: remote.windowID,
             name: remote.title,
             customDescription: remote.customDescription,
+            customDescriptionIsTruncated: remote.customDescriptionIsTruncated ?? false,
             customColorHex: remote.customColorHex,
             currentDirectory: remote.currentDirectory,
             isPinned: remote.isPinned ?? false,

@@ -18,4 +18,13 @@ import Testing
         )
         #expect(MobileWorkspaceMetadataLimits.normalizedCustomDescription(" \n ") == nil)
     }
+
+    @Test func descriptionProjectionReportsWhenValueWasTruncated() {
+        let projected = MobileWorkspaceMetadataLimits.projectedCustomDescription(
+            String(repeating: "🧪", count: 2_000)
+        )
+
+        #expect(projected.value?.utf8.count == MobileWorkspaceMetadataLimits.customDescriptionMaxUTF8Bytes)
+        #expect(projected.isTruncated)
+    }
 }

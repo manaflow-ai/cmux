@@ -388,6 +388,7 @@ extension MobileHostAuthorizationTests {
             )
         }
         #expect(!TerminalController.mobileAllowsWorkspaceAction(nil))
+        #expect(TerminalController.mobileWorkspaceActionKey(" SET-DESCRIPTION ") == "set_description")
     }
 }
 

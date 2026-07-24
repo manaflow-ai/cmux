@@ -655,6 +655,13 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "説明は4 KB以下にしてください。" } }
       }
     },
+    "mobile.workspace.customize.description.truncated" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "This Mac description is longer than iPhone can edit. Change it on Mac to avoid losing text." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このMacの説明はiPhoneで編集できる長さを超えています。テキストを失わないようMacで変更してください。" } }
+      }
+    },
     "mobile.hideComputersVerifier.allHiddenKnownPairedMac" : {
       "extractionState" : "manual",
       "localizations" : {

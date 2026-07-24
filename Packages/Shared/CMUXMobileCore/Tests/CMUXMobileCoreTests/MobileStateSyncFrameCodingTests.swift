@@ -10,6 +10,7 @@ struct MobileStateSyncFrameCodingTests {
             windowID: "win-1",
             title: "build",
             customDescription: "Release validation",
+            customDescriptionIsTruncated: true,
             customColorHex: "#1565C0",
             currentDirectory: "/repo",
             isSelected: true,
@@ -37,6 +38,7 @@ struct MobileStateSyncFrameCodingTests {
         #expect(object["id"] as? String == "ws-1")
         #expect(object["window_id"] as? String == "win-1")
         #expect(object["description"] as? String == "Release validation")
+        #expect(object["description_truncated"] as? Bool == true)
         #expect(object["custom_color"] as? String == "#1565C0")
         #expect(object["current_directory"] as? String == "/repo")
         #expect(object["is_selected"] as? Bool == true)

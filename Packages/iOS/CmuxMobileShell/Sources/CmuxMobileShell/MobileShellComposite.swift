@@ -807,6 +807,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// event-driven ``workspaceListRefreshTask`` cancel/restart can never truncate
     /// the spinner the pull is awaiting. Rapid pulls coalesce onto this single task.
     private var pullToRefreshTask: Task<Void, Never>?
+    /// Foreground post-mutation list refreshes, coalesced separately from
+    /// pull-to-refresh so batched row actions do not fan out legacy list RPCs.
+    private var foregroundWorkspaceMutationRefreshTask: Task<Void, Never>?
     @ObservationIgnored var notificationFeedSnapshotsByMac: [String: NotificationFeedMacSnapshot] = [:]
     @ObservationIgnored var notificationFeedKnownRevisionsByMac: [String: Int] = [:]
     @ObservationIgnored var notificationFeedSuccessfulMacIDs: Set<String> = []
@@ -1084,6 +1087,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.createTerminalTask = nil
         self.workspaceListRefreshTask = nil
         self.pullToRefreshTask = nil
+        self.foregroundWorkspaceMutationRefreshTask = nil
         self.createWorkspaceTaskID = nil
         self.createTerminalTaskID = nil
         self.connectionGeneration = UUID()
@@ -1155,6 +1159,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         createTerminalTask?.cancel()
         workspaceListRefreshTask?.cancel()
         pullToRefreshTask?.cancel()
+        foregroundWorkspaceMutationRefreshTask?.cancel()
         notificationFeedOpenTask?.cancel()
         teamScopeReconnectTask?.cancel()
         cancelAllTerminalReplayTasks()
@@ -3977,11 +3982,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     func refreshAfterWorkspaceMutation(_ target: WorkspaceMutationTarget) async {
         if target.isForeground {
-            await reloadWorkspaceListFromMac()
+            await refreshForegroundWorkspaceListAfterMutation()
         } else if let macID = target.macDeviceID, let sub = secondaryMacSubscriptions[macID] {
             scheduleSecondaryRefresh(
                 macID: macID, client: sub.client, displayName: workspacesByMac[macID]?.displayName)
         }
+    }
+
+    private func refreshForegroundWorkspaceListAfterMutation() async {
+        guard connectionState == .connected, remoteClient != nil else { return }
+        if let inFlight = foregroundWorkspaceMutationRefreshTask {
+            await inFlight.value
+            return
+        }
+        let task = Task { @MainActor [weak self] in
+            defer { self?.foregroundWorkspaceMutationRefreshTask = nil }
+            await self?.reloadWorkspaceListFromMac()
+        }
+        foregroundWorkspaceMutationRefreshTask = task
+        await task.value
     }
 
     /// Fire the server-side `mobile.events.subscribe` enable for a secondary
@@ -5814,6 +5833,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceListRefreshTask = nil
         pullToRefreshTask?.cancel()
         pullToRefreshTask = nil
+        foregroundWorkspaceMutationRefreshTask?.cancel()
+        foregroundWorkspaceMutationRefreshTask = nil
         cancelAllTerminalReplayTasks()
     }
 

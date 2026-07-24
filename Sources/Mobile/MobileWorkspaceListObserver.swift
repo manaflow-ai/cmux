@@ -26,6 +26,10 @@ final class MobileWorkspaceListObserver {
     private var notificationsCancellable: AnyCancellable?
     private var unreadIndicatorsCancellable: AnyCancellable?
     private var perWorkspaceCancellables: [UUID: AnyCancellable] = [:]
+    private struct DescriptionProjectionCacheEntry {
+        let signature: Int
+    }
+    private var descriptionProjectionCache: [UUID: DescriptionProjectionCacheEntry] = [:]
     private var subscriptionsChangeObserver: NSObjectProtocol?
     private var pipelinesAttached = false
     private var lastSummaryHash: Int = 0
@@ -103,6 +107,7 @@ final class MobileWorkspaceListObserver {
         notificationsCancellable = nil
         unreadIndicatorsCancellable = nil
         perWorkspaceCancellables.removeAll()
+        descriptionProjectionCache.removeAll()
     }
 
     private func attach(to tabManager: TabManager) {
@@ -113,6 +118,7 @@ final class MobileWorkspaceListObserver {
             for: tabManager.tabs,
             groups: tabManager.workspaceGroups,
             selectedTabID: tabManager.selectedTabId,
+            descriptionSignatures: currentDescriptionSignatures(for: tabManager.tabs),
             previewSignatures: currentPreviewSignatures(for: tabManager.tabs)
         )
         lastSummaryHash = initial
@@ -224,6 +230,7 @@ final class MobileWorkspaceListObserver {
         // Drop subscriptions for workspaces that vanished.
         for id in perWorkspaceCancellables.keys where !currentIDs.contains(id) {
             perWorkspaceCancellables.removeValue(forKey: id)
+            descriptionProjectionCache.removeValue(forKey: id)
         }
         // Merge the per-workspace publishers behind the mobile workspace
         // list: terminal set, terminal titles, workspace title, and displayed
@@ -239,7 +246,12 @@ final class MobileWorkspaceListObserver {
                 workspace.$title.map { _ in () }.eraseToAnyPublisher(),
                 // Description and color are durable workspace identity shown in
                 // the phone sidebar. Mac-side edits must invalidate mobile rows.
-                workspace.$customDescription.map { _ in () }.eraseToAnyPublisher(),
+                workspace.$customDescription
+                    .handleEvents(receiveOutput: { [weak self, workspaceID = workspace.id] _ in
+                        self?.descriptionProjectionCache.removeValue(forKey: workspaceID)
+                    })
+                    .map { _ in () }
+                    .eraseToAnyPublisher(),
                 workspace.$customColor.map { _ in () }.eraseToAnyPublisher(),
                 // Pin/unpin is iOS-facing (the phone shows a Pinned section), and
                 // a pure pin toggle need not change the panel set or title, so
@@ -283,6 +295,7 @@ final class MobileWorkspaceListObserver {
             for: tabManager.tabs,
             groups: tabManager.workspaceGroups,
             selectedTabID: tabManager.selectedTabId,
+            descriptionSignatures: currentDescriptionSignatures(for: tabManager.tabs),
             previewSignatures: currentPreviewSignatures(for: tabManager.tabs)
         )
         if !force, hash == lastSummaryHash {
@@ -318,10 +331,57 @@ final class MobileWorkspaceListObserver {
     /// preview (notification id + timestamp). Folding it in means a new notification
     /// (or a cleared one) re-emits to the phone, which renders the preview + relative
     /// time. Workspaces with no notification are simply absent from the map.
+    private func currentDescriptionSignatures(for tabs: [Workspace]) -> [UUID: Int] {
+        var signatures: [UUID: Int] = [:]
+        signatures.reserveCapacity(tabs.count)
+        for workspace in tabs {
+            signatures[workspace.id] = cachedDescriptionSignature(for: workspace)
+        }
+        return signatures
+    }
+
+    private func cachedDescriptionSignature(
+        for workspace: Workspace
+    ) -> Int {
+        if let cached = descriptionProjectionCache[workspace.id] {
+            return cached.signature
+        }
+        let projection = MobileWorkspaceMetadataLimits.projectedCustomDescription(
+            workspace.customDescription
+        )
+        let signature = Self.descriptionSignature(for: projection)
+        descriptionProjectionCache[workspace.id] = DescriptionProjectionCacheEntry(
+            signature: signature
+        )
+        return signature
+    }
+
+    private static func descriptionSignatures(for tabs: [Workspace]) -> [UUID: Int] {
+        var signatures: [UUID: Int] = [:]
+        signatures.reserveCapacity(tabs.count)
+        for workspace in tabs {
+            let projection = MobileWorkspaceMetadataLimits.projectedCustomDescription(
+                workspace.customDescription
+            )
+            signatures[workspace.id] = descriptionSignature(for: projection)
+        }
+        return signatures
+    }
+
+    private static func descriptionSignature(
+        for projection: MobileWorkspaceDescriptionProjection
+    ) -> Int {
+        var hasher = Hasher()
+        hasher.combine(projection.value)
+        hasher.combine(projection.isTruncated)
+        return hasher.finalize()
+    }
+
     private static func summaryHash(
         for tabs: [Workspace],
         groups: [WorkspaceGroup],
         selectedTabID: UUID?,
+        descriptionSignatures: [UUID: Int],
         previewSignatures: [UUID: Int]
     ) -> Int {
         let signpost = MobileWorkspaceObserverSignposts.begin("mobile-workspace-summary-hash", "workspaces=\(tabs.count) groups=\(groups.count) previews=\(previewSignatures.count) selected=\(selectedTabID.map { String($0.uuidString.prefix(5)) } ?? "nil")"); defer { MobileWorkspaceObserverSignposts.end(signpost) }
@@ -343,9 +403,7 @@ final class MobileWorkspaceListObserver {
         for workspace in tabs {
             hasher.combine(workspace.id)
             hasher.combine(workspace.title)
-            hasher.combine(MobileWorkspaceMetadataLimits.boundedCustomDescription(
-                workspace.customDescription
-            ))
+            hasher.combine(descriptionSignatures[workspace.id])
             hasher.combine(workspace.customColor)
             hasher.combine(workspace.isPinned)
             // Group membership is iOS-facing (the phone nests members under the
@@ -393,6 +451,7 @@ final class MobileWorkspaceListObserver {
             for: tabs,
             groups: groups,
             selectedTabID: selectedTabID,
+            descriptionSignatures: descriptionSignatures(for: tabs),
             previewSignatures: previewSignatures
         )
     }

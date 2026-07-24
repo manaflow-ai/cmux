@@ -15,6 +15,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public let title: String
         /// Custom workspace description, when reported by the Mac.
         public let customDescription: String?
+        /// Whether `customDescription` is a bounded projection of a longer Mac value.
+        public let customDescriptionIsTruncated: Bool?
         /// Custom workspace accent color as `#RRGGBB`, when reported by the Mac.
         public let customColorHex: String?
         /// The workspace's current working directory, if reported.
@@ -51,6 +53,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case windowID = "window_id"
             case title
             case customDescription = "description"
+            case customDescriptionIsTruncated = "description_truncated"
             case customColorHex = "custom_color"
             case currentDirectory = "current_directory"
             case isSelected = "is_selected"
@@ -71,6 +74,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             windowID: String?,
             title: String,
             customDescription: String? = nil,
+            customDescriptionIsTruncated: Bool? = nil,
             customColorHex: String? = nil,
             currentDirectory: String?,
             isSelected: Bool,
@@ -86,6 +90,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             self.windowID = windowID
             self.title = title
             self.customDescription = customDescription
+            self.customDescriptionIsTruncated = customDescriptionIsTruncated
             self.customColorHex = customColorHex
             self.currentDirectory = currentDirectory
             self.isSelected = isSelected
@@ -238,5 +243,4 @@ extension MobileSyncWorkspaceListResponse {
         self.createdTerminalID = createdTerminalID
     }
 }
-
 

@@ -16,6 +16,7 @@ private func workspaceRecord(
     id: String,
     title: String,
     customDescription: String? = nil,
+    customDescriptionIsTruncated: Bool = false,
     customColorHex: String? = nil,
     sortIndex: Int
 ) -> WorkspaceSyncRecord {
@@ -24,6 +25,7 @@ private func workspaceRecord(
         windowID: "win-1",
         title: title,
         customDescription: customDescription,
+        customDescriptionIsTruncated: customDescriptionIsTruncated,
         customColorHex: customColorHex,
         currentDirectory: nil,
         isSelected: false,
@@ -109,6 +111,7 @@ struct MobileShellStateSyncTests {
                         id: firstWorkspaceID,
                         title: "synced-alpha",
                         customDescription: "Release validation",
+                        customDescriptionIsTruncated: true,
                         customColorHex: "#1565C0",
                         sortIndex: 0
                     ),
@@ -130,6 +133,7 @@ struct MobileShellStateSyncTests {
             store.workspaces.first(where: { $0.rpcWorkspaceID.rawValue == firstWorkspaceID })
         )
         #expect(customizedWorkspace.customDescription == "Release validation")
+        #expect(customizedWorkspace.customDescriptionIsTruncated)
         #expect(customizedWorkspace.customColorHex == "#1565C0")
 
         // A workspace.updated push must no longer trigger the legacy full-list

@@ -1,6 +1,7 @@
 import Testing
 import AppKit
 import Bonsplit
+import CMUXMobileCore
 import CmuxCore
 
 #if canImport(cmux_DEV)
@@ -196,6 +197,7 @@ struct MobileWorkspaceListFidelityTests {
             requestedTerminalID: nil
         )
         #expect(payload["description"] as? String == "Release validation")
+        #expect(payload["description_truncated"] as? Bool == false)
         #expect(payload["custom_color"] as? String == "#1565C0")
 
         workspace.setCustomDescription(nil)
@@ -211,7 +213,23 @@ struct MobileWorkspaceListFidelityTests {
             requestedTerminalID: nil
         )
         #expect(clearedPayload["description"] is NSNull)
+        #expect(clearedPayload["description_truncated"] as? Bool == false)
         #expect(clearedPayload["custom_color"] is NSNull)
+    }
+
+    @Test func mobileWorkspacePayloadFlagsTruncatedDescription() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+
+        workspace.setCustomDescription(String(repeating: "🧪", count: 2_000))
+        let payload = TerminalController.shared.mobileWorkspacePayload(
+            workspace: workspace,
+            isSelected: true,
+            requestedTerminalID: nil
+        )
+        let description = try #require(payload["description"] as? String)
+        #expect(description.utf8.count == MobileWorkspaceMetadataLimits.customDescriptionMaxUTF8Bytes)
+        #expect(payload["description_truncated"] as? Bool == true)
     }
 
     /// A pure group-membership move (a workspace's `groupId` changes while the tab

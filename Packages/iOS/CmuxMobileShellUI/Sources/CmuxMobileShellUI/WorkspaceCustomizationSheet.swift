@@ -10,6 +10,7 @@ struct WorkspaceCustomizationSheet: View {
         WorkspaceCustomizationDraft,
         WorkspaceCustomizationDraft
     ) async -> WorkspaceCustomizationSaveResult
+    private let descriptionIsTruncated: Bool
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
     @State private var customDescription: String
@@ -29,6 +30,7 @@ struct WorkspaceCustomizationSheet: View {
         let draft = WorkspaceCustomizationDraft(workspace: workspace)
         _initialDraft = State(initialValue: draft)
         self.save = save
+        self.descriptionIsTruncated = workspace.customDescriptionIsTruncated
         _name = State(initialValue: workspace.name)
         _customDescription = State(initialValue: workspace.customDescription ?? "")
         _usesCustomColor = State(initialValue: workspace.customColorHex != nil)
@@ -131,6 +133,7 @@ struct WorkspaceCustomizationSheet: View {
                 axis: .vertical
             )
             .lineLimit(3...8)
+            .disabled(descriptionIsTruncated)
             .accessibilityIdentifier("MobileWorkspaceDescriptionField")
         } header: {
             Text(L10n.string("mobile.workspace.customize.description", defaultValue: "Description"))
@@ -151,6 +154,16 @@ struct WorkspaceCustomizationSheet: View {
                     )
                     .foregroundStyle(.red)
                     .accessibilityIdentifier("MobileWorkspaceDescriptionTooLong")
+                }
+                if descriptionIsTruncated {
+                    Text(
+                        L10n.string(
+                            "mobile.workspace.customize.description.truncated",
+                            defaultValue: "This Mac description is longer than iPhone can edit. Change it on Mac to avoid losing text."
+                        )
+                    )
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("MobileWorkspaceDescriptionTruncated")
                 }
             }
         }

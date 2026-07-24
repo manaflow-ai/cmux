@@ -80,6 +80,8 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
     public let title: String
     /// Custom workspace description, when one is set.
     public let customDescription: String?
+    /// Whether the Mac's durable description was longer than the mobile value.
+    public let customDescriptionIsTruncated: Bool
     /// Custom workspace accent color as `#RRGGBB`, when one is set.
     public let customColorHex: String?
     /// The workspace's presented working directory, when reported.
@@ -114,6 +116,7 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         windowID: String?,
         title: String,
         customDescription: String? = nil,
+        customDescriptionIsTruncated: Bool = false,
         customColorHex: String? = nil,
         currentDirectory: String?,
         isSelected: Bool,
@@ -130,6 +133,7 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         self.windowID = windowID
         self.title = title
         self.customDescription = customDescription
+        self.customDescriptionIsTruncated = customDescriptionIsTruncated
         self.customColorHex = customColorHex
         self.currentDirectory = currentDirectory
         self.isSelected = isSelected
@@ -148,6 +152,7 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         case windowID = "window_id"
         case title
         case customDescription = "description"
+        case customDescriptionIsTruncated = "description_truncated"
         case customColorHex = "custom_color"
         case currentDirectory = "current_directory"
         case isSelected = "is_selected"

@@ -318,6 +318,7 @@ extension MobileShellComposite {
                 windowID: record.windowID,
                 title: record.title,
                 customDescription: record.customDescription,
+                customDescriptionIsTruncated: record.customDescriptionIsTruncated,
                 customColorHex: record.customColorHex,
                 currentDirectory: record.currentDirectory,
                 isSelected: record.isSelected,

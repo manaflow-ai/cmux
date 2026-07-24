@@ -14143,7 +14143,8 @@ class TerminalController {
     /// Mobile-gated wrapper over ``v2WorkspaceAction(params:)``.
     func v2MobileWorkspaceAction(params: [String: Any]) -> V2CallResult {
         let rawAction = v2RawString(params, "action")
-        guard Self.mobileAllowsWorkspaceAction(rawAction) else {
+        guard let action = Self.mobileWorkspaceActionKey(rawAction),
+              Self.mobileAllowsWorkspaceAction(rawAction) else {
             return .err(
                 code: "method_not_found",
                 message: "Unsupported workspace action for mobile",
@@ -14161,7 +14162,26 @@ class TerminalController {
         guard v2UUID(params, "workspace_id") != nil else {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
         }
-        return v2WorkspaceAction(params: params)
+        var sanitizedParams = params
+        switch action {
+        case "set_description":
+            guard let normalized = MobileWorkspaceMetadataLimits.normalizedCustomDescription(
+                v2String(params, "description")
+            ) else {
+                return .err(code: "invalid_params", message: "Missing or invalid description", data: nil)
+            }
+            sanitizedParams["description"] = normalized
+        case "set_color":
+            guard let colorRaw = v2String(params, "color")?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !colorRaw.isEmpty,
+                  colorRaw.utf8.count <= MobileWorkspaceMetadataLimits.customColorMaxUTF8Bytes else {
+                return .err(code: "invalid_params", message: "Missing or invalid color", data: nil)
+            }
+            sanitizedParams["color"] = colorRaw
+        default:
+            break
+        }
+        return v2WorkspaceAction(params: sanitizedParams)
     }
     private func mobileHostResult(_ result: V2CallResult) -> MobileHostRPCResult {
         switch result {

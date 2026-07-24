@@ -110,6 +110,7 @@ import Testing
               "window_id": "window-1",
               "title": "cmux",
               "description": "Ship the mobile sidebar",
+              "description_truncated": true,
               "custom_color": "#1565C0",
               "current_directory": "/Users/test/project",
               "is_selected": true,
@@ -136,6 +137,7 @@ import Testing
         let workspace = try #require(response.workspaces.first)
         #expect(workspace.windowID == "window-1")
         #expect(workspace.customDescription == "Ship the mobile sidebar")
+        #expect(workspace.customDescriptionIsTruncated == true)
         #expect(workspace.customColorHex == "#1565C0")
         #expect(workspace.isSelected)
         #expect(workspace.terminals.first?.isFocused == true)
@@ -143,6 +145,7 @@ import Testing
         let mapped = MobileWorkspacePreview(remote: workspace)
         #expect(mapped.windowID == "window-1")
         #expect(mapped.customDescription == "Ship the mobile sidebar")
+        #expect(mapped.customDescriptionIsTruncated)
         #expect(mapped.customColorHex == "#1565C0")
         #expect(mapped.currentDirectory == "/Users/test/project")
         #expect(mapped.terminals.first?.currentDirectory == "/Users/test/project")
@@ -165,10 +168,12 @@ import Testing
         let response = try MobileSyncWorkspaceListResponse.decode(json)
         let workspace = try #require(response.workspaces.first)
         #expect(workspace.customDescription == nil)
+        #expect(workspace.customDescriptionIsTruncated == nil)
         #expect(workspace.customColorHex == nil)
 
         let mapped = MobileWorkspacePreview(remote: workspace)
         #expect(mapped.customDescription == nil)
+        #expect(!mapped.customDescriptionIsTruncated)
         #expect(mapped.customColorHex == nil)
     }
 
