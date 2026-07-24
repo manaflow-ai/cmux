@@ -16,6 +16,9 @@ final class AgentSessionPanel: Panel {
     private(set) var displayTitle: String
     var displayIcon: String? { "sparkles.rectangle.stack" }
     private(set) var isDirty: Bool = false
+    var isWebViewInWindow: Bool {
+        rendererSession.isWebViewInWindow
+    }
     var onDisplayStateChanged: ((String, Bool) -> Void)? {
         didSet {
             onDisplayStateChanged?(displayTitle, isDirty)
