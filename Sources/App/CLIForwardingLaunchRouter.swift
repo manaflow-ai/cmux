@@ -23,6 +23,9 @@ enum CLIForwardingLaunchRouter {
         case failForwardingLoop
     }
 
+    /// Classifies a launch of the GUI binary: GUI-style argv launches the
+    /// app, first-pass CLI argv forwards to the bundled CLI, and CLI argv
+    /// with the forwarding guard already set is a forwarding loop.
     static func forwardingDecision(
         arguments argv: [String],
         forwardingGuardIsSet: Bool
@@ -170,6 +173,8 @@ enum CLIForwardingLaunchRouter {
         )
     }
 
+    /// User-facing message for a detected forwarding loop: the bundled CLI
+    /// resolved back to the GUI binary, so the command cannot be handed off.
     private static func localizedForwardingLoopError() -> String {
         String(
             localized: "cli.forwarding.error.forwardingLoop",
