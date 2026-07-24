@@ -32,7 +32,7 @@ enum TextBoxAgentDetection: CaseIterable {
         case .codex:
             return ["codex", "omx"]
         case .opencode:
-            return ["opencode", "open-code", "opencode-ai", "omo"]
+            return ["opencode", "open-code", "opencode-ai", "omo", "omo-slim", "omos"]
         case .pi:
             return ["pi", "pi-coding-agent", "omp"]
         case .ollama:

@@ -367,7 +367,7 @@ extension CMUXCLI {
         guard agent == "opencode" else {
             return (true, "available")
         }
-        if launchCommand?.launcher == "omo" {
+        if AgentLaunchCaptureTrust.launcherIsOpenCodeSessionWrapper(launchCommand?.launcher) {
             return (true, "available")
         }
         if sessionsListOpenCodeLooksRemoteLike(record, launchCommand: launchCommand) {

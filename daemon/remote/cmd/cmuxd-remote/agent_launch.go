@@ -3,9 +3,11 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -130,6 +132,68 @@ func runOMORelay(socketPath string, args []string, refreshAddr func() string) in
 	execErr := syscall.Exec(launchPath, launchArgv, os.Environ())
 	fmt.Fprintf(os.Stderr, "cmux omo: exec failed: %v\n", execErr)
 	return 1
+}
+
+// runOMOSlimRelay launches OMO Slim 2.2+ with its native cmux multiplexer.
+func runOMOSlimRelay(commandName, socketPath string, args []string, refreshAddr func() string) int {
+	originalPath := os.Getenv("PATH")
+	opencodePath := findExecutableInPath("opencode", originalPath, "")
+	if opencodePath == "" {
+		fmt.Fprintf(os.Stderr, "cmux %s: opencode not found in PATH\n", commandName)
+		return 1
+	}
+
+	os.Setenv("CMUX_SOCKET_PATH", socketPath)
+	os.Unsetenv("CMUX_SOCKET")
+	if focused := getFocusedContext(&rpcContext{socketPath: socketPath, refreshAddr: refreshAddr}); focused != nil {
+		os.Setenv("CMUX_WORKSPACE_ID", focused.workspaceId)
+		if focused.surfaceId != "" {
+			os.Setenv("CMUX_SURFACE_ID", focused.surfaceId)
+		}
+	}
+	if os.Getenv("OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS") == "" {
+		os.Setenv("OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS", "true")
+	}
+
+	port := openCodeNativeEffectivePort(args)
+	os.Setenv("OPENCODE_PORT", port)
+	launchArgs := openCodeNativeLaunchArgs(args, port)
+	launchPath, launchArgv := resolveNodeScriptExec(opencodePath, launchArgs, originalPath, "")
+	if err := syscall.Exec(launchPath, launchArgv, os.Environ()); err != nil {
+		fmt.Fprintf(os.Stderr, "cmux %s: exec failed: %v\n", commandName, err)
+	}
+	return 1
+}
+
+func openCodeNativeLaunchArgs(args []string, port string) []string {
+	for _, arg := range args {
+		if arg == "--port" || strings.HasPrefix(arg, "--port=") {
+			return args
+		}
+	}
+	return append([]string{"--port", port}, args...)
+}
+
+func openCodeNativeEffectivePort(args []string) string {
+	for index, arg := range args {
+		if arg == "--port" && index+1 < len(args) && strings.TrimSpace(args[index+1]) != "" {
+			return strings.TrimSpace(args[index+1])
+		}
+		if strings.HasPrefix(arg, "--port=") {
+			if value := strings.TrimSpace(strings.TrimPrefix(arg, "--port=")); value != "" {
+				return value
+			}
+		}
+	}
+	if value := strings.TrimSpace(os.Getenv("OPENCODE_PORT")); value != "" {
+		return value
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "4097"
+	}
+	defer listener.Close()
+	return strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)
 }
 
 // runOMXRelay implements `cmux omx` on the remote side.

@@ -10,11 +10,17 @@ import Foundation
 /// capture verbatim poisons resume/fork for the session — the rendered command
 /// runs the wrong binary with the wrong flags.
 public enum AgentLaunchCaptureTrust {
+    private static let openCodeSessionWrapperLaunchers: Set<String> = [
+        "omo",
+        "omo-slim",
+        "omos",
+    ]
+
     /// Wrapper launchers that legitimately differ from the hook kind they launch.
     private static let wrapperLaunchersByKind: [String: Set<String>] = [
         "claude": ["claudeteams"],
         "codex": ["codexteams"],
-        "opencode": ["omo", "omx", "omc"],
+        "opencode": openCodeSessionWrapperLaunchers.union(["omx", "omc"]),
         "pi": ["omp"],
     ]
 
@@ -32,7 +38,7 @@ public enum AgentLaunchCaptureTrust {
         "kiro": ["kiro", "kiro-cli"],
         "kimi": ["kimi", "kimi-cli", "kimi-code"],
         "omp": ["omp"],
-        "opencode": ["opencode", "omo", "omx", "omc"],
+        "opencode": ["opencode", "omo", "omo-slim", "omos", "omx", "omc"],
         "pi": ["pi", "omp"],
         "qoder": ["qodercli", "qoder"],
         "rovodev": ["rovodev", "rovo", "rovo-dev"],
@@ -51,6 +57,12 @@ public enum AgentLaunchCaptureTrust {
             return true
         }
         return wrapperLaunchersByKind[normalizedKind]?.contains(normalizedLauncher) == true
+    }
+
+    public static func launcherIsOpenCodeSessionWrapper(_ launcher: String?) -> Bool {
+        guard let launcher = launcher?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !launcher.isEmpty else { return false }
+        return openCodeSessionWrapperLaunchers.contains(launcher.lowercased())
     }
 
     /// True when a captured argv describes a shell dispatcher (`sh -c …`,

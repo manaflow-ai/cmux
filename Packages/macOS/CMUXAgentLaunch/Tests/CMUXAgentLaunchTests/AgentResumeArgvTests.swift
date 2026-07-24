@@ -85,6 +85,16 @@ struct AgentResumeArgvTests {
                 ]
             ) == .resolved(["cmux", "omo", "--session", "SID", "--model", "anthropic/claude-sonnet-4-6"])
         )
+        for launcher in ["omo-slim", "omos"] {
+            #expect(
+                AgentResumeArgv().launcherResolution(
+                    launcher: launcher,
+                    sessionId: "SID",
+                    executablePath: nil,
+                    arguments: ["cmux", launcher, "--model", "openai/gpt-5.6-sol"]
+                ) == .resolved(["cmux", launcher, "--session", "SID", "--model", "openai/gpt-5.6-sol"])
+            )
+        }
         #expect(
             AgentResumeArgv().builtInKind(
                 kind: "opencode",

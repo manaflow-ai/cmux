@@ -164,6 +164,16 @@ struct AgentForkArgvTests {
                 arguments: ["cmux", "omo", "--model", "anthropic/claude-sonnet-4-6"]
             ) == .resolved(["cmux", "omo", "--session", "SID", "--fork", "--model", "anthropic/claude-sonnet-4-6"])
         )
+        for launcher in ["omo-slim", "omos"] {
+            #expect(
+                AgentForkArgv().launcherResolution(
+                    launcher: launcher,
+                    sessionId: "SID",
+                    executablePath: nil,
+                    arguments: ["cmux", launcher, "--model", "openai/gpt-5.6-sol"]
+                ) == .resolved(["cmux", launcher, "--session", "SID", "--fork", "--model", "openai/gpt-5.6-sol"])
+            )
+        }
         #expect(
             AgentForkArgv().launcherResolution(
                 launcher: "omx",

@@ -280,14 +280,15 @@ public struct AgentResumeArgv: Sendable, Equatable {
                 [parts.executable, "codex-teams", "resume", sessionId]
                     + codexResumeConfigOverrides(preserved: preserved) + preserved
             )
-        case "omo":
+        case "omo", "omo-slim", "omos":
+            guard let launcherName = launcher else { return .passthrough }
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "cmux")
             var tail = parts.tail
-            if tail.first == "omo" { tail.removeFirst() }
+            if tail.first == launcherName { tail.removeFirst() }
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: tail) else {
                 return .resolved(nil)
             }
-            return .resolved([parts.executable, "omo", "--session", sessionId] + preserved)
+            return .resolved([parts.executable, launcherName, "--session", sessionId] + preserved)
         case "omx", "omc":
             return .resolved(nil)
         default:

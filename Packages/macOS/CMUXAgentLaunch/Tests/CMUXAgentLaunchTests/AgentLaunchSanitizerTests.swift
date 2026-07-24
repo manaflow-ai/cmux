@@ -128,6 +128,17 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Preserves the OMO Slim launcher when sanitizing OpenCode arguments")
+    func preservesOMOSlimLauncher() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["cmux", "omo-slim", "--model", "openai/gpt-5.6-sol"],
+                launcher: "omo-slim",
+                fallbackKind: "opencode"
+            ) == ["cmux", "omo-slim", "--model", "openai/gpt-5.6-sol"]
+        )
+    }
+
     @Test("Drops OpenCode startup file when it appears before cwd")
     func dropsOpenCodeStartupFileBeforeCwd() {
         #expect(

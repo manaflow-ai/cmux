@@ -3446,6 +3446,16 @@ struct CMUXCLI {
             return
         }
 
+        if command == "omo-slim" || command == "omos" {
+            try runOMOSlim(
+                launcher: command,
+                commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg
+            )
+            return
+        }
+
         if command == "omx" {
             try runOMX(
                 commandArgs: commandArgs,
@@ -15329,6 +15339,25 @@ struct CMUXCLI {
               cmux omo --continue
               cmux omo --model claude-sonnet-4-6
             """)
+        case "omo-slim", "omos":
+            return String(localized: "cli.omoSlim.usage", defaultValue: """
+            Usage: cmux omo-slim [opencode-args...]
+                   cmux omos [opencode-args...]
+
+            Launch OpenCode with oh-my-opencode-slim 2.2+ using its native cmux
+            multiplexer. Install and configure the plugin before using this command.
+
+            This command:
+              - preserves the active OpenCode and OMO Slim configuration
+              - selects an available OpenCode API port for background agents
+              - enables OpenCode background subagents
+              - forwards all remaining arguments to opencode
+
+            Examples:
+              cmux omo-slim
+              cmux omos --continue
+              cmux omos --model openai/gpt-5.6-sol
+            """)
         case "omx":
             return String(localized: "cli.omx.usage", defaultValue: """
             Usage: cmux omx [omx-args...]
@@ -22315,6 +22344,78 @@ struct CMUXCLI {
             execv(launchPath, &argv)
         }
         throw CLIError(message: "Failed to launch opencode: \(String(cString: strerror(code)))\n\nIs opencode installed? Install with:\n  npm install -g opencode-ai")
+    }
+
+    // MARK: - cmux omo-slim (native cmux multiplexer)
+
+    private func runOMOSlim(
+        launcher: String,
+        commandArgs: [String],
+        socketPath: String,
+        explicitPassword: String?
+    ) throws {
+        var launcherEnvironment = ProcessInfo.processInfo.environment
+        launcherEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        launcherEnvironment.removeValue(forKey: "CMUX_SOCKET")
+        setenv("CMUX_SOCKET_PATH", socketPath, 1)
+        unsetenv("CMUX_SOCKET")
+
+        if let explicitPassword,
+           !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
+            setenv("CMUX_SOCKET_PASSWORD", explicitPassword, 1)
+        }
+
+        guard let openCodeExecutablePath = resolveOpenCodeExecutable(searchPath: launcherEnvironment["PATH"]) else {
+            throw CLIError(message: missingProviderExecutableMessage(
+                displayName: "OpenCode",
+                executableName: "opencode"
+            ))
+        }
+
+        if launcherEnvironment["CMUX_WORKSPACE_ID"] == nil || launcherEnvironment["CMUX_SURFACE_ID"] == nil,
+           let focusedContext = try tmuxCompatFocusedContext(
+               processEnvironment: launcherEnvironment,
+               explicitPassword: explicitPassword
+           ) {
+            launcherEnvironment["CMUX_WORKSPACE_ID"] = focusedContext.workspaceId
+            setenv("CMUX_WORKSPACE_ID", focusedContext.workspaceId, 1)
+            if let surfaceId = focusedContext.surfaceId {
+                launcherEnvironment["CMUX_SURFACE_ID"] = surfaceId
+                setenv("CMUX_SURFACE_ID", surfaceId, 1)
+            }
+        }
+
+        let openCodePort = omoResolvedPort(
+            commandArgs: commandArgs,
+            processEnvironment: launcherEnvironment
+        )
+        setenv("OPENCODE_PORT", openCodePort, 1)
+        if launcherEnvironment["OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS"] == nil {
+            setenv("OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS", "true", 1)
+        }
+
+        var effectiveArgs = commandArgs
+        if omoRequestedPort(from: commandArgs) == nil {
+            effectiveArgs.insert(contentsOf: ["--port", openCodePort], at: 0)
+        }
+
+        let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
+        exportAgentLaunchCommandEnvironment(
+            launcher: launcher,
+            executablePath: executablePath,
+            arguments: [executablePath, launcher] + effectiveArgs,
+            workingDirectory: launcherEnvironment["PWD"]
+        )
+
+        var argv = ([openCodeExecutablePath] + effectiveArgs).map { strdup($0) }
+        defer { argv.forEach { free($0) } }
+        argv.append(nil)
+
+        let code = cliExecFailureErrno {
+            execv(openCodeExecutablePath, &argv)
+        }
+        throw CLIError(message: "Failed to launch opencode: \(String(cString: strerror(code)))")
     }
 
     // MARK: - cmux omx (Oh My Codex)
@@ -35178,6 +35279,7 @@ export default CMUXSessionRestore;
           claude-teams [claude-args...]
           codex-teams [codex-args...]
           omo [opencode-args...]
+          omo-slim [opencode-args...]                    (alias: omos)
           omx [omx-args...]
           omc [omc-args...]
           hooks setup|uninstall [--agent <name>]
