@@ -10,6 +10,7 @@ import Foundation
 /// configuration, preserving system, enterprise, managed, user, profile,
 /// project, and command-line layers.
 public struct CodexResumeTrustPolicy: Sendable, Equatable {
+    /// Creates a stateless Codex resume trust policy.
     public init() {}
 
     /// Returns the `-c key=value` pair needed to skip Codex's directory-trust

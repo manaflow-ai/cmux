@@ -781,9 +781,9 @@ final class ClaudeHookSessionStore {
                 incomingPID: incomingPID,
                 to: record
             ) {
-            case .same:
+            case .orderedSame?:
                 return true
-            case .newer, .legacyDeadOwner:
+            case .orderedDescending?:
                 guard let identity = processStartIdentity(pid: incomingPID) else {
                     return false
                 }
@@ -794,7 +794,7 @@ final class ClaudeHookSessionStore {
                 record.updatedAt = Date().timeIntervalSince1970
                 state.sessions[normalized] = record
                 return true
-            case .older, .indeterminate:
+            case .orderedAscending?, nil:
                 return false
             }
         }
@@ -1078,15 +1078,15 @@ final class ClaudeHookSessionStore {
                 incomingPID: incomingPID,
                 to: record
             ) {
-            case .newer, .legacyDeadOwner:
+            case .orderedDescending?:
                 return false
-            case .same:
+            case .orderedSame?:
                 // The wrapper's fire-and-forget SessionStart can lose its race
                 // with this process's later prompt/stop hooks. Once same-process
                 // turn state exists, treating that delayed start as fresh would
                 // erase or resurrect the newer lifecycle state.
                 return hasActiveTurnState || hasCompletedTurnState
-            case .older, .indeterminate:
+            case .orderedAscending?, nil:
                 return true
             }
         }
@@ -1101,30 +1101,26 @@ final class ClaudeHookSessionStore {
         return incomingPID == existingPID
     }
 
-    private enum ResumedProcessGenerationRelation {
-        case newer
-        case same
-        case older
-        case legacyDeadOwner
-        case indeterminate
-    }
-
     private func resumedProcessGenerationRelation(
         incomingPID: Int,
         to record: ClaudeHookSessionRecord
-    ) -> ResumedProcessGenerationRelation {
+    ) -> ComparisonResult? {
         guard let incoming = processStartIdentity(pid: incomingPID) else {
-            return .indeterminate
+            return nil
         }
         if let existingSeconds = record.pidStartSeconds,
            let existingMicroseconds = record.pidStartMicroseconds {
             if incoming.seconds != existingSeconds {
-                return incoming.seconds > existingSeconds ? .newer : .older
+                return incoming.seconds > existingSeconds
+                    ? .orderedDescending
+                    : .orderedAscending
             }
             if incoming.microseconds != existingMicroseconds {
-                return incoming.microseconds > existingMicroseconds ? .newer : .older
+                return incoming.microseconds > existingMicroseconds
+                    ? .orderedDescending
+                    : .orderedAscending
             }
-            return .same
+            return .orderedSame
         }
 
         // Older cmux CLIs can decode and rewrite the shared store without the
@@ -1135,9 +1131,9 @@ final class ClaudeHookSessionStore {
               existingPID > 0,
               existingPID != incomingPID,
               processStartIdentity(pid: existingPID) == nil else {
-            return .indeterminate
+            return nil
         }
-        return .legacyDeadOwner
+        return .orderedDescending
     }
 
     private func clearCodexSessionStartTurnState(on record: inout ClaudeHookSessionRecord) {

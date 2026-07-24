@@ -281,51 +281,6 @@ private final class CLIProcessOutputBuffer: @unchecked Sendable {
     }
 }
 
-private struct CLIJSONLineResponseBuffer {
-    private let responseID: Int
-    private let maxBytes: Int
-    private var data = Data()
-    private var scanOffset = 0
-    private(set) var matchedResponse = false
-    private(set) var exceededLimit = false
-
-    init(responseID: Int, maxBytes: Int) {
-        self.responseID = responseID
-        self.maxBytes = max(1, maxBytes)
-    }
-
-    mutating func append(_ chunk: Data) {
-        guard !matchedResponse, !exceededLimit else { return }
-
-        let remaining = maxBytes - data.count
-        if remaining > 0 {
-            data.append(contentsOf: chunk.prefix(remaining))
-        }
-
-        while scanOffset < data.endIndex,
-              let newline = data[scanOffset...].firstIndex(of: 0x0a) {
-            let line = data[scanOffset..<newline]
-            scanOffset = data.index(after: newline)
-            guard let object = try? JSONSerialization.jsonObject(
-                with: Data(line)
-            ) as? [String: Any],
-                  (object["id"] as? NSNumber)?.intValue == responseID else {
-                continue
-            }
-            matchedResponse = true
-            break
-        }
-
-        if !matchedResponse, chunk.count > remaining {
-            exceededLimit = true
-        }
-    }
-
-    var output: Data {
-        data
-    }
-}
-
 enum CLIProcessRunner {
     static func runProcess(
         executablePath: String,
@@ -556,17 +511,41 @@ enum CLIProcessRunner {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
-        let finished = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in
-            finished.signal()
-        }
-
-        var stdoutBuffer = CLIJSONLineResponseBuffer(
-            responseID: responseID,
-            maxBytes: maxOutputBytes
-        )
+        let boundedMaxOutputBytes = max(1, maxOutputBytes)
+        var stdoutData = Data()
+        var stdoutScanOffset = 0
+        var matchedResponse = false
+        var stdoutLimitExceeded = false
         var stderrData = Data()
         var stderrLimitExceeded = false
+
+        func appendStdout(_ chunk: Data) {
+            guard !matchedResponse, !stdoutLimitExceeded else { return }
+
+            let remaining = boundedMaxOutputBytes - stdoutData.count
+            if remaining > 0 {
+                stdoutData.append(contentsOf: chunk.prefix(remaining))
+            }
+
+            while stdoutScanOffset < stdoutData.endIndex,
+                  let newline = stdoutData[stdoutScanOffset...]
+                    .firstIndex(of: 0x0a) {
+                let line = stdoutData[stdoutScanOffset..<newline]
+                stdoutScanOffset = stdoutData.index(after: newline)
+                guard let object = try? JSONSerialization.jsonObject(
+                    with: Data(line)
+                ) as? [String: Any],
+                      (object["id"] as? NSNumber)?.intValue == responseID else {
+                    continue
+                }
+                matchedResponse = true
+                break
+            }
+
+            if !matchedResponse, chunk.count > remaining {
+                stdoutLimitExceeded = true
+            }
+        }
 
         do {
             try cliRunProcess(process)
@@ -645,8 +624,8 @@ enum CLIProcessRunner {
             }
         }
 
-        while !stdoutBuffer.matchedResponse,
-              !stdoutBuffer.exceededLimit,
+        while !matchedResponse,
+              !stdoutLimitExceeded,
               !stderrLimitExceeded,
               pipeError == nil {
             let now = DispatchTime.now().uptimeNanoseconds
@@ -700,9 +679,12 @@ enum CLIProcessRunner {
                 }
 
                 if index == 0 {
-                    stdoutBuffer.append(chunk)
+                    appendStdout(chunk)
                 } else {
-                    let remaining = max(0, maxOutputBytes - stderrData.count)
+                    let remaining = max(
+                        0,
+                        boundedMaxOutputBytes - stderrData.count
+                    )
                     if remaining > 0 {
                         stderrData.append(contentsOf: chunk.prefix(remaining))
                     }
@@ -723,11 +705,11 @@ enum CLIProcessRunner {
         try? stdoutPipe.fileHandleForReading.close()
         try? stderrPipe.fileHandleForReading.close()
         if process.isRunning {
-            terminate(process: process, finished: finished)
+            kill(process.processIdentifier, SIGKILL)
+            process.waitUntilExit()
         }
 
-        let matchedResponse = stdoutBuffer.matchedResponse
-        let stdout = String(data: stdoutBuffer.output, encoding: .utf8) ?? ""
+        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
         var stderr = String(data: stderrData, encoding: .utf8) ?? ""
 
         if timedOut {
@@ -736,9 +718,9 @@ enum CLIProcessRunner {
             } else if !stderr.contains("process timed out") {
                 stderr += "\nprocess timed out"
             }
-        } else if stdoutBuffer.exceededLimit || stderrLimitExceeded {
+        } else if stdoutLimitExceeded || stderrLimitExceeded {
             if stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                stderr = "process output exceeded \(maxOutputBytes) bytes per stream"
+                stderr = "process output exceeded \(boundedMaxOutputBytes) bytes per stream"
             }
         } else if let pipeError {
             if stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -754,7 +736,7 @@ enum CLIProcessRunner {
             status = 0
         } else if timedOut {
             status = 124
-        } else if stdoutBuffer.exceededLimit || stderrLimitExceeded {
+        } else if stdoutLimitExceeded || stderrLimitExceeded {
             status = 1
         } else if pipeError != nil {
             status = 1

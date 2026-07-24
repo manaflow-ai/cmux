@@ -1,5 +1,46 @@
 import Foundation
 
+private let codexWrapperShellShimGuardPrefix =
+    "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" || "
+
+private func renderedCodexWrapperShellExecutableToken(
+    fallingBackTo capturedExecutable: String
+) -> String {
+    let fallback = posixSingleQuoted(capturedExecutable)
+    return codexWrapperShellShimGuardPrefix
+        + "{ [ -x \(fallback) ] && printf '%s' \(fallback) || printf codex; })\""
+}
+
+private func isCodexWrapperShellExecutableToken(_ value: String) -> Bool {
+    value.hasPrefix(codexWrapperShellShimGuardPrefix)
+}
+
+private func codexCommandExecutableIndex(_ parts: [String]) -> Int? {
+    guard !parts.isEmpty else { return nil }
+    let first = (parts[0] as NSString).lastPathComponent
+    guard first == "env" else { return 0 }
+    var index = 1
+    while index < parts.count, isEnvironmentAssignment(parts[index]) {
+        index += 1
+    }
+    if index < parts.count, parts[index] == "--" {
+        index += 1
+    }
+    return index < parts.count ? index : nil
+}
+
+private func isEnvironmentAssignment(_ value: String) -> Bool {
+    guard let equals = value.firstIndex(of: "=") else { return false }
+    let name = value[..<equals]
+    guard let first = name.first,
+          first == "_" || first.isLetter else {
+        return false
+    }
+    return name.dropFirst().allSatisfy {
+        $0 == "_" || $0.isLetter || $0.isNumber
+    }
+}
+
 /// Builds the argument vector for an agent's resume/continue command.
 ///
 /// This is the single source of truth shared by the app-side resume builder
@@ -75,22 +116,19 @@ public struct AgentResumeArgv: Sendable, Equatable {
     /// Like the claude token, this is POSIX command substitution that fish and
     /// csh/tcsh reject, so any command containing it must reach those shells
     /// wrapped via ``portableCodexResumeShellCommand(posixCommand:)``.
-    private static let codexWrapperShellShimGuardPrefix =
-        "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" || "
-
     public static let codexWrapperShellExecutableToken =
         codexWrapperShellShimGuardPrefix + "printf codex)\""
 
-    public static func codexWrapperShellExecutableToken(
+    /// Builds the wrapper token for a captured absolute Codex executable.
+    ///
+    /// The token prefers the live cmux shim, then the captured executable, and
+    /// finally a bare `codex` lookup when both paths have disappeared.
+    public func codexWrapperShellExecutableToken(
         fallingBackTo capturedExecutable: String
     ) -> String {
-        let fallback = posixSingleQuoted(capturedExecutable)
-        return codexWrapperShellShimGuardPrefix
-            + "{ [ -x \(fallback) ] && printf '%s' \(fallback) || printf codex; })\""
-    }
-
-    private static func isCodexWrapperShellExecutableToken(_ value: String) -> Bool {
-        value.hasPrefix(codexWrapperShellShimGuardPrefix)
+        renderedCodexWrapperShellExecutableToken(
+            fallingBackTo: capturedExecutable
+        )
     }
 
     /// Pins a wrapper-routed resume to the exact Codex executable captured at launch.
@@ -252,7 +290,7 @@ public struct AgentResumeArgv: Sendable, Equatable {
         parts: [String],
         quote: (String) -> String
     ) -> [String] {
-        guard let executableIndex = commandExecutableIndex(parts) else {
+        guard let executableIndex = codexCommandExecutableIndex(parts) else {
             return parts.map(quote)
         }
         let executable = parts[executableIndex]
@@ -279,7 +317,9 @@ public struct AgentResumeArgv: Sendable, Equatable {
                 }
                 rendered.append(
                     isAbsoluteCodex
-                        ? codexWrapperShellExecutableToken(fallingBackTo: part)
+                        ? renderedCodexWrapperShellExecutableToken(
+                            fallingBackTo: part
+                        )
                         : codexWrapperShellExecutableToken
                 )
             } else {
@@ -287,32 +327,6 @@ public struct AgentResumeArgv: Sendable, Equatable {
             }
         }
         return rendered
-    }
-
-    private static func commandExecutableIndex(_ parts: [String]) -> Int? {
-        guard !parts.isEmpty else { return nil }
-        let first = (parts[0] as NSString).lastPathComponent
-        guard first == "env" else { return 0 }
-        var index = 1
-        while index < parts.count, isEnvironmentAssignment(parts[index]) {
-            index += 1
-        }
-        if index < parts.count, parts[index] == "--" {
-            index += 1
-        }
-        return index < parts.count ? index : nil
-    }
-
-    private static func isEnvironmentAssignment(_ value: String) -> Bool {
-        guard let equals = value.firstIndex(of: "=") else { return false }
-        let name = value[..<equals]
-        guard let first = name.first,
-              first == "_" || first.isLetter else {
-            return false
-        }
-        return name.dropFirst().allSatisfy {
-            $0 == "_" || $0.isLetter || $0.isNumber
-        }
     }
 
     /// The result of resolving a cmux wrapper launcher (the `claude-teams` / `codex-teams` / `omo`
