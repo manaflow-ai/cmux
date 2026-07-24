@@ -96,6 +96,10 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "expect(finished).toBe(true)\n"
             ),
             "shell.sh": 'sleep 1\nassert "$actual" "$expected"\n',
+            "shell-variable.sh": (
+                'sleep "$STARTUP_DELAY"\n'
+                'assert "$actual" "$expected"\n'
+            ),
             "shell-shebang.sh": (
                 "#!/bin/sh\n"
                 "sleep 1\n"
@@ -359,6 +363,18 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "run(lambda time: time.sleep(0.01))\n"
                     "assert finished\n"
                 ),
+                "multiline-lambda-parameter-shadow.py": (
+                    "run(lambda time: (\n"
+                    "    time.sleep(0.01)\n"
+                    "))\n"
+                    "assert finished\n"
+                ),
+                "class-body-shadow.py": (
+                    "class Tests:\n"
+                    "    time = fake_clock\n"
+                    "    time.sleep(0.01)\n"
+                    "    assert finished\n"
+                ),
             }
         )
 
@@ -415,6 +431,14 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "time.sleep(0.01)\n"
                 "assert finished\n"
             ),
+            "class-method-global.py": (
+                "import time\n"
+                "class Tests:\n"
+                "    time = fake_clock\n"
+                "    def test(self):\n"
+                "        time.sleep(0.01)\n"
+                "        assert finished\n"
+            ),
         }
 
         result = self.run_checker(fixtures)
@@ -428,6 +452,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             "attribute-assignment.py": 2,
             "nested-attribute-assignment.py": 2,
             "keyword-argument.py": 2,
+            "class-method-global.py": 5,
         }
         findings = [
             line
