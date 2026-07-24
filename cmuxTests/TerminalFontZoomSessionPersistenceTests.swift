@@ -322,8 +322,8 @@ struct TerminalFontZoomSessionPersistenceTests {
         )
     }
 
-    @Test("Dock-only workspace font-size adjustment seeds its first main terminal")
-    func dockOnlyWorkspaceFontSizeAdjustmentSeedsFirstMainTerminal() throws {
+    @Test("Window-Dock-only workspace font-size adjustment seeds its first main terminal")
+    func windowDockOnlyWorkspaceFontSizeAdjustmentSeedsFirstMainTerminal() throws {
         let workspace = Workspace()
         let firstPanelID = try #require(workspace.focusedPanelId)
         let paneID = try #require(workspace.bonsplitController.focusedPaneId)
@@ -338,15 +338,18 @@ struct TerminalFontZoomSessionPersistenceTests {
         #expect(workspace.closePanel(firstPanelID, force: true))
 
         let dockPanel = TerminalPanel(
-            workspaceId: workspace.id,
+            workspaceId: UUID(),
             runtimeSpawnPolicy: .pacedSessionRestore
         )
         dockPanel.surface.recordCurrentFontSizeLineage(
             TerminalFontSizeLineage(basePoints: 5, isExplicitOverride: true)
         )
-        workspace.dockSplit.panels[dockPanel.id] = dockPanel
 
-        #expect(workspace.adjustTerminalFontSizes(byRuntimePoints: -1) == 1)
+        let adjustedCount = workspace.adjustTerminalFontSizes(
+            byRuntimePoints: -1,
+            additionalTerminalPanels: [dockPanel]
+        )
+        #expect(adjustedCount == 1)
         #expect(
             TabManager().inheritedTerminalConfigForNewWorkspace(workspace: workspace)?
                 .fontSizeLineage
