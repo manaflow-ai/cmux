@@ -13748,6 +13748,11 @@ mod tests {
         release_tx.send(()).unwrap();
         holder.join().unwrap();
         assert_eq!(queued, 1, "ordinary terminal lock contention must retain a discrete press");
+        assert_eq!(
+            action,
+            RenderAction::None,
+            "lock contention must schedule replay without synchronously repainting the locked terminal"
+        );
 
         app.render_action(&mut terminal, action).unwrap();
         app.replay_deferred_input().unwrap();
@@ -16535,6 +16540,46 @@ mod tests {
     }
 
     #[test]
+    fn terminal_geometry_mutations_enter_the_pointer_routing_lane() {
+        let (mux, surface) = test_mux("terminal-geometry-routing-test", None);
+        let (app, _events) = test_app_with_events(Session::Local(mux.clone()));
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        app.session.operations.enqueue_session_mutation(
+            "block terminal geometry lane",
+            false,
+            move || {
+                started_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+                Ok(())
+            },
+        );
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let claim = match app.session.surface_resize_decision(surface.id, (90, 31), true) {
+            SurfaceResizeDecision::NeedsQueue(claim) => claim,
+            _ => panic!("changed terminal size must queue"),
+        };
+        app.session.resize_surface(
+            surface.id,
+            app.session.surface(surface.id).unwrap(),
+            90,
+            31,
+            false,
+            claim,
+        );
+        app.session.use_all_client_sizing();
+        assert!(app.session.release_surface_size(surface.id));
+
+        assert_eq!(
+            app.session.pending_pointer_mutations.load(Ordering::Acquire),
+            3,
+            "PTY resize, client sizing, and size release all change terminal pointer geometry"
+        );
+        release_tx.send(()).unwrap();
+    }
+
+    #[test]
     fn pointer_motion_waits_for_config_application() {
         let mux = Mux::new("config-pointer-routing-test", SurfaceOptions::default());
         let (mut app, _events) = test_app_with_events(Session::Local(mux));
@@ -17774,6 +17819,55 @@ mod tests {
     }
 
     #[test]
+    fn retained_motion_coalesces_only_within_discrete_input_segments() {
+        let mux = Mux::new("segmented-pointer-motion-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.session.pending_mutations.store(1, Ordering::Release);
+        app.session.pending_pointer_mutations.store(1, Ordering::Release);
+        let first = MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 8,
+            row: 3,
+            modifiers: KeyModifiers::NONE,
+        };
+        let second = MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 18,
+            row: 7,
+            modifiers: KeyModifiers::NONE,
+        };
+
+        app.handle(AppEvent::Input(Event::Mouse(first))).unwrap();
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('x'),
+            KeyModifiers::NONE,
+        ))))
+        .unwrap();
+        app.handle(AppEvent::Input(Event::Mouse(second))).unwrap();
+
+        assert!(matches!(
+            app.deferred_input.front(),
+            Some(DeferredInput {
+                event: Event::Mouse(event),
+                sequence: 1,
+                ..
+            }) if *event == first
+        ));
+        assert!(matches!(
+            app.deferred_input.get(1),
+            Some(DeferredInput { event: Event::Key(_), sequence: 2, .. })
+        ));
+        assert!(matches!(
+            app.pending_pointer_motion,
+            Some(super::PendingPointerMotion {
+                event,
+                sequence: 3,
+                ..
+            }) if event == second
+        ));
+    }
+
+    #[test]
     fn missing_surface_motion_stays_ahead_of_later_deferred_input() {
         let mux = Mux::new("replayed-missing-motion-order-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -18848,6 +18942,42 @@ mod tests {
         .unwrap();
 
         assert!(app.drag.is_none());
+        assert!(app.machine_ui.as_ref().unwrap().request.is_none());
+    }
+
+    #[test]
+    fn replayed_machine_action_is_submitted_before_the_batch_drains() {
+        let mux = Mux::new("replayed-machine-action-submit-test", SurfaceOptions::default());
+        let (mut app, _events) = test_app_with_events(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui_with_machine_lifecycle());
+        let at = (4, 4);
+        let target = app.machine_pointer_target(MachineKey(42)).unwrap();
+        app.drag = Some(Drag::MachineArm { target, at });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        let (controller, _requests) = fake_controller(FakeMachineAction::Fail("expected failure"));
+        install_machine_controller(&mut app, controller);
+        app.deferred_input.push_back(DeferredInput {
+            event: Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Up(MouseButton::Left),
+                column: at.0,
+                row: at.1,
+                modifiers: KeyModifiers::NONE,
+            }),
+            destination: None,
+            destination_intent: None,
+            sidebar_focus_intent: false,
+            pairing_request: None,
+            pointer: None,
+            sequence: 1,
+        });
+        app.deferred_input_sequence = 1;
+
+        app.replay_deferred_input_batch().unwrap();
+
+        assert!(
+            app.machine_action_in_flight,
+            "replay must submit a generated machine request before receiving another event"
+        );
         assert!(app.machine_ui.as_ref().unwrap().request.is_none());
     }
 
