@@ -13,6 +13,8 @@ Group selection:
 - `--group-id` / `CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID` wins.
 - Else `--group-name` / `CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME` exact-matches.
 - Else it auto-selects the app's single external beta group.
+- Repeat `--additional-group-id` to attach the same build to other external
+  groups without repeating the beta-review operation.
 
 If multiple external groups exist and no selector is provided, it fails loudly so
 CI does not claim founders were updated when the target group was ambiguous.
@@ -311,6 +313,26 @@ def _select_group(groups: List[Dict], group_id: str, group_name: str) -> Dict:
     return external_groups[0]
 
 
+def _select_groups(
+    groups: List[Dict],
+    group_id: str,
+    group_name: str,
+    additional_group_ids: List[str],
+) -> List[Dict]:
+    selected = [_select_group(groups, group_id, group_name)]
+    selected_ids = {selected[0]["id"]}
+    for additional_group_id in additional_group_ids:
+        normalized_id = additional_group_id.strip()
+        if not normalized_id:
+            continue
+        group = _select_group(groups, normalized_id, "")
+        if group["id"] in selected_ids:
+            continue
+        selected.append(group)
+        selected_ids.add(group["id"])
+    return selected
+
+
 def _group_has_build(token: str, group_id: str, build_id: str) -> bool:
     relationships = _paged_get(
         token,
@@ -522,6 +544,7 @@ def main() -> int:
     parser.add_argument("--build-number", required=True, help="CFBundleVersion of the uploaded build")
     parser.add_argument("--group-id", default=os.environ.get("CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID", ""))
     parser.add_argument("--group-name", default=os.environ.get("CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME", ""))
+    parser.add_argument("--additional-group-id", action="append", default=[])
     parser.add_argument("--timeout-seconds", type=int, default=900)
     parser.add_argument("--poll-seconds", type=int, default=20)
     parser.add_argument("--state-out", default=os.environ.get("CMUX_TESTFLIGHT_ASSIGN_STATE_OUT_FILE", ""))
@@ -533,7 +556,12 @@ def main() -> int:
     token = _token()
     app_id = _resolve_app_id(token, args.bundle_id)
     groups = _list_beta_groups(token, app_id)
-    target_group = _select_group(groups, args.group_id.strip(), args.group_name.strip())
+    target_groups = _select_groups(
+        groups,
+        args.group_id.strip(),
+        args.group_name.strip(),
+        args.additional_group_id,
+    )
 
     deadline = time.time() + max(0, args.timeout_seconds)
     build = None
@@ -565,44 +593,26 @@ def main() -> int:
             raise RuntimeError(f"build {args.build_number} disappeared from App Store Connect")
         build_id, processing_state = build
 
-    if target_group["has_access_to_all_builds"]:
-        print(
-            f"asc_assign_external_testflight_group: group {_describe_group(target_group)} "
-            f"already has access to all builds"
-        )
+    for target_group in target_groups:
+        if target_group["has_access_to_all_builds"]:
+            print(
+                f"asc_assign_external_testflight_group: group {_describe_group(target_group)} "
+                f"already has access to all builds"
+            )
+            continue
+        if _group_has_build(token, target_group["id"], build_id):
+            print(
+                f"asc_assign_external_testflight_group: build {args.build_number} already assigned to "
+                f"{_describe_group(target_group)}"
+            )
+            continue
         token = _token()
-        state = _ensure_external_review_submission(
-            token,
-            build_id,
-            args.build_number,
-            time.time() + max(0, args.timeout_seconds),
-            args.poll_seconds,
-        )
-        _write_state(args.state_out, state)
-        return 0
-
-    if _group_has_build(token, target_group["id"], build_id):
+        _assign_build(token, target_group["id"], build_id)
         print(
-            f"asc_assign_external_testflight_group: build {args.build_number} already assigned to "
+            f"asc_assign_external_testflight_group: assigned build {args.build_number} to "
             f"{_describe_group(target_group)}"
         )
-        token = _token()
-        state = _ensure_external_review_submission(
-            token,
-            build_id,
-            args.build_number,
-            time.time() + max(0, args.timeout_seconds),
-            args.poll_seconds,
-        )
-        _write_state(args.state_out, state)
-        return 0
 
-    token = _token()
-    _assign_build(token, target_group["id"], build_id)
-    print(
-        f"asc_assign_external_testflight_group: assigned build {args.build_number} to "
-        f"{_describe_group(target_group)}"
-    )
     token = _token()
     state = _ensure_external_review_submission(
         token,

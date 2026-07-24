@@ -4638,10 +4638,23 @@
       "error": "問題が発生しました。もう一度お試しいただくか、founders@manaflow.com にメールしてください。"
     }
   },
+  "emails": {
+    "proWelcome": {
+      "subject": "cmux Pro へようこそ！",
+      "fallbackName": "お客様",
+      "greeting": "{name} さん、こんにちは！",
+      "thanks": "cmux Pro にご参加いただきありがとうございます！現在、Pro の体験をさらに充実させるため開発を進めており、Cloud アクセスも近日提供予定です。",
+      "cloudStatus": "Cloud の提供開始時には、それまで Pro を購読いただいた月数に応じて利用クレジットをアカウントに付与します。早くから応援してくださった期間がきちんと反映されます。",
+      "currentBenefit": "まずは、Pro で TestFlight を通じた cmux iOS ベータに参加できます。Apple からこのメールアドレス宛に別の招待メールが届きますので、受信トレイをチェックしてみてください！",
+      "testflightLink": "さっそく試すには、こちらから TestFlight に登録してください：{url}",
+      "testflightLinkLabel": "TestFlight に登録する",
+      "signoff": "早くからご参加いただき、ありがとうございます！\ncmux チーム"
+    }
+  },
   "appProWelcome": {
     "eyebrow": "cmux Pro が有効です",
     "title": "cmux Pro へようこそ",
-    "body": "プランには、Cloud VM 上のクラウドエージェント、毎月 20 コンピュート時間、モデルゲートウェイ、cmux iOS アプリが含まれます。まずはここから始めましょう。",
+    "body": "Pro の機能は現在も開発中です。Cloud アクセスは近日提供予定で、継続して購読した月数に応じた利用クレジットを付与します。現在の Pro には cmux iOS TestFlight アクセスが含まれます。",
     "done": "ダッシュボードへ",
     "steps": {
       "modelGateway": {

@@ -18,6 +18,7 @@ const recordCheckoutCompletion = mock(async () => {
   return recordCheckoutCompletionResult;
 });
 const applySubscriptionUpdate = mock(async () => ({ stackUserId: "user_1", isActive: true }));
+const fulfillProCheckout = mock(async () => {});
 const retrieveSession = mock(async () => ({
   id: "cs_1",
   payment_status: "paid",
@@ -82,6 +83,7 @@ const POST = makeStripeWebhookHandler({
     }) as never,
   recordCheckoutCompletion: recordCheckoutCompletion as never,
   applySubscriptionUpdate: applySubscriptionUpdate as never,
+  fulfillProCheckout,
 });
 
 describe("Stripe billing webhook route", () => {
@@ -109,6 +111,7 @@ describe("Stripe billing webhook route", () => {
     };
     recordCheckoutCompletion.mockClear();
     applySubscriptionUpdate.mockClear();
+    fulfillProCheckout.mockClear();
     retrieveSession.mockClear();
     retrieveSubscription.mockClear();
   });
@@ -156,6 +159,30 @@ describe("Stripe billing webhook route", () => {
     });
     expect(recordCheckoutCompletion).toHaveBeenCalled();
     expect(updates.at(-1)).toMatchObject({ error: null });
+  });
+
+  test("fulfills TestFlight and the Pro welcome after a personal Pro checkout", async () => {
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    expect(fulfillProCheckout).toHaveBeenCalledTimes(1);
+    expect(fulfillProCheckout).toHaveBeenCalledWith({
+      session: expect.objectContaining({ id: "cs_1" }),
+      stackUserId: "user_1",
+    });
+  });
+
+  test("does not run personal Pro fulfillment for a team checkout", async () => {
+    recordCheckoutCompletionResult = {
+      scope: "team",
+      stackTeamId: "team_1",
+      subscriptionId: "sub_1",
+    };
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    expect(fulfillProCheckout).not.toHaveBeenCalled();
   });
 
   test("reports checkout completions skipped during account deletion", async () => {

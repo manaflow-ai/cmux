@@ -19,7 +19,12 @@ let user: typeof currentUser | null = currentUser;
 let useStubDb = false;
 
 const getUser = mock(async () => user);
-const ascFetch = mock(async (path: unknown) => {
+const ascFetch = mock(async (path: unknown, init?: unknown) => {
+  if (path === "/v1/betaTesters" && (init as { method?: string })?.method === "POST") {
+    return {
+      data: { type: "betaTesters", id: "tester_new" },
+    };
+  }
   if (String(path).startsWith("/v1/betaTesters?")) {
     return {
       data: [
@@ -98,7 +103,12 @@ describe("TestFlight route", () => {
     getUser.mockClear();
     ascFetch.mockClear();
     captureAscError.mockClear();
-    mockImplementation(ascFetch, async (path: unknown) => {
+    mockImplementation(ascFetch, async (path: unknown, init?: unknown) => {
+      if (path === "/v1/betaTesters" && (init as { method?: string })?.method === "POST") {
+        return {
+          data: { type: "betaTesters", id: "tester_new" },
+        };
+      }
       if (String(path).startsWith("/v1/betaTesters?")) {
         return {
           data: [
@@ -131,6 +141,10 @@ describe("TestFlight route", () => {
       firstName: "Pro",
       lastName: "User",
     });
+    expect(ascFetch).toHaveBeenCalledWith(
+      "/v1/betaTesterInvitations",
+      expect.objectContaining({ method: "POST" }),
+    );
   });
 
   test("does not enroll ineligible users", async () => {
@@ -154,7 +168,7 @@ describe("TestFlight route", () => {
       "https://cmux.test/dashboard/testflight?testflight=left",
     );
     expect(ascFetch).toHaveBeenCalledWith(
-      "/v1/betaGroups/3ee84bfa-10ad-4f23-a45c-f9a3b037373e/relationships/betaTesters",
+      "/v1/betaGroups/34fbede5-3880-4560-b1bb-a45787249780/relationships/betaTesters",
       expect.objectContaining({ method: "DELETE" }),
     );
   });

@@ -227,7 +227,8 @@ jobs:
       ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
       CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID: ${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP_ID }}
       CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME: ${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP_NAME }}
-      CMUX_TESTFLIGHT_ASSIGN_EXTERNAL_GROUP: "0"
+      CMUX_TESTFLIGHT_PRO_GROUP_ID: ${{ vars.IOS_TESTFLIGHT_PRO_GROUP_ID }}
+      CMUX_TESTFLIGHT_ASSIGN_EXTERNAL_GROUP: ${{ github.event.inputs.marketing_version_override != '' && '1' || '0' }}
       # Internal builds use separate bundle ID and display name (set here so provisioning profile step can use it)
       IOS_BETA_BUNDLE_ID: dev.cmux.app.internal
       IOS_BETA_DISPLAY_NAME: cmux INTERNAL
@@ -458,15 +459,17 @@ jobs:
           {
             echo "### iOS TestFlight upload"
             echo
-            echo "- lane: \`beta\` (bundle id \`dev.cmux.app.internal\`, internal TestFlight)"
             echo "- signing: manual (CI-imported iOS distribution cert + beta profile)"
             if [ -n "${INPUT_MARKETING_VERSION_OVERRIDE:-}" ]; then
+              echo "- lane: \`beta\` (bundle id \`dev.cmux.app.beta\`, external TestFlight)"
               echo "- marketing version override: \`${INPUT_MARKETING_VERSION_OVERRIDE}\`"
+              echo "- audience: Founder's Edition and cmux Pro external groups"
             else
+              echo "- lane: \`beta\` (bundle id \`dev.cmux.app.internal\`, internal TestFlight)"
               echo "- marketing version: checked-in beta marketing version"
+              echo "- audience: internal TestFlight group (cmux INTERNAL); no beta review needed"
             fi
             echo "- build number (CFBundleVersion): \`${BUILD_NUMBER}\`"
-            echo "- audience: internal TestFlight group (cmux INTERNAL) on the dev.cmux.app.internal app; no beta review needed"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Persist uploaded build metadata
@@ -498,10 +501,9 @@ jobs:
         run: |
           security delete-keychain ios-testflight.keychain >/dev/null 2>&1 || true
 
-  # NOTE: this lane uploads to dev.cmux.app.internal only, so there is no
-  # external-group assignment job here. The old assign-external-group job
-  # polled dev.cmux.app.beta for a build that now never arrives there and hung
-  # for its full 40-minute timeout on every run.
+  # Normal runs upload to dev.cmux.app.internal, so there is no separate
+  # external-group assignment job. A manual external marketing-version
+  # override assigns Founder's Edition and Pro inline in upload-testflight.sh.
   assign-internal-group:
     name: Assign build to internal TestFlight group
     needs: [decide, upload]

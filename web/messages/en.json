@@ -4728,10 +4728,23 @@
       "error": "Something went wrong. Please try again or email founders@manaflow.com."
     }
   },
+  "emails": {
+    "proWelcome": {
+      "subject": "You’re in! Welcome to cmux Pro",
+      "fallbackName": "there",
+      "greeting": "Hi {name},",
+      "thanks": "Thanks for joining cmux Pro! We’re still building out the full Pro experience, and cloud access is coming soon.",
+      "cloudStatus": "When cloud launches, we’ll add usage credits to your account based on how many months you’ve been subscribed, so your early support counts.",
+      "currentBenefit": "For now, Pro gets you into the cmux iOS beta through TestFlight. Apple will send a separate invite to this email, so keep an eye on your inbox!",
+      "testflightLink": "Ready to try it? Sign up for TestFlight here: {url}",
+      "testflightLinkLabel": "Sign up for TestFlight",
+      "signoff": "Thanks for being early,\nThe cmux team"
+    }
+  },
   "appProWelcome": {
     "eyebrow": "cmux Pro is active",
     "title": "Welcome to cmux Pro",
-    "body": "Your plan includes cloud agents on Cloud VMs, 20 monthly compute-hours, the model gateway, and the cmux iOS app. Start here.",
+    "body": "Pro features are still being built. Cloud access is coming soon, with usage credits accumulated for every month you stay subscribed. Today, Pro includes cmux iOS TestFlight access.",
     "done": "Go to dashboard",
     "steps": {
       "modelGateway": {

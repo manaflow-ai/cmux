@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import enMessages from "../../messages/en.json";
@@ -10,18 +11,14 @@ import {
 
 const welcome = enMessages.appProWelcome;
 
-type WelcomeStepKey = "modelGateway" | "aiAccounts" | "iosApp" | "billing";
+type WelcomeStepKey = "iosApp" | "billing";
 
 const STEP_HREFS: Record<WelcomeStepKey, string> = {
-  modelGateway: "/dashboard/subrouter",
-  aiAccounts: "/dashboard/ai-accounts",
   iosApp: "/dashboard/testflight",
   billing: "/dashboard/billing",
 };
 
 const STEP_ORDER: readonly WelcomeStepKey[] = [
-  "modelGateway",
-  "aiAccounts",
   "iosApp",
   "billing",
 ];
@@ -72,9 +69,9 @@ export default async function AppProWelcomePage({
                 >
                   <div>
                     <h2 className="text-base font-medium">{step.title}</h2>
-                    <p className="mt-2 text-sm leading-6 text-muted">{step.body}</p>
+                    <p className="mt-2 text-sm leading-5 text-muted">{step.body}</p>
                   </div>
-                  <a
+                  <Link
                     className="mt-4 inline-flex w-fit px-3 py-2 text-sm font-medium"
                     style={{
                       backgroundColor: "var(--foreground)",
@@ -83,19 +80,19 @@ export default async function AppProWelcomePage({
                     href={STEP_HREFS[key]}
                   >
                     {step.action}
-                  </a>
+                  </Link>
                 </article>
               );
             })}
           </div>
 
           <div className="mt-8 border-t border-border pt-6">
-            <a
+            <Link
               className="inline-flex border border-border px-4 py-2 text-sm font-medium text-foreground"
               href="/dashboard"
             >
               {welcome.done}
-            </a>
+            </Link>
           </div>
         </div>
       </main>
