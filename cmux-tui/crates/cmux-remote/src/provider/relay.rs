@@ -1442,6 +1442,175 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn relay_circuit_join_timeout_is_retryable_carrier_failure() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = Url::parse(&format!("ws://{}", listener.local_addr().unwrap())).unwrap();
+        let circuit = CircuitId("join-timeout-circuit".into());
+        let lane = LaneToken("join-timeout-lane".into());
+        let server_circuit = circuit.clone();
+        let server_lane = lane.clone();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let (mut socket, authorization) = accept_with_authorization(stream).await;
+            assert_eq!(authorization, "Bearer join-ticket");
+            assert_eq!(
+                receive_test_control(&mut socket).await,
+                RelayControl::Join {
+                    protocol: REMOTE_PROTOCOL_VERSION,
+                    slot: "test-slot".into(),
+                    circuit: server_circuit,
+                    lane: server_lane,
+                    generation: 5,
+                    ticket: "join-ticket".into(),
+                    role: RelayRole::Client,
+                }
+            );
+            let _ = socket.next().await;
+        });
+
+        let result = join_circuit(
+            &endpoint,
+            "test-slot",
+            RelayRole::Client,
+            circuit,
+            lane,
+            5,
+            "join-ticket".into(),
+            64,
+            Duration::from_millis(20),
+        )
+        .await;
+        let error = match result {
+            Ok(_) => panic!("relay circuit unexpectedly became ready"),
+            Err(error) => error,
+        };
+        assert!(error.is_retryable_carrier_failure(), "{error}");
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn retryable_relay_circuit_rejection_is_retryable_carrier_failure() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = Url::parse(&format!("ws://{}", listener.local_addr().unwrap())).unwrap();
+        let circuit = CircuitId("join-rejection-circuit".into());
+        let lane = LaneToken("join-rejection-lane".into());
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let (mut socket, _) = accept_with_authorization(stream).await;
+            assert!(matches!(
+                receive_test_control(&mut socket).await,
+                RelayControl::Join { generation: 6, .. }
+            ));
+            send_test_control(
+                &mut socket,
+                &RelayControl::Error {
+                    code: "peer-unavailable".into(),
+                    message: "peer is not ready".into(),
+                    retryable: true,
+                },
+            )
+            .await;
+        });
+
+        let result = join_circuit(
+            &endpoint,
+            "test-slot",
+            RelayRole::Client,
+            circuit,
+            lane,
+            6,
+            "join-ticket".into(),
+            64,
+            Duration::from_secs(1),
+        )
+        .await;
+        let error = match result {
+            Ok(_) => panic!("relay circuit unexpectedly became ready"),
+            Err(error) => error,
+        };
+        assert!(error.is_retryable_carrier_failure(), "{error}");
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn retryable_allocation_rejection_is_retryable_carrier_failure() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = Url::parse(&format!("ws://{}", listener.local_addr().unwrap())).unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+            send_test_control(
+                &mut socket,
+                &RelayControl::Error {
+                    code: "edge-unavailable".into(),
+                    message: "try another edge".into(),
+                    retryable: true,
+                },
+            )
+            .await;
+        });
+
+        let mut socket =
+            connect_relay_socket(&endpoint, None, MAX_RELAY_CONTROL_MESSAGE_BYTES).await.unwrap();
+        let lane = LaneToken("allocation-rejection-lane".into());
+        let error = match read_until_allocation(&mut socket, &lane, 7).await {
+            Ok(_) => panic!("relay allocation unexpectedly succeeded"),
+            Err(error) => error.into_provider_error(),
+        };
+        assert!(error.is_retryable_carrier_failure(), "{error}");
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn relay_registration_timeout_is_retryable_carrier_failure() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let (mut socket, authorization) = accept_with_authorization(stream).await;
+            assert_eq!(authorization, "Bearer registration-ticket");
+            assert!(matches!(
+                receive_test_control(&mut socket).await,
+                RelayControl::Register { .. }
+            ));
+            let _ = socket.next().await;
+        });
+        let config = RelayDaemonConfig {
+            endpoint: Url::parse(&format!("ws://{address}/v1/relay")).unwrap(),
+            slot: "test-slot".into(),
+            ticket: String::new(),
+            maximum_frame_bytes: 64,
+            control_timeout: Duration::from_millis(20),
+        };
+        let credentials = RelayCredentialSource::static_ticket("registration-ticket").unwrap();
+
+        let result = authenticate_daemon_control(&config, &credentials).await;
+        let error = match result {
+            Ok(_) => panic!("relay registration unexpectedly succeeded"),
+            Err(error) => error,
+        };
+        assert!(error.is_retryable_carrier_failure(), "{error}");
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn closed_relay_control_socket_is_retryable_carrier_failure() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = Url::parse(&format!("ws://{}", listener.local_addr().unwrap())).unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+            socket.close(None).await.unwrap();
+        });
+
+        let mut socket =
+            connect_relay_socket(&endpoint, None, MAX_RELAY_CONTROL_MESSAGE_BYTES).await.unwrap();
+        let error = read_control(&mut socket).await.unwrap_err();
+        assert!(error.is_retryable_carrier_failure(), "{error}");
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
     async fn cancelling_registration_startup_closes_its_spawned_control_loop() {
         use crate::identity::AuthDatabase;
         use crate::session::SessionLimits;
