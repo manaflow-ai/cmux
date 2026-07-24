@@ -64,7 +64,7 @@ public struct AgentsPanelView: View {
                 if let switchError = store.lastSwitchError {
                     switchErrorBanner(switchError)
                 }
-                ForEach(snapshot.providers, id: \.rawValue) { provider in
+                ForEach(snapshot.sectionProviders, id: \.rawValue) { provider in
                     SubrouterProviderSectionView(
                         provider: provider,
                         accounts: snapshot.accounts(for: provider),
@@ -83,9 +83,6 @@ public struct AgentsPanelView: View {
                                 : nil
                         ))
                     )
-                }
-                if snapshot.daemonState.isHealthy && snapshot.usageStatuses.isEmpty {
-                    emptyAccountsState(configuration: configuration)
                 }
             }
             .padding(.horizontal, 10)
@@ -147,40 +144,6 @@ public struct AgentsPanelView: View {
     private func terminalAction(_ request: SubrouterTerminalRequest?) -> (() -> Void)? {
         guard let onOpenTerminal, let request else { return nil }
         return { onOpenTerminal(request) }
-    }
-
-    /// The zero-accounts state: explanatory text, plus one-click add
-    /// buttons when the host can open terminals.
-    @ViewBuilder
-    private func emptyAccountsState(configuration: SubrouterConfiguration) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(String(
-                localized: "subrouter.panel.noAccounts",
-                defaultValue: "No accounts configured. Add accounts with the sr CLI."
-            ))
-            .font(.system(size: 10))
-            .foregroundStyle(.tertiary)
-            HStack(spacing: 6) {
-                ForEach([SubrouterProvider.codex, .claude], id: \.rawValue) { provider in
-                    if let action = terminalAction(.addAccount(
-                        provider: provider,
-                        serverName: configuration.isRemoteEndpoint
-                            ? (configuration.serverName ?? configuration.endpoint.baseURL.host())
-                            : nil
-                    )) {
-                        Button(action: action) {
-                            Text(String(
-                                localized: "subrouter.provider.addAccount",
-                                defaultValue: "Add \(provider.displayName) account"
-                            ))
-                            .font(.system(size: 10))
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.mini)
-                    }
-                }
-            }
-        }
     }
 
     private func remoteServerNote(configuration: SubrouterConfiguration) -> some View {

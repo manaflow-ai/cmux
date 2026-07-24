@@ -15,12 +15,14 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CmuxSubrouter"),
+        .package(path: "../CmuxAppKitSupportUI"),
     ],
     targets: [
         .target(
             name: "CmuxSubrouterUI",
             dependencies: [
                 .product(name: "CmuxSubrouter", package: "CmuxSubrouter"),
+                .product(name: "CmuxAppKitSupportUI", package: "CmuxAppKitSupportUI"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

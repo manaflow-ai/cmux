@@ -1,8 +1,11 @@
 public import SwiftUI
 public import CmuxSubrouter
+internal import CmuxAppKitSupportUI
+internal import AppKit
 
-/// One provider's section: header (with an add-account button when the
-/// host can open terminals), account rows, and a signed-out disclosure.
+/// One provider's section: brand-mark header (the same `AgentIcons`
+/// marks Vault uses, with an add-account button when the host can open
+/// terminals), account rows, and a signed-out disclosure.
 /// Receives value snapshots plus action closures only.
 public struct SubrouterProviderSectionView: View {
     private let provider: SubrouterProvider
@@ -46,6 +49,7 @@ public struct SubrouterProviderSectionView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 5) {
+                providerIcon
                 Text(provider.displayName)
                     .font(.system(size: 11, weight: .semibold))
                 Text("\(accounts.count)")
@@ -119,11 +123,45 @@ public struct SubrouterProviderSectionView: View {
                 ))
                 .font(.system(size: 10))
                 .foregroundStyle(.tertiary)
+                // An empty section's whole point is the add path: offer it
+                // as a labeled button, not just the small header "+".
+                if let onAddAccount {
+                    Button(action: onAddAccount) {
+                        Text(String(
+                            localized: "subrouter.provider.addAccount",
+                            defaultValue: "Add \(provider.displayName) account"
+                        ))
+                        .font(.system(size: 10))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                }
             }
         }
         .padding(9)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    /// The provider's brand mark from the host app's `AgentIcons` asset
+    /// set (the same marks Vault renders), or Vault's generic-agent
+    /// fallback for providers without one.
+    @ViewBuilder
+    private var providerIcon: some View {
+        if let assetName = provider.iconAssetName {
+            CmuxResolvedIconImage(request: CmuxResolvedIconRequest(
+                source: .asset(name: assetName, bundle: .main),
+                size: NSSize(width: 13, height: 13)
+            ))
+            .frame(width: 13, height: 13)
+            .accessibilityHidden(true)
+        } else {
+            Image(systemName: "person.crop.circle")
+                .font(.system(size: 11, weight: .regular))
+                .foregroundStyle(.secondary)
+                .frame(width: 13, height: 13)
+                .accessibilityHidden(true)
+        }
     }
 
     /// The rows shown by default: the active account first, then switchable

@@ -15,6 +15,17 @@ extension SubrouterProvider {
         }
     }
 
+    /// The asset-catalog name of the provider's brand mark in the host
+    /// app — the same `AgentIcons` set Vault and the session index use —
+    /// or `nil` for providers without a bundled mark.
+    public var iconAssetName: String? {
+        switch self {
+        case .codex: return "AgentIcons/Codex"
+        case .claude: return "AgentIcons/Claude"
+        default: return nil
+        }
+    }
+
     /// A localized note about switch side effects, or `nil` when none apply.
     /// Codex switches also rewrite OpenCode and pi credential files.
     public var switchSideEffectNote: String? {

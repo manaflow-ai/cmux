@@ -59,6 +59,21 @@ extension SubrouterSnapshot {
         return ordered
     }
 
+    /// The providers to render as panel sections: the supported set always
+    /// (each agent type stays visible with its icon and add path even
+    /// before any account exists), then unknown daemon-reported extras.
+    /// The footer popover keeps using ``providers`` — a compact popover
+    /// has no room for empty sections.
+    public var sectionProviders: [SubrouterProvider] {
+        var seen: Set<SubrouterProvider> = [.codex, .claude]
+        var ordered: [SubrouterProvider] = [.codex, .claude]
+        for status in usageStatuses where !seen.contains(status.provider) {
+            seen.insert(status.provider)
+            ordered.append(status.provider)
+        }
+        return ordered
+    }
+
     /// The accounts for one provider, in daemon order.
     /// - Parameter provider: The provider to filter by.
     public func accounts(for provider: SubrouterProvider) -> [SubrouterAccountUsageStatus] {
