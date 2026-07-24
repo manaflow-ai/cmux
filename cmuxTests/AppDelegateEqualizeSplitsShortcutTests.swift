@@ -241,6 +241,82 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
     }
 
+    func testExplicitWorkspaceFontSizeBindingWinsOverAnotherImplicitFontSizeDefault() {
+        withIsolatedShortcutFileStore {
+            withDefaultShortcutFallback(action: .increaseWorkspaceTerminalFontSize) {
+                withTemporaryShortcut(
+                    action: .decreaseWorkspaceTerminalFontSize,
+                    shortcut: StoredShortcut(
+                        key: "=",
+                        command: true,
+                        shift: false,
+                        option: false,
+                        control: true
+                    )
+                ) {
+                    guard let appDelegate = AppDelegate.shared else {
+                        XCTFail("Expected AppDelegate.shared")
+                        return
+                    }
+
+                    let windowId = appDelegate.createMainWindow()
+                    defer { closeWindow(withId: windowId) }
+
+                    guard let window = window(withId: windowId),
+                          let manager = appDelegate.tabManagerFor(windowId: windowId),
+                          let workspace = manager.selectedWorkspace,
+                          let panelId = workspace.focusedPanelId,
+                          let panel = workspace.terminalPanel(for: panelId),
+                          let event = makeKeyDownEvent(
+                            key: "=",
+                            modifiers: [.command, .control],
+                            keyCode: 24,
+                            windowNumber: window.windowNumber
+                          ) else {
+                        XCTFail("Expected a terminal and Cmd+Ctrl+= event")
+                        return
+                    }
+
+                    window.makeKeyAndOrderFront(nil)
+                    window.displayIfNeeded()
+                    let configuredRuntimePoints = Float32(
+                        GhosttyConfig.load(
+                            globalFontMagnificationPercent: GlobalFontMagnification.storedPercent
+                        ).fontSize
+                    )
+                    let beforeRuntimePoints = panel.surface.fontSizeLineageSnapshot().map {
+                        CmuxSurfaceConfigTemplate.runtimeFontSize(
+                            fromBasePoints: $0.basePoints,
+                            percent: GlobalFontMagnification.storedPercent
+                        )
+                    } ?? configuredRuntimePoints
+
+#if DEBUG
+                    XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+                    XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+                    return
+#endif
+
+                    guard let afterLineage = panel.surface.fontSizeLineageSnapshot() else {
+                        XCTFail("Expected adjusted font-size lineage")
+                        return
+                    }
+                    let afterRuntimePoints = CmuxSurfaceConfigTemplate.runtimeFontSize(
+                        fromBasePoints: afterLineage.basePoints,
+                        percent: GlobalFontMagnification.storedPercent
+                    )
+                    XCTAssertEqual(
+                        afterRuntimePoints,
+                        TerminalFontSizePolicy().clampedRuntimePoints(beforeRuntimePoints - 1),
+                        accuracy: 0.001
+                    )
+                    XCTAssertTrue(afterLineage.isExplicitOverride)
+                }
+            }
+        }
+    }
+
     func testPersistedLegacyEqualizeShortcutWinsOverNewFontSizeDefault() {
         withIsolatedShortcutFileStore {
             withDefaultShortcutFallback(action: .increaseWorkspaceTerminalFontSize) {
