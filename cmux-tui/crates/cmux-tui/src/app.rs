@@ -11217,14 +11217,14 @@ mod tests {
     }
 
     #[test]
-    fn remote_command_k_uses_the_authoritative_screen_when_the_mirror_is_stale() {
+    fn remote_command_k_uses_authoritative_screen_and_keyboard_modes() {
         let mux = Mux::new(
             "remote-command-k-authority-test",
             SurfaceOptions {
                 command: Some(vec![
                     "/bin/sh".to_string(),
                     "-c".to_string(),
-                    "stty raw -echo; printf '\\033[>1uready'; exec cat".to_string(),
+                    "stty raw -echo; printf ready; exec cat".to_string(),
                 ]),
                 cols: 20,
                 rows: 8,
@@ -11266,8 +11266,9 @@ mod tests {
         );
 
         // This bypasses the attach stream to model a remote mirror that has
-        // not received the server's authoritative screen transition yet.
-        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1049h"));
+        // not received the server's authoritative screen or keyboard-mode
+        // transitions yet.
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1049h\x1b[>1u"));
         assert_eq!(
             surface.with_terminal(|terminal| terminal.active_screen()),
             Some(ghostty_vt::Screen::Alternate)
