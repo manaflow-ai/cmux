@@ -1806,16 +1806,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let notificationStore else { return }
         notificationStore.handleApplicationDidBecomeActive()
         guard let tabManager else { return }
-        guard let tabId = tabManager.selectedTabId else { return }
-        let surfaceId = tabManager.focusedSurfaceId(for: tabId)
-        guard notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId) else { return }
+        guard let target = notificationAttentionTargetOnActivation(tabManager: tabManager) else { return }
+        guard notificationStore.hasUnreadNotification(
+            forTabId: target.workspaceID,
+            surfaceId: target.surfaceID
+        ) else { return }
 
-        if let surfaceId,
-           let tab = tabManager.tabs.first(where: { $0.id == tabId }),
-           notificationStore.hasUnreadNotificationRequiringPaneFlash(forTabId: tabId, surfaceId: surfaceId) {
-            tab.triggerNotificationFocusFlash(panelId: surfaceId, requiresSplit: false, shouldFocus: false)
+        if notificationStore.hasUnreadNotificationRequiringPaneFlash(
+            forTabId: target.workspaceID,
+            surfaceId: target.surfaceID
+        ) {
+            routeNotificationAttentionFlash(
+                workspaceID: target.workspaceID,
+                panelID: target.surfaceID,
+                reason: .notificationArrival
+            )
         }
-        notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
+        notificationStore.markRead(forTabId: target.workspaceID, surfaceId: target.surfaceID)
     }
 
     /// Sole caller of `NSApp.reply(toApplicationShouldTerminate:)`.
