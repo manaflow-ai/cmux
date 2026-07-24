@@ -416,6 +416,149 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
     }
 
+    func testWorkspaceTerminalFontSizeRepeatDrainBoundsOneTurn() {
+        withTemporaryShortcut(action: .decreaseWorkspaceTerminalFontSize) {
+            guard let appDelegate = AppDelegate.shared else {
+                XCTFail("Expected AppDelegate.shared")
+                return
+            }
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            guard let window = window(withId: windowId),
+                  let repeatedEvent = makeKeyDownEvent(
+                    key: "-",
+                    modifiers: [.command, .control],
+                    keyCode: 27,
+                    windowNumber: window.windowNumber,
+                    isARepeat: true
+                  ) else {
+                XCTFail("Expected repeated Cmd+Ctrl+- event")
+                return
+            }
+
+            let windowDock = appDelegate.windowDock(forWindowId: windowId)
+            let dockPanels = (0..<12).map { _ in
+                let panel = TerminalPanel(
+                    workspaceId: windowDock.workspaceId,
+                    runtimeSpawnPolicy: .pacedSessionRestore
+                )
+                panel.surface.recordCurrentFontSizeLineage(
+                    TerminalFontSizeLineage(basePoints: 20, isExplicitOverride: true)
+                )
+                windowDock.panels[panel.id] = panel
+                return panel
+            }
+
+#if DEBUG
+            appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: repeatedEvent))
+            appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
+#else
+            XCTFail("Workspace font-size coalescer hooks are only available in DEBUG")
+            return
+#endif
+
+            let adjustedCount = dockPanels.count {
+                $0.surface.fontSizeLineageSnapshot()?.basePoints == 19
+            }
+            XCTAssertGreaterThan(adjustedCount, 0)
+            XCTAssertLessThanOrEqual(
+                adjustedCount,
+                8,
+                "One event-loop drain must have a fixed panel/action budget"
+            )
+            XCTAssertLessThan(adjustedCount, dockPanels.count)
+
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.2))
+        }
+    }
+
+    func testWorkspaceTerminalFontSizeSharedDockPreservesCrossWorkspaceEventOrder() {
+        withTemporaryShortcut(action: .increaseWorkspaceTerminalFontSize) {
+            withTemporaryShortcut(action: .decreaseWorkspaceTerminalFontSize) {
+                guard let appDelegate = AppDelegate.shared else {
+                    XCTFail("Expected AppDelegate.shared")
+                    return
+                }
+
+                let windowId = appDelegate.createMainWindow()
+                defer { closeWindow(withId: windowId) }
+
+                guard let window = window(withId: windowId),
+                      let manager = appDelegate.tabManagerFor(windowId: windowId),
+                      let firstWorkspace = manager.selectedWorkspace,
+                      let increaseEvent = makeKeyDownEvent(
+                        key: "=",
+                        modifiers: [.command, .control],
+                        keyCode: 24,
+                        windowNumber: window.windowNumber,
+                        isARepeat: true
+                      ),
+                      let decreaseEvent = makeKeyDownEvent(
+                        key: "-",
+                        modifiers: [.command, .control],
+                        keyCode: 27,
+                        windowNumber: window.windowNumber,
+                        isARepeat: true
+                      ) else {
+                    XCTFail("Expected two workspace font-size repeat events")
+                    return
+                }
+
+                let windowDock = appDelegate.windowDock(forWindowId: windowId)
+                let maximumPanel = TerminalPanel(
+                    workspaceId: windowDock.workspaceId,
+                    runtimeSpawnPolicy: .pacedSessionRestore
+                )
+                maximumPanel.surface.recordCurrentFontSizeLineage(
+                    TerminalFontSizeLineage(
+                        basePoints: TerminalFontSizePolicy.maximumRuntimePoints,
+                        isExplicitOverride: true
+                    )
+                )
+                windowDock.panels[maximumPanel.id] = maximumPanel
+
+                let minimumPanel = TerminalPanel(
+                    workspaceId: windowDock.workspaceId,
+                    runtimeSpawnPolicy: .pacedSessionRestore
+                )
+                minimumPanel.surface.recordCurrentFontSizeLineage(
+                    TerminalFontSizeLineage(
+                        basePoints: TerminalFontSizePolicy.minimumRuntimePoints,
+                        isExplicitOverride: true
+                    )
+                )
+                windowDock.panels[minimumPanel.id] = minimumPanel
+
+#if DEBUG
+                appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
+                XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: increaseEvent))
+
+                let secondWorkspace = manager.addTab(select: true)
+                XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: decreaseEvent))
+
+                manager.selectTab(firstWorkspace)
+                XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: increaseEvent))
+                appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
+#else
+                XCTFail("Workspace font-size coalescer hooks are only available in DEBUG")
+                return
+#endif
+
+                XCTAssertEqual(
+                    maximumPanel.surface.fontSizeLineageSnapshot()?.basePoints,
+                    TerminalFontSizePolicy.maximumRuntimePoints
+                )
+                XCTAssertEqual(
+                    minimumPanel.surface.fontSizeLineageSnapshot()?.basePoints,
+                    TerminalFontSizePolicy.minimumRuntimePoints + 1
+                )
+            }
+        }
+    }
+
     func testPendingWorkspaceTerminalFontSizeChangePreservesResetOrdering() {
         var change = PendingWorkspaceTerminalFontSizeChange.relative([-1])
         change.appendAdjustment(-1)
