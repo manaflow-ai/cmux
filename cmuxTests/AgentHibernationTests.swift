@@ -326,6 +326,47 @@ struct AgentHibernationTests {
         expectEqual(workspace.statusEntries["codex"]?.agentOwnerPanelID, statusOwnerPanelId)
     }
 
+    @MainActor
+    @Test
+    func testMovingPanelDoesNotTransferSiblingOwnedStatus() throws {
+        let source = Workspace()
+        let movingPanelId = try #require(source.focusedPanelId)
+        let paneId = try #require(source.paneId(forPanelId: movingPanelId))
+        let statusOwnerPanelId = try #require(source.newTerminalSurface(inPane: paneId, focus: false)).id
+
+        source.recordAgentPID(
+            key: "codex.moving-session",
+            pid: 111,
+            panelId: movingPanelId,
+            refreshPorts: false
+        )
+        source.recordAgentPID(
+            key: "codex.owner-session",
+            pid: 222,
+            panelId: statusOwnerPanelId,
+            refreshPorts: false
+        )
+        source.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex",
+            value: "Running",
+            icon: "bolt.fill",
+            color: "#4C8DFF",
+            agentEventTime: 1_893_456_300,
+            agentOwnerPanelID: statusOwnerPanelId
+        )
+
+        let detached = try #require(source.detachSurface(panelId: movingPanelId))
+        let destination = Workspace()
+        let destinationPaneId = try #require(destination.bonsplitController.focusedPaneId)
+        expectEqual(
+            destination.attachDetachedSurface(detached, inPane: destinationPaneId, focus: false),
+            movingPanelId
+        )
+
+        expectEqual(source.statusEntries["codex"]?.agentOwnerPanelID, statusOwnerPanelId)
+        expectNil(destination.statusEntries["codex"])
+    }
+
     @Test
     func testSessionIndexLoadsAgentLifecycleFromHookStore() throws {
         let home = FileManager.default.temporaryDirectory

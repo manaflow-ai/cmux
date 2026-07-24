@@ -168,6 +168,17 @@ import Testing
         )
         let hooks = try #require(settingsObject["hooks"] as? [String: Any])
         let preToolUseMatchers = try #require(hooks["PreToolUse"] as? [[String: Any]])
+        let cronCreatePreToolUse = try #require(
+            preToolUseMatchers.first { ($0["matcher"] as? String) == "CronCreate" }
+        )
+        let cronCreateHooks = try #require(cronCreatePreToolUse["hooks"] as? [[String: Any]])
+        let cronCreateGuard = try #require(cronCreateHooks.first {
+            ($0["command"] as? String)?.contains("hooks claude cron-create-guard") == true
+        })
+        #expect(
+            cronCreateGuard["async"] as? Bool != true,
+            "CronCreate must wait for cmux to reject unsupported durable cron requests"
+        )
         let ordinaryPreToolUse = try #require(
             preToolUseMatchers.first { ($0["matcher"] as? String) == "" }
         )
@@ -176,8 +187,8 @@ import Testing
             ($0["command"] as? String)?.contains("hooks claude pre-tool-use") == true
         })
         #expect(
-            statusHook["async"] as? Bool != true,
-            "State-changing PreToolUse must finish before later lifecycle hooks can start"
+            statusHook["async"] as? Bool == true,
+            "Ordinary tools must not wait for cmux's status bookkeeping"
         )
         let stopMatchers = try #require(hooks["Stop"] as? [[String: Any]])
         let stopHooks = try #require(stopMatchers.first?["hooks"] as? [[String: Any]])

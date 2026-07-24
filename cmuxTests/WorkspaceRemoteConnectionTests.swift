@@ -5231,6 +5231,13 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             },
             "Expected the spawned monitor to preserve the prompt event time, saw \(state.snapshot())"
         )
+        XCTAssertTrue(
+            waitForSocketCommand(state: state, timeout: 5) { command in
+                command.hasPrefix("notify_target_async \(workspaceId) \(surfaceId) Codex|Network error|") &&
+                    command.contains("|c=other;p=0;k=codex;t=\(eventTime)")
+            },
+            "Expected the spawned monitor notification to preserve the prompt event time, saw \(state.snapshot())"
+        )
     }
 
     func testCodexHookMonitorReportsExplicitErrorBeforeTerminalCompletion() throws {
@@ -5324,6 +5331,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "codex-session-monitor-user-input"
         let turnId = "turn-monitor-user-input"
+        let eventTime = "1700000201.000000"
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
@@ -5369,6 +5377,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             turnId,
             "--transcript",
             transcriptURL.path,
+            "--agent-event-time",
+            eventTime,
         ]
         process.environment = environment
         process.standardInput = FileHandle.nullDevice
@@ -5396,9 +5406,12 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
         XCTAssertTrue(
             waitForSocketCommand(state: state, timeout: 5) { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Waiting|Which demo path should I use?")
+                command.hasPrefix(
+                    "notify_target_async \(workspaceId) \(surfaceId) Codex|Waiting|Which demo path should I use?"
+                ) &&
+                    command.contains("|c=needs-permission;p=0;k=codex;t=\(eventTime)")
             },
-            "Expected monitor to send Codex input notification, saw \(state.snapshot())"
+            "Expected monitor to send an ordered Codex input notification, saw \(state.snapshot())"
         )
         XCTAssertTrue(
             waitForSocketCommand(state: state, timeout: 5) { command in
