@@ -11456,6 +11456,64 @@ mod tests {
     }
 
     #[test]
+    fn shortcut_help_mouse_repaints_only_when_modal_state_changes() {
+        let mux = Mux::new("shortcut-help-mouse-render-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.run_action(Action::ShowShortcuts).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let help = app.shortcut_help.as_ref().unwrap();
+        let content_x = help.rect.x + 2;
+        let content_y = help.rect.y + 3;
+
+        assert_eq!(
+            app.handle_shortcut_help_mouse(MouseEvent {
+                kind: MouseEventKind::Moved,
+                column: content_x,
+                row: content_y,
+                modifiers: KeyModifiers::NONE,
+            }),
+            RenderAction::None
+        );
+
+        let previous_offset = app.shortcut_help.as_ref().unwrap().scroll_offset;
+        assert_eq!(
+            app.handle_shortcut_help_mouse(MouseEvent {
+                kind: MouseEventKind::ScrollDown,
+                column: content_x,
+                row: content_y,
+                modifiers: KeyModifiers::NONE,
+            }),
+            RenderAction::Paint
+        );
+        assert!(app.shortcut_help.as_ref().unwrap().scroll_offset > previous_offset);
+    }
+
+    #[test]
+    fn opening_shortcut_help_releases_an_active_pty_mouse_press() {
+        let mux = Mux::new("shortcut-help-pty-release-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.drag = Some(Drag::PtyMouse {
+            surface: surface.id,
+            handle: None,
+            reservation_id: 41,
+            release_bytes: PtyInputBytes::from_slice(b"fallback-release"),
+            content: Rect { x: 1, y: 1, width: 20, height: 8 },
+            button: MouseButton::Left,
+            position: (4, 3),
+            modifiers: KeyModifiers::NONE,
+        });
+
+        app.run_action(Action::ShowShortcuts).unwrap();
+
+        assert!(app.shortcut_help.is_some());
+        assert!(app.drag.is_none());
+        assert_eq!(app.encode_buf, b"fallback-release");
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn prefix_bar_and_shortcut_modal_use_the_resolved_action_catalog() {
         let (mux, _) = test_mux("shortcut-help-test", None);
         let mut app = test_app(Session::Local(mux.clone()));
@@ -15857,6 +15915,20 @@ mod tests {
 
         app.run_action(Action::FocusSidebar).unwrap();
         assert!(!app.workspace_sidebar_focused());
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn sidebar_context_menu_focus_is_idempotent() {
+        let (mux, surface) = test_mux("sidebar-menu-focus-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.tree = notify_tree(surface.id, false);
+        app.sidebar_visible = true;
+        app.focus = FocusTarget::WorkspaceRail;
+
+        app.activate_menu(MenuAction::FocusSidebar).unwrap();
+
+        assert!(app.workspace_sidebar_focused());
         mux.close_surface(surface.id).unwrap();
     }
 
