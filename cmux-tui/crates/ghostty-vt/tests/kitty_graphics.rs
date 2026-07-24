@@ -34,6 +34,32 @@ fn kitty(params: &str, payload: &str) -> Vec<u8> {
     format!("\x1b_G{params};{payload}\x1b\\").into_bytes()
 }
 
+fn assert_inflight_replay_completes(
+    source: &mut Terminal,
+    image_id: u32,
+    first_chunk: &[u8],
+    final_chunk: &[u8],
+) {
+    source.vt_write(first_chunk);
+    assert!(source.kitty_graphics_snapshot().unwrap().image(image_id).is_none());
+
+    let replay = source.vt_replay().unwrap();
+    let mut mirror = terminal();
+    mirror.vt_write(&replay.bytes);
+    mirror.restore_kitty_image_aliases(&replay.kitty_image_aliases).unwrap();
+    mirror.vt_write(final_chunk);
+
+    assert_eq!(
+        &*mirror
+            .kitty_graphics_snapshot()
+            .unwrap()
+            .image(image_id)
+            .expect("replayed in-flight transmission must accept its final chunk")
+            .data,
+        &[255; 6]
+    );
+}
+
 #[test]
 fn chunked_rgb_transmission_is_snapshotted_as_owned_pixels() {
     let mut terminal = terminal();
@@ -328,6 +354,56 @@ fn replay_preserves_an_inflight_chunked_transmission_until_its_final_chunk() {
     mirror.vt_write(&final_chunk);
     assert_eq!(&*source.kitty_graphics_snapshot().unwrap().image(92).unwrap().data, &[255; 6]);
     assert_eq!(&*mirror.kitty_graphics_snapshot().unwrap().image(92).unwrap().data, &[255; 6]);
+}
+
+#[test]
+fn utf8_emoji_before_chunked_transmission_does_not_hide_its_replay_prefix() {
+    let mut source = terminal();
+    source.vt_write("😀".as_bytes());
+    assert_inflight_replay_completes(
+        &mut source,
+        192,
+        &kitty("a=t,t=d,f=24,i=192,s=1,v=2,m=1,q=2", "////"),
+        &kitty("m=0,q=2", "////"),
+    );
+}
+
+#[test]
+fn split_utf8_scalar_before_chunked_transmission_does_not_hide_its_replay_prefix() {
+    let mut source = terminal();
+    let emoji = "😀".as_bytes();
+    source.vt_write(&emoji[..2]);
+    source.vt_write(&emoji[2..]);
+    assert_inflight_replay_completes(
+        &mut source,
+        193,
+        &kitty("a=t,t=d,f=24,i=193,s=1,v=2,m=1,q=2", "////"),
+        &kitty("m=0,q=2", "////"),
+    );
+}
+
+#[test]
+fn invalid_utf8_resynchronizes_before_a_chunked_transmission() {
+    let mut source = terminal();
+    source.vt_write(&[0xf0, 0x9f]);
+    assert_inflight_replay_completes(
+        &mut source,
+        194,
+        &kitty("a=t,t=d,f=24,i=194,s=1,v=2,m=1,q=2", "////"),
+        &kitty("m=0,q=2", "////"),
+    );
+}
+
+#[test]
+fn bare_c1_kitty_apc_chunked_transmission_remains_replayable() {
+    let mut source = terminal();
+    let first = b"\x9fGa=t,t=d,f=24,i=195,s=1,v=2,m=1,q=2;////\x9c";
+    source.vt_write(first);
+
+    assert!(
+        source.vt_replay().unwrap().bytes.ends_with(first),
+        "a genuine bare C1 Kitty APC must remain part of attach replay"
+    );
 }
 
 #[test]
