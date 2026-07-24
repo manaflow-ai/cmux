@@ -320,10 +320,10 @@ final class CmuxMainWindow: NSWindow {
     /// is what stops the sleep/wake drift (#6305).
     ///
     /// Delegates to the shared ``isTitlebarReachable(frame:visibleFrame:)``
-    /// predicate, which the startup/restore-path clamp
-    /// (`AppDelegate.shouldPreserveAccessibleFrame`) also uses, so the runtime
-    /// constrain pass and the restore-time clamp can never disagree on what
-    /// counts as reachable.
+    /// predicate used by the reactive titlebar-stranding safety net. Persisted
+    /// frames and display-topology changes use the stricter visible-frame fit
+    /// policy instead: restored windows must be fully covered by current
+    /// displays even when this lenient drag-reachability test passes.
     nonisolated static func shouldPreserveFrameDuringConstrain(
         _ proposedFrame: NSRect,
         visibleFrames: [NSRect]
@@ -334,8 +334,8 @@ final class CmuxMainWindow: NSWindow {
     /// Whether a grabbable slice of `frame`'s titlebar — its top strip — is
     /// visible on `visibleFrame`. This is the single source of truth for "can
     /// the user still grab this window", shared by the runtime constrain veto
-    /// (``shouldPreserveFrameDuringConstrain``) and the reactive/restore-time
-    /// clamp (`AppDelegate`).
+    /// (``shouldPreserveFrameDuringConstrain``) and AppDelegate's reactive
+    /// titlebar-stranding safety net.
     ///
     /// The window is non-movable (``configureCmuxMainWindowDragBehavior`` sets
     /// `isMovable = false`) and can only be dragged by ``WindowDragHandleView``
