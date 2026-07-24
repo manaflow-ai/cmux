@@ -559,6 +559,77 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             negative.stdout,
         )
 
+    def test_python_same_line_sleep_assert_order_is_preserved(self) -> None:
+        positive = self.run_checker(
+            {
+                "sleep-before-assert.py": (
+                    "time.sleep(0.01); assert finished\n"
+                ),
+            }
+        )
+
+        self.assertEqual(
+            positive.returncode,
+            1,
+            positive.stdout + positive.stderr,
+        )
+        self.assertIn(
+            "fixtures/sleep-before-assert.py:1: sleep-then-assert:",
+            positive.stdout,
+        )
+
+        negative = self.run_checker(
+            {
+                "assert-before-sleep.py": (
+                    "assert finished; time.sleep(0.01)\n"
+                ),
+            }
+        )
+
+        self.assertEqual(
+            negative.returncode,
+            0,
+            negative.stdout + negative.stderr,
+        )
+        self.assertIn(
+            "test-determinism: 0 active finding(s)",
+            negative.stdout,
+        )
+
+    def test_python_comprehension_walrus_shadows_parent_name(self) -> None:
+        result = self.run_checker(
+            {
+                "comprehension-walrus.py": (
+                    "[(time := fake_clock) for _ in clocks]\n"
+                    "time.sleep(0.01)\n"
+                    "assert finished\n"
+                ),
+            }
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(
+            "test-determinism: 0 active finding(s)",
+            result.stdout,
+        )
+
+    def test_python_dotted_import_keeps_trusted_root(self) -> None:
+        result = self.run_checker(
+            {
+                "dotted-import.py": (
+                    "import asyncio.tasks\n"
+                    "await asyncio.sleep(0.01)\n"
+                    "assert finished\n"
+                ),
+            }
+        )
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(
+            "fixtures/dotted-import.py:2: sleep-then-assert:",
+            result.stdout,
+        )
+
     def test_sleep_text_inside_strings_and_comments_remains_silent(self) -> None:
         result = self.run_checker(
             {
