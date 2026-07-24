@@ -11514,7 +11514,7 @@ mod tests {
     };
     use ghostty_vt::{
         CursorShape, KeyEncoder, Mods, MouseAction, MouseButton as GhosttyMouseButton, MouseInput,
-        RenderState, Rgb,
+        RenderState, Rgb, Screen,
     };
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
@@ -12847,6 +12847,63 @@ mod tests {
         assert!(app.selection.is_none());
         assert!(app.encode_buf.is_empty());
         mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn deferred_untracked_wheel_fails_closed_when_screen_semantics_change() {
+        for (name, initial, transition, expected_screen) in [
+            (
+                "deferred-wheel-primary-to-alternate",
+                None,
+                b"\x1b[?1049h".as_slice(),
+                Screen::Primary,
+            ),
+            (
+                "deferred-wheel-alternate-to-primary",
+                Some(b"\x1b[?1049h".as_slice()),
+                b"\x1b[?1049l".as_slice(),
+                Screen::Alternate,
+            ),
+        ] {
+            let (mux, surface) = test_mux(name, None);
+            if let Some(initial) = initial {
+                surface.with_terminal(|terminal| terminal.vt_write(initial));
+            }
+            let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+            app.replace_tree(app.session.tree());
+            app.sidebar_visible = false;
+            app.sync_layout((40, 15));
+            while app.session.has_pending_mutations() {
+                app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            }
+            let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
+            app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+            let content = app.pane_areas[0].content;
+            let wheel = MouseEvent {
+                kind: MouseEventKind::ScrollUp,
+                column: content.x + 4,
+                row: content.y + 2,
+                modifiers: KeyModifiers::NONE,
+            };
+            assert_eq!(
+                surface.with_terminal(|terminal| terminal.active_screen()),
+                Some(expected_screen)
+            );
+
+            app.pointer_route_phase = PointerRoutePhase::DrawPending;
+            app.handle(AppEvent::Input(Event::Mouse(wheel))).unwrap();
+            assert_eq!(app.deferred_input.len(), 1);
+
+            surface.with_terminal(|terminal| terminal.vt_write(transition));
+            app.pointer_route_phase = PointerRoutePhase::Fresh;
+            assert_eq!(
+                app.replay_deferred_input().unwrap(),
+                RenderAction::None,
+                "a wheel rendered for one screen's semantics must not run against the other"
+            );
+            assert!(app.deferred_input.is_empty());
+            mux.close_surface(surface.id).unwrap();
+        }
     }
 
     #[test]

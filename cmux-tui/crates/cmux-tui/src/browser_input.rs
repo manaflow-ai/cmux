@@ -588,6 +588,10 @@ mod tests {
     }
 
     fn release_event(surface: SurfaceId) -> BrowserInputEvent {
+        release_event_with_button(surface, "left")
+    }
+
+    fn release_event_with_button(surface: SurfaceId, button: &'static str) -> BrowserInputEvent {
         BrowserInputEvent {
             surface_id: surface,
             surface: SurfaceHandle::RemoteBrowserUnsupported,
@@ -595,7 +599,7 @@ mod tests {
                 event_type: "mouseReleased",
                 x: 0.0,
                 y: 0.0,
-                button: Some("left"),
+                button: Some(button),
                 click_count: Some(1),
             },
         }
@@ -673,6 +677,33 @@ mod tests {
             blocked.drain_mouse_lifetimes(),
             vec![("mousePressed", false), ("mouseReleased", false)],
             "the retained release must keep its enqueue order behind the accepted press"
+        );
+    }
+
+    #[test]
+    fn full_queue_retains_only_a_matching_accepted_press_release() {
+        let (dispatcher, blocked) = BrowserInputDispatcher::blocked(1);
+        assert!(dispatcher.enqueue(click_event(7)));
+        assert!(
+            !dispatcher.enqueue(click_event(8)),
+            "the saturated ordinary lane must reject a second press"
+        );
+        assert!(
+            !dispatcher.enqueue(release_event(8)),
+            "a release for the dropped press must not enter the fallback lane"
+        );
+        assert!(
+            !dispatcher.enqueue(release_event_with_button(7, "right")),
+            "a release for an unowned button must not enter the fallback lane"
+        );
+        assert!(
+            dispatcher.enqueue(release_event(7)),
+            "the release matching the accepted press must retain its reserved fallback"
+        );
+        assert_eq!(
+            blocked.drain_mouse_lifetimes(),
+            vec![("mousePressed", false), ("mouseReleased", false)],
+            "unmatched releases must leave no fallback backlog"
         );
     }
 
