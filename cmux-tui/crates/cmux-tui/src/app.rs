@@ -68,7 +68,7 @@ const DEFERRED_INPUT_CAPACITY: usize = 512;
 const DEFERRED_INPUT_FIXED_BYTES: usize = 64;
 const BRACKETED_PASTE_MARKER_BYTES: usize = 12;
 const MAX_DEFERRED_INPUT_BYTES: usize = 4 * 1024 * 1024;
-const ROUTING_REFRESH_RETRIES: u8 = 1;
+const LAYOUT_REFRESH_RETRIES: u8 = 1;
 const BACKGROUND_REFRESH_RETRIES: u8 = 6;
 const APP_EVENT_CAPACITY: usize = 4_096;
 const PTY_FAILURE_CAPACITY: usize = 512;
@@ -82,7 +82,7 @@ pub enum AppEvent {
     MuxTitlesReady,
     MuxSubscriptionRecovered {
         recovery_generation: u64,
-        routing_generation: u64,
+        destination_generation: u64,
         result: Result<TreeView, String>,
     },
     MuxRecoveryComplete {
@@ -94,11 +94,11 @@ pub enum AppEvent {
     PtyOperationFailed(PtyOperationFailure),
     SessionMutationSettled {
         outcome: SessionMutationOutcome,
-        routing: bool,
+        impact: MutationImpact,
     },
     RemoteTreeUpdated {
         refresh_sequence: u64,
-        routing_generation: u64,
+        destination_generation: u64,
         result: Result<TreeView, String>,
     },
     ClientsUpdated {
@@ -213,7 +213,7 @@ struct MuxTitleIngress {
 fn forward_mux_events(
     event_source: Session,
     mut session_events: cmux_tui_core::MuxEventReceiver,
-    routing_mutation_committed: Arc<AtomicU64>,
+    destination_mutation_committed: Arc<AtomicU64>,
     mux_recovery_generation: Arc<AtomicU64>,
     tx: SessionEventSender,
     mux_titles: Arc<MuxTitleIngress>,
@@ -264,7 +264,7 @@ fn forward_mux_events(
         {
             return;
         }
-        let routing_generation = routing_mutation_committed.load(Ordering::Acquire);
+        let destination_generation = destination_mutation_committed.load(Ordering::Acquire);
         let title_snapshot_epoch = mux_titles.current_epoch();
         let recovered = event_source.refresh_tree().map_err(|error| error.to_string());
         let recovery_succeeded = recovered.is_ok();
@@ -274,7 +274,7 @@ fn forward_mux_events(
         if tx
             .send(AppEvent::MuxSubscriptionRecovered {
                 recovery_generation,
-                routing_generation,
+                destination_generation,
                 result: recovered,
             })
             .is_err()
@@ -372,7 +372,7 @@ fn start_ordered_session_inner(
     let mux_recovery_generation = Arc::new(AtomicU64::new(0));
     let event_source = session.inner.clone();
     let session_events = event_source.events();
-    let routing_mutation_committed = session.routing_mutation_committed.clone();
+    let destination_mutation_committed = session.destination_mutation_committed.clone();
     let mux_recovery_sequence = mux_recovery_generation.clone();
     let worker_events = events;
     let worker_titles = mux_titles.clone();
@@ -390,7 +390,7 @@ fn start_ordered_session_inner(
             forward_mux_events(
                 event_source,
                 session_events,
-                routing_mutation_committed,
+                destination_mutation_committed,
                 mux_recovery_sequence,
                 worker_events,
                 worker_titles,
@@ -537,13 +537,13 @@ pub enum SessionMutationOutcome {
     AuthoritativeMutationSucceeded {
         tree: TreeView,
         authoritative_generation: u64,
-        routing_generation: u64,
+        destination_generation: u64,
         completion: Option<SessionCompletion>,
     },
     IdentityRefreshSucceeded {
         tree: TreeView,
         authoritative_generation: u64,
-        routing_generation: u64,
+        destination_generation: u64,
         refresh_sequence: u64,
     },
     CommittedTreeStale {
@@ -589,12 +589,29 @@ enum SessionCompletionAction {
 struct PendingSessionMutationState {
     events: SessionEventSender,
     pending_mutations: Arc<AtomicUsize>,
-    pending_routing_mutations: Arc<AtomicUsize>,
-    routing: bool,
+    pending_pointer_mutations: Arc<AtomicUsize>,
+    impact: MutationImpact,
     cancellation_pending: Arc<AtomicBool>,
     settled: AtomicBool,
     deferred_outcome: Mutex<Option<SessionMutationOutcome>>,
     canceled_outcome: Mutex<Option<SessionMutationOutcome>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MutationImpact {
+    Ordered,
+    PointerMap,
+    Destination,
+}
+
+impl MutationImpact {
+    fn blocks_pointer(self) -> bool {
+        self != Self::Ordered
+    }
+
+    fn creates_destination_intent(self) -> bool {
+        self == Self::Destination
+    }
 }
 
 #[derive(Clone)]
@@ -606,7 +623,7 @@ impl PendingSessionMutation {
             let _ = self
                 .0
                 .events
-                .send(AppEvent::SessionMutationSettled { outcome, routing: self.0.routing });
+                .send(AppEvent::SessionMutationSettled { outcome, impact: self.0.impact });
         }
     }
 
@@ -634,8 +651,8 @@ impl PendingSessionMutation {
                 Ordering::Acquire,
                 |pending| pending.checked_sub(1),
             );
-            if self.0.routing {
-                let _ = self.0.pending_routing_mutations.fetch_update(
+            if self.0.impact.blocks_pointer() {
+                let _ = self.0.pending_pointer_mutations.fetch_update(
                     Ordering::AcqRel,
                     Ordering::Acquire,
                     |pending| pending.checked_sub(1),
@@ -656,7 +673,7 @@ impl Drop for PendingSessionMutationState {
                 .unwrap_or(SessionMutationOutcome::Canceled);
             match self
                 .events
-                .try_send(AppEvent::SessionMutationSettled { outcome, routing: self.routing })
+                .try_send(AppEvent::SessionMutationSettled { outcome, impact: self.impact })
             {
                 Ok(()) => {}
                 Err(SessionTrySendError::Full | SessionTrySendError::Disconnected) => {
@@ -665,8 +682,8 @@ impl Drop for PendingSessionMutationState {
                         Ordering::Acquire,
                         |pending| pending.checked_sub(1),
                     );
-                    if self.routing {
-                        let _ = self.pending_routing_mutations.fetch_update(
+                    if self.impact.blocks_pointer() {
+                        let _ = self.pending_pointer_mutations.fetch_update(
                             Ordering::AcqRel,
                             Ordering::Acquire,
                             |pending| pending.checked_sub(1),
@@ -835,11 +852,11 @@ pub struct OrderedSession {
     events: SessionEventSender,
     remote: bool,
     pending_mutations: Arc<AtomicUsize>,
-    pending_routing_mutations: Arc<AtomicUsize>,
+    pending_pointer_mutations: Arc<AtomicUsize>,
     cancellation_pending: Arc<AtomicBool>,
     committed_mutation_generation: Arc<AtomicU64>,
-    routing_mutation_started: Arc<AtomicU64>,
-    routing_mutation_committed: Arc<AtomicU64>,
+    destination_mutation_started: Arc<AtomicU64>,
+    destination_mutation_committed: Arc<AtomicU64>,
     remote_refresh_queued: Arc<AtomicBool>,
     remote_background_dirty: Arc<AtomicBool>,
     remote_refresh_sequence: Arc<AtomicU64>,
@@ -875,11 +892,11 @@ impl OrderedSession {
             events,
             remote,
             pending_mutations: Arc::new(AtomicUsize::new(0)),
-            pending_routing_mutations: Arc::new(AtomicUsize::new(0)),
+            pending_pointer_mutations: Arc::new(AtomicUsize::new(0)),
             cancellation_pending: Arc::new(AtomicBool::new(false)),
             committed_mutation_generation: Arc::new(AtomicU64::new(0)),
-            routing_mutation_started: Arc::new(AtomicU64::new(0)),
-            routing_mutation_committed: Arc::new(AtomicU64::new(0)),
+            destination_mutation_started: Arc::new(AtomicU64::new(0)),
+            destination_mutation_committed: Arc::new(AtomicU64::new(0)),
             remote_refresh_queued: Arc::new(AtomicBool::new(false)),
             remote_background_dirty: Arc::new(AtomicBool::new(false)),
             remote_refresh_sequence: Arc::new(AtomicU64::new(0)),
@@ -899,19 +916,19 @@ impl OrderedSession {
     }
 
     fn pending_mutation(&self) -> PendingSessionMutation {
-        self.pending_mutation_with_routing(false)
+        self.pending_mutation_with_impact(MutationImpact::Ordered)
     }
 
-    fn pending_mutation_with_routing(&self, routing: bool) -> PendingSessionMutation {
+    fn pending_mutation_with_impact(&self, impact: MutationImpact) -> PendingSessionMutation {
         self.pending_mutations.fetch_add(1, Ordering::AcqRel);
-        if routing {
-            self.pending_routing_mutations.fetch_add(1, Ordering::AcqRel);
+        if impact.blocks_pointer() {
+            self.pending_pointer_mutations.fetch_add(1, Ordering::AcqRel);
         }
         PendingSessionMutation(Arc::new(PendingSessionMutationState {
             events: self.events.clone(),
             pending_mutations: self.pending_mutations.clone(),
-            pending_routing_mutations: self.pending_routing_mutations.clone(),
-            routing,
+            pending_pointer_mutations: self.pending_pointer_mutations.clone(),
+            impact,
             cancellation_pending: self.cancellation_pending.clone(),
             settled: AtomicBool::new(false),
             deferred_outcome: Mutex::new(None),
@@ -1182,33 +1199,33 @@ impl OrderedSession {
         self.pending_mutations.load(Ordering::Acquire) > 0
     }
 
-    fn has_pending_routing_mutations(&self) -> bool {
-        self.pending_routing_mutations.load(Ordering::Acquire) > 0
+    fn has_pending_pointer_mutations(&self) -> bool {
+        self.pending_pointer_mutations.load(Ordering::Acquire) > 0
     }
 
-    fn routing_mutation_started(&self) -> u64 {
-        self.routing_mutation_started.load(Ordering::Acquire)
+    fn destination_mutation_started(&self) -> u64 {
+        self.destination_mutation_started.load(Ordering::Acquire)
     }
 
-    fn routing_mutation_committed(&self) -> u64 {
-        self.routing_mutation_committed.load(Ordering::Acquire)
+    fn destination_mutation_committed(&self) -> u64 {
+        self.destination_mutation_committed.load(Ordering::Acquire)
     }
 
-    fn settle_pending_mutation(&self, routing: bool) {
+    fn settle_pending_mutation(&self, impact: MutationImpact) {
         let result =
             self.pending_mutations.fetch_update(Ordering::AcqRel, Ordering::Acquire, |pending| {
                 pending.checked_sub(1)
             });
         debug_assert!(result.is_ok(), "session mutation completion without a pending operation");
-        if routing {
-            let result = self.pending_routing_mutations.fetch_update(
+        if impact.blocks_pointer() {
+            let result = self.pending_pointer_mutations.fetch_update(
                 Ordering::AcqRel,
                 Ordering::Acquire,
                 |pending| pending.checked_sub(1),
             );
             debug_assert!(
                 result.is_ok(),
-                "routing mutation completion without a pending operation"
+                "pointer mutation completion without a pending operation"
             );
         }
     }
@@ -1232,9 +1249,9 @@ impl OrderedSession {
         self.inner.invalidate_remote_tree();
         let session = self.inner.clone();
         let authoritative_generation = self.committed_mutation_generation.load(Ordering::Acquire);
-        let routing_generation = self.routing_mutation_committed.load(Ordering::Acquire);
+        let destination_generation = self.destination_mutation_committed.load(Ordering::Acquire);
         let refresh_sequence = self.remote_refresh_sequence.fetch_add(1, Ordering::AcqRel) + 1;
-        let pending = self.pending_mutation_with_routing(true);
+        let pending = self.pending_mutation_with_impact(MutationImpact::PointerMap);
         let claim = RemoteRefreshClaim(self.remote_refresh_queued.clone());
         let spawn =
             std::thread::Builder::new().name("remote-tree-refresh".into()).spawn(move || {
@@ -1245,7 +1262,7 @@ impl OrderedSession {
                         pending.settle(SessionMutationOutcome::IdentityRefreshSucceeded {
                             tree,
                             authoritative_generation,
-                            routing_generation,
+                            destination_generation,
                             refresh_sequence,
                         });
                     }
@@ -1283,7 +1300,7 @@ impl OrderedSession {
         let session = self.inner.clone();
         let events = self.events.clone();
         let refresh_sequence = self.remote_refresh_sequence.fetch_add(1, Ordering::AcqRel) + 1;
-        let routing_generation = self.routing_mutation_committed.load(Ordering::Acquire);
+        let destination_generation = self.destination_mutation_committed.load(Ordering::Acquire);
         let claim = RemoteRefreshClaim(self.remote_refresh_queued.clone());
         let spawn =
             std::thread::Builder::new().name("remote-tree-refresh".into()).spawn(move || {
@@ -1291,7 +1308,7 @@ impl OrderedSession {
                 drop(claim);
                 let _ = events.send(AppEvent::RemoteTreeUpdated {
                     refresh_sequence,
-                    routing_generation,
+                    destination_generation,
                     result,
                 });
             });
@@ -1299,7 +1316,7 @@ impl OrderedSession {
             self.remote_refresh_queued.store(false, Ordering::Release);
             let _ = self.events.send(AppEvent::RemoteTreeUpdated {
                 refresh_sequence,
-                routing_generation,
+                destination_generation,
                 result: Err(error.to_string()),
             });
         }
@@ -1318,18 +1335,29 @@ impl OrderedSession {
         label: &'static str,
         operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
     ) {
-        self.enqueue_with_completion(label, false, move |session| {
+        self.enqueue_with_completion(label, MutationImpact::Ordered, move |session| {
             operation(session)?;
             Ok(None)
         });
     }
 
-    fn enqueue_routing(
+    fn enqueue_pointer_mutation(
         &self,
         label: &'static str,
         operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
     ) {
-        self.enqueue_with_completion(label, true, move |session| {
+        self.enqueue_with_completion(label, MutationImpact::PointerMap, move |session| {
+            operation(session)?;
+            Ok(None)
+        });
+    }
+
+    fn enqueue_destination_mutation(
+        &self,
+        label: &'static str,
+        operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
+    ) {
+        self.enqueue_with_completion(label, MutationImpact::Destination, move |session| {
             operation(session)?;
             Ok(None)
         });
@@ -1338,18 +1366,19 @@ impl OrderedSession {
     fn enqueue_with_completion(
         &self,
         label: &'static str,
-        routing: bool,
+        impact: MutationImpact,
         operation: impl FnOnce(Session) -> anyhow::Result<Option<SessionCompletionAction>>
         + Send
         + 'static,
     ) {
         let session = self.inner.clone();
-        let pending = self.pending_mutation_with_routing(routing);
+        let pending = self.pending_mutation_with_impact(impact);
         let remote = self.remote;
         let committed_mutation_generation = self.committed_mutation_generation.clone();
-        let routing_token =
-            routing.then(|| self.routing_mutation_started.fetch_add(1, Ordering::AcqRel) + 1);
-        let routing_mutation_committed = self.routing_mutation_committed.clone();
+        let destination_token = impact
+            .creates_destination_intent()
+            .then(|| self.destination_mutation_started.fetch_add(1, Ordering::AcqRel) + 1);
+        let destination_mutation_committed = self.destination_mutation_committed.clone();
         let settlement = pending.clone();
         self.operations.enqueue_session_mutation_with_settlement(
             label,
@@ -1371,8 +1400,8 @@ impl OrderedSession {
                 };
                 let mutation_generation =
                     committed_mutation_generation.fetch_add(1, Ordering::AcqRel) + 1;
-                if let Some(routing_token) = routing_token {
-                    routing_mutation_committed.fetch_max(routing_token, Ordering::AcqRel);
+                if let Some(destination_token) = destination_token {
+                    destination_mutation_committed.fetch_max(destination_token, Ordering::AcqRel);
                 }
                 let completion =
                     completion.map(|action| SessionCompletion { mutation_generation, action });
@@ -1385,12 +1414,12 @@ impl OrderedSession {
                 } else {
                     match session.refresh_tree() {
                         Ok(tree) => {
-                            let routing_generation =
-                                routing_mutation_committed.load(Ordering::Acquire);
+                            let destination_generation =
+                                destination_mutation_committed.load(Ordering::Acquire);
                             pending.defer(SessionMutationOutcome::AuthoritativeMutationSucceeded {
                                 tree,
                                 authoritative_generation: mutation_generation,
-                                routing_generation,
+                                destination_generation,
                                 completion,
                             });
                         }
@@ -1411,27 +1440,37 @@ impl OrderedSession {
         key: (&'static str, u64),
         operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
     ) {
-        self.enqueue_coalescing_session_mutation_with_routing(label, key, false, operation);
+        self.enqueue_coalescing_session_mutation_with_impact(
+            label,
+            key,
+            MutationImpact::Ordered,
+            operation,
+        );
     }
 
-    fn enqueue_coalescing_routing_mutation(
+    fn enqueue_coalescing_pointer_mutation(
         &self,
         label: &'static str,
         key: (&'static str, u64),
         operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
     ) {
-        self.enqueue_coalescing_session_mutation_with_routing(label, key, true, operation);
+        self.enqueue_coalescing_session_mutation_with_impact(
+            label,
+            key,
+            MutationImpact::PointerMap,
+            operation,
+        );
     }
 
-    fn enqueue_coalescing_session_mutation_with_routing(
+    fn enqueue_coalescing_session_mutation_with_impact(
         &self,
         label: &'static str,
         key: (&'static str, u64),
-        routing: bool,
+        impact: MutationImpact,
         operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
     ) {
         let session = self.inner.clone();
-        let pending = self.pending_mutation_with_routing(routing);
+        let pending = self.pending_mutation_with_impact(impact);
         let remote = self.remote;
         let committed_mutation_generation = self.committed_mutation_generation.clone();
         let superseded = pending.clone();
@@ -1683,7 +1722,7 @@ impl OrderedSession {
 
     fn apply_config(&self, config: Config) {
         let session = self.inner.clone();
-        let pending = self.pending_mutation_with_routing(true);
+        let pending = self.pending_mutation_with_impact(MutationImpact::PointerMap);
         let committed_mutation_generation = self.committed_mutation_generation.clone();
         let config_generation = self.config_generation.clone();
         let superseded = pending.clone();
@@ -1769,7 +1808,7 @@ impl OrderedSession {
     }
 
     pub fn new_tab(&self, pane: Option<PaneId>, size: Option<(u16, u16)>) -> anyhow::Result<()> {
-        self.enqueue_with_completion("create tab", true, move |session| {
+        self.enqueue_with_completion("create tab", MutationImpact::Destination, move |session| {
             let surface = session.new_tab(pane, size)?;
             Ok(Some(SessionCompletionAction::SurfaceCreated { surface }))
         });
@@ -1783,7 +1822,7 @@ impl OrderedSession {
         cwd: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<()> {
-        self.enqueue_with_completion("run command", true, move |session| {
+        self.enqueue_with_completion("run command", MutationImpact::Destination, move |session| {
             let surface = session.run_command(argv, pane, cwd, size)?;
             Ok(Some(SessionCompletionAction::SurfaceCreated { surface }))
         });
@@ -1800,16 +1839,20 @@ impl OrderedSession {
         pane: Option<PaneId>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<()> {
-        self.enqueue_with_completion("create browser tab", true, move |session| {
-            let surface = session.new_browser_tab(url, pane, size)?;
-            Ok(Some(SessionCompletionAction::BrowserTabCreated { surface }))
-        });
+        self.enqueue_with_completion(
+            "create browser tab",
+            MutationImpact::Destination,
+            move |session| {
+                let surface = session.new_browser_tab(url, pane, size)?;
+                Ok(Some(SessionCompletionAction::BrowserTabCreated { surface }))
+            },
+        );
         Ok(())
     }
 
     pub fn set_cell_pixel_size(&self, width: u16, height: u16) {
         let ownership = self.surface_resize_ownership.clone();
-        self.enqueue_routing("set cell pixel size", move |session| {
+        self.enqueue_pointer_mutation("set cell pixel size", move |session| {
             session.set_cell_pixel_size(
                 width,
                 height,
@@ -1821,10 +1864,14 @@ impl OrderedSession {
     }
 
     pub fn new_workspace(&self, size: Option<(u16, u16)>) -> anyhow::Result<()> {
-        self.enqueue_with_completion("create workspace", true, move |session| {
-            let surface = session.new_workspace(size)?;
-            Ok(Some(SessionCompletionAction::SurfaceCreated { surface }))
-        });
+        self.enqueue_with_completion(
+            "create workspace",
+            MutationImpact::Destination,
+            move |session| {
+                let surface = session.new_workspace(size)?;
+                Ok(Some(SessionCompletionAction::SurfaceCreated { surface }))
+            },
+        );
         Ok(())
     }
 
@@ -1833,15 +1880,21 @@ impl OrderedSession {
         workspace: Option<WorkspaceId>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<()> {
-        self.enqueue_with_completion("create screen", true, move |session| {
-            let surface = session.new_screen(workspace, size)?;
-            Ok(Some(SessionCompletionAction::SurfaceCreated { surface }))
-        });
+        self.enqueue_with_completion(
+            "create screen",
+            MutationImpact::Destination,
+            move |session| {
+                let surface = session.new_screen(workspace, size)?;
+                Ok(Some(SessionCompletionAction::SurfaceCreated { surface }))
+            },
+        );
         Ok(())
     }
 
     pub fn close_screen(&self, screen: cmux_tui_core::ScreenId) {
-        self.enqueue_routing("close screen", move |session| session.close_screen(screen));
+        self.enqueue_destination_mutation("close screen", move |session| {
+            session.close_screen(screen)
+        });
     }
 
     pub fn rename_screen(&self, screen: cmux_tui_core::ScreenId, name: String) {
@@ -1849,11 +1902,13 @@ impl OrderedSession {
     }
 
     pub fn select_screen(&self, index: Option<usize>, delta: Option<isize>) {
-        self.enqueue_routing("select screen", move |session| session.select_screen(index, delta));
+        self.enqueue_destination_mutation("select screen", move |session| {
+            session.select_screen(index, delta)
+        });
     }
 
     pub fn zoom_pane(&self, pane: Option<PaneId>) {
-        self.enqueue_routing("zoom pane", move |session| session.zoom_pane(pane));
+        self.enqueue_pointer_mutation("zoom pane", move |session| session.zoom_pane(pane));
     }
 
     pub fn split(
@@ -1862,7 +1917,7 @@ impl OrderedSession {
         dir: SplitDir,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<()> {
-        self.enqueue_with_completion("split pane", true, move |session| {
+        self.enqueue_with_completion("split pane", MutationImpact::Destination, move |session| {
             let surface = session.split(pane, dir, size)?;
             Ok(Some(SessionCompletionAction::SurfaceCreated { surface }))
         });
@@ -1870,7 +1925,7 @@ impl OrderedSession {
     }
 
     pub fn new_pane(&self, pane: PaneId, size: Option<(u16, u16)>) -> anyhow::Result<()> {
-        self.enqueue_with_completion("create pane", true, move |session| {
+        self.enqueue_with_completion("create pane", MutationImpact::Destination, move |session| {
             let surface = session.new_pane(pane, size)?;
             Ok(Some(SessionCompletionAction::SurfaceCreated { surface }))
         });
@@ -1883,7 +1938,7 @@ impl OrderedSession {
     }
 
     fn set_split_ratio_deferred(&self, split: SplitId, ratio: f32) {
-        self.enqueue_coalescing_routing_mutation(
+        self.enqueue_coalescing_pointer_mutation(
             "resize exact pane split",
             ("split id", split),
             move |session| session.set_split_ratio(split, ratio),
@@ -1891,23 +1946,27 @@ impl OrderedSession {
     }
 
     fn settle_split_ratio(&self) {
-        self.enqueue_routing("settle split resize", |_| Ok(()));
+        self.enqueue_pointer_mutation("settle split resize", |_| Ok(()));
     }
 
     pub fn close_surface(&self, surface: SurfaceId) {
-        self.enqueue_routing("close tab", move |session| session.close_surface(surface));
+        self.enqueue_destination_mutation("close tab", move |session| {
+            session.close_surface(surface)
+        });
     }
 
     pub fn close_pane(&self, pane: PaneId) {
-        self.enqueue_routing("close pane", move |session| session.close_pane(pane));
+        self.enqueue_destination_mutation("close pane", move |session| session.close_pane(pane));
     }
 
     pub fn swap_pane(&self, pane: PaneId, target: PaneId) {
-        self.enqueue_routing("swap panes", move |session| session.swap_pane(pane, target));
+        self.enqueue_pointer_mutation("swap panes", move |session| session.swap_pane(pane, target));
     }
 
     pub fn close_workspace(&self, workspace: WorkspaceId) {
-        self.enqueue_routing("close workspace", move |session| session.close_workspace(workspace));
+        self.enqueue_destination_mutation("close workspace", move |session| {
+            session.close_workspace(workspace)
+        });
     }
 
     pub fn mark_workspaces_provider_managed(&self) -> anyhow::Result<()> {
@@ -1919,7 +1978,7 @@ impl OrderedSession {
     }
 
     pub fn close_provider_managed_workspace(&self, workspace: WorkspaceId, key: String) {
-        self.enqueue_routing("close managed workspace", move |session| {
+        self.enqueue_destination_mutation("close managed workspace", move |session| {
             session.close_provider_managed_workspace(workspace, key)
         });
     }
@@ -1944,25 +2003,29 @@ impl OrderedSession {
     }
 
     pub fn focus_pane(&self, pane: PaneId) {
-        self.enqueue_routing("focus pane", move |session| session.focus_pane(pane));
+        self.enqueue_destination_mutation("focus pane", move |session| session.focus_pane(pane));
     }
 
     pub fn select_tab(&self, pane: Option<PaneId>, index: Option<usize>, delta: Option<isize>) {
-        self.enqueue_routing("select tab", move |session| session.select_tab(pane, index, delta));
+        self.enqueue_destination_mutation("select tab", move |session| {
+            session.select_tab(pane, index, delta)
+        });
     }
 
     pub fn select_workspace(&self, index: Option<usize>, delta: Option<isize>) {
-        self.enqueue_routing("select workspace", move |session| {
+        self.enqueue_destination_mutation("select workspace", move |session| {
             session.select_workspace(index, delta)
         });
     }
 
     pub fn move_tab(&self, surface: SurfaceId, pane: PaneId, index: usize) {
-        self.enqueue_routing("move tab", move |session| session.move_tab(surface, pane, index));
+        self.enqueue_destination_mutation("move tab", move |session| {
+            session.move_tab(surface, pane, index)
+        });
     }
 
     pub fn move_workspace(&self, workspace: WorkspaceId, index: usize) {
-        self.enqueue_routing("move workspace", move |session| {
+        self.enqueue_pointer_mutation("move workspace", move |session| {
             session.move_workspace(workspace, index)
         });
     }
@@ -2852,7 +2915,7 @@ enum PtyMouseReleaseCapture {
 struct DeferredInput {
     event: Event,
     destination: Option<SurfaceId>,
-    routing_intent: Option<u64>,
+    destination_intent: Option<u64>,
     sidebar_focus_intent: bool,
     sequence: u64,
 }
@@ -2861,6 +2924,26 @@ struct DeferredInput {
 struct PendingPointerMotion {
     event: MouseEvent,
     sequence: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PointerRoutePhase {
+    Fresh,
+    NeedsRender,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DeferredReplayDisposition {
+    Drained,
+    Blocked,
+    RenderBoundary,
+    Yield,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct DeferredReplayOutcome {
+    action: RenderAction,
+    disposition: DeferredReplayDisposition,
 }
 
 #[derive(Default)]
@@ -3009,12 +3092,12 @@ pub struct App {
     /// Latest passive pointer position retained while the rendered hit map is stale.
     pending_pointer_motion: Option<PendingPointerMotion>,
     deferred_input_sequence: u64,
-    routing_refresh_pending: bool,
-    routing_refresh_retries_remaining: u8,
+    pointer_route_phase: PointerRoutePhase,
+    layout_refresh_retries_remaining: u8,
     background_refresh_attempts: u8,
     background_refresh_retry_at: Option<Instant>,
     last_applied_refresh_sequence: u64,
-    applied_routing_generation: u64,
+    applied_destination_generation: u64,
     pending_session_completions: VecDeque<SessionCompletion>,
     mux_titles: Arc<MuxTitleIngress>,
     pty_failures: Arc<PtyFailureIngress>,
@@ -4005,12 +4088,12 @@ pub fn run_with_machine_updates(
         deferred_input: VecDeque::new(),
         pending_pointer_motion: None,
         deferred_input_sequence: 0,
-        routing_refresh_pending: false,
-        routing_refresh_retries_remaining: 0,
+        pointer_route_phase: PointerRoutePhase::NeedsRender,
+        layout_refresh_retries_remaining: 0,
         background_refresh_attempts: 0,
         background_refresh_retry_at: None,
         last_applied_refresh_sequence: 0,
-        applied_routing_generation: 0,
+        applied_destination_generation: 0,
         pending_session_completions: VecDeque::new(),
         mux_titles,
         pty_failures,
@@ -4179,7 +4262,10 @@ impl App {
         self.sync_layout((size.width, size.height));
         self.draw_terminal(terminal)?;
         self.emit_graphics()?;
+        self.pointer_route_phase = PointerRoutePhase::Fresh;
 
+        let mut replay_ready =
+            !self.deferred_input.is_empty() || self.pending_pointer_motion.is_some();
         while !self.quit && !crate::shutdown_requested() {
             // Block for the first event, then drain whatever queued so a
             // torrent of pty output coalesces into one frame.
@@ -4192,24 +4278,29 @@ impl App {
                 Duration::from_millis(250)
             };
             let mut action = RenderAction::None;
-            let first = match rx.recv_timeout(timeout) {
-                Ok(event) => Some(event),
-                Err(RecvTimeoutError::Timeout) => {
-                    if self.shake_frames > 0 {
-                        action = RenderAction::Draw;
+            let first = if replay_ready {
+                replay_ready = false;
+                None
+            } else {
+                match rx.recv_timeout(timeout) {
+                    Ok(event) => Some(event),
+                    Err(RecvTimeoutError::Timeout) => {
+                        if self.shake_frames > 0 {
+                            action = RenderAction::Draw;
+                        }
+                        if self.auto_scroll_selection_tick() {
+                            action = action.merge(RenderAction::Draw);
+                        }
+                        if self.expire_toast() {
+                            action = action.merge(RenderAction::Draw);
+                        }
+                        if self.tick_sidebar_files() {
+                            action = action.merge(RenderAction::Draw);
+                        }
+                        None
                     }
-                    if self.auto_scroll_selection_tick() {
-                        action = action.merge(RenderAction::Draw);
-                    }
-                    if self.expire_toast() {
-                        action = action.merge(RenderAction::Draw);
-                    }
-                    if self.tick_sidebar_files() {
-                        action = action.merge(RenderAction::Draw);
-                    }
-                    None
+                    Err(RecvTimeoutError::Disconnected) => break,
                 }
-                Err(RecvTimeoutError::Disconnected) => break,
             };
             if let Some(event) = first {
                 action = action.merge(self.handle(event)?);
@@ -4241,7 +4332,6 @@ impl App {
             if self.expire_toast() {
                 action = action.merge(RenderAction::Draw);
             }
-            self.retry_pending_surface_attach();
             if self.browser_input.resize_retry_due() {
                 let mut visible_surfaces =
                     self.pane_areas.iter().map(|area| area.surface).collect::<HashSet<_>>();
@@ -4261,13 +4351,16 @@ impl App {
                 action = action.merge(RenderAction::Draw);
             }
             self.render_action(terminal, action)?;
-            // An immediate self-reschedule follows a Draw that consumed at
-            // least one queued input. Re-deferral or new mutations leave the
-            // flag clear and resume only after their completion event.
-            while self.routing_refresh_pending {
-                self.routing_refresh_pending = false;
-                let replay = self.replay_deferred_input()?;
-                self.render_action(terminal, replay)?;
+            self.retry_pending_surface_attach();
+            if !self.deferred_input.is_empty() || self.pending_pointer_motion.is_some() {
+                let replay = self.replay_deferred_input_batch()?;
+                self.render_action(terminal, replay.action)?;
+                self.retry_pending_surface_attach();
+                replay_ready = matches!(
+                    replay.disposition,
+                    DeferredReplayDisposition::RenderBoundary | DeferredReplayDisposition::Yield
+                ) && (!self.deferred_input.is_empty()
+                    || self.pending_pointer_motion.is_some());
             }
         }
         Ok(())
@@ -4668,12 +4761,12 @@ impl App {
         self.deferred_input.clear();
         self.pending_pointer_motion = None;
         self.deferred_input_sequence = 0;
-        self.routing_refresh_pending = false;
-        self.routing_refresh_retries_remaining = 0;
+        self.pointer_route_phase = PointerRoutePhase::NeedsRender;
+        self.layout_refresh_retries_remaining = 0;
         self.background_refresh_attempts = 0;
         self.background_refresh_retry_at = None;
         self.last_applied_refresh_sequence = 0;
-        self.applied_routing_generation = 0;
+        self.applied_destination_generation = 0;
         self.pending_session_completions.clear();
         self.drag = None;
         self.ignored_pty_mouse_buttons.clear();
@@ -4701,12 +4794,16 @@ impl App {
     where
         B::Error: Send + Sync + 'static,
     {
+        if action == RenderAction::Draw {
+            self.pointer_route_phase = PointerRoutePhase::NeedsRender;
+        }
         match action {
             RenderAction::Draw => {
                 let size = terminal.size()?;
                 self.sync_layout((size.width, size.height));
                 self.draw_terminal(terminal)?;
                 self.emit_graphics()?;
+                self.pointer_route_phase = PointerRoutePhase::Fresh;
             }
             RenderAction::Paint => {
                 self.draw_terminal(terminal)?;
@@ -4718,56 +4815,57 @@ impl App {
         Ok(())
     }
 
-    fn pause_deferred_replay_after_draw(
-        &mut self,
-        action: RenderAction,
-        has_remaining_input: bool,
-    ) -> bool {
-        if action != RenderAction::Draw || !has_remaining_input {
-            return false;
-        }
-        if !self.pointer_route_is_stale() {
-            self.routing_refresh_pending = true;
-        }
-        true
-    }
-
-    fn replay_deferred_input(&mut self) -> anyhow::Result<RenderAction> {
+    fn replay_deferred_input_batch(&mut self) -> anyhow::Result<DeferredReplayOutcome> {
+        const MAX_REPLAYED_INPUTS: usize = 256;
         let mut action = RenderAction::None;
-        let mut render_before_replay = false;
-        let mut pending_pointer_motion =
-            if self.pointer_route_is_stale() { None } else { self.pending_pointer_motion.take() };
         // A replayed event can discover that its destination mirror is still
         // unavailable and append itself again. Only process the queue snapshot
         // that existed at entry so a blocked attach cannot spin this frame.
-        let replay_count = self.deferred_input.len();
+        let replay_count = self
+            .deferred_input
+            .len()
+            .saturating_add(usize::from(self.pending_pointer_motion.is_some()))
+            .min(MAX_REPLAYED_INPUTS);
         let mut replayed = 0;
         while replayed < replay_count {
-            if self.session.has_pending_mutations() || self.session.remote_tree_is_stale() {
-                break;
+            if self.session.has_pending_mutations()
+                || self.session.remote_tree_is_stale()
+                || self.mux_recovery_generation.load(Ordering::Acquire) != 0
+            {
+                return Ok(DeferredReplayOutcome {
+                    action,
+                    disposition: DeferredReplayDisposition::Blocked,
+                });
             }
-            let pointer_is_next = pending_pointer_motion.as_ref().is_some_and(|pointer| {
+            let pointer_is_next = self.pending_pointer_motion.as_ref().is_some_and(|pointer| {
                 self.deferred_input.front().is_none_or(|input| pointer.sequence < input.sequence)
             });
             if pointer_is_next {
-                let pointer = pending_pointer_motion.take().unwrap();
+                if self.pointer_route_is_stale() {
+                    return Ok(DeferredReplayOutcome {
+                        action,
+                        disposition: DeferredReplayDisposition::RenderBoundary,
+                    });
+                }
+                let pointer = self.pending_pointer_motion.take().unwrap();
+                replayed += 1;
                 let pointer_action = self.handle(AppEvent::Input(Event::Mouse(pointer.event)))?;
                 action = action.merge(pointer_action);
-                let has_remaining_input = !self.deferred_input.is_empty()
-                    || pending_pointer_motion.is_some()
-                    || self.pending_pointer_motion.is_some();
-                if self.pause_deferred_replay_after_draw(pointer_action, has_remaining_input) {
-                    render_before_replay = true;
-                    break;
-                }
                 continue;
             }
-            let Some(input) = self.deferred_input.pop_front() else { break };
+            let Some(input) = self.deferred_input.front() else { break };
+            if matches!(input.event, Event::Mouse(_)) && self.pointer_route_is_stale() {
+                return Ok(DeferredReplayOutcome {
+                    action,
+                    disposition: DeferredReplayDisposition::RenderBoundary,
+                });
+            }
+            let input = self.deferred_input.pop_front().unwrap();
             replayed += 1;
             let follows_pending_route = matches!(&input.event, Event::Key(_) | Event::Paste(_))
-                && input.routing_intent.is_some_and(|intent| {
-                    self.session.routing_mutation_committed() >= intent
-                        && self.session.routing_mutation_started() == intent
+                && input.destination_intent.is_some_and(|intent| {
+                    self.session.destination_mutation_committed() >= intent
+                        && self.session.destination_mutation_started() == intent
                 });
             let follows_sidebar_focus =
                 input.sidebar_focus_intent && self.workspace_sidebar_focused();
@@ -4779,39 +4877,40 @@ impl App {
                     "Deferred input was discarded because its destination changed".to_string(),
                 );
                 action = action.merge(RenderAction::Draw);
+                self.pointer_route_phase = PointerRoutePhase::NeedsRender;
                 continue;
             }
-            let input_action = self.handle(AppEvent::Input(input.event))?;
+            let input_action = if matches!(input.event, Event::Key(_) | Event::Paste(_)) {
+                self.handle_replayed_non_pointer_input(input.event)?
+            } else {
+                self.handle(AppEvent::Input(input.event))?
+            };
             action = action.merge(input_action);
-            let has_remaining_input = !self.deferred_input.is_empty()
-                || pending_pointer_motion.is_some()
-                || self.pending_pointer_motion.is_some();
-            if self.pause_deferred_replay_after_draw(input_action, has_remaining_input) {
-                render_before_replay = true;
-                break;
-            }
         }
-        if let Some(pointer) = pending_pointer_motion {
-            let pointer_is_next =
-                self.deferred_input.front().is_none_or(|input| pointer.sequence < input.sequence);
-            if pointer_is_next && !render_before_replay && !self.pointer_route_is_stale() {
-                action = action.merge(self.handle(AppEvent::Input(Event::Mouse(pointer.event)))?);
-            } else if self
-                .pending_pointer_motion
-                .as_ref()
-                .is_none_or(|current| current.sequence < pointer.sequence)
-            {
-                self.pending_pointer_motion = Some(pointer);
-            }
-        }
-        Ok(action)
+        let has_remaining_input =
+            !self.deferred_input.is_empty() || self.pending_pointer_motion.is_some();
+        let disposition = if !has_remaining_input {
+            DeferredReplayDisposition::Drained
+        } else if replayed >= MAX_REPLAYED_INPUTS {
+            DeferredReplayDisposition::Yield
+        } else if self.pointer_route_is_stale() {
+            DeferredReplayDisposition::RenderBoundary
+        } else {
+            DeferredReplayDisposition::Blocked
+        };
+        Ok(DeferredReplayOutcome { action, disposition })
+    }
+
+    #[cfg(test)]
+    fn replay_deferred_input(&mut self) -> anyhow::Result<RenderAction> {
+        Ok(self.replay_deferred_input_batch()?.action)
     }
 
     fn pointer_route_is_stale(&self) -> bool {
-        self.session.has_pending_routing_mutations()
+        self.session.has_pending_pointer_mutations()
             || self.session.remote_tree_is_stale()
             || self.mux_recovery_generation.load(Ordering::Acquire) != 0
-            || self.routing_refresh_pending
+            || self.pointer_route_phase == PointerRoutePhase::NeedsRender
     }
 
     fn apply_session_completion(&mut self, completion: SessionCompletion) {
@@ -4869,7 +4968,6 @@ impl App {
         self.prefix_armed = false;
         self.pending_session_completions.clear();
         self.pending_size_releases.clear();
-        self.routing_refresh_pending |= self.pending_pointer_motion.is_some();
         self.status_message = Some("session operation was canceled".to_string());
     }
 
@@ -5006,7 +5104,7 @@ impl App {
         self.reapply_mux_titles();
     }
 
-    fn replace_authoritative_tree(&mut self, tree: TreeView, routing_generation: u64) {
+    fn replace_authoritative_tree(&mut self, tree: TreeView, destination_generation: u64) {
         if tree.pane_revision.is_none() {
             self.pane_focus_history.reconcile_membership(&tree);
         } else {
@@ -5031,7 +5129,8 @@ impl App {
         }
         self.replace_tree(tree);
         self.session.reconcile_exited_surfaces(&self.tree);
-        self.applied_routing_generation = self.applied_routing_generation.max(routing_generation);
+        self.applied_destination_generation =
+            self.applied_destination_generation.max(destination_generation);
     }
 
     fn retire_surface_state(&mut self, surface: SurfaceId) {
@@ -5132,15 +5231,6 @@ impl App {
         }
         self.last_applied_refresh_sequence = refresh_sequence;
         true
-    }
-
-    fn complete_routing_after_stale_identity_result(&mut self) {
-        if !self.session.has_pending_mutations()
-            && !self.session.remote_tree_is_stale()
-            && (!self.deferred_input.is_empty() || self.pending_pointer_motion.is_some())
-        {
-            self.routing_refresh_pending = true;
-        }
     }
 
     fn schedule_background_refresh_retry(&mut self) -> bool {
@@ -5563,6 +5653,27 @@ impl App {
     }
 
     fn handle(&mut self, event: AppEvent) -> anyhow::Result<RenderAction> {
+        let action = self.handle_inner(event, false)?;
+        if action == RenderAction::Draw {
+            self.pointer_route_phase = PointerRoutePhase::NeedsRender;
+        }
+        Ok(action)
+    }
+
+    fn handle_replayed_non_pointer_input(&mut self, input: Event) -> anyhow::Result<RenderAction> {
+        debug_assert!(matches!(input, Event::Key(_) | Event::Paste(_)));
+        let action = self.handle_inner(AppEvent::Input(input), true)?;
+        if action == RenderAction::Draw {
+            self.pointer_route_phase = PointerRoutePhase::NeedsRender;
+        }
+        Ok(action)
+    }
+
+    fn handle_inner(
+        &mut self,
+        event: AppEvent,
+        replaying_non_pointer: bool,
+    ) -> anyhow::Result<RenderAction> {
         let event = match event {
             AppEvent::SessionScoped { generation, event }
                 if generation == self.session_generation =>
@@ -5605,25 +5716,19 @@ impl App {
         )) = &event
         {
             let mouse = *mouse;
+            if self.pointer_route_is_stale() {
+                self.retain_pointer_motion(mouse);
+                return Ok(RenderAction::None);
+            }
             let input = Event::Mouse(mouse);
             let missing_surface = self.missing_input_surface(&input);
-            if missing_surface.is_some() || self.pointer_route_is_stale() {
-                if let Some(surface) = missing_surface {
-                    self.queue_surface_attach(surface);
-                }
+            if let Some(surface) = missing_surface {
+                self.queue_surface_attach(surface);
                 self.retain_pointer_motion(mouse);
                 return Ok(RenderAction::None);
             }
         }
         let event = match event {
-            AppEvent::Input(input @ (Event::Key(_) | Event::Mouse(_) | Event::Paste(_)))
-                if self.missing_input_surface(&input).is_some()
-                    && !self.input_can_update_pending_mutation(&input) =>
-            {
-                let surface = self.missing_input_surface(&input).unwrap();
-                self.queue_surface_attach(surface);
-                return Ok(self.defer_input(input));
-            }
             AppEvent::Input(input @ Event::Mouse(_))
                 if self.pointer_route_is_stale()
                     && !self.input_can_update_pending_mutation(&input) =>
@@ -5633,13 +5738,22 @@ impl App {
                 return Ok(RenderAction::Draw);
             }
             AppEvent::Input(input @ (Event::Key(_) | Event::Mouse(_) | Event::Paste(_)))
+                if self.missing_input_surface(&input).is_some()
+                    && !self.input_can_update_pending_mutation(&input) =>
+            {
+                let surface = self.missing_input_surface(&input).unwrap();
+                self.queue_surface_attach(surface);
+                return Ok(self.defer_input(input));
+            }
+            AppEvent::Input(input @ (Event::Key(_) | Event::Mouse(_) | Event::Paste(_)))
                 if !matches!(
                     &input,
                     Event::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. })
                 ) && (self.session.has_pending_mutations()
                     || self.session.remote_tree_is_stale()
                     || self.mux_recovery_generation.load(Ordering::Acquire) != 0
-                    || self.routing_refresh_pending)
+                    || self.pointer_route_phase == PointerRoutePhase::NeedsRender
+                        && !replaying_non_pointer)
                     && !self.input_can_update_pending_mutation(&input) =>
             {
                 return Ok(self.defer_input(input));
@@ -5652,7 +5766,7 @@ impl App {
             }
             AppEvent::MuxSubscriptionRecovered {
                 recovery_generation,
-                routing_generation,
+                destination_generation,
                 result,
             } => {
                 if recovery_generation != self.mux_recovery_generation.load(Ordering::Acquire) {
@@ -5661,7 +5775,7 @@ impl App {
                 match result {
                     Ok(tree) => {
                         let empty = tree.workspaces.is_empty();
-                        self.replace_authoritative_tree(tree, routing_generation);
+                        self.replace_authoritative_tree(tree, destination_generation);
                         self.session.refresh_clients_background();
                         if empty {
                             if self.request_current_machine_session() {
@@ -5709,7 +5823,6 @@ impl App {
                 {
                     return Ok(RenderAction::None);
                 }
-                self.routing_refresh_pending = true;
                 Ok(RenderAction::Draw)
             }
             AppEvent::SidebarPluginUpdated { status, relaunch } => {
@@ -5829,24 +5942,24 @@ impl App {
             }
             AppEvent::PtyFailuresReady => Ok(self.apply_pty_failures()),
             AppEvent::PtyOperationFailed(failure) => Ok(self.apply_pty_operation_failure(failure)),
-            AppEvent::SessionMutationSettled { outcome, routing } => {
-                self.session.settle_pending_mutation(routing);
+            AppEvent::SessionMutationSettled { outcome, impact } => {
+                self.session.settle_pending_mutation(impact);
                 match outcome {
                     SessionMutationOutcome::Success { tree } => {
                         if let Some(tree) = tree {
                             self.replace_tree(tree);
                         }
-                        self.routing_refresh_retries_remaining = 0;
+                        self.layout_refresh_retries_remaining = 0;
                     }
                     SessionMutationOutcome::AuthoritativeMutationSucceeded {
                         tree,
                         authoritative_generation,
-                        routing_generation,
+                        destination_generation,
                         completion,
                     } => {
                         self.session.clear_surface_sync_failures();
-                        self.replace_authoritative_tree(tree, routing_generation);
-                        self.routing_refresh_retries_remaining = 0;
+                        self.replace_authoritative_tree(tree, destination_generation);
+                        self.layout_refresh_retries_remaining = 0;
                         if let Some(completion) = completion {
                             self.pending_session_completions.push_back(completion);
                         }
@@ -5855,13 +5968,12 @@ impl App {
                     SessionMutationOutcome::IdentityRefreshSucceeded {
                         tree,
                         authoritative_generation,
-                        routing_generation,
+                        destination_generation,
                         refresh_sequence,
                     } => {
                         if !self.accept_refresh_sequence(refresh_sequence) {
                             let applied_completion =
                                 self.apply_session_completions_through(authoritative_generation);
-                            self.complete_routing_after_stale_identity_result();
                             return Ok(if applied_completion {
                                 RenderAction::Draw
                             } else {
@@ -5870,8 +5982,8 @@ impl App {
                         }
                         self.session.clear_surface_sync_failures();
                         self.session.reconcile_exited_surfaces(&tree);
-                        self.replace_authoritative_tree(tree, routing_generation);
-                        self.routing_refresh_retries_remaining = 0;
+                        self.replace_authoritative_tree(tree, destination_generation);
+                        self.layout_refresh_retries_remaining = 0;
                         self.background_refresh_attempts = 0;
                         self.background_refresh_retry_at = None;
                         self.apply_session_completions_through(authoritative_generation);
@@ -5881,7 +5993,7 @@ impl App {
                         if let Some(completion) = completion {
                             self.pending_session_completions.push_back(completion);
                         }
-                        self.routing_refresh_retries_remaining = ROUTING_REFRESH_RETRIES;
+                        self.layout_refresh_retries_remaining = LAYOUT_REFRESH_RETRIES;
                         if let Some(error) = error {
                             self.status_message = Some(format!(
                                 "session changed, but its layout refresh failed: {error}"
@@ -5892,15 +6004,14 @@ impl App {
                     }
                     SessionMutationOutcome::IdentityRefreshFailed { error, refresh_sequence } => {
                         if !self.accept_refresh_sequence(refresh_sequence) {
-                            self.complete_routing_after_stale_identity_result();
                             return Ok(RenderAction::None);
                         }
                         self.status_message = Some(format!(
                             "session changed, but its layout is still stale: {error}"
                         ));
-                        let refresh_stale = self.routing_refresh_retries_remaining > 0;
+                        let refresh_stale = self.layout_refresh_retries_remaining > 0;
                         if refresh_stale {
-                            self.routing_refresh_retries_remaining -= 1;
+                            self.layout_refresh_retries_remaining -= 1;
                             self.session.invalidate_remote_tree();
                         }
                         self.complete_remote_tree_refresh(refresh_stale);
@@ -5947,7 +6058,7 @@ impl App {
                         self.status_message = Some(format!(
                             "session operation may have committed; refreshing its layout: {error}"
                         ));
-                        self.routing_refresh_retries_remaining = ROUTING_REFRESH_RETRIES;
+                        self.layout_refresh_retries_remaining = LAYOUT_REFRESH_RETRIES;
                         self.session.invalidate_remote_tree();
                         self.session.refresh_remote_tree_if_stale();
                         return Ok(RenderAction::Draw);
@@ -5956,7 +6067,6 @@ impl App {
                         self.deferred_input.clear();
                         self.prefix_armed = false;
                         self.pending_session_completions.clear();
-                        self.routing_refresh_pending |= self.pending_pointer_motion.is_some();
                         self.status_message = Some(format!("session operation failed: {error}"));
                         return Ok(RenderAction::Draw);
                     }
@@ -5973,19 +6083,17 @@ impl App {
                 if self.session.has_pending_mutations() || self.session.remote_tree_is_stale() {
                     return Ok(RenderAction::Draw);
                 }
-                self.routing_refresh_pending = true;
                 Ok(RenderAction::Draw)
             }
-            AppEvent::RemoteTreeUpdated { refresh_sequence, routing_generation, result } => {
+            AppEvent::RemoteTreeUpdated { refresh_sequence, destination_generation, result } => {
                 if !self.accept_refresh_sequence(refresh_sequence) {
                     return Ok(RenderAction::None);
                 }
                 let refreshed = match result {
                     Ok(tree) => {
                         self.session.reconcile_exited_surfaces(&tree);
-                        self.replace_authoritative_tree(tree, routing_generation);
-                        self.routing_refresh_pending = true;
-                        self.routing_refresh_retries_remaining = 0;
+                        self.replace_authoritative_tree(tree, destination_generation);
+                        self.layout_refresh_retries_remaining = 0;
                         self.background_refresh_attempts = 0;
                         self.background_refresh_retry_at = None;
                         true
@@ -6005,12 +6113,6 @@ impl App {
                 };
                 if refreshed {
                     self.complete_remote_tree_refresh(true);
-                }
-                if !self.session.has_pending_mutations()
-                    && !self.session.remote_tree_is_stale()
-                    && !self.deferred_input.is_empty()
-                {
-                    self.routing_refresh_pending = true;
                 }
                 Ok(RenderAction::Draw)
             }
@@ -6129,9 +6231,9 @@ impl App {
         let destination = self.input_destination(&input);
         let sidebar_focus_intent =
             self.sidebar_focus_pending && matches!(&input, Event::Key(_) | Event::Paste(_));
-        let routing_started = self.session.routing_mutation_started();
-        let routing_intent =
-            (routing_started > self.applied_routing_generation).then_some(routing_started);
+        let destination_started = self.session.destination_mutation_started();
+        let destination_intent = (destination_started > self.applied_destination_generation)
+            .then_some(destination_started);
         let sequence = self.next_deferred_input_sequence();
         let replace_motion = match (&input, self.deferred_input.back()) {
             (
@@ -6139,13 +6241,13 @@ impl App {
                 Some(DeferredInput {
                     event: Event::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. }),
                     destination: previous_destination,
-                    routing_intent: previous_intent,
+                    destination_intent: previous_intent,
                     sidebar_focus_intent: previous_sidebar_intent,
                     ..
                 }),
             ) => {
                 *previous_destination == destination
-                    && *previous_intent == routing_intent
+                    && *previous_intent == destination_intent
                     && *previous_sidebar_intent == sidebar_focus_intent
             }
             (
@@ -6153,14 +6255,14 @@ impl App {
                 Some(DeferredInput {
                     event: Event::Mouse(MouseEvent { kind: MouseEventKind::Drag(previous), .. }),
                     destination: previous_destination,
-                    routing_intent: previous_intent,
+                    destination_intent: previous_intent,
                     sidebar_focus_intent: previous_sidebar_intent,
                     ..
                 }),
             ) => {
                 button == previous
                     && *previous_destination == destination
-                    && *previous_intent == routing_intent
+                    && *previous_intent == destination_intent
                     && *previous_sidebar_intent == sidebar_focus_intent
             }
             _ => false,
@@ -6169,7 +6271,7 @@ impl App {
             *self.deferred_input.back_mut().unwrap() = DeferredInput {
                 event: input,
                 destination,
-                routing_intent,
+                destination_intent,
                 sidebar_focus_intent,
                 sequence,
             };
@@ -6198,7 +6300,7 @@ impl App {
         self.deferred_input.push_back(DeferredInput {
             event: input,
             destination,
-            routing_intent,
+            destination_intent,
             sidebar_focus_intent,
             sequence,
         });
@@ -6275,13 +6377,17 @@ impl App {
     }
 
     fn retry_pending_surface_attach(&mut self) {
+        let pointer_route_is_fresh = !self.pointer_route_is_stale();
         let surface = self
             .deferred_input
             .iter()
+            .filter(|input| pointer_route_is_fresh || !matches!(input.event, Event::Mouse(_)))
             .filter_map(|input| self.missing_input_surface(&input.event))
             .find(|surface| self.session.can_attach_surface(*surface))
             .or_else(|| {
-                self.pending_pointer_motion
+                pointer_route_is_fresh
+                    .then_some(self.pending_pointer_motion)
+                    .flatten()
                     .and_then(|pointer| self.missing_input_surface(&Event::Mouse(pointer.event)))
                     .filter(|surface| self.session.can_attach_surface(*surface))
             });
@@ -10596,17 +10702,18 @@ fn browser_key_mapping(
 mod tests {
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput, Drag, FocusTarget,
-        ForwardMuxOutcome, MachineActionWorker, MenuAction, MenuItem, MuxTitleIngress,
-        OrderedSession, PaneArea, PaneEdge, PaneFocusHistory, PendingSessionMutation,
-        PendingSessionMutationState, Prompt, PromptTarget, PtyFailureIngress, PtyMousePressResult,
-        RailKind, RenderAction, Selection, SessionCompletion, SessionCompletionAction,
-        SessionEventSender, SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState,
-        SurfaceResizeDecision, SurfaceResizeOwnership, WorkspaceRailSelection,
-        browser_content_size_for_rect, browser_hover_forward_allowed,
-        clamp_split_ratio_for_tab_bars, client_menu_item, forward_mux_event, forward_mux_events,
-        pane_context_menu_groups, pane_parts_for_rect, prepare_ordered_session,
-        preserve_client_view, rail_drag_width, record_surface_resize_dispatch_result,
-        sidebar_plugin_status_settles_passive_claim, start_ordered_session,
+        ForwardMuxOutcome, MachineActionWorker, MenuAction, MenuItem, MutationImpact,
+        MuxTitleIngress, OrderedSession, PaneArea, PaneEdge, PaneFocusHistory,
+        PendingSessionMutation, PendingSessionMutationState, PointerRoutePhase, Prompt,
+        PromptTarget, PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction, Selection,
+        SessionCompletion, SessionCompletionAction, SessionEventSender, SidebarLayout,
+        SidebarPluginSyncClaim, SidebarPluginSyncState, SurfaceResizeDecision,
+        SurfaceResizeOwnership, WorkspaceRailSelection, browser_content_size_for_rect,
+        browser_hover_forward_allowed, clamp_split_ratio_for_tab_bars, client_menu_item,
+        forward_mux_event, forward_mux_events, pane_context_menu_groups, pane_parts_for_rect,
+        prepare_ordered_session, preserve_client_view, rail_drag_width,
+        record_surface_resize_dispatch_result, sidebar_plugin_status_settles_passive_claim,
+        start_ordered_session,
     };
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -10651,7 +10758,7 @@ mod tests {
     use crate::sidebar_files::FileBrowser;
 
     fn settled(outcome: super::SessionMutationOutcome) -> AppEvent {
-        AppEvent::SessionMutationSettled { outcome, routing: false }
+        AppEvent::SessionMutationSettled { outcome, impact: MutationImpact::Ordered }
     }
 
     #[test]
@@ -12137,8 +12244,8 @@ mod tests {
         let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(matches!(settled, AppEvent::SessionMutationSettled { .. }));
         app.handle(settled).unwrap();
-        assert!(app.routing_refresh_pending);
-        app.routing_refresh_pending = false;
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::NeedsRender);
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
         app.replay_deferred_input().unwrap();
         assert!(app.deferred_input.is_empty());
         assert!(!app.session.has_pending_mutations());
@@ -12197,14 +12304,14 @@ mod tests {
         let (events, receiver) = std::sync::mpsc::sync_channel(1);
         events.send(AppEvent::MuxTitlesReady).unwrap();
         let pending_mutations = Arc::new(std::sync::atomic::AtomicUsize::new(1));
-        let pending_routing_mutations = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let pending_pointer_mutations = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let cancellation_pending = Arc::new(AtomicBool::new(false));
 
         drop(PendingSessionMutation(Arc::new(PendingSessionMutationState {
             events: SessionEventSender::unscoped(events),
             pending_mutations: pending_mutations.clone(),
-            pending_routing_mutations,
-            routing: false,
+            pending_pointer_mutations,
+            impact: MutationImpact::Ordered,
             cancellation_pending: cancellation_pending.clone(),
             settled: AtomicBool::new(false),
             deferred_outcome: Mutex::new(None),
@@ -12220,13 +12327,13 @@ mod tests {
     fn superseded_mutation_settles_without_canceling_session_input() {
         let (events, receiver) = std::sync::mpsc::sync_channel(1);
         let pending_mutations = Arc::new(std::sync::atomic::AtomicUsize::new(1));
-        let pending_routing_mutations = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let pending_pointer_mutations = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let cancellation_pending = Arc::new(AtomicBool::new(false));
         let pending = PendingSessionMutation(Arc::new(PendingSessionMutationState {
             events: SessionEventSender::unscoped(events),
             pending_mutations: pending_mutations.clone(),
-            pending_routing_mutations,
-            routing: false,
+            pending_pointer_mutations,
+            impact: MutationImpact::Ordered,
             cancellation_pending: cancellation_pending.clone(),
             settled: AtomicBool::new(false),
             deferred_outcome: Mutex::new(None),
@@ -12329,7 +12436,7 @@ mod tests {
 
         let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
         app.handle(settled).unwrap();
-        app.routing_refresh_pending = false;
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
         app.replay_deferred_input().unwrap();
 
         assert_eq!(app.active_surface(), Some(second.id));
@@ -12387,13 +12494,13 @@ mod tests {
             KeyModifiers::NONE,
         ))))
         .unwrap();
-        assert_eq!(app.deferred_input.front().and_then(|input| input.routing_intent), Some(1));
+        assert_eq!(app.deferred_input.front().and_then(|input| input.destination_intent), Some(1));
         app.session.select_tab(Some(pane), Some(2), None);
 
         while app.session.has_pending_mutations() {
             app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
         }
-        app.routing_refresh_pending = false;
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
         app.replay_deferred_input().unwrap();
 
         assert_eq!(app.active_surface(), Some(third.id));
@@ -12410,10 +12517,10 @@ mod tests {
         let mux = Mux::new("stale-routing-snapshot-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.session.remote = true;
-        app.session.routing_mutation_started.store(1, Ordering::Release);
-        app.session.routing_mutation_committed.store(1, Ordering::Release);
+        app.session.destination_mutation_started.store(1, Ordering::Release);
+        app.session.destination_mutation_committed.store(1, Ordering::Release);
         app.replace_tree(notify_tree(41, false));
-        app.routing_refresh_pending = true;
+        app.pointer_route_phase = PointerRoutePhase::NeedsRender;
 
         app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
             KeyCode::Char('x'),
@@ -12421,16 +12528,16 @@ mod tests {
         ))))
         .unwrap();
 
-        assert_eq!(app.applied_routing_generation, 0);
-        assert_eq!(app.deferred_input.front().and_then(|input| input.routing_intent), Some(1));
+        assert_eq!(app.applied_destination_generation, 0);
+        assert_eq!(app.deferred_input.front().and_then(|input| input.destination_intent), Some(1));
 
         app.handle(AppEvent::RemoteTreeUpdated {
             refresh_sequence: 1,
-            routing_generation: 1,
+            destination_generation: 1,
             result: Ok(notify_tree(42, false)),
         })
         .unwrap();
-        assert_eq!(app.applied_routing_generation, 1);
+        assert_eq!(app.applied_destination_generation, 1);
     }
 
     #[test]
@@ -12444,7 +12551,7 @@ mod tests {
         app.handle(settled(super::SessionMutationOutcome::IdentityRefreshSucceeded {
             tree: TreeView::default(),
             authoritative_generation: 0,
-            routing_generation: 0,
+            destination_generation: 0,
             refresh_sequence: 1,
         }))
         .unwrap();
@@ -12542,14 +12649,14 @@ mod tests {
         }
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
         let titles = Arc::new(MuxTitleIngress::default());
-        let routing_generation = Arc::new(AtomicU64::new(0));
+        let destination_generation = Arc::new(AtomicU64::new(0));
         let recovery_generation = Arc::new(AtomicU64::new(0));
         let forwarder_recovery_generation = recovery_generation.clone();
         let forwarder = std::thread::spawn(move || {
             forward_mux_events(
                 event_source,
                 session_events,
-                routing_generation,
+                destination_generation,
                 forwarder_recovery_generation,
                 SessionEventSender::unscoped(tx),
                 titles,
@@ -12694,7 +12801,7 @@ mod tests {
 
         app.handle(AppEvent::MuxSubscriptionRecovered {
             recovery_generation: 1,
-            routing_generation: 0,
+            destination_generation: 0,
             result: Ok(app.session.tree()),
         })
         .unwrap();
@@ -12704,7 +12811,7 @@ mod tests {
 
         app.handle(AppEvent::MuxRecoveryComplete { recovery_generation: 1 }).unwrap();
         assert_eq!(app.mux_recovery_generation.load(Ordering::Acquire), 0);
-        assert!(app.routing_refresh_pending);
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::NeedsRender);
     }
 
     #[test]
@@ -12729,7 +12836,7 @@ mod tests {
 
         app.handle(AppEvent::MuxSubscriptionRecovered {
             recovery_generation: 1,
-            routing_generation: 0,
+            destination_generation: 0,
             result: Err("refresh failed".to_string()),
         })
         .unwrap();
@@ -12748,7 +12855,7 @@ mod tests {
         app.handle(AppEvent::MuxRecoveryComplete { recovery_generation: 1 }).unwrap();
 
         assert_eq!(app.mux_recovery_generation.load(Ordering::Acquire), 2);
-        assert!(!app.routing_refresh_pending);
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::Fresh);
     }
 
     #[test]
@@ -13027,7 +13134,7 @@ mod tests {
         app.deferred_input.push_back(DeferredInput {
             event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             destination: Some(77),
-            routing_intent: None,
+            destination_intent: None,
             sidebar_focus_intent: false,
             sequence: 1,
         });
@@ -13079,7 +13186,7 @@ mod tests {
         app.handle(settled).unwrap();
         assert_eq!(app.deferred_input.len(), 1);
 
-        app.routing_refresh_pending = false;
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
         app.replay_deferred_input().unwrap();
         assert_eq!(app.deferred_input.len(), 1);
     }
@@ -13189,7 +13296,7 @@ mod tests {
 
         app.handle(AppEvent::RemoteTreeUpdated {
             refresh_sequence: 1,
-            routing_generation: 0,
+            destination_generation: 0,
             result: Ok(TreeView::default()),
         })
         .unwrap();
@@ -13218,7 +13325,7 @@ mod tests {
         app.deferred_input.push_back(DeferredInput {
             event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             destination: Some(deferred_surface),
-            routing_intent: None,
+            destination_intent: None,
             sidebar_focus_intent: false,
             sequence: 1,
         });
@@ -13347,40 +13454,40 @@ mod tests {
         app.deferred_input.push_back(DeferredInput {
             event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             destination: None,
-            routing_intent: None,
+            destination_intent: None,
             sidebar_focus_intent: false,
             sequence: 1,
         });
 
         app.handle(AppEvent::RemoteTreeUpdated {
             refresh_sequence: 2,
-            routing_generation: 0,
+            destination_generation: 0,
             result: Ok(newer.clone()),
         })
         .unwrap();
         app.handle(settled(super::SessionMutationOutcome::IdentityRefreshSucceeded {
             tree: older.clone(),
             authoritative_generation: 0,
-            routing_generation: 0,
+            destination_generation: 0,
             refresh_sequence: 1,
         }))
         .unwrap();
         assert_eq!(app.tree.workspaces[0].screens[0].panes[0].tabs[0].surface, 22);
-        assert!(app.routing_refresh_pending);
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::NeedsRender);
         assert_eq!(app.deferred_input.len(), 1);
 
-        app.routing_refresh_pending = false;
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
         app.session.pending_mutations.store(1, Ordering::Release);
         app.handle(settled(super::SessionMutationOutcome::IdentityRefreshSucceeded {
             tree: newer,
             authoritative_generation: 0,
-            routing_generation: 0,
+            destination_generation: 0,
             refresh_sequence: 4,
         }))
         .unwrap();
         app.handle(AppEvent::RemoteTreeUpdated {
             refresh_sequence: 3,
-            routing_generation: 0,
+            destination_generation: 0,
             result: Ok(older),
         })
         .unwrap();
@@ -13401,11 +13508,11 @@ mod tests {
 
         app.handle(AppEvent::RemoteTreeUpdated {
             refresh_sequence: 2,
-            routing_generation: 0,
+            destination_generation: 0,
             result: Ok(tree.clone()),
         })
         .unwrap();
-        app.routing_refresh_pending = false;
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
         app.retain_pointer_motion(MouseEvent {
             kind: MouseEventKind::Moved,
             column: 14,
@@ -13417,14 +13524,14 @@ mod tests {
             .handle(settled(super::SessionMutationOutcome::IdentityRefreshSucceeded {
                 tree,
                 authoritative_generation: 4,
-                routing_generation: 0,
+                destination_generation: 0,
                 refresh_sequence: 1,
             }))
             .unwrap();
 
         assert!(app.pending_session_completions.is_empty());
         assert_eq!(app.omnibar.as_ref().map(|state| state.surface), Some(surface));
-        assert!(app.routing_refresh_pending);
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::NeedsRender);
         assert_eq!(action, RenderAction::Draw);
     }
 
@@ -13434,12 +13541,12 @@ mod tests {
         let mut app = test_app(Session::Local(mux));
         app.handle(AppEvent::RemoteTreeUpdated {
             refresh_sequence: 1,
-            routing_generation: 0,
+            destination_generation: 0,
             result: Ok(notify_tree(22, false)),
         })
         .unwrap();
 
-        assert!(app.routing_refresh_pending);
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::NeedsRender);
         app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
             KeyCode::Char('x'),
             KeyModifiers::NONE,
@@ -13456,7 +13563,7 @@ mod tests {
         for refresh_sequence in 1..=u64::from(BACKGROUND_REFRESH_RETRIES) + 1 {
             app.handle(AppEvent::RemoteTreeUpdated {
                 refresh_sequence,
-                routing_generation: 0,
+                destination_generation: 0,
                 result: Err("offline".to_string()),
             })
             .unwrap();
@@ -13646,7 +13753,7 @@ mod tests {
         app.deferred_input.push_back(DeferredInput {
             event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             destination: Some(surface),
-            routing_intent: None,
+            destination_intent: None,
             sidebar_focus_intent: false,
             sequence: 1,
         });
@@ -13815,7 +13922,7 @@ mod tests {
         app.deferred_input.push_back(DeferredInput {
             event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             destination: None,
-            routing_intent: None,
+            destination_intent: None,
             sidebar_focus_intent: false,
             sequence: 1,
         });
@@ -13846,7 +13953,7 @@ mod tests {
         app.deferred_input.push_back(DeferredInput {
             event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             destination: None,
-            routing_intent: None,
+            destination_intent: None,
             sidebar_focus_intent: false,
             sequence: 1,
         });
@@ -13941,7 +14048,7 @@ mod tests {
 
         app.handle(AppEvent::RemoteTreeUpdated {
             refresh_sequence: 1,
-            routing_generation: 0,
+            destination_generation: 0,
             result: Ok(tree.clone()),
         })
         .unwrap();
@@ -13957,7 +14064,7 @@ mod tests {
         app.handle(settled(super::SessionMutationOutcome::IdentityRefreshSucceeded {
             tree: tree.clone(),
             authoritative_generation: 3,
-            routing_generation: 0,
+            destination_generation: 0,
             refresh_sequence: 2,
         }))
         .unwrap();
@@ -13968,7 +14075,7 @@ mod tests {
         app.handle(settled(super::SessionMutationOutcome::IdentityRefreshSucceeded {
             tree,
             authoritative_generation: 4,
-            routing_generation: 0,
+            destination_generation: 0,
             refresh_sequence: 3,
         }))
         .unwrap();
@@ -13992,7 +14099,7 @@ mod tests {
         app.handle(settled(super::SessionMutationOutcome::IdentityRefreshSucceeded {
             tree: browser_completion_tree(created_surface, active_surface),
             authoritative_generation: 4,
-            routing_generation: 0,
+            destination_generation: 0,
             refresh_sequence: 1,
         }))
         .unwrap();
@@ -14008,7 +14115,7 @@ mod tests {
         let (mut app, events) = test_app_with_events(Session::Local(mux));
         let (started_tx, started_rx) = std::sync::mpsc::channel();
         let (release_tx, release_rx) = std::sync::mpsc::channel();
-        app.session.enqueue_routing("failing selection", move |_| {
+        app.session.enqueue_destination_mutation("failing selection", move |_| {
             started_tx.send(()).unwrap();
             release_rx.recv().unwrap();
             anyhow::bail!("selection rejected")
@@ -14041,13 +14148,13 @@ mod tests {
 
         assert!(app.deferred_input.is_empty());
         assert!(!app.prefix_armed);
-        assert!(app.routing_refresh_pending);
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::NeedsRender);
         assert_eq!(
             app.status_message.as_deref(),
             Some("session operation failed: selection rejected")
         );
 
-        app.routing_refresh_pending = false;
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
         app.replay_deferred_input().unwrap();
         assert_eq!(app.hover, Some((14, 6)));
     }
@@ -14073,7 +14180,7 @@ mod tests {
         app.session.swap_pane(1, 2);
         app.session.move_workspace(1, 0);
 
-        assert_eq!(app.session.pending_routing_mutations.load(Ordering::Acquire), 3);
+        assert_eq!(app.session.pending_pointer_mutations.load(Ordering::Acquire), 3);
         release_tx.send(()).unwrap();
     }
 
@@ -14099,12 +14206,12 @@ mod tests {
         })))
         .unwrap();
 
-        let pending_routing = app.session.has_pending_routing_mutations();
+        let pending_pointer = app.session.has_pending_pointer_mutations();
         let hover = app.hover;
         let retained_motion = app.pending_pointer_motion.is_some();
         release_tx.send(()).unwrap();
 
-        assert!(pending_routing);
+        assert!(pending_pointer);
         assert_eq!(hover, None);
         assert!(retained_motion);
     }
@@ -14137,7 +14244,8 @@ mod tests {
             KeyModifiers::NONE,
         ))))
         .unwrap();
-        let destination_intent = app.deferred_input.front().and_then(|input| input.routing_intent);
+        let destination_intent =
+            app.deferred_input.front().and_then(|input| input.destination_intent);
         release_tx.send(()).unwrap();
 
         assert_eq!(
@@ -14216,12 +14324,12 @@ mod tests {
             match events.recv_timeout(Duration::from_secs(1)).unwrap() {
                 AppEvent::SessionMutationSettled {
                     outcome: super::SessionMutationOutcome::Success { tree: None },
-                    routing: true,
+                    impact: MutationImpact::PointerMap,
                     ..
                 } => sample_without_tree += 1,
                 AppEvent::SessionMutationSettled {
                     outcome: super::SessionMutationOutcome::AuthoritativeMutationSucceeded { .. },
-                    routing: true,
+                    impact: MutationImpact::PointerMap,
                     ..
                 } => authoritative_snapshots += 1,
                 _ => panic!("unexpected split ratio settlement"),
@@ -14237,7 +14345,7 @@ mod tests {
         let mux = Mux::new("deferred-motion-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.session.pending_mutations.store(1, Ordering::Release);
-        app.session.pending_routing_mutations.store(1, Ordering::Release);
+        app.session.pending_pointer_mutations.store(1, Ordering::Release);
 
         for (column, row) in [(9, 3), (14, 6)] {
             app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
@@ -14254,7 +14362,7 @@ mod tests {
         assert_eq!(app.status_message, None);
 
         app.session.pending_mutations.store(0, Ordering::Release);
-        app.session.pending_routing_mutations.store(0, Ordering::Release);
+        app.session.pending_pointer_mutations.store(0, Ordering::Release);
         app.replay_deferred_input().unwrap();
 
         assert_eq!(app.hover, Some((14, 6)));
@@ -14289,7 +14397,7 @@ mod tests {
         let (mut app, _events) = test_app_with_events(Session::Local(mux));
         app.prefix_armed = true;
         app.session.pending_mutations.store(1, Ordering::Release);
-        app.session.pending_routing_mutations.store(1, Ordering::Release);
+        app.session.pending_pointer_mutations.store(1, Ordering::Release);
 
         app.handle(AppEvent::Input(Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE))))
             .unwrap();
@@ -14302,12 +14410,12 @@ mod tests {
         .unwrap();
 
         app.session.pending_mutations.store(0, Ordering::Release);
-        app.session.pending_routing_mutations.store(0, Ordering::Release);
+        app.session.pending_pointer_mutations.store(0, Ordering::Release);
         app.replay_deferred_input().unwrap();
 
         assert_eq!(app.hover, None);
         assert!(app.pending_pointer_motion.is_some());
-        assert!(app.session.has_pending_routing_mutations());
+        assert!(app.session.has_pending_pointer_mutations());
     }
 
     #[test]
@@ -14351,14 +14459,14 @@ mod tests {
         assert_eq!(app.hover, None);
         assert!(app.pending_pointer_motion.is_some());
         assert!(app.session.has_pending_mutations());
-        assert!(!app.session.has_pending_routing_mutations());
-        assert!(app.routing_refresh_pending);
+        assert!(!app.session.has_pending_pointer_mutations());
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::NeedsRender);
 
         release_tx.send(()).unwrap();
         while app.session.has_pending_mutations() {
             app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
         }
-        app.routing_refresh_pending = false;
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
         app.replay_deferred_input().unwrap();
 
         assert_eq!(app.hover, Some((14, 6)));
@@ -14370,7 +14478,7 @@ mod tests {
         let mux = Mux::new("pointer-before-key-test", SurfaceOptions::default());
         let (mut app, _events) = test_app_with_events(Session::Local(mux));
         app.session.pending_mutations.store(1, Ordering::Release);
-        app.session.pending_routing_mutations.store(1, Ordering::Release);
+        app.session.pending_pointer_mutations.store(1, Ordering::Release);
 
         app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
             kind: MouseEventKind::Moved,
@@ -14384,12 +14492,12 @@ mod tests {
             .unwrap();
 
         app.session.pending_mutations.store(0, Ordering::Release);
-        app.session.pending_routing_mutations.store(0, Ordering::Release);
+        app.session.pending_pointer_mutations.store(0, Ordering::Release);
         app.replay_deferred_input().unwrap();
 
         assert_eq!(app.hover, Some((14, 6)));
         assert!(app.pending_pointer_motion.is_none());
-        assert!(app.session.has_pending_routing_mutations());
+        assert!(app.session.has_pending_pointer_mutations());
     }
 
     #[test]
@@ -14397,7 +14505,7 @@ mod tests {
         let mux = Mux::new("newer-pointer-motion-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.session.pending_mutations.store(1, Ordering::Release);
-        app.session.pending_routing_mutations.store(1, Ordering::Release);
+        app.session.pending_pointer_mutations.store(1, Ordering::Release);
 
         app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
             kind: MouseEventKind::Moved,
@@ -14408,7 +14516,7 @@ mod tests {
         .unwrap();
 
         app.session.pending_mutations.store(0, Ordering::Release);
-        app.session.pending_routing_mutations.store(0, Ordering::Release);
+        app.session.pending_pointer_mutations.store(0, Ordering::Release);
         app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
             kind: MouseEventKind::Moved,
             column: 14,
@@ -14488,12 +14596,12 @@ mod tests {
         app.handle(AppEvent::Input(Event::Mouse(motion))).unwrap();
         let hover = app.hover;
         let pending_motion = app.pending_pointer_motion.map(|pending| pending.event);
-        let routing_pending = app.session.has_pending_routing_mutations();
+        let pointer_pending = app.session.has_pending_pointer_mutations();
         release_tx.send(()).unwrap();
 
         assert_eq!(hover, None, "motion must not use the new scale before geometry settles");
         assert_eq!(pending_motion, Some(motion));
-        assert!(routing_pending, "cell pixel geometry must participate in pointer routing");
+        assert!(pointer_pending, "cell pixel geometry must participate in pointer routing");
     }
 
     #[test]
@@ -14534,7 +14642,7 @@ mod tests {
             row: 6,
             modifiers: KeyModifiers::NONE,
         });
-        app.routing_refresh_pending = true;
+        app.pointer_route_phase = PointerRoutePhase::NeedsRender;
         let (events, receiver) = std::sync::mpsc::channel();
         events.send(AppEvent::Mux(MuxEvent::SurfaceOutput(999))).unwrap();
         drop(events);
@@ -14545,7 +14653,7 @@ mod tests {
         assert!(!app.sidebar_visible);
         assert_eq!(app.hover, Some((14, 6)));
         assert!(app.pending_pointer_motion.is_none());
-        assert!(!app.routing_refresh_pending);
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::Fresh);
     }
 
     #[test]
@@ -14667,7 +14775,7 @@ mod tests {
         app.deferred_input.push_back(DeferredInput {
             event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             destination: None,
-            routing_intent: None,
+            destination_intent: None,
             sidebar_focus_intent: false,
             sequence: 1,
         });
@@ -16933,12 +17041,12 @@ mod tests {
             deferred_input: VecDeque::new(),
             pending_pointer_motion: None,
             deferred_input_sequence: 0,
-            routing_refresh_pending: false,
-            routing_refresh_retries_remaining: 0,
+            pointer_route_phase: PointerRoutePhase::Fresh,
+            layout_refresh_retries_remaining: 0,
             background_refresh_attempts: 0,
             background_refresh_retry_at: None,
             last_applied_refresh_sequence: 0,
-            applied_routing_generation: 0,
+            applied_destination_generation: 0,
             pending_session_completions: VecDeque::new(),
             mux_titles: Arc::new(MuxTitleIngress::default()),
             pty_failures: Arc::new(PtyFailureIngress::default()),
