@@ -337,15 +337,7 @@ import Testing
         )
     }
 
-    @Test func hidingActiveTaggedRowPrunesOnlyItsPairingWorkspaceState() async throws {
-        let stableID = MobilePairedMac.pairingID(
-            macDeviceID: "shared-mac",
-            instanceTag: "stable"
-        )
-        let nightlyID = MobilePairedMac.pairingID(
-            macDeviceID: "shared-mac",
-            instanceTag: "nightly"
-        )
+    @Test func hidingTaggedRowKeepsSharedWorkspaceStateUntilLastInstanceHides() async throws {
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [
                 "team-a": [
@@ -380,26 +372,16 @@ import Testing
             hiddenMacStore: InMemoryPairedMacHiddenStore()
         )
         await store.loadPairedMacs()
+        // Production keys workspace state by PHYSICAL device id, shared by
+        // every app instance of the Mac.
         store.setWorkspaceStatesForTesting([
-            stableID: MacWorkspaceState(
-                macDeviceID: stableID,
+            "shared-mac": MacWorkspaceState(
+                macDeviceID: "shared-mac",
                 workspaces: [
                     MobileWorkspacePreview(
-                        id: "stable-workspace",
-                        macDeviceID: stableID,
-                        name: "Stable",
-                        terminals: []
-                    ),
-                ],
-                status: .connected
-            ),
-            nightlyID: MacWorkspaceState(
-                macDeviceID: nightlyID,
-                workspaces: [
-                    MobileWorkspacePreview(
-                        id: "nightly-workspace",
-                        macDeviceID: nightlyID,
-                        name: "Nightly",
+                        id: "shared-workspace",
+                        macDeviceID: "shared-mac",
+                        name: "Shared",
                         terminals: []
                     ),
                 ],
@@ -418,10 +400,27 @@ import Testing
             )
         )
 
+        // A visible sibling instance remains, so the shared physical
+        // workspace state must survive the per-instance hide.
         #expect(store.connectionState == .disconnected)
-        #expect(store.foregroundMacDeviceIDForTesting() == nil)
         #expect(store.displayPairedMacs.map(\.instanceTag) == ["nightly"])
-        #expect(store.workspaces.map(\.rpcWorkspaceID.rawValue) == ["nightly-workspace"])
+        #expect(store.workspaces.map(\.rpcWorkspaceID.rawValue) == ["shared-workspace"])
+
+        let nightly = try #require(
+            store.displayPairedMacs.first { $0.instanceTag == "nightly" }
+        )
+        await store.hideStoredPairedMacEntries(
+            representativeID: nightly.id,
+            aliasIDs: store.pairedMacAliasIDs(
+                for: nightly.macDeviceID,
+                instanceTag: nightly.instanceTag
+            )
+        )
+
+        // No instance remains visible: the physical state is pruned.
+        #expect(store.displayPairedMacs.isEmpty)
+        #expect(store.workspaces.isEmpty)
+        #expect(store.foregroundMacDeviceIDForTesting() == nil)
     }
 
     @Test func hideKeepsSQLiteRowAndCreatesNoPendingDeleteOrTombstone() async throws {

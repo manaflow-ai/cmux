@@ -279,10 +279,10 @@ extension MobileShellComposite {
         let remainingPhysicalIDs = Set(pairedMacsForIdentityMatching
             .filter { !targetPairingIDs.contains($0.id) }
             .map(\.macDeviceID))
+        // Workspace state is keyed by PHYSICAL device id, so it is shared by
+        // every app instance of a Mac. Prune it only when no visible sibling
+        // instance remains; a per-instance hide leaves the sibling's state.
         let fullyHiddenPhysicalIDs = targetPhysicalIDs.subtracting(remainingPhysicalIDs)
-        for pairingID in targetPairingIDs.subtracting(targetPhysicalIDs) {
-            pruneWorkspaceStateForHiddenMac(pairingID)
-        }
         for id in fullyHiddenPhysicalIDs {
             if let subscription = secondaryMacSubscriptions[id] {
                 subscription.cancel()
