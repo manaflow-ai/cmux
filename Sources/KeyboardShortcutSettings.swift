@@ -707,7 +707,7 @@ enum KeyboardShortcutSettings {
 
             // Preserve invalid settings-file values for the show/hide hotkey so managed configuration
             // remains visible instead of silently falling back to defaults. Runtime registration still rejects unsupported Carbon hotkey shapes.
-            if usesNumberedDigitMatching {
+            if usesNumberedDigitMatching || self == .globalSearch {
                 return nil
             }
             return shortcut
@@ -725,11 +725,21 @@ enum KeyboardShortcutSettings {
                     for: self,
                     checkingConflicts: checkingSystemWideConflicts
                 )
+            case .globalSearch:
+                guard !Self.containsSystemDefinedMediaKey(shortcut) else {
+                    return .rejected(.reservedBySystem)
+                }
+                return .accepted(shortcut)
             case .selectSurfaceByNumber, .selectWorkspaceByNumber:
                 return resolvedNumberedDigitShortcut(shortcut)
             default:
                 return .accepted(shortcut)
             }
+        }
+
+        private static func containsSystemDefinedMediaKey(_ shortcut: StoredShortcut) -> Bool {
+            shortcut.firstStroke.key.lowercased().hasPrefix("media.")
+                || shortcut.secondStroke?.key.lowercased().hasPrefix("media.") == true
         }
 
         private func resolvedNumberedDigitShortcut(
@@ -932,6 +942,7 @@ enum KeyboardShortcutSettings {
         case .rejected:
             if action.usesNumberedDigitMatching ||
                 action == .showHideAllWindows ||
+                action == .globalSearch ||
                 !action.allowsChordShortcut {
                 return nil
             }
