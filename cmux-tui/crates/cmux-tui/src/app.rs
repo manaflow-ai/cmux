@@ -11896,15 +11896,15 @@ mod tests {
         DeferredReplayDisposition, Drag, FocusTarget, ForwardMuxOutcome, MachineActionWorker,
         MenuAction, MenuItem, MutationImpact, MuxTitleIngress, OrderedSession, OuterCursorSpec,
         PaneArea, PaneEdge, PaneFocusHistory, PendingSessionMutation, PendingSessionMutationState,
-        PointerRouteIdentity, PointerRoutePhase, Prompt, PromptTarget, PtyFailureIngress,
-        PtyMousePressResult, RailKind, RenderAction, RenderedMenuLevel, RenderedPointerFrame,
-        Selection, SessionCompletion, SessionCompletionAction, SessionEventSender, SidebarLayout,
-        SidebarPluginSyncClaim, SidebarPluginSyncState, SurfaceResizeDecision,
-        SurfaceResizeOwnership, WorkspaceRailSelection, browser_content_size_for_rect,
-        browser_hover_forward_allowed, canonical_terminal_content, clamp_split_ratio_for_tab_bars,
-        client_menu_item, forward_mux_event, forward_mux_events, outer_cursor_escape,
-        outer_cursor_escape_if_changed, pane_context_menu_groups, pane_parts_for_rect,
-        prepare_ordered_session, preserve_client_view, rail_drag_width,
+        PointerHitIdentity, PointerRouteIdentity, PointerRoutePhase, Prompt, PromptTarget,
+        PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction, RenderedMenuLevel,
+        RenderedPointerFrame, Selection, SessionCompletion, SessionCompletionAction,
+        SessionEventSender, SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState,
+        SurfaceResizeDecision, SurfaceResizeOwnership, WorkspaceRailSelection,
+        browser_content_size_for_rect, browser_hover_forward_allowed, canonical_terminal_content,
+        clamp_split_ratio_for_tab_bars, client_menu_item, forward_mux_event, forward_mux_events,
+        outer_cursor_escape, outer_cursor_escape_if_changed, pane_context_menu_groups,
+        pane_parts_for_rect, prepare_ordered_session, preserve_client_view, rail_drag_width,
         record_surface_resize_dispatch_result, sidebar_layout_for,
         sidebar_plugin_status_settles_passive_claim, start_ordered_session,
     };
@@ -13404,6 +13404,60 @@ mod tests {
     }
 
     #[test]
+    fn contended_terminal_semantics_retain_discrete_press_for_replay() {
+        let (mux, surface) = test_mux("contended-mouse-semantics-test", None);
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1000h\x1b[?1006h"));
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_visible = false;
+        app.sync_layout((40, 15));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let content = app.pane_areas[0].content;
+        let press = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 4,
+            row: content.y + 2,
+            modifiers: KeyModifiers::NONE,
+        };
+
+        let held_surface = surface.clone();
+        let (locked_tx, locked_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let holder = std::thread::spawn(move || {
+            held_surface.with_terminal(|_| {
+                locked_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+            });
+        });
+        locked_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let action = app.handle(AppEvent::Input(Event::Mouse(press))).unwrap();
+        let queued = app.deferred_input.len();
+        release_tx.send(()).unwrap();
+        holder.join().unwrap();
+        assert_eq!(
+            queued,
+            1,
+            "ordinary terminal lock contention must retain a discrete press"
+        );
+
+        app.render_action(&mut terminal, action).unwrap();
+        app.replay_deferred_input().unwrap();
+
+        assert!(app.deferred_input.is_empty());
+        assert!(
+            matches!(app.drag, Some(Drag::PtyMouse { surface: id, .. }) if id == surface.id),
+            "the retained press must replay against the same rendered terminal"
+        );
+        app.cancel_pty_mouse_drag();
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn guarded_mouse_encoding_rejects_a_changed_terminal_snapshot() {
         let (mux, surface) = test_mux("atomic-mouse-semantics-test", None);
         let app = test_app(Session::Local(mux.clone()));
@@ -13448,6 +13502,115 @@ mod tests {
             Arc::ptr_eq(&levels, &routed),
             "motion routing must clone only the Arc, not menu items"
         );
+    }
+
+    #[test]
+    fn deferred_menu_click_cannot_retarget_a_replacement_tab() {
+        let mux = Mux::new("stable-menu-resource-test", SurfaceOptions::default());
+        let first =
+            mux.new_browser_tab("about:blank#first".to_string(), None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux
+            .new_browser_tab(
+                "about:blank#second".to_string(),
+                Some(pane),
+                Some((80, 24)),
+            )
+            .unwrap();
+        mux.select_tab(Some(pane), Some(0), None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_visible = false;
+        app.sync_layout((80, 24));
+        let area = app.pane_areas.iter().find(|area| area.pane == pane).copied().unwrap();
+        let omnibar = area.omnibar.expect("browser tab should render an omnibar");
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: omnibar.x + 2,
+            row: omnibar.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.menu =
+            Some(ContextMenu::at(click.column, click.row, vec![vec![MenuAction::RenameTab(pane)]]));
+        app.commit_rendered_pointer_frame();
+        app.pointer_route_phase = PointerRoutePhase::DrawPending;
+
+        app.handle(AppEvent::Input(Event::Mouse(click))).unwrap();
+        assert_eq!(app.deferred_input.len(), 1);
+
+        mux.select_tab(Some(pane), Some(1), None);
+        app.replace_tree(app.session.tree());
+        assert_eq!(app.active_surface(), Some(second.id));
+        app.commit_rendered_pointer_frame();
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
+        app.replay_deferred_input().unwrap();
+
+        assert!(
+            app.prompt.is_none(),
+            "the menu click rendered for the first tab must not rename the replacement tab"
+        );
+        mux.close_surface(first.id).unwrap();
+        mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
+    fn terminal_paint_reuses_unchanged_pointer_owner_snapshots() {
+        let (mux, surface) = test_mux("pointer-owner-paint-cache-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.machine_ui = Some(MachineUiState::new(MachineSnapshot {
+            machines: vec![MachineDescriptor {
+                key: MachineKey(1),
+                id: "machine-1".to_string(),
+                name: "machine-1".to_string(),
+                subtitle: "cloud".to_string(),
+                status: MachineStatus::Running,
+            }],
+            active: Some(MachineKey(1)),
+            capabilities: MachineCapabilities::default(),
+        }));
+        app.sidebar_visible = true;
+        app.sync_layout((100, 20));
+        app.menu = Some(ContextMenu::at(
+            app.content_area.x + 2,
+            app.content_area.y + 2,
+            vec![vec![MenuAction::NewTab(app.active_pane().unwrap())]],
+        ));
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let first_menu = app.rendered_pointer_frame.menu.clone().expect("rendered menu");
+        let first_machine = app
+            .rendered_pointer_frame
+            .hits
+            .iter()
+            .find_map(|route| match route.identity.as_deref() {
+                Some(PointerHitIdentity::Machine(target)) => Some(target.context.clone()),
+                Some(PointerHitIdentity::MachineContext(context)) => Some(context.clone()),
+                _ => None,
+            })
+            .expect("rendered machine identity");
+
+        app.render_action(&mut terminal, RenderAction::Paint).unwrap();
+        let second_menu = app.rendered_pointer_frame.menu.clone().expect("rendered menu");
+        let second_machine = app
+            .rendered_pointer_frame
+            .hits
+            .iter()
+            .find_map(|route| match route.identity.as_deref() {
+                Some(PointerHitIdentity::Machine(target)) => Some(target.context.clone()),
+                Some(PointerHitIdentity::MachineContext(context)) => Some(context.clone()),
+                _ => None,
+            })
+            .expect("rendered machine identity");
+
+        assert!(
+            Arc::ptr_eq(&first_menu, &second_menu),
+            "terminal output must not rebuild unchanged menu strings"
+        );
+        assert!(
+            Arc::ptr_eq(&first_machine, &second_machine),
+            "terminal output must not clone the app-wide machine catalog"
+        );
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
