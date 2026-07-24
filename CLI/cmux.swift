@@ -31006,6 +31006,9 @@ export default CMUXSessionRestore;
                 stopStaleCodexPromptSubmit()
                 return
             }
+            let codexRuntimeStatusOrdering = def.name == "codex" && !sessionId.isEmpty && !suppressVisibleMutations
+                ? try? store.advanceCodexRuntimeStatusOrdering(sessionId: sessionId, pid: pid)
+                : nil
             if let pid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
                     "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
@@ -31026,7 +31029,11 @@ export default CMUXSessionRestore;
                     key: def.statusKey,
                     lifecycle: .running,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId
+                    surfaceId: surfaceId,
+                    runtimePIDKey: codexRuntimeStatusOrdering == nil ? nil : pidKey,
+                    runtimePID: codexRuntimeStatusOrdering?.runtime.pid,
+                    runtimeGeneration: codexRuntimeStatusOrdering?.runtime,
+                    revision: codexRuntimeStatusOrdering?.revision
                 )
                 if codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit(restoreVisibleState: true)
@@ -31342,6 +31349,9 @@ export default CMUXSessionRestore;
                     launchCommand: resumeLaunchCommand
                 )
             }
+            let codexRuntimeStatusOrdering = def.name == "codex" && !sessionId.isEmpty && !suppressVisibleMutations
+                ? try? store.advanceCodexRuntimeStatusOrdering(sessionId: sessionId, pid: pid)
+                : nil
             if let pid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
                     "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
@@ -31430,7 +31440,11 @@ export default CMUXSessionRestore;
                         key: def.statusKey,
                         lifecycle: .needsInput,
                         workspaceId: workspaceId,
-                        surfaceId: surfaceId
+                        surfaceId: surfaceId,
+                        runtimePIDKey: codexRuntimeStatusOrdering == nil ? nil : pidKey,
+                        runtimePID: codexRuntimeStatusOrdering?.runtime.pid,
+                        runtimeGeneration: codexRuntimeStatusOrdering?.runtime,
+                        revision: codexRuntimeStatusOrdering?.revision
                     )
                     _ = try? sendV1Command(
                         "set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
@@ -31471,7 +31485,11 @@ export default CMUXSessionRestore;
                         key: def.statusKey,
                         lifecycle: .idle,
                         workspaceId: workspaceId,
-                        surfaceId: surfaceId
+                        surfaceId: surfaceId,
+                        runtimePIDKey: codexRuntimeStatusOrdering == nil ? nil : pidKey,
+                        runtimePID: codexRuntimeStatusOrdering?.runtime.pid,
+                        runtimeGeneration: codexRuntimeStatusOrdering?.runtime,
+                        revision: codexRuntimeStatusOrdering?.revision
                     )
                     setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
                 }
@@ -34333,6 +34351,8 @@ export default CMUXSessionRestore;
                 pidStartSeconds: agentStatusRuntimeGeneration?.pidStartSeconds,
                 pidStartMicroseconds: agentStatusRuntimeGeneration?.pidStartMicroseconds
             )
+        } else if source == "codex", agentStatusSignal != nil {
+            FeedEventClassifier.attachRejectedAgentStatusDisposition(to: &eventDict)
         }
         if let turnId { eventDict["turn_id"] = turnId }
         if let permissionRequestId { eventDict["request_id"] = permissionRequestId }

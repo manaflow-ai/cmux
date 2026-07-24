@@ -233,7 +233,7 @@ extension ClaudeHookSessionStore {
         )
     }
 
-    private func codexPermissionRuntimeGeneration(
+    func codexPermissionRuntimeGeneration(
         record: ClaudeHookSessionRecord,
         incomingPID: Int?
     ) -> CodexPermissionRuntimeGeneration? {
@@ -247,7 +247,7 @@ extension ClaudeHookSessionStore {
         )
     }
 
-    private func codexPermissionRuntimeIsCurrent(
+    func codexPermissionRuntimeIsCurrent(
         record: ClaudeHookSessionRecord,
         incoming: CodexPermissionRuntimeGeneration
     ) -> Bool {

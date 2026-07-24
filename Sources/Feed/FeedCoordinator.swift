@@ -415,7 +415,7 @@ extension FeedCoordinator {
         let clearsLifecycleOnConclusion: Bool
         if isStructuredStatus,
            event.ppid != nil,
-           !AgentStatusHookEventSignal.statusSignalFieldIsAbsent(from: event.extraFieldsJSON) {
+           !AgentStatusHookEventSignal.mayUseLegacyStatusFallback(from: event.extraFieldsJSON) {
             mayMutateLifecycle = panelId.map {
                 tab.applyAgentStatusBlockingDecisionHookSignal(event: event, panelId: $0)
             } == true

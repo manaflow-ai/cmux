@@ -28,6 +28,7 @@ enum FeedDeliveryTargetProbeStrategy: Equatable, Sendable {
 /// is the bug behind https://github.com/manaflow-ai/cmux/issues/4985.
 struct FeedEventClassifier {
     static let agentStatusSignalField = "_cmux_agent_status_signal"
+    static let agentStatusDispositionField = "_cmux_agent_status_disposition"
     static let agentStatusRevisionField = "_cmux_agent_status_revision"
     static let agentPIDNamespaceField = "_cmux_agent_pid_namespace"
     static let agentPIDStartSecondsField = "_cmux_agent_pid_start_seconds"
@@ -78,6 +79,11 @@ struct FeedEventClassifier {
         event[agentStatusSignalField] = statusEvent.flatMap {
             agentStatusSignal(source: source, event: $0)
         }
+    }
+
+    /// Marks an event whose structured status signal was considered but rejected.
+    static func attachRejectedAgentStatusDisposition(to event: inout [String: Any]) {
+        event[agentStatusDispositionField] = "rejected"
     }
 
     /// Marks hook PIDs that belong to the remote side of a relay connection.

@@ -82,15 +82,16 @@ struct AgentStatusHookEventSignal: Equatable, Sendable {
         }
     }
 
-    /// Returns true only when a legacy payload is proven not to contain the
-    /// structured status field. Malformed payloads fail closed.
-    static func statusSignalFieldIsAbsent(from extraFieldsJSON: String?) -> Bool {
+    /// Returns true only when a payload is eligible for the legacy status path.
+    /// Malformed or explicitly rejected structured payloads fail closed.
+    static func mayUseLegacyStatusFallback(from extraFieldsJSON: String?) -> Bool {
         guard let extraFieldsJSON else { return true }
         guard let data = extraFieldsJSON.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return false
         }
         return object[statusSignalField] == nil
+            && object[FeedEventClassifier.agentStatusDispositionField] == nil
     }
 
     /// Parses an optional exact process generation. A partial or malformed
