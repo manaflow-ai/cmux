@@ -1150,7 +1150,7 @@ impl SurfaceHandle {
     pub fn encode_mouse(
         &self,
         input: MouseInput,
-        output: &mut Vec<u8>,
+        output: &mut impl Extend<u8>,
     ) -> Option<ghostty_vt::Result<()>> {
         match self {
             SurfaceHandle::Local(surface, _) => surface.encode_mouse(input, output),
@@ -1165,7 +1165,7 @@ impl SurfaceHandle {
         &self,
         expected: TerminalPointerSemanticSnapshot,
         input: MouseInput,
-        output: &mut Vec<u8>,
+        output: &mut impl Extend<u8>,
     ) -> Option<GuardedMouseEncode> {
         match self {
             SurfaceHandle::Local(surface, _) => {
@@ -1181,7 +1181,7 @@ impl SurfaceHandle {
     pub fn encode_mouse_release(
         &self,
         input: MouseInput,
-        output: &mut Vec<u8>,
+        output: &mut impl Extend<u8>,
     ) -> Option<ghostty_vt::Result<()>> {
         match self {
             SurfaceHandle::Local(surface, _) => surface.encode_mouse_release(input, output),
@@ -1196,8 +1196,8 @@ impl SurfaceHandle {
         &self,
         press: MouseInput,
         release: MouseInput,
-        press_output: &mut Vec<u8>,
-        release_output: &mut Vec<u8>,
+        press_output: &mut impl Extend<u8>,
+        release_output: &mut impl Extend<u8>,
     ) -> Option<ghostty_vt::Result<()>> {
         match self {
             SurfaceHandle::Local(surface, _) => {
@@ -1215,8 +1215,8 @@ impl SurfaceHandle {
         expected: TerminalPointerSemanticSnapshot,
         press: MouseInput,
         release: MouseInput,
-        press_output: &mut Vec<u8>,
-        release_output: &mut Vec<u8>,
+        press_output: &mut impl Extend<u8>,
+        release_output: &mut impl Extend<u8>,
     ) -> Option<GuardedMouseEncode> {
         match self {
             SurfaceHandle::Local(surface, _) => surface.encode_mouse_press_pair_if_semantics(

@@ -1643,7 +1643,7 @@ impl Surface {
     pub fn encode_mouse(
         &self,
         input: MouseInput,
-        output: &mut Vec<u8>,
+        output: &mut impl Extend<u8>,
     ) -> Option<ghostty_vt::Result<()>> {
         let pty = self.as_pty()?;
         match pty.mouse_encoders.try_lock() {
@@ -1660,7 +1660,7 @@ impl Surface {
         &self,
         expected: TerminalPointerSemanticSnapshot,
         input: MouseInput,
-        output: &mut Vec<u8>,
+        output: &mut impl Extend<u8>,
     ) -> Option<GuardedMouseEncode> {
         let pty = self.as_pty()?;
         let term = match pty.term.try_lock() {
@@ -1683,7 +1683,7 @@ impl Surface {
     pub fn encode_mouse_release(
         &self,
         input: MouseInput,
-        output: &mut Vec<u8>,
+        output: &mut impl Extend<u8>,
     ) -> Option<ghostty_vt::Result<()>> {
         let pty = self.as_pty()?;
         match pty.mouse_encoders.try_lock() {
@@ -1699,8 +1699,8 @@ impl Surface {
         &self,
         press: MouseInput,
         release: MouseInput,
-        press_output: &mut Vec<u8>,
-        release_output: &mut Vec<u8>,
+        press_output: &mut impl Extend<u8>,
+        release_output: &mut impl Extend<u8>,
     ) -> Option<ghostty_vt::Result<()>> {
         let pty = self.as_pty()?;
         match pty.mouse_encoders.try_lock() {
@@ -1725,8 +1725,8 @@ impl Surface {
         expected: TerminalPointerSemanticSnapshot,
         press: MouseInput,
         release: MouseInput,
-        press_output: &mut Vec<u8>,
-        release_output: &mut Vec<u8>,
+        press_output: &mut impl Extend<u8>,
+        release_output: &mut impl Extend<u8>,
     ) -> Option<GuardedMouseEncode> {
         let pty = self.as_pty()?;
         let term = match pty.term.try_lock() {

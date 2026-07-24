@@ -244,7 +244,7 @@ impl RemoteSurface {
     pub(super) fn encode_mouse(
         &self,
         input: MouseInput,
-        output: &mut Vec<u8>,
+        output: &mut impl Extend<u8>,
     ) -> Option<ghostty_vt::Result<()>> {
         match self.mouse_encoders.try_lock() {
             Ok(mut encoders) => Some(encoders.encode(input, output)),
@@ -259,7 +259,7 @@ impl RemoteSurface {
         &self,
         expected: TerminalPointerSemanticSnapshot,
         input: MouseInput,
-        output: &mut Vec<u8>,
+        output: &mut impl Extend<u8>,
     ) -> GuardedMouseEncode {
         let term = match self.term.try_lock() {
             Ok(term) => term,
@@ -285,7 +285,7 @@ impl RemoteSurface {
     pub(super) fn encode_mouse_release(
         &self,
         input: MouseInput,
-        output: &mut Vec<u8>,
+        output: &mut impl Extend<u8>,
     ) -> Option<ghostty_vt::Result<()>> {
         match self.mouse_encoders.try_lock() {
             Ok(mut encoders) => Some(encoders.encode_release(input, output)),
@@ -300,8 +300,8 @@ impl RemoteSurface {
         &self,
         press: MouseInput,
         release: MouseInput,
-        press_output: &mut Vec<u8>,
-        release_output: &mut Vec<u8>,
+        press_output: &mut impl Extend<u8>,
+        release_output: &mut impl Extend<u8>,
     ) -> Option<ghostty_vt::Result<()>> {
         match self.mouse_encoders.try_lock() {
             Ok(mut encoders) => {
@@ -319,8 +319,8 @@ impl RemoteSurface {
         expected: TerminalPointerSemanticSnapshot,
         press: MouseInput,
         release: MouseInput,
-        press_output: &mut Vec<u8>,
-        release_output: &mut Vec<u8>,
+        press_output: &mut impl Extend<u8>,
+        release_output: &mut impl Extend<u8>,
     ) -> GuardedMouseEncode {
         let term = match self.term.try_lock() {
             Ok(term) => term,

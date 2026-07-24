@@ -95,6 +95,8 @@ pub struct TerminalPointerSemanticSnapshot {
     pub mouse_mode_revision: u64,
     pub mouse_tracking: bool,
     pub active_screen: Screen,
+    pub cols: u16,
+    pub rows: u16,
 }
 
 /// Scrollbar geometry for the viewport, in rows.
@@ -1550,6 +1552,8 @@ impl Terminal {
             mouse_mode_revision: self.mouse_mode_revision,
             mouse_tracking: self.mouse_tracking(),
             active_screen: self.active_screen(),
+            cols: self.cols(),
+            rows: self.rows(),
         }
     }
 
