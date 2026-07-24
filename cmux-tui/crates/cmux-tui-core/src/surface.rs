@@ -407,11 +407,11 @@ pub struct PtySurface {
     term: Mutex<Terminal>,
     mouse_encoders: Mutex<MouseEncoders>,
     writer: Mutex<Box<dyn Write + Send>>,
-    /// A prompt-submitting write blocks prompt redraw until a later OSC 133
-    /// marker confirms that the child has advanced beyond the stale prompt.
+    /// Potentially command-advancing input blocks prompt redraw until OSC 133
+    /// reports execution and the shell reaches an active prompt again.
     prompt_submission: Mutex<PromptSubmissionState>,
-    /// Streaming parser state for prompt-submitting input and bracketed-paste
-    /// markers that may be split across consecutive writes.
+    /// Streaming parser state for potentially command-advancing input and
+    /// bracketed-paste markers that may be split across consecutive writes.
     prompt_input: Mutex<PromptInputParser>,
     master: Mutex<Box<dyn MasterPty + Send>>,
     killer: Mutex<Box<dyn ChildKiller + Send>>,
@@ -453,7 +453,7 @@ enum PromptSubmissionState {
     #[default]
     Idle,
     Writing,
-    AwaitingPromptMarker(u64),
+    AwaitingCommandCompletion(u64),
 }
 
 struct PromptSubmission {
@@ -479,13 +479,17 @@ impl PromptInputParser {
         may_submit
     }
 
+    fn has_ambiguous_escape(&self) -> bool {
+        !self.bracketed_paste && !self.pending_escape.is_empty()
+    }
+
     fn advance_byte(&mut self, byte: u8) -> bool {
         if self.pending_escape.is_empty() {
             if byte == b'\x1b' {
                 self.pending_escape.push(byte);
                 return false;
             }
-            return !self.bracketed_paste && matches!(byte, b'\r' | b'\n');
+            return !self.bracketed_paste && byte.is_ascii_control();
         }
 
         if self.pending_escape.len() == 1 {
@@ -494,10 +498,11 @@ impl PromptInputParser {
                     self.pending_escape.push(byte);
                     false
                 }
-                b'\x1b' => false,
+                b'\x1b' => !self.bracketed_paste,
                 _ => {
+                    let may_submit = !self.bracketed_paste;
                     self.pending_escape.clear();
-                    self.advance_byte(byte)
+                    may_submit
                 }
             };
         }
@@ -506,13 +511,17 @@ impl PromptInputParser {
             self.pending_escape.push(byte);
             let starts_paste = self.pending_escape == Self::PASTE_START;
             let ends_paste = self.pending_escape == Self::PASTE_END;
-            let may_submit = !self.bracketed_paste && encoded_enter_sequence(&self.pending_escape);
+            let was_bracketed_paste = self.bracketed_paste;
             self.pending_escape.clear();
-            if starts_paste {
+            let may_submit = if starts_paste && !was_bracketed_paste {
                 self.bracketed_paste = true;
-            } else if ends_paste {
+                false
+            } else if ends_paste && was_bracketed_paste {
                 self.bracketed_paste = false;
-            }
+                false
+            } else {
+                !was_bracketed_paste
+            };
             return may_submit;
         }
 
@@ -525,47 +534,15 @@ impl PromptInputParser {
             return false;
         }
 
+        let may_submit = !self.bracketed_paste;
         self.pending_escape.clear();
-        self.advance_byte(byte)
+        may_submit | self.advance_byte(byte)
     }
 }
 
 #[cfg(test)]
 fn input_may_submit_prompt(bytes: &[u8]) -> bool {
     PromptInputParser::default().advance(bytes)
-}
-
-fn encoded_enter_sequence(bytes: &[u8]) -> bool {
-    if let Some(params) = bytes.strip_prefix(b"\x1bO") {
-        let modifier_len = params.iter().take_while(|byte| byte.is_ascii_digit()).count();
-        return params.get(modifier_len) == Some(&b'M');
-    }
-
-    let Some(csi) = bytes.strip_prefix(b"\x1b[") else {
-        return false;
-    };
-    let Some(final_offset) = csi.iter().position(|byte| (0x40..=0x7e).contains(byte)) else {
-        return false;
-    };
-    let params = &csi[..final_offset];
-    match csi[final_offset] {
-        b'u' => {
-            let primary_end =
-                params.iter().position(|byte| matches!(byte, b':' | b';')).unwrap_or(params.len());
-            matches!(&params[..primary_end], b"13" | b"57414")
-                && params.iter().all(|byte| byte.is_ascii_digit() || matches!(byte, b':' | b';'))
-        }
-        b'~' => {
-            let mut fields = params.split(|byte| *byte == b';');
-            fields.next() == Some(b"27".as_slice())
-                && fields
-                    .next()
-                    .is_some_and(|field| !field.is_empty() && field.iter().all(u8::is_ascii_digit))
-                && fields.next() == Some(b"13".as_slice())
-                && fields.next().is_none()
-        }
-        _ => false,
-    }
 }
 
 impl std::fmt::Debug for Surface {
@@ -1551,6 +1528,9 @@ impl PtySurface {
             return None;
         }
         let term = self.term.lock().unwrap();
+        if !term.cursor_is_at_prompt() {
+            return None;
+        }
         Some(self.start_prompt_submission_with_terminal(&term))
     }
 
@@ -1559,7 +1539,7 @@ impl PtySurface {
         bytes: &[u8],
         term: &Terminal,
     ) -> Option<PromptSubmission> {
-        if !self.prompt_input.lock().unwrap().advance(bytes) {
+        if !self.prompt_input.lock().unwrap().advance(bytes) || !term.cursor_is_at_prompt() {
             return None;
         }
         Some(self.start_prompt_submission_with_terminal(term))
@@ -1583,33 +1563,38 @@ impl PtySurface {
         succeeded: bool,
         term: &Terminal,
     ) {
-        let revision = term.prompt_semantic_revision();
         let next = if succeeded
             && term.prompt_command_revision() != submission.command_revision_before_write
             && term.cursor_is_at_prompt()
         {
             PromptSubmissionState::Idle
         } else {
-            // A generic prompt redraw observed during the write is not proof
-            // that Enter reached the child. Only OSC 133 C establishes that
-            // command execution began; otherwise wait for a later marker.
-            PromptSubmissionState::AwaitingPromptMarker(revision)
+            // An input write can race the shell consuming it. Only OSC 133 C
+            // followed by an active prompt proves that a redraw cannot reach
+            // the newly launched foreground process.
+            PromptSubmissionState::AwaitingCommandCompletion(
+                submission.command_revision_before_write,
+            )
         };
         *self.prompt_submission.lock().unwrap() = next;
     }
 
     fn prompt_metadata_ready(&self, term: &Terminal) -> bool {
+        if self.prompt_input.lock().unwrap().has_ambiguous_escape() {
+            return false;
+        }
         let mut submission = self.prompt_submission.lock().unwrap();
         match *submission {
             PromptSubmissionState::Idle => true,
             PromptSubmissionState::Writing => false,
-            PromptSubmissionState::AwaitingPromptMarker(revision)
-                if term.prompt_semantic_revision() != revision =>
+            PromptSubmissionState::AwaitingCommandCompletion(command_revision)
+                if term.prompt_command_revision() != command_revision
+                    && term.cursor_is_at_prompt() =>
             {
                 *submission = PromptSubmissionState::Idle;
                 true
             }
-            PromptSubmissionState::AwaitingPromptMarker(_) => false,
+            PromptSubmissionState::AwaitingCommandCompletion(_) => false,
         }
     }
 
@@ -2539,6 +2524,19 @@ mod tests {
             &*writer.0.lock().unwrap(),
             b"\x0f",
             "Ctrl-L must wait because Ctrl-O may submit the prompt"
+        );
+
+        surface.with_terminal(|term| {
+            term.vt_write(
+                b"\r\n\x1b]133;C\x07finished\r\n\x1b]133;D\x07\x1b]133;A\x07prompt> \x1b]133;B\x07",
+            );
+        });
+        surface.clear_history().unwrap();
+
+        assert_eq!(
+            &*writer.0.lock().unwrap(),
+            b"\x0f\x0c",
+            "OSC 133 execution and a returned prompt release the guard"
         );
     }
 
