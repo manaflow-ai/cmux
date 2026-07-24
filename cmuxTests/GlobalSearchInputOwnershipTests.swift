@@ -120,7 +120,7 @@ final class GlobalSearchInputOwnershipTests {
 #if DEBUG
         let appDelegate = try #require(AppDelegate.shared)
         let windowId = appDelegate.createMainWindow()
-        let window = try #require(window(withId: windowId))
+        let window = try #require(findWindow(withId: windowId))
         defer {
             GlobalSearchCoordinator.shared.dismissPalette()
             closeWindow(window, appDelegate: appDelegate)
@@ -166,7 +166,7 @@ final class GlobalSearchInputOwnershipTests {
 #if DEBUG
         let appDelegate = try #require(AppDelegate.shared)
         let windowId = appDelegate.createMainWindow()
-        let window = try #require(window(withId: windowId))
+        let window = try #require(findWindow(withId: windowId))
         defer {
             GlobalSearchCoordinator.shared.dismissPalette()
             appDelegate.setCommandPaletteVisible(false, for: window)
@@ -194,11 +194,62 @@ final class GlobalSearchInputOwnershipTests {
 #endif
     }
 
+    @Test func globalSearchChordRoutesWhileCommandPaletteIsEffective() throws {
+#if DEBUG
+        let appDelegate = try #require(AppDelegate.shared)
+        let windowId = appDelegate.createMainWindow()
+        let window = try #require(findWindow(withId: windowId))
+        defer {
+            GlobalSearchCoordinator.shared.dismissPalette()
+            appDelegate.setCommandPaletteVisible(false, for: window)
+            appDelegate.debugResetShortcutRoutingStateForTesting()
+            closeWindow(window, appDelegate: appDelegate)
+        }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(
+                key: "k",
+                command: true,
+                shift: false,
+                option: true,
+                control: false,
+                chordKey: "f"
+            ),
+            for: .globalSearch
+        )
+        window.makeKeyAndOrderFront(nil)
+        appDelegate.setCommandPaletteVisible(true, for: window)
+        GlobalSearchCoordinator.shared.dismissPalette()
+        let prefixEvent = try makeKeyDownEvent(
+            key: "k",
+            modifiers: [.command, .option],
+            keyCode: 40,
+            windowNumber: window.windowNumber
+        )
+        let suffixEvent = try makeKeyDownEvent(
+            key: "f",
+            modifiers: [],
+            keyCode: 3,
+            windowNumber: window.windowNumber
+        )
+
+        #expect(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
+        #expect(!GlobalSearchCoordinator.shared.isPaletteVisible())
+        #expect(appDelegate.debugHandleCustomShortcut(event: suffixEvent))
+        #expect(
+            GlobalSearchCoordinator.shared.isPaletteVisible(),
+            "A configured Global Search chord must arm before command-palette shortcut swallowing"
+        )
+#else
+        Issue.record("Global Search command-palette routing requires a DEBUG build")
+#endif
+    }
+
     private func makeBrowserHarness(
         appDelegate: AppDelegate
     ) throws -> (window: NSWindow, panel: BrowserPanel, webView: CmuxWebView) {
         let windowId = appDelegate.createMainWindow()
-        guard let window = window(withId: windowId),
+        guard let window = findWindow(withId: windowId),
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace,
               let browserURL = URL(string: "data:text/html;base64,PGh0bWw+PGJvZHk+Zm9jdXM8L2JvZHk+PC9odG1sPg=="),
@@ -210,7 +261,7 @@ final class GlobalSearchInputOwnershipTests {
               let browserPanel = manager.selectedWorkspace?.browserPanel(for: browserPanelId)
                   ?? workspace.browserPanel(for: browserPanelId),
               let webView = browserPanel.webView as? CmuxWebView else {
-            if let window = window(withId: windowId) {
+            if let window = findWindow(withId: windowId) {
                 closeWindow(window, appDelegate: appDelegate)
             }
             throw TestHarnessError.browserHarnessUnavailable
@@ -255,7 +306,7 @@ final class GlobalSearchInputOwnershipTests {
         return event
     }
 
-    private func window(withId windowId: UUID) -> NSWindow? {
+    private func findWindow(withId windowId: UUID) -> NSWindow? {
         let identifier = "cmux.main.\(windowId.uuidString)"
         return NSApp.windows.first(where: { $0.identifier?.rawValue == identifier })
     }
