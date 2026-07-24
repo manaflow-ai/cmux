@@ -37,7 +37,11 @@ final class CmuxFeatureFlags {
     private static let proUpgradeUIDefault = false
     #endif
 
+    #if DEBUG
     private static let mobileConnectButtonDefault = true
+    #else
+    private static let mobileConnectButtonDefault = false
+    #endif
 
     #if DEBUG
     private static let cloudVMUIDefault = true
@@ -72,10 +76,10 @@ final class CmuxFeatureFlags {
             ),
 
             // FLAG(key: mobile-connect-button-enabled-release, owner: lawrencecchen,
-            //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
             // Shows the top-right iPhone button that opens the Mobile Connect
-            // (phone pairing) window. Default keeps it visible when flags are
-            // unavailable; the window it opens ships in every build.
+            // (phone pairing) window. Release builds hide it until the PostHog
+            // flag is enabled; DEBUG keeps it visible for dogfood.
             CmuxFeatureFlagDefinition(
                 key: "mobile-connect-button-enabled-release",
                 title: String(localized: "featureFlags.mobileConnect.title", defaultValue: "Mobile Connect button"),
