@@ -47,20 +47,23 @@ enum ControlSurfaceResumeTarget {
     @discardableResult
     func setBinding(
         _ binding: SurfaceResumeBindingSnapshot,
-        agentEventTime: TimeInterval?
+        agentEventTime: TimeInterval?,
+        requiresAgentEventTime: Bool
     ) -> Bool {
         switch self {
         case .workspace(_, let workspace, let surfaceID):
             workspace.setSurfaceResumeBinding(
                 binding,
                 panelId: surfaceID,
-                agentEventTime: agentEventTime
+                agentEventTime: agentEventTime,
+                requiresAgentEventTime: requiresAgentEventTime
             )
         case .dock(_, let dock, let surfaceID):
             dock.setSurfaceResumeBinding(
                 binding,
                 panelId: surfaceID,
-                agentEventTime: agentEventTime
+                agentEventTime: agentEventTime,
+                requiresAgentEventTime: requiresAgentEventTime
             )
         }
     }
@@ -74,17 +77,22 @@ enum ControlSurfaceResumeTarget {
         }
     }
 
-    func acceptsBindingMutation(agentEventTime: TimeInterval?) -> Bool {
+    func acceptsBindingMutation(
+        agentEventTime: TimeInterval?,
+        requiresAgentEventTime: Bool
+    ) -> Bool {
         switch self {
         case .workspace(_, let workspace, let surfaceID):
             workspace.acceptsSurfaceResumeBindingMutation(
                 panelId: surfaceID,
-                agentEventTime: agentEventTime
+                agentEventTime: agentEventTime,
+                requiresAgentEventTime: requiresAgentEventTime
             )
         case .dock(_, let dock, let surfaceID):
             dock.acceptsSurfaceResumeBindingMutation(
                 panelId: surfaceID,
-                agentEventTime: agentEventTime
+                agentEventTime: agentEventTime,
+                requiresAgentEventTime: requiresAgentEventTime
             )
         }
     }
@@ -349,7 +357,11 @@ extension TerminalController {
         guard let locatedBinding = target.registeredBinding(binding, inputs: inputs) else {
             return .setFailed
         }
-        guard target.acceptsBindingMutation(agentEventTime: inputs.agentEventTime) else {
+        let requiresAgentEventTime = inputs.source == "agent-hook"
+        guard target.acceptsBindingMutation(
+            agentEventTime: inputs.agentEventTime,
+            requiresAgentEventTime: requiresAgentEventTime
+        ) else {
             return .result(surfaceResumeSnapshot(
                 target: target,
                 binding: target.binding,
@@ -359,9 +371,13 @@ extension TerminalController {
         let effectiveBinding = surfaceResumeBindingWithApproval(locatedBinding)
         guard target.setBinding(
             effectiveBinding,
-            agentEventTime: inputs.agentEventTime
+            agentEventTime: inputs.agentEventTime,
+            requiresAgentEventTime: requiresAgentEventTime
         ) else {
-            if !target.acceptsBindingMutation(agentEventTime: inputs.agentEventTime) {
+            if !target.acceptsBindingMutation(
+                agentEventTime: inputs.agentEventTime,
+                requiresAgentEventTime: requiresAgentEventTime
+            ) {
                 return .result(surfaceResumeSnapshot(
                     target: target,
                     binding: target.binding,
@@ -418,7 +434,10 @@ extension TerminalController {
         if let expectedSource, currentBinding?.source != expectedSource {
             return .result(surfaceResumeSnapshot(target: target, binding: currentBinding, cleared: false))
         }
-        guard target.acceptsBindingMutation(agentEventTime: agentEventTime) else {
+        guard target.acceptsBindingMutation(
+            agentEventTime: agentEventTime,
+            requiresAgentEventTime: expectedSource == "agent-hook"
+        ) else {
             return .result(surfaceResumeSnapshot(
                 target: target,
                 binding: currentBinding,

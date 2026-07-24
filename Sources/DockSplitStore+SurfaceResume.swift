@@ -5,11 +5,13 @@ extension DockSplitStore {
     func setSurfaceResumeBinding(
         _ binding: SurfaceResumeBindingSnapshot,
         panelId: UUID,
-        agentEventTime: TimeInterval? = nil
+        agentEventTime: TimeInterval? = nil,
+        requiresAgentEventTime: Bool = false
     ) -> Bool {
         guard acceptsSurfaceResumeBindingMutation(
             panelId: panelId,
-            agentEventTime: agentEventTime
+            agentEventTime: agentEventTime,
+            requiresAgentEventTime: requiresAgentEventTime
         ),
               panels[panelId] is TerminalPanel,
               let startupInput = binding.inlineStartupInput(repairPortableAgentExecutable: false),
@@ -38,13 +40,17 @@ extension DockSplitStore {
         surfaceResumeBindingsByPanelId[panelId]
     }
 
-    func acceptsSurfaceResumeBindingMutation(panelId: UUID, agentEventTime: TimeInterval?) -> Bool {
-        guard let agentEventTime else { return true }
+    func acceptsSurfaceResumeBindingMutation(
+        panelId: UUID,
+        agentEventTime: TimeInterval?,
+        requiresAgentEventTime: Bool = false
+    ) -> Bool {
         let currentBindingTime = surfaceResumeBindingsByPanelId[panelId]?.updatedAt
         let orderingWatermark = [surfaceResumeBindingEventTimesByPanelId[panelId], currentBindingTime]
             .compactMap { $0 }
             .max()
         guard let orderingWatermark else { return true }
+        guard let agentEventTime else { return !requiresAgentEventTime }
         return agentEventTime >= orderingWatermark
     }
 
