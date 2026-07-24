@@ -246,6 +246,7 @@ _SHELL_BARE_SLEEP = re.compile(
     """
 )
 _SHELL_COMMAND_SEPARATOR = re.compile(r";|&&|\|\||(?<!\|)\|(?!\|)|\)")
+_SHELL_CLOSING_CONTINUATION = re.compile(r"^\s*[)}`]+\s*$")
 
 # Loop-body markers: if the sleep line itself is a loop header or sits in an
 # obvious poll, we treat it as an allowed deadline-bounded poll, not a sync hack.
@@ -843,6 +844,7 @@ class _PythonSleepVisitor(ast.NodeVisitor):
         self.deferred_module_bindings = deferred_module_bindings
         self.sleep_lines: set[int] = set()
         self.sleep_positions: dict[int, set[int]] = {}
+        self.sleep_end_positions: dict[int, list[tuple[int, int]]] = {}
         self.assertion_positions: dict[int, set[int]] = {}
         self.asserted_sleep_positions: dict[int, set[int]] = {}
         self.assertion_depth = 0
@@ -1417,6 +1419,16 @@ class _PythonSleepVisitor(ast.NodeVisitor):
             self.sleep_positions.setdefault(node.lineno - 1, set()).add(
                 node.col_offset
             )
+            if (
+                node.end_lineno is not None
+                and node.end_col_offset is not None
+            ):
+                self.sleep_end_positions.setdefault(
+                    node.lineno - 1,
+                    [],
+                ).append(
+                    (node.end_lineno - 1, node.end_col_offset)
+                )
             if self.assertion_depth:
                 self.asserted_sleep_positions.setdefault(
                     node.lineno - 1,
@@ -1432,6 +1444,7 @@ class _PythonSleepVisitor(ast.NodeVisitor):
 def _python_real_sleep_lines(
     text: str,
     positions: Optional[dict[int, set[int]]] = None,
+    end_positions: Optional[dict[int, list[tuple[int, int]]]] = None,
     assertion_causal_sleep_positions: Optional[
         dict[int, set[int]]
     ] = None,
@@ -1458,7 +1471,11 @@ def _python_real_sleep_lines(
     visitor.visit(tree)
     if assertion_lines is not None:
         assertion_lines.update(visitor.assertion_positions)
-    if positions is not None or assertion_causal_sleep_positions is not None:
+    if (
+        positions is not None
+        or end_positions is not None
+        or assertion_causal_sleep_positions is not None
+    ):
         source_lines = text.splitlines()
 
         def character_positions(
@@ -1482,6 +1499,21 @@ def _python_real_sleep_lines(
         converted_sleeps = character_positions(visitor.sleep_positions)
         if positions is not None:
             positions.update(converted_sleeps)
+        if end_positions is not None:
+            for line_index, ends in visitor.sleep_end_positions.items():
+                converted_ends: list[tuple[int, int]] = []
+                for end_line, end_byte_column in ends:
+                    encoded_line = source_lines[end_line].encode("utf-8")
+                    end_character_column = len(
+                        encoded_line[:end_byte_column].decode(
+                            "utf-8",
+                            errors="ignore",
+                        )
+                    )
+                    converted_ends.append(
+                        (end_line, end_character_column)
+                    )
+                end_positions[line_index] = converted_ends
         if assertion_causal_sleep_positions is not None:
             converted_assertions = character_positions(
                 visitor.assertion_positions
@@ -1546,7 +1578,7 @@ class _ShellExpansionFrame:
 def _mask_shell_heredoc_expansions(
     line: str,
     frames: list[_ShellExpansionFrame],
-    case_state: list[bool],
+    case_state: list[int],
 ) -> str:
     """Expose executable heredoc substitutions, preserving multiline state."""
     masked = [" "] * len(line)
@@ -1752,7 +1784,7 @@ def _shell_arithmetic_identifier_positions(
     """Return candidates evaluated as arithmetic names, not commands."""
     result: dict[int, set[int]] = {}
     frames: list[_ShellExpansionFrame] = []
-    case_state: tuple[bool, ...] = ()
+    case_state: tuple[int, ...] = ()
 
     for line_index, line in enumerate(lines):
         candidates = candidate_positions.get(line_index, set())
@@ -1822,34 +1854,71 @@ _SHELL_CONTROL_PREFIX = re.compile(
 )
 _SHELL_ASSIGNMENT_START = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 _SHELL_CASE_TOKEN = re.compile(
-    r"[A-Za-z_][A-Za-z0-9_]*|;;|[;&|(){}]"
+    r"[A-Za-z_][A-Za-z0-9_]*|;;&|;&|;;|[;&|(){}]"
 )
+_SHELL_CASE_AWAITING_IN = 0
+_SHELL_CASE_EMPTY_PATTERN = 1
+_SHELL_CASE_PATTERN = 2
+_SHELL_CASE_BODY = 3
 
 
 def _shell_case_state_after_prefix(
     line: str,
     end: int,
-    initial_state: tuple[bool, ...] = (),
-) -> tuple[bool, ...]:
-    """Return nested case blocks and whether each has reached its ``in``."""
+    initial_state: tuple[int, ...] = (),
+) -> tuple[int, ...]:
+    """Return nested case blocks and their current shell grammar phase."""
     state = list(initial_state)
     command_position = True
     for match in _SHELL_CASE_TOKEN.finditer(line, 0, end):
         token = match.group()
         if not token[0].isalnum() and match.start() > 0:
-            backslashes = len(
-                line[: match.start()]
-            ) - len(line[: match.start()].rstrip("\\"))
+            backslashes = 0
+            cursor = match.start() - 1
+            while cursor >= 0 and line[cursor] == "\\":
+                backslashes += 1
+                cursor -= 1
             if backslashes % 2 == 1:
                 continue
 
+        phase = state[-1] if state else None
+        if phase in (
+            _SHELL_CASE_EMPTY_PATTERN,
+            _SHELL_CASE_PATTERN,
+        ):
+            if (
+                token == "esac"
+                and phase == _SHELL_CASE_EMPTY_PATTERN
+            ):
+                state.pop()
+                command_position = False
+            elif token == ")":
+                state[-1] = _SHELL_CASE_BODY
+                command_position = True
+            elif token[0].isalnum():
+                state[-1] = _SHELL_CASE_PATTERN
+                command_position = False
+            else:
+                command_position = False
+            continue
+
         if token == "case" and command_position:
-            state.append(False)
-        elif token == "in" and state and not state[-1]:
-            state[-1] = True
+            state.append(_SHELL_CASE_AWAITING_IN)
+        elif (
+            token == "in"
+            and state
+            and state[-1] == _SHELL_CASE_AWAITING_IN
+        ):
+            state[-1] = _SHELL_CASE_EMPTY_PATTERN
         elif token == "esac" and command_position and state:
             state.pop()
-        if token in ";&|(){}" or token == ";;":
+        elif (
+            token in (";;", ";&", ";;&")
+            and state
+            and state[-1] == _SHELL_CASE_BODY
+        ):
+            state[-1] = _SHELL_CASE_EMPTY_PATTERN
+        if token in ";&|(){}" or token in (";;", ";&", ";;&"):
             command_position = True
         elif (
             command_position
@@ -1864,7 +1933,7 @@ def _shell_case_state_after_prefix(
 def _shell_parenthesis_is_case_arm_boundary(
     line: str,
     parenthesis_index: int,
-    initial_case_state: tuple[bool, ...] = (),
+    initial_case_state: tuple[int, ...] = (),
     case_depth_at_open: int = 0,
 ) -> bool:
     """Return whether ``)`` terminates a pattern in an active case block."""
@@ -1876,12 +1945,16 @@ def _shell_parenthesis_is_case_arm_boundary(
     return bool(
         len(state) > case_depth_at_open
         and state[-1]
+        in (
+            _SHELL_CASE_EMPTY_PATTERN,
+            _SHELL_CASE_PATTERN,
+        )
     )
 
 
 def _shell_command_start_indices(
     line: str,
-    initial_case_state: tuple[bool, ...] = (),
+    initial_case_state: tuple[int, ...] = (),
 ) -> list[int]:
     """Return command boundaries, excluding non-case closing parentheses."""
     result: list[int] = []
@@ -2055,7 +2128,7 @@ def _shell_prefixed_sleep_position(
 def _shell_assertion_is_command_position(
     line: str,
     assertion_start: int,
-    initial_case_state: tuple[bool, ...] = (),
+    initial_case_state: tuple[int, ...] = (),
 ) -> bool:
     """Return whether an assertion-looking shell token names a command."""
     for command_start in _shell_command_start_indices(
@@ -2095,7 +2168,7 @@ def _shell_real_sleep_positions(
     masked_lines: list[str],
 ) -> dict[int, set[int]]:
     positions: dict[int, set[int]] = {}
-    case_state: tuple[bool, ...] = ()
+    case_state: tuple[int, ...] = ()
     for line_index, (raw_line, masked_line) in enumerate(
         zip(raw_lines, masked_lines)
     ):
@@ -2286,7 +2359,7 @@ def _shell_asserted_substitution_sleep_positions(
     result: dict[int, set[int]] = {}
     frames: list[_ShellCommandSubstitutionFrame] = []
     top_level_assertion = False
-    case_state: tuple[bool, ...] = ()
+    case_state: tuple[int, ...] = ()
 
     def current_command_assertion() -> bool:
         if frames:
@@ -2671,7 +2744,7 @@ def _mask_javascript_regex_literals(lines: list[str]) -> list[str]:
 def _shell_closer_ends_expansion(
     line: str,
     closer_index: int,
-    initial_case_state: tuple[bool, ...] = (),
+    initial_case_state: tuple[int, ...] = (),
 ) -> bool:
     """Return whether a ``)``/``}`` closes a dollar expansion."""
     if line[closer_index] not in ")}":
@@ -2833,9 +2906,9 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
     shell_interpolations: list[tuple[str, int]] = []
     shell_heredocs: list[tuple[str, bool, bool]] = []
     shell_heredoc_expansions: list[_ShellExpansionFrame] = []
-    shell_heredoc_case_state: list[bool] = []
+    shell_heredoc_case_state: list[int] = []
     shell_arithmetic_depth = 0
-    shell_case_state: tuple[bool, ...] = ()
+    shell_case_state: tuple[int, ...] = ()
     hash_comments = path_suffix in (".py", ".sh")
     marker_pattern = (
         _HASH_NONCODE_MARKER if hash_comments else _SLASH_NONCODE_MARKER
@@ -3224,6 +3297,11 @@ def detect_sleep_then_assert(
             nxt = masked_lines[j]
             if not nxt.strip():
                 continue
+            if (
+                path_suffix == ".sh"
+                and _SHELL_CLOSING_CONTINUATION.fullmatch(nxt)
+            ):
+                continue
             seen += 1
             if seen > 3:
                 break
@@ -3288,11 +3366,13 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
     known_sleep_lines: Optional[set[int]] = None
     if suffix == ".py" and has_sleep_candidate:
         known_sleep_positions = {}
+        known_sleep_end_positions = {}
         assertion_enclosed_sleep_positions = {}
         known_assertion_lines = set()
         known_sleep_lines = _python_real_sleep_lines(
             text,
             known_sleep_positions,
+            known_sleep_end_positions,
             assertion_enclosed_sleep_positions,
             known_assertion_lines,
         )
