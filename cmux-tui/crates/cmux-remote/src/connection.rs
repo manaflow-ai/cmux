@@ -941,6 +941,19 @@ mod tests {
     use crate::provider::{CarrierEvidence, ProviderCapabilities};
     use crate::service::{EndpointRole, ServiceError, ServiceMultiplexer};
 
+    #[test]
+    fn provider_link_carrier_failures_are_retryable() {
+        for error in [LinkError::Closed, LinkError::Transport("HTTP error: 530".into())] {
+            assert!(
+                retryable_connection_error(&ConnectionError::Provider(ProviderError::Link(error))),
+                "provider link carrier failure was treated as terminal"
+            );
+        }
+        assert!(!retryable_connection_error(&ConnectionError::Provider(ProviderError::Link(
+            LinkError::Protocol("invalid peer frame".into())
+        ))));
+    }
+
     struct DelayedReconnectGroupSource {
         delay: Duration,
         resolution_timeout: Option<Duration>,
