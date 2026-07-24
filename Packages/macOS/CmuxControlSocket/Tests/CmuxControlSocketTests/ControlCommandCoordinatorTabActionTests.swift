@@ -69,6 +69,8 @@ struct ControlCommandCoordinatorTabActionTests {
             return
         }
         #expect(supportedActions.contains(.string("toggle_full_width_tab")))
+        #expect(supportedActions.contains(.string("customize_face")))
+        #expect(supportedActions.contains(.string("toggle_face")))
     }
 
     @Test func failedFullWidthTabToggleReturnsInvalidState() throws {

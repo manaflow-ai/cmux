@@ -1457,6 +1457,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.splitButtonLayoutDebug",
     "cmux.tabBarBackdropLab",
     "cmux.taskManager",
+    "cmux.terminalFaceEditor",
     "cmux.aboutTitlebarDebug",
     "cmux.debugWindowControls",
     "cmux.browserImportHintDebug",

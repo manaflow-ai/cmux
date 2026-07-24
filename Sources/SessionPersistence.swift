@@ -3,6 +3,7 @@ import CmuxCore
 import Foundation
 import Bonsplit
 import CmuxWorkspaces
+import CmuxSettings
 #if canImport(CryptoKit)
 import CryptoKit
 #endif
@@ -1391,6 +1392,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     /// Whether the agent process was actively running when this snapshot was captured.
     /// Nil means unknown (legacy snapshots); treated as true for backwards compatibility.
     var wasAgentRunning: Bool?
+    var faceOverride: TerminalFaceConfiguration?
 
     init(
         workingDirectory: String? = nil,
@@ -1403,7 +1405,8 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         textBoxDraft: SessionTextBoxInputDraftSnapshot? = nil,
         isRemoteTerminal: Bool? = nil,
         remotePTYSessionID: String? = nil,
-        wasAgentRunning: Bool? = nil
+        wasAgentRunning: Bool? = nil,
+        faceOverride: TerminalFaceConfiguration? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.fontSize = fontSize
@@ -1416,6 +1419,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.isRemoteTerminal = isRemoteTerminal
         self.remotePTYSessionID = remotePTYSessionID
         self.wasAgentRunning = wasAgentRunning
+        self.faceOverride = faceOverride
     }
 }
 
@@ -1753,6 +1757,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var customTitleSource: Workspace.CustomTitleSource? = nil
     var customDescription: String?
     var customColor: String?
+    var terminalFaceOverride: TerminalFaceConfiguration? = nil
     var isPinned: Bool
     var groupId: UUID? = nil
     var isManuallyUnread: Bool? = nil

@@ -160,6 +160,14 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         defaultValue: []
     )
 
+    /// Customizable face rendered behind terminal text. Workspace and terminal
+    /// overrides are persisted in the session manifest and resolve above this
+    /// global default.
+    public let face = JSONKey<TerminalFaceConfiguration>(
+        id: "terminal.face",
+        defaultValue: .default
+    )
+
     /// Multiplier applied to terminal scroll wheel and trackpad deltas.
     public let scrollSpeed = DefaultsKey<Double>(
         id: "terminal.scrollSpeed",

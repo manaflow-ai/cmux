@@ -7031,6 +7031,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             accessibilityDescription: nil
         )
         appendCurrentSurfaceContextMenuItems(to: menu)
+        let faceItem = menu.addItem(
+            withTitle: String(localized: "terminalContextMenu.customizeFace", defaultValue: "Customize Terminal Face…"),
+            action: #selector(customizeTerminalFace(_:)),
+            keyEquivalent: ""
+        )
+        faceItem.target = self
         let resetTerminalItem = menu.addItem(
             withTitle: String(localized: "terminalContextMenu.resetTerminal", defaultValue: "Reset Terminal"),
             action: #selector(resetTerminal(_:)),
@@ -7103,6 +7109,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     @objc private func triggerFlash(_ sender: Any?) {
         onTriggerFlash?()
+    }
+
+    @objc private func customizeTerminalFace(_ sender: Any?) {
+        guard let terminalSurface,
+              let workspace = terminalSurface.owningWorkspace(),
+              let panel = workspace.terminalPanel(for: terminalSurface.id) else { return }
+        AppDelegate.shared?.terminalFaceController?.presentEditor(for: panel)
     }
 
     @objc private func resetTerminal(_ sender: Any?) {

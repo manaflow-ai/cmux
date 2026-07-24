@@ -757,6 +757,51 @@
             ]
           }
         },
+        "face": {
+          "type": "object",
+          "additionalProperties": false,
+          "default": {
+            "enabled": false,
+            "reactsToAgents": true,
+            "animation": "whenVisible",
+            "opacity": 0.3,
+            "glow": 0.45,
+            "scale": 0.62,
+            "horizontalPosition": 0.5,
+            "verticalPosition": 0.52,
+            "characterDensity": 0.5,
+            "motion": 0.55,
+            "gaze": 0.65,
+            "idleColor": "#5CE0C9",
+            "thinkingColor": "#F0C24A",
+            "workingColor": "#3D70E0",
+            "doneColor": "#8CD447",
+            "needsInputColor": "#D984E8",
+            "errorColor": "#F25C6B"
+          },
+          "descriptionKey": "schemaDescriptions.terminal.face",
+          "description": "Draw a customizable face behind terminal text. Agent hooks change its expression and color while an agent thinks, works, finishes, needs input, or reports an error.",
+          "required": ["enabled", "reactsToAgents", "animation", "opacity", "glow", "scale", "horizontalPosition", "verticalPosition", "characterDensity", "motion", "gaze", "idleColor", "thinkingColor", "workingColor", "doneColor", "needsInputColor", "errorColor"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "reactsToAgents": { "type": "boolean" },
+            "animation": { "type": "string", "enum": ["off", "whenVisible", "always"] },
+            "opacity": { "type": "number", "minimum": 0, "maximum": 1 },
+            "glow": { "type": "number", "minimum": 0, "maximum": 1 },
+            "scale": { "type": "number", "minimum": 0.25, "maximum": 1 },
+            "horizontalPosition": { "type": "number", "minimum": 0, "maximum": 1 },
+            "verticalPosition": { "type": "number", "minimum": 0, "maximum": 1 },
+            "characterDensity": { "type": "number", "minimum": 0, "maximum": 1 },
+            "motion": { "type": "number", "minimum": 0, "maximum": 1 },
+            "gaze": { "type": "number", "minimum": 0, "maximum": 1 },
+            "idleColor": { "$ref": "#/$defs/colorHex" },
+            "thinkingColor": { "$ref": "#/$defs/colorHex" },
+            "workingColor": { "$ref": "#/$defs/colorHex" },
+            "doneColor": { "$ref": "#/$defs/colorHex" },
+            "needsInputColor": { "$ref": "#/$defs/colorHex" },
+            "errorColor": { "$ref": "#/$defs/colorHex" }
+          }
+        },
         "resumeCommands": {
           "type": "array",
           "default": [],

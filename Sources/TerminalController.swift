@@ -5626,7 +5626,10 @@ class TerminalController {
 
         CmuxEventBus.shared.publishWorkstreamEvent(event, phase: "received")
         v2ApplyIMessageModeSideEffects(for: event)
-        Task { @MainActor in self.agentChatTranscriptService?.noteHookEvent(event) }
+        Task { @MainActor in
+            self.agentChatTranscriptService?.noteHookEvent(event)
+            AppDelegate.shared?.terminalFaceController?.noteHookEvent(event)
+        }
 
         let result = FeedCoordinator.shared.ingestBlocking(
             event: event,

@@ -307,6 +307,13 @@ struct SidebarWorkspaceRowMenuBuilder {
         addRenameAndDescriptionItems(to: menu, tabManager: tabManager)
         addRemoteSection(to: menu, tabManager: tabManager)
         addColorMenu(to: menu, tabManager: tabManager)
+        if !isMulti {
+            menu.addItem(item(
+                String(localized: "contextMenu.customizeWorkspaceTerminalFace", defaultValue: "Customize Terminal Face…")
+            ) { [tab] in
+                AppDelegate.shared?.terminalFaceController?.presentEditor(for: tab)
+            })
+        }
         addSSHErrorItem(to: menu)
         menu.addItem(.separator())
         addMoveItems(to: menu, tabManager: tabManager)

@@ -142,6 +142,7 @@ extension Workspace {
             customTitleSource: effectiveCustomTitleSource,
             customDescription: customDescription,
             customColor: customColor,
+            terminalFaceOverride: terminalFaceOverride,
             isPinned: isPinned,
             groupId: groupId,
             isManuallyUnread: isWorkspaceManuallyUnread,
@@ -216,6 +217,7 @@ extension Workspace {
         // every restored terminal (all of which spawn fresh shells — PTYs do not
         // survive an app restart) inherits it through `newTerminalSurface`.
         workspaceEnvironment = Self.sanitizedWorkspaceEnvironment(snapshot.environment ?? [:])
+        terminalFaceOverride = snapshot.terminalFaceOverride
 
         let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })
         let shouldRestoreSingleDefaultCloudTerminal =
@@ -639,7 +641,8 @@ extension Workspace {
                 textBoxDraft: terminalPanel.sessionTextBoxDraftSnapshot(),
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
-                wasAgentRunning: agentWasRunning
+                wasAgentRunning: agentWasRunning,
+                faceOverride: terminalPanel.terminalFaceOverride
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -1745,6 +1748,7 @@ extension Workspace {
                 restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: terminalPanel.id)
             }
             terminalPanel.restoreSessionTextBoxDraft(snapshot.terminal?.textBoxDraft)
+            terminalPanel.setTerminalFaceOverride(snapshot.terminal?.faceOverride)
             applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)
             return terminalPanel.id
         case .browser:
@@ -2150,6 +2154,12 @@ final class Workspace: Identifiable, ObservableObject {
     /// The group entity itself lives in `TabManager.workspaceGroups`.
     @Published var groupId: UUID?
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
+    private(set) var terminalFaceOverride: TerminalFaceConfiguration?
+
+    func setTerminalFaceOverride(_ configuration: TerminalFaceConfiguration?) {
+        terminalFaceOverride = configuration
+        AppDelegate.shared?.terminalFaceController?.refresh(workspace: self)
+    }
     /// User-defined environment variables applied to every shell spawned in this
     /// workspace: the initial terminal, every later pane/surface/split, and every
     /// surface recreated on session restore. Managed `CMUX_*` and terminal-identity

@@ -15605,6 +15605,7 @@ struct CMUXCLI {
               move-to-new-workspace
               reload | duplicate
               pin | unpin | mark-unread | toggle-full-width-tab
+              customize-face | toggle-face
 
             Flags:
               --action <name>              Action name (required if not positional)
