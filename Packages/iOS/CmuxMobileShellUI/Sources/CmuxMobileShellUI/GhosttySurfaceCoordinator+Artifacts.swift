@@ -121,8 +121,10 @@ extension GhosttySurfaceRepresentable.Coordinator {
 
         /// How long a zero count must persist before the chip fades out.
         /// Streaming output re-scans the viewport on every settle, so counts
-        /// dip to zero for well under this window while paths scroll.
-        static let artifactChipHideGracePeriod: Duration = .seconds(2)
+        /// dip to zero while paths scroll; the rescan that restores a positive
+        /// count can itself be delayed past 2.5s when output keeps re-arming
+        /// the settle window, so the grace has margin over that.
+        static let artifactChipHideGracePeriod: Duration = .seconds(3.5)
 
         /// Projects the workspace's value count into a small SwiftUI chip hosted
         /// by the terminal surface, preserving the dock's keyboard geometry.
