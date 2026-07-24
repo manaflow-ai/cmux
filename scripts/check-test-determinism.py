@@ -1284,7 +1284,19 @@ def _python_real_sleep_lines(
     visitor = _PythonSleepVisitor(postponed_annotations)
     visitor.visit(tree)
     if positions is not None:
-        positions.update(visitor.sleep_positions)
+        source_lines = text.splitlines()
+        for line_index, byte_columns in visitor.sleep_positions.items():
+            source_line = source_lines[line_index]
+            encoded_line = source_line.encode("utf-8")
+            positions[line_index] = {
+                len(
+                    encoded_line[:byte_column].decode(
+                        "utf-8",
+                        errors="ignore",
+                    )
+                )
+                for byte_column in byte_columns
+            }
     return visitor.sleep_lines
 
 
@@ -1366,7 +1378,7 @@ def _mask_shell_heredoc_expansions(
             index += 1
             continue
 
-        if char == "#":
+        if char == "#" and _shell_hash_starts_comment(line, index):
             break
         if char == "\\":
             index += 2
@@ -1692,6 +1704,17 @@ def _shell_asserted_substitution_sleep_positions(
                 result.setdefault(line_index, set()).add(index)
 
             if line.startswith("$((", index):
+                inherited_assertion = (
+                    current_command_assertion()
+                    or any(frame.outer_assertion for frame in frames)
+                )
+                frames.append(
+                    _ShellCommandSubstitutionFrame(
+                        "arithmetic",
+                        2,
+                        inherited_assertion,
+                    )
+                )
                 index += 3
                 continue
             if line.startswith("$(", index):
@@ -1728,7 +1751,7 @@ def _shell_asserted_substitution_sleep_positions(
                 index += 1
                 continue
 
-            if frames and frames[-1].kind == "paren":
+            if frames and frames[-1].kind in ("paren", "arithmetic"):
                 if char == "(":
                     frames[-1].depth += 1
                 elif char == ")":
@@ -1990,11 +2013,99 @@ def _mask_javascript_regex_literals(lines: list[str]) -> list[str]:
     return "".join(masked).split("\n")
 
 
+def _shell_closer_ends_expansion(line: str, closer_index: int) -> bool:
+    """Return whether a ``)``/``}`` closes a dollar expansion."""
+    if line[closer_index] not in ")}":
+        return False
+
+    frames: list[_ShellExpansionFrame] = []
+    quotes: list[Optional[str]] = [None]
+    index = 0
+    while index <= closer_index:
+        quote = quotes[-1]
+        char = line[index]
+        if quote == "'":
+            if char == "'":
+                quotes[-1] = None
+            index += 1
+            continue
+        if quote in ('"', "`"):
+            if char == "\\":
+                index += 2
+                continue
+            if char == quote:
+                quotes[-1] = None
+                index += 1
+                continue
+            if line.startswith("$((", index):
+                frames.append(_ShellExpansionFrame("arithmetic", 2))
+                quotes.append(None)
+                index += 3
+                continue
+            if line.startswith("$(", index):
+                frames.append(_ShellExpansionFrame("paren"))
+                quotes.append(None)
+                index += 2
+                continue
+            if line.startswith("${", index):
+                frames.append(_ShellExpansionFrame("brace"))
+                quotes.append(None)
+                index += 2
+                continue
+            index += 1
+            continue
+
+        if char == "\\":
+            index += 2
+            continue
+        if char in ("'", '"', "`"):
+            quotes[-1] = char
+            index += 1
+            continue
+        if line.startswith("$((", index):
+            frames.append(_ShellExpansionFrame("arithmetic", 2))
+            quotes.append(None)
+            index += 3
+            continue
+        if line.startswith("$(", index):
+            frames.append(_ShellExpansionFrame("paren"))
+            quotes.append(None)
+            index += 2
+            continue
+        if line.startswith("${", index):
+            frames.append(_ShellExpansionFrame("brace"))
+            quotes.append(None)
+            index += 2
+            continue
+
+        if frames:
+            frame = frames[-1]
+            opener, closer = (
+                ("{", "}")
+                if frame.kind == "brace"
+                else ("(", ")")
+            )
+            if char == opener:
+                frame.depth += 1
+            elif char == closer:
+                frame.depth -= 1
+                if frame.depth == 0:
+                    if index == closer_index:
+                        return True
+                    frames.pop()
+                    quotes.pop()
+        index += 1
+    return False
+
+
 def _shell_hash_starts_comment(line: str, index: int) -> bool:
     """Return whether an unquoted shell ``#`` starts a comment word."""
     if index == 0:
         return True
-    return line[index - 1].isspace() or line[index - 1] in ";&|()<>{}"
+    previous = line[index - 1]
+    if previous in ")}" and _shell_closer_ends_expansion(line, index - 1):
+        return False
+    return previous.isspace() or previous in ";&|()<>{}"
 
 
 def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
