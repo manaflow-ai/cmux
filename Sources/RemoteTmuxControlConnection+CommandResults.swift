@@ -42,6 +42,10 @@ extension RemoteTmuxControlConnection {
                let completion = trackedSendCompletions.removeValue(forKey: token) {
                 completion(false)
             }
+            if case let .rawQuery(token) = kind {
+                rawQueryTimeoutTasks.removeValue(forKey: token)?.cancel()
+                rawQueryCompletions.removeValue(forKey: token)?(nil)
+            }
             // A rejected per-window size normally means the server predates
             // the '@id:WxH' form: degrade to session-wide sizing, visibly.
             // But a "can't find window" error is about ONE dead window (it
@@ -313,6 +317,9 @@ extension RemoteTmuxControlConnection {
             // One-shot reflow classification result (see requestPaneReflow). Empty
             // lines → classifyAndEmitReflow defaults to no-reflow (safe).
             classifyAndEmitReflow(paneId: paneId, rawValue: lines.first ?? "", source: "oneshot")
+        case let .rawQuery(token):
+            rawQueryTimeoutTasks.removeValue(forKey: token)?.cancel()
+            rawQueryCompletions.removeValue(forKey: token)?(lines)
         case let .activityQuery(token):
             guard let completion = activityQueryCompletions.removeValue(forKey: token) else { break }
             var states: [Int: PaneForegroundState] = [:]

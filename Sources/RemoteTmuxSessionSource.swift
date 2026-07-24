@@ -1,0 +1,190 @@
+import CmuxRemoteSession
+import Foundation
+
+/// The per-session control callbacks a ``RemoteTmuxSessionMirror`` registers.
+///
+/// Bundled into a value type because protocol requirements can't carry default
+/// parameter values: every closure defaults to `nil`, so a call site names only the
+/// events it cares about, exactly as the labeled `addObserver` form does.
+@MainActor
+struct RemoteTmuxSessionObservers {
+    var onPaneOutput: ((_ paneId: Int, _ data: Data) -> Void)?
+    /// Delivers an authoritative pane snapshot together with the ordered live
+    /// output that brackets its capture boundary. A consumer that never receives
+    /// this renders only the live stream, so a pane it mounted mid-session — or
+    /// re-mounted after a reconnect — stays blank until something happens to
+    /// redraw it.
+    var onPaneSeed: ((_ paneId: Int, _ seed: RemoteTmuxPaneSeed) -> Void)?
+    var onPaneCwd: ((_ paneId: Int, _ path: String) -> Void)?
+    var onPaneReflow: ((_ paneId: Int, _ noReflow: Bool) -> Void)?
+    var onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)?
+    var onSessionChanged: ((_ oldName: String, _ newName: String) -> Void)?
+    var onTopologyChanged: (() -> Void)?
+    /// Fires after reconnect attach drainage and reseeding, when observers may
+    /// safely schedule commands against fresh topology.
+    var onReconnectReady: (() -> Void)?
+    var onExit: (() -> Void)?
+    var onConnectionStateChanged: ((RemoteTmuxConnectionState) -> Void)?
+
+    init(
+        onPaneOutput: ((_ paneId: Int, _ data: Data) -> Void)? = nil,
+        onPaneSeed: ((_ paneId: Int, _ seed: RemoteTmuxPaneSeed) -> Void)? = nil,
+        onPaneCwd: ((_ paneId: Int, _ path: String) -> Void)? = nil,
+        onPaneReflow: ((_ paneId: Int, _ noReflow: Bool) -> Void)? = nil,
+        onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)? = nil,
+        onSessionChanged: ((_ oldName: String, _ newName: String) -> Void)? = nil,
+        onTopologyChanged: (() -> Void)? = nil,
+        onReconnectReady: (() -> Void)? = nil,
+        onExit: (() -> Void)? = nil,
+        onConnectionStateChanged: ((RemoteTmuxConnectionState) -> Void)? = nil
+    ) {
+        self.onPaneOutput = onPaneOutput
+        self.onPaneSeed = onPaneSeed
+        self.onPaneCwd = onPaneCwd
+        self.onPaneReflow = onPaneReflow
+        self.onActivePaneChanged = onActivePaneChanged
+        self.onSessionChanged = onSessionChanged
+        self.onTopologyChanged = onTopologyChanged
+        self.onReconnectReady = onReconnectReady
+        self.onExit = onExit
+        self.onConnectionStateChanged = onConnectionStateChanged
+    }
+}
+
+/// The per-session view a ``RemoteTmuxSessionMirror`` (and its child window mirrors)
+/// consumes from its control stream: the session's window/pane topology, live output,
+/// and the command surface the mirror issues.
+///
+/// The GA per-session ``RemoteTmuxControlConnection`` conforms directly — one
+/// connection is one session, so the source *is* the connection. The multiplexed
+/// transport supplies one ``RemoteTmuxSessionChannel`` per session over a single
+/// shared stream, so the mirror renders a session identically whether it owns its
+/// connection or shares one.
+@MainActor
+protocol RemoteTmuxSessionSource: AnyObject {
+    /// Live transport state (host-global under a shared connection).
+    var connectionState: RemoteTmuxConnectionState { get }
+    /// `true` once the session has permanently ended.
+    var exited: Bool { get }
+    /// The tmux session id (`$N`), stable across renames, once known.
+    var sessionId: Int? { get }
+    /// This session's windows, keyed by tmux window id.
+    var windowsByID: [Int: RemoteTmuxWindow] { get }
+    /// This session's window ids in tmux index order.
+    var windowOrder: [Int] { get }
+    /// The active pane per window for this session.
+    var activePaneByWindow: [Int: Int] { get }
+    /// Cached foreground state per pane (drives close-confirmation / activity).
+    var paneForegroundStates: [Int: RemoteTmuxPaneForegroundState] { get }
+    /// Pane identities whose ownership is temporarily undecidable after their
+    /// source window closes, retained until `list-windows` supplies a snapshot.
+    var paneIDsRetainedUntilWindowList: Set<Int> { get }
+    /// Layouts awaiting authoritative pane rectangles before publication.
+    var pendingLayouts: [Int: RemoteTmuxPendingLayout] { get }
+    /// The published window id owning each pane (topology-publication index).
+    var publishedWindowIdByPane: [Int: Int] { get }
+    /// Per-pane header-strip labels (expanded `pane-border-format`, styles stripped).
+    var paneHeaderLabels: [Int: String] { get }
+    /// Where each window places its pane title row (`pane-border-status`); a
+    /// consumer wanting only "is a top row visible" derives `== .top` at the edge.
+    var windowTitleRowPlacements: [Int: RemoteTmuxPaneTitleRowPlacement] { get }
+    /// The last size requested per window (the sizing claim/no-op check).
+    var lastWindowSizes: [Int: (Int, Int)] { get }
+    /// `true` while a window's resize has a layout in flight to publication.
+    func hasPendingLayout(windowId: Int) -> Bool
+
+    /// Registers the mirror's callbacks; returns a token for `removeObserver`.
+    func addObserver(_ observers: RemoteTmuxSessionObservers) -> UUID
+    func removeObserver(_ token: UUID)
+
+    /// Releases this mirror's hold on its transport (observer slots, cached process
+    /// ownership). This never touches sibling sessions that share the same transport.
+    func releaseMirror()
+    /// Ends the remote session (`kill == true`) or just this mirror's attachment
+    /// (`kill == false`) using only channels the concrete transport itself can use.
+    /// The controller owns workspace orchestration; the source owns transport action.
+    func endSession(kill: Bool)
+
+    /// Sends a raw tmux control command targeting this session's server-global ids.
+    @discardableResult func send(_ command: String) -> Bool
+    /// Sends a command and fires `completion` exactly once with its block result,
+    /// so a state machine can anchor on the resolution instead of a timer.
+    @discardableResult func sendTracked(_ command: String, completion: @escaping (Bool) -> Void) -> Bool
+    /// Replaces a pane's visible screen from a fresh capture (home+clear+rows),
+    /// used to repaint after a resize the terminal didn't reflow. Returns the id of
+    /// the pane-seed transaction the repaint runs under, or nil when no transaction
+    /// started — the repaint coalesced into one already in flight, or the transport
+    /// refused it.
+    @discardableResult func repaintPaneVisibleScreen(paneId: Int) -> UUID?
+    /// Drops cached window-size claims for windows no longer live (sizing GC).
+    func retainWindowSizeClaims(for liveWindowIDs: Set<Int>)
+    /// Drops the cached window-size claim for a single window (e.g. on its close).
+    func removeWindowSizeClaim(windowId: Int)
+    /// Creates a tmux window in-band and reports the new `@id` (or nil) back.
+    @discardableResult func sendNewWindow(_ command: String, completion: @escaping (Int?) -> Void) -> Bool
+    /// Sends a window-reorder command batch with optional verification callback.
+    @discardableResult func sendWindowReorder(_ commands: [String], verification: ((Bool) -> Void)?) -> Bool
+    /// Forwards typed input to a pane.
+    @discardableResult func sendKeys(paneId: Int, data: Data) -> Bool
+    /// Replays a pane's captured contents into a freshly-mounted surface, clearing
+    /// that surface's scrollback first when the capture carries the pane's own
+    /// history. Returns the id of the pane-seed transaction, or nil when no seed
+    /// started; a caller that still owes the surface a seed (the deferred full
+    /// reseed) retries on that nil rather than leaving the pane blank.
+    /// `clearScrollback` has no default here because a protocol requirement can't
+    /// carry one, so every call through the source names it.
+    @discardableResult func seedPane(paneId: Int, clearScrollback: Bool) -> UUID?
+    /// Ends per-pane cwd / reflow / header subscriptions when a pane's mirror goes away.
+    func unsubscribePanePath(paneId: Int)
+    func unsubscribePaneReflow(paneId: Int)
+    func unsubscribePaneHeader(paneId: Int)
+    /// Sizes one window's grid (per-window `refresh-client -C`, with fallback).
+    func setWindowSize(windowId: Int, columns: Int, rows: Int)
+    /// Updates the cached session name (after a confirmed rename).
+    func setSessionName(_ name: String)
+    /// Applies a reordered window list to the cached order.
+    func applyWindowReorder(_ reordered: [Int])
+    /// Queries the foreground state of a window's panes.
+    func queryWindowActivity(windowId: Int, completion: @escaping ([Int: RemoteTmuxPaneForegroundState]?) -> Void)
+    /// Queries the foreground state of a single pane.
+    func queryPaneActivity(paneId: Int, completion: @escaping ([Int: RemoteTmuxPaneForegroundState]?) -> Void)
+    /// Pastes text into a pane.
+    @discardableResult func pastePane(paneId: Int, text: String) -> Bool
+
+    /// Appends one event to the transport's diagnostic ring, the buffer
+    /// `remote.tmux.state` reads back. Consumer-side events belong in the same
+    /// ordered buffer as the transport's own, because reading a seed failure means
+    /// following one pane across the boundary between them, and a separate consumer
+    /// log would lose the interleaving that shows which side gave up first. A shared
+    /// stream carries several sessions' events, so an implementation serving one
+    /// session of many tags them with its identity.
+    func record(_ event: String)
+}
+
+/// GA: one control connection *is* one session, so the connection is its own source.
+extension RemoteTmuxControlConnection: RemoteTmuxSessionSource {
+    // All source members other than the lifecycle shims below are already stored
+    // properties / methods on the GA connection, so conformance is free.
+    func releaseMirror() {}
+
+    func endSession(kill: Bool) {
+        // GA teardown still uses the controller's existing detach/one-shot kill path;
+        // this conformance keeps shared lifecycle call sites source-dispatched without
+        // changing the dedicated transport's ordering guarantees.
+    }
+
+    func addObserver(_ observers: RemoteTmuxSessionObservers) -> UUID {
+        addObserver(
+            onPaneOutput: observers.onPaneOutput,
+            onPaneSeed: observers.onPaneSeed,
+            onPaneCwd: observers.onPaneCwd,
+            onPaneReflow: observers.onPaneReflow,
+            onActivePaneChanged: observers.onActivePaneChanged,
+            onSessionChanged: observers.onSessionChanged,
+            onTopologyChanged: observers.onTopologyChanged,
+            onReconnectReady: observers.onReconnectReady,
+            onExit: observers.onExit,
+            onConnectionStateChanged: observers.onConnectionStateChanged
+        )
+    }
+}
