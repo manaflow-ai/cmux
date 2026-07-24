@@ -76,7 +76,7 @@ enum ClaudeHookLiveDeliveryHarness {
             // Production Claude hooks always enter through the wrapper, which
             // captures this timestamp before invoking the CLI. Keep direct CLI
             // harnesses on the same ordered-mutation path.
-            "CMUX_AGENT_HOOK_CAPTURED_AT": "1893456200.000001",
+            "CMUX_AGENT_HOOK_CAPTURED_AT": "1700000200.000001",
         ]
     }
 

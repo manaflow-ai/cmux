@@ -1051,6 +1051,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let fakeDate = root.appendingPathComponent("date-fake", isDirectory: false)
         let capturedAt = root.appendingPathComponent("captured-at.txt", isDirectory: false)
         try FileManager.default.createDirectory(at: toolBin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent(".cursor", isDirectory: true),
+            withIntermediateDirectories: true
+        )
         defer { try? FileManager.default.removeItem(at: root) }
 
         try """
@@ -1060,7 +1064,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         printf '{}\n'
         """.write(to: fakeCLI, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLI.path)
-        try "#!/bin/sh\nprintf '1893456000\\n'\n".write(to: fakeDate, atomically: true, encoding: .utf8)
+        try "#!/bin/sh\nprintf '1700000000\\n'\n".write(to: fakeDate, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeDate.path)
         for (name, target) in [
             ("cat", "/bin/cat"),

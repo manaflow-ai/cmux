@@ -3,6 +3,9 @@ import Foundation
 import Darwin
 import Testing
 
+@_silgen_name("flock")
+private func cmuxTestFlock(_ fileDescriptor: Int32, _ operation: Int32) -> Int32
+
 struct InstalledHookEntry {
     let eventName: String
     let command: String
@@ -298,18 +301,18 @@ func verifyAgentHookClockSamplesOnlyAfterLockAcquisition(
     _ = fileManager.createFile(atPath: lockURL.path, contents: Data())
     try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: clockDirectory.path)
 
-    let lockFD = Darwin.open(lockURL.path, O_RDWR)
+    let lockFD = Darwin.open(lockURL.path, O_RDWR | O_CLOEXEC)
     guard lockFD >= 0 else {
         throw NSError(domain: "cmux.tests.agent-hook-clock", code: Int(errno))
     }
     defer { Darwin.close(lockFD) }
-    guard Darwin.lockf(lockFD, F_LOCK, 0) == 0 else {
+    guard cmuxTestFlock(lockFD, LOCK_EX) == 0 else {
         throw NSError(domain: "cmux.tests.agent-hook-clock", code: Int(errno))
     }
     var ownsLock = true
     defer {
         if ownsLock {
-            _ = Darwin.lockf(lockFD, F_ULOCK, 0)
+            _ = cmuxTestFlock(lockFD, LOCK_UN)
         }
     }
 
@@ -333,13 +336,13 @@ func verifyAgentHookClockSamplesOnlyAfterLockAcquisition(
     }
 
     let clockReachedLock = waitForCondition(timeout: 3) {
-        openProcessIDs(for: lockURL).contains { $0 != getpid() }
+        processTreeContainsExecutable(rootPID: process.processIdentifier, named: "lockf")
     }
     try #require(clockReachedLock, "Agent hook clock never reached its shared lock")
     Thread.sleep(forTimeInterval: 0.05)
     let unlockBoundary = Date().timeIntervalSince1970
 
-    guard Darwin.lockf(lockFD, F_ULOCK, 0) == 0 else {
+    guard cmuxTestFlock(lockFD, LOCK_UN) == 0 else {
         throw NSError(domain: "cmux.tests.agent-hook-clock", code: Int(errno))
     }
     ownsLock = false
@@ -373,23 +376,52 @@ private func agentHookCaptureClockShell(in commandBody: String) throws -> String
     throw NSError(domain: "cmux.tests.agent-hook-clock", code: Int(ENOENT))
 }
 
-private func openProcessIDs(for url: URL) -> Set<Int32> {
+private func processTreeContainsExecutable(rootPID: Int32, named executableName: String) -> Bool {
     let process = Process()
     let pipe = Pipe()
-    process.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
-    process.arguments = ["-t", "--", url.path]
+    process.executableURL = URL(fileURLWithPath: "/bin/ps")
+    process.arguments = ["-axo", "pid=,ppid=,comm="]
     process.standardInput = FileHandle.nullDevice
     process.standardOutput = pipe
     process.standardError = FileHandle.nullDevice
+    let data: Data
     do {
         try process.run()
+        data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
     } catch {
-        return []
+        return false
     }
-    let data = pipe.fileHandleForReading.readDataToEndOfFile()
-    guard let output = String(data: data, encoding: .utf8) else { return [] }
-    return Set(output.split(whereSeparator: \.isNewline).compactMap { Int32($0) })
+    guard let output = String(data: data, encoding: .utf8) else { return false }
+
+    var parentByPID: [Int32: Int32] = [:]
+    var matchingPIDs: [Int32] = []
+    for line in output.split(whereSeparator: \.isNewline) {
+        let fields = line.split(maxSplits: 2, whereSeparator: \.isWhitespace)
+        guard fields.count == 3,
+              let pid = Int32(fields[0]),
+              let parentPID = Int32(fields[1]) else {
+            continue
+        }
+        parentByPID[pid] = parentPID
+        let executable = URL(fileURLWithPath: String(fields[2])).lastPathComponent
+        if executable == executableName {
+            matchingPIDs.append(pid)
+        }
+    }
+
+    for pid in matchingPIDs {
+        var currentPID = pid
+        var visited: Set<Int32> = []
+        while let parentPID = parentByPID[currentPID], visited.insert(currentPID).inserted {
+            if parentPID == rootPID {
+                return true
+            }
+            guard parentPID > 1 else { break }
+            currentPID = parentPID
+        }
+    }
+    return false
 }
 
 private func shellQuoteForAgentHookClockTest(_ value: String) -> String {

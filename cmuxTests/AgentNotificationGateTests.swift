@@ -76,13 +76,13 @@ import Testing
 
     @Test func metaAcceptsCanonicalAgentEventOrderingFields() {
         let ordered = AgentNotificationMeta(
-            meta: "c=needs-permission;p=0;k=claude_code;t=1893456200.000000"
+            meta: "c=needs-permission;p=0;k=claude_code;t=1700000200.000000"
         )
 
         #expect(ordered?.category == .needsPermission)
         #expect(ordered?.pending == false)
         #expect(ordered?.agentStatusKey == "claude_code")
-        #expect(ordered?.agentEventTime == 1_893_456_200)
+        #expect(ordered?.agentEventTime == 1_700_000_200)
     }
 
     @Test(arguments: ["1", "1e300", "4102444801"])

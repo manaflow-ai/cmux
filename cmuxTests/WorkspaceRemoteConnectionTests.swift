@@ -5166,7 +5166,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let workspaceId = "11111111-1111-1111-1111-111111111111"
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "codex-session-monitor-ordering"
-        let eventTime = "1893456200.000000"
+        let eventTime = "1700000200.000000"
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer {

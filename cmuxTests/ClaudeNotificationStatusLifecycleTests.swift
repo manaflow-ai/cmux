@@ -24,7 +24,7 @@ struct ClaudeNotificationStatusLifecycleTests {
             storeURL: context.root.appendingPathComponent("claude-hook-sessions.json")
         )
         environment["CMUX_CLAUDE_PID"] = "\(claudePID)"
-        environment["CMUX_AGENT_HOOK_CAPTURED_AT"] = "1893456300.000000"
+        environment["CMUX_AGENT_HOOK_CAPTURED_AT"] = "1700000300.000000"
 
         let result = harness.runProcess(
             executablePath: context.cliPath,
@@ -53,7 +53,7 @@ struct ClaudeNotificationStatusLifecycleTests {
             context.state.snapshot().first { $0.hasPrefix("notify_target_async ") }
         )
         #expect(
-            notifyCommand.contains(";k=claude_code;t=1893456300.000000"),
+            notifyCommand.contains(";k=claude_code;t=1700000300.000000"),
             "The notification itself must carry the event watermark so a delayed older clear cannot erase it; command=\(notifyCommand)"
         )
     }
@@ -75,7 +75,7 @@ struct ClaudeNotificationStatusLifecycleTests {
             storeURL: context.root.appendingPathComponent("claude-hook-sessions.json")
         )
         environment["CMUX_CLAUDE_PID"] = "42424"
-        environment["CMUX_AGENT_HOOK_CAPTURED_AT"] = "1893456200.000000"
+        environment["CMUX_AGENT_HOOK_CAPTURED_AT"] = "1700000200.000000"
 
         let result = harness.runProcess(
             executablePath: context.cliPath,
@@ -88,10 +88,10 @@ struct ClaudeNotificationStatusLifecycleTests {
 
         let commands = context.state.snapshot()
         let pidCommand = try #require(commands.first { $0.hasPrefix("set_agent_pid claude_code ") })
-        #expect(pidCommand.contains("--agent-event-time=1893456200.000000"))
+        #expect(pidCommand.contains("--agent-event-time=1700000200.000000"))
         let clearCommand = try #require(commands.first { $0.hasPrefix("clear_notifications ") })
         #expect(clearCommand.contains("--agent-status-key=claude_code"))
-        #expect(clearCommand.contains("--agent-event-time=1893456200.000000"))
+        #expect(clearCommand.contains("--agent-event-time=1700000200.000000"))
     }
 
     @Test func staleClaudeNotificationHasNoVisibleMutationSideEffects() throws {
@@ -111,7 +111,7 @@ struct ClaudeNotificationStatusLifecycleTests {
             ttyName: "ttys-claude-stale-notification",
             storeURL: storeURL
         )
-        environment["CMUX_AGENT_HOOK_CAPTURED_AT"] = "1893456200.000000"
+        environment["CMUX_AGENT_HOOK_CAPTURED_AT"] = "1700000200.000000"
 
         let start = harness.runProcess(
             executablePath: context.cliPath,
@@ -123,7 +123,7 @@ struct ClaudeNotificationStatusLifecycleTests {
         harness.assertSuccessfulHook(start)
         let staleMutationStart = context.state.snapshot().count
 
-        environment["CMUX_AGENT_HOOK_CAPTURED_AT"] = "1893456100.000000"
+        environment["CMUX_AGENT_HOOK_CAPTURED_AT"] = "1700000100.000000"
         let staleNotification = harness.runProcess(
             executablePath: context.cliPath,
             arguments: ["hooks", "claude", "notification"],
@@ -151,7 +151,7 @@ struct ClaudeNotificationStatusLifecycleTests {
         let sessions = try #require(state["sessions"] as? [String: Any])
         let record = try #require(sessions["claude-stale-notification-session"] as? [String: Any])
         #expect(record["agentLifecycle"] as? String == "running")
-        #expect(record["runtimeStatusEventTime"] as? Double == 1_893_456_200)
+        #expect(record["runtimeStatusEventTime"] as? Double == 1_700_000_200)
     }
 
     @Test func staleClaudeSessionEndDoesNotConsumeNewerRunningSession() throws {
@@ -172,7 +172,7 @@ struct ClaudeNotificationStatusLifecycleTests {
             ttyName: "ttys-claude-stale-session-end",
             storeURL: storeURL
         )
-        environment["CMUX_AGENT_HOOK_CAPTURED_AT"] = "1893456200.000000"
+        environment["CMUX_AGENT_HOOK_CAPTURED_AT"] = "1700000200.000000"
         let start = harness.runProcess(
             executablePath: context.cliPath,
             arguments: ["hooks", "claude", "session-start"],
@@ -183,7 +183,7 @@ struct ClaudeNotificationStatusLifecycleTests {
         harness.assertSuccessfulHook(start)
         let teardownCommandStart = context.state.snapshot().count
 
-        environment["CMUX_AGENT_HOOK_CAPTURED_AT"] = "1893456100.000000"
+        environment["CMUX_AGENT_HOOK_CAPTURED_AT"] = "1700000100.000000"
         let staleEnd = harness.runProcess(
             executablePath: context.cliPath,
             arguments: ["hooks", "claude", "session-end"],

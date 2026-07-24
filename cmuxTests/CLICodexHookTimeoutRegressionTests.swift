@@ -152,7 +152,7 @@ struct CLICodexHookTimeoutRegressionTests {
 
         try makeCodexHookExecutableShellFile(at: fakeDate, lines: [
             "#!/bin/sh",
-            "if [ \"$1\" = \"+%s\" ]; then printf '1893456000\\n'; else exec /bin/date \"$@\"; fi",
+            "if [ \"$1\" = \"+%s\" ]; then printf '1700000000\\n'; else exec /bin/date \"$@\"; fi",
         ])
         try makeCodexHookExecutableShellFile(at: fakeCLI, lines: [
             "#!/bin/sh",
@@ -731,7 +731,7 @@ struct CLICodexHookTimeoutRegressionTests {
         let legacyLock = root.appendingPathComponent("cmux-agent-hook-time.lock", isDirectory: true)
         let monotonicClockDirectory = root.appendingPathComponent("cmux-agent-hook-clock-v2", isDirectory: true)
         let monotonicClockState = monotonicClockDirectory.appendingPathComponent("state", isDirectory: false)
-        let seededMicros: Int64 = 1_893_456_000_123_456
+        let seededMicros: Int64 = 1_700_000_000_123_456
         let seededTime = Double(seededMicros) / 1_000_000
         try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
         try installMinimalHookToolPath(in: toolBin)
@@ -741,7 +741,7 @@ struct CLICodexHookTimeoutRegressionTests {
 
         try makeCodexHookExecutableShellFile(at: fakeDate, lines: [
             "#!/bin/sh",
-            "printf '1893456000\\n'",
+            "printf '1700000000\\n'",
         ])
         try makeCodexHookExecutableShellFile(at: fakeCLI, lines: [
             "#!/bin/sh",
@@ -768,7 +768,7 @@ struct CLICodexHookTimeoutRegressionTests {
             atomically: true,
             encoding: .utf8
         )
-        try "1893456000\n".write(
+        try "1700000000\n".write(
             to: legacyLock.appendingPathComponent("started"),
             atomically: true,
             encoding: .utf8
@@ -839,7 +839,7 @@ struct CLICodexHookTimeoutRegressionTests {
             .split(whereSeparator: \.isNewline)
             .map(String.init)
         #expect(capturedTimes.count == 2)
-        #expect(capturedTimes.last == "1893456000.000000", Comment(rawValue: capturedTimes.joined(separator: ",")))
+        #expect(capturedTimes.last == "1700000000.000000", Comment(rawValue: capturedTimes.joined(separator: ",")))
         #expect(try String(contentsOf: attackerClockState, encoding: .utf8) == "\(seededMicros)\n")
     }
 

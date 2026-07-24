@@ -203,15 +203,15 @@ import Testing
             )
         }
         let fakeDateURL = toolBin.appendingPathComponent("date", isDirectory: false)
-        try writeExecutable(fakeDateURL, "#!/bin/sh\nprintf '1893455999\\n'\n")
+        try writeExecutable(fakeDateURL, "#!/bin/sh\nprintf '1699999999\\n'\n")
         let monotonicClockDirectory = sandbox.appendingPathComponent("cmux-agent-hook-clock-v2", isDirectory: true)
         let monotonicClockState = monotonicClockDirectory.appendingPathComponent("state", isDirectory: false)
-        let seededMicros: Int64 = 1_893_456_000_123_456
+        let seededMicros: Int64 = 1_700_000_000_123_456
         try fileManager.createDirectory(at: monotonicClockDirectory, withIntermediateDirectories: false)
         try "\(seededMicros)\n".write(to: monotonicClockState, atomically: true, encoding: .utf8)
         let clockStateURL = sandbox.appendingPathComponent("cmux-agent-hook-time.state", isDirectory: false)
         let clockStateVictimURL = sandbox.appendingPathComponent("clock-state-victim.txt", isDirectory: false)
-        try "1893456000 0\n".write(to: clockStateVictimURL, atomically: true, encoding: .utf8)
+        try "1700000000 0\n".write(to: clockStateVictimURL, atomically: true, encoding: .utf8)
         try fileManager.createSymbolicLink(at: clockStateURL, withDestinationURL: clockStateVictimURL)
         let legacyLockURL = sandbox.appendingPathComponent("cmux-agent-hook-time.lock", isDirectory: true)
         try fileManager.createDirectory(at: legacyLockURL, withIntermediateDirectories: false)
@@ -220,7 +220,7 @@ import Testing
             atomically: true,
             encoding: .utf8
         )
-        try "1893455999\n".write(
+        try "1699999999\n".write(
             to: legacyLockURL.appendingPathComponent("started"),
             atomically: true,
             encoding: .utf8
@@ -241,7 +241,7 @@ import Testing
         hook.standardError = FileHandle.nullDevice
         try runWithBoundedWait(hook, shellDescription: "Claude fallback hook timestamps", timeout: 1)
 
-        #expect(try String(contentsOf: clockStateVictimURL, encoding: .utf8) == "1893456000 0\n")
+        #expect(try String(contentsOf: clockStateVictimURL, encoding: .utf8) == "1700000000 0\n")
         #expect(try clockStateURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink == true)
         #expect(fileManager.fileExists(atPath: legacyLockURL.path))
 
@@ -289,7 +289,7 @@ import Testing
             .split(whereSeparator: \.isNewline)
             .map(String.init)
         #expect(capturedTimes.count == 5)
-        #expect(capturedTimes.last == "1893455999.000000", Comment(rawValue: capturedTimes.joined(separator: ",")))
+        #expect(capturedTimes.last == "1699999999.000000", Comment(rawValue: capturedTimes.joined(separator: ",")))
         #expect(try String(contentsOf: attackerClockState, encoding: .utf8) == "\(seededMicros)\n")
     }
 
