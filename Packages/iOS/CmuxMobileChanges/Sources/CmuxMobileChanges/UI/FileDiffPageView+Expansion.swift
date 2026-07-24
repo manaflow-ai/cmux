@@ -102,8 +102,22 @@ extension FileDiffPageView {
                 direction: direction,
                 currentFileLines: currentFile.lines
             ) else {
-                clearPendingExpansion()
-                expansionTask = nil
+                // The tapped gap resolved to nothing against the fetched file,
+                // e.g. the trailing band on an added or EOF-touching diff whose
+                // last hunk already covers every line. Publish the fetched
+                // lines anyway so the projection learns the line count, the
+                // dead band disappears, and later taps stop re-downloading.
+                if case .loaded(let currentPresentation) = loadState {
+                    await recomputePresentation(
+                        for: currentPresentation.document,
+                        expansionState: expansionState,
+                        currentFileLines: currentFile.lines,
+                        generation: generation
+                    )
+                } else {
+                    clearPendingExpansion()
+                    expansionTask = nil
+                }
                 return
             }
             let nextExpansionState = expansionState

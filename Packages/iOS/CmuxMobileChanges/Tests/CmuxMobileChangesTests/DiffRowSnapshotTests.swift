@@ -227,6 +227,33 @@ import Testing
         #expect(resolvedExpander.expansionLineCount == 7)
     }
 
+    @Test func eofCoveringDiffDropsTrailingExpanderOnceLinesArrive() {
+        // An added file's single hunk spans the whole file, so the trailing
+        // gap is empty once the current line count is known. The page must
+        // stop rendering the expander then; before the count arrives the
+        // unresolved band is still projected.
+        let document = FileDiffDocument(
+            hunks: [hunk(oldStart: 0, oldCount: 0, newStart: 1, newCount: 5)],
+            truncated: false,
+            isBinary: false
+        )
+        let lines = (1...5).map { "line \($0)" }
+        let trailingExpanders = { (currentFileLines: [String]?) in
+            DiffRowSnapshot.rows(
+                for: document,
+                expansionState: DiffExpansionState(),
+                currentFileLines: currentFileLines,
+                fileKind: .added
+            ).filter { row in
+                guard case .expander(let snapshot) = row.content else { return false }
+                return snapshot.gap.placement == .trailing
+            }.count
+        }
+
+        #expect(trailingExpanders(nil) == 1)
+        #expect(trailingExpanders(lines) == 0)
+    }
+
     @Test func truncatedDocumentProjectsNoTrailingExpander() {
         let document = gapFixtureDocument(truncated: true)
         let rows = DiffRowSnapshot.rows(
