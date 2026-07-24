@@ -7,6 +7,9 @@ import Testing
 @_silgen_name("cmux_test_ghostty_surface_last_update_wait_after_command")
 private func surfaceLastUpdateWaitsAfterCommand(_ surface: ghostty_surface_t) -> Bool
 
+@_silgen_name("cmux_test_ghostty_surface_was_updated")
+private func surfaceWasUpdated(_ surface: ghostty_surface_t) -> Bool
+
 @MainActor
 @Suite struct TerminalSurfaceFontSizeLineageTests {
     @Test func initialNonExplicitTemplateSeedsFirstRuntimeCreation() {
@@ -130,18 +133,23 @@ private func surfaceLastUpdateWaitsAfterCommand(_ surface: ghostty_surface_t) ->
         var template = CmuxSurfaceConfigTemplate()
         template.setFontSize(6, isExplicitOverride: true)
         template.waitAfterCommand = true
+        let registry = FakeSurfaceRegistry()
         let surface = makeSurface(
             configTemplate: template,
-            engine: FakeTerminalEngine(runtimeConfig: runtimeConfig)
+            engine: FakeTerminalEngine(runtimeConfig: runtimeConfig),
+            registry: registry
         )
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 1, alignment: 1)
+        registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
         defer {
             surface.releaseSurfaceForTesting()
             runtimeSurface.deallocate()
         }
 
+        #expect(surface.runtimeWaitAfterCommand)
         #expect(surface.resetFontSize(toConfiguredRuntimePoints: 12))
+        #expect(surfaceWasUpdated(runtimeSurface))
         #expect(surfaceLastUpdateWaitsAfterCommand(runtimeSurface))
     }
 
@@ -179,7 +187,8 @@ private func surfaceLastUpdateWaitsAfterCommand(_ surface: ghostty_surface_t) ->
     private func makeSurface(
         configTemplate: CmuxSurfaceConfigTemplate,
         globalFontMagnificationPercent: Int = 100,
-        engine: FakeTerminalEngine = FakeTerminalEngine()
+        engine: FakeTerminalEngine = FakeTerminalEngine(),
+        registry: FakeSurfaceRegistry = FakeSurfaceRegistry()
     ) -> TerminalSurface {
         let nativeView = FakeTerminalSurfaceNativeView(
             frame: NSRect(x: 0, y: 0, width: 800, height: 600)
@@ -191,7 +200,7 @@ private func surfaceLastUpdateWaitsAfterCommand(_ surface: ghostty_surface_t) ->
             configTemplate: configTemplate,
             runtimeSpawnPolicy: .pacedSessionRestore,
             dependencies: TerminalSurfaceRuntimeDependencies(
-                registry: FakeSurfaceRegistry(),
+                registry: registry,
                 engine: engine,
                 viewProvider: FakeTerminalSurfaceViewProvider(
                     surfaceView: nativeView,

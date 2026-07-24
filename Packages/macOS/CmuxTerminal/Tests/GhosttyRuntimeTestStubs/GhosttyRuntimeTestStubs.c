@@ -235,3 +235,7 @@ bool cmux_test_ghostty_surface_last_update_wait_after_command(void *surface) {
     return surface == cmux_test_last_updated_surface
         && cmux_test_last_update_wait_after_command;
 }
+
+bool cmux_test_ghostty_surface_was_updated(void *surface) {
+    return surface == cmux_test_last_updated_surface;
+}

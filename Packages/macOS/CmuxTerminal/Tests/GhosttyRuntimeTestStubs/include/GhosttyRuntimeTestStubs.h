@@ -79,6 +79,7 @@ uint32_t cmux_test_ghostty_renderer_realized_call_count(void);
 bool cmux_test_ghostty_renderer_realized_call_value(uint32_t index);
 void cmux_test_ghostty_renderer_realized_set_result(bool result);
 bool cmux_test_ghostty_renderer_release_was_occluded(void);
+bool cmux_test_ghostty_surface_was_updated(void *surface);
 bool cmux_test_ghostty_surface_last_update_wait_after_command(void *surface);
 
 #endif
