@@ -3099,6 +3099,7 @@ class TerminalController {
             "pane_ref": v2Ref(kind: .pane, uuid: surface.paneID),
             "index_in_pane": v2OrNull(surface.indexInPane),
             "tty": v2OrNull(surface.tty),
+            "process_alive": v2OrNull(surface.processAlive),
             "webviews": []
         ]
 

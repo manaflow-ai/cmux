@@ -325,6 +325,7 @@ extension ControlCommandCoordinator {
             "pane_ref": refs.paneRef,
             "index_in_pane": node.indexInPane.map { JSONValue.int(Int64($0)) } ?? .null,
             "tty": orNull(node.tty),
+            "process_alive": node.processAlive.map(JSONValue.bool) ?? .null,
         ]
         item["url"] = node.isBrowser ? .string(node.url ?? "") : .null
         if let dockScope = node.dockScopeRawValue {

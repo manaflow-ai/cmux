@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import CmuxControlSocket
 import CmuxFeedback
+import CmuxTerminal
 import Foundation
 
 /// The system-domain witnesses: the byte-faithful bodies of the former
@@ -133,6 +134,12 @@ extension TerminalController: ControlSystemContext {
             let panel = workspace.controlSurfaceTarget(for: surface.surfaceID)?.panel ??
                 dockStores.lazy.compactMap { $0.panels[surface.surfaceID] }.first
             let browserPanel = panel as? BrowserPanel
+            let processAlive: Bool?
+            if workspace.isRemoteTerminalSurface(surface.surfaceID) {
+                processAlive = nil
+            } else {
+                processAlive = (panel as? TerminalPanel)?.surface.processAlive()
+            }
             let node = ControlSystemTreeSurfaceNode(
                 surfaceID: surface.surfaceID,
                 index: surfaceIndex,
@@ -144,6 +151,7 @@ extension TerminalController: ControlSystemContext {
                 paneID: surface.paneID,
                 indexInPane: surface.indexInPane,
                 tty: workspace.surfaceTTYNames[surface.surfaceID],
+                processAlive: processAlive,
                 isBrowser: browserPanel != nil,
                 url: browserPanel?.currentURL?.absoluteString,
                 dockScopeRawValue: surface.dockScopeRawValue

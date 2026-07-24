@@ -30,6 +30,9 @@ public struct ControlSystemTreeSurfaceNode: Sendable, Equatable {
     public let indexInPane: Int?
     /// The terminal's tty name, if known.
     public let tty: String?
+    /// Whether the locally spawned terminal process is alive. `nil` means the
+    /// process state is unavailable or does not apply to this surface.
+    public let processAlive: Bool?
     /// Whether this is a browser surface (drives the `url` emission: browsers
     /// emit a string — empty when no URL — and non-browsers emit JSON `null`).
     public let isBrowser: Bool
@@ -52,6 +55,8 @@ public struct ControlSystemTreeSurfaceNode: Sendable, Equatable {
     ///   - paneID: The enclosing pane's identifier, if resolved.
     ///   - indexInPane: The tab index within the pane, if resolved.
     ///   - tty: The terminal's tty name, if known.
+    ///   - processAlive: Whether the locally spawned terminal process is alive.
+    ///     `nil` means the process state is unavailable or does not apply.
     ///   - isBrowser: Whether this is a browser surface.
     ///   - url: For browsers, the current URL string.
     ///   - dockScopeRawValue: The Dock scope for a Dock-hosted surface.
@@ -66,6 +71,7 @@ public struct ControlSystemTreeSurfaceNode: Sendable, Equatable {
         paneID: UUID?,
         indexInPane: Int?,
         tty: String?,
+        processAlive: Bool? = nil,
         isBrowser: Bool,
         url: String?,
         dockScopeRawValue: String? = nil
@@ -79,7 +85,8 @@ public struct ControlSystemTreeSurfaceNode: Sendable, Equatable {
         self.selectedInPane = selectedInPane
         self.paneID = paneID
         self.indexInPane = indexInPane
-        self.tty = tty
+        self.tty = processAlive == false ? nil : tty
+        self.processAlive = processAlive
         self.isBrowser = isBrowser
         self.url = url
         self.dockScopeRawValue = dockScopeRawValue
