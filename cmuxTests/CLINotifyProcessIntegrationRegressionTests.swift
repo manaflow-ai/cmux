@@ -2449,6 +2449,70 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCodexSessionEndAcceptsRecordedLeaseAfterProcessExit() throws {
+        let context = try makeClaudeHookContext(name: "codex-dead-session-end")
+        defer { context.cleanup() }
+        let sessionId = "dead-owner-session-end"
+        let processLeaseId = UUID().uuidString
+        let codexProcess = Process()
+        let codexInput = Pipe()
+        codexProcess.executableURL = URL(fileURLWithPath: "/bin/cat")
+        codexProcess.standardInput = codexInput
+        try codexProcess.run()
+        let codexPID = Int(codexProcess.processIdentifier)
+        let launchEnvironment = codexLaunchEnvironment(
+            context: context,
+            sessionId: sessionId
+        ).merging([
+            "CMUX_CODEX_PID": String(codexPID),
+            "CMUX_CODEX_PROCESS_LEASE_ID": processLeaseId,
+        ], uniquingKeysWith: { _, new in new })
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+
+        let start = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+        XCTAssertEqual(
+            try readCodexHookSession(sessionId, context: context)["pid"] as? Int,
+            codexPID
+        )
+
+        try codexInput.fileHandleForWriting.close()
+        codexProcess.waitUntilExit()
+        XCTAssertFalse(codexProcess.isRunning)
+
+        let teardownCommandStart = context.state.commands.count
+        let sessionEnd = runCodexHook(
+            context: context,
+            subcommand: "session-end",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(sessionEnd.timedOut, sessionEnd.stderr)
+        XCTAssertEqual(sessionEnd.status, 0, sessionEnd.stderr)
+
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let state = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any]
+        )
+        let sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
+        XCTAssertNil(
+            sessions[sessionId],
+            "The recorded owner lease must authorize its delayed final teardown after the Codex process exits."
+        )
+        XCTAssertTrue(
+            context.state.commands.dropFirst(teardownCommandStart).contains {
+                self.jsonObject($0)?["method"] as? String == "surface.resume.clear"
+            },
+            "The delayed final teardown must clear the persisted resume binding."
+        )
+    }
+
     func testDelayedSameGenerationCodexResumeCannotClearActiveTurn() throws {
         let context = try makeClaudeHookContext(name: "codex-same-generation-active")
         defer { context.cleanup() }
