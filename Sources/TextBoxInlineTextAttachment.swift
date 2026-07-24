@@ -4,6 +4,7 @@ final class TextBoxInlineTextAttachment: NSTextAttachment {
     let textBoxAttachment: TextBoxAttachment
     private(set) var isFocused = false
 
+    @MainActor
     init(
         attachment: TextBoxAttachment,
         font: NSFont,
@@ -29,6 +30,7 @@ final class TextBoxInlineTextAttachment: NSTextAttachment {
         fatalError("init(coder:) has not been implemented")
     }
 
+    @MainActor
     func refreshCell(
         font: NSFont,
         foregroundColor: NSColor,
