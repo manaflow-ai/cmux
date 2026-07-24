@@ -60,12 +60,14 @@ async function main(): Promise<void> {
     const attach = await client.attachSurface(created.surface, { cols: 100, rows: 31 });
     const first = await attach.next(1000);
     assert(first.event === "vt-state", `first attach event was ${first.event}`);
-    let sizing = findClientSurfaceSize(await client.listClients(), created.surface);
-    assert(sizing.size.size_participating === true, "protocol 10 surface sizing state missing");
-    await client.setClientSizing(created.surface, sizing.client, false);
-    sizing = findClientSurfaceSize(await client.listClients(), created.surface);
-    assert(sizing.size.size_participating === false, "surface sizing mutation was not reflected");
-    await client.setClientSizing(created.surface, sizing.client, true);
+    if (identify.protocol >= 10) {
+      let sizing = findClientSurfaceSize(await client.listClients(), created.surface);
+      assert(sizing.size.size_participating === true, "protocol 10 surface sizing state missing");
+      await client.setClientSizing(created.surface, sizing.client, false);
+      sizing = findClientSurfaceSize(await client.listClients(), created.surface);
+      assert(sizing.size.size_participating === false, "surface sizing mutation was not reflected");
+      await client.setClientSizing(created.surface, sizing.client, true);
+    }
     await client.send(created.surface, { text: `printf '${later}\\n'\r` });
     const output = await nextAttachOutput(attach, 3000);
     assert(output.event === "output" || output.event === "resized", "attach did not produce output/resized after vt-state");

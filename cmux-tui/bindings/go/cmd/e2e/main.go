@@ -108,25 +108,27 @@ func run() error {
 	if first.EventName() != "vt-state" {
 		return fmt.Errorf("first attach event was %s", first.EventName())
 	}
-	sizingClient, size, ok, err := findClientSurfaceSize(ctx, client, created.Surface)
-	if err != nil {
-		return err
-	}
-	if !ok || size.SizeParticipating == nil || !*size.SizeParticipating {
-		return fmt.Errorf("protocol 10 surface sizing state missing: %+v", size)
-	}
-	if err := client.SetClientSizing(ctx, created.Surface, sizingClient, false); err != nil {
-		return err
-	}
-	_, size, ok, err = findClientSurfaceSize(ctx, client, created.Surface)
-	if err != nil {
-		return err
-	}
-	if !ok || size.SizeParticipating == nil || *size.SizeParticipating {
-		return fmt.Errorf("surface sizing mutation was not reflected: %+v", size)
-	}
-	if err := client.SetClientSizing(ctx, created.Surface, sizingClient, true); err != nil {
-		return err
+	if info.Protocol >= 10 {
+		sizingClient, size, ok, err := findClientSurfaceSize(ctx, client, created.Surface)
+		if err != nil {
+			return err
+		}
+		if !ok || size.SizeParticipating == nil || !*size.SizeParticipating {
+			return fmt.Errorf("protocol 10 surface sizing state missing: %+v", size)
+		}
+		if err := client.SetClientSizing(ctx, created.Surface, sizingClient, false); err != nil {
+			return err
+		}
+		_, size, ok, err = findClientSurfaceSize(ctx, client, created.Surface)
+		if err != nil {
+			return err
+		}
+		if !ok || size.SizeParticipating == nil || *size.SizeParticipating {
+			return fmt.Errorf("surface sizing mutation was not reflected: %+v", size)
+		}
+		if err := client.SetClientSizing(ctx, created.Surface, sizingClient, true); err != nil {
+			return err
+		}
 	}
 	outputText := fmt.Sprintf("printf '%s\\n'\r", later)
 	if err := client.Send(ctx, created.Surface, cmux.SendOptions{Text: &outputText}); err != nil {

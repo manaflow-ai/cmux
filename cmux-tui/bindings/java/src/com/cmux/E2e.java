@@ -37,12 +37,14 @@ public final class E2e {
             try (CmuxClient.CmuxStream attach = client.attachSurface(created.surface(), 100, 31)) {
                 CmuxEvent first = attach.next(Duration.ofSeconds(1));
                 check(first instanceof VtStateEvent, "first attach event was " + first.event());
-                SizingTarget sizing = findClientSurfaceSize(client, created.surface());
-                check(Boolean.TRUE.equals(sizing.size().sizeParticipating()), "protocol 10 sizing state missing");
-                client.setClientSizing(created.surface(), sizing.client(), false);
-                sizing = findClientSurfaceSize(client, created.surface());
-                check(Boolean.FALSE.equals(sizing.size().sizeParticipating()), "surface sizing mutation was not reflected");
-                client.setClientSizing(created.surface(), sizing.client(), true);
+                if (identify.protocol() >= 10) {
+                    SizingTarget sizing = findClientSurfaceSize(client, created.surface());
+                    check(Boolean.TRUE.equals(sizing.size().sizeParticipating()), "protocol 10 sizing state missing");
+                    client.setClientSizing(created.surface(), sizing.client(), false);
+                    sizing = findClientSurfaceSize(client, created.surface());
+                    check(Boolean.FALSE.equals(sizing.size().sizeParticipating()), "surface sizing mutation was not reflected");
+                    client.setClientSizing(created.surface(), sizing.client(), true);
+                }
                 client.send(created.surface(), "printf '" + later + "\\n'\r");
                 nextAttachOutput(attach, Duration.ofSeconds(3));
             }

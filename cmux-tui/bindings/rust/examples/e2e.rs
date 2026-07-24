@@ -41,12 +41,14 @@ fn main() -> Result<()> {
     )?;
     let first = attach.recv()?;
     assert!(matches!(first, Event::VtState(_)), "first attach event was {first:?}");
-    let (sizing_client, size) = find_client_surface_size(&mut client, created.surface)?;
-    assert_eq!(size.size_participating, Some(true));
-    client.set_client_sizing(created.surface, sizing_client, false)?;
-    let (_, size) = find_client_surface_size(&mut client, created.surface)?;
-    assert_eq!(size.size_participating, Some(false));
-    client.set_client_sizing(created.surface, sizing_client, true)?;
+    if identify.protocol >= 10 {
+        let (sizing_client, size) = find_client_surface_size(&mut client, created.surface)?;
+        assert_eq!(size.size_participating, Some(true));
+        client.set_client_sizing(created.surface, sizing_client, false)?;
+        let (_, size) = find_client_surface_size(&mut client, created.surface)?;
+        assert_eq!(size.size_participating, Some(false));
+        client.set_client_sizing(created.surface, sizing_client, true)?;
+    }
     client.send(created.surface, Some(&format!("printf '{later}\\n'\r")), None)?;
     next_attach_output(&mut attach, Duration::from_secs(3))?;
 
