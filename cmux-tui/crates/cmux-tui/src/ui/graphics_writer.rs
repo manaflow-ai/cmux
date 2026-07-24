@@ -30,6 +30,8 @@ struct WriterControl {
     worker_thread: OnceLock<ThreadId>,
     state: Mutex<WriterControlState>,
     changed: Condvar,
+    #[cfg(test)]
+    write_attempt_observer: Mutex<Option<SyncSender<()>>>,
 }
 
 impl WriterControl {
@@ -76,6 +78,18 @@ impl WriterControl {
     fn wait_until_cancelled(&self) {
         let state = self.state.lock().unwrap();
         drop(self.changed.wait_while(state, |_| !self.cancelled.load(Ordering::Acquire)).unwrap());
+    }
+
+    #[cfg(test)]
+    fn observe_write_attempts(&self, observer: SyncSender<()>) {
+        *self.write_attempt_observer.lock().unwrap() = Some(observer);
+    }
+
+    #[cfg(test)]
+    fn report_write_attempt(&self) {
+        if let Some(observer) = self.write_attempt_observer.lock().unwrap().as_ref() {
+            let _ = observer.try_send(());
+        }
     }
 }
 
@@ -273,6 +287,8 @@ fn write_batch<W: Write>(
     if control.is_cancelled() {
         return false;
     }
+    #[cfg(test)]
+    control.report_write_attempt();
     let _guard = stdout_lock.lock().unwrap();
     if control.is_cancelled() {
         return false;
@@ -291,7 +307,11 @@ impl Drop for DoneOnDrop {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::graphics::{
+        GraphicData, GraphicFormat, GraphicImage, GraphicImageKey, GraphicPlacementKey,
+    };
     use cmux_tui_core::Rect;
+    use ghostty_vt::{Callbacks, Terminal};
     use std::sync::atomic::{AtomicBool, Ordering};
 
     struct BlockingOutput {
@@ -311,6 +331,58 @@ mod tests {
 
         fn flush(&mut self) -> std::io::Result<()> {
             Ok(())
+        }
+    }
+
+    struct ObservedOutput {
+        bytes: Arc<Mutex<Vec<u8>>>,
+        flushed: SyncSender<()>,
+    }
+
+    impl Write for ObservedOutput {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.bytes.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            let _ = self.flushed.try_send(());
+            Ok(())
+        }
+    }
+
+    fn rgba_placement(image_id: u32, generation: u64, x: u16, rgba: [u8; 4]) -> GraphicPlacement {
+        let image_key = GraphicImageKey { namespace: 91, surface: 7, image_id };
+        GraphicPlacement {
+            key: GraphicPlacementKey { image: image_key, placement_id: 1, ordinal: 0 },
+            image: Arc::new(GraphicImage {
+                key: image_key,
+                generation,
+                width: 1,
+                height: 1,
+                format: GraphicFormat::Rgba,
+                data: GraphicData::Bytes(Arc::from(rgba)),
+            }),
+            rect: Rect { x, y: 0, width: 1, height: 1 },
+            columns: Some(1),
+            rows: Some(1),
+            source: None,
+            x_offset: 0,
+            y_offset: 0,
+            z: 0,
+        }
+    }
+
+    fn wait_for_output(
+        flushed: &Receiver<()>,
+        bytes: &Arc<Mutex<Vec<u8>>>,
+        predicate: impl Fn(&[u8]) -> bool,
+    ) {
+        loop {
+            flushed.recv_timeout(Duration::from_secs(2)).expect("graphics writer flush");
+            if predicate(&bytes.lock().unwrap()) {
+                return;
+            }
         }
     }
 
@@ -399,6 +471,57 @@ mod tests {
         assert_eq!(latest[0].rect.x, 1);
         rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn host_scene_invalidation_discards_a_pre_clear_write_waiting_on_stdout() {
+        let stdout_lock = Arc::new(Mutex::new(()));
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let (flushed_tx, flushed_rx) = sync_channel(8);
+        let output = ObservedOutput { bytes: bytes.clone(), flushed: flushed_tx };
+        let mut writer = GraphicsWriter::spawn_with_output(stdout_lock.clone(), output).unwrap();
+        let first = rgba_placement(41, 1, 0, [255, 0, 0, 255]);
+        let second = rgba_placement(42, 1, 1, [0, 255, 0, 255]);
+
+        writer.submit(vec![first.clone(), second]);
+        wait_for_output(&flushed_rx, &bytes, |bytes| {
+            String::from_utf8_lossy(bytes).matches("a=p").count() == 2
+        });
+        bytes.lock().unwrap().clear();
+
+        let draw_guard = stdout_lock.lock().unwrap();
+        let (attempt_tx, attempt_rx) = sync_channel(1);
+        writer.control.observe_write_attempts(attempt_tx);
+        let changed_second = rgba_placement(42, 2, 1, [0, 0, 255, 255]);
+        writer.submit(vec![first, changed_second.clone()]);
+        attempt_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("pre-clear graphics batch must be waiting on stdout");
+
+        writer.invalidate_host_scene();
+        writer.submit(vec![changed_second]);
+        drop(draw_guard);
+
+        wait_for_output(&flushed_rx, &bytes, |bytes| {
+            String::from_utf8_lossy(bytes).contains("a=p,i=1")
+        });
+        let raced_output = bytes.lock().unwrap().clone();
+        let mut host = Terminal::new(8, 4, 0, Callbacks::default()).unwrap();
+        host.resize(8, 4, 1, 1).unwrap();
+        host.vt_write(&raced_output);
+        let snapshot = host.kitty_graphics_snapshot().unwrap();
+        assert_eq!(
+            snapshot.images.len(),
+            1,
+            "stale pre-clear transmission left a duplicate host image: {snapshot:?}"
+        );
+        assert_eq!(
+            snapshot.placements.len(),
+            1,
+            "stale pre-clear placement survived host-scene invalidation: {snapshot:?}"
+        );
+
+        writer.shutdown(Duration::from_secs(1));
     }
 
     #[test]
