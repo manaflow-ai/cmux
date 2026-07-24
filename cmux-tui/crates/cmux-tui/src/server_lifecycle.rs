@@ -330,7 +330,11 @@ fn verified_legacy_pid(
 
 #[cfg(unix)]
 fn terminate_legacy_server(pid: libc::pid_t) -> anyhow::Result<()> {
-    if unsafe { libc::kill(pid, libc::SIGTERM) } != 0 {
+    // Older interactive clients can install a SIGTERM handler while blocking
+    // indefinitely in terminal input, so a graceful signal does not reliably
+    // stop the verified socket peer. Every surface has already acknowledged
+    // close above; kill the still-connected, kernel-verified peer directly.
+    if unsafe { libc::kill(pid, libc::SIGKILL) } != 0 {
         anyhow::bail!(crate::localization::catalog().server.legacy_signal_failed);
     }
     Ok(())

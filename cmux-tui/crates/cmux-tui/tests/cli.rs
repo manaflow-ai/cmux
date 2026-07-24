@@ -868,7 +868,7 @@ fn server_stop_falls_back_when_an_older_server_rejects_shutdown() {
 
     assert_success(&output);
     let status = server.child.wait().unwrap();
-    assert_eq!(status.signal(), Some(libc::SIGTERM));
+    assert_eq!(status.signal(), Some(libc::SIGKILL));
 }
 
 #[cfg(unix)]
@@ -885,7 +885,7 @@ fn detached_legacy_stop_survives_the_calling_pane_process_exit() {
 
     assert_eq!(output.status.signal(), Some(libc::SIGKILL));
     let status = server.child.wait().unwrap();
-    assert_eq!(status.signal(), Some(libc::SIGTERM));
+    assert_eq!(status.signal(), Some(libc::SIGKILL));
 }
 
 #[cfg(unix)]
