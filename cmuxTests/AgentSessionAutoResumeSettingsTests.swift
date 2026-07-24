@@ -357,23 +357,21 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
                 panelId: sourcePanelId,
                 sessionId: "codex-exited-binding-session"
             )
-            let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
-                SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
-                    name: "Codex",
-                    kind: "codex",
-                    command: "codex resume codex-exited-binding-session",
-                    cwd: "/tmp/repo",
-                    checkpointId: "codex-exited-binding-session",
-                    source: "agent-hook",
-                    autoResume: true,
-                    updatedAt: 1_777_777_777
-                ),
-            ])
+            let binding = SurfaceResumeBindingSnapshot(
+                name: "Codex",
+                kind: "codex",
+                command: "codex resume codex-exited-binding-session",
+                cwd: "/tmp/repo",
+                checkpointId: "codex-exited-binding-session",
+                source: "agent-hook",
+                autoResume: true,
+                updatedAt: 1_777_777_777
+            )
+            XCTAssertTrue(source.setSurfaceResumeBinding(binding, panelId: sourcePanelId))
             source.updatePanelShellActivityState(panelId: sourcePanelId, state: .promptIdle)
             let snapshot = source.sessionSnapshot(
                 includeScrollback: false,
-                restorableAgentIndex: sourceIndex,
-                surfaceResumeBindingIndex: bindingIndex
+                restorableAgentIndex: sourceIndex
             )
 
             XCTAssertEqual(snapshot.panels.first?.terminal?.wasAgentRunning, false)
@@ -414,23 +412,21 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
                 panelId: sourcePanelId,
                 sessionId: "6c88315a-888e-438a-821e-5a9ff58a23e6"
             )
-            let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
-                SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
-                    name: "Claude",
-                    kind: "claude",
-                    command: "claude --resume 6c88315a-888e-438a-821e-5a9ff58a23e6",
-                    cwd: "/tmp/repo",
-                    checkpointId: "6c88315a-888e-438a-821e-5a9ff58a23e6",
-                    source: "agent-hook",
-                    autoResume: true,
-                    updatedAt: 1_777_777_777
-                ),
-            ])
+            let binding = SurfaceResumeBindingSnapshot(
+                name: "Claude",
+                kind: "claude",
+                command: "claude --resume 6c88315a-888e-438a-821e-5a9ff58a23e6",
+                cwd: "/tmp/repo",
+                checkpointId: "6c88315a-888e-438a-821e-5a9ff58a23e6",
+                source: "agent-hook",
+                autoResume: true,
+                updatedAt: 1_777_777_777
+            )
+            XCTAssertTrue(source.setSurfaceResumeBinding(binding, panelId: sourcePanelId))
             source.updatePanelShellActivityState(panelId: sourcePanelId, state: .unknown)
             let snapshot = source.sessionSnapshot(
                 includeScrollback: false,
-                restorableAgentIndex: sourceIndex,
-                surfaceResumeBindingIndex: bindingIndex
+                restorableAgentIndex: sourceIndex
             )
 
             XCTAssertNil(snapshot.panels.first?.terminal?.wasAgentRunning)
