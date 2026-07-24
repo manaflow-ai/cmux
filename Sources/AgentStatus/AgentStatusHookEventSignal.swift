@@ -11,6 +11,7 @@ struct AgentStatusHookEventSignal: Equatable, Sendable {
     }
 
     private static let statusSignalField = "_cmux_agent_status_signal"
+    private static let statusDispositionField = "_cmux_agent_status_disposition"
     private static let statusRevisionField = "_cmux_agent_status_revision"
     private static let pidStartSecondsField = "_cmux_agent_pid_start_seconds"
     private static let pidStartMicrosecondsField = "_cmux_agent_pid_start_microseconds"
@@ -91,7 +92,7 @@ struct AgentStatusHookEventSignal: Equatable, Sendable {
             return false
         }
         return object[statusSignalField] == nil
-            && object[FeedEventClassifier.agentStatusDispositionField] == nil
+            && object[statusDispositionField] == nil
     }
 
     /// Parses an optional exact process generation. A partial or malformed
