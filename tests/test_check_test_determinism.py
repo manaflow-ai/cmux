@@ -314,6 +314,18 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 'DELAY="$(printf "hello world")" sleep 1\n'
                 'assert "$ready"\n'
             ),
+            "later-fstring-assertion.py": (
+                "time.sleep(0.1)\n"
+                'rendered = f"{self.assertTrue(done)}"\n'
+            ),
+            "heredoc-case-substitution.sh": (
+                "cat <<EOF\n"
+                '$(case "$state" in\n'
+                "ready) sleep 1 ;;\n"
+                "esac)\n"
+                "EOF\n"
+                'assert "$ready"\n'
+            ),
             "shell-expansion-suffix-before-sleep.sh": (
                 "value=$(printf ok)#suffix; sleep 1\n"
                 'assert "$actual" "$expected"\n'
@@ -411,6 +423,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "shell-assert-multiline-substitution.sh",
                     "class-name-visible-during-body.py",
                     "case-esac-argument.sh",
+                    "heredoc-case-substitution.sh",
                 )
                 else
                 2
@@ -470,6 +483,14 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "fixture. setTimeout(resolve, 1)\n"
                     "expect(completed).toBe(true)\n"
                     "fixture./* delegate */setTimeout(resolve, 1)\n"
+                    "expect(completed).toBe(true)\n"
+                ),
+                "comment-separated-nested-members.ts": (
+                    "fixture./* delegate */Bun.sleep(1)\n"
+                    "expect(completed).toBe(true)\n"
+                    "fixture./* delegate */window.setTimeout(resolve, 1)\n"
+                    "expect(completed).toBe(true)\n"
+                    "fixture./* delegate */globalThis.setTimeout(resolve, 1)\n"
                     "expect(completed).toBe(true)\n"
                 ),
                 "dollar-identifiers.ts": (
