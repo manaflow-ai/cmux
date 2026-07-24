@@ -75,20 +75,22 @@ public struct AgentResumeArgv: Sendable, Equatable {
     /// Like the claude token, this is POSIX command substitution that fish and
     /// csh/tcsh reject, so any command containing it must reach those shells
     /// wrapped via ``portableCodexResumeShellCommand(posixCommand:)``.
-    public static let codexWrapperShellExecutableToken =
-        "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" || printf codex)\""
+    private static let codexWrapperShellShimGuardPrefix =
+        "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" || "
 
-    private static func codexWrapperShellExecutableToken(
+    public static let codexWrapperShellExecutableToken =
+        codexWrapperShellShimGuardPrefix + "printf codex)\""
+
+    public static func codexWrapperShellExecutableToken(
         fallingBackTo capturedExecutable: String
     ) -> String {
         let fallback = posixSingleQuoted(capturedExecutable)
-        return "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] "
-            + "&& printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" "
-            + "|| { [ -x \(fallback) ] && printf '%s' \(fallback) || printf codex; })\""
+        return codexWrapperShellShimGuardPrefix
+            + "{ [ -x \(fallback) ] && printf '%s' \(fallback) || printf codex; })\""
     }
 
     private static func isCodexWrapperShellExecutableToken(_ value: String) -> Bool {
-        value.hasPrefix("\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ]")
+        value.hasPrefix(codexWrapperShellShimGuardPrefix)
     }
 
     /// Pins a wrapper-routed resume to the exact Codex executable captured at launch.

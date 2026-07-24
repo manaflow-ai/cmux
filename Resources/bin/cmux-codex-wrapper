@@ -173,10 +173,10 @@ codex_resume_parser_flag() {
 
 codex_recognized_inline_option() {
     case "$1" in
-        -c=*|--config=*|--enable=*|--disable=*|-i=*|--image=*|-m=*|\
-        --model=*|--remote=*|--remote-auth-token-env=*|--local-provider=*|\
-        -p=*|--profile=*|-s=*|--sandbox=*|-C=*|--cd=*|--add-dir=*|-a=*|\
-        --ask-for-approval=*)
+        -c?*|-i?*|-m?*|-p?*|-s?*|-C?*|-a?*|--config=*|--enable=*|\
+        --disable=*|--image=*|--model=*|--remote=*|\
+        --remote-auth-token-env=*|--local-provider=*|--profile=*|\
+        --sandbox=*|--cd=*|--add-dir=*|--ask-for-approval=*)
             return 0
             ;;
     esac

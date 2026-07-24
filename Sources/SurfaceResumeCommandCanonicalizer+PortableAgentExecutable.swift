@@ -133,7 +133,9 @@ extension SurfaceResumeCommandCanonicalizer {
                 words: words,
                 executableIndex: executableIndex,
                 executableName: "codex",
-                wrapperToken: AgentResumeArgv.codexWrapperShellExecutableToken,
+                wrapperToken: AgentResumeArgv.codexWrapperShellExecutableToken(
+                    fallingBackTo: executable
+                ),
                 preserveCapturedExecutable: true,
                 renderPortable: { AgentResumeArgv.renderedPortableCodexResumeShellCommand(parts: $0, quote: $1) },
                 wrapInPortableShell: { AgentResumeArgv.portableCodexResumeShellCommand(posixCommand: $0) }

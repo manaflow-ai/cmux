@@ -1015,28 +1015,44 @@ final class ClaudeHookSessionStore {
         includeTerminalPromptTurnIds: Bool = true,
         allowResumedProcessReplacement: Bool = false
     ) -> Bool {
+        let hasActiveTurnState =
+            max(
+                record.activePromptDepth ?? 0,
+                record.activePromptTurnIds?.count ?? 0
+            ) > 0
+        let hasCompletedTurnState =
+            normalizeOptional(record.lastPromptTurnId) != nil
+            || (
+                includeTerminalPromptTurnIds
+                && !terminalPromptTurnSet(from: record).isEmpty
+            )
         // A wrapper-confirmed resume may replace an interrupted active turn only
-        // when its process generation is newer, matches an already accepted
-        // update, or replaces a dead owner from a legacy record. PID inequality
-        // alone is insufficient because fire-and-forget hooks can arrive out of
-        // order and the OS can reuse a numeric PID.
+        // when its process generation is newer or replaces a dead owner from a
+        // legacy record. A same-generation repeat is safe only before that
+        // process publishes turn state. PID inequality alone is insufficient
+        // because fire-and-forget hooks can arrive out of order and the OS can
+        // reuse a numeric PID.
         if allowResumedProcessReplacement {
             guard let incomingPID else { return true }
             switch resumedProcessGenerationRelation(
                 incomingPID: incomingPID,
                 to: record
             ) {
-            case .newer, .same, .legacyDeadOwner:
+            case .newer, .legacyDeadOwner:
                 return false
+            case .same:
+                // The wrapper's fire-and-forget SessionStart can lose its race
+                // with this process's later prompt/stop hooks. Once same-process
+                // turn state exists, treating that delayed start as fresh would
+                // erase or resurrect the newer lifecycle state.
+                return hasActiveTurnState || hasCompletedTurnState
             case .older, .indeterminate:
                 return true
             }
         }
-        if max(record.activePromptDepth ?? 0, record.activePromptTurnIds?.count ?? 0) > 0 {
+        if hasActiveTurnState {
             return true
         }
-        let hasCompletedTurnState = normalizeOptional(record.lastPromptTurnId) != nil
-            || (includeTerminalPromptTurnIds && !terminalPromptTurnSet(from: record).isEmpty)
         guard hasCompletedTurnState,
               let incomingPID,
               let existingPID = record.pid else {

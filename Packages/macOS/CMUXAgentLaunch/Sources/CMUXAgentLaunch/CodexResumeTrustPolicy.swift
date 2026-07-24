@@ -92,8 +92,7 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
                 index += 2
                 continue
             }
-            if argument.hasPrefix("-c=") {
-                let value = String(argument.dropFirst("-c=".count))
+            if let value = attachedShortOptionValue(argument, option: "c") {
                 forwardedArguments.append(contentsOf: ["-c", value])
             } else if argument.hasPrefix("--config=") {
                 let value = String(argument.dropFirst("--config=".count))
@@ -106,10 +105,11 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
                 profile = value
                 index += 2
                 continue
-            } else if argument.hasPrefix("-p=") {
-                guard let value = normalizedProfileName(
-                    String(argument.dropFirst("-p=".count))
-                ) else {
+            } else if let rawValue = attachedShortOptionValue(
+                argument,
+                option: "p"
+            ) {
+                guard let value = normalizedProfileName(rawValue) else {
                     return nil
                 }
                 profile = value
@@ -122,9 +122,7 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
                 profile = value
             } else if argument == "--strict-config" {
                 forwardedArguments.append(argument)
-            } else if argument == "-i" || argument == "--image"
-                || argument.hasPrefix("-i=") || argument.hasPrefix("--image=")
-            {
+            } else if argument == "-i" || argument == "--image" {
                 // Image accepts a variable number of values. Do not risk
                 // mistaking a later image path for a configuration option.
                 return nil
@@ -254,13 +252,11 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
                 index += 2
                 continue
             }
-            if argument.hasPrefix("-C=") {
-                selectedDirectory = String(argument.dropFirst("-C=".count))
+            if let value = attachedShortOptionValue(argument, option: "C") {
+                selectedDirectory = value
             } else if argument.hasPrefix("--cd=") {
                 selectedDirectory = String(argument.dropFirst("--cd=".count))
-            } else if argument == "-i" || argument == "--image"
-                || argument.hasPrefix("-i=") || argument.hasPrefix("--image=")
-            {
+            } else if argument == "-i" || argument == "--image" {
                 return nil
             } else if valueOptions.contains(argument) {
                 guard index + 1 < arguments.count else { return nil }
@@ -296,7 +292,6 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
         let valueOptions: Set<String> = [
             "-c", "--config",
             "--enable", "--disable",
-            "-i", "--image",
             "-m", "--model",
             "--remote", "--remote-auth-token-env",
             "--local-provider",
@@ -318,15 +313,16 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
                 index += 2
                 continue
             }
+            if argument == "-i" || argument == "--image" {
+                return nil
+            }
             if valueOptions.contains(argument) {
                 guard index + 1 < arguments.count else { return nil }
                 index += 2
                 continue
             }
-            if argument.hasPrefix("-p=") {
-                selectedProfile = normalizedProfileName(
-                    String(argument.dropFirst("-p=".count))
-                )
+            if let value = attachedShortOptionValue(argument, option: "p") {
+                selectedProfile = normalizedProfileName(value)
             } else if argument.hasPrefix("--profile=") {
                 selectedProfile = normalizedProfileName(
                     String(argument.dropFirst("--profile=".count))
@@ -401,19 +397,46 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
     }
 
     private func recognizedInlineOption(_ argument: String) -> Bool {
-        [
-            "-c=", "--config=",
+        recognizedAttachedShortOption(argument) || [
+            "--config=",
             "--enable=", "--disable=",
-            "-i=", "--image=",
-            "-m=", "--model=",
+            "--image=",
+            "--model=",
             "--remote=", "--remote-auth-token-env=",
             "--local-provider=",
-            "-p=", "--profile=",
-            "-s=", "--sandbox=",
-            "-C=", "--cd=",
+            "--profile=",
+            "--sandbox=",
+            "--cd=",
             "--add-dir=",
-            "-a=", "--ask-for-approval=",
+            "--ask-for-approval=",
         ].contains { argument.hasPrefix($0) }
+    }
+
+    private func recognizedAttachedShortOption(_ argument: String) -> Bool {
+        ["c", "i", "m", "p", "s", "C", "a"].contains {
+            attachedShortOptionValue(argument, option: $0) != nil
+        }
+    }
+
+    private func attachedShortOptionValue(
+        _ argument: String,
+        option: Character
+    ) -> String? {
+        guard argument.first == "-", !argument.hasPrefix("--") else {
+            return nil
+        }
+        let optionIndex = argument.index(after: argument.startIndex)
+        guard optionIndex < argument.endIndex,
+              argument[optionIndex] == option else {
+            return nil
+        }
+        var valueIndex = argument.index(after: optionIndex)
+        guard valueIndex < argument.endIndex else { return nil }
+        if argument[valueIndex] == "=" {
+            valueIndex = argument.index(after: valueIndex)
+        }
+        guard valueIndex < argument.endIndex else { return nil }
+        return String(argument[valueIndex...])
     }
 
     private var appServerIgnoredValueOptions: Set<String> {
