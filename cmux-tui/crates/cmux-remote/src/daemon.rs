@@ -1711,6 +1711,96 @@ mod tests {
         }
     }
 
+    struct PartialStartupGroup {
+        daemon: Arc<RemoteDaemon>,
+        interactive_opens: AtomicUsize,
+        evidence: CarrierEvidence,
+    }
+
+    #[async_trait]
+    impl LinkGroup for PartialStartupGroup {
+        fn description(&self) -> &str {
+            "partial-startup-group"
+        }
+
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities::WEBSOCKET
+        }
+
+        fn evidence(&self) -> &CarrierEvidence {
+            &self.evidence
+        }
+
+        async fn open(&self, request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
+            if request.lane == Lane::Interactive {
+                self.interactive_opens.fetch_add(1, Ordering::AcqRel);
+            } else if self.interactive_opens.load(Ordering::Acquire) == 1 {
+                tokio::time::timeout(Duration::from_secs(1), async {
+                    loop {
+                        if !self.daemon.state.lock().await.pending.is_empty() {
+                            break;
+                        }
+                        tokio::task::yield_now().await;
+                    }
+                })
+                .await
+                .expect("the first physical link never reached the daemon pending registry");
+                return Err(ProviderError::Transport(
+                    "injected transient failure after the first physical link".into(),
+                ));
+            }
+
+            let (client, daemon) = test_support::pair(128 * 1024);
+            let remote = self.daemon.clone();
+            tokio::spawn(async move {
+                let inbound =
+                    InboundLink::same_owner_kernel_peer(Box::new(daemon), 501, 501).unwrap();
+                let _ = remote.accept(inbound).await;
+            });
+            Ok(Box::new(client))
+        }
+
+        async fn close(&self) -> Result<(), ProviderError> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn stale_partial_lane_group_does_not_poison_next_connection_attempt() {
+        let directory = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(directory.path(), "partial-startup", true).unwrap();
+        let (daemon, mut accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let group = Arc::new(PartialStartupGroup {
+            daemon,
+            interactive_opens: AtomicUsize::new(0),
+            evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
+        });
+        let config = ClientConnectionConfig {
+            identity: StaticIdentity::generate().unwrap(),
+            expected_daemon: None,
+            auth: ClientAuthMode::Carrier,
+            device_name: "partial-startup-client".into(),
+            session: SessionId([32; 16]),
+            lane_policy: LanePolicy::Isolated,
+            limits: SessionLimits::default(),
+            reconnect: ReconnectPolicy { heartbeat_interval: None, ..ReconnectPolicy::default() },
+        };
+
+        ClientConnection::connect(group.clone(), config.clone()).await.unwrap_err();
+        let client =
+            tokio::time::timeout(Duration::from_secs(2), ClientConnection::connect(group, config))
+                .await
+                .expect("the replacement connection attempt timed out")
+                .expect("the replacement connection attempt failed");
+        let server = tokio::time::timeout(Duration::from_secs(1), accepted.recv())
+            .await
+            .expect("the stale partial attempt prevented the replacement from registering")
+            .expect("the daemon acceptance stream closed");
+
+        assert_eq!(server.snapshot().await.physical_link_count, 4);
+        client.close().await.unwrap();
+    }
+
     async fn connected_fault_pair(
         lease: Duration,
         session: SessionId,
