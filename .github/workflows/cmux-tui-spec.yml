@@ -1,0 +1,27 @@
+name: cmux-tui spec inventory
+
+on:
+  pull_request:
+    paths:
+      - "cmux-tui/**"
+      - ".github/workflows/cmux-tui-spec.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: cmux-tui-spec-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Check protocol and TUI action inventory
+        run: python3 cmux-tui/scripts/check-spec-inventory.py

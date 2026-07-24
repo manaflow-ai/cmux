@@ -8,17 +8,27 @@ PROMPT_DIR="$SCRIPT_DIR/.generated-prompts"
 
 SPEC_FILES=(
   "$MUX_DIR/spec/README.md"
+  "$MUX_DIR/spec/inventory.json"
+  "$MUX_DIR/spec/inventory.schema.json"
+  "$MUX_DIR/spec/programmability.md"
   "$MUX_DIR/spec/commands.md"
   "$MUX_DIR/spec/events.md"
+  "$MUX_DIR/spec/render.md"
   "$MUX_DIR/spec/transports.md"
   "$MUX_DIR/spec/cli.md"
   "$MUX_DIR/spec/bindings.md"
+  "$MUX_DIR/spec/native-frontend.md"
+  "$MUX_DIR/spec/terminal-host.md"
+  "$MUX_DIR/spec/machine-provider.md"
+  "$MUX_DIR/spec/provider-management.md"
+  "$MUX_DIR/spec/plugins.md"
 )
 
 GENERATE_LANGS=(python typescript rust go java)
 STUB_LANGS=()
 
 mkdir -p "$PROMPT_DIR"
+python3 "$MUX_DIR/scripts/check-spec-inventory.py"
 
 assemble_prompt() {
   local lang="$1"
@@ -41,9 +51,9 @@ assemble_prompt() {
     echo "- This is a temporary output directory. The harness swaps it into cmux-tui/bindings/$lang/ only after generation succeeds."
     echo "- Regeneration must overwrite stale generated files inside the temporary output directory."
     echo "- Follow the style sheet exactly."
-    echo "- Implement protocol-v9 commands and events marked implemented, plus consumer-side implemented move commands."
+    echo "- Implement every protocol-v9 command and event in spec/inventory.json, preserving its authority group and cumulative profile rules."
     echo "- Preserve command names, params, result shapes, event names, and error behavior from the spec."
-    echo "- Do not implement proposed commands unless the style sheet explicitly asks for version-gated stubs."
+    echo "- Do not implement proposed primitives unless the style sheet explicitly asks for version-gated stubs."
     echo
     echo "## Language style sheet"
     cat "$style"

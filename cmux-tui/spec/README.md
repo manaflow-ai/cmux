@@ -1,8 +1,10 @@
 # cmux-tui Programmability Contract
 
-This directory is the source of truth for the cmux-tui control protocol, the generated `cmux-tui` command surface, plugin contracts, the separately versioned machine-provider boundary, and future generated language bindings. The implemented mux protocol described here is protocol version 9, as defined by `cmux-tui-core/src/server.rs`.
+This directory is the source of truth for the cmux-tui control protocol, frontend programmability, plugin contracts, separately versioned provider and terminal-host boundaries, and language bindings. The implemented mux protocol described here is protocol version 9, as defined by `cmux-tui-core/src/server.rs`.
 
 The spec is intentionally stricter than prose docs. Implemented commands and events describe the current server behavior exactly, including awkward result shapes and no-op cases. Proposed commands, events, transports, and config are marked `proposed` and are not part of the implemented protocol.
+
+[`inventory.json`](inventory.json) is the machine-readable coverage index. CI validates it against its JSON Schema and compares it with the Rust protocol version, every server command, serialized event name, configurable TUI action, context-menu action, terminal-host message kind, machine-provider request/event, provider-management operation, and corresponding prose section. The current checked baseline contains 83 commands, 44 serialized event names, 40 configurable actions, 34 menu actions, 28 cross-boundary feature families, 23 terminal-host messages, and 18 machine-provider requests.
 
 ## Versioning
 
@@ -26,9 +28,9 @@ Generated clients must inspect `identify.protocol` before using features newer t
 
 ## Generation Model
 
-The CLI and language bindings are generated from this spec. Hand-written adapters may exist for bootstrapping, but generated output is authoritative once generation lands.
+The checked-in bindings are currently a mix of hand-written code and prompt-generated drafts. They are not the protocol source of truth. Deterministic generation must consume a reviewed machine-readable schema, write only generator-owned files, validate in a temporary directory, run formatters and conformance tests, and fail when regenerated output differs.
 
-The acceptance gate is the conformance suite described in `bindings.md`. A generated CLI or binding is conformant only when it can replay the fixture request/response pairs, event transcripts, and end-to-end scenario against a real headless mux server.
+The acceptance gate is the conformance suite described in `bindings.md`. A binding is conformant only when it can replay the fixture request/response pairs, event transcripts, and end-to-end scenarios against a real headless mux server. Raw request access does not satisfy a typed-method requirement.
 
 The generator must preserve the wire command names, parameter names, result shapes, and error handling rules in `commands.md`. Language-specific APIs may be idiomatic, but they must map 1:1 to the command schema.
 
@@ -36,6 +38,9 @@ The generator must preserve the wire command names, parameter names, result shap
 
 | File | Purpose |
 | --- | --- |
+| `inventory.json` | Checked list of implemented commands/events, native action routes, protocol profiles, domains, and pending heads |
+| `inventory.schema.json` | JSON Schema for the checked inventory |
+| `programmability.md` | Ownership model, exhaustive action policy, missing primitive backlog, compatibility profiles, and conformance bar |
 | `commands.md` | Command contract, CLI mapping for each command, examples, and compatibility notes |
 | `events.md` | Subscribe and attach event payloads, ordering guarantees, and proposed filters |
 | `render.md` | Protocol-v7 authoritative styled-cell attach, deltas, scrollback, sizing guidance, and draft open questions |
@@ -43,11 +48,26 @@ The generator must preserve the wire command names, parameter names, result shap
 | `frontends.md` | Canonical connection, synchronization, terminal streaming, and agent/notification guide for frontend authors |
 | `cli.md` | Generated `cmux-tui <verb>` conventions, exit codes, stdin rules, verb table, and examples |
 | `bindings.md` | Language binding style sheets and conformance suite contract |
+| `native-frontend.md` | Current ownership of config, actions, host terminal side channels, filesystem access, localization, and diagnostics |
 | `plugins.md` | Sidebar plugin PTY, manifest, lifecycle, focus, and config contract |
 | `machine-provider.md` | Implemented static catalog and authenticated dynamic-provider v1 contract |
+| `provider-management.md` | Implemented root-only Linux provider-authority management protocol v1 |
+| `terminal-host.md` | Local terminal-host binary protocol v1, with the current resize decoder incompatibility called out as partial |
 
 ## Implemented Inventory
 
-Protocol v9 implements the socket commands listed in `commands.md` and the event names listed in `events.md`. Events include subscribe events, attach-stream events, and the implemented `empty` and `detached` lifecycle events.
+Protocol v9 implements the 83 socket commands listed in `inventory.json` and `commands.md`. The server can serialize the 44 event names listed in `inventory.json` and `events.md`; `client-list-invalidated` is reserved by a live serializer and consumer but has no current core producer, so it is not counted as a currently emitted event.
 
 The client also implements `machine-provider-v0`, an in-process static Unix/SSH catalog, and `machine-provider-v1`, an authenticated dynamic-provider protocol over Unix sockets, direct child processes, or the built-in SSH connector. Both are versioned separately from protocol v9.
+
+Terminal-host v1 and provider-management v1 are also separate version domains. Terminal-host v1 is partial because its current `Resized` producer and consumer disagree on replay framing. SDKs must not infer either domain's compatibility from `identify.protocol`.
+
+## Change Rule
+
+A PR that changes the mux protocol version or adds, removes, or renames a server command, serialized event, configurable action, or menu action must update `inventory.json` and its normative prose in the same commit. Run:
+
+```sh
+python3 cmux-tui/scripts/check-spec-inventory.py
+```
+
+Pending PR behavior stays under `pending_heads` until it lands on `main`.

@@ -16,7 +16,7 @@ Every WebSocket authenticates before protocol commands. A static or previously i
 {"auth":{"token":"replace-with-a-secret"}}
 ```
 
-Only then send protocol requests. See [`transports.md`](transports.md#authentication-preamble) for rejection and bind rules.
+Only then send protocol requests. See [`transports.md`](transports.md#authentication-and-pairing) for rejection and bind rules.
 
 ## 2. Identify And Select Capabilities
 
@@ -88,7 +88,7 @@ Call [`list-agents`](commands.md#list-agents) to read current agent records, opt
 
 `render-state.scrollback_rows` and later count changes tell the frontend whether history exists. Fetch visible history in bounded pages with [`read-scrollback`](commands.md#read-scrollback); do not assume indexes remain stable across eviction or resize reflow.
 
-Browser surfaces use their separate browser attach events rather than terminal render rows.
+Browser surfaces use default attach mode. The initial `browser-state` contains URL, title, lifecycle status, frame-stall state, and the latest frame when available. Later `browser-state` and `frame` events update metadata and pixels separately. Send pointer input with `browser-mouse` and `browser-wheel`, keyboard input with `browser-key` or `browser-insert-text`, and navigation through `browser-navigate`, `browser-back`, `browser-forward`, `browser-reload`, and `browser-activate`. Each command acknowledges queueing with `{}`; observe the attach stream for eventual state.
 
 ## 5. Byte Mode For Terminal Piping
 
@@ -103,6 +103,8 @@ Render mode is preferred for xterm.js-style web UIs and future Swift frontends b
 ## 6. Send Input And Resize
 
 Use [`send-key`](commands.md#send-key) for named keys and terminal-mode-aware encoding. Use [`send`](commands.md#send) for UTF-8 text or raw bytes. For a paste action, set `paste:true`; the server adds bracketed-paste markers only when the target terminal currently has DEC mode 2004 enabled and otherwise sends the payload unchanged.
+
+Protocol v9 render mode has no PTY mouse or focus-input command. A render frontend cannot reproduce mouse-aware applications such as vim or tmux without maintaining its own terminal modes and using byte input. `send-mouse` and `send-focus` are required vNext primitives.
 
 When the active frontend's geometry changes, convert pixels to cells and call [`resize-surface`](commands.md#resize-surface) with the final `cols` and `rows`. A smaller passive frontend should crop or pan the authoritative grid instead of fighting another client with resize loops. Render and byte clients share one surface size.
 

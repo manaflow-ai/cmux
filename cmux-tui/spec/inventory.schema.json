@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cmux.dev/spec/cmux-tui-inventory.schema.json",
+  "title": "cmux-tui protocol inventory",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "mux_protocol",
+    "profiles",
+    "commands",
+    "events",
+    "tui_actions",
+    "menu_actions",
+    "feature_families",
+    "secondary_protocols",
+    "protocol_domains",
+    "pending_heads"
+  ],
+  "properties": {
+    "$schema": {"const": "./inventory.schema.json"},
+    "schema_version": {"const": 1},
+    "mux_protocol": {"type": "integer", "minimum": 1},
+    "profiles": {
+      "type": "object",
+      "additionalProperties": {"type": "string", "minLength": 1}
+    },
+    "commands": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+        "uniqueItems": true
+      }
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "streams"],
+        "properties": {
+          "name": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+          "streams": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "subscribe",
+                "subscribe-deltas",
+                "attach-byte",
+                "attach-render",
+                "attach-browser"
+              ]
+            }
+          },
+          "emission": {"enum": ["live", "serialized-never-emitted"]}
+        },
+        "additionalProperties": false
+      }
+    },
+    "tui_actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["variant", "key", "classification", "route"],
+        "properties": {
+          "variant": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"},
+          "key": {"type": "string", "minLength": 1},
+          "classification": {
+            "enum": ["direct", "composite", "presentation-only"]
+          },
+          "route": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    },
+    "menu_actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["variant", "classification", "route"],
+        "properties": {
+          "variant": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"},
+          "classification": {
+            "enum": ["direct", "composite", "presentation-only", "external-protocol"]
+          },
+          "route": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    },
+    "feature_families": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "wire_status", "programmability", "route"],
+        "properties": {
+          "id": {
+            "enum": [
+              "topology-layout-focus",
+              "terminal-text-key-paste",
+              "terminal-mouse-focus-input",
+              "terminal-rendering",
+              "terminal-selection-search-history",
+              "process-execution-outcome",
+              "browser-control-rendering",
+              "browser-target-lifecycle",
+              "clients-authentication-pairing",
+              "streams-recovery-cancellation",
+              "agent-lifecycle",
+              "notification-lifecycle",
+              "hooks-feeds-adapters",
+              "configuration",
+              "plugins",
+              "file-sidebar",
+              "machines-scopes-lifecycle",
+              "provider-authority-management",
+              "session-discovery-start-relay",
+              "frontend-presentation-actions",
+              "transport-security-limits",
+              "keyboard-action-routing",
+              "host-terminal-integration",
+              "localization",
+              "diagnostics-data-retention",
+              "session-restore-import-export",
+              "distribution-version-identity",
+              "window-host-integration"
+            ]
+          },
+          "wire_status": {
+            "enum": ["implemented", "partial", "proposed", "presentation-only", "external-protocol"]
+          },
+          "programmability": {
+            "enum": ["complete", "partial", "missing", "not-applicable"]
+          },
+          "route": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    },
+    "secondary_protocols": {
+      "type": "object",
+      "required": ["terminal_host_v1", "machine_provider_v1", "provider_management_v1"],
+      "properties": {
+        "terminal_host_v1": {
+          "type": "object",
+          "required": ["messages"],
+          "properties": {
+            "messages": {
+              "type": "object",
+              "additionalProperties": {"type": "integer", "minimum": 1}
+            }
+          },
+          "additionalProperties": false
+        },
+        "machine_provider_v1": {
+          "type": "object",
+          "required": ["requests", "events"],
+          "properties": {
+            "requests": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+            "events": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+          },
+          "additionalProperties": false
+        },
+        "provider_management_v1": {
+          "type": "object",
+          "required": ["operations"],
+          "properties": {
+            "operations": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "protocol_domains": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "status", "spec"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "status": {"enum": ["implemented", "partial", "proposed"]},
+          "spec": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    },
+    "pending_heads": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "url", "status", "note"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "url": {"type": "string", "pattern": "^https://github.com/"},
+          "status": {"const": "pending"},
+          "note": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

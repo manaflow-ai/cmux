@@ -75,6 +75,18 @@ V1 implements these requests:
 | `invoke_action` | Revision plus optional notice, URL, and selected scope or machine |
 | `close_machine` | Revision after idempotently closing one provider connection |
 
+`create_machine`, `create_workspace`, `invoke_action`, and every rename,
+delete, restore, or purge request carry a provider-opaque `mutation_id`. A
+provider must use it as the durable idempotency key for one logical mutation:
+repeating the same id and request returns the committed result, while reusing
+the id with a different operation or payload returns `conflict`. Lifecycle
+mutations also carry the descriptor's `expected_version`; a fresh request with
+a stale version returns `conflict`, but replay lookup precedes that fence so a
+lost successful response remains recoverable. The successful response is the
+durability boundary. A later snapshot refresh failure must not turn an
+accepted mutation into a failed mutation or cause the client to issue it
+again.
+
 The provider emits `snapshot_changed`, `connection_closed`, and `notice` events. Snapshot changes are invalidations: the client fetches the latest snapshot instead of applying deltas. A bounded full subscriber queue may coalesce invalidations without unsubscribing. Provider disconnect cancels pending requests and closes subscribers.
 
 Snapshots contain provider-stable opaque ids. Scopes distinguish personal and team contexts and advertise `can_admin`. Machines advertise status, connectability, and whether workspace creation belongs to the mux session or provider. Provider-owned creation declares supported `isolated` and `host` modes. Generic actions contain text, email, or integer fields with validation bounds, so team membership, verified domains, seat limits, billing, and future provider features do not add cloud-specific UI code.
@@ -83,11 +95,11 @@ Snapshots contain provider-stable opaque ids. Scopes distinguish personal and te
 
 When a machine declares provider-owned workspaces, the provider must advertise `workspace-mirror-authority-v1`. After seeing that capability, the client sets `workspace_mirror_authority: true` in `open_machine`; the provider includes the result field only for that opt-in request. An older client omits the request field, so a new provider can return an upgrade-required error without sending a result that the strict v1 client cannot decode. An updated client connected to a legacy or rolled-back provider sees no capability and refuses to open a provider-owned machine before sending an incompatible request.
 
-The authority is a random value of at least 32 bytes scoped to one long-lived mux. The provider persists it server-side, provisions the same value as `CMUX_PROVIDER_WORKSPACE_AUTHORITY` when starting that mux, and returns it to every authorized team member who opens the machine. It stays stable across frontend reconnects, concurrent team members, and mux software upgrades. A provider rotates it only when it can restart the mux generation and update its persisted record atomically. A session-owned machine must omit the result field. The client rejects either a missing provider-owned authority or an authority attached to a session-owned machine.
+The authority is a random value of at least 32 bytes scoped to one long-lived mux. The provider persists it server-side, provisions the same value as `CMUX_PROVIDER_WORKSPACE_AUTHORITY` when starting that mux, and returns it to every authorized team member who opens the machine. It stays stable across frontend reconnects, concurrent team members, and mux software upgrades. On Linux, a root-owned manager may rotate it live through [`provider-management-v1`](provider-management.md) using mux-generation and authority-generation fences. Without that protocol, rotation requires an atomic mux restart and persisted-record update. A session-owned machine must omit the result field. The client rejects either a missing provider-owned authority or an authority attached to a session-owned machine.
 
 A provider-authorized mux starts in provider-managed mode before accepting its first control connection. Ordinary rename and close commands are blocked immediately. The provider frontend includes the authority only in the private mirror handshake and post-provider rename or close commit; the mux compares it in constant time. This prevents an ordinary control-socket client from claiming ownership or forging a mirror commit after a provider mutation succeeds.
 
-Control requests time out after 30 seconds. Machine open may wait up to three minutes for provisioning or wake. Control frames are limited to 1 MiB, while machine transport frames are limited to 64 MiB for browser and scrollback payloads. Opaque ids and bearer values are bounded. Bearer and mux-authority debug output is redacted. Their owned allocations and serialized control buffers are overwritten when no longer needed.
+Control requests time out after 30 seconds. Machine open may wait up to five minutes for provisioning or wake. Control frames are limited to 1 MiB, while machine transport frames are limited to 64 MiB for browser and scrollback payloads. Opaque ids and bearer values are bounded. Bearer and mux-authority debug output is redacted. Their owned allocations and serialized control buffers are overwritten when no longer needed.
 
 On Linux, a mux with `CMUX_PROVIDER_WORKSPACE_AUTHORITY` must set `PR_SET_DUMPABLE=0` before retaining the authority, overwrite the value in the original environment block, and unset the variable before spawning terminals or helpers. Startup fails closed when the non-dumpable state cannot be established. This blocks same-UID host-workspace shells from reading the authority through `/proc/<pid>/environ`, `/proc/<pid>/mem`, or ptrace. The VM's root user remains trusted and can replace or inspect the mux process.
 
