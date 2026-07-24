@@ -1179,6 +1179,7 @@ class TabManager: ObservableObject {
             if shouldApplyWorkspaceDirectoryCustomization {
                 applyWorkspaceDirectoryCustomization(
                     to: newWorkspace,
+                    rootDirectory: workingDirectory,
                     explicitTitle: title,
                     explicitTitleSource: titleSource
                 )
@@ -6120,7 +6121,7 @@ extension TabManager {
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )
             fallback.owningTabManager = self
-            applyWorkspaceDirectoryCustomization(to: fallback, explicitTitle: nil, explicitTitleSource: .auto)
+            applyWorkspaceDirectoryCustomization(to: fallback, rootDirectory: nil, explicitTitle: nil, explicitTitleSource: .auto)
             wireClosedBrowserTracking(for: fallback)
             newTabs.append(fallback)
         }

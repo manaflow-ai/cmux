@@ -1,15 +1,17 @@
 import Foundation
 
 extension TabManager {
-    /// Applies sticky identity to a newly-created workspace. An explicit creation title wins.
+    /// Applies sticky identity to a newly-created workspace. A user-owned creation title wins.
     func applyWorkspaceDirectoryCustomization(
         to workspace: Workspace,
+        rootDirectory: String?,
         explicitTitle: String?,
         explicitTitleSource: Workspace.CustomTitleSource
     ) {
         let directoryKey = workspaceDirectoryCustomizationStore.directoryKey(
-            for: workspace.currentDirectory
+            for: rootDirectory
         )
+        guard let directoryKey else { return }
         workspace.customizationDirectory = directoryKey
 
         if let customization = workspaceDirectoryCustomizationStore.customization(
@@ -35,8 +37,9 @@ extension TabManager {
         afterRestoring snapshot: SessionWorkspaceSnapshot,
         to workspace: Workspace
     ) {
-        let directory = snapshot.customizationDirectory ?? snapshot.currentDirectory
-        guard let directoryKey = workspaceDirectoryCustomizationStore.directoryKey(for: directory) else {
+        guard let directoryKey = workspaceDirectoryCustomizationStore.directoryKey(
+            for: snapshot.customizationDirectory
+        ) else {
             return
         }
         workspace.customizationDirectory = directoryKey
@@ -95,17 +98,8 @@ extension TabManager {
     }
 
     private func customizationDirectory(for workspace: Workspace) -> String? {
-        if let existing = workspaceDirectoryCustomizationStore.directoryKey(
+        workspaceDirectoryCustomizationStore.directoryKey(
             for: workspace.customizationDirectory
-        ) {
-            return existing
-        }
-        guard let current = workspaceDirectoryCustomizationStore.directoryKey(
-            for: workspace.currentDirectory
-        ) else {
-            return nil
-        }
-        workspace.customizationDirectory = current
-        return current
+        )
     }
 }

@@ -257,7 +257,6 @@ struct WorkspaceRecoveryTests {
         #expect(generated.customTitle == "Sticky Label")
         #expect(fixture.store.customization(for: directory)?.customTitle == "Sticky Label")
     }
-
     @Test
     func failedClosedRestoreDoesNotPersistSnapshotCustomization() throws {
         let directory = "/tmp/failed-history-restore"
@@ -283,6 +282,13 @@ struct WorkspaceRecoveryTests {
 
         #expect(!destinationManager.restoreClosedWorkspace(entry))
         #expect(fixture.store.customization(for: directory)?.customTitle == "Existing Label")
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        fixture.store.setCustomTitle("Home Label", for: home)
+        let rootlessManager = TabManager(autoWelcomeIfNeeded: false, workspaceDirectoryCustomizationStore: fixture.store)
+        let rootlessWorkspace = try #require(rootlessManager.selectedWorkspace)
+        #expect(rootlessWorkspace.customTitle == nil)
+        rootlessManager.setTabColor(tabId: rootlessWorkspace.id, color: "#123456")
+        #expect(fixture.store.customization(for: home) == WorkspaceDirectoryCustomization(customTitle: "Home Label", customColor: nil))
     }
 
     @Test
