@@ -412,7 +412,8 @@ extension Workspace {
     }
 
     func clearAllAgentLifecycleStates() {
-        let panelIds = Array(agentLifecycleStatesByPanelId.keys)
+        let panelIds = Set(agentLifecycleStatesByPanelId.keys)
+            .union(agentLifecycleEventTimesByPanelId.keys)
         guard !panelIds.isEmpty else { return }
         agentLifecycleStatesByPanelId.removeAll()
         agentLifecycleEventTimesByPanelId.removeAll()
