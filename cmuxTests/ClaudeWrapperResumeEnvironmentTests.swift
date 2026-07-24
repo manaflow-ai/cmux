@@ -186,13 +186,78 @@ import Testing
         let statusHook = try #require(ordinaryPreToolUseHooks.first {
             ($0["command"] as? String)?.contains("hooks claude pre-tool-use") == true
         })
+        let statusHookCommand = try #require(statusHook["command"] as? String)
         #expect(
-            statusHook["async"] as? Bool == true,
-            "Ordinary tools must not wait for cmux's status bookkeeping"
+            statusHook["async"] == nil,
+            "PreToolUse must reserve its event order synchronously before detaching status bookkeeping"
         )
         let stopMatchers = try #require(hooks["Stop"] as? [[String: Any]])
         let stopHooks = try #require(stopMatchers.first?["hooks"] as? [[String: Any]])
         let command = try #require(stopHooks.first?["command"] as? String)
+
+        let orderingOutputURL = sandbox.appendingPathComponent("pre-tool-ordering.txt", isDirectory: false)
+        let orderingCmuxURL = binDir.appendingPathComponent("ordering-cmux", isDirectory: false)
+        let orderingClockRoot = sandbox.appendingPathComponent("pre-tool-ordering-clock", isDirectory: true)
+        try fileManager.createDirectory(at: orderingClockRoot, withIntermediateDirectories: false)
+        try writeExecutable(
+            orderingCmuxURL,
+            """
+            #!/bin/sh
+            case " $* " in
+              *" hooks claude pre-tool-use "*) /bin/sleep 1 ;;
+            esac
+            printf '%s|%s\\n' "$*" "${CMUX_AGENT_HOOK_CAPTURED_AT:-}" >> "${CMUX_TEST_ORDERING_OUTPUT:?}"
+            /bin/cat >/dev/null
+            """
+        )
+        let orderingEnvironment = [
+            "PATH": "\(binDir.path):/usr/bin:/bin",
+            "TMPDIR": orderingClockRoot.path,
+            "CMUX_CLAUDE_HOOK_CMUX_BIN": orderingCmuxURL.path,
+            "CMUX_TEST_ORDERING_OUTPUT": orderingOutputURL.path,
+        ]
+        let preToolUse = Process()
+        let preToolUseInput = Pipe()
+        preToolUse.executableURL = URL(fileURLWithPath: "/bin/sh")
+        preToolUse.arguments = ["-c", statusHookCommand]
+        preToolUse.environment = orderingEnvironment
+        preToolUse.standardInput = preToolUseInput
+        preToolUse.standardOutput = FileHandle.nullDevice
+        preToolUse.standardError = FileHandle.nullDevice
+        preToolUseInput.fileHandleForWriting.write(Data(#"{"tool_name":"Bash"}"#.utf8))
+        try preToolUseInput.fileHandleForWriting.close()
+        let preToolUseStartedAt = Date()
+        try runWithBoundedWait(preToolUse, shellDescription: "Claude PreToolUse admission shim")
+        #expect(
+            Date().timeIntervalSince(preToolUseStartedAt) < 0.75,
+            "PreToolUse admission must return before the detached cmux bookkeeping finishes"
+        )
+
+        let stop = Process()
+        stop.executableURL = URL(fileURLWithPath: "/bin/sh")
+        stop.arguments = ["-c", command]
+        stop.environment = orderingEnvironment
+        stop.standardInput = FileHandle.nullDevice
+        stop.standardOutput = FileHandle.nullDevice
+        stop.standardError = FileHandle.nullDevice
+        try runWithBoundedWait(stop, shellDescription: "Claude Stop ordering probe")
+        #expect(waitForCondition(timeout: 3) {
+            guard let text = try? String(contentsOf: orderingOutputURL, encoding: .utf8) else { return false }
+            return text.split(whereSeparator: \.isNewline).count == 2
+        })
+        let orderingLines = try String(contentsOf: orderingOutputURL, encoding: .utf8)
+            .split(whereSeparator: \.isNewline)
+            .map(String.init)
+        let preToolUseLine = try #require(orderingLines.first { $0.contains("hooks claude pre-tool-use") })
+        let stopLine = try #require(orderingLines.first { $0.contains("hooks claude stop") })
+        let preToolUseTime = try #require(
+            preToolUseLine.split(separator: "|").last.flatMap { TimeInterval(String($0)) }
+        )
+        let stopTime = try #require(
+            stopLine.split(separator: "|").last.flatMap { TimeInterval(String($0)) }
+        )
+        #expect(preToolUseTime < stopTime)
+
         try verifyAgentHookClockSamplesOnlyAfterLockAcquisition(
             commandBody: command,
             root: sandbox.appendingPathComponent("clock-lock-order", isDirectory: true)
@@ -299,8 +364,10 @@ import Testing
         let capturedTimes = try String(contentsOf: capturedAtURL, encoding: .utf8)
             .split(whereSeparator: \.isNewline)
             .map(String.init)
-        #expect(capturedTimes.count == 5)
-        #expect(capturedTimes.last == "1699999999.000000", Comment(rawValue: capturedTimes.joined(separator: ",")))
+        #expect(
+            capturedTimes.count == 4,
+            "An untrusted clock must omit ordering metadata instead of emitting a tied fallback timestamp"
+        )
         #expect(try String(contentsOf: attackerClockState, encoding: .utf8) == "\(seededMicros)\n")
     }
 

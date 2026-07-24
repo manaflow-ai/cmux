@@ -3622,6 +3622,14 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 }
 
 final class CLINotifyProcessIntegrationTests: XCTestCase {
+    private func commandTime(_ command: String, after marker: String) -> TimeInterval? {
+        guard let markerRange = command.range(of: marker) else { return nil }
+        let rawValue = command[markerRange.upperBound...].prefix {
+            $0.isNumber || $0 == "."
+        }
+        return TimeInterval(String(rawValue))
+    }
+
     private struct ProcessRunResult {
         let status: Int32
         let stdout: String
@@ -5227,17 +5235,28 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertTrue(
             waitForSocketCommand(state: state, timeout: 5) { command in
                 command.contains("set_status codex Codex network error") &&
-                    command.contains("--agent-event-time=\(eventTime)")
+                    command.contains("--agent-event-time=")
             },
-            "Expected the spawned monitor to preserve the prompt event time, saw \(state.snapshot())"
+            "Expected the spawned monitor to assign an event time, saw \(state.snapshot())"
         )
         XCTAssertTrue(
             waitForSocketCommand(state: state, timeout: 5) { command in
                 command.hasPrefix("notify_target_async \(workspaceId) \(surfaceId) Codex|Network error|") &&
-                    command.contains("|c=other;p=0;k=codex;t=\(eventTime)")
+                    command.contains("|c=other;p=0;k=codex;t=")
             },
-            "Expected the spawned monitor notification to preserve the prompt event time, saw \(state.snapshot())"
+            "Expected the spawned monitor notification to carry an event time, saw \(state.snapshot())"
         )
+        let commands = state.snapshot()
+        let statusCommand = try XCTUnwrap(commands.first {
+            $0.contains("set_status codex Codex network error") && $0.contains("--agent-event-time=")
+        })
+        let notificationCommand = try XCTUnwrap(commands.first {
+            $0.hasPrefix("notify_target_async \(workspaceId) \(surfaceId) Codex|Network error|")
+        })
+        let statusTime = try XCTUnwrap(commandTime(statusCommand, after: "--agent-event-time="))
+        let notificationTime = try XCTUnwrap(commandTime(notificationCommand, after: ";t="))
+        XCTAssertGreaterThan(statusTime, try XCTUnwrap(TimeInterval(eventTime)))
+        XCTAssertEqual(notificationTime, statusTime)
     }
 
     func testCodexHookMonitorReportsExplicitErrorBeforeTerminalCompletion() throws {
@@ -5409,7 +5428,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                 command.hasPrefix(
                     "notify_target_async \(workspaceId) \(surfaceId) Codex|Waiting|Which demo path should I use?"
                 ) &&
-                    command.contains("|c=needs-permission;p=0;k=codex;t=\(eventTime)")
+                    command.contains("|c=needs-permission;p=0;k=codex;t=")
             },
             "Expected monitor to send an ordered Codex input notification, saw \(state.snapshot())"
         )
@@ -5423,6 +5442,19 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             },
             "Expected monitor to publish high-priority Codex input status, saw \(state.snapshot())"
         )
+        let commands = state.snapshot()
+        let statusCommand = try XCTUnwrap(commands.first {
+            $0.contains("set_status codex Codex needs input") && $0.contains("--agent-event-time=")
+        })
+        let notificationCommand = try XCTUnwrap(commands.first {
+            $0.hasPrefix(
+                "notify_target_async \(workspaceId) \(surfaceId) Codex|Waiting|Which demo path should I use?"
+            )
+        })
+        let statusTime = try XCTUnwrap(commandTime(statusCommand, after: "--agent-event-time="))
+        let notificationTime = try XCTUnwrap(commandTime(notificationCommand, after: ";t="))
+        XCTAssertGreaterThan(statusTime, try XCTUnwrap(TimeInterval(eventTime)))
+        XCTAssertEqual(notificationTime, statusTime)
         XCTAssertTrue(process.isRunning, "Monitor should keep watching the turn after publishing input notification")
     }
 

@@ -834,12 +834,14 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(!untrustedClockRun.timedOut, Comment(rawValue: untrustedClockRun.stderr))
         #expect(untrustedClockRun.status == 0, Comment(rawValue: untrustedClockRun.stderr))
         #expect(untrustedClockRun.stdout == "{}\n")
-        #expect(waitForFileLineCount(capturedAt, count: 2, timeout: 3))
+        #expect(waitForFileLineCount(doneFile, count: 2, timeout: 3))
         let capturedTimes = try String(contentsOf: capturedAt, encoding: .utf8)
             .split(whereSeparator: \.isNewline)
             .map(String.init)
-        #expect(capturedTimes.count == 2)
-        #expect(capturedTimes.last == "1700000000.000000", Comment(rawValue: capturedTimes.joined(separator: ",")))
+        #expect(
+            capturedTimes.count == 1,
+            "An untrusted clock must omit ordering metadata instead of emitting a tied fallback timestamp"
+        )
         #expect(try String(contentsOf: attackerClockState, encoding: .utf8) == "\(seededMicros)\n")
     }
 
