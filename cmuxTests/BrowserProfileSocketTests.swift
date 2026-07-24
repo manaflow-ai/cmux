@@ -273,6 +273,55 @@ struct BrowserProfileSocketTests {
         ])
     }
 
+    @Test func explicitProfilesAreRejectedForRemoteWorkspaceCreation() throws {
+        let defaults = UserDefaults.standard
+        let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled(defaults: defaults)
+        let manager = TabManager()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled, defaults: defaults)
+        }
+
+        BrowserAvailabilitySettings.setDisabled(false, defaults: defaults)
+        let workspace = try #require(manager.selectedWorkspace)
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "example.com",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: nil,
+                relayID: nil,
+                relayToken: nil,
+                localSocketPath: nil,
+                terminalStartupCommand: nil
+            ),
+            autoConnect: false
+        )
+        let sourceID = try #require(workspace.focusedPanelId)
+        let profileID = BrowserProfileStore.shared.builtInDefaultProfileID.uuidString
+        TerminalController.shared.setActiveTabManager(manager)
+
+        for method in ["browser.open_split", "pane.create"] {
+            var params: [String: Any] = [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": sourceID.uuidString,
+                "profile": profileID,
+                "focus": false,
+            ]
+            if method == "pane.create" {
+                params["direction"] = "right"
+                params["type"] = "browser"
+            }
+
+            let error = try errorPayload(try call(method: method, params: params))
+            #expect(error["code"] as? String == "invalid_params")
+            #expect((error["message"] as? String)?.contains("remote workspace") == true)
+        }
+    }
+
     private func call(method: String, params: [String: Any]) throws -> [String: Any] {
         let request: [String: Any] = [
             "jsonrpc": "2.0",
