@@ -506,7 +506,7 @@ jobs:
           {
             echo "### iOS TestFlight upload"
             echo
-            echo "- lane: \`beta\` (bundle id \`${UPLOAD_BUNDLE_ID}\`, internal TestFlight)"
+            echo "- lane: \`beta\` (bundle id \`${UPLOAD_BUNDLE_ID}\`, ${UPLOAD_AUDIENCE})"
             echo "- signing: manual (CI-imported iOS distribution cert + beta profile)"
             if [ -n "${INPUT_MARKETING_VERSION_OVERRIDE:-}" ]; then
               echo "- marketing version override: \`${INPUT_MARKETING_VERSION_OVERRIDE}\`"
