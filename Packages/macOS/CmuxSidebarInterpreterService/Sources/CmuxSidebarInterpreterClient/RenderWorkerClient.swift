@@ -157,12 +157,14 @@ public actor RenderWorkerClient {
         _ message: RenderWorkerInbound,
         ackSequence: UInt64? = nil
     ) {
-        guard let data = try? JSONEncoder().encode(message) else { return }
-        enqueue(RenderWorkerOutboundWrite(
-            data: data,
+        guard let outbound = RenderWorkerOutboundWrite(
+            message: message,
             remainingRelaunches: 1,
             ackSequence: ackSequence
-        ))
+        ) else {
+            return
+        }
+        enqueue(outbound)
     }
 
     private func enqueue(_ outbound: RenderWorkerOutboundWrite) {
@@ -252,7 +254,11 @@ public actor RenderWorkerClient {
             readFD: stdout.fileHandleForReading.fileDescriptor,
             writeFD: stdin.fileHandleForWriting.fileDescriptor
         )
-        let writer = RenderWorkerWritePump(channel: channel, generation: gen)
+        let writer = RenderWorkerWritePump(
+            channel: channel,
+            generation: gen,
+            writeTimeout: ackTimeout
+        )
         process.terminationHandler = { [weak self] _ in
             guard let self else { return }
             Task { await self.workerEnded(generation: gen) }
@@ -308,26 +314,28 @@ public actor RenderWorkerClient {
 
         // Replay the current state so a respawned worker rebuilds the sidebar
         // without the host having to notice the crash.
-        if let lastGeometry, let data = try? JSONEncoder().encode(RenderWorkerInbound.resize(lastGeometry)) {
+        if let lastGeometry,
+           let replay = RenderWorkerOutboundWrite(
+               message: .resize(lastGeometry),
+               remainingRelaunches: 0,
+               ackSequence: nil
+           ) {
             enqueueOnWriter(
                 writer,
-                outbound: RenderWorkerOutboundWrite(
-                    data: data,
-                    remainingRelaunches: 0,
-                    ackSequence: nil
-                ),
+                outbound: replay,
                 generation: gen,
                 failureOutbound: outbound
             )
         }
-        if let lastScene, let data = try? JSONEncoder().encode(RenderWorkerInbound.scene(lastScene)) {
+        if let lastScene,
+           let replay = RenderWorkerOutboundWrite(
+               message: .scene(lastScene),
+               remainingRelaunches: 0,
+               ackSequence: lastScene.seq
+           ) {
             enqueueOnWriter(
                 writer,
-                outbound: RenderWorkerOutboundWrite(
-                    data: data,
-                    remainingRelaunches: 0,
-                    ackSequence: lastScene.seq
-                ),
+                outbound: replay,
                 generation: gen,
                 failureOutbound: outbound
             )
@@ -343,13 +351,13 @@ public actor RenderWorkerClient {
         failureOutbound: RenderWorkerOutboundWrite? = nil
     ) {
         let failureOutbound = failureOutbound ?? outbound
-        writer.enqueue(outbound) { [weak self] in
+        let accepted = writer.enqueue(outbound) { [weak self] in
             guard let self else { return }
             Task {
                 await self.writeFailed(failureOutbound, generation: gen)
             }
         }
-        if let ackSequence = outbound.ackSequence {
+        if accepted, let ackSequence = outbound.ackSequence {
             armAckWatchdog(for: ackSequence)
         }
     }
@@ -372,6 +380,7 @@ public actor RenderWorkerClient {
     /// relaunches a fresh one. The old worker's reader/termination handler
     /// run under its now-stale generation and no-op.
     private func discardWorker() {
+        generation &+= 1
         if let doomed = child {
             doomed.writer.cancel()
             try? doomed.stdin.fileHandleForWriting.close()

@@ -71,11 +71,27 @@ import Testing
             }
         }
 
-        MainThreadHangCaptureRetentionPolicy(maximumCaptureCount: 2)
-            .prepareForNewCapture(in: directory)
+        let store = MainThreadHangCaptureStore(
+            directory: directory,
+            maximumCaptureCount: 2,
+            fileManager: .default
+        )
+        let prepared = try #require(store.prepareCapture(
+            capturedAt: Date(timeIntervalSince1970: 10),
+            processIdentifier: 42,
+            stallDuration: 8,
+            appVersion: "test",
+            appBuild: "1"
+        ))
 
         let remaining = try Set(FileManager.default.contentsOfDirectory(atPath: directory.path))
-        #expect(remaining == ["newest.metadata.txt", "newest.sample.txt"])
+        #expect(remaining.contains("newest.metadata.txt"))
+        #expect(remaining.contains("newest.sample.txt"))
+        #expect(remaining.contains(prepared.metadataURL.lastPathComponent))
+        #expect(!remaining.contains("oldest.metadata.txt"))
+        #expect(!remaining.contains("oldest.sample.txt"))
+        #expect(!remaining.contains("middle.metadata.txt"))
+        #expect(!remaining.contains("middle.sample.txt"))
     }
 }
 

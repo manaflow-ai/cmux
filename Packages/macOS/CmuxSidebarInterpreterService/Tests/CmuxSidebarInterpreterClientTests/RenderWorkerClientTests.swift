@@ -254,6 +254,45 @@ import Testing
         try pipe.fileHandleForWriting.close()
     }
 
+    /// Pointer-only traffic has no scene ACK to drive the scene watchdog. A
+    /// worker that stops reading must still be torn down by the write bridge's
+    /// independent deadline or bounded-mailbox overflow.
+    @Test func pointerOnlyBacklogDiscardsWorkerThatStopsReading() async {
+        let stopReadingMarker = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-render-worker-pointer-backlog-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: stopReadingMarker) }
+        let client = RenderWorkerClient(
+            executableURL: renderFixtureURL(),
+            ackTimeout: .milliseconds(300),
+            environment: ["CMUX_RENDER_FIXTURE_STOP_READING_ONCE_PATH": stopReadingMarker.path]
+        )
+        let collector = RenderEventCollector(stream: await client.subscribe())
+
+        await client.forward(RenderPointerEvent(kind: .down, x: 1, y: 1))
+        let first = await collector.waitForEvents(count: 1)
+        guard case let .context(workerPID) = first.first else {
+            Issue.record("expected initial context before pointer backlog, got \(first)")
+            await client.shutdown()
+            return
+        }
+
+        for index in 0..<2_048 {
+            let kind: RenderPointerEvent.Kind = index.isMultiple(of: 2) ? .down : .up
+            await client.forward(RenderPointerEvent(kind: kind, x: 1, y: 1))
+        }
+
+        let events = await collector.waitForEvents(count: 2, deadline: .seconds(3))
+        let contexts = events.compactMap { event -> UInt32? in
+            guard case let .context(context) = event else { return nil }
+            return context
+        }
+        #expect(
+            contexts.contains { $0 != workerPID },
+            "pointer-only traffic must discard and relaunch a stopped worker"
+        )
+        await client.shutdown()
+    }
+
     private func waitForContextReset(
         _ client: RenderWorkerClient,
         after initialContext: UInt32,
@@ -307,7 +346,7 @@ private actor RenderEventCollector {
         guard pump == nil else { return }
         pump = Task {
             for await event in stream {
-                await self.ingest(event)
+                self.ingest(event)
             }
         }
     }
