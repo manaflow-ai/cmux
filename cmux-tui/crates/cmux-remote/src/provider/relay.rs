@@ -9,9 +9,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use cmux_remote_protocol::{
     CircuitId, LaneToken, REMOTE_PROTOCOL_VERSION, RelayControl, RelayRole,
 };
+use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use http::StatusCode;
 use http::header::{AUTHORIZATION, HeaderValue};
@@ -27,14 +29,16 @@ use url::Url;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::daemon::{InboundLink, NetworkPeer, RemoteDaemon};
-use crate::link::FrameLink;
+use crate::link::{FrameLink, LinkError};
 use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSnapshot};
 use crate::provider::{
     CarrierEvidence, ConnectRequest, LinkGroup, LinkRequest, ProviderCapabilities, ProviderError,
-    SupportedClientAuthModes, TransportProvider, TungsteniteWebSocketLink, sanitized_route,
+    SupportedClientAuthModes, TransportProvider, sanitized_route,
 };
 
 type RelaySocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+type RelayCircuitSink = SplitSink<RelaySocket, Message>;
+type RelayCircuitStream = SplitStream<RelaySocket>;
 
 const MAX_RELAY_CREDENTIAL_BYTES: usize = 4 * 1024;
 const MAX_RELAY_CONTROL_MESSAGE_BYTES: usize = 16 * 1024;
@@ -385,6 +389,141 @@ struct RelayLinkGroup {
     closed: AtomicBool,
 }
 
+struct RelayCircuitLink {
+    description: String,
+    maximum: usize,
+    sender: Mutex<RelayCircuitSink>,
+    receiver: Mutex<RelayCircuitStream>,
+}
+
+impl RelayCircuitLink {
+    fn new(description: impl Into<String>, maximum: usize, socket: RelaySocket) -> Self {
+        let (sender, receiver) = socket.split();
+        Self {
+            description: description.into(),
+            maximum,
+            sender: Mutex::new(sender),
+            receiver: Mutex::new(receiver),
+        }
+    }
+
+    async fn send_control(&self, control: &RelayControl) -> Result<(), LinkError> {
+        let encoded = serde_json::to_string(control)
+            .map_err(|error| LinkError::Protocol(format!("invalid relay control: {error}")))?;
+        self.sender
+            .lock()
+            .await
+            .send(Message::Text(encoded.into()))
+            .await
+            .map_err(|error| LinkError::Transport(error.to_string()))
+    }
+}
+
+impl fmt::Debug for RelayCircuitLink {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("RelayCircuitLink")
+            .field("description", &self.description)
+            .field("maximum", &self.maximum)
+            .finish_non_exhaustive()
+    }
+}
+
+#[async_trait]
+impl FrameLink for RelayCircuitLink {
+    fn description(&self) -> &str {
+        &self.description
+    }
+
+    fn maximum_frame_bytes(&self) -> usize {
+        self.maximum
+    }
+
+    async fn send(&self, frame: Bytes) -> Result<(), LinkError> {
+        ensure_relay_frame_size(frame.len(), self.maximum)?;
+        self.sender
+            .lock()
+            .await
+            .send(Message::Binary(frame))
+            .await
+            .map_err(|error| LinkError::Transport(error.to_string()))
+    }
+
+    async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+        loop {
+            let next = self.receiver.lock().await.next().await;
+            match next {
+                Some(Ok(Message::Binary(frame))) => {
+                    ensure_relay_frame_size(frame.len(), self.maximum)?;
+                    return Ok(Some(frame));
+                }
+                Some(Ok(Message::Text(text))) => {
+                    if text.len() > MAX_RELAY_CONTROL_MESSAGE_BYTES {
+                        return Err(LinkError::Protocol(
+                            "relay circuit control message exceeded its limit".into(),
+                        ));
+                    }
+                    match serde_json::from_str(&text) {
+                        Ok(RelayControl::Error { retryable: true, .. }) => {
+                            return Err(LinkError::Transport(
+                                "relay circuit became unavailable".into(),
+                            ));
+                        }
+                        Ok(RelayControl::Error { retryable: false, .. }) => {
+                            return Err(LinkError::Protocol(
+                                "relay circuit was rejected after establishment".into(),
+                            ));
+                        }
+                        Ok(RelayControl::Ping { nonce }) => {
+                            self.send_control(&RelayControl::Pong { nonce }).await?;
+                        }
+                        Ok(RelayControl::Pong { .. }) => {}
+                        Ok(_) => {
+                            return Err(LinkError::Protocol(
+                                "relay sent unexpected circuit control".into(),
+                            ));
+                        }
+                        Err(_) => {
+                            return Err(LinkError::Protocol(
+                                "relay sent invalid circuit control".into(),
+                            ));
+                        }
+                    }
+                }
+                Some(Ok(Message::Ping(payload))) => {
+                    self.sender
+                        .lock()
+                        .await
+                        .send(Message::Pong(payload))
+                        .await
+                        .map_err(|error| LinkError::Transport(error.to_string()))?;
+                }
+                Some(Ok(Message::Pong(_))) => {}
+                Some(Ok(Message::Close(_))) | None => return Ok(None),
+                Some(Ok(_)) => {
+                    return Err(LinkError::Protocol(
+                        "relay circuit accepts binary data and relay control only".into(),
+                    ));
+                }
+                Some(Err(error)) => return Err(LinkError::Transport(error.to_string())),
+            }
+        }
+    }
+
+    async fn close(&self) -> Result<(), LinkError> {
+        self.sender
+            .lock()
+            .await
+            .close()
+            .await
+            .map_err(|error| LinkError::Transport(error.to_string()))
+    }
+}
+
+fn ensure_relay_frame_size(actual: usize, maximum: usize) -> Result<(), LinkError> {
+    if actual > maximum { Err(LinkError::FrameTooLarge { actual, maximum }) } else { Ok(()) }
+}
+
 #[async_trait]
 impl LinkGroup for RelayLinkGroup {
     fn description(&self) -> &str {
@@ -632,11 +771,7 @@ async fn join_circuit(
     })
     .await
     .map_err(|_| ProviderError::Transport("relay circuit join timed out".into()))??;
-    Ok(Box::new(TungsteniteWebSocketLink::new(
-        sanitized_route(endpoint),
-        maximum_frame_bytes,
-        socket,
-    )))
+    Ok(Box::new(RelayCircuitLink::new(sanitized_route(endpoint), maximum_frame_bytes, socket)))
 }
 
 #[derive(Clone)]
@@ -1280,7 +1415,7 @@ mod tests {
         )
         .await
         .unwrap();
-        assert!(matches!(link.receive().await, Err(crate::link::LinkError::Transport(_))));
+        assert!(matches!(link.receive().await, Err(LinkError::Transport(_))));
         server.await.unwrap();
     }
 
@@ -1672,7 +1807,7 @@ mod tests {
         assert_eq!(link.maximum_frame_bytes(), 64);
         assert!(matches!(
             link.send(Bytes::from(vec![0_u8; 65])).await,
-            Err(crate::link::LinkError::FrameTooLarge { actual: 65, maximum: 64 })
+            Err(LinkError::FrameTooLarge { actual: 65, maximum: 64 })
         ));
         link.send(Bytes::from_static(b"after cancellation")).await.unwrap();
         assert_eq!(link.receive().await.unwrap().unwrap(), b"after cancellation".as_slice());
