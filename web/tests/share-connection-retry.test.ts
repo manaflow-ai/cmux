@@ -709,20 +709,28 @@ describe("ShareClient terminal-only session behavior", () => {
     expect(messages.some((message) => message.ws === "workspace:2")).toBe(false);
   });
 
-  test("rejects session snapshots from a different protocol version", async () => {
+  test("surfaces a session protocol mismatch instead of leaving a blank workspace", async () => {
     const { client, socket } = await connectedClient();
-    socket.receive(snapshot("editor"));
-    const before = client.session.get();
     const mismatched = snapshot("viewer");
     mismatched.proto = 2;
-    const selected = mismatched.shared[0];
-    if (selected) selected.title = "must not apply";
 
     socket.receive(mismatched);
 
-    expect(client.session.get()).toBe(before);
-    expect(client.session.get().you?.role).toBe("editor");
-    expect(client.session.get().shared[0]?.title).toBe("Chosen");
+    const session = client.session.get() as ReturnType<
+      typeof client.session.get
+    > & {
+      terminalError?: {
+        code: string;
+        message: string;
+      };
+    };
+    expect(session.status).toBe("unavailable");
+    expect(session.shared).toEqual([]);
+    expect(session.layouts).toEqual({});
+    expect(session.terminalError).toMatchObject({
+      code: "protocol_version_mismatch",
+    });
+    expect(session.terminalError?.message.trim().length).toBeGreaterThan(0);
   });
 
   test("blocks viewer input and applies role downgrade before React can rerender", async () => {

@@ -13,6 +13,128 @@ import Testing
 @MainActor
 @Suite("Workspace share host presentation", .serialized)
 struct WorkspaceShareHostPresentationTests {
+    @Test("Share panel binds to one owner, stays visible, and follows owner movement")
+    func sharePanelBindsAndFollowsItsExplicitOwner() throws {
+        _ = NSApplication.shared
+        let visibleFrame = NSRect(x: 0, y: 0, width: 900, height: 700)
+        let owner = NSWindow(
+            contentRect: NSRect(x: 10, y: 20, width: 500, height: 400),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let unrelated = NSWindow(
+            contentRect: NSRect(x: 300, y: 200, width: 300, height: 200),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let controller = ShareSessionController { nil }
+        let presenter = ShareChatWindowController(
+            controller: controller,
+            ownerWindow: owner,
+            visibleFrame: visibleFrame
+        )
+        defer {
+            presenter.close()
+            owner.orderOut(nil)
+            unrelated.orderOut(nil)
+        }
+
+        presenter.show()
+
+        let panel = try #require(owner.childWindows?.first {
+            $0.identifier?.rawValue == "cmux.shareSession"
+        })
+        #expect(panel.parent === owner)
+        #expect(!(unrelated.childWindows ?? []).contains { $0 === panel })
+        #expect(visibleFrame.contains(panel.frame))
+
+        let initialOwnerOrigin = owner.frame.origin
+        let initialPanelOrigin = panel.frame.origin
+        owner.setFrameOrigin(NSPoint(x: 160, y: 140))
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+
+        #expect(
+            panel.frame.origin.x - initialPanelOrigin.x
+                == owner.frame.origin.x - initialOwnerOrigin.x
+        )
+        #expect(
+            panel.frame.origin.y - initialPanelOrigin.y
+                == owner.frame.origin.y - initialOwnerOrigin.y
+        )
+        #expect(visibleFrame.contains(panel.frame))
+
+        owner.setFrameOrigin(NSPoint(x: 880, y: 680))
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+        #expect(visibleFrame.contains(panel.frame))
+    }
+
+    @Test("Pending access request is exposed by the owner-bound panel")
+    func pendingAccessRequestIsExposedBySharePanel() async throws {
+        _ = NSApplication.shared
+        let owner = NSWindow(
+            contentRect: NSRect(x: 100, y: 100, width: 600, height: 500),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let controller = ShareSessionController { nil }
+        let socket = ShareSocket(
+            endpoint: ShareSocket.Endpoint(
+                wsUrl: "ws://127.0.0.1:1/connect",
+                token: "valid-token"
+            ),
+            refresh: {
+                ShareSocket.Endpoint(
+                    wsUrl: "ws://127.0.0.1:1/connect",
+                    token: "valid-token"
+                )
+            }
+        )
+        controller.installActiveSocketForTesting(socket, connection: 1)
+        let presenter = ShareChatWindowController(
+            controller: controller,
+            ownerWindow: owner,
+            visibleFrame: NSRect(x: 0, y: 0, width: 1_000, height: 800)
+        )
+        presenter.show()
+        defer {
+            presenter.close()
+            owner.orderOut(nil)
+        }
+
+        await controller.handleServerTextForTesting(
+            #"{"t":"access-request","user":"guest-1","email":"guest@example.com"}"#,
+            connection: 1,
+            sequence: 0
+        )
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+
+        let panel = try #require(owner.childWindows?.first {
+            $0.identifier?.rawValue == "cmux.shareSession"
+        })
+        panel.contentView?.layoutSubtreeIfNeeded()
+        #expect(controller.feed.contains {
+            if case .accessRequest(
+                user: "guest-1",
+                email: "guest@example.com",
+                resolution: nil
+            ) = $0.kind {
+                return true
+            }
+            return false
+        })
+        #expect(
+            containsAccessibilityIdentifier(
+                "share.pendingAccessRequest",
+                in: panel.contentView
+            )
+        )
+
+        await socket.stop()
+    }
+
     @Test("Guest bubble renders passively and stale expiry cannot clear its replacement")
     func guestBubbleRendersPassivelyAndExpiresByGeneration() throws {
         _ = NSApplication.shared
@@ -86,6 +208,19 @@ struct WorkspaceShareHostPresentationTests {
         )
         #expect(controller.remoteBubbleText(for: "guest") == nil)
         #expect(pointer.bubbleText == nil)
+    }
+
+    private func containsAccessibilityIdentifier(
+        _ identifier: String,
+        in view: NSView?
+    ) -> Bool {
+        guard let view else { return false }
+        if view.accessibilityIdentifier() == identifier {
+            return true
+        }
+        return view.subviews.contains {
+            containsAccessibilityIdentifier(identifier, in: $0)
+        }
     }
 
     @Test("Cursor, participant, and session teardown remove guest bubbles")
