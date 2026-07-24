@@ -235,6 +235,26 @@ esac
         self.assertEqual(args, ["--enable", "hooks", "--yolo"])
         self.assertNotIn("hooks codex inject-resume-args", logged_cmux_calls)
 
+    def test_fork_session_receives_hooks_without_resume_trust(self) -> None:
+        args, logged_cmux_calls, result = self.run_wrapper(
+            ["fork", SESSION_ID, "--yolo"]
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            args,
+            [
+                "--enable",
+                "hooks",
+                "fork",
+                SESSION_ID,
+                "--yolo",
+            ],
+        )
+        self.assertIn("hooks codex inject-args", logged_cmux_calls)
+        self.assertNotIn("hooks codex inject-resume-args", logged_cmux_calls)
+        self.assertNotIn('"cmux_resume_rebind":true', logged_cmux_calls)
+
     def test_resume_helper_empty_or_failed_partial_output_is_discarded(self) -> None:
         for mode in ("empty", "partial", "truncated", "wrong_arity"):
             with self.subTest(mode=mode):

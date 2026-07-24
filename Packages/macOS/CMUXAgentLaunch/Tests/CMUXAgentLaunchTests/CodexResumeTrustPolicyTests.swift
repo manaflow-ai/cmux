@@ -220,6 +220,61 @@ struct CodexResumeTrustPolicyTests {
         )
     }
 
+    @Test("A custom project-root decision remains authoritative from a nested cwd")
+    func customProjectRootDecisionRemainsAuthoritative() throws {
+        let fileManager = FileManager.default
+        let projectRoot = fileManager.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-codex-project-root-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let nestedDirectory = projectRoot
+            .appendingPathComponent("nested/deeper", isDirectory: true)
+        try fileManager.createDirectory(
+            at: nestedDirectory,
+            withIntermediateDirectories: true
+        )
+        #expect(
+            fileManager.createFile(
+                atPath: projectRoot
+                    .appendingPathComponent(".cmux-project-root")
+                    .path,
+                contents: Data()
+            )
+        )
+        defer { try? fileManager.removeItem(at: projectRoot) }
+
+        let response: [String: Any] = [
+            "id": 2,
+            "result": [
+                "config": [
+                    "project_root_markers": [".cmux-project-root"],
+                    "projects": [
+                        projectRoot.path: ["trust_level": "trusted"],
+                    ],
+                ],
+                "origins": [:],
+                "layers": NSNull(),
+            ],
+        ]
+        let responseData = try JSONSerialization.data(withJSONObject: response)
+        let output = try #require(String(data: responseData, encoding: .utf8))
+        let effectiveConfiguration = try #require(
+            policy.effectiveProjectTrustConfiguration(appServerOutput: output)
+        )
+
+        #expect(
+            policy.undecidedProjectOverride(
+                arguments: ["codex", "resume", "SID"],
+                currentDirectory: nestedDirectory.path,
+                repositoryRoot: nil,
+                effectiveProjectDecisionPaths: effectiveConfiguration
+                    .projectDecisionPaths,
+                projectRootMarkers: effectiveConfiguration.projectRootMarkers
+            ).isEmpty
+        )
+    }
+
     @Test("Missing projects is a valid empty effective configuration")
     func effectiveConfigWithoutProjectsIsEmpty() {
         #expect(
