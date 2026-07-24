@@ -393,7 +393,11 @@ struct WorkspaceShareSocketRequestTests {
             await socket.currentWebSocketTaskIDForTesting()
                 == replacementID
         )
-        #expect(replacement.state == .suspended)
+        #expect(
+            !(await socket
+                .criticalBackpressureCancellationIDsForTesting())
+                .contains(replacementID)
+        )
         await socket.stop()
     }
 

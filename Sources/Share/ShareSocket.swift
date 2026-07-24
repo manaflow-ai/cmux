@@ -87,6 +87,8 @@ actor ShareSocket {
 #if DEBUG
     private var beforeCriticalBackpressureLifecycleStateForTesting:
         (@Sendable () async -> Void)?
+    private var recordedCriticalBackpressureCancellationIDs:
+        Set<ObjectIdentifier> = []
 #endif
 
     init(
@@ -353,6 +355,11 @@ actor ShareSocket {
             "Reconnecting after critical outbound share backpressure"
         )
         sendTask?.cancel()
+#if DEBUG
+        recordedCriticalBackpressureCancellationIDs.insert(
+            ObjectIdentifier(taskToCancel)
+        )
+#endif
         taskToCancel.cancel(with: .goingAway, reason: nil)
         return true
     }
@@ -366,6 +373,11 @@ actor ShareSocket {
 
     func currentWebSocketTaskIDForTesting() -> ObjectIdentifier? {
         webSocketTask.map(ObjectIdentifier.init)
+    }
+
+    func criticalBackpressureCancellationIDsForTesting()
+        -> Set<ObjectIdentifier> {
+        recordedCriticalBackpressureCancellationIDs
     }
 
     func setBeforeCriticalBackpressureLifecycleStateForTesting(
