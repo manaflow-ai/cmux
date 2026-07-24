@@ -57,6 +57,58 @@ struct SidebarWorkspaceRowRetirementTests {
         #expect(!popoverWindow.isVisible)
     }
 
+    @Test
+    func retiredTrackingMenuDoesNotBlockHoveringReplacementRow() async throws {
+        let model = SidebarWorkspaceRowSuspensionTests.makeModel()
+        let mounted = try await mount(
+            model: model,
+            actions: SidebarWorkspaceRowSuspensionTests.makeActions(model: model)
+        )
+        defer { mounted.window.close() }
+        let event = try #require(NSEvent.mouseEvent(
+            with: .rightMouseDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: mounted.window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        ))
+        let menu = try #require(mounted.cell.menu(for: event) as? SidebarRowTrackedMenu)
+        menu.menuWillOpen(menu)
+
+        await removeMountedRow(mounted)
+        menu.menuDidClose(menu)
+
+        let replacement = SidebarWorkspaceRowSuspensionTests.makeModel()
+        mounted.controller.apply(
+            rows: [makeRowConfiguration(
+                model: replacement,
+                actions: SidebarWorkspaceRowSuspensionTests.makeActions(model: replacement)
+            )],
+            actions: mounted.tableActions,
+            workspaceIds: [replacement.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        mounted.container.layoutSubtreeIfNeeded()
+        mounted.container.tableView.layoutSubtreeIfNeeded()
+
+        var reconfigurations = 0
+        mounted.controller.reconfigurationProbe = { reconfigurations += 1 }
+        let rowRect = mounted.container.tableView.rect(ofRow: 0)
+        let windowPoint = mounted.container.tableView.convert(
+            NSPoint(x: rowRect.midX, y: rowRect.midY),
+            to: nil
+        )
+        mounted.container.tableView.setPointerWindowLocation(windowPoint)
+
+        #expect(reconfigurations > 0, "A retired menu must not suppress hover on replacement rows.")
+    }
+
     private func mount(
         model: SidebarWorkspaceRowModel,
         actions: SidebarAppKitRowActions
@@ -70,17 +122,7 @@ struct SidebarWorkspaceRowRetirementTests {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
         let tableActions = makeTableActions()
-        let row = SidebarWorkspaceTableRowConfiguration(
-            workspaceRowModel: model,
-            actions: actions,
-            groupId: nil,
-            isPinned: false,
-            environment: SidebarWorkspaceTableEnvironmentSnapshot(
-                colorScheme: .light,
-                globalFontMagnificationPercent: 100,
-                lazyContractProbe: SidebarLazyContractProbe()
-            )
-        )
+        let row = makeRowConfiguration(model: model, actions: actions)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
             styleMask: [.borderless],
@@ -105,6 +147,23 @@ struct SidebarWorkspaceRowRetirementTests {
         )
         cell.layoutSubtreeIfNeeded()
         return (controller, container, window, tableActions, cell)
+    }
+
+    private func makeRowConfiguration(
+        model: SidebarWorkspaceRowModel,
+        actions: SidebarAppKitRowActions
+    ) -> SidebarWorkspaceTableRowConfiguration {
+        SidebarWorkspaceTableRowConfiguration(
+            workspaceRowModel: model,
+            actions: actions,
+            groupId: nil,
+            isPinned: false,
+            environment: SidebarWorkspaceTableEnvironmentSnapshot(
+                colorScheme: .light,
+                globalFontMagnificationPercent: 100,
+                lazyContractProbe: SidebarLazyContractProbe()
+            )
+        )
     }
 
     private func removeMountedRow(_ mounted: (
