@@ -804,7 +804,7 @@ describe("browser design-mode runtime", () => {
     expect(runtime.composerState().selection_count).toBe(0);
   });
 
-  test("native annotation completion presents the card when an earlier animation frame is stalled", () => {
+  test("native annotation completion presents only an outline over the live page", () => {
     const { dom, messages, overlayShadowRoot, runtime } = fixture(
       `<main><button id="b">B</button></main>`,
       { stallAnimationFrames: true },
@@ -835,22 +835,24 @@ describe("browser design-mode runtime", () => {
       descriptor?.viewport.height ?? 0,
     );
 
-    const card = Array.from(overlayShadowRoot()?.querySelectorAll("div") ?? []).find(
-      (element) => element.style.backgroundImage.includes("Y2FyZA=="),
+    const outline = Array.from(overlayShadowRoot()?.querySelectorAll("div") ?? []).find(
+      (element) => element.style.left === "2px"
+        && element.style.top === "12px"
+        && element.style.width === "196px"
+        && element.style.height === "196px",
     );
-    expect(card).toBeDefined();
-    expect(card?.style.display).toBe("block");
-    expect(card?.style.left).toBe("2px");
-    expect(card?.style.top).toBe("12px");
-    expect(card?.style.width).toBe("196px");
-    expect(card?.style.height).toBe("196px");
-    expect(card?.style.borderStyle).toBe("dashed");
-    expect(card?.style.borderColor).toBe("rgb(10, 132, 255)");
+    expect(outline).toBeDefined();
+    expect(outline?.style.display).toBe("block");
+    expect(outline?.style.borderStyle).toBe("dashed");
+    expect(outline?.style.borderColor).toBe("rgb(10, 132, 255)");
+    expect(outline?.style.backgroundColor).toBe("transparent");
+    expect(outline?.style.backgroundImage).toBe("");
+    expect(outline?.style.boxShadow).toBe("none");
 
     runtime.setSelectionHover(completed.selections?.[0]?.selector ?? "");
-    expect(card?.style.boxShadow).toContain("rgba(10, 132, 255, 0.55)");
+    expect(outline?.style.boxShadow).toContain("rgba(10, 132, 255, 0.55)");
     runtime.setSelectionHover(null);
-    expect(card?.style.boxShadow).not.toContain("rgba(10, 132, 255, 0.55)");
+    expect(outline?.style.boxShadow).toBe("none");
   });
 
   test("annotation cards evict the oldest retained image after the bounded stack fills", () => {
