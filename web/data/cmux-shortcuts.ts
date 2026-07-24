@@ -301,7 +301,9 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "splitBrowserRight", combos: [["⌥", "⌘", "D"]], description: { en: "Split browser right", ja: "右にブラウザ分割" } },
       { id: "splitBrowserDown", combos: [["⌥", "⌘", "⇧", "D"]], description: { en: "Split browser down", ja: "下にブラウザ分割" } },
       { id: "toggleSplitZoom", combos: [["⌘", "⇧", "↩"]], description: { en: "Toggle pane zoom", ja: "ペインズームを切り替え" } },
-      { id: "equalizeSplits", combos: [["⌃", "⌘", "="]], description: { en: "Equalize split sizes", ja: "分割サイズを均等にする" } },
+      { id: "increaseWorkspaceTerminalFontSize", combos: [["⌃", "⌘", "="]], description: { en: "Increase font size for every terminal in the workspace", ja: "ワークスペース内の全ターミナルのフォントサイズを大きくする" } },
+      { id: "decreaseWorkspaceTerminalFontSize", combos: [["⌃", "⌘", "-"]], description: { en: "Decrease font size for every terminal in the workspace", ja: "ワークスペース内の全ターミナルのフォントサイズを小さくする" } },
+      { id: "equalizeSplits", combos: [["⌃", "⌘", "⇧", "="]], description: { en: "Equalize split sizes", ja: "分割サイズを均等にする" } },
     ],
   },
   {

@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxSettings
 import CmuxTerminalCore
 @testable import CmuxTerminal
 
@@ -12,6 +13,57 @@ import CmuxTerminalCore
 @MainActor
 @Suite("Terminal font zoom session persistence")
 struct TerminalFontZoomSessionPersistenceTests {
+    @Test("workspace font-size shortcuts and equalize default stay distinct")
+    func workspaceFontSizeShortcutDefaults() {
+        #expect(
+            KeyboardShortcutSettings.Action.increaseWorkspaceTerminalFontSize.defaultShortcut
+                == StoredShortcut(
+                    key: "=",
+                    command: true,
+                    shift: false,
+                    option: false,
+                    control: true
+                )
+        )
+        #expect(
+            KeyboardShortcutSettings.Action.decreaseWorkspaceTerminalFontSize.defaultShortcut
+                == StoredShortcut(
+                    key: "-",
+                    command: true,
+                    shift: false,
+                    option: false,
+                    control: true
+                )
+        )
+        #expect(
+            KeyboardShortcutSettings.Action.equalizeSplits.defaultShortcut
+                == StoredShortcut(
+                    key: "=",
+                    command: true,
+                    shift: true,
+                    option: false,
+                    control: true
+                )
+        )
+        #expect(
+            CmuxSettings.ShortcutAction.increaseWorkspaceTerminalFontSize.defaultStroke
+                == CmuxSettings.ShortcutStroke(key: "=", command: true, control: true)
+        )
+        #expect(
+            CmuxSettings.ShortcutAction.decreaseWorkspaceTerminalFontSize.defaultStroke
+                == CmuxSettings.ShortcutStroke(key: "-", command: true, control: true)
+        )
+        #expect(
+            CmuxSettings.ShortcutAction.equalizeSplits.defaultStroke
+                == CmuxSettings.ShortcutStroke(
+                    key: "=",
+                    command: true,
+                    shift: true,
+                    control: true
+                )
+        )
+    }
+
     @Test("restored terminal zoom survives the next session capture")
     func restoredZoomSurvivesRecapture() throws {
         let workspace = Workspace()
@@ -123,6 +175,62 @@ struct TerminalFontZoomSessionPersistenceTests {
                     basePoints: 12,
                     isExplicitOverride: false
                 )
+        )
+    }
+
+    @Test("workspace font-size adjustment reaches every terminal and seeds new ones")
+    func workspaceFontSizeAdjustmentFansOutAndInherits() throws {
+        let workspace = Workspace()
+        let firstPanelID = try #require(workspace.focusedPanelId)
+        let firstPanel = try #require(workspace.panels[firstPanelID] as? TerminalPanel)
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let secondPanel = try #require(
+            workspace.newTerminalSurface(
+                inPane: paneID,
+                focus: false,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+        )
+        let dockPanel = TerminalPanel(
+            workspaceId: workspace.id,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        workspace.dockSplit.panels[dockPanel.id] = dockPanel
+
+        firstPanel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(basePoints: 8, isExplicitOverride: true)
+        )
+        secondPanel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(basePoints: 6, isExplicitOverride: true)
+        )
+        dockPanel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(basePoints: 4, isExplicitOverride: true)
+        )
+        workspace.rememberTerminalConfigInheritanceSource(secondPanel)
+
+        #expect(workspace.adjustTerminalFontSizes(byRuntimePoints: -1) == 3)
+        #expect(firstPanel.surface.fontSizeLineageSnapshot()?.basePoints == 7)
+        #expect(secondPanel.surface.fontSizeLineageSnapshot()?.basePoints == 5)
+        #expect(dockPanel.surface.fontSizeLineageSnapshot()?.basePoints == 3)
+        #expect(
+            TabManager().inheritedTerminalConfigForNewWorkspace(workspace: workspace)?
+                .fontSizeLineage == TerminalFontSizeLineage(
+                    basePoints: 5,
+                    isExplicitOverride: true
+                )
+        )
+
+        // Pane-local creation inherits that pane's adjusted source terminal.
+        let inheritedPanel = try #require(
+            workspace.newTerminalSurface(
+                inPane: paneID,
+                focus: false,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+        )
+        #expect(
+            inheritedPanel.surface.fontSizeLineageSnapshot()
+                == TerminalFontSizeLineage(basePoints: 7, isExplicitOverride: true)
         )
     }
 

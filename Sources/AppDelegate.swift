@@ -13838,6 +13838,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return true
         }
+        if matchConfiguredShortcut(event: event, action: .increaseWorkspaceTerminalFontSize) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            routedManager?.selectedWorkspace?.adjustTerminalFontSizes(byRuntimePoints: 1)
+            return true
+        }
+        if matchConfiguredShortcut(event: event, action: .decreaseWorkspaceTerminalFontSize) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            routedManager?.selectedWorkspace?.adjustTerminalFontSizes(byRuntimePoints: -1)
+            return true
+        }
         if matchConfiguredShortcut(event: event, action: .equalizeSplits) { performEqualizeSplitsShortcut(); return true }
         // Canvas layout actions share one executor with the palette, View
         // menu, and the canvas.* socket verbs.

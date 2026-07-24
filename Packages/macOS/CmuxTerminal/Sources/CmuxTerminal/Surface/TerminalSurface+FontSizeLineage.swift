@@ -2,6 +2,63 @@ public import CmuxTerminalCore
 internal import GhosttyKit
 
 extension TerminalSurface {
+    /// Adjusts this terminal's runtime font size and records an explicit override.
+    ///
+    /// Live surfaces delegate to Ghostty's native font-size action. Suspended or
+    /// deferred surfaces update their durable lineage directly so the change is
+    /// applied when their runtime is created again.
+    ///
+    /// - Parameters:
+    ///   - deltaRuntimePoints: Point-size change after global magnification.
+    ///   - fallbackRuntimePoints: Current configured runtime size to use when a
+    ///     deferred surface has never reported font-size lineage.
+    /// - Returns: Whether a live action ran or durable lineage was updated.
+    @MainActor
+    @discardableResult
+    public func adjustFontSize(
+        byRuntimePoints deltaRuntimePoints: Float32,
+        fallbackRuntimePoints: Float32? = nil
+    ) -> Bool {
+        guard deltaRuntimePoints.isFinite, deltaRuntimePoints != 0 else { return false }
+
+        if surface != nil {
+            let verb = deltaRuntimePoints > 0 ? "increase_font_size" : "decrease_font_size"
+            let action = String(format: "%@:%g", verb, abs(deltaRuntimePoints))
+            guard performExplicitInputBindingAction(action) else { return false }
+            _ = fontSizeLineageSnapshot()
+            return true
+        }
+
+        let percent = globalFontMagnificationPercent()
+        let currentRuntimePoints: Float32
+        if let lineage = lastKnownFontSizeLineage {
+            currentRuntimePoints = CmuxSurfaceConfigTemplate.runtimeFontSize(
+                fromBasePoints: lineage.basePoints,
+                percent: percent
+            )
+        } else if let fallbackRuntimePoints,
+                  fallbackRuntimePoints.isFinite,
+                  fallbackRuntimePoints > 0 {
+            currentRuntimePoints = fallbackRuntimePoints
+        } else {
+            return false
+        }
+
+        let adjustedRuntimePoints = TerminalFontSizePolicy().clampedRuntimePoints(
+            currentRuntimePoints + deltaRuntimePoints
+        )
+        recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(
+                basePoints: CmuxSurfaceConfigTemplate.baseFontSize(
+                    fromRuntimePoints: adjustedRuntimePoints,
+                    percent: percent
+                ),
+                isExplicitOverride: true
+            )
+        )
+        return true
+    }
+
     /// Captures the current font size and its surface-local ownership state.
     ///
     /// Live Ghostty state is authoritative. When the runtime is unavailable,

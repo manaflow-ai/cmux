@@ -1,5 +1,7 @@
 import AppKit
 import Bonsplit
+import CmuxFoundation
+import CmuxTerminalCore
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -119,8 +121,8 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             in: workspace.bonsplitController.treeSnapshot()
         )
 
-        guard let event = makeKeyDownEvent(key: "=", modifiers: [.command, .control], keyCode: 24, windowNumber: window.windowNumber) else {
-            XCTFail("Failed to construct Cmd+Ctrl+= event")
+        guard let event = makeKeyDownEvent(key: "=", modifiers: [.command, .control, .shift], keyCode: 24, windowNumber: window.windowNumber) else {
+            XCTFail("Failed to construct Cmd+Ctrl+Shift+= event")
             return
         }
 
@@ -156,6 +158,79 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             shortcutRoutingPaneFramesById(in: liveEqualizedLayout)
         )
         shortcutRoutingAssertPaneFramesMatch(cachedEqualizedLayout, liveEqualizedLayout)
+    }
+
+    func testConfiguredWorkspaceTerminalFontSizeShortcutAdjustsEverySplit() {
+        withTemporaryShortcut(action: .decreaseWorkspaceTerminalFontSize) {
+            guard let appDelegate = AppDelegate.shared else {
+                XCTFail("Expected AppDelegate.shared")
+                return
+            }
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            guard let window = window(withId: windowId),
+                  let manager = appDelegate.tabManagerFor(windowId: windowId),
+                  let workspace = manager.selectedWorkspace,
+                  let firstPanelId = workspace.focusedPanelId,
+                  let firstPanel = workspace.terminalPanel(for: firstPanelId),
+                  let secondPanel = workspace.newTerminalSplit(
+                    from: firstPanelId,
+                    orientation: .horizontal
+                  ),
+                  let event = makeKeyDownEvent(
+                    key: "-",
+                    modifiers: [.command, .control],
+                    keyCode: 27,
+                    windowNumber: window.windowNumber
+                  ) else {
+                XCTFail("Expected two terminal splits and Cmd+Ctrl+- event")
+                return
+            }
+
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            let configuredRuntimePoints = Float32(
+                GhosttyConfig.load(
+                    globalFontMagnificationPercent: GlobalFontMagnification.storedPercent
+                ).fontSize
+            )
+            let beforeLineages = [
+                firstPanel.surface.fontSizeLineageSnapshot(),
+                secondPanel.surface.fontSizeLineageSnapshot(),
+            ]
+
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            return
+#endif
+
+            let surfaces = [firstPanel.surface, secondPanel.surface]
+            for (surface, beforeLineage) in zip(surfaces, beforeLineages) {
+                guard let afterLineage = surface.fontSizeLineageSnapshot() else {
+                    XCTFail("Expected adjusted font-size lineage")
+                    continue
+                }
+                let beforeRuntimePoints = beforeLineage.map {
+                    CmuxSurfaceConfigTemplate.runtimeFontSize(
+                        fromBasePoints: $0.basePoints,
+                        percent: GlobalFontMagnification.storedPercent
+                    )
+                } ?? configuredRuntimePoints
+                let expectedRuntimePoints = TerminalFontSizePolicy().clampedRuntimePoints(
+                    beforeRuntimePoints - 1
+                )
+                let afterRuntimePoints = CmuxSurfaceConfigTemplate.runtimeFontSize(
+                    fromBasePoints: afterLineage.basePoints,
+                    percent: GlobalFontMagnification.storedPercent
+                )
+                XCTAssertEqual(afterRuntimePoints, expectedRuntimePoints, accuracy: 0.001)
+                XCTAssertTrue(afterLineage.isExplicitOverride)
+            }
+        }
     }
 
     private func shortcutRoutingSplitNodes(in node: ExternalTreeNode) -> [ExternalSplitNode] {

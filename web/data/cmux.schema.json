@@ -1650,6 +1650,8 @@
               "splitRight",
               "splitDown",
               "toggleSplitZoom",
+              "increaseWorkspaceTerminalFontSize",
+              "decreaseWorkspaceTerminalFontSize",
               "equalizeSplits",
               "splitBrowserRight",
               "splitBrowserDown",

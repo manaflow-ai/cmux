@@ -51,8 +51,35 @@ import Testing
         #expect(surface.sessionFontSizeOverrideBasePoints() == 510)
     }
 
+    @Test func dormantSurfaceAdjustsDurableFontSizeAtRuntimeScale() throws {
+        var template = CmuxSurfaceConfigTemplate()
+        template.setFontSize(6, isExplicitOverride: false)
+        let surface = makeSurface(
+            configTemplate: template,
+            globalFontMagnificationPercent: 200
+        )
+
+        #expect(surface.adjustFontSize(byRuntimePoints: -1))
+
+        let lineage = try #require(surface.fontSizeLineageSnapshot())
+        #expect(lineage.basePoints == 5.5)
+        #expect(lineage.isExplicitOverride)
+        #expect(surface.sessionFontSizeOverrideBasePoints() == 5.5)
+    }
+
+    @Test func deferredSurfaceUsesConfiguredFallbackAndNativeMinimum() throws {
+        let surface = makeSurface(configTemplate: CmuxSurfaceConfigTemplate())
+
+        #expect(surface.adjustFontSize(byRuntimePoints: -20, fallbackRuntimePoints: 12))
+
+        let lineage = try #require(surface.fontSizeLineageSnapshot())
+        #expect(lineage.basePoints == TerminalFontSizePolicy.minimumRuntimePoints)
+        #expect(lineage.isExplicitOverride)
+    }
+
     private func makeSurface(
-        configTemplate: CmuxSurfaceConfigTemplate
+        configTemplate: CmuxSurfaceConfigTemplate,
+        globalFontMagnificationPercent: Int = 100
     ) -> TerminalSurface {
         let nativeView = FakeTerminalSurfaceNativeView(
             frame: NSRect(x: 0, y: 0, width: 800, height: 600)
@@ -88,7 +115,8 @@ import Testing
                 ),
                 sessionPortBase: 40_000,
                 sessionPortRangeSize: 100,
-                scrollbackReplayEnvironmentKey: "CMUX_TEST_SCROLLBACK_REPLAY"
+                scrollbackReplayEnvironmentKey: "CMUX_TEST_SCROLLBACK_REPLAY",
+                globalFontMagnificationPercent: { globalFontMagnificationPercent }
             )
         )
     }

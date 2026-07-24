@@ -59,3 +59,42 @@ func cmuxInheritedSurfaceConfig(
 
     return config
 }
+
+extension Workspace {
+    /// Adjusts every terminal owned by this workspace, including its Dock.
+    ///
+    /// Each surface retains its relative size. Deferred and hibernated surfaces
+    /// receive the same point delta through their durable font-size lineage.
+    @discardableResult
+    func adjustTerminalFontSizes(byRuntimePoints deltaRuntimePoints: Float32) -> Int {
+        guard deltaRuntimePoints.isFinite, deltaRuntimePoints != 0 else { return 0 }
+
+        var terminalPanels = panels.values.compactMap { $0 as? TerminalPanel }
+        if let dock = _dockSplit {
+            terminalPanels.append(contentsOf: dock.panels.values.compactMap { $0 as? TerminalPanel })
+        }
+
+        var seenPanelIds: Set<UUID> = []
+        terminalPanels = terminalPanels
+            .filter { seenPanelIds.insert($0.id).inserted }
+            .sorted { $0.id.uuidString < $1.id.uuidString }
+
+        let configuredRuntimePoints = Float32(
+            GhosttyConfig.load(
+                globalFontMagnificationPercent: GlobalFontMagnification.storedPercent
+            ).fontSize
+        )
+        var adjustedCount = 0
+        for terminalPanel in terminalPanels where terminalPanel.surface.adjustFontSize(
+            byRuntimePoints: deltaRuntimePoints,
+            fallbackRuntimePoints: configuredRuntimePoints
+        ) {
+            adjustedCount += 1
+        }
+
+        if let rememberedTerminalPanel = lastRememberedTerminalPanelForConfigInheritance() {
+            rememberTerminalConfigInheritanceSource(rememberedTerminalPanel)
+        }
+        return adjustedCount
+    }
+}

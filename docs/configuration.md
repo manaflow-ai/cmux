@@ -149,6 +149,10 @@ The spinner is compositor-driven (a Core Animation transform run by the render s
 
 `terminal.focusTextBoxOnNewTerminals` opens the TextBox and focuses it for foreground terminal sessions created from the app UI, such as new terminal workspaces, tabs, and splits. Terminals created through the cmux CLI/control socket do not auto-focus the TextBox, even when this setting is enabled, so background automation does not steal keyboard focus.
 
+## Workspace terminal font size shortcuts
+
+Cmd+Ctrl+= and Cmd+Ctrl+- increase or decrease every terminal in the selected workspace by one point. Hidden, hibernated, and Dock terminals change with visible terminals, and newly created terminals inherit the adjusted workspace size. Rebind them with `shortcuts.bindings.increaseWorkspaceTerminalFontSize` and `shortcuts.bindings.decreaseWorkspaceTerminalFontSize`.
+
 ## `terminal.textBoxSubmitActions`
 
 Controls what the TextBox submit button does for new terminal sessions. Active agent sessions such as Claude, Codex, OpenCode, and Pi always use plain Text Entry so prompts go into the running agent instead of launching another command.
