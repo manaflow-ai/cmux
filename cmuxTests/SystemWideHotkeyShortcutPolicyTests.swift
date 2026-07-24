@@ -53,13 +53,13 @@ final class SystemWideHotkeyShortcutPolicyTests {
         )
     }
 
-    @Test func globalSearchStillRejectsCommandGraveWindowCyclingHotkey() {
+    @Test func registrationPolicyContainsOnlyExplicitlySystemWideActions() {
+        #expect(SystemWideHotkeySettings.action == .showHideAllWindows)
+        #expect(KeyboardShortcutSettings.Action.allCases.filter(\.isSystemWideHotkey) == [.showHideAllWindows])
+    }
+    @Test func foregroundGlobalSearchDoesNotUseSystemWideReservationPolicy() {
         let shortcut = commandGraveShortcut()
-
-        #expect(
-            KeyboardShortcutSettings.Action.globalSearch.normalizedRecordedShortcutResult(shortcut) ==
-                .rejected(.reservedBySystem)
-        )
+        #expect(KeyboardShortcutSettings.Action.globalSearch.normalizedRecordedShortcutResult(shortcut) == .accepted(shortcut))
     }
 
     private func commandGraveShortcut(shift: Bool = false) -> StoredShortcut {

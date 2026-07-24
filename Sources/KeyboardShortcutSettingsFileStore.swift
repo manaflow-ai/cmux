@@ -6,23 +6,37 @@ import os
 
 nonisolated private let cmuxSettingsFileStoreLogger = Logger(subsystem: "com.cmuxterm.app", category: "SettingsStore")
 
-/// Publishes keyboard-shortcut revisions and owns the right-sidebar matcher snapshot.
+/// Publishes keyboard-shortcut revisions and owns hot-path matcher snapshots.
 @MainActor
 final class KeyboardShortcutSettingsObserver: ObservableObject {
+    typealias ShortcutProvider = (KeyboardShortcutSettings.Action) -> StoredShortcut
+
     static let shared = KeyboardShortcutSettingsObserver()
 
     @Published private(set) var revision: UInt64 = 0
-    let rightSidebarModeShortcutMatcher = RightSidebarModeShortcutMatcher()
+    private(set) var globalSearchShortcut: StoredShortcut
+    let rightSidebarModeShortcutMatcher: RightSidebarModeShortcutMatcher
+    private let shortcutProvider: ShortcutProvider
     private var settingsCancellable: AnyCancellable?
     private var recorderCancellable: AnyCancellable?
 
-    private init(notificationCenter: NotificationCenter = .default) {
+    init(
+        notificationCenter: NotificationCenter = .default,
+        shortcutProvider: @escaping ShortcutProvider = KeyboardShortcutSettings.shortcut(for:)
+    ) {
+        self.shortcutProvider = shortcutProvider
+        globalSearchShortcut = shortcutProvider(.globalSearch)
+        rightSidebarModeShortcutMatcher = RightSidebarModeShortcutMatcher(
+            shortcutProvider: shortcutProvider
+        )
         settingsCancellable = notificationCenter.publisher(
             for: KeyboardShortcutSettings.didChangeNotification
         ).sink { [weak self] _ in
             Self.deliverOnMainActor { [weak self] in
-                self?.revision &+= 1
-                self?.rightSidebarModeShortcutMatcher.reload()
+                guard let self else { return }
+                globalSearchShortcut = shortcutProvider(.globalSearch)
+                revision &+= 1
+                rightSidebarModeShortcutMatcher.reload()
             }
         }
         recorderCancellable = notificationCenter.publisher(
@@ -1061,8 +1075,8 @@ final class CmuxSettingsFileStore {
             // Object form written by the CmuxSettings package recorder (in-app
             // Settings UI): { "first": { key, command, ... }, "second": { ... }? }.
             // A Settings rebinding only reaches this store in that shape; decode it
-            // so every action resolved here — most visibly the system-wide Carbon
-            // hotkeys (globalSearch, showHideAllWindows) — honors the rebinding
+            // so every action resolved here — including foreground Global Search and the
+            // opt-in system-wide Show/Hide hotkey — honors the rebinding
             // instead of silently falling back to the built-in default.
             if let object = rawValue as? [String: Any] {
                 return parseShortcutObjectForm(object, action: action)

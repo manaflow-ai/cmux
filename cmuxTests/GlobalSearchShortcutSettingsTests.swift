@@ -1,4 +1,6 @@
-import XCTest
+import AppKit
+import Foundation
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -7,11 +9,11 @@ import XCTest
 #endif
 
 @MainActor
-final class GlobalSearchShortcutSettingsTests: XCTestCase {
-    private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
+@Suite(.serialized)
+final class GlobalSearchShortcutSettingsTests {
+    private let originalSettingsFileStore: KeyboardShortcutSettingsFileStore
 
-    override func setUp() {
-        super.setUp()
+    init() {
         originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
         KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
             primaryPath: FileManager.default.temporaryDirectory
@@ -24,50 +26,169 @@ final class GlobalSearchShortcutSettingsTests: XCTestCase {
         KeyboardShortcutSettings.resetAll()
     }
 
-    override func tearDown() {
+    deinit {
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
         KeyboardShortcutSettings.resetAll()
-        super.tearDown()
     }
 
-    func testGlobalSearchDefaultShortcutIsRemappableAndSystemWideSafe() {
+    @Test func globalSearchDefaultShortcutIsRemappableAndForegroundScoped() {
         let defaultShortcut = KeyboardShortcutSettings.shortcut(for: .globalSearch)
 
-        XCTAssertEqual(
-            defaultShortcut,
-            StoredShortcut(key: "f", command: true, shift: false, option: true, control: false)
+        #expect(
+            defaultShortcut ==
+                StoredShortcut(key: "f", command: true, shift: false, option: true, control: false)
         )
-        XCTAssertTrue(KeyboardShortcutSettings.publicShortcutActions.contains(.globalSearch))
-        XCTAssertTrue(KeyboardShortcutSettings.settingsVisibleActions.contains(.globalSearch))
-        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .sendFeedback), .unbound)
-        XCTAssertEqual(
-            KeyboardShortcutSettings.Action.globalSearch.normalizedRecordedShortcutResult(defaultShortcut),
-            .accepted(defaultShortcut)
-        )
-    }
-
-    func testGlobalSearchRejectsBareSystemWideShortcut() {
-        let bareShortcut = StoredShortcut(key: "f", command: false, shift: false, option: false, control: false)
-
-        XCTAssertEqual(
-            KeyboardShortcutSettings.Action.globalSearch.normalizedRecordedShortcutResult(bareShortcut),
-            .rejected(.systemWideHotkeyRequiresModifier)
+        #expect(KeyboardShortcutSettings.publicShortcutActions.contains(.globalSearch))
+        #expect(KeyboardShortcutSettings.settingsVisibleActions.contains(.globalSearch))
+        #expect(KeyboardShortcutSettings.shortcut(for: .sendFeedback) == .unbound)
+        #expect(
+            KeyboardShortcutSettings.Action.globalSearch.normalizedRecordedShortcutResult(defaultShortcut) ==
+                .accepted(defaultShortcut)
         )
     }
 
-    func testGlobalSearchRejectsConfiguredShowHideHotkeyConflict() {
+    @Test func globalSearchUsesApplicationBareKeyPolicy() {
+        #expect(!KeyboardShortcutSettings.Action.globalSearch.allowsBareFirstStroke)
+    }
+
+    @Test func optionOnlyGlobalSearchRoutesBeforePrintableOptionTextBypass() throws {
+        let shortcut = StoredShortcut(
+            key: "q",
+            command: false,
+            shift: false,
+            option: true,
+            control: false
+        )
+        KeyboardShortcutSettings.setShortcut(shortcut, for: .globalSearch)
+
+        let event = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.option],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: 0,
+                context: nil,
+                characters: "@",
+                charactersIgnoringModifiers: "q",
+                isARepeat: false,
+                keyCode: 12
+            )
+        )
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+
+        #expect(shortcutRoutingShouldBypassForPrintableOptionText(event: event))
+        #expect(!shortcut.matches(event: event))
+        #expect(appDelegate.matchCachedGlobalSearchShortcut(event: event))
+    }
+
+    @Test func ordinaryTypingDoesNotResolveGlobalSearchBinding() throws {
+#if DEBUG
+        let appDelegate = try #require(AppDelegate.shared)
+        let event = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: 0,
+                context: nil,
+                characters: "a",
+                charactersIgnoringModifiers: "a",
+                isARepeat: false,
+                keyCode: 0
+            )
+        )
+        appDelegate.debugResetShortcutRoutingStateForTesting()
+        var globalSearchLookupCount = 0
+        KeyboardShortcutSettings.shortcutLookupObserver = { action in
+            if action == .globalSearch {
+                globalSearchLookupCount += 1
+            }
+        }
+        defer {
+            KeyboardShortcutSettings.shortcutLookupObserver = nil
+            appDelegate.debugResetShortcutRoutingStateForTesting()
+        }
+
+        #expect(!appDelegate.debugHandleCustomShortcut(event: event))
+        #expect(globalSearchLookupCount == 0)
+#else
+        Issue.record("Shortcut lookup instrumentation requires a DEBUG build")
+#endif
+    }
+
+    @Test func optionOnlyGlobalSearchChordPrefixRoutesBeforePrintableOptionTextBypass() throws {
+#if DEBUG
+        let shortcut = StoredShortcut(
+            key: "q",
+            command: false,
+            shift: false,
+            option: true,
+            control: false,
+            chordKey: "f"
+        )
+        KeyboardShortcutSettings.setShortcut(shortcut, for: .globalSearch)
+
+        let prefixEvent = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.option],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: 0,
+                context: nil,
+                characters: "@",
+                charactersIgnoringModifiers: "q",
+                isARepeat: false,
+                keyCode: 12
+            )
+        )
+        let suffixEvent = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: 0,
+                context: nil,
+                characters: "f",
+                charactersIgnoringModifiers: "f",
+                isARepeat: false,
+                keyCode: 3
+            )
+        )
+        let appDelegate = try #require(AppDelegate.shared)
+        var didTogglePalette = false
+        defer {
+            if didTogglePalette {
+                appDelegate.toggleGlobalSearchPalette()
+            }
+            appDelegate.debugResetShortcutRoutingStateForTesting()
+        }
+
+        #expect(shortcutRoutingShouldBypassForPrintableOptionText(event: prefixEvent))
+        #expect(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
+        didTogglePalette = appDelegate.debugHandleCustomShortcut(event: suffixEvent)
+        #expect(didTogglePalette)
+#else
+        Issue.record("Option-only Global Search chord routing requires a DEBUG build")
+#endif
+    }
+
+    @Test func globalSearchRejectsConfiguredShowHideHotkeyConflict() {
         let reservedShortcut = StoredShortcut(key: "g", command: true, shift: false, option: true, control: true)
 
         KeyboardShortcutSettings.setShortcut(.unbound, for: .globalSearch)
         SystemWideHotkeySettings.setShortcut(reservedShortcut)
 
-        XCTAssertEqual(
-            KeyboardShortcutSettings.Action.globalSearch.normalizedRecordedShortcutResult(reservedShortcut),
-            .rejected(.reservedBySystem)
+        #expect(
+            KeyboardShortcutSettings.Action.globalSearch.normalizedRecordedShortcutResult(reservedShortcut) ==
+                .rejected(.conflictsWithAction(.showHideAllWindows))
         )
     }
 
-    func testSettingsFileStoreParsesGlobalSearchShortcut() throws {
+    @Test func settingsFileStoreParsesGlobalSearchShortcut() throws {
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-global-search-settings-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
@@ -88,22 +209,15 @@ final class GlobalSearchShortcutSettingsTests: XCTestCase {
             startWatching: false
         )
 
-        XCTAssertEqual(
-            store.override(for: .globalSearch),
-            StoredShortcut(key: "g", command: true, shift: false, option: false, control: true)
+        #expect(
+            store.override(for: .globalSearch) ==
+                StoredShortcut(key: "g", command: true, shift: false, option: false, control: true)
         )
     }
 
-    func testSettingsFileStoreParsesPackageObjectFormGlobalSearchShortcut() throws {
-        // Regression for https://github.com/manaflow-ai/cmux/issues/5137.
-        // The in-app Settings UI (CmuxSettings package) persists every
-        // shortcut rebinding to cmux.json under `shortcuts.bindings.<action>`
-        // as a nested StoredShortcut object ({"first": {key, command, ...}}),
-        // not the legacy human-editable "cmd+opt+f" string. The file store
-        // that feeds KeyboardShortcutSettings — and therefore the system-wide
-        // Carbon hotkeys (globalSearch, showHideAllWindows) — must understand
-        // that object form. Otherwise SystemWideHotkeyController never sees the
-        // rebinding and the default ⌥⌘F keeps opening Global Search.
+    @Test func settingsFileStoreParsesPackageObjectFormGlobalSearchShortcut() throws {
+        // Regression for #5137: the Settings package writes a nested StoredShortcut object.
+        // Both foreground and system-wide routes must read that form rather than fall back.
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-global-search-object-settings-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
@@ -128,16 +242,14 @@ final class GlobalSearchShortcutSettingsTests: XCTestCase {
             startWatching: false
         )
 
-        XCTAssertEqual(
-            store.override(for: .globalSearch),
-            StoredShortcut(key: "j", command: true, shift: false, option: false, control: true)
+        #expect(
+            store.override(for: .globalSearch) ==
+                StoredShortcut(key: "j", command: true, shift: false, option: false, control: true)
         )
     }
 
-    func testSettingsFileStoreParsesPackageObjectFormChordShortcut() throws {
-        // The package object form also encodes two-stroke chords as
-        // {"first": {...}, "second": {...}}. A non-system-wide action exercises
-        // the general path so the fix is not narrowed to global search.
+    @Test func settingsFileStoreParsesPackageObjectFormChordShortcut() throws {
+        // Package object form also encodes chords as {"first": {...}, "second": {...}}.
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-chord-object-settings-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
@@ -163,27 +275,25 @@ final class GlobalSearchShortcutSettingsTests: XCTestCase {
             startWatching: false
         )
 
-        XCTAssertEqual(
-            store.override(for: .newTab),
-            StoredShortcut(
-                key: "b",
-                command: false,
-                shift: false,
-                option: false,
-                control: true,
-                chordKey: "n",
-                chordCommand: false,
-                chordShift: false,
-                chordOption: false,
-                chordControl: false
-            )
+        #expect(
+            store.override(for: .newTab) ==
+                StoredShortcut(
+                    key: "b",
+                    command: false,
+                    shift: false,
+                    option: false,
+                    control: true,
+                    chordKey: "n",
+                    chordCommand: false,
+                    chordShift: false,
+                    chordOption: false,
+                    chordControl: false
+                )
         )
     }
 
-    func testSettingsFileStoreParsesPackageObjectFormUnboundShortcut() throws {
-        // The package marks an explicit "no shortcut" override with an empty
-        // primary key ({"first": {"key": ""}}). The legacy reader must treat
-        // that as unbound, not as an invalid binding to be dropped.
+    @Test func settingsFileStoreParsesPackageObjectFormUnboundShortcut() throws {
+        // An empty primary key marks an explicit unbound override, not invalid data.
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-unbound-object-settings-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
@@ -206,13 +316,11 @@ final class GlobalSearchShortcutSettingsTests: XCTestCase {
             startWatching: false
         )
 
-        XCTAssertEqual(store.override(for: .globalSearch), .unbound)
+        #expect(store.override(for: .globalSearch) == .unbound)
     }
 
-    func testSettingsFileStoreRejectsObjectFormChordWithMalformedSecondStroke() throws {
-        // A present-but-malformed `second` stroke must invalidate the whole
-        // binding rather than silently degrading the chord to a single stroke
-        // (which could create an unintended single-key shortcut).
+    @Test func settingsFileStoreRejectsObjectFormChordWithMalformedSecondStroke() throws {
+        // A malformed second stroke invalidates the chord instead of degrading it.
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-bad-chord-object-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
@@ -238,12 +346,11 @@ final class GlobalSearchShortcutSettingsTests: XCTestCase {
             startWatching: false
         )
 
-        XCTAssertNil(store.override(for: .newTab))
+        #expect(store.override(for: .newTab) == nil)
     }
 
-    func testSettingsFileStoreRejectsObjectFormBareKeyForModifierRequiringAction() throws {
-        // Object-form parsing must apply the same bare-first-stroke rule as the
-        // string parser: an action that requires a modifier rejects a bare key.
+    @Test func settingsFileStoreRejectsObjectFormBareKeyForModifierRequiringAction() throws {
+        // Object and string parsing apply the same bare-first-stroke rule.
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-bare-object-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
@@ -266,12 +373,12 @@ final class GlobalSearchShortcutSettingsTests: XCTestCase {
             startWatching: false
         )
 
-        XCTAssertNil(store.override(for: .newTab))
+        #expect(store.override(for: .newTab) == nil)
     }
 
-    func testSettingsFileStoreRejectsGlobalSearchChordBinding() throws {
+    @Test func settingsFileStoreParsesGlobalSearchChordBinding() throws {
         let directoryURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-global-search-invalid-settings-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-global-search-chord-settings-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
@@ -290,6 +397,20 @@ final class GlobalSearchShortcutSettingsTests: XCTestCase {
             startWatching: false
         )
 
-        XCTAssertNil(store.override(for: .globalSearch))
+        #expect(
+            store.override(for: .globalSearch) ==
+                StoredShortcut(
+                    key: "k",
+                    command: true,
+                    shift: false,
+                    option: false,
+                    control: false,
+                    chordKey: "f",
+                    chordCommand: false,
+                    chordShift: false,
+                    chordOption: false,
+                    chordControl: false
+                )
+        )
     }
 }

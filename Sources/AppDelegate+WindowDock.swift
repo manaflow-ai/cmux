@@ -201,10 +201,11 @@ extension AppDelegate {
 }
 
 extension SessionWindowSnapshot {
+    @MainActor
     func omitsRemoteMirrorOnlyWindow(liveWorkspaces: [Workspace]) -> Bool {
         tabManager.workspaces.isEmpty &&
             dock == nil &&
             !liveWorkspaces.isEmpty &&
-            liveWorkspaces.allSatisfy(\.isRemoteTmuxMirror)
+            liveWorkspaces.allSatisfy { $0.isRemoteTmuxMirror }
     }
 }

@@ -9129,7 +9129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    func toggleGlobalSearchPaletteFromGlobalHotkey() {
+    func toggleGlobalSearchPalette() {
         if menuBarExtraController == nil,
            MenuBarExtraSettings.shouldInstallMenuBarExtra() {
             setupMenuBarExtra()
@@ -12639,13 +12639,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func currentConfiguredShortcutChordActions() -> [KeyboardShortcutSettings.Action] {
         KeyboardShortcutSettings.Action.allCases.filter { action in
-            // System-wide hotkeys are dispatched via Carbon RegisterEventHotKey
-            // and never routed through AppKit's local key handler. If a managed
-            // cmux.json entry somehow stores one as a chord, arming the prefix
-            // here would swallow the first stroke and leave the second one
-            // orphaned, breaking that keystroke for the focused terminal/browser
-            // input.
-            guard action != .showHideAllWindows && action != .globalSearch && action.allowsChordShortcut else { return false }
+            // Carbon owns the opt-in hotkey and never routes through AppKit's local handler.
+            guard !action.isSystemWideHotkey && action.allowsChordShortcut else { return false }
             guard !action.isBrowserContentShortcut else { return false }
             return KeyboardShortcutSettings.shortcut(for: action).hasChord
         }
@@ -13293,6 +13288,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
+        if matchCachedGlobalSearchShortcut(event: event) { toggleGlobalSearchPalette(); return true }
+
         // When the notifications popover is open, Escape should dismiss it immediately.
         if flags.isEmpty, event.keyCode == 53, titlebarAccessoryController.dismissNotificationsPopoverIfShown() {
             return true
@@ -13307,6 +13304,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if shouldBypassPrintableOptionTextForShortcutRouting(event: event) {
+            if armConfiguredGlobalSearchPrintableOptionChordIfNeeded(event: event) {
+                return true
+            }
             return false
         }
 
@@ -15164,22 +15164,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
-    private func matchConfiguredShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
+    private func matchConfiguredShortcut(
+        event: NSEvent,
+        shortcut: StoredShortcut,
+        allowPrintableOptionTextMatch: Bool = false
+    ) -> Bool {
         guard !shortcut.isUnbound else { return false }
         if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
             guard let secondStroke = shortcut.secondStroke,
                   shortcut.firstStroke == prefix else {
                 return false
             }
-            return matchShortcutStroke(event: event, stroke: secondStroke)
+            return matchShortcutStroke(
+                event: event,
+                stroke: secondStroke,
+                allowPrintableOptionTextMatch: allowPrintableOptionTextMatch
+            )
         }
         guard !shortcut.hasChord else { return false }
-        return matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
+        return matchShortcutStroke(
+            event: event,
+            stroke: shortcut.firstStroke,
+            allowPrintableOptionTextMatch: allowPrintableOptionTextMatch
+        )
     }
 
     func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
-        if !shortcutWhenClauseAllows(action: action, event: event) { return false }
-        return matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action))
+        guard matchConfiguredShortcut(
+            event: event,
+            shortcut: KeyboardShortcutSettings.shortcut(for: action),
+            allowPrintableOptionTextMatch: action.allowsPrintableOptionTextMatch
+        ) else {
+            return false
+        }
+        return shortcutWhenClauseAllows(action: action, event: event)
+    }
+
+    func matchCachedGlobalSearchShortcut(event: NSEvent) -> Bool {
+        let action = KeyboardShortcutSettings.Action.globalSearch
+        guard matchConfiguredShortcut(
+            event: event,
+            shortcut: KeyboardShortcutSettingsObserver.shared.globalSearchShortcut,
+            allowPrintableOptionTextMatch: action.allowsPrintableOptionTextMatch
+        ) else {
+            return false
+        }
+        return shortcutWhenClauseAllows(action: action, event: event)
     }
 
     /// Whether `action`'s effective `when` clause (its `shortcuts.when` override,
@@ -15248,6 +15278,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
+    private func armConfiguredGlobalSearchPrintableOptionChordIfNeeded(event: NSEvent) -> Bool {
+        guard activeConfiguredShortcutChordPrefixForCurrentEvent == nil else {
+            return false
+        }
+
+        let action = KeyboardShortcutSettings.Action.globalSearch
+        let shortcut = KeyboardShortcutSettingsObserver.shared.globalSearchShortcut
+        guard action.allowsPrintableOptionTextMatch,
+              shortcut.hasChord,
+              matchShortcutStroke(
+                event: event,
+                stroke: shortcut.firstStroke,
+                allowPrintableOptionTextMatch: true
+              ),
+              shortcutWhenClauseAllows(action: action, event: event) else {
+            return false
+        }
+
+        pendingConfiguredShortcutChord = PendingConfiguredShortcutChord(
+            firstStroke: shortcut.firstStroke,
+            windowNumber: configuredShortcutChordWindowNumber(for: event)
+        )
+        return true
+    }
+
     private func tabManagerForNumberedShortcut(event: NSEvent) -> TabManager? {
         preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
     }
@@ -15301,12 +15356,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> Bool {
         var seen = Set<StoredShortcut>()
         let configuredShortcuts = actions.map {
-            KeyboardShortcutSettings.shortcut(for: $0)
-        } + shortcuts
-        for shortcut in configuredShortcuts {
+            (
+                shortcut: KeyboardShortcutSettings.shortcut(for: $0),
+                allowPrintableOptionTextMatch: $0.allowsPrintableOptionTextMatch
+            )
+        } + shortcuts.map {
+            (shortcut: $0, allowPrintableOptionTextMatch: false)
+        }
+        for candidate in configuredShortcuts {
+            let shortcut = candidate.shortcut
             guard seen.insert(shortcut).inserted else { continue }
             guard shortcut.hasChord else { continue }
-            if matchShortcutStroke(event: event, stroke: shortcut.firstStroke) {
+            if matchShortcutStroke(
+                event: event,
+                stroke: shortcut.firstStroke,
+                allowPrintableOptionTextMatch: candidate.allowPrintableOptionTextMatch
+            ) {
                 pendingConfiguredShortcutChord = PendingConfiguredShortcutChord(
                     firstStroke: shortcut.firstStroke,
                     windowNumber: configuredShortcutChordWindowNumber(for: event)
@@ -15572,8 +15637,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// Match a shortcut stroke against an event, handling normal keys.
-    func matchShortcutStroke(event: NSEvent, stroke: ShortcutStroke) -> Bool {
-        stroke.matches(event: event, layoutCharacterProvider: shortcutLayoutCharacterProvider)
+    func matchShortcutStroke(
+        event: NSEvent,
+        stroke: ShortcutStroke,
+        allowPrintableOptionTextMatch: Bool = false
+    ) -> Bool {
+        stroke.matches(
+            event: event,
+            allowPrintableOptionTextMatch: allowPrintableOptionTextMatch,
+            layoutCharacterProvider: shortcutLayoutCharacterProvider
+        )
     }
 
     private func matchShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
@@ -15648,7 +15721,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func isMenuBackedShortcutAction(_ action: KeyboardShortcutSettings.Action) -> Bool {
-        action != .showHideAllWindows
+        !action.isSystemWideHotkey
             && action != .globalSearch
             && action != .clearScreenKeepScrollback
             && action != .fileExplorerOpenSelection
