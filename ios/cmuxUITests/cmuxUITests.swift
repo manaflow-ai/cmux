@@ -566,7 +566,7 @@ final class cmuxUITests: XCTestCase {
         unreadFilter.tap()
 
         XCTAssertTrue(approvalRow.waitForExistence(timeout: 3))
-        approvalRow.swipeLeft()
+        approvalRow.swipeRight()
         let markRead = app.descendants(matching: .any)["MobileNotificationFeedMarkReadSwipe-studio-codex-approval"]
         XCTAssertTrue(markRead.waitForExistence(timeout: 3))
         markRead.tap()
@@ -614,6 +614,16 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(feed.waitForExistence(timeout: 3))
         XCTAssertTrue(notificationsTab.waitForExistence(timeout: 3))
         XCTAssertTrue(notificationsTab.isSelected)
+
+        XCTAssertTrue(completedRow.waitForExistence(timeout: 3))
+        completedRow.swipeRight()
+        let markUnreadSwipe = app.descendants(matching: .any)[
+            "MobileNotificationFeedMarkUnreadSwipe-macbook-tests-passed"
+        ]
+        XCTAssertTrue(markUnreadSwipe.waitForExistence(timeout: 3))
+        markUnreadSwipe.tap()
+        XCTAssertTrue(completedRow.waitForExistence(timeout: 3))
+        XCTAssertTrue(try XCTUnwrap(completedRow.value as? String).contains("Unread"))
 
         let markAllRead = app.buttons["MobileNotificationFeedMarkAllRead"]
         XCTAssertTrue(markAllRead.waitForExistence(timeout: 3))

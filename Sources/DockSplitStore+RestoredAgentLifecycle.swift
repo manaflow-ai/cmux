@@ -1,5 +1,5 @@
-import Foundation
 import CmuxWorkspaces
+import Foundation
 
 extension DockSplitStore {
     func clearSessionRestoreState(panelId: UUID) {
