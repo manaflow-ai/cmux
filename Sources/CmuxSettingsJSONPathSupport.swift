@@ -475,6 +475,7 @@ extension CmuxSettingsFileStore {
         "workspaceColors.selectionColor",
         "workspaceColors.notificationBadgeColor",
         "workspaceColors.colors",
+        "workspaceColors.autoColorRules",
         "workspaceColors.paletteOverrides",
         "workspaceColors.customColors",
         "sidebarAppearance.matchTerminalBackground",

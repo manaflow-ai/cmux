@@ -17,6 +17,7 @@ public struct WorkspaceColorsSection: View {
     @State private var selectionHex: DefaultsValueModel<String>
     @State private var badgeHex: DefaultsValueModel<String>
     @State private var paletteModel: DefaultsValueModel<[String: String]>
+    @State private var autoColorRulesModel: DefaultsValueModel<[String: String]>
     @State private var paletteReconcileTracker = WorkspacePaletteColorReconcileTracker()
 
     /// Built-in palette order and default hexes. Mirrors
@@ -56,12 +57,14 @@ public struct WorkspaceColorsSection: View {
         _selectionHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.selectionColorHex))
         _badgeHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.notificationBadgeColorHex))
         _paletteModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.palette))
+        _autoColorRulesModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.autoColorRules))
     }
 
     public var body: some View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors"), section: .workspaceColors)
             mainCard
+            autoColorRulesCard
         }
         .task {
             startObservingSettings()
@@ -78,6 +81,7 @@ public struct WorkspaceColorsSection: View {
             selectionHex,
             badgeHex,
             paletteModel,
+            autoColorRulesModel,
         ]
         models.forEach { $0.startObserving() }
     }
@@ -149,6 +153,126 @@ public struct WorkspaceColorsSection: View {
                 .controlSize(.small)
             }
         }
+    }
+
+    /// **Automatic colors** — keyword → color rules that tint any workspace
+    /// whose title contains the keyword and that has no color of its own.
+    ///
+    /// Rules are authored in cmux.json (same story as the palette dictionary
+    /// above); this card renders the effective list in match order so the
+    /// precedence between overlapping keywords is visible.
+    @ViewBuilder
+    private var autoColorRulesCard: some View {
+        let rules = orderedAutoColorRules(stored: autoColorRulesModel.current)
+        SettingsCard {
+            SettingsCardRow(
+                configurationReview: .json("workspaceColors.autoColorRules"),
+                searchAnchorID: "setting:workspaceColors:autoColorRules",
+                String(localized: "settings.workspaceColors.autoColorRules", defaultValue: "Automatic Colors by Keyword"),
+                subtitle: String(localized: "settings.workspaceColors.autoColorRules.subtitle", defaultValue: "Workspaces whose title contains a keyword take that color. A color set on the workspace itself always wins.")
+            ) {
+                EmptyView()
+            }
+
+            SettingsCardNote(
+                String(localized: "settings.workspaceColors.autoColorRules.note", defaultValue: "Add rules in cmux.json under workspaceColors.autoColorRules, for example {\"deploy\": \"Red\", \"docs\": \"#1565C0\"}. Matching ignores case and accents; when several keywords match a title, the longest one wins.")
+            )
+
+            ForEach(rules, id: \.keyword) { rule in
+                SettingsCardDivider()
+                autoColorRuleRow(rule)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func autoColorRuleRow(_ rule: (keyword: String, value: String, hex: String?)) -> some View {
+        SettingsCardRow(
+            configurationReview: .json("workspaceColors.autoColorRules"),
+            rule.keyword,
+            subtitle: rule.hex == nil
+                ? String(localized: "settings.workspaceColors.autoColorRules.unknownColor", defaultValue: "Unknown color — use a palette name or a #RRGGBB hex.")
+                : String(localized: "settings.workspaceColors.autoColorRules.matches", defaultValue: "Titles containing \"\(rule.keyword)\".")
+        ) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(rule.hex.flatMap { NSColor(hex: $0) }.map { Color(nsColor: $0) } ?? .clear)
+                    .overlay(Circle().strokeBorder(Color.primary.opacity(0.15)))
+                    .frame(width: 14, height: 14)
+                Text(rule.value)
+                    .cmuxFont(size: 12, weight: .medium, design: .monospaced)
+                    .foregroundStyle(rule.hex == nil ? .secondary : .primary)
+                    .frame(width: 96, alignment: .trailing)
+            }
+        }
+    }
+
+    /// Rules in the order the app matches them: longest keyword first (most
+    /// specific rule wins), then locale-independent tie-breaks. Mirrors
+    /// `WorkspaceTabAutoColorRules.ruleSet` in the app target, folding
+    /// included, so this list reads in the order rules actually apply.
+    private func orderedAutoColorRules(
+        stored: [String: String]
+    ) -> [(keyword: String, value: String, hex: String?)] {
+        let palette = effectivePaletteMap(stored: paletteModel.current)
+        let candidates = stored
+            .compactMap { rawKeyword, value -> (keyword: String, folded: String, value: String, hex: String?)? in
+                let keyword = rawKeyword.trimmingCharacters(in: .whitespacesAndNewlines)
+                let folded = keyword.folding(
+                    options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
+                    locale: nil
+                )
+                guard !folded.isEmpty else { return nil }
+                return (
+                    keyword: keyword,
+                    folded: folded,
+                    value: value,
+                    hex: resolvedRuleHex(value, palette: palette)
+                )
+            }
+        return canonicalizedAutoColorRules(candidates)
+            .sorted { lhs, rhs in
+                if lhs.folded.count != rhs.folded.count { return lhs.folded.count > rhs.folded.count }
+                if lhs.folded != rhs.folded { return lhs.folded < rhs.folded }
+                return lhs.keyword < rhs.keyword
+            }
+            .map { (keyword: $0.keyword, value: $0.value, hex: $0.hex) }
+    }
+
+    /// Mirrors `WorkspaceTabAutoColorRules.canonicalized` in the app target:
+    /// entries that trim to the same keyword are one rule, and duplicates that
+    /// disagree on the resolved color are dropped rather than arbitrated — the
+    /// app paints nothing in that case, so the card must not claim otherwise.
+    /// It is also what keeps `ForEach(rules, id: \.keyword)` free of duplicate
+    /// identities.
+    ///
+    /// A keyword whose entries all resolve to no color is kept, so a typo still
+    /// surfaces as an "unknown color" row instead of vanishing silently.
+    private func canonicalizedAutoColorRules(
+        _ candidates: [(keyword: String, folded: String, value: String, hex: String?)]
+    ) -> [(keyword: String, folded: String, value: String, hex: String?)] {
+        Dictionary(grouping: candidates, by: { $0.keyword })
+            .values
+            .compactMap { group in
+                let resolved = group.filter { $0.hex != nil }
+                guard let winner = resolved.min(by: { $0.value < $1.value }) else {
+                    return group.min(by: { $0.value < $1.value })
+                }
+                guard resolved.allSatisfy({ $0.hex == winner.hex }) else { return nil }
+                return winner
+            }
+    }
+
+    /// Resolves a rule value (palette name or `#RRGGBB`) to a hex, or `nil`
+    /// when it names nothing in the palette.
+    private func resolvedRuleHex(_ raw: String, palette: [String: String]) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let body = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
+        if body.count == 6, UInt64(body, radix: 16) != nil {
+            return "#" + body.uppercased()
+        }
+        return palette.first { name, _ in name.caseInsensitiveCompare(trimmed) == .orderedSame }?.value
     }
 
     @ViewBuilder

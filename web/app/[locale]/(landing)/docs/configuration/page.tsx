@@ -415,6 +415,23 @@ working-directory = ~/code`}</CodeBlock>
     }
   }
 }`}</CodeBlock>
+                <p>
+                  <code>workspaceColors.autoColorRules</code> colors workspaces by keyword, so
+                  related workspaces group visually without setting a color on each one. A
+                  workspace whose title contains a keyword takes that rule&apos;s color; a color
+                  set on the workspace itself (context menu or CLI) always wins. Matching ignores
+                  case and accents, and when several keywords match a title the longest one wins.
+                  Values are palette names or <code>#RRGGBB</code> hexes.
+                </p>
+                <CodeBlock lang="json">{`{
+  "workspaceColors": {
+    "autoColorRules": {
+      "deploy": "Red",
+      "docs": "#1565C0",
+      "infra": "Orange"
+    }
+  }
+}`}</CodeBlock>
               </>
             )}
           </section>

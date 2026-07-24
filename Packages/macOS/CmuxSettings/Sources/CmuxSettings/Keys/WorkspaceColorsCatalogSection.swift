@@ -26,6 +26,15 @@ public struct WorkspaceColorsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "workspaceTabColor.colors"
     )
 
+    /// Keyword → color rules that tint a workspace whose title contains the
+    /// keyword. Values are palette names or `#RRGGBB` hexes; a color set
+    /// explicitly on a workspace always wins over a rule.
+    public let autoColorRules = DefaultsKey<[String: String]>(
+        id: "workspaceColors.autoColorRules",
+        defaultValue: [:],
+        userDefaultsKey: "workspaceTabColor.autoColorRules"
+    )
+
     public let paletteOverrides = JSONKey<[String: String]>(
         id: "workspaceColors.paletteOverrides",
         defaultValue: [:]

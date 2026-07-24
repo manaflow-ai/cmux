@@ -1179,6 +1179,21 @@
             "$ref": "#/$defs/colorHex"
           }
         },
+        "autoColorRules": {
+          "type": "object",
+          "description": "Keyword to color rules. A workspace whose title contains the keyword takes that color unless a color was set on the workspace itself. Matching ignores case and accents; when several keywords match, the longest one wins. Values are palette names from workspaceColors.colors or #RRGGBB hexes.",
+          "default": {},
+          "examples": [
+            {
+              "deploy": "Red",
+              "docs": "#1565C0",
+              "infra": "Orange"
+            }
+          ],
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
         "paletteOverrides": {
           "type": "object",
           "description": "Legacy workspace color overrides for built-in palette names. Prefer workspaceColors.colors for new configs.",

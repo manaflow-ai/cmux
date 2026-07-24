@@ -167,6 +167,7 @@ extension CmuxSettingsFileStore {
                     "colors": Dictionary(
                         uniqueKeysWithValues: WorkspaceTabColorSettings.defaultPalette.map { ($0.name, $0.hex) }
                     ),
+                    "autoColorRules": [String: String](),
                 ],
             ],
             [
