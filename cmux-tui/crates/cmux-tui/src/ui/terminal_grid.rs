@@ -332,7 +332,7 @@ fn apply_cell(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ghostty_vt::{Callbacks, RenderState, Terminal};
+    use ghostty_vt::{Callbacks, RenderState, Screen, Terminal};
     use ratatui::Terminal as RatatuiTerminal;
     use ratatui::backend::TestBackend;
 
@@ -345,6 +345,7 @@ mod tests {
             frame: state.build_frame().unwrap(),
             scrollback_rows: 0,
             mouse_tracking: false,
+            active_screen: Screen::Primary,
             palette_colors: std::array::from_fn(|idx| state.palette_color(idx as u8)),
             palette_overridden: std::array::from_fn(|idx| state.palette_overridden(idx as u8)),
         }
@@ -402,6 +403,7 @@ mod tests {
             frame: state.build_frame().unwrap(),
             scrollback_rows: 0,
             mouse_tracking: false,
+            active_screen: Screen::Primary,
             palette_colors: [Rgb::default(); 256],
             palette_overridden: [false; 256],
         }

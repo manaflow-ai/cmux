@@ -2947,9 +2947,17 @@ enum MenuPointerRegion {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TerminalPointerDisposition {
+    PtyMouse,
+    HostScrollback,
+    AlternateArrowKeys,
+    Cmux,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PanePointerRegion {
     BrowserCell { column: u16, row: u16 },
-    TerminalCell { column: u16, row: u16, pty_mouse_owned: Option<bool> },
+    TerminalCell { column: u16, row: u16, disposition: Option<TerminalPointerDisposition> },
     ContentPadding,
     Chrome,
 }
@@ -3028,12 +3036,13 @@ enum PointerRouteIdentity {
 }
 
 impl PointerRouteIdentity {
-    fn terminal_mouse_ownership(&self) -> Option<(SurfaceId, Option<bool>)> {
+    fn terminal_pointer_disposition(
+        &self,
+    ) -> Option<(SurfaceId, Option<TerminalPointerDisposition>)> {
         match self {
-            Self::Pane {
-                pane,
-                region: PanePointerRegion::TerminalCell { pty_mouse_owned, .. },
-            } => Some((pane.surface, *pty_mouse_owned)),
+            Self::Pane { pane, region: PanePointerRegion::TerminalCell { disposition, .. } } => {
+                Some((pane.surface, *disposition))
+            }
             _ => None,
         }
     }
@@ -3050,7 +3059,7 @@ struct RenderedPointerFrame {
     workspace_rail: Option<Rect>,
     hits: Vec<(Rect, Hit)>,
     panes: Vec<RenderedPaneRoute>,
-    terminal_mouse_tracking: HashMap<SurfaceId, bool>,
+    terminal_pointer_states: HashMap<SurfaceId, (bool, Screen)>,
 }
 
 impl RenderedPointerFrame {
@@ -3167,11 +3176,11 @@ impl RenderedPointerFrame {
                         PanePointerRegion::TerminalCell {
                             column: x.saturating_sub(input.x),
                             row: y.saturating_sub(input.y),
-                            pty_mouse_owned: self
-                                .terminal_mouse_tracking
+                            disposition: self
+                                .terminal_pointer_states
                                 .get(&pane.surface)
                                 .copied()
-                                .map(|tracking| terminal_mouse_input_owned(mouse, tracking)),
+                                .map(|state| terminal_pointer_disposition(mouse, state)),
                         }
                     }
                     Some(SurfaceKind::Pty) | None => PanePointerRegion::ContentPadding,
@@ -3323,9 +3332,9 @@ pub struct App {
     /// surface. Pointer routing uses this snapshot so resize transitions do
     /// not target blank pane margins or wait on the PTY's terminal lock.
     pub rendered_terminal_sizes: HashMap<SurfaceId, (u16, u16)>,
-    /// PTY mouse-tracking state captured under the same terminal lock as
-    /// each rendered frame.
-    pub(crate) rendered_terminal_mouse_tracking: HashMap<SurfaceId, bool>,
+    /// PTY mouse-tracking and active-screen state captured under the same
+    /// terminal lock as each rendered frame.
+    pub(crate) rendered_terminal_pointer_states: HashMap<SurfaceId, (bool, Screen)>,
     desired_outer_cursor: OuterCursorSpec,
     applied_outer_cursor: Option<OuterCursorSpec>,
     pub graphics_writer: Option<GraphicsWriter>,
@@ -4351,7 +4360,7 @@ pub fn run_with_machine_updates(
         tab_locations: HashMap::new(),
         render_states: HashMap::new(),
         rendered_terminal_sizes: HashMap::new(),
-        rendered_terminal_mouse_tracking: HashMap::new(),
+        rendered_terminal_pointer_states: HashMap::new(),
         desired_outer_cursor: OuterCursorSpec::Reset,
         applied_outer_cursor: None,
         graphics_writer,
@@ -5076,7 +5085,7 @@ impl App {
         self.pane_focus_history = PaneFocusHistory::default();
         self.pane_focus_history.sync_membership(&self.tree);
         self.rendered_terminal_sizes.clear();
-        self.rendered_terminal_mouse_tracking.clear();
+        self.rendered_terminal_pointer_states.clear();
         self.rendered_terminal_bounds.clear();
         self.visible_size_surfaces.clear();
         self.pending_size_releases.clear();
@@ -5219,7 +5228,7 @@ impl App {
             workspace_rail,
             hits: self.hits.clone(),
             panes,
-            terminal_mouse_tracking: self.rendered_terminal_mouse_tracking.clone(),
+            terminal_pointer_states: self.rendered_terminal_pointer_states.clone(),
         };
     }
 
@@ -5337,7 +5346,7 @@ impl App {
                 (&input.event, &input.pointer)
                 && !pointer_has_capture
                 && (&self.rendered_pointer_frame.route_for_mouse(mouse) != expected
-                    || !self.replayed_pointer_matches_live_pty_ownership(mouse, expected))
+                    || !self.replayed_pointer_matches_live_terminal_disposition(mouse, expected))
             {
                 continue;
             }
@@ -5628,7 +5637,7 @@ impl App {
         }
         self.render_states.remove(&surface);
         self.rendered_terminal_sizes.remove(&surface);
-        self.rendered_terminal_mouse_tracking.remove(&surface);
+        self.rendered_terminal_pointer_states.remove(&surface);
         self.rendered_terminal_bounds.remove(&surface);
         self.visible_size_surfaces.remove(&surface);
         self.pending_size_releases.remove(&surface);
@@ -6935,21 +6944,21 @@ impl App {
         }
     }
 
-    fn replayed_pointer_matches_live_pty_ownership(
+    fn replayed_pointer_matches_live_terminal_disposition(
         &self,
         mouse: &MouseEvent,
         expected: &PointerRouteIdentity,
     ) -> bool {
-        let Some((surface, expected_owned)) = expected.terminal_mouse_ownership() else {
+        let Some((surface, expected_disposition)) = expected.terminal_pointer_disposition() else {
             return true;
         };
-        let Some(expected_owned) = expected_owned else {
+        let Some(expected_disposition) = expected_disposition else {
             return false;
         };
         self.session
             .surface(surface)
-            .and_then(|surface| surface.try_mouse_tracking())
-            .is_some_and(|tracking| terminal_mouse_input_owned(mouse, tracking) == expected_owned)
+            .and_then(|surface| surface.try_pointer_state())
+            .is_some_and(|state| terminal_pointer_disposition(mouse, state) == expected_disposition)
     }
 
     fn input_destination(&self, input: &Event) -> Option<SurfaceId> {
@@ -11323,6 +11332,26 @@ fn terminal_mouse_input_owned(mouse: &MouseEvent, tracking: bool) -> bool {
         )
 }
 
+fn terminal_pointer_disposition(
+    mouse: &MouseEvent,
+    (mouse_tracking, active_screen): (bool, Screen),
+) -> TerminalPointerDisposition {
+    if terminal_mouse_input_owned(mouse, mouse_tracking) {
+        return TerminalPointerDisposition::PtyMouse;
+    }
+    match (mouse.kind, mouse_tracking, active_screen) {
+        (MouseEventKind::ScrollUp | MouseEventKind::ScrollDown, false, Screen::Alternate) => {
+            TerminalPointerDisposition::AlternateArrowKeys
+        }
+        (
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown,
+            _,
+            Screen::Primary | Screen::Alternate,
+        ) => TerminalPointerDisposition::HostScrollback,
+        _ => TerminalPointerDisposition::Cmux,
+    }
+}
+
 fn outer_cursor_escape_if_changed(
     applied: Option<OuterCursorSpec>,
     desired: OuterCursorSpec,
@@ -11490,13 +11519,14 @@ mod tests {
         PointerRoutePhase, Prompt, PromptTarget, PtyFailureIngress, PtyMousePressResult, RailKind,
         RenderAction, RenderedPointerFrame, Selection, SessionCompletion, SessionCompletionAction,
         SessionEventSender, SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState,
-        SurfaceResizeDecision, SurfaceResizeOwnership, WorkspaceRailSelection,
-        browser_content_size_for_rect, browser_hover_forward_allowed, canonical_terminal_content,
-        clamp_split_ratio_for_tab_bars, client_menu_item, forward_mux_event, forward_mux_events,
-        outer_cursor_escape, outer_cursor_escape_if_changed, pane_context_menu_groups,
-        pane_parts_for_rect, prepare_ordered_session, preserve_client_view, rail_drag_width,
-        record_surface_resize_dispatch_result, sidebar_layout_for,
-        sidebar_plugin_status_settles_passive_claim, start_ordered_session,
+        SurfaceResizeDecision, SurfaceResizeOwnership, TerminalPointerDisposition,
+        WorkspaceRailSelection, browser_content_size_for_rect, browser_hover_forward_allowed,
+        canonical_terminal_content, clamp_split_ratio_for_tab_bars, client_menu_item,
+        forward_mux_event, forward_mux_events, outer_cursor_escape, outer_cursor_escape_if_changed,
+        pane_context_menu_groups, pane_parts_for_rect, prepare_ordered_session,
+        preserve_client_view, rail_drag_width, record_surface_resize_dispatch_result,
+        sidebar_layout_for, sidebar_plugin_status_settles_passive_claim, start_ordered_session,
+        terminal_pointer_disposition,
     };
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -12609,6 +12639,36 @@ mod tests {
             canonical_terminal_content(content, Some((40, 30))),
             content,
             "a stale larger frame must never claim cells outside its pane"
+        );
+    }
+
+    #[test]
+    fn terminal_pointer_disposition_matches_wheel_fallbacks() {
+        let wheel = MouseEvent {
+            kind: MouseEventKind::ScrollUp,
+            column: 4,
+            row: 2,
+            modifiers: KeyModifiers::NONE,
+        };
+        assert_eq!(
+            terminal_pointer_disposition(&wheel, (false, Screen::Primary)),
+            TerminalPointerDisposition::HostScrollback
+        );
+        assert_eq!(
+            terminal_pointer_disposition(&wheel, (false, Screen::Alternate)),
+            TerminalPointerDisposition::AlternateArrowKeys
+        );
+        assert_eq!(
+            terminal_pointer_disposition(&wheel, (true, Screen::Alternate)),
+            TerminalPointerDisposition::PtyMouse
+        );
+        assert_eq!(
+            terminal_pointer_disposition(
+                &MouseEvent { modifiers: KeyModifiers::SHIFT, ..wheel },
+                (true, Screen::Alternate),
+            ),
+            TerminalPointerDisposition::HostScrollback,
+            "Shift bypasses mouse reporting, but tracking still disables alternate-screen arrows"
         );
     }
 
@@ -16226,6 +16286,18 @@ mod tests {
         let mut app = test_app(Session::Local(mux.clone()));
         let (dispatcher, blocked) = BrowserInputDispatcher::blocked(1);
         app.browser_input = dispatcher;
+        assert!(app.browser_input.enqueue(BrowserInputEvent {
+            surface_id: surface.id,
+            surface: app.session.surface(surface.id).unwrap(),
+            kind: BrowserInputKind::Mouse {
+                event_type: "mousePressed",
+                x: 3.0,
+                y: 2.0,
+                button: Some("left"),
+                click_count: Some(1),
+            },
+        }));
+        assert_eq!(blocked.drain_mouse_lifetimes(), vec![("mousePressed", false)]);
         app.drag = Some(Drag::Browser {
             surface: surface.id,
             content: Rect { x: 2, y: 3, width: 20, height: 8 },
@@ -18961,6 +19033,18 @@ mod tests {
             surface_id: browser.id,
             surface: app.session.surface(browser.id).unwrap(),
             kind: BrowserInputKind::Mouse {
+                event_type: "mousePressed",
+                x: 3.0,
+                y: 2.0,
+                button: Some("left"),
+                click_count: Some(1),
+            },
+        }));
+        assert_eq!(blocked.drain_mouse_lifetimes(), vec![("mousePressed", false)]);
+        assert!(app.browser_input.enqueue(BrowserInputEvent {
+            surface_id: browser.id,
+            surface: app.session.surface(browser.id).unwrap(),
+            kind: BrowserInputKind::Mouse {
                 event_type: "mouseMoved",
                 x: 1.0,
                 y: 1.0,
@@ -19259,7 +19343,7 @@ mod tests {
             tab_locations: HashMap::new(),
             render_states: HashMap::<u64, RenderState>::new(),
             rendered_terminal_sizes: HashMap::new(),
-            rendered_terminal_mouse_tracking: HashMap::new(),
+            rendered_terminal_pointer_states: HashMap::new(),
             desired_outer_cursor: OuterCursorSpec::Reset,
             applied_outer_cursor: None,
             graphics_writer: None,

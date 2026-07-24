@@ -19,7 +19,7 @@ use cmux_tui_core::{
 };
 use cmux_tui_machine_protocol::BearerToken;
 use ghostty_vt::{
-    Callbacks, CursorShape, MouseEncoders, MouseInput, RenderState, Terminal,
+    Callbacks, CursorShape, MouseEncoders, MouseInput, RenderState, Screen, Terminal,
     TerminalColorOverrides, parse_color,
 };
 use serde_json::{Value, json};
@@ -291,11 +291,12 @@ impl RemoteSurface {
         self.mouse_encoders.lock().unwrap().reset_motion_dedupe();
     }
 
-    pub(super) fn try_mouse_tracking(&self) -> Option<bool> {
+    pub(super) fn try_pointer_state(&self) -> Option<(bool, Screen)> {
         match self.term.try_lock() {
-            Ok(term) => Some(term.mouse_tracking()),
+            Ok(term) => Some((term.mouse_tracking(), term.active_screen())),
             Err(std::sync::TryLockError::Poisoned(error)) => {
-                Some(error.into_inner().mouse_tracking())
+                let term = error.into_inner();
+                Some((term.mouse_tracking(), term.active_screen()))
             }
             Err(std::sync::TryLockError::WouldBlock) => None,
         }

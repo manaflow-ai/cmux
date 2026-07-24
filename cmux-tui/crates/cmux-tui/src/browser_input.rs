@@ -104,6 +104,9 @@ struct BrowserEnqueueOrder {
     next_sequence: u64,
     /// Successfully queued non-resize input separates resize runs.
     barrier_epoch: u64,
+    /// Browser presses accepted into the ordinary lane and still awaiting the
+    /// matching surface/button release.
+    accepted_pointer_presses: HashSet<(SurfaceId, &'static str)>,
 }
 
 #[derive(Clone, Copy)]
@@ -148,6 +151,24 @@ impl BrowserInputKind {
 
     fn closes_pointer_interaction(&self) -> bool {
         matches!(self, BrowserInputKind::Mouse { event_type: "mouseReleased", .. })
+    }
+
+    fn pointer_press_button(&self) -> Option<&'static str> {
+        match self {
+            BrowserInputKind::Mouse {
+                event_type: "mousePressed", button: Some(button), ..
+            } => Some(*button),
+            _ => None,
+        }
+    }
+
+    fn pointer_release_button(&self) -> Option<&'static str> {
+        match self {
+            BrowserInputKind::Mouse {
+                event_type: "mouseReleased", button: Some(button), ..
+            } => Some(*button),
+            _ => None,
+        }
     }
 
     fn resize_dimensions(&self) -> Option<(u16, u16)> {
@@ -268,10 +289,21 @@ impl BrowserInputDispatcher {
     pub fn enqueue(&self, event: BrowserInputEvent) -> bool {
         let is_resize = event.kind.is_resize();
         let is_release = event.kind.closes_pointer_interaction();
+        let press = event.kind.pointer_press_button().map(|button| (event.surface_id, button));
+        let release = event.kind.pointer_release_button().map(|button| (event.surface_id, button));
         if let Some(desired) = event.kind.resize_dimensions()
             && self.resize_failed(event.surface_id, desired)
         {
             return true;
+        }
+        let mut order = self.order.lock().unwrap();
+        if is_release {
+            let Some(release) = release else {
+                return false;
+            };
+            if !order.accepted_pointer_presses.remove(&release) {
+                return false;
+            }
         }
         let lifetime = if event.kind.closes_pointer_interaction() {
             // A release terminates state established by an earlier press. It
@@ -286,12 +318,14 @@ impl BrowserInputDispatcher {
                 .or_insert_with(|| Arc::new(AtomicBool::new(false)))
                 .clone()
         };
-        let mut order = self.order.lock().unwrap();
         let sequence = order.next_sequence;
         order.next_sequence = order.next_sequence.saturating_add(1);
         let event = SequencedBrowserInputEvent { sequence, event, lifetime };
         match self.tx.try_send(event) {
             Ok(()) if !is_resize => {
+                if let Some(press) = press {
+                    order.accepted_pointer_presses.insert(press);
+                }
                 order.barrier_epoch = order.barrier_epoch.saturating_add(1);
                 true
             }
@@ -353,6 +387,11 @@ impl BrowserInputDispatcher {
     pub fn forget_surface(&self, surface_id: SurfaceId) {
         // Surface-exit handling removes the ID from app topology before this
         // call, so no later app input can create a fresh lifetime for it.
+        self.order
+            .lock()
+            .unwrap()
+            .accepted_pointer_presses
+            .retain(|(surface, _)| *surface != surface_id);
         if let Some(lifetime) = self.surface_lifetimes.lock().unwrap().remove(&surface_id) {
             lifetime.store(true, Ordering::Release);
         }
@@ -705,6 +744,25 @@ mod tests {
             vec![("mousePressed", false), ("mouseReleased", false)],
             "unmatched releases must leave no fallback backlog"
         );
+    }
+
+    #[test]
+    fn release_requires_and_consumes_an_accepted_press() {
+        let (dispatcher, blocked) = BrowserInputDispatcher::blocked(1);
+        assert!(
+            !dispatcher.enqueue(release_event(7)),
+            "an unmatched release must not enter an available ordinary lane"
+        );
+        assert!(blocked.drain_mouse_lifetimes().is_empty());
+
+        assert!(dispatcher.enqueue(click_event(7)));
+        assert_eq!(blocked.drain_mouse_lifetimes(), vec![("mousePressed", false)]);
+        assert!(dispatcher.enqueue(release_event(7)));
+        assert!(
+            !dispatcher.enqueue(release_event(7)),
+            "one accepted release must consume pointer ownership exactly once"
+        );
+        assert_eq!(blocked.drain_mouse_lifetimes(), vec![("mouseReleased", false)]);
     }
 
     // Regression: a discrete control command that fails inside the worker

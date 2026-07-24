@@ -18,8 +18,8 @@ use std::sync::{Arc, Mutex, TryLockError, Weak};
 use std::time::{Duration, Instant};
 
 use ghostty_vt::{
-    Callbacks, CursorShape, MouseEncoders, MouseInput, RenderFrame, RenderState, Rgb, Terminal,
-    TerminalColorOverrides,
+    Callbacks, CursorShape, MouseEncoders, MouseInput, RenderFrame, RenderState, Rgb, Screen,
+    Terminal, TerminalColorOverrides,
 };
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
@@ -468,6 +468,7 @@ pub struct SurfaceRenderFrame {
     pub frame: RenderFrame,
     pub scrollback_rows: u32,
     pub mouse_tracking: bool,
+    pub active_screen: Screen,
     pub palette_colors: [Rgb; 256],
     pub palette_overridden: [bool; 256],
 }
@@ -1803,13 +1804,16 @@ impl Surface {
         pty.render.lock().unwrap().latest.clone().ok_or(ghostty_vt::Error::NoValue)
     }
 
-    /// Read current mouse-tracking state without waiting behind terminal parsing.
+    /// Read current pointer-routing state without waiting behind terminal parsing.
     /// A contended terminal is unknown to pointer replay and must fail closed.
-    pub fn try_mouse_tracking(&self) -> Option<bool> {
+    pub fn try_pointer_state(&self) -> Option<(bool, Screen)> {
         let pty = self.as_pty()?;
         match pty.term.try_lock() {
-            Ok(term) => Some(term.mouse_tracking()),
-            Err(TryLockError::Poisoned(error)) => Some(error.into_inner().mouse_tracking()),
+            Ok(term) => Some((term.mouse_tracking(), term.active_screen())),
+            Err(TryLockError::Poisoned(error)) => {
+                let term = error.into_inner();
+                Some((term.mouse_tracking(), term.active_screen()))
+            }
             Err(TryLockError::WouldBlock) => None,
         }
     }
@@ -2365,6 +2369,7 @@ impl PtySurface {
                     frame: render.state.build_frame()?,
                     scrollback_rows: term.history_rows(),
                     mouse_tracking: term.mouse_tracking(),
+                    active_screen: term.active_screen(),
                     palette_colors,
                     palette_overridden,
                 });
