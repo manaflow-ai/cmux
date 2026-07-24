@@ -68,8 +68,9 @@ extension MobileShellComposite {
             now: now,
             force: force
         )
-        armWorkspaceChangesSummaryTrailingRefresh(
-            freshUntilByWorkspaceID: plan.freshUntilByWorkspaceID
+        armWorkspaceChangesSummaryTrailingRefreshIfActive(
+            freshUntilByWorkspaceID: plan.freshUntilByWorkspaceID,
+            now: now
         )
 
         for batch in plan.batches {
@@ -120,12 +121,13 @@ extension MobileShellComposite {
                     workspaceChangesSummaryTrailingExpiryByWorkspaceID
                         .removeValue(forKey: workspaceID)
                 }
-                armWorkspaceChangesSummaryTrailingRefresh(
+                armWorkspaceChangesSummaryTrailingRefreshIfActive(
                     freshUntilByWorkspaceID: workspaceChangesSummaryFetchPolicy
                         .freshUntilAfterSuccessfulFetch(
                             workspaceIDs: retainedBatch,
                             fetchedAt: batchFetchedAt
-                        )
+                        ),
+                    now: batchFetchedAt
                 )
             } catch {
                 MobileDebugLog.anchormux("changes.summary error \(error)")
@@ -204,11 +206,15 @@ extension MobileShellComposite {
 
     func scheduleWorkspaceChangesSummaryRefresh(
         workspaceIDs explicitWorkspaceIDs: [String]? = nil,
-        force: Bool = false
+        force: Bool = false,
+        isTrailingPass: Bool = false
     ) {
         guard workspaceChangesCapable,
               connectionState == .connected,
               remoteClient != nil else { return }
+        if !isTrailingPass {
+            workspaceChangesSummaryLastEventAt = runtime?.now() ?? Date()
+        }
         let requestedScope: WorkspaceChangesSummaryRefreshScope
         if let explicitWorkspaceIDs {
             let retainedWorkspaceIDs = WorkspaceChangesSummaryWorkspaceSet(
@@ -319,6 +325,24 @@ extension MobileShellComposite {
         workspaceChangesSummaryFetchTaskID = nil
     }
 
+    /// Arms the trailing expiry only while workspace events are recent, so a
+    /// trailing pass on an idle connection cannot self-perpetuate a
+    /// 15-second git polling loop on the Mac. The next real event resumes
+    /// refreshing immediately.
+    private func armWorkspaceChangesSummaryTrailingRefreshIfActive(
+        freshUntilByWorkspaceID: [String: Date],
+        now: Date
+    ) {
+        guard let lastEventAt = workspaceChangesSummaryLastEventAt,
+              now.timeIntervalSince(lastEventAt)
+                <= workspaceChangesSummaryFetchPolicy.reuseWindow else {
+            return
+        }
+        armWorkspaceChangesSummaryTrailingRefresh(
+            freshUntilByWorkspaceID: freshUntilByWorkspaceID
+        )
+    }
+
     private func armWorkspaceChangesSummaryTrailingRefresh(
         freshUntilByWorkspaceID: [String: Date]
     ) {
@@ -389,7 +413,8 @@ extension MobileShellComposite {
         guard !dueWorkspaceIDs.isEmpty else { return }
         scheduleWorkspaceChangesSummaryRefresh(
             workspaceIDs: dueWorkspaceIDs,
-            force: false
+            force: false,
+            isTrailingPass: true
         )
     }
 }

@@ -21,6 +21,15 @@ public struct WorkspaceChangesService: Sendable {
     let pathValidator = WorkspaceChangesPathValidator()
     let contentReader = WorkspaceChangesContentReader()
     let fingerprintReader: any WorkspaceChangesContentFingerprintReading
+    let loadedSnapshotCache: WorkspaceChangesLoadedSnapshotCache
+    /// Git subprocess spawn/poll/reap loops block their thread for up to the
+    /// wall deadline; they run on this GCD queue so the Swift concurrency
+    /// cooperative pool is never occupied by blocking waits.
+    let blockingGitQueue = DispatchQueue(
+        label: "com.cmux.workspace-changes.git",
+        qos: .utility,
+        attributes: .concurrent
+    )
 
     /// Creates a production workspace-changes service.
     public init() {
@@ -31,6 +40,7 @@ public struct WorkspaceChangesService: Sendable {
         authorizedPathCache = WorkspaceChangesAuthorizedPathCache()
         baseContentCache = WorkspaceChangesBaseContentCache()
         fingerprintReader = WorkspaceChangesContentReader()
+        loadedSnapshotCache = WorkspaceChangesLoadedSnapshotCache()
     }
 
     init(
@@ -47,6 +57,47 @@ public struct WorkspaceChangesService: Sendable {
         self.authorizedPathCache = authorizedPathCache
         self.baseContentCache = baseContentCache
         self.fingerprintReader = fingerprintReader
+        loadedSnapshotCache = WorkspaceChangesLoadedSnapshotCache()
+    }
+
+    /// Runs blocking git work on the dedicated GCD queue so the cooperative
+    /// executor pool is never pinned by subprocess waits.
+    nonisolated func offCooperativePool<T: Sendable>(
+        _ work: @escaping @Sendable () throws -> T
+    ) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            blockingGitQueue.async {
+                continuation.resume(with: Result { try work() })
+            }
+        }
+    }
+
+    /// Returns the scope and snapshot for a directory, serving the 15-second
+    /// loaded-snapshot cache first so per-file requests reuse one repository
+    /// walk. Cache misses load off the cooperative pool.
+    nonisolated func loadedScopeAndSnapshot(
+        forDirectory directory: String,
+        force: Bool = false
+    ) async throws -> (scope: WorkspaceChangesScope, snapshot: WorkspaceChangesSnapshot) {
+        if !force,
+           let cached = await loadedSnapshotCache.loaded(forDirectory: directory) {
+            return cached
+        }
+        let loader = snapshotLoader
+        let loaded: (scope: WorkspaceChangesScope, snapshot: WorkspaceChangesSnapshot) =
+            try await offCooperativePool {
+                guard let scope = try loader.resolveScope(forDirectory: directory) else {
+                    throw WorkspaceChangesServiceError.notARepository
+                }
+                let snapshot = try loader.loadSnapshot(scope: scope)
+                return (scope, snapshot)
+            }
+        await loadedSnapshotCache.store(
+            scope: loaded.scope,
+            snapshot: loaded.snapshot,
+            forDirectory: directory
+        )
+        return loaded
     }
 
     /// Reads aggregate changes for the repository enclosing `directory`.
@@ -63,16 +114,18 @@ public struct WorkspaceChangesService: Sendable {
         forDirectory directory: String,
         force: Bool = false
     ) async -> WorkspaceChangesSummary {
-        guard let scope = try? snapshotLoader.resolveScope(forDirectory: directory) else {
+        guard let loaded = try? await loadedScopeAndSnapshot(
+            forDirectory: directory,
+            force: force
+        ) else {
             return .notARepository
         }
+        let scope = loaded.scope
         if !force,
            let cached = await summaryCache.summary(forRepoRoot: scope.repoRoot) {
             return cached
         }
-        guard let snapshot = try? snapshotLoader.loadSnapshot(scope: scope) else {
-            return .notARepository
-        }
+        let snapshot = loaded.snapshot
         let summary = WorkspaceChangesSummary(
             isRepository: true,
             repoRoot: scope.repoRoot,
@@ -100,11 +153,12 @@ public struct WorkspaceChangesService: Sendable {
     public nonisolated func changedFiles(
         forDirectory directory: String
     ) async throws -> WorkspaceChangedFiles {
-        guard let scope = try snapshotLoader.resolveScope(forDirectory: directory) else {
+        do {
+            let loaded = try await loadedScopeAndSnapshot(forDirectory: directory)
+            return changedFilesValue(from: loaded.snapshot)
+        } catch WorkspaceChangesServiceError.notARepository {
             return .notARepository
         }
-        let snapshot = try snapshotLoader.loadSnapshot(scope: scope)
-        return changedFilesValue(from: snapshot)
     }
 
     /// Reads artifact-compatible metadata for an authorized changed file revision.
@@ -218,8 +272,17 @@ public struct WorkspaceChangesService: Sendable {
            ) {
             return cached
         }
-        guard let scope = try snapshotLoader.resolveScope(forDirectory: directory) else {
-            throw WorkspaceChangesServiceError.notARepository
+        let scope: WorkspaceChangesScope
+        if let cachedLoaded = await loadedSnapshotCache.loaded(forDirectory: directory) {
+            scope = cachedLoaded.scope
+        } else {
+            let loader = snapshotLoader
+            guard let resolved = try await offCooperativePool({
+                try loader.resolveScope(forDirectory: directory)
+            }) else {
+                throw WorkspaceChangesServiceError.notARepository
+            }
+            scope = resolved
         }
         let normalizedPath = try pathValidator.validatedPath(path, repoRoot: scope.repoRoot)
         let authorization = try await authorizationSnapshot(scope: scope)
@@ -285,7 +348,11 @@ public struct WorkspaceChangesService: Sendable {
         ) {
             return cached
         }
-        let snapshot = try snapshotLoader.loadSnapshot(scope: scope)
+        let loader = snapshotLoader
+        let capturedScope = scope
+        let snapshot = try await offCooperativePool {
+            try loader.loadSnapshot(scope: capturedScope)
+        }
         let currentPaths = Set(snapshot.files.map(\.path))
         let basePaths = Set(snapshot.files.flatMap { file in
             if let oldPath = file.oldPath {

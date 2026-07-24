@@ -12,6 +12,7 @@ extension MobileShellComposite {
         workspaceChangesSummaryTrailingDeadline = nil
         workspaceChangesSummaryTrailingExpiryByWorkspaceID = [:]
         workspaceChangesSummaryRefreshSchedulePolicy.reset()
+        workspaceChangesSummaryLastEventAt = nil
         workspaceChangesSummaryFetchedAtByWorkspaceID = [:]
         setWorkspaceChangeChipsByWorkspaceID([:])
     }

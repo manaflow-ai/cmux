@@ -25,11 +25,10 @@ extension WorkspaceChangesService {
         path: String,
         maxLines: Int? = nil
     ) async throws -> WorkspaceFileDiff {
-        guard let scope = try snapshotLoader.resolveScope(forDirectory: directory) else {
-            throw WorkspaceChangesServiceError.notARepository
-        }
+        let loaded = try await loadedScopeAndSnapshot(forDirectory: directory)
+        let scope = loaded.scope
         let normalizedPath = try pathValidator.validatedPath(path, repoRoot: scope.repoRoot)
-        let snapshot = try snapshotLoader.loadSnapshot(scope: scope)
+        let snapshot = loaded.snapshot
         guard let file = snapshot.files.first(where: { $0.path == normalizedPath }) else {
             throw WorkspaceChangesServiceError.fileNotChanged
         }
@@ -67,11 +66,13 @@ extension WorkspaceChangesService {
                 repoRoot: scope.repoRoot,
                 path: normalizedPath
             )
-            guard let result = runFileDiff(
-                arguments,
-                repoRoot: scope.repoRoot,
-                maximumOutputByteCount: truncator.maximumInputBytes
-            ), acceptedExitCodes.contains(result.exitCode)
+            guard let result = try? await offCooperativePool({ [runner] in
+                try runner.run(
+                    arguments: arguments,
+                    in: URL(fileURLWithPath: scope.repoRoot, isDirectory: true),
+                    maximumOutputByteCount: truncator.maximumInputBytes
+                )
+            }), acceptedExitCodes.contains(result.exitCode)
                 || result.standardOutputWasTruncated else {
                 throw WorkspaceChangesServiceError.gitFailure
             }
@@ -109,15 +110,4 @@ extension WorkspaceChangesService {
         )
     }
 
-    private nonisolated func runFileDiff(
-        _ arguments: [String],
-        repoRoot: String,
-        maximumOutputByteCount: Int
-    ) -> WorkspaceChangesGitResult? {
-        try? runner.run(
-            arguments: arguments,
-            in: URL(fileURLWithPath: repoRoot, isDirectory: true),
-            maximumOutputByteCount: maximumOutputByteCount
-        )
-    }
 }

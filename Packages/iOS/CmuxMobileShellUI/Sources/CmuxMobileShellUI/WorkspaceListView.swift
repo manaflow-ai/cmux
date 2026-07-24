@@ -691,7 +691,9 @@ struct WorkspaceListView: View {
         WorkspaceNavigationRow(
             workspace: workspace,
             changesChip: changesChip,
-            onOpenChanges: store == nil ? nil : {
+            // Gate like the UIKit table path: chip-less rows keep .combine
+            // VoiceOver behavior; only rows with a tappable chip contain.
+            onOpenChanges: store == nil || (changesChip?.filesChanged ?? 0) == 0 ? nil : {
                 openWorkspaceChanges(workspace)
             },
             connectionStatus: workspace.macConnectionStatus ?? connectionStatus,
