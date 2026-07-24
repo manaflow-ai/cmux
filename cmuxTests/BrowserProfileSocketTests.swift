@@ -14,15 +14,7 @@ struct BrowserProfileSocketTests {
         let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled(defaults: defaults)
         let store = BrowserProfileStore.shared
         let previousLastUsedProfileID = store.effectiveLastUsedProfileID
-        let suffix = UUID().uuidString
-        let target = try #require(store.createProfile(named: "Issue 2720 Target \(suffix)"))
-        let fallback = try #require(store.createProfile(named: "Issue 2720 Fallback \(suffix)"))
-        let ambiguousName = "Issue 2720 Shared \(suffix)"
-        let ambiguousFirst = try #require(store.createProfile(named: ambiguousName))
-        let ambiguousSecond = try #require(store.createProfile(named: ambiguousName.lowercased()))
-        let createdProfileIDs = [target.id, fallback.id, ambiguousFirst.id, ambiguousSecond.id]
-
-        BrowserAvailabilitySettings.setDisabled(false, defaults: defaults)
+        var createdProfileIDs: [UUID] = []
         defer {
             TerminalController.shared.setActiveTabManager(nil)
             for profileID in createdProfileIDs {
@@ -32,6 +24,18 @@ struct BrowserProfileSocketTests {
             BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled, defaults: defaults)
         }
 
+        let suffix = UUID().uuidString
+        let target = try #require(store.createProfile(named: "Issue 2720 Target \(suffix)"))
+        createdProfileIDs.append(target.id)
+        let fallback = try #require(store.createProfile(named: "Issue 2720 Fallback \(suffix)"))
+        createdProfileIDs.append(fallback.id)
+        let ambiguousName = "Issue 2720 Shared \(suffix)"
+        let ambiguousFirst = try #require(store.createProfile(named: ambiguousName))
+        createdProfileIDs.append(ambiguousFirst.id)
+        let ambiguousSecond = try #require(store.createProfile(named: ambiguousName.lowercased()))
+        createdProfileIDs.append(ambiguousSecond.id)
+
+        BrowserAvailabilitySettings.setDisabled(false, defaults: defaults)
         store.noteUsed(fallback.id)
         let openManager = TabManager()
         defer { openManager.tabs.forEach { $0.teardownAllPanels() } }

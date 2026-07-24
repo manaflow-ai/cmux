@@ -259,7 +259,11 @@ struct BrowserProfileRepositoryTests {
         let first = repo.createProfile(named: "Shared")!
         let second = repo.createProfile(named: "shared")!
 
-        #expect(repo.resolveProfileSelection("SHARED") == .ambiguous([first, second]))
+        guard case .ambiguous(let candidates) = repo.resolveProfileSelection("SHARED") else {
+            Issue.record("Expected ambiguous profile selection")
+            return
+        }
+        #expect(Set(candidates.map(\.id)) == [first.id, second.id])
     }
 
     @Test func profileSelectionReportsUnknownSelector() {
