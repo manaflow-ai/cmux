@@ -103,23 +103,24 @@ struct WorkspaceDetailView: View {
     var body: some View {
         #if os(iOS)
         if let layout = workspace.layout {
-            paneMapRoot(layout: layout)
-                .accessibilityHidden(paneZoomPresentation.isTerminalPresented)
-                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
-                .navigationTitle(systemNavigationTitle)
-                .mobileTerminalNavigationChrome(theme: store.activeTerminalTheme)
-                .toolbar { workspaceDetailToolbar }
-                .navigationDestination(isPresented: terminalZoomPresentationBinding) {
-                    terminalWorkspaceEndpoint
-                        .navigationBarBackButtonHidden(true)
+            PaneZoomNavigationStack(presentation: $paneZoomPresentation) {
+                paneMapRoot(layout: layout)
+                    .accessibilityHidden(paneZoomPresentation.isTerminalPresented)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
+                    .navigationTitle(systemNavigationTitle)
+                    .mobileTerminalNavigationChrome(theme: store.activeTerminalTheme)
+                    .toolbar { workspaceDetailToolbar }
+                    .navigationBarBackButtonHidden(true)
+            } terminal: {
+                terminalWorkspaceEndpoint
+                    .navigationBarBackButtonHidden(true)
                     .navigationTransition(
                         .zoom(
                             sourceID: paneZoomSourceSurfaceID,
                             in: paneZoomNamespace
                         )
                     )
-                }
-                .navigationBarBackButtonHidden(true)
+            }
         } else {
             terminalWorkspaceEndpoint
         }
@@ -223,17 +224,6 @@ struct WorkspaceDetailView: View {
             selectTerminal: presentTerminalFromPaneMap,
             reorderPanes: reorderPanesFromMap,
             refreshingChanged: { isPaneMapRefreshing = $0 }
-        )
-    }
-
-    private var terminalZoomPresentationBinding: Binding<Bool> {
-        Binding(
-            get: { paneZoomPresentation.isTerminalPresented },
-            set: { isPresented in
-                paneZoomPresentation.presentationDidChange(
-                    isTerminalPresented: isPresented
-                )
-            }
         )
     }
 

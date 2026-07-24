@@ -149,38 +149,39 @@ struct PanesTabsPreviewHost: View {
 
     var body: some View {
         if let layout = fixtureLayout {
-            PaneMapOverlay(
-                value: PaneMapValue(
-                    workspaceName: workspace.name,
-                    layout: layout,
-                    phoneSelectedSurfaceID: selectedSurfaceID,
-                    agentStateKindsBySurfaceID: agentStateKindsBySurfaceID
-                ),
-                terminalTheme: terminalTheme,
-                zoomNamespace: paneZoomNamespace,
-                isVisible: !paneZoomPresentation.isTerminalPresented,
-                allowsReordering: true,
-                refreshTrigger: paneMapRefreshTrigger,
-                fetchPreviews: Self.fetchFixturePreviews,
-                selectTerminal: presentTerminalFromPaneMap,
-                reorderPanes: reorderFixturePanes,
-                refreshingChanged: { isPaneMapRefreshing = $0 }
-            )
-            .accessibilityHidden(paneZoomPresentation.isTerminalPresented)
-            .navigationTitle(workspace.name)
-            .mobileTerminalNavigationChrome(theme: terminalTheme)
-            .toolbar { sharedPaneToolbar }
-            .navigationDestination(isPresented: terminalPresentationBinding) {
+            PaneZoomNavigationStack(presentation: $paneZoomPresentation) {
+                PaneMapOverlay(
+                    value: PaneMapValue(
+                        workspaceName: workspace.name,
+                        layout: layout,
+                        phoneSelectedSurfaceID: selectedSurfaceID,
+                        agentStateKindsBySurfaceID: agentStateKindsBySurfaceID
+                    ),
+                    terminalTheme: terminalTheme,
+                    zoomNamespace: paneZoomNamespace,
+                    isVisible: !paneZoomPresentation.isTerminalPresented,
+                    allowsReordering: true,
+                    refreshTrigger: paneMapRefreshTrigger,
+                    fetchPreviews: Self.fetchFixturePreviews,
+                    selectTerminal: presentTerminalFromPaneMap,
+                    reorderPanes: reorderFixturePanes,
+                    refreshingChanged: { isPaneMapRefreshing = $0 }
+                )
+                .accessibilityHidden(paneZoomPresentation.isTerminalPresented)
+                .navigationTitle(workspace.name)
+                .mobileTerminalNavigationChrome(theme: terminalTheme)
+                .toolbar { sharedPaneToolbar }
+                .navigationBarBackButtonHidden(true)
+            } terminal: {
                 terminalPreviewEndpoint
                     .navigationBarBackButtonHidden(true)
-                .navigationTransition(
-                    .zoom(
-                        sourceID: paneZoomSourceSurfaceID,
-                        in: paneZoomNamespace
+                    .navigationTransition(
+                        .zoom(
+                            sourceID: paneZoomSourceSurfaceID,
+                            in: paneZoomNamespace
+                        )
                     )
-                )
             }
-            .navigationBarBackButtonHidden(true)
         } else {
             terminalPreviewEndpoint
         }
@@ -232,17 +233,6 @@ struct PanesTabsPreviewHost: View {
 
     private func returnToTerminalFromPaneMap() {
         paneZoomPresentation.presentTerminal(surfaceID: paneZoomSourceSurfaceID)
-    }
-
-    private var terminalPresentationBinding: Binding<Bool> {
-        Binding(
-            get: { paneZoomPresentation.isTerminalPresented },
-            set: { isPresented in
-                paneZoomPresentation.presentationDidChange(
-                    isTerminalPresented: isPresented
-                )
-            }
-        )
     }
 
     private var paneZoomSourceSurfaceID: String {
