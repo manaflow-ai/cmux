@@ -712,35 +712,42 @@ pub fn probe_kitty_graphics() -> bool {
     let _ = write!(stdout, "\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c");
     let _ = stdout.flush();
     let bytes = read_stdin_for(Duration::from_millis(180));
-    let ok = find_bytes(&bytes, b"_Gi=31;OK");
-    let da = find_da1(&bytes);
-    match (ok, da) {
-        (Some(ok), Some(da)) => ok < da,
-        (Some(_), None) => true,
-        _ => false,
-    }
+    kitty_probe_succeeded(&bytes)
 }
 
-pub fn detect_cell_pixels(query_fallback: bool) -> Option<(u16, u16)> {
-    if let Some(cell) = ioctl_cell_pixels() {
-        return Some(cell);
+const FALLBACK_CELL_PIXELS: (u16, u16) = (8, 16);
+
+/// Resolve host cell metrics without treating an absent resize-time ioctl
+/// value as a new measurement. Some outer terminals zero `ws_xpixel` and
+/// `ws_ypixel` after `TIOCSWINSZ`; in that case the last real measurement is
+/// more accurate than the synthetic startup fallback.
+pub fn detect_cell_pixels(known: Option<(u16, u16)>, query_fallback: bool) -> (u16, u16) {
+    let detected = ioctl_cell_pixels().or_else(|| query_fallback.then(query_cell_pixels).flatten());
+    resolve_cell_pixels(known, detected)
+}
+
+fn resolve_cell_pixels(known: Option<(u16, u16)>, detected: Option<(u16, u16)>) -> (u16, u16) {
+    detected.or(known).unwrap_or(FALLBACK_CELL_PIXELS)
+}
+
+fn cell_pixels_from_terminal_size(
+    cols: u16,
+    rows: u16,
+    width_px: u16,
+    height_px: u16,
+) -> Option<(u16, u16)> {
+    if cols == 0 || rows == 0 || width_px == 0 || height_px == 0 {
+        return None;
     }
-    if query_fallback && let Some(cell) = query_cell_pixels() {
-        return Some(cell);
-    }
-    None
+    Some(((width_px / cols).max(1), (height_px / rows).max(1)))
 }
 
 #[cfg(unix)]
 fn ioctl_cell_pixels() -> Option<(u16, u16)> {
     let mut ws: libc::winsize = unsafe { std::mem::zeroed() };
     let ok = unsafe { libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &mut ws) } == 0;
-    if !ok || ws.ws_col == 0 || ws.ws_row == 0 || ws.ws_xpixel == 0 || ws.ws_ypixel == 0 {
-        return None;
-    }
-    let w = (ws.ws_xpixel / ws.ws_col).max(1);
-    let h = (ws.ws_ypixel / ws.ws_row).max(1);
-    Some((w, h))
+    ok.then(|| cell_pixels_from_terminal_size(ws.ws_col, ws.ws_row, ws.ws_xpixel, ws.ws_ypixel))
+        .flatten()
 }
 
 #[cfg(not(unix))]
@@ -785,9 +792,11 @@ fn read_stdin_for(timeout: Duration) -> Vec<u8> {
             break;
         }
         out.extend_from_slice(&buf[..n as usize]);
-        if find_da1(&out).is_some() {
-            break;
-        }
+        // DA1 is emitted as an inexpensive progress marker, but it is not a
+        // completion fence: terminals can produce the Kitty APC reply on a
+        // different render/output lane. Drain the entire bounded probe window
+        // so that a valid reply arriving after DA1 cannot leak into crossterm
+        // input (or the shell that resumes after cmux exits).
     }
     out
 }
@@ -801,14 +810,8 @@ fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|window| window == needle)
 }
 
-fn find_da1(bytes: &[u8]) -> Option<usize> {
-    bytes.iter().enumerate().find_map(|(idx, byte)| {
-        if *byte == b'c' && bytes[..idx].iter().rev().take(16).any(|byte| *byte == b'[') {
-            Some(idx)
-        } else {
-            None
-        }
-    })
+fn kitty_probe_succeeded(bytes: &[u8]) -> bool {
+    find_bytes(bytes, b"_Gi=31;OK").is_some()
 }
 
 #[cfg(test)]
@@ -817,6 +820,39 @@ mod tests {
     use ghostty_vt::{Callbacks, KittyPlacement, KittyPlacementKey, Terminal};
 
     use super::*;
+
+    #[test]
+    fn zero_pixel_resize_preserves_known_cell_metrics() {
+        let detected = cell_pixels_from_terminal_size(120, 40, 0, 0);
+        assert_eq!(detected, None);
+        assert_eq!(resolve_cell_pixels(Some((11, 23)), detected), (11, 23));
+    }
+
+    #[test]
+    fn missing_initial_metrics_use_synthetic_fallback() {
+        assert_eq!(resolve_cell_pixels(None, None), FALLBACK_CELL_PIXELS);
+    }
+
+    #[test]
+    fn newly_detected_metrics_replace_known_metrics() {
+        assert_eq!(resolve_cell_pixels(Some((8, 16)), Some((11, 23))), (11, 23));
+    }
+
+    #[test]
+    fn kitty_probe_accepts_ok_before_da1() {
+        assert!(kitty_probe_succeeded(b"\x1b_Gi=31;OK\x1b\\\x1b[?62;c"));
+    }
+
+    #[test]
+    fn kitty_probe_accepts_async_ok_after_da1() {
+        assert!(kitty_probe_succeeded(b"\x1b[?62;c\x1b_Gi=31;OK\x1b\\"));
+    }
+
+    #[test]
+    fn kitty_probe_rejects_da1_or_error_without_ok() {
+        assert!(!kitty_probe_succeeded(b"\x1b[?62;c"));
+        assert!(!kitty_probe_succeeded(b"\x1b_Gi=31;EINVAL\x1b\\"));
+    }
 
     fn image(
         surface: SurfaceId,

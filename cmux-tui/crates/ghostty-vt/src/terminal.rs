@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::c_void;
 use std::ptr;
@@ -19,6 +20,7 @@ const DEFAULT_KITTY_IMAGE_STORAGE_LIMIT: u64 = MAX_KITTY_IMAGE_BYTES as u64;
 const DEFAULT_KITTY_IMAGE_COUNT_LIMIT: u64 = 4_096;
 const DEFAULT_KITTY_PLACEMENT_COUNT_LIMIT: u64 = 16_384;
 const KITTY_REPLAY_CHUNK: usize = 4096;
+const MAX_COLOR_OSC_BYTES: usize = 16 * 1024;
 
 /// Terminal state replay plus Kitty aliases that cannot share one APC command.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -38,6 +40,34 @@ pub struct Rgb {
 impl From<sys::GhosttyColorRgb> for Rgb {
     fn from(c: sys::GhosttyColorRgb) -> Self {
         Rgb { r: c.r, g: c.g, b: c.b }
+    }
+}
+
+/// Process-host render metadata. Color and palette entries are sparse
+/// application-authored overrides, while version 2 cursor metadata is the
+/// host-resolved visual pair.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TerminalColorOverrides {
+    pub foreground: Option<Rgb>,
+    pub background: Option<Rgb>,
+    pub cursor: Option<Rgb>,
+    /// Host-resolved cursor shape/blink for the active screen. Version 2
+    /// process-host snapshots always populate this; `None` represents a
+    /// decoded legacy version 1 frame whose raw VT cursor state must be
+    /// preserved (the value is unknown, not a reset request).
+    pub cursor_visual: Option<(CursorShape, bool)>,
+    pub palette: [Option<Rgb>; 256],
+}
+
+impl Default for TerminalColorOverrides {
+    fn default() -> Self {
+        Self {
+            foreground: None,
+            background: None,
+            cursor: None,
+            cursor_visual: None,
+            palette: [None; 256],
+        }
     }
 }
 
@@ -254,6 +284,306 @@ pub struct Terminal {
     callbacks: Box<Callbacks>,
     cursor_override: CursorOverrideTracker,
     palette_override: Box<PaletteOverrideTracker>,
+    color_overrides: ColorOverrideTracker,
+    c1_normalizer: C1Normalizer,
+}
+
+/// Ghostty's parser intentionally treats bytes >= 0x80 as UTF-8 in ground
+/// state, while PTYs can still emit the 8-bit OSC/ST forms. Normalize only
+/// standalone C1 OSC/ST bytes; continuation bytes inside UTF-8 text remain
+/// byte-for-byte unchanged.
+#[derive(Default)]
+struct C1Normalizer {
+    utf8_remaining: u8,
+}
+
+impl C1Normalizer {
+    fn normalize<'a>(&mut self, data: &'a [u8]) -> Cow<'a, [u8]> {
+        let mut output: Option<Vec<u8>> = None;
+        for (index, &byte) in data.iter().enumerate() {
+            let continuation = if self.utf8_remaining != 0 && matches!(byte, 0x80..=0xbf) {
+                self.utf8_remaining -= 1;
+                true
+            } else {
+                self.utf8_remaining = 0;
+                false
+            };
+            let replacement = (!continuation).then_some(byte).and_then(|byte| match byte {
+                0x9d => Some(b']'),
+                0x9c => Some(b'\\'),
+                _ => None,
+            });
+            if let Some(replacement) = replacement {
+                let output = output.get_or_insert_with(|| {
+                    let mut output = Vec::with_capacity(data.len() + 1);
+                    output.extend_from_slice(&data[..index]);
+                    output
+                });
+                output.extend_from_slice(&[0x1b, replacement]);
+            } else if let Some(output) = output.as_mut() {
+                output.push(byte);
+            }
+            if !continuation {
+                self.utf8_remaining = match byte {
+                    0xc2..=0xdf => 1,
+                    0xe0..=0xef => 2,
+                    0xf0..=0xf4 => 3,
+                    _ => 0,
+                };
+            }
+        }
+        output.map(Cow::Owned).unwrap_or(Cow::Borrowed(data))
+    }
+}
+
+#[derive(Default)]
+struct ColorOverrideTracker {
+    state: ColorTrackState,
+    utf8_remaining: u8,
+    foreground: bool,
+    background: bool,
+    cursor: bool,
+    palette: [u64; 4],
+}
+
+#[derive(Default)]
+enum ColorTrackState {
+    #[default]
+    Ground,
+    Escape,
+    EscapeIntermediate,
+    Osc {
+        payload: Vec<u8>,
+        overflowed: bool,
+    },
+    OscEscape {
+        payload: Vec<u8>,
+        overflowed: bool,
+    },
+    String,
+    StringEscape,
+}
+
+impl ColorOverrideTracker {
+    fn write(&mut self, data: &[u8]) {
+        for &byte in data {
+            let state = std::mem::take(&mut self.state);
+            self.state = match state {
+                ColorTrackState::Ground => self.ground(byte),
+                ColorTrackState::Escape => self.escape(byte),
+                ColorTrackState::EscapeIntermediate => match byte {
+                    0x1b => ColorTrackState::Escape,
+                    0x20..=0x2f => ColorTrackState::EscapeIntermediate,
+                    _ => ColorTrackState::Ground,
+                },
+                ColorTrackState::Osc { mut payload, mut overflowed } => {
+                    if self.consume_utf8_continuation(byte) {
+                        Self::push_osc_byte(&mut payload, &mut overflowed, byte);
+                        ColorTrackState::Osc { payload, overflowed }
+                    } else {
+                        match byte {
+                            0x07 | 0x9c => {
+                                self.finish_osc(&payload, overflowed);
+                                ColorTrackState::Ground
+                            }
+                            0x1b => ColorTrackState::OscEscape { payload, overflowed },
+                            _ => {
+                                self.note_utf8_lead(byte);
+                                Self::push_osc_byte(&mut payload, &mut overflowed, byte);
+                                ColorTrackState::Osc { payload, overflowed }
+                            }
+                        }
+                    }
+                }
+                ColorTrackState::OscEscape { mut payload, mut overflowed } => match byte {
+                    b'\\' | 0x9c => {
+                        self.utf8_remaining = 0;
+                        self.finish_osc(&payload, overflowed);
+                        ColorTrackState::Ground
+                    }
+                    0x1b => ColorTrackState::OscEscape { payload, overflowed },
+                    _ => {
+                        self.utf8_remaining = 0;
+                        Self::push_osc_byte(&mut payload, &mut overflowed, 0x1b);
+                        Self::push_osc_byte(&mut payload, &mut overflowed, byte);
+                        self.note_utf8_lead(byte);
+                        ColorTrackState::Osc { payload, overflowed }
+                    }
+                },
+                ColorTrackState::String => {
+                    if self.consume_utf8_continuation(byte) {
+                        ColorTrackState::String
+                    } else {
+                        match byte {
+                            0x9c => ColorTrackState::Ground,
+                            0x1b => ColorTrackState::StringEscape,
+                            _ => {
+                                self.note_utf8_lead(byte);
+                                ColorTrackState::String
+                            }
+                        }
+                    }
+                }
+                ColorTrackState::StringEscape => match byte {
+                    b'\\' | 0x9c => {
+                        self.utf8_remaining = 0;
+                        ColorTrackState::Ground
+                    }
+                    0x1b => ColorTrackState::StringEscape,
+                    _ => {
+                        self.note_utf8_lead(byte);
+                        ColorTrackState::String
+                    }
+                },
+            };
+        }
+    }
+
+    fn ground(&mut self, byte: u8) -> ColorTrackState {
+        if self.consume_utf8_continuation(byte) {
+            return ColorTrackState::Ground;
+        }
+        match byte {
+            0x1b => ColorTrackState::Escape,
+            // A standalone 8-bit OSC is a control. A 0x9d occurring inside
+            // UTF-8 text was consumed above and cannot open an OSC.
+            0x9d => self.osc(),
+            _ => {
+                self.note_utf8_lead(byte);
+                ColorTrackState::Ground
+            }
+        }
+    }
+
+    fn escape(&mut self, byte: u8) -> ColorTrackState {
+        self.utf8_remaining = 0;
+        match byte {
+            b']' | 0x9d => self.osc(),
+            b'P' | b'X' | b'^' | b'_' => ColorTrackState::String,
+            b'c' => {
+                self.reset_all();
+                ColorTrackState::Ground
+            }
+            0x1b => ColorTrackState::Escape,
+            0x20..=0x2f => ColorTrackState::EscapeIntermediate,
+            _ => ColorTrackState::Ground,
+        }
+    }
+
+    fn osc(&mut self) -> ColorTrackState {
+        self.utf8_remaining = 0;
+        ColorTrackState::Osc { payload: Vec::new(), overflowed: false }
+    }
+
+    fn push_osc_byte(payload: &mut Vec<u8>, overflowed: &mut bool, byte: u8) {
+        if *overflowed {
+            return;
+        }
+        if payload.len() == MAX_COLOR_OSC_BYTES {
+            payload.clear();
+            *overflowed = true;
+        } else {
+            payload.push(byte);
+        }
+    }
+
+    fn consume_utf8_continuation(&mut self, byte: u8) -> bool {
+        if self.utf8_remaining == 0 {
+            return false;
+        }
+        if matches!(byte, 0x80..=0xbf) {
+            self.utf8_remaining -= 1;
+            true
+        } else {
+            self.utf8_remaining = 0;
+            false
+        }
+    }
+
+    fn note_utf8_lead(&mut self, byte: u8) {
+        self.utf8_remaining = match byte {
+            0xc2..=0xdf => 1,
+            0xe0..=0xef => 2,
+            0xf0..=0xf4 => 3,
+            _ => 0,
+        };
+    }
+
+    fn finish_osc(&mut self, payload: &[u8], overflowed: bool) {
+        self.utf8_remaining = 0;
+        if overflowed {
+            return;
+        }
+        let Ok(payload) = std::str::from_utf8(payload) else { return };
+        let mut parts = payload.split(';');
+        let Some(command) = parts.next().and_then(|value| value.parse::<u16>().ok()) else {
+            return;
+        };
+        match command {
+            4 => {
+                while let (Some(index), Some(value)) = (parts.next(), parts.next()) {
+                    let Some(index) = index.parse::<u8>().ok() else { continue };
+                    if value != "?" && parse_color(value).is_some() {
+                        self.set_palette_authored(index as usize, true);
+                    }
+                }
+            }
+            104 => {
+                let mut had_parameter = false;
+                for value in parts {
+                    had_parameter = true;
+                    let Some(index) = value.parse::<u8>().ok() else {
+                        continue;
+                    };
+                    self.set_palette_authored(index as usize, false);
+                }
+                if !had_parameter {
+                    self.palette.fill(0);
+                }
+            }
+            10..=12 => {
+                for (offset, value) in parts.enumerate() {
+                    let code = command.saturating_add(offset as u16);
+                    if code > 12 {
+                        break;
+                    }
+                    if value == "?" || parse_color(value).is_none() {
+                        continue;
+                    }
+                    match code {
+                        10 => self.foreground = true,
+                        11 => self.background = true,
+                        12 => self.cursor = true,
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            110 => self.foreground = false,
+            111 => self.background = false,
+            112 => self.cursor = false,
+            _ => {}
+        }
+    }
+
+    fn reset_all(&mut self) {
+        self.foreground = false;
+        self.background = false;
+        self.cursor = false;
+        self.palette.fill(0);
+    }
+
+    fn set_palette_authored(&mut self, index: usize, authored: bool) {
+        let (word, bit) = (index / 64, index % 64);
+        if authored {
+            self.palette[word] |= 1u64 << bit;
+        } else {
+            self.palette[word] &= !(1u64 << bit);
+        }
+    }
+
+    fn palette_authored(&self, index: usize) -> bool {
+        self.palette[index / 64] & (1u64 << (index % 64)) != 0
+    }
 }
 
 #[derive(Default)]
@@ -870,6 +1200,8 @@ impl Terminal {
             callbacks: Box::new(callbacks),
             cursor_override: CursorOverrideTracker::default(),
             palette_override: Box::default(),
+            color_overrides: ColorOverrideTracker::default(),
+            c1_normalizer: C1Normalizer::default(),
         };
         let userdata = &mut *term.callbacks as *mut Callbacks as *mut c_void;
         unsafe {
@@ -907,16 +1239,29 @@ impl Terminal {
 
     /// Feed VT-encoded bytes (pty output) into the terminal.
     pub fn vt_write(&mut self, data: &[u8]) {
+        let _ = self.vt_write_with_normalized(data);
+    }
+
+    /// Feed VT-encoded bytes and return the exact byte stream accepted by
+    /// Ghostty. Standalone 8-bit OSC/ST controls are returned in their 7-bit
+    /// forms, while UTF-8 continuation bytes remain unchanged across calls.
+    ///
+    /// Process hosts should publish this returned stream so every frontend
+    /// parses the same bytes as the authoritative terminal.
+    pub fn vt_write_with_normalized<'a>(&mut self, data: &'a [u8]) -> Cow<'a, [u8]> {
         if data.is_empty() {
-            return;
+            return Cow::Borrowed(data);
         }
         if self.mouse_mode_scan.feed(data) {
             self.mouse_mode_revision = self.mouse_mode_revision.wrapping_add(1);
         }
-        self.cursor_override.write(data);
-        self.palette_override.write(data);
         self.kitty_inflight.write(data);
-        unsafe { sys::ghostty_terminal_vt_write(self.raw, data.as_ptr(), data.len()) }
+        let normalized = self.c1_normalizer.normalize(data);
+        self.cursor_override.write(&normalized);
+        self.palette_override.write(&normalized);
+        self.color_overrides.write(&normalized);
+        unsafe { sys::ghostty_terminal_vt_write(self.raw, normalized.as_ptr(), normalized.len()) };
+        normalized
     }
 
     /// Whether the current cursor style/blink came from an active DECSCUSR
@@ -978,6 +1323,32 @@ impl Terminal {
         }
     }
 
+    /// Replace all host-provided default color channels. Unlike
+    /// [`Self::set_default_colors`], `None` clears an earlier embedder value.
+    pub fn replace_default_colors(
+        &mut self,
+        fg: Option<Rgb>,
+        bg: Option<Rgb>,
+        cursor: Option<Rgb>,
+    ) {
+        let fg = fg.map(|color| sys::GhosttyColorRgb { r: color.r, g: color.g, b: color.b });
+        let bg = bg.map(|color| sys::GhosttyColorRgb { r: color.r, g: color.g, b: color.b });
+        let cursor =
+            cursor.map(|color| sys::GhosttyColorRgb { r: color.r, g: color.g, b: color.b });
+        unsafe {
+            for (option, color) in [
+                (sys::GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND, fg.as_ref()),
+                (sys::GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND, bg.as_ref()),
+                (sys::GHOSTTY_TERMINAL_OPT_COLOR_CURSOR, cursor.as_ref()),
+            ] {
+                let pointer = color
+                    .map(|color| color as *const sys::GhosttyColorRgb as *const c_void)
+                    .unwrap_or(ptr::null());
+                sys::ghostty_terminal_set(self.raw, option, pointer);
+            }
+        }
+    }
+
     /// Set selected entries in the host-provided default palette.
     ///
     /// Unspecified entries use Ghostty's built-in palette. Active OSC 4
@@ -1027,6 +1398,36 @@ impl Terminal {
         }
     }
 
+    /// Replace both embedder cursor defaults. `None` clears an earlier value
+    /// and restores Ghostty's built-in default for that channel.
+    pub fn replace_default_cursor(&mut self, style: Option<CursorShape>, blink: Option<bool>) {
+        let style = style.map(|style| match style {
+            CursorShape::Bar => sys::GHOSTTY_TERMINAL_CURSOR_STYLE_BAR,
+            CursorShape::Underline => sys::GHOSTTY_TERMINAL_CURSOR_STYLE_UNDERLINE,
+            CursorShape::Block | CursorShape::BlockHollow => {
+                sys::GHOSTTY_TERMINAL_CURSOR_STYLE_BLOCK
+            }
+        });
+        unsafe {
+            sys::ghostty_terminal_set(
+                self.raw,
+                sys::GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_STYLE,
+                style
+                    .as_ref()
+                    .map(|style| style as *const sys::GhosttyTerminalCursorStyle as *const c_void)
+                    .unwrap_or(ptr::null()),
+            );
+            sys::ghostty_terminal_set(
+                self.raw,
+                sys::GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_BLINK,
+                blink
+                    .as_ref()
+                    .map(|blink| blink as *const bool as *const c_void)
+                    .unwrap_or(ptr::null()),
+            );
+        }
+    }
+
     /// Effective foreground, background, and cursor colors.
     ///
     /// Each value includes any active OSC 10/11/12 override and is `None`
@@ -1038,6 +1439,71 @@ impl Terminal {
             color(sys::GHOSTTY_TERMINAL_DATA_COLOR_BACKGROUND),
             color(sys::GHOSTTY_TERMINAL_DATA_COLOR_CURSOR),
         )
+    }
+
+    /// Effective cursor visual for the active screen, including DECSCUSR,
+    /// alternate-screen state, DEC mode 12, and embedder defaults.
+    pub fn effective_cursor_visual(&self) -> Result<(CursorShape, bool)> {
+        let shape = match self.get::<sys::GhosttyTerminalCursorStyle>(
+            sys::GHOSTTY_TERMINAL_DATA_CURSOR_VISUAL_STYLE,
+        )? {
+            sys::GHOSTTY_TERMINAL_CURSOR_STYLE_BAR => CursorShape::Bar,
+            sys::GHOSTTY_TERMINAL_CURSOR_STYLE_UNDERLINE => CursorShape::Underline,
+            sys::GHOSTTY_TERMINAL_CURSOR_STYLE_BLOCK_HOLLOW => CursorShape::BlockHollow,
+            _ => CursorShape::Block,
+        };
+        let blinking: bool = self.get(sys::GHOSTTY_TERMINAL_DATA_CURSOR_BLINKING)?;
+        Ok((shape, blinking))
+    }
+
+    /// Opaque semantic cursor activity token. Compare only for inequality;
+    /// it advances for DECSCUSR, mode 12, active-screen changes, RIS, and
+    /// embedder cursor-default setters even when the resolved pair is equal.
+    pub fn cursor_activity(&self) -> Result<u64> {
+        self.get(sys::GHOSTTY_TERMINAL_DATA_CURSOR_ACTIVITY)
+    }
+
+    /// Dynamic state for process-separated renderers. Application-authored
+    /// OSC 4/10/11/12 state remains sparse so the receiving renderer keeps its
+    /// own theme. Cursor visual is host-resolved because shape is per-screen,
+    /// blink is terminal-global, and DECSCUSR and DEC mode 12 interact.
+    pub fn color_overrides(&self) -> TerminalColorOverrides {
+        let effective_color = |active: bool, data| {
+            active.then(|| self.get::<sys::GhosttyColorRgb>(data).ok().map(Rgb::from)).flatten()
+        };
+        let palette = self
+            .get_palette(sys::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE)
+            .map(|effective| {
+                std::array::from_fn(|index| {
+                    self.color_overrides.palette_authored(index).then(|| effective[index].into())
+                })
+            })
+            .unwrap_or([None; 256]);
+        TerminalColorOverrides {
+            foreground: effective_color(
+                self.color_overrides.foreground,
+                sys::GHOSTTY_TERMINAL_DATA_COLOR_FOREGROUND,
+            ),
+            background: effective_color(
+                self.color_overrides.background,
+                sys::GHOSTTY_TERMINAL_DATA_COLOR_BACKGROUND,
+            ),
+            cursor: effective_color(
+                self.color_overrides.cursor,
+                sys::GHOSTTY_TERMINAL_DATA_COLOR_CURSOR,
+            ),
+            cursor_visual: Some(
+                self.effective_cursor_visual()
+                    .expect("valid terminals expose an effective cursor visual"),
+            ),
+            palette,
+        }
+    }
+
+    fn get_palette(&self, data: sys::GhosttyTerminalData) -> Result<[sys::GhosttyColorRgb; 256]> {
+        let mut output = [sys::GhosttyColorRgb::default(); 256];
+        check(unsafe { sys::ghostty_terminal_get(self.raw, data, output.as_mut_ptr().cast()) })?;
+        Ok(output)
     }
 
     /// Cursor position (column, row), zero-indexed within the active area.
@@ -1425,6 +1891,26 @@ impl Terminal {
     /// back to a terminal reset so callers can still attach and receive live
     /// output instead of entering a permanent overflow loop.
     pub fn vt_replay_bounded(&mut self, max_bytes: usize) -> Result<VtReplay> {
+        self.vt_replay_bounded_with_palette(max_bytes, true)
+    }
+
+    /// Theme-portable replay for process-separated renderers.
+    ///
+    /// This reproduces cells, styles, modes, cursor, history, and Kitty
+    /// graphics but omits terminal palette/default-color OSC state. Pair it
+    /// with a sparse [`TerminalColorOverrides`] snapshot so the receiving
+    /// renderer keeps its own Ghostty theme for every color the application
+    /// did not set. This byte-only compatibility API discards Kitty number
+    /// aliases.
+    pub fn vt_replay_bounded_theme_portable(&mut self, max_bytes: usize) -> Result<Vec<u8>> {
+        Ok(self.vt_replay_bounded_with_palette(max_bytes, false)?.bytes)
+    }
+
+    fn vt_replay_bounded_with_palette(
+        &mut self,
+        max_bytes: usize,
+        include_palette: bool,
+    ) -> Result<VtReplay> {
         let inflight = self.kitty_inflight.replay_prefix_checked(max_bytes)?;
         let remaining = max_bytes.checked_sub(inflight.len()).ok_or(Error::OutOfSpace)?;
         let snapshot = kitty::snapshot_for_replay(self, &mut HashMap::new(), true)?;
@@ -1436,8 +1922,12 @@ impl Terminal {
             let visible_start = catalog.visible_anchor_start().unwrap_or(viewport_start);
             Some(viewport_start.min(visible_start))
         });
-        let active_text =
-            self.vt_replay_text_layout_bounded(remaining, catalog.placement_rows(), active_start)?;
+        let active_text = self.vt_replay_text_layout_bounded(
+            remaining,
+            catalog.placement_rows(),
+            active_start,
+            include_palette,
+        )?;
         let visible_budget = remaining.saturating_sub(active_text.bytes.len());
         let visible_cost =
             active_text.range.map(|range| catalog.visible_cost(range, visible_budget)).unwrap_or(0);
@@ -1447,6 +1937,7 @@ impl Terminal {
             text_budget,
             catalog.placement_rows(),
             active_start,
+            include_palette,
         )?;
         let graphics_budget = remaining.saturating_sub(text.bytes.len());
         let graphics = catalog.plan(text.range, graphics_budget, false);
@@ -1478,6 +1969,7 @@ impl Terminal {
         max_bytes: usize,
         placement_rows: &BTreeSet<u64>,
         minimum_start: Option<u64>,
+        include_palette: bool,
     ) -> Result<ReplayText> {
         let Some(scrollbar) = self.scrollbar() else {
             return Ok(ReplayText::minimal(max_bytes));
@@ -1503,9 +1995,12 @@ impl Terminal {
                 start: scrollbar.total.saturating_sub(tail_rows),
                 end: scrollbar.total - 1,
             };
-            if let Some(replay) =
-                self.vt_replay_text_range_bounded(range, placement_rows, max_bytes)?
-            {
+            if let Some(replay) = self.vt_replay_text_range_bounded(
+                range,
+                placement_rows,
+                max_bytes,
+                include_palette,
+            )? {
                 if tail_rows == scrollbar.total {
                     return Ok(replay);
                 }
@@ -1515,6 +2010,7 @@ impl Terminal {
                         failed_start,
                         placement_rows,
                         max_bytes,
+                        include_palette,
                     );
                 }
                 best = Some(replay);
@@ -1532,6 +2028,7 @@ impl Terminal {
                     range.start,
                     placement_rows,
                     max_bytes,
+                    include_palette,
                 );
             }
             if tail_rows <= minimum_rows {
@@ -1553,6 +2050,7 @@ impl Terminal {
         failed_start: u64,
         placement_rows: &BTreeSet<u64>,
         max_bytes: usize,
+        include_palette: bool,
     ) -> Result<ReplayText> {
         let Some(best_range) = best.range else {
             return Ok(best);
@@ -1564,9 +2062,12 @@ impl Terminal {
         while low < high {
             let middle = low + (high - low) / 2;
             let range = ReplayRowRange { start: candidates[middle], end: best_range.end };
-            if let Some(replay) =
-                self.vt_replay_text_range_bounded(range, placement_rows, max_bytes)?
-            {
+            if let Some(replay) = self.vt_replay_text_range_bounded(
+                range,
+                placement_rows,
+                max_bytes,
+                include_palette,
+            )? {
                 best = replay;
                 high = middle;
             } else {
@@ -1581,6 +2082,7 @@ impl Terminal {
         range: ReplayRowRange,
         placement_rows: &BTreeSet<u64>,
         max_bytes: usize,
+        include_palette: bool,
     ) -> Result<Option<ReplayText>> {
         let cols = self.cols();
         if cols == 0 || range.start > range.end {
@@ -1607,7 +2109,7 @@ impl Terminal {
             let last = segment_end == range.end;
             let remaining = format_max_bytes.saturating_sub(bytes.len());
             let Some(chunk) = self.format_bounded(
-                Self::vt_replay_segment_options(&selection, first, last),
+                Self::vt_replay_segment_options(&selection, first, last, include_palette),
                 remaining,
             )?
             else {
@@ -1666,9 +2168,10 @@ impl Terminal {
         selection: &sys::GhosttySelection,
         first: bool,
         last: bool,
+        include_palette: bool,
     ) -> sys::GhosttyFormatterTerminalOptions {
-        let mut options = Self::vt_replay_options(Some(selection));
-        options.extra.palette = first;
+        let mut options = Self::vt_replay_options(Some(selection), include_palette);
+        options.extra.palette = include_palette && first;
         options.extra.modes = first;
         options.extra.scrolling_region = last;
         options.extra.tabstops = last;
@@ -1685,6 +2188,7 @@ impl Terminal {
 
     fn vt_replay_options(
         selection: Option<&sys::GhosttySelection>,
+        include_palette: bool,
     ) -> sys::GhosttyFormatterTerminalOptions {
         sys::GhosttyFormatterTerminalOptions {
             size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
@@ -1693,7 +2197,7 @@ impl Terminal {
             trim: false,
             extra: sys::GhosttyFormatterTerminalExtra {
                 size: size_of::<sys::GhosttyFormatterTerminalExtra>(),
-                palette: true,
+                palette: include_palette,
                 modes: true,
                 scrolling_region: true,
                 tabstops: true,
@@ -2431,7 +2935,7 @@ mod tests {
         let placement_rows = [anchor_row].into_iter().collect();
         let anchor_range = super::ReplayRowRange { start: anchor_row, end: scrollbar.total - 1 };
         let anchor_bytes = source
-            .vt_replay_text_range_bounded(anchor_range, &placement_rows, usize::MAX)
+            .vt_replay_text_range_bounded(anchor_range, &placement_rows, usize::MAX, true)
             .unwrap()
             .unwrap()
             .bytes
@@ -2440,7 +2944,7 @@ mod tests {
             super::ReplayRowRange { start: scrollbar.total - 16, end: scrollbar.total - 1 };
         assert!(
             source
-                .vt_replay_text_range_bounded(older_range, &placement_rows, anchor_bytes)
+                .vt_replay_text_range_bounded(older_range, &placement_rows, anchor_bytes, true)
                 .unwrap()
                 .is_none(),
             "fixture must put the anchor between a fitting and oversized geometric window"
@@ -2451,6 +2955,7 @@ mod tests {
                 anchor_bytes,
                 &placement_rows,
                 Some(scrollbar.total - scrollbar.len),
+                true,
             )
             .unwrap();
 

@@ -8,7 +8,7 @@ The mux tree is:
 session -> workspaces -> screens -> split-tree panes -> tabs
 ```
 
-A session is one mux backend and one control socket. A workspace owns one or more screens. A screen is the layout selected in the status bar. A screen layout is a binary split tree whose leaves are panes. A pane owns an ordered tab list, and each tab is a surface.
+A session is one mux backend and one control socket. A workspace owns zero or more screens. A screen is the layout selected in the status bar. A screen layout is a binary split tree whose leaves are panes. A pane owns an ordered tab list, and each tab is a surface.
 
 Protocol v8 assigns each interior split node a stable `SplitId`. Frontends use it as divider identity and resize that exact node with `set-split-ratio`. The id survives ratio, focus, tab, and leaf-order changes. It disappears only when its node collapses.
 
@@ -40,7 +40,7 @@ Direction follows a zellij-style rule using the terminal cell ratio. Tall enough
 
 Closing a tab removes one surface. If the pane still has tabs, the active tab index moves to a remaining tab.
 
-If a pane loses its last tab, that pane is removed from the split tree and its parent split collapses to the remaining child. If that empties the screen, the screen is removed. If that empties the workspace, the workspace is removed. If every workspace is gone, mux emits an `empty` event.
+If a pane loses its last tab, that pane is removed from the split tree and its parent split collapses to the remaining child. If that empties the screen, the screen is removed. A canonical workspace remains in the durable registry when its final screen or terminal disappears; it becomes an empty workspace and is still projected to every frontend. Only an explicit `close-workspace` mutation tombstones it. If every workspace is explicitly closed, mux emits an `empty` event.
 
 Closing a pane closes all tabs in that pane. Closing a screen closes every pane and tab in that screen. Closing a workspace closes every screen, pane, and tab in that workspace.
 
