@@ -664,6 +664,70 @@ impl Drop for SurfaceCreationGuard<'_> {
     }
 }
 
+#[derive(Default)]
+struct AsyncSurfaceCreationState {
+    shutting_down: bool,
+    active: usize,
+}
+
+#[derive(Default)]
+struct AsyncSurfaceCreationGate {
+    inner: Arc<AsyncSurfaceCreationGateInner>,
+}
+
+#[derive(Default)]
+struct AsyncSurfaceCreationGateInner {
+    state: Mutex<AsyncSurfaceCreationState>,
+    idle: std::sync::Condvar,
+}
+
+impl AsyncSurfaceCreationGate {
+    fn begin(&self) -> anyhow::Result<AsyncSurfaceCreationGuard> {
+        let mut state = self.inner.state.lock().unwrap();
+        if state.shutting_down {
+            anyhow::bail!("server is shutting down");
+        }
+        state.active = state.active.saturating_add(1);
+        Ok(AsyncSurfaceCreationGuard { gate: self.inner.clone() })
+    }
+
+    fn stop(&self) {
+        let mut state = self.inner.state.lock().unwrap();
+        state.shutting_down = true;
+        self.inner.idle.notify_all();
+    }
+
+    fn stop_and_wait_until(&self, deadline: Instant) -> bool {
+        let mut state = self.inner.state.lock().unwrap();
+        state.shutting_down = true;
+        while state.active != 0 {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            let (next, timeout) = self.inner.idle.wait_timeout(state, remaining).unwrap();
+            state = next;
+            if timeout.timed_out() && state.active != 0 {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+struct AsyncSurfaceCreationGuard {
+    gate: Arc<AsyncSurfaceCreationGateInner>,
+}
+
+impl Drop for AsyncSurfaceCreationGuard {
+    fn drop(&mut self) {
+        let mut state = self.gate.state.lock().unwrap();
+        state.active = state.active.checked_sub(1).expect("async surface creation guard tracked");
+        if state.active == 0 {
+            self.gate.idle.notify_all();
+        }
+    }
+}
+
 enum SurfaceResizeRestore {
     Complete(bool),
     Pending(Receiver<SurfaceResizeOutcome>),
@@ -786,6 +850,7 @@ pub struct Mux {
     subscribers: MuxEventBroadcaster,
     shutdown_requested: AtomicBool,
     surface_creations: SurfaceCreationGate,
+    async_surface_creations: AsyncSurfaceCreationGate,
     shutdown_coordinator: Mutex<()>,
     shutdown_surfaces: Mutex<Vec<Arc<Surface>>>,
     next_id: AtomicU64,
@@ -1018,6 +1083,7 @@ impl Mux {
             subscribers: MuxEventBroadcaster::default(),
             shutdown_requested: AtomicBool::new(false),
             surface_creations: SurfaceCreationGate::default(),
+            async_surface_creations: AsyncSurfaceCreationGate::default(),
             shutdown_coordinator: Mutex::new(()),
             shutdown_surfaces: Mutex::new(Vec::new()),
             next_id: AtomicU64::new(next_id),
@@ -3205,11 +3271,18 @@ impl Mux {
 
     fn browser_runtime(&self) -> anyhow::Result<Arc<BrowserRuntime>> {
         let mut runtime = self.browser_runtime.lock().unwrap();
+        if self.is_shutting_down() {
+            anyhow::bail!("server is shutting down");
+        }
         if let Some(existing) = runtime.as_ref().filter(|existing| !existing.is_closed()) {
             return Ok(existing.clone());
         }
         let opts = self.surface_options.lock().unwrap().clone();
         let created = BrowserRuntime::connect(&opts)?;
+        if self.is_shutting_down() {
+            created.shutdown();
+            anyhow::bail!("server is shutting down");
+        }
         *runtime = Some(created.clone());
         Ok(created)
     }
@@ -3220,31 +3293,57 @@ impl Mux {
         bootstrap: BrowserBootstrap,
         runtime: Option<Arc<BrowserRuntime>>,
     ) {
+        let bootstrap_guard = match self.async_surface_creations.begin() {
+            Ok(guard) => guard,
+            Err(error) => {
+                self.report_browser_bootstrap_failure(&surface, error.to_string());
+                return;
+            }
+        };
         let mux = self.clone();
         let id = surface.id;
-        let _ = std::thread::Builder::new().name(format!("browser-surface-{id}-bootstrap")).spawn(
-            move || {
+        let worker_surface = surface.clone();
+        let worker = std::thread::Builder::new()
+            .name(format!("browser-surface-{id}-bootstrap"))
+            .spawn(move || {
+                let _bootstrap_guard = bootstrap_guard;
                 #[cfg(test)]
                 if let Some(hook) = mux.browser_bootstrap_before_runtime.lock().unwrap().clone() {
                     hook();
                 }
                 let result = (|| -> anyhow::Result<()> {
+                    if mux.is_shutting_down() {
+                        anyhow::bail!("server is shutting down");
+                    }
                     let runtime = match runtime {
                         Some(runtime) => runtime,
                         None => mux.browser_runtime()?,
                     };
-                    runtime.bootstrap_surface_sync(surface.clone(), bootstrap, Arc::downgrade(&mux))
+                    if mux.is_shutting_down() {
+                        anyhow::bail!("server is shutting down");
+                    }
+                    runtime.bootstrap_surface_sync(
+                        worker_surface.clone(),
+                        bootstrap,
+                        Arc::downgrade(&mux),
+                    )
                 })();
                 if let Err(err) = result {
-                    if let Surface::Browser(browser) = surface.as_ref() {
-                        browser.mark_failed(err.to_string());
-                    }
-                    mux.emit(MuxEvent::Status(format!("browser failed: {err}")));
-                    mux.emit(MuxEvent::TitleChanged { surface: id, title: surface.title().into() });
-                    mux.emit(MuxEvent::SurfaceOutput(id));
+                    mux.report_browser_bootstrap_failure(&worker_surface, err.to_string());
                 }
-            },
-        );
+            });
+        if let Err(error) = worker {
+            self.report_browser_bootstrap_failure(&surface, error.to_string());
+        }
+    }
+
+    fn report_browser_bootstrap_failure(&self, surface: &Arc<Surface>, error: String) {
+        if let Surface::Browser(browser) = surface.as_ref() {
+            browser.mark_failed(error.clone());
+        }
+        self.emit(MuxEvent::Status(format!("browser failed: {error}")));
+        self.emit(MuxEvent::TitleChanged { surface: surface.id, title: surface.title().into() });
+        self.emit(MuxEvent::SurfaceOutput(surface.id));
     }
 
     /// A fresh single-tab pane wrapping `surface`.
@@ -3642,6 +3741,7 @@ impl Mux {
         self.shutting_down.store(true, Ordering::Release);
         let deadline = Instant::now() + crate::server::SERVER_SHUTDOWN_TIMEOUT;
         let _ = self.surface_creations.stop_and_wait_until(deadline);
+        let _ = self.async_surface_creations.stop_and_wait_until(deadline);
         let mut surfaces =
             self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
         surfaces.extend(self.shutdown_surfaces.lock().unwrap().drain(..));
@@ -3673,6 +3773,9 @@ impl Mux {
         self.shutting_down.store(true, Ordering::Release);
         if !self.surface_creations.stop_and_wait_until(deadline) {
             anyhow::bail!("surface creation did not stop before the shutdown deadline");
+        }
+        if !self.async_surface_creations.stop_and_wait_until(deadline) {
+            anyhow::bail!("browser bootstrap did not stop before the shutdown deadline");
         }
 
         #[cfg(unix)]
@@ -3829,6 +3932,7 @@ impl Mux {
     pub fn request_daemon_shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
         self.surface_creations.stop();
+        self.async_surface_creations.stop();
         self.daemon_shutdown_requested.store(true, Ordering::Release);
     }
 

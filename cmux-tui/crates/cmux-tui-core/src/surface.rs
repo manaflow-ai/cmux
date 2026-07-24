@@ -735,6 +735,15 @@ impl LocalPtyProcess {
     }
 
     fn request_hangup(&self) -> bool {
+        #[cfg(unix)]
+        {
+            let _signal = self.child_signal_lock.lock().unwrap();
+            if self.child_reaped.load(Ordering::Acquire) {
+                return true;
+            }
+            return self.killer.lock().unwrap().kill().is_ok();
+        }
+        #[cfg(not(unix))]
         self.killer.lock().unwrap().kill().is_ok()
     }
 
@@ -829,6 +838,11 @@ impl LocalPtyProcess {
 
 impl Drop for LocalPtyProcess {
     fn drop(&mut self) {
+        #[cfg(unix)]
+        if !*self.child_reaped.get_mut() {
+            let _ = self.killer.get_mut().map(|killer| killer.kill());
+        }
+        #[cfg(not(unix))]
         let _ = self.killer.get_mut().map(|killer| killer.kill());
     }
 }
