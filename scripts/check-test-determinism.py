@@ -759,7 +759,28 @@ class _PythonDeferredBindingCollector(_PythonLocalBindingCollector):
         result = self.trusted_bindings.copy()
         for name in self.local_names:
             result[name] = _PYTHON_SHADOWED_BINDING
+        for name in self.global_names | self.nonlocal_names:
+            result.pop(name, None)
         return result
+
+
+def _python_deferred_bindings(
+    body: list[ast.stmt],
+) -> dict[str, str]:
+    """Collect eventual closure-cell bindings for one function body."""
+    collector = _PythonDeferredBindingCollector()
+    for statement in body:
+        collector.visit(statement)
+    return collector.deferred_bindings()
+
+
+def _python_deferred_expression_bindings(
+    expression: ast.expr,
+) -> dict[str, str]:
+    """Collect eventual closure-cell bindings for one lambda expression."""
+    collector = _PythonDeferredBindingCollector()
+    collector.visit(expression)
+    return collector.deferred_bindings()
 
 
 def _python_block_may_complete(body: list[ast.stmt]) -> bool:
@@ -1008,6 +1029,7 @@ class _PythonSleepVisitor(ast.NodeVisitor):
             },
             global_names,
             nonlocal_names,
+            _python_deferred_bindings(node.body),
         )
         for argument in self._argument_nodes(node.args):
             self._bind(argument.arg)
@@ -1049,6 +1071,9 @@ class _PythonSleepVisitor(ast.NodeVisitor):
                 name: _PYTHON_SHADOWED_BINDING
                 for name in collector.local_names
             },
+            deferred_parent_bindings=(
+                _python_deferred_expression_bindings(node.body)
+            ),
         )
         for argument in self._argument_nodes(node.args):
             self._bind(argument.arg)
@@ -1349,6 +1374,18 @@ class _PythonSleepVisitor(ast.NodeVisitor):
     def visit_DictComp(self, node: ast.DictComp) -> None:
         self._visit_comprehension(node.generators, [node.key, node.value])
 
+    def visit_Assert(self, node: ast.Assert) -> None:
+        self.assertion_positions.setdefault(node.lineno - 1, set()).add(
+            node.col_offset
+        )
+        self.assertion_depth += 1
+        try:
+            self.visit(node.test)
+            if node.msg is not None:
+                self.visit(node.msg)
+        finally:
+            self.assertion_depth -= 1
+
     def visit_Call(self, node: ast.Call) -> None:
         function = node.func
         assertion_name: Optional[str] = None
@@ -1505,6 +1542,7 @@ class _ShellExpansionFrame:
     kind: str
     depth: int = 1
     quote: Optional[str] = None
+    case_depth_at_open: int = 0
 
 
 def _mask_shell_heredoc_expansions(
@@ -1680,6 +1718,75 @@ def _shell_arithmetic_ranges(
     return ranges, depth
 
 
+def _shell_arithmetic_identifier_positions(
+    lines: list[str],
+    candidate_positions: dict[int, set[int]],
+) -> dict[int, set[int]]:
+    """Return candidates evaluated as arithmetic names, not commands."""
+    result: dict[int, set[int]] = {}
+    frames: list[_ShellExpansionFrame] = []
+    case_state: tuple[bool, ...] = ()
+
+    for line_index, line in enumerate(lines):
+        candidates = candidate_positions.get(line_index, set())
+        index = 0
+        while index < len(line):
+            if (
+                index in candidates
+                and frames
+                and frames[-1].kind == "arithmetic"
+            ):
+                result.setdefault(line_index, set()).add(index)
+
+            if line.startswith("$((", index):
+                frames.append(_ShellExpansionFrame("arithmetic", 2))
+                index += 3
+                continue
+            if line.startswith("((", index):
+                frames.append(_ShellExpansionFrame("arithmetic", 2))
+                index += 2
+                continue
+            if line.startswith("$(", index):
+                frames.append(_ShellExpansionFrame("paren"))
+                index += 2
+                continue
+
+            char = line[index]
+            if char == "`":
+                if frames and frames[-1].kind == "backtick":
+                    frames.pop()
+                else:
+                    frames.append(_ShellExpansionFrame("backtick"))
+                index += 1
+                continue
+
+            if frames and frames[-1].kind in ("arithmetic", "paren"):
+                frame = frames[-1]
+                if char == "(":
+                    frame.depth += 1
+                elif char == ")" and not (
+                    frame.kind == "paren"
+                    and _shell_parenthesis_is_case_arm_boundary(
+                        line,
+                        index,
+                        case_state,
+                    )
+                ):
+                    frame.depth -= 1
+                    if frame.depth == 0:
+                        frames.pop()
+                index += 1
+                continue
+            index += 1
+
+        case_state = _shell_case_state_after_prefix(
+            line,
+            len(line),
+            case_state,
+        )
+    return result
+
+
 _SHELL_COMMAND_START = re.compile(
     r"^|(?<!\\)\$\(|(?<!\\)[;&|(){`]"
 )
@@ -1687,37 +1794,64 @@ _SHELL_CONTROL_PREFIX = re.compile(
     r"(?:if|elif|while|until|then|do|else)\b"
 )
 _SHELL_ASSIGNMENT_START = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
+_SHELL_CASE_KEYWORD = re.compile(r"\b(?:case|in|esac)\b")
+
+
+def _shell_case_state_after_prefix(
+    line: str,
+    end: int,
+    initial_state: tuple[bool, ...] = (),
+) -> tuple[bool, ...]:
+    """Return nested case blocks and whether each has reached its ``in``."""
+    state = list(initial_state)
+    for keyword in _SHELL_CASE_KEYWORD.finditer(line, 0, end):
+        token = keyword.group()
+        if token == "case":
+            state.append(False)
+        elif token == "in" and state and not state[-1]:
+            state[-1] = True
+        elif token == "esac" and state:
+            state.pop()
+    return tuple(state)
 
 
 def _shell_parenthesis_is_case_arm_boundary(
     line: str,
     parenthesis_index: int,
+    initial_case_state: tuple[bool, ...] = (),
+    case_depth_at_open: int = 0,
 ) -> bool:
     """Return whether ``)`` terminates a pattern in an active case block."""
-    case_starts: list[int] = []
-    prefix = line[:parenthesis_index]
-    for keyword in re.finditer(r"\b(?:case|esac)\b", prefix):
-        if keyword.group() == "case":
-            case_starts.append(keyword.end())
-        elif case_starts:
-            case_starts.pop()
+    state = _shell_case_state_after_prefix(
+        line,
+        parenthesis_index,
+        initial_case_state,
+    )
     return bool(
-        case_starts
-        and re.search(r"\bin\b", prefix[case_starts[-1] :])
+        len(state) > case_depth_at_open
+        and state[-1]
     )
 
 
-def _shell_command_start_indices(line: str) -> list[int]:
+def _shell_command_start_indices(
+    line: str,
+    initial_case_state: tuple[bool, ...] = (),
+) -> list[int]:
     """Return command boundaries, excluding non-case closing parentheses."""
     result: list[int] = []
     for command_start in _SHELL_COMMAND_START.finditer(line):
         if (
             command_start.group() == ")"
             and (
-                _shell_closer_ends_expansion(line, command_start.start())
+                _shell_closer_ends_expansion(
+                    line,
+                    command_start.start(),
+                    initial_case_state,
+                )
                 or not _shell_parenthesis_is_case_arm_boundary(
                     line,
                     command_start.start(),
+                    initial_case_state,
                 )
             )
         ):
@@ -1845,9 +1979,13 @@ def _shell_prefixed_sleep_position(
 def _shell_assertion_is_command_position(
     line: str,
     assertion_start: int,
+    initial_case_state: tuple[bool, ...] = (),
 ) -> bool:
     """Return whether an assertion-looking shell token names a command."""
-    for command_start in _shell_command_start_indices(line):
+    for command_start in _shell_command_start_indices(
+        line,
+        initial_case_state,
+    ):
         if command_start > assertion_start:
             break
         if (
@@ -1881,6 +2019,7 @@ def _shell_real_sleep_positions(
     masked_lines: list[str],
 ) -> dict[int, set[int]]:
     positions: dict[int, set[int]] = {}
+    case_state: tuple[bool, ...] = ()
     for line_index, (raw_line, masked_line) in enumerate(
         zip(raw_lines, masked_lines)
     ):
@@ -1891,7 +2030,10 @@ def _shell_real_sleep_positions(
                 sleep_position,
             ):
                 positions.setdefault(line_index, set()).add(sleep_position)
-        for command_start in _shell_command_start_indices(masked_line):
+        for command_start in _shell_command_start_indices(
+            masked_line,
+            case_state,
+        ):
             sleep_position = _shell_prefixed_sleep_position(
                 raw_line,
                 masked_line,
@@ -1905,6 +2047,19 @@ def _shell_real_sleep_positions(
                 )
             ):
                 positions.setdefault(line_index, set()).add(sleep_position)
+        case_state = _shell_case_state_after_prefix(
+            masked_line,
+            len(masked_line),
+            case_state,
+        )
+    arithmetic_identifiers = _shell_arithmetic_identifier_positions(
+        masked_lines,
+        positions,
+    )
+    for line_index, columns in list(positions.items()):
+        columns.difference_update(arithmetic_identifiers.get(line_index, set()))
+        if not columns:
+            del positions[line_index]
     return positions
 
 
@@ -2044,6 +2199,7 @@ class _ShellCommandSubstitutionFrame:
     depth: int
     outer_assertion: bool
     command_assertion: bool = False
+    case_depth_at_open: int = 0
 
 
 def _shell_asserted_substitution_sleep_positions(
@@ -2054,6 +2210,7 @@ def _shell_asserted_substitution_sleep_positions(
     result: dict[int, set[int]] = {}
     frames: list[_ShellCommandSubstitutionFrame] = []
     top_level_assertion = False
+    case_state: tuple[bool, ...] = ()
 
     def current_command_assertion() -> bool:
         if frames:
@@ -2071,7 +2228,11 @@ def _shell_asserted_substitution_sleep_positions(
         assertion_starts = {
             match.start()
             for match in _ASSERT_TOKEN.finditer(line)
-            if _shell_assertion_is_command_position(line, match.start())
+            if _shell_assertion_is_command_position(
+                line,
+                match.start(),
+                case_state,
+            )
         }
         line_sleep_positions = sleep_positions.get(line_index, set())
         index = 0
@@ -2093,6 +2254,13 @@ def _shell_asserted_substitution_sleep_positions(
                         "arithmetic",
                         2,
                         inherited_assertion,
+                        case_depth_at_open=len(
+                            _shell_case_state_after_prefix(
+                                line,
+                                index,
+                                case_state,
+                            )
+                        ),
                     )
                 )
                 index += 3
@@ -2107,6 +2275,13 @@ def _shell_asserted_substitution_sleep_positions(
                         "paren",
                         1,
                         inherited_assertion,
+                        case_depth_at_open=len(
+                            _shell_case_state_after_prefix(
+                                line,
+                                index,
+                                case_state,
+                            )
+                        ),
                     )
                 )
                 index += 2
@@ -2126,6 +2301,13 @@ def _shell_asserted_substitution_sleep_positions(
                             "backtick",
                             1,
                             inherited_assertion,
+                            case_depth_at_open=len(
+                                _shell_case_state_after_prefix(
+                                    line,
+                                    index,
+                                    case_state,
+                                )
+                            ),
                         )
                     )
                 index += 1
@@ -2134,7 +2316,15 @@ def _shell_asserted_substitution_sleep_positions(
             if frames and frames[-1].kind in ("paren", "arithmetic"):
                 if char == "(":
                     frames[-1].depth += 1
-                elif char == ")":
+                elif char == ")" and not (
+                    frames[-1].kind == "paren"
+                    and _shell_parenthesis_is_case_arm_boundary(
+                        line,
+                        index,
+                        case_state,
+                        frames[-1].case_depth_at_open,
+                    )
+                ):
                     frames[-1].depth -= 1
                     if frames[-1].depth == 0:
                         frames.pop()
@@ -2153,6 +2343,11 @@ def _shell_asserted_substitution_sleep_positions(
             top_level_assertion = False
             if frames:
                 frames[-1].command_assertion = False
+        case_state = _shell_case_state_after_prefix(
+            line,
+            len(line),
+            case_state,
+        )
 
     return result
 
@@ -2397,7 +2592,11 @@ def _mask_javascript_regex_literals(lines: list[str]) -> list[str]:
     return "".join(masked).split("\n")
 
 
-def _shell_closer_ends_expansion(line: str, closer_index: int) -> bool:
+def _shell_closer_ends_expansion(
+    line: str,
+    closer_index: int,
+    initial_case_state: tuple[bool, ...] = (),
+) -> bool:
     """Return whether a ``)``/``}`` closes a dollar expansion."""
     if line[closer_index] not in ")}":
         return False
@@ -2422,12 +2621,35 @@ def _shell_closer_ends_expansion(line: str, closer_index: int) -> bool:
                 index += 1
                 continue
             if line.startswith("$((", index):
-                frames.append(_ShellExpansionFrame("arithmetic", 2))
+                frames.append(
+                    _ShellExpansionFrame(
+                        "arithmetic",
+                        2,
+                        case_depth_at_open=len(
+                            _shell_case_state_after_prefix(
+                                line,
+                                index,
+                                initial_case_state,
+                            )
+                        ),
+                    )
+                )
                 quotes.append(None)
                 index += 3
                 continue
             if line.startswith("$(", index):
-                frames.append(_ShellExpansionFrame("paren"))
+                frames.append(
+                    _ShellExpansionFrame(
+                        "paren",
+                        case_depth_at_open=len(
+                            _shell_case_state_after_prefix(
+                                line,
+                                index,
+                                initial_case_state,
+                            )
+                        ),
+                    )
+                )
                 quotes.append(None)
                 index += 2
                 continue
@@ -2447,12 +2669,35 @@ def _shell_closer_ends_expansion(line: str, closer_index: int) -> bool:
             index += 1
             continue
         if line.startswith("$((", index):
-            frames.append(_ShellExpansionFrame("arithmetic", 2))
+            frames.append(
+                _ShellExpansionFrame(
+                    "arithmetic",
+                    2,
+                    case_depth_at_open=len(
+                        _shell_case_state_after_prefix(
+                            line,
+                            index,
+                            initial_case_state,
+                        )
+                    ),
+                )
+            )
             quotes.append(None)
             index += 3
             continue
         if line.startswith("$(", index):
-            frames.append(_ShellExpansionFrame("paren"))
+            frames.append(
+                _ShellExpansionFrame(
+                    "paren",
+                    case_depth_at_open=len(
+                        _shell_case_state_after_prefix(
+                            line,
+                            index,
+                            initial_case_state,
+                        )
+                    ),
+                )
+            )
             quotes.append(None)
             index += 2
             continue
@@ -2471,7 +2716,15 @@ def _shell_closer_ends_expansion(line: str, closer_index: int) -> bool:
             )
             if char == opener:
                 frame.depth += 1
-            elif char == closer:
+            elif char == closer and not (
+                frame.kind == "paren"
+                and _shell_parenthesis_is_case_arm_boundary(
+                    line,
+                    index,
+                    initial_case_state,
+                    frame.case_depth_at_open,
+                )
+            ):
                 frame.depth -= 1
                 if frame.depth == 0:
                     if index == closer_index:
@@ -2505,6 +2758,7 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
     shell_heredocs: list[tuple[str, bool, bool]] = []
     shell_heredoc_expansions: list[_ShellExpansionFrame] = []
     shell_arithmetic_depth = 0
+    shell_case_state: tuple[bool, ...] = ()
     hash_comments = path_suffix in (".py", ".sh")
     marker_pattern = (
         _HASH_NONCODE_MARKER if hash_comments else _SLASH_NONCODE_MARKER
@@ -2643,6 +2897,18 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
                     if delimiter >= 0 and (
                         marker is None or delimiter < marker.start()
                     ):
+                        if (
+                            line[delimiter] == ")"
+                            and interpolation_kind == "paren"
+                            and depth == 1
+                            and _shell_parenthesis_is_case_arm_boundary(
+                                "".join(masked),
+                                delimiter,
+                                shell_case_state,
+                            )
+                        ):
+                            i = delimiter + 1
+                            continue
                         if line[delimiter] == "(":
                             shell_interpolations[-1] = (
                                 interpolation_kind,
@@ -2741,6 +3007,11 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
                         allow_expansions,
                     )
                 )
+            shell_case_state = _shell_case_state_after_prefix(
+                masked_line,
+                len(masked_line),
+                shell_case_state,
+            )
         masked_lines.append(masked_line)
 
     if path_suffix in _JS_SUFFIXES:

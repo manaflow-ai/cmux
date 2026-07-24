@@ -281,6 +281,16 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             "shell-assert-arithmetic-substitution.sh": (
                 'assert "$(echo $((1 + 2)); sleep 1)"\n'
             ),
+            "shell-arithmetic-command-substitution.sh": (
+                "value=$((1 + $(sleep 1)))\n"
+                'assert "$ready"\n'
+            ),
+            "heredoc-arithmetic-command-substitution.sh": (
+                "cat <<EOF\n"
+                "$((1 + $(sleep 1)))\n"
+                "EOF\n"
+                'assert "$ready"\n'
+            ),
             "shell-expansion-suffix-before-sleep.sh": (
                 "value=$(printf ok)#suffix; sleep 1\n"
                 'assert "$actual" "$expected"\n'
@@ -390,6 +400,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "continued-assert-backtick.sh",
                     "regex-comment-marker-before-sleep.ts",
                     "multiline-case-assignment.sh",
+                    "heredoc-arithmetic-command-substitution.sh",
                 )
                 else 1
             )
@@ -581,6 +592,15 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "import time as clock\n"
                     "check()\n"
                 ),
+                "nested-trusted-closure.py": (
+                    "def outer():\n"
+                    "    import time as clock\n"
+                    "    def inner():\n"
+                    "        clock.sleep(0.01)\n"
+                    "        assert finished\n"
+                    "    inner()\n"
+                    "outer()\n"
+                ),
             }
         )
 
@@ -602,10 +622,15 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             "same-line-from-import.py",
             "deferred-trusted-alias.py",
             "deferred-later-trusted-alias.py",
+            "nested-trusted-closure.py",
         ):
             line = (
                 4
-                if relative_path == "parenthesized-from-time.py"
+                if relative_path
+                in (
+                    "parenthesized-from-time.py",
+                    "nested-trusted-closure.py",
+                )
                 else 3
                 if relative_path == "deferred-trusted-alias.py"
                 else 2
