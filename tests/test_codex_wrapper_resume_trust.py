@@ -38,6 +38,7 @@ class CodexWrapperResumeTrustTests(unittest.TestCase):
         effective_project_codex_on_path: bool = False,
         project_codex_passthrough: bool = False,
         custom_codex_is_symlink: bool = False,
+        cmux_only_on_user_path: bool = False,
     ) -> tuple[list[str], str, subprocess.CompletedProcess[str]]:
         with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as raw:
             root = Path(raw)
@@ -55,7 +56,11 @@ class CodexWrapperResumeTrustTests(unittest.TestCase):
                     else root / "codex-real"
                 )
             )
-            fake_cmux = root / "cmux"
+            fake_cmux = (
+                home / ".local" / "bin" / "cmux"
+                if cmux_only_on_user_path
+                else root / "cmux"
+            )
             args_log = root / "args.bin"
             cmux_log = root / "cmux.log"
             socket_path = root / "cmux.sock"
@@ -86,6 +91,7 @@ sleep 0.2
             )
             if custom_codex_is_symlink:
                 real_codex.symlink_to(real_codex_target.name)
+            fake_cmux.parent.mkdir(parents=True, exist_ok=True)
             make_executable(
                 fake_cmux,
                 f"""#!/usr/bin/env bash
@@ -132,7 +138,6 @@ esac
             env = os.environ.copy()
             env.update(
                 {
-                    "CMUX_BUNDLED_CLI_PATH": str(fake_cmux),
                     "CMUX_SOCKET_PATH": str(socket_path),
                     "CMUX_SURFACE_ID": "surface:test",
                     "FAKE_CODEX_ARGS_LOG": str(args_log),
@@ -141,6 +146,8 @@ esac
                     "HOME": str(home),
                 }
             )
+            if not cmux_only_on_user_path:
+                env["CMUX_BUNDLED_CLI_PATH"] = str(fake_cmux)
             if (
                 not trusted_codex_from_home
                 and not trusted_codex_from_custom_path
@@ -191,6 +198,8 @@ printf '%s\\0' "$@" > "$FAKE_CODEX_ARGS_LOG"
                 lookup_path = f"{project_bin}:{lookup_path}"
             if hostile_bash_on_path or hostile_codex_on_path:
                 lookup_path = f"{hostile_bin}:{lookup_path}"
+            if cmux_only_on_user_path:
+                lookup_path = f"{fake_cmux.parent}:{lookup_path}"
             env["PATH"] = lookup_path
             arguments = [
                 str(effective_project) if arg == "{effective-project}" else arg
@@ -235,6 +244,27 @@ printf '%s\\0' "$@" > "$FAKE_CODEX_ARGS_LOG"
         )
         self.assertIn("hooks codex inject-resume-args", logged_cmux_calls)
         self.assertIn('"cmux_resume_rebind":true', logged_cmux_calls)
+
+    def test_cmux_helper_resolves_from_the_original_user_path(self) -> None:
+        args, logged_cmux_calls, result = self.run_wrapper(
+            ["resume", SESSION_ID],
+            cmux_only_on_user_path=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            args,
+            [
+                "--enable",
+                "hooks",
+                "resume",
+                SESSION_ID,
+                "-c",
+                TRUST_OVERRIDE,
+            ],
+        )
+        self.assertIn("hooks codex inject-args", logged_cmux_calls)
+        self.assertIn("hooks codex inject-resume-args", logged_cmux_calls)
 
     def test_last_and_named_resume_receive_trust_override(self) -> None:
         for arguments in (["resume", "--last"], ["resume", "session-name"]):
