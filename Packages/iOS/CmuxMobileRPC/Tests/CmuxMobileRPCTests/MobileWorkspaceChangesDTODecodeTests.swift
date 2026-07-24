@@ -67,6 +67,8 @@ import Testing
               "is_binary": false
             },
             {"path": "future.dat", "status": "copied"},
+            {"status": "modified", "additions": 3},
+            {"path": "", "status": "modified"},
             42
           ],
           "files_changed": 3,
@@ -79,7 +81,10 @@ import Testing
         let response = try MobileWorkspaceChangedFilesResponse.decode(data)
         #expect(response.workspaceID == "2A7DF0A7-94CF-44E2-A203-34D7869B11A5")
         #expect(response.repoRoot == "/Users/test/cmux")
+        // The identity-less and empty-path objects are omitted like the
+        // non-object entry; identity must never default to "".
         #expect(response.files.count == 3)
+        #expect(response.files.allSatisfy { !$0.path.isEmpty })
         #expect(response.files[0].status == .added)
         #expect(response.files[0].isApproximate == true)
         #expect(response.files[1].status == .renamed)

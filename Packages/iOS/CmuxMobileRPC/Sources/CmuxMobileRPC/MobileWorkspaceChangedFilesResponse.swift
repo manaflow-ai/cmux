@@ -30,10 +30,21 @@ public struct MobileWorkspaceChangedFilesResponse: Decodable, Sendable {
         }
 
         /// Decodes one file entry with defaults for fields omitted by older hosts.
+        /// The path is the entry's list identity, so it decodes strictly: an
+        /// entry without one is malformed and must be omitted by the batch
+        /// loop, not surfaced as an empty-path row with a colliding ID.
         /// - Parameter decoder: The decoder for one file object.
+        /// - Throws: A decoding error when the path is missing or empty.
         public init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            path = (try? container.decodeIfPresent(String.self, forKey: .path)) ?? ""
+            path = try container.decode(String.self, forKey: .path)
+            guard !path.isEmpty else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .path,
+                    in: container,
+                    debugDescription: "path must be a non-empty string"
+                )
+            }
             oldPath = (try? container.decodeIfPresent(String.self, forKey: .oldPath)) ?? nil
             let rawStatus = (try? container.decodeIfPresent(String.self, forKey: .status)) ?? ""
             status = MobileWorkspaceChangeStatus(rawValue: rawStatus) ?? .unknown
