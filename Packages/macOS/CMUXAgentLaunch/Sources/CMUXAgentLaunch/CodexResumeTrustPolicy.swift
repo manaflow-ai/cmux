@@ -7,7 +7,7 @@ import Foundation
 /// no explicit `projects.<path>.trust_level` decision. A cmux auto-resume cannot
 /// answer that prompt safely, so an undecided resume receives an invocation-only
 /// `untrusted` override. Explicit trusted or untrusted decisions in the user's
-/// config, and explicit launch-argument overrides, remain authoritative.
+/// config, and explicit resume-scoped launch overrides, remain authoritative.
 public struct CodexResumeTrustPolicy: Sendable, Equatable {
     public init() {}
 
@@ -20,17 +20,21 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
         repositoryRoot: String?,
         userConfigContents: String?
     ) -> [String] {
-        guard isResumeInvocation(arguments) else { return [] }
+        guard let resumeIndex = resumeSubcommandIndex(arguments) else { return [] }
 
-        let currentDirectory = normalizedAbsolutePath(currentDirectory)
+        let currentDirectory = effectiveWorkingDirectory(
+            arguments: arguments,
+            currentDirectory: currentDirectory
+        )
         guard let currentDirectory else { return [] }
         let candidates = Set(
             [currentDirectory, normalizedAbsolutePath(repositoryRoot)]
                 .compactMap { $0 }
-                .flatMap(projectLookupPaths)
+                .map(canonicalProjectPath)
         )
 
-        if argumentsContainProjectTrustDecision(arguments, candidates: candidates)
+        let resumeArguments = Array(arguments[arguments.index(after: resumeIndex)...])
+        if argumentsContainProjectTrustDecision(resumeArguments, candidates: candidates)
             || userConfigContainsProjectTrustDecision(userConfigContents, candidates: candidates) {
             return []
         }
@@ -38,7 +42,7 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
         // Codex canonicalizes its cwd before looking up `projects.<path>`.
         // macOS exposes `/tmp` as a symlink to `/private/tmp`, so targeting the
         // logical path would leave the trust prompt unresolved after restore.
-        let overrideDirectory = projectLookupPaths(currentDirectory).first ?? currentDirectory
+        let overrideDirectory = canonicalProjectPath(currentDirectory)
         let escapedDirectory = tomlBasicStringContents(overrideDirectory)
         return [
             "-c",
@@ -46,44 +50,129 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
         ]
     }
 
-    private func isResumeInvocation(_ arguments: [String]) -> Bool {
-        var index = 0
-        if let first = arguments.first,
-           first == "codex"
-            || (first.hasPrefix("/") && (first as NSString).lastPathComponent == "codex") {
-            index = 1
+    /// Resolves Codex's effective working root, including a global or
+    /// resume-scoped `-C` / `--cd`. Relative values resolve from the process
+    /// directory that Codex inherits, and the result uses Codex's canonical
+    /// filesystem spelling.
+    public func effectiveWorkingDirectory(
+        arguments: [String],
+        currentDirectory: String
+    ) -> String? {
+        guard let baseDirectory = normalizedAbsolutePath(currentDirectory) else {
+            return nil
         }
-
+        var selectedDirectory: String?
+        var index = executableArgumentStart(arguments)
         while index < arguments.count {
             let argument = arguments[index]
             if argument == "--" {
-                return false
+                break
             }
-            if argument.hasPrefix("-") {
-                if !argument.contains("="), optionConsumesValue(argument) {
-                    index += 2
-                } else {
-                    index += 1
-                }
+            if argument == "-C" || argument == "--cd" {
+                guard index + 1 < arguments.count else { return nil }
+                selectedDirectory = arguments[index + 1]
+                index += 2
                 continue
             }
-            return argument == "resume"
+            if argument.hasPrefix("-C=") {
+                selectedDirectory = String(argument.dropFirst("-C=".count))
+            } else if argument.hasPrefix("--cd=") {
+                selectedDirectory = String(argument.dropFirst("--cd=".count))
+            }
+            index += 1
         }
-        return false
+        guard let selectedDirectory else {
+            return canonicalProjectPath(baseDirectory)
+        }
+        let absoluteDirectory: String
+        if selectedDirectory.hasPrefix("/") {
+            absoluteDirectory = selectedDirectory
+        } else {
+            absoluteDirectory = (baseDirectory as NSString)
+                .appendingPathComponent(selectedDirectory)
+        }
+        guard let normalized = normalizedAbsolutePath(absoluteDirectory) else {
+            return nil
+        }
+        return canonicalProjectPath(normalized)
     }
 
-    private func optionConsumesValue(_ option: String) -> Bool {
-        [
+    private func resumeSubcommandIndex(_ arguments: [String]) -> Int? {
+        var index = executableArgumentStart(arguments)
+        let valueOptions: Set<String> = [
             "-c", "--config",
+            "--enable", "--disable",
             "-m", "--model",
             "-p", "--profile",
             "-C", "--cd",
-            "--remote",
+            "--remote", "--remote-auth-token-env",
+            "--local-provider",
             "-a", "--ask-for-approval",
             "-s", "--sandbox",
-            "--output-last-message",
-            "--enable", "--disable",
-        ].contains(option)
+            "--add-dir",
+        ]
+        let flagOptions: Set<String> = [
+            "--strict-config",
+            "--oss",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--dangerously-bypass-hook-trust",
+            "--search",
+            "--no-alt-screen",
+            "-h", "--help",
+            "-V", "--version",
+        ]
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--" {
+                return nil
+            }
+            if argument == "resume" {
+                return index
+            }
+            if valueOptions.contains(argument) {
+                guard index + 1 < arguments.count else { return nil }
+                index += 2
+                continue
+            }
+            if flagOptions.contains(argument) || recognizedInlineOption(argument) {
+                index += 1
+                continue
+            }
+            // `--image` consumes one or more following values, so a later
+            // positional `resume` cannot be identified as a subcommand.
+            if argument == "-i" || argument == "--image" {
+                return nil
+            }
+            // Unknown options fail closed. Treating a future option as a flag
+            // could mistake its value `resume` for the subcommand and inject a
+            // trust decision into a fresh launch.
+            return nil
+        }
+        return nil
+    }
+
+    private func executableArgumentStart(_ arguments: [String]) -> Int {
+        guard let first = arguments.first else { return 0 }
+        return first == "codex"
+            || (first.hasPrefix("/") && (first as NSString).lastPathComponent == "codex")
+            ? 1
+            : 0
+    }
+
+    private func recognizedInlineOption(_ argument: String) -> Bool {
+        [
+            "-c=", "--config=",
+            "--enable=", "--disable=",
+            "-i=", "--image=",
+            "-m=", "--model=",
+            "--remote=", "--remote-auth-token-env=",
+            "--local-provider=",
+            "-p=", "--profile=",
+            "-s=", "--sandbox=",
+            "-C=", "--cd=",
+            "--add-dir=",
+            "-a=", "--ask-for-approval=",
+        ].contains { argument.hasPrefix($0) }
     }
 
     private func argumentsContainProjectTrustDecision(
@@ -130,7 +219,7 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
         if key == "projects" {
             return candidates.contains { inlineProjectDecision(override, path: $0) }
         }
-        guard isTrustLevelValue(value),
+        guard isCLITrustLevelValue(value),
               let path = projectPathFromEffectiveCLITrustKey(key) else {
             return false
         }
@@ -306,6 +395,17 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
         return value == "trusted" || value == "untrusted"
     }
 
+    private func isCLITrustLevelValue(_ rawValue: String) -> Bool {
+        if isTrustLevelValue(rawValue) {
+            return true
+        }
+        // Codex treats a config override value as a raw string literal when
+        // TOML parsing fails, so unquoted trusted/untrusted are effective CLI
+        // decisions even though the persisted config requires quoted strings.
+        let value = rawValue.trimmingCharacters(in: .whitespaces)
+        return value == "trusted" || value == "untrusted"
+    }
+
     private func inlineProjectDecision(_ line: String, path: String) -> Bool {
         let basicPath = "\"\(tomlBasicStringContents(path))\""
         let literalPath = path.contains("'") ? nil : "'\(path)'"
@@ -327,13 +427,12 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
         return (path as NSString).standardizingPath
     }
 
-    private func projectLookupPaths(_ path: String) -> [String] {
-        let canonical = path.withCString { pointer -> String in
+    private func canonicalProjectPath(_ path: String) -> String {
+        path.withCString { pointer -> String in
             guard let resolved = Darwin.realpath(pointer, nil) else { return path }
             defer { free(resolved) }
             return String(cString: resolved)
         }
-        return canonical == path ? [path] : [canonical, path]
     }
 
     private func tomlBasicStringContents(_ value: String) -> String {

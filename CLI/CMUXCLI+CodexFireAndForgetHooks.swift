@@ -102,10 +102,17 @@ extension CMUXCLI {
               ) ?? normalizedHookValue(FileManager.default.currentDirectoryPath) else {
             return []
         }
-        return CodexResumeTrustPolicy().undecidedProjectOverride(
+        let policy = CodexResumeTrustPolicy()
+        guard let effectiveDirectory = policy.effectiveWorkingDirectory(
+            arguments: arguments,
+            currentDirectory: currentDirectory
+        ) else {
+            return []
+        }
+        return policy.undecidedProjectOverride(
             arguments: arguments,
             currentDirectory: currentDirectory,
-            repositoryRoot: codexCommonRepositoryRoot(currentDirectory: currentDirectory),
+            repositoryRoot: codexCommonRepositoryRoot(currentDirectory: effectiveDirectory),
             userConfigContents: codexUserConfigContents(environment)
         )
     }

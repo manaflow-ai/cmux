@@ -142,8 +142,9 @@ codex_known_subcommand() {
 # launches take an optional prompt, not a subcommand.
 codex_option_consumes_value() {
     case "$1" in
-        -c|--config|-m|--model|-p|--profile|-C|--cd|--remote|-a|--ask-for-approval|\
-        -s|--sandbox|--output-last-message|--enable|--disable)
+        -c|--config|--enable|--disable|-i|--image|-m|--model|--remote|\
+        --remote-auth-token-env|--local-provider|-p|--profile|-s|--sandbox|\
+        -C|--cd|--add-dir|-a|--ask-for-approval)
             return 0
             ;;
     esac
@@ -375,9 +376,11 @@ cmux_codex_read_resume_args() {
 }
 
 if cmux_codex_read_inject_args; then
-    if [[ -n "$cmux_codex_resume_sid" ]]; then
-        cmux_codex_read_resume_args || cmux_codex_resume_args=()
-    fi
+    # The trust helper parses the captured argv and emits nothing for a fresh
+    # launch. Ask it for every invocation so `resume --last` and named-session
+    # resumes receive the same suffix even though neither exposes a UUID for the
+    # synthetic SessionStart rebind above.
+    cmux_codex_read_resume_args || cmux_codex_resume_args=()
     exec "$REAL_CODEX" \
         "${cmux_codex_injected_args[@]}" \
         "$@" \

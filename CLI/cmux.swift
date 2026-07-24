@@ -1014,13 +1014,16 @@ final class ClaudeHookSessionStore {
         includeTerminalPromptTurnIds: Bool = true,
         allowResumedProcessReplacement: Bool = false
     ) -> Bool {
-        // A wrapper-confirmed resume is the only SessionStart allowed to replace
-        // an interrupted active turn. Requiring a different PID preserves the
-        // stale same-process guard for delayed or nested Codex hook events.
+        // A wrapper-confirmed resume may replace an interrupted active turn only
+        // when its exact process generation is newer. PID inequality alone is
+        // insufficient because fire-and-forget hooks can arrive out of order and
+        // the OS can reuse a numeric PID.
         if allowResumedProcessReplacement,
            let incomingPID,
-           let existingPID = record.pid,
-           incomingPID != existingPID {
+           resumedProcessGenerationIsNewer(
+               incomingPID: incomingPID,
+               than: record
+           ) {
             return false
         }
         if max(record.activePromptDepth ?? 0, record.activePromptTurnIds?.count ?? 0) > 0 {
@@ -1034,6 +1037,21 @@ final class ClaudeHookSessionStore {
             return false
         }
         return incomingPID == existingPID
+    }
+
+    private func resumedProcessGenerationIsNewer(
+        incomingPID: Int,
+        than record: ClaudeHookSessionRecord
+    ) -> Bool {
+        guard let incoming = processStartIdentity(pid: incomingPID),
+              let existingSeconds = record.pidStartSeconds,
+              let existingMicroseconds = record.pidStartMicroseconds else {
+            return false
+        }
+        if incoming.seconds != existingSeconds {
+            return incoming.seconds > existingSeconds
+        }
+        return incoming.microseconds > existingMicroseconds
     }
 
     private func clearCodexSessionStartTurnState(on record: inout ClaudeHookSessionRecord) {

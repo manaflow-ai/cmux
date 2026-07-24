@@ -235,14 +235,15 @@ public struct AgentResumeArgv: Sendable, Equatable {
         parts: [String],
         quote: (String) -> String
     ) -> [String] {
-        var replaced = false
+        guard let executableIndex = commandExecutableIndex(parts) else {
+            return parts.map(quote)
+        }
         var rendered: [String] = []
-        for part in parts {
+        for (index, part) in parts.enumerated() {
             let isBareCodex = part == "codex"
             let isAbsoluteCodex = part.hasPrefix("/")
                 && (part as NSString).lastPathComponent == "codex"
-            if !replaced, isBareCodex || isAbsoluteCodex {
-                replaced = true
+            if index == executableIndex, isBareCodex || isAbsoluteCodex {
                 if isAbsoluteCodex {
                     if rendered.isEmpty {
                         rendered.append(quote("env"))
@@ -255,6 +256,32 @@ public struct AgentResumeArgv: Sendable, Equatable {
             }
         }
         return rendered
+    }
+
+    private static func commandExecutableIndex(_ parts: [String]) -> Int? {
+        guard !parts.isEmpty else { return nil }
+        let first = (parts[0] as NSString).lastPathComponent
+        guard first == "env" else { return 0 }
+        var index = 1
+        while index < parts.count, isEnvironmentAssignment(parts[index]) {
+            index += 1
+        }
+        if index < parts.count, parts[index] == "--" {
+            index += 1
+        }
+        return index < parts.count ? index : nil
+    }
+
+    private static func isEnvironmentAssignment(_ value: String) -> Bool {
+        guard let equals = value.firstIndex(of: "=") else { return false }
+        let name = value[..<equals]
+        guard let first = name.first,
+              first == "_" || first.isLetter else {
+            return false
+        }
+        return name.dropFirst().allSatisfy {
+            $0 == "_" || $0.isLetter || $0.isNumber
+        }
     }
 
     /// The result of resolving a cmux wrapper launcher (the `claude-teams` / `codex-teams` / `omo`
