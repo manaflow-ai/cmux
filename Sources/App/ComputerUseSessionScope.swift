@@ -14,6 +14,15 @@ struct ComputerUseSessionScope: Sendable {
         return UUID(uuidString: String(candidate.dropFirst("cmux-".count))) != nil
     }
 
+    static func isManagedProxySessionID(
+        _ candidate: String,
+        for driverSessionID: String
+    ) -> Bool {
+        guard isManagedDriverSessionID(driverSessionID) else { return false }
+        let prefix = "\(driverSessionID)-mcp-"
+        return candidate.hasPrefix(prefix) && candidate.count > prefix.count
+    }
+
     func matches(driverSessionID candidate: String?) -> Bool {
         guard let candidate else { return false }
         return candidate == driverSessionID

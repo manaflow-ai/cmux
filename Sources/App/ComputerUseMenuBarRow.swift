@@ -11,11 +11,13 @@ struct ComputerUseMenuBarRow: Equatable, Identifiable, Sendable {
     let targetIdentity: ComputerUseTargetIdentity?
     let targetAppName: String?
     let stateWriterIdentity: AgentPIDProcessIdentity?
+    let proxySessionID: String?
 
     func withTarget(
         identity: ComputerUseTargetIdentity?,
         targetAppName: String?,
-        stateWriterIdentity: AgentPIDProcessIdentity?
+        stateWriterIdentity: AgentPIDProcessIdentity?,
+        proxySessionID: String?
     ) -> ComputerUseMenuBarRow {
         ComputerUseMenuBarRow(
             id: id,
@@ -26,7 +28,8 @@ struct ComputerUseMenuBarRow: Equatable, Identifiable, Sendable {
             rootProcessIdentities: rootProcessIdentities,
             targetIdentity: identity,
             targetAppName: targetAppName,
-            stateWriterIdentity: stateWriterIdentity
+            stateWriterIdentity: stateWriterIdentity,
+            proxySessionID: proxySessionID
         )
     }
 }

@@ -17,7 +17,7 @@ final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
     private let onViewComputerUse:
         (ComputerUseTargetIdentity, String, String, AgentPIDProcessIdentity) -> Bool
     private let onStopComputerUse:
-        (String, String, AgentPIDProcessIdentity) -> Void
+        (String, String, AgentPIDProcessIdentity, String) -> Void
     private let computerUseIcon: () -> NSImage?
     private var snapshotCancellable: AnyCancellable?
     private var currentSnapshot = ComputerUseMenuBarSnapshot.hidden
@@ -37,7 +37,7 @@ final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
         onViewComputerUse:
             @escaping (ComputerUseTargetIdentity, String, String, AgentPIDProcessIdentity) -> Bool,
         onStopComputerUse:
-            @escaping (String, String, AgentPIDProcessIdentity) -> Void,
+            @escaping (String, String, AgentPIDProcessIdentity, String) -> Void,
         computerUseIcon: @escaping () -> NSImage?
     ) {
         self.snapshotStore = snapshotStore
@@ -214,12 +214,20 @@ final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
             systemSymbolName: "stop.circle",
             accessibilityDescription: stopTitle
         )
-        if let stateWriterIdentity = row.stateWriterIdentity {
+        if
+            let stateWriterIdentity = row.stateWriterIdentity,
+            let proxySessionID = row.proxySessionID,
+            ComputerUseSessionScope.isManagedProxySessionID(
+                proxySessionID,
+                for: driverSessionID
+            )
+        {
             stopActions[ObjectIdentifier(stopItem)] = { [onStopComputerUse] in
                 onStopComputerUse(
                     driverSessionID,
                     row.id,
-                    stateWriterIdentity
+                    stateWriterIdentity,
+                    proxySessionID
                 )
             }
         } else {

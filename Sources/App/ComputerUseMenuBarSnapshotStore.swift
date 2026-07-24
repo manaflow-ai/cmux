@@ -221,7 +221,8 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
                 return row.withTarget(
                     identity: identity,
                     targetAppName: state.targetApp,
-                    stateWriterIdentity: state.writerProcessIdentity
+                    stateWriterIdentity: state.writerProcessIdentity,
+                    proxySessionID: state.session
                 )
             }
             self.snapshot = ComputerUseMenuBarSnapshot(
@@ -275,7 +276,8 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
                 rootProcessIdentities: liveSession.rootProcessIdentities,
                 targetIdentity: nil,
                 targetAppName: nil,
-                stateWriterIdentity: nil
+                stateWriterIdentity: nil,
+                proxySessionID: nil
             )
         }
     }

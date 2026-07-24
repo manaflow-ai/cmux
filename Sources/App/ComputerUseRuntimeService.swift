@@ -197,13 +197,16 @@ final class ComputerUseRuntimeService {
         )
     }
 
-    /// Ends one exact cmux-managed driver session through the authenticated
-    /// helper that owns its state and cursor.
-    func endDriverSession(_ driverSessionID: String) async -> Bool {
-        guard ComputerUseSessionScope.isManagedDriverSessionID(driverSessionID)
-        else {
-            return false
-        }
+    /// Ends one exact cmux-managed proxy generation through the authenticated
+    /// helper that owns its lifecycle state.
+    func endDriverSession(
+        _ driverSessionID: String,
+        proxySessionID: String
+    ) async -> Bool {
+        guard let request = Self.endDriverSessionRequest(
+            driverSessionID: driverSessionID,
+            proxySessionID: proxySessionID
+        ) else { return false }
         return await serializeHelperLifecycle(cancelledResult: false) { [weak self] in
             guard
                 let self,
@@ -216,11 +219,7 @@ final class ComputerUseRuntimeService {
                 return false
             }
             guard let response = await Self.sendDaemonRequest(
-                [
-                    "method": "call",
-                    "name": "end_session",
-                    "args": ["session": driverSessionID],
-                ],
+                request,
                 paths: self.paths,
                 transport: self.transport,
                 timeout: 3,
@@ -230,6 +229,23 @@ final class ComputerUseRuntimeService {
             }
             return response["ok"] as? Bool == true
         }
+    }
+
+    nonisolated static func endDriverSessionRequest(
+        driverSessionID: String,
+        proxySessionID: String
+    ) -> [String: Any]? {
+        guard ComputerUseSessionScope.isManagedProxySessionID(
+            proxySessionID,
+            for: driverSessionID
+        ) else {
+            return nil
+        }
+        return [
+            "method": "call",
+            "name": "end_session",
+            "args": ["session": proxySessionID],
+        ]
     }
 
     /// Shows or hides the stable cursor owned by one cmux surface. The helper
@@ -384,24 +400,31 @@ final class ComputerUseRuntimeService {
         }
         if await Self.isDaemonListening(paths: paths, transport: transport) {
             recordExpectedTerminationOfRunningHelper(at: helperURL)
-            _ = await Self.sendDaemonRequest(
-                ["method": "shutdown"],
-                paths: paths,
-                transport: transport,
-                timeout: 2
-            )
-            if await Self.waitForDaemonStop(paths: paths, transport: transport) {
-                if processIdentifiers.isEmpty {
-                    clearTrackedHelperProcess()
-                    return true
-                }
-                if await waitForHelperProcessesToExit(
-                    processIdentifiers,
-                    helperURL: helperURL,
-                    attempts: 10
-                ) {
-                    clearTrackedHelperProcess()
-                    return true
+            if
+                let expectedPeerIdentity = runningHelperProcessIdentity,
+                AgentPIDProcessIdentity(pid: expectedPeerIdentity.pid)
+                    == expectedPeerIdentity
+            {
+                _ = await Self.sendDaemonRequest(
+                    ["method": "shutdown"],
+                    paths: paths,
+                    transport: transport,
+                    timeout: 2,
+                    expectedPeerIdentity: expectedPeerIdentity
+                )
+                if await Self.waitForDaemonStop(paths: paths, transport: transport) {
+                    if processIdentifiers.isEmpty {
+                        clearTrackedHelperProcess()
+                        return true
+                    }
+                    if await waitForHelperProcessesToExit(
+                        processIdentifiers,
+                        helperURL: helperURL,
+                        attempts: 10
+                    ) {
+                        clearTrackedHelperProcess()
+                        return true
+                    }
                 }
             }
         }
@@ -532,12 +555,6 @@ final class ComputerUseRuntimeService {
         missedHelperHealthChecks = 0
         recoveryTask?.cancel()
         recoveryTask = nil
-        _ = Self.sendDaemonRequestSynchronously(
-            ["method": "shutdown"],
-            paths: paths,
-            transport: transport,
-            timeout: 0.25
-        )
         terminateRunningHelper(at: installedHelperURL ?? paths.installedHelperAppURL)
         clearTrackedHelperProcess()
         try? FileManager.default.removeItem(at: paths.daemonSocketURL)
@@ -1026,11 +1043,14 @@ final class ComputerUseRuntimeService {
         timeout: TimeInterval,
         expectedPeerIdentity: AgentPIDProcessIdentity? = nil
     ) -> [String: Any]? {
-        let authenticatedRequest: [String: Any] = [
+        var authenticatedRequest: [String: Any] = [
             "auth_token": paths.authenticationToken,
-            "host_auth_token": paths.hostAuthenticationToken,
             "request": request,
         ]
+        if expectedPeerIdentity != nil {
+            authenticatedRequest["host_auth_token"] =
+                paths.hostAuthenticationToken
+        }
         guard
             JSONSerialization.isValidJSONObject(authenticatedRequest),
             let data = try? JSONSerialization.data(withJSONObject: authenticatedRequest),

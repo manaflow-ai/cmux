@@ -68,6 +68,13 @@ final class ComputerUseUXCoordinator {
             || toolName.hasPrefix("cmux_computer_use.")
     }
 
+    static func shouldReconcileToolInvocation(
+        featureEnabled: Bool,
+        settingEnabled: Bool
+    ) -> Bool {
+        featureEnabled && settingEnabled
+    }
+
     func install(onFocusTerminal: @escaping @MainActor (UUID, UUID) -> Void) {
         guard menuBarController == nil else { return }
 
@@ -200,7 +207,8 @@ final class ComputerUseUXCoordinator {
             onStopComputerUse: {
                 driverSessionID,
                 logicalSessionID,
-                stateWriterIdentity in
+                stateWriterIdentity,
+                proxySessionID in
                 guard watchTarget.canControlSession(
                     driverSessionID: driverSessionID,
                     logicalSessionID: logicalSessionID,
@@ -209,7 +217,10 @@ final class ComputerUseUXCoordinator {
                     return
                 }
                 Task { @MainActor [runtimeService = self.runtimeService] in
-                    _ = await runtimeService.endDriverSession(driverSessionID)
+                    _ = await runtimeService.endDriverSession(
+                        driverSessionID,
+                        proxySessionID: proxySessionID
+                    )
                 }
             },
             computerUseIcon: { [runtimeService = self.runtimeService] in
@@ -271,13 +282,14 @@ final class ComputerUseUXCoordinator {
         onboardingGateTask = Task { @MainActor [weak self] in
             guard let self else { return }
             defer { onboardingGateTask = nil }
-            let enabled = featureEnabled()
+            let enabled = Self.shouldReconcileToolInvocation(
+                featureEnabled: featureEnabled(),
+                settingEnabled: configStore.snapshotValue(for: enabledKey)
+            )
             if enabled {
-                // A real tool invocation is the authority to finish any
-                // in-flight startup recovery before reading permission state.
-                // This also serializes behind the launch-time reconciliation,
-                // so a fast agent call cannot mistake a healthy helper for an
-                // unknown one and reopen completed onboarding.
+                // The persisted setting remains the authority. A real tool
+                // invocation may only finish recovery while that setting is
+                // still enabled; it must never override an explicit opt-out.
                 await runtimeService.setEnabled(true)
             }
             let status = enabled

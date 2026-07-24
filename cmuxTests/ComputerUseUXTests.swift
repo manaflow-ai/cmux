@@ -139,7 +139,8 @@ struct ComputerUseUXTests {
                     rootProcessIdentities: [],
                     targetIdentity: nil,
                     targetAppName: nil,
-                    stateWriterIdentity: nil
+                    stateWriterIdentity: nil,
+                    proxySessionID: nil
                 ),
                 ComputerUseMenuBarRow(
                     id: "newer",
@@ -150,7 +151,8 @@ struct ComputerUseUXTests {
                     rootProcessIdentities: [],
                     targetIdentity: nil,
                     targetAppName: nil,
-                    stateWriterIdentity: nil
+                    stateWriterIdentity: nil,
+                    proxySessionID: nil
                 ),
             ]
             let scan = ComputerUseStateRepository(
@@ -220,6 +222,22 @@ struct ComputerUseUXTests {
             toolName: "Bash"
         )
         #expect(!ComputerUseUXCoordinator.isComputerUseToolInvocation(unrelatedTool))
+    }
+
+    @Test @MainActor
+    func toolInvocationCannotOverrideDisabledComputerUseSetting() {
+        #expect(ComputerUseUXCoordinator.shouldReconcileToolInvocation(
+            featureEnabled: true,
+            settingEnabled: true
+        ))
+        #expect(!ComputerUseUXCoordinator.shouldReconcileToolInvocation(
+            featureEnabled: true,
+            settingEnabled: false
+        ))
+        #expect(!ComputerUseUXCoordinator.shouldReconcileToolInvocation(
+            featureEnabled: false,
+            settingEnabled: true
+        ))
     }
 
     @Test func parsesRealDriverStateFileShape() throws {
@@ -610,14 +628,43 @@ struct ComputerUseUXTests {
 
     @Test func onlyExactSurfaceDerivedDriverSessionsAreManaged() {
         let surfaceID = UUID()
-        #expect(ComputerUseSessionScope.isManagedDriverSessionID(
-            ComputerUseSessionScope.driverSessionID(surfaceID: surfaceID)
-        ))
+        let driverSessionID = ComputerUseSessionScope.driverSessionID(
+            surfaceID: surfaceID
+        )
+        #expect(ComputerUseSessionScope.isManagedDriverSessionID(driverSessionID))
         #expect(!ComputerUseSessionScope.isManagedDriverSessionID(
             "cmux-\(surfaceID.uuidString)-mcp-1"
         ))
         #expect(!ComputerUseSessionScope.isManagedDriverSessionID("default"))
         #expect(!ComputerUseSessionScope.isManagedDriverSessionID("cmux-not-a-uuid"))
+        #expect(ComputerUseSessionScope.isManagedProxySessionID(
+            "\(driverSessionID)-mcp-42-1000",
+            for: driverSessionID
+        ))
+        let endRequest = ComputerUseRuntimeService.endDriverSessionRequest(
+            driverSessionID: driverSessionID,
+            proxySessionID: "\(driverSessionID)-mcp-42-1000"
+        )
+        #expect(
+            (endRequest?["args"] as? [String: String])?["session"]
+                == "\(driverSessionID)-mcp-42-1000"
+        )
+        #expect(!ComputerUseSessionScope.isManagedProxySessionID(
+            driverSessionID,
+            for: driverSessionID
+        ))
+        #expect(ComputerUseRuntimeService.endDriverSessionRequest(
+            driverSessionID: driverSessionID,
+            proxySessionID: driverSessionID
+        ) == nil)
+        #expect(!ComputerUseSessionScope.isManagedProxySessionID(
+            "\(driverSessionID)-mcp-",
+            for: driverSessionID
+        ))
+        #expect(!ComputerUseSessionScope.isManagedProxySessionID(
+            "cmux-\(UUID().uuidString)-mcp-42-1000",
+            for: driverSessionID
+        ))
     }
 
     @Test func helperTerminationRecoveryIgnoresIntentionalAndForeignExits() {
@@ -815,6 +862,65 @@ struct ComputerUseUXTests {
             environment: ["CMUX_TAG": "restart-safe"]
         )
         #expect(relaunched.authenticationToken == credential)
+    }
+
+    @Test @MainActor
+    func unverifiedDaemonProbeDoesNotSendHostCapability() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-computer-use-unverified-peer-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let sockets = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent(
+                "cmux-cu-peer-\(UUID().uuidString.prefix(8))",
+                isDirectory: true
+            )
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: sockets)
+        }
+        try FileManager.default.createDirectory(
+            at: home,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: sockets,
+            withIntermediateDirectories: true
+        )
+        let paths = ComputerUseRuntimePaths(
+            homeDirectoryURL: home,
+            socketRootDirectoryURL: sockets,
+            userIdentifier: getuid(),
+            environment: ["CMUX_TAG": "unverified-peer"],
+            authenticationToken: "agent-capability",
+            hostAuthenticationToken: "host-capability"
+        )
+        let runtime = ComputerUseRuntimeService(
+            bundle: Bundle(for: NSApplication.self),
+            paths: paths
+        )
+        #expect(runtime.prepareRuntimeForLaunch())
+        let responder = try UnixSocketResponder(
+            path: paths.daemonSocketURL.path,
+            response: #"{"ok":true,"result":{"structuredContent":{"accessibility":true,"screen_recording":true}}}"#
+        )
+
+        let status = await runtime.refreshHelperStatus()
+        let line = try #require(responder.receivedRequests.first)
+        let envelope = try #require(
+            try JSONSerialization.jsonObject(
+                with: Data(line.utf8)
+            ) as? [String: Any]
+        )
+
+        #expect(status.accessibility)
+        #expect(status.screenRecording)
+        #expect(envelope["auth_token"] as? String == "agent-capability")
+        #expect(envelope["host_auth_token"] == nil)
+        responder.stop()
+        runtime.stopForTermination()
     }
 
     @Test(.timeLimit(.minutes(1))) @MainActor
