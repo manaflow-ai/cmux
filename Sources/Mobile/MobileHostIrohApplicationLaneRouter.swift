@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxAgentChat
 import CmuxIrohTransport
 import Darwin
@@ -456,7 +457,11 @@ actor MobileHostIrohApplicationLaneRouter {
 
     func run(
         isCurrent: @escaping CmxIrohHostRuntime.CurrentGeneration
-    ) async {
+    ) async -> CmxIrohAdmittedConnectionExit {
+        var exit = CmxIrohAdmittedConnectionExit(
+            lifecycle: .explicitlyInvalidated,
+            failure: .none
+        )
         while !stopped, !Task.isCancelled, await isCurrent() {
             do {
                 let accepted = try await session.acceptBidirectionalLane()
@@ -476,6 +481,10 @@ actor MobileHostIrohApplicationLaneRouter {
                 continue
             } catch {
                 if !stopped, !Task.isCancelled {
+                    exit = CmxIrohAdmittedConnectionExit(
+                        lifecycle: .applicationLaneFailed,
+                        failure: DiagnosticFailureKind.classify(error)
+                    )
                     mobileHostIrohLaneLog.error(
                         "Iroh application lane accept failed: \(String(describing: error), privacy: .private)"
                     )
@@ -484,6 +493,7 @@ actor MobileHostIrohApplicationLaneRouter {
             }
         }
         await stop()
+        return exit
     }
 
     func stop() async {

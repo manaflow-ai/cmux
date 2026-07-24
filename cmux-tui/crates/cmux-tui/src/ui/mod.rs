@@ -30,6 +30,7 @@ pub(crate) use scrollbar::{
 };
 
 pub fn draw(app: &mut App, frame: &mut Frame) {
+    app.reset_frame_cursor_spec();
     let area = frame.area();
     if area.height == 0 {
         return;
