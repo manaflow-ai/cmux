@@ -19,9 +19,7 @@ export function BlogPostMeta({
 
   return (
     <div
-      className={`not-prose flex flex-wrap items-center gap-x-2 text-sm text-muted ${
-        compact ? "mt-1" : "mt-2"
-      }`}
+      className="not-prose mt-2 flex flex-wrap items-center gap-x-2 text-sm text-muted"
     >
       <a
         href={author.url}
