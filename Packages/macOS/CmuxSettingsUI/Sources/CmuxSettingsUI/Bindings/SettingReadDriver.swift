@@ -19,9 +19,10 @@ import SwiftUI
 /// The driver is store-agnostic — it only needs an `AsyncStream<Value>` — so
 /// the same path works for every key kind (UserDefaults, JSON, secret) and
 /// for both `@State`-backed and `@Observable`-backed consumers.
-@MainActor
 final class SettingReadDriver<Value: Sendable> {
-    private var task: Task<Void, Never>?
+    // SwiftUI confines `activate` to its main-thread DynamicProperty update;
+    // Task cancellation is thread-safe if deinit occurs elsewhere.
+    nonisolated(unsafe) private var task: Task<Void, Never>?
 
     /// Starts forwarding `makeStream()`'s elements into `sink`. Idempotent:
     /// the first call wins and later calls are no-ops, so the subscription is

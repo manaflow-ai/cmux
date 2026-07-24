@@ -32,9 +32,13 @@ import SwiftUI
 /// no wrapping or casting. Reads work without an injected ``SettingsRuntime``
 /// (the `@State` is seeded from the catalog default); the runtime is only
 /// needed to observe and persist changes, resolved from the environment.
-@MainActor
+// Deliberately not @MainActor. SwiftUI's `DynamicProperty.update()` requirement
+// is nonisolated, so an actor-isolated conformance emits an executor check that
+// crashes on macOS 26 when SwiftUI updates the property from AppKit layout.
+// SwiftUI still invokes these accessors on the main thread, and the stored
+// members are value projections or Sendable closures.
 @propertyWrapper
-public struct LiveSetting<Value: SettingCodable>: @preconcurrency DynamicProperty {
+public struct LiveSetting<Value: SettingCodable>: DynamicProperty {
     @Environment(\.settingsRuntime) private var runtime
     @State private var value: Value
     @State private var driver = SettingReadDriver<Value>()
@@ -69,7 +73,7 @@ public struct LiveSetting<Value: SettingCodable>: @preconcurrency DynamicPropert
         persist = { runtime, newValue in
             let key = runtime.catalog[keyPath: keyPath]
             let errorLog = runtime.errorLog
-            Task {
+            Task { @MainActor in
                 do { try await runtime.jsonStore.set(newValue, for: key) }
                 catch { errorLog.record(error, keyID: key.id) }
             }
@@ -90,7 +94,7 @@ public struct LiveSetting<Value: SettingCodable>: @preconcurrency DynamicPropert
         persist = { runtime, newValue in
             let key = runtime.catalog[keyPath: keyPath]
             let errorLog = runtime.errorLog
-            Task {
+            Task { @MainActor in
                 do { try await runtime.secretStore.set(newValue, for: key) }
                 catch { errorLog.record(error, keyID: key.id) }
             }
@@ -129,6 +133,7 @@ public struct LiveSetting<Value: SettingCodable>: @preconcurrency DynamicPropert
     public func update() {
         guard let runtime else { return }
         let binding = $value
+        let makeStream = makeStream
         driver.activate({ makeStream(runtime) }) { binding.wrappedValue = $0 }
     }
 }

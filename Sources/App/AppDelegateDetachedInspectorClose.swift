@@ -89,35 +89,33 @@ extension AppDelegate {
     ) -> Bool {
         guard Thread.isMainThread else { return false }
 
-        return MainActor.assumeIsolated {
-            guard Self.shouldInterceptWindowCloseAction(
-                action,
-                target: target,
-                sender: sender
-            ) else { return false }
-            guard let window = Self.actionWindow(
-                target: target,
-                sender: sender,
-                allowFallback: Self.allowsWindowFallback(for: action)
-            ) else { return false }
+        guard Self.shouldInterceptWindowCloseAction(
+            action,
+            target: target,
+            sender: sender
+        ) else { return false }
+        guard let window = Self.actionWindow(
+            target: target,
+            sender: sender,
+            allowFallback: Self.allowsWindowFallback(for: action)
+        ) else { return false }
 
-            for panel in allBrowserPanelsForInspectorWindowClose() {
-                if panel.closeDeveloperToolsFromDetachedInspectorWindowUserAction(
-                    window,
-                    source: "sendAction.\(NSStringFromSelector(action))"
-                ) {
+        for panel in allBrowserPanelsForInspectorWindowClose() {
+            if panel.closeDeveloperToolsFromDetachedInspectorWindowUserAction(
+                window,
+                source: "sendAction.\(NSStringFromSelector(action))"
+            ) {
 #if DEBUG
-                    cmuxDebugLog(
-                        "browser.devtools detachedClose.action panel=\(panel.id.uuidString.prefix(5)) " +
-                        "action=\(NSStringFromSelector(action)) window=\(window.windowNumber)"
-                    )
+                cmuxDebugLog(
+                    "browser.devtools detachedClose.action panel=\(panel.id.uuidString.prefix(5)) " +
+                    "action=\(NSStringFromSelector(action)) window=\(window.windowNumber)"
+                )
 #endif
-                    return true
-                }
+                return true
             }
-
-            return false
         }
+
+        return false
     }
 
     static func shouldInterceptWindowCloseAction(
