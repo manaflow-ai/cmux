@@ -1101,6 +1101,23 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn link_ready_eof_is_a_retryable_carrier_failure() {
+        let (client, daemon, _) = fault_pair();
+        drop(daemon);
+
+        let error = receive_control::<LinkReady>(&client).await.unwrap_err();
+
+        assert!(
+            matches!(error, ConnectionError::Link(LinkError::Closed)),
+            "link-ready EOF was not classified as a closed carrier: {error}"
+        );
+        assert!(
+            retryable_connection_error(&error),
+            "link-ready EOF would terminate reconnect instead of trying a fresh carrier"
+        );
+    }
+
     struct BlockingReplayClientLink {
         inner: FaultLink,
         received_frames: AtomicUsize,
