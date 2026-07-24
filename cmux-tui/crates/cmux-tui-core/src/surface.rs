@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{
     Receiver, RecvError, RecvTimeoutError, SyncSender, TryRecvError, TrySendError, sync_channel,
 };
-use std::sync::{Arc, Mutex, TryLockError, Weak};
+use std::sync::{Arc, Condvar, Mutex, TryLockError, Weak};
 use std::time::{Duration, Instant};
 
 use ghostty_vt::{
@@ -219,6 +219,7 @@ pub(crate) const VT_REPLAY_MAX_BYTES: usize = 8 * 1024 * 1024;
 pub struct AttachFrameReceiver {
     receiver: Receiver<AttachFrame>,
     queued_bytes: Arc<AtomicUsize>,
+    lifecycle: AttachLifecycle,
 }
 
 impl AttachFrameReceiver {
@@ -242,6 +243,12 @@ impl AttachFrameReceiver {
         let frame = self.receiver.try_recv()?;
         self.account_received(&frame);
         Ok(frame)
+    }
+}
+
+impl Drop for AttachFrameReceiver {
+    fn drop(&mut self) {
+        self.lifecycle.cancel();
     }
 }
 
@@ -355,17 +362,175 @@ pub enum RenderAttachFrame {
     ScrollChanged { offset: u64, at_bottom: bool },
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PendingRenderKind {
+    Frame,
+    Scroll,
+}
+
+struct RenderTapQueue {
+    pending_frame: Option<Arc<SurfaceRenderFrame>>,
+    pending_scroll: Option<(u64, bool)>,
+    latest_kind: Option<PendingRenderKind>,
+    sender_alive: bool,
+    receiver_alive: bool,
+}
+
+impl RenderTapQueue {
+    fn push(&mut self, event: RenderAttachFrame) {
+        match event {
+            RenderAttachFrame::Frame(frame) => {
+                self.pending_frame = Some(frame);
+                self.latest_kind = Some(PendingRenderKind::Frame);
+            }
+            RenderAttachFrame::ScrollChanged { offset, at_bottom } => {
+                self.pending_scroll = Some((offset, at_bottom));
+                self.latest_kind = Some(PendingRenderKind::Scroll);
+            }
+        }
+    }
+
+    fn pop(&mut self) -> Option<RenderAttachFrame> {
+        let next =
+            match (self.pending_frame.is_some(), self.pending_scroll.is_some(), self.latest_kind) {
+                (true, true, Some(PendingRenderKind::Frame)) => {
+                    let (offset, at_bottom) = self.pending_scroll.take().unwrap();
+                    RenderAttachFrame::ScrollChanged { offset, at_bottom }
+                }
+                (true, true, Some(PendingRenderKind::Scroll)) => {
+                    RenderAttachFrame::Frame(self.pending_frame.take().unwrap())
+                }
+                (true, true, None) => unreachable!("pending render events have an ordering"),
+                (true, false, _) => RenderAttachFrame::Frame(self.pending_frame.take().unwrap()),
+                (false, true, _) => {
+                    let (offset, at_bottom) = self.pending_scroll.take().unwrap();
+                    RenderAttachFrame::ScrollChanged { offset, at_bottom }
+                }
+                (false, false, _) => return None,
+            };
+        if self.pending_frame.is_none() && self.pending_scroll.is_none() {
+            self.latest_kind = None;
+        }
+        Some(next)
+    }
+}
+
+struct RenderTapState {
+    queue: Mutex<RenderTapQueue>,
+    ready: Condvar,
+}
+
+struct RenderTap {
+    state: Arc<RenderTapState>,
+}
+
+impl RenderTap {
+    fn pair() -> (Self, RenderAttachFrameReceiver) {
+        let state = Arc::new(RenderTapState {
+            queue: Mutex::new(RenderTapQueue {
+                pending_frame: None,
+                pending_scroll: None,
+                latest_kind: None,
+                sender_alive: true,
+                receiver_alive: true,
+            }),
+            ready: Condvar::new(),
+        });
+        (Self { state: state.clone() }, RenderAttachFrameReceiver { state })
+    }
+
+    fn send(&self, event: RenderAttachFrame) -> bool {
+        let mut queue = self.state.queue.lock().unwrap();
+        if !queue.receiver_alive {
+            return false;
+        }
+        queue.push(event);
+        drop(queue);
+        self.state.ready.notify_one();
+        true
+    }
+}
+
+impl Drop for RenderTap {
+    fn drop(&mut self) {
+        self.state.queue.lock().unwrap().sender_alive = false;
+        self.state.ready.notify_all();
+    }
+}
+
+/// Bounded receiver for one render attachment.
+pub struct RenderAttachFrameReceiver {
+    state: Arc<RenderTapState>,
+}
+
+impl RenderAttachFrameReceiver {
+    pub fn recv(&self) -> Result<RenderAttachFrame, RecvError> {
+        let mut queue = self.state.queue.lock().unwrap();
+        loop {
+            if let Some(event) = queue.pop() {
+                return Ok(event);
+            }
+            if !queue.sender_alive {
+                return Err(RecvError);
+            }
+            queue = self.state.ready.wait(queue).unwrap();
+        }
+    }
+
+    pub fn recv_timeout(&self, timeout: Duration) -> Result<RenderAttachFrame, RecvTimeoutError> {
+        let started = Instant::now();
+        let mut queue = self.state.queue.lock().unwrap();
+        loop {
+            if let Some(event) = queue.pop() {
+                return Ok(event);
+            }
+            if !queue.sender_alive {
+                return Err(RecvTimeoutError::Disconnected);
+            }
+            let Some(remaining) = timeout.checked_sub(started.elapsed()) else {
+                return Err(RecvTimeoutError::Timeout);
+            };
+            let (next, result) = self.state.ready.wait_timeout(queue, remaining).unwrap();
+            queue = next;
+            if result.timed_out() && queue.pending_frame.is_none() && queue.pending_scroll.is_none()
+            {
+                return Err(RecvTimeoutError::Timeout);
+            }
+        }
+    }
+
+    pub fn try_recv(&self) -> Result<RenderAttachFrame, TryRecvError> {
+        let mut queue = self.state.queue.lock().unwrap();
+        if let Some(event) = queue.pop() {
+            Ok(event)
+        } else if queue.sender_alive {
+            Err(TryRecvError::Empty)
+        } else {
+            Err(TryRecvError::Disconnected)
+        }
+    }
+}
+
+impl Drop for RenderAttachFrameReceiver {
+    fn drop(&mut self) {
+        let mut queue = self.state.queue.lock().unwrap();
+        queue.receiver_alive = false;
+        queue.pending_frame = None;
+        queue.pending_scroll = None;
+    }
+}
+
 /// Initial render snapshot and the ordered live stream registered with it.
 pub struct RenderAttachStream {
     pub initial: Arc<SurfaceRenderFrame>,
-    pub stream: Receiver<RenderAttachFrame>,
+    pub stream: RenderAttachFrameReceiver,
 }
 
 struct RenderHub {
     state: Box<RenderState>,
     built_generation: u64,
     latest: Option<Arc<SurfaceRenderFrame>>,
-    taps: Vec<std::sync::mpsc::Sender<RenderAttachFrame>>,
+    taps: Vec<RenderTap>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1224,7 +1389,11 @@ impl Surface {
             replay: replay.bytes,
             kitty_image_aliases: replay.kitty_image_aliases,
             colors,
-            stream: AttachFrameReceiver { receiver: rx, queued_bytes },
+            stream: AttachFrameReceiver {
+                receiver: rx,
+                queued_bytes,
+                lifecycle: lifecycle.clone(),
+            },
             lifecycle,
         })
     }
@@ -1239,16 +1408,16 @@ impl Surface {
         let generation = pty.render_generation.load(Ordering::Acquire);
         let _ = pty.build_frame_locked(&mut term, generation, false)?;
         let initial_graphics = term.kitty_graphics_snapshot()?;
-        let (tx, rx) = std::sync::mpsc::channel();
+        let (tap, stream) = RenderTap::pair();
         let initial = {
             let mut render = pty.render.lock().unwrap();
             let shared = render.latest.clone().ok_or(ghostty_vt::Error::NoValue)?;
             let mut initial = (*shared).clone();
             initial.frame.kitty_graphics = initial_graphics;
-            render.taps.push(tx);
+            render.taps.push(tap);
             Arc::new(initial)
         };
-        Ok(RenderAttachStream { initial, stream: rx })
+        Ok(RenderAttachStream { initial, stream })
     }
 
     pub fn kill(&self) {
@@ -1529,7 +1698,7 @@ impl PtySurface {
                 });
                 render.built_generation = generation;
                 render.latest = Some(frame.clone());
-                render.taps.retain(|tap| tap.send(RenderAttachFrame::Frame(frame.clone())).is_ok());
+                render.taps.retain(|tap| tap.send(RenderAttachFrame::Frame(frame.clone())));
                 true
             }
         };
@@ -1621,26 +1790,37 @@ impl PtySurface {
         } else {
             PtyGeometryTestStep::CellPixelCommitBoundary
         });
-        #[cfg(test)]
-        self.vt_replay_builds.fetch_add(1, Ordering::AcqRel);
-        let replay = term.vt_replay_bounded(VT_REPLAY_MAX_BYTES).unwrap_or_default();
-        let defaults = self.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
+        let has_attach_taps = {
+            let mut taps = self.taps.lock().unwrap();
+            taps.retain(|tap| !tap.lifecycle.is_canceled());
+            !taps.is_empty()
+        };
+        let replay = if has_attach_taps {
+            #[cfg(test)]
+            self.vt_replay_builds.fetch_add(1, Ordering::AcqRel);
+            Some(term.vt_replay_bounded(VT_REPLAY_MAX_BYTES).unwrap_or_default())
+        } else {
+            None
+        };
         let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
         let _ = self.build_frame_locked(&mut term, generation, false);
-        let colors = Box::new(self.terminal_colors_locked(&mut term, defaults));
-        if refresh_attach_colors {
-            let live_colors = TerminalColors::from_pty_output(&term, defaults);
-            self.attach_colors_pending.store(false, Ordering::Release);
-            self.attach_colors_force_pending.store(false, Ordering::Release);
-            *self.last_attach_colors.lock().unwrap() = Some(Box::new(live_colors));
+        if let Some(replay) = replay {
+            let defaults = self.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
+            let colors = Box::new(self.terminal_colors_locked(&mut term, defaults));
+            if refresh_attach_colors {
+                let live_colors = TerminalColors::from_pty_output(&term, defaults);
+                self.attach_colors_pending.store(false, Ordering::Release);
+                self.attach_colors_force_pending.store(false, Ordering::Release);
+                *self.last_attach_colors.lock().unwrap() = Some(Box::new(live_colors));
+            }
+            self.broadcast_attach_frame(AttachFrame::Resized {
+                cols: next.cols,
+                rows: next.rows,
+                replay: replay.bytes,
+                kitty_image_aliases: replay.kitty_image_aliases,
+                colors,
+            });
         }
-        self.broadcast_attach_frame(AttachFrame::Resized {
-            cols: next.cols,
-            rows: next.rows,
-            replay: replay.bytes,
-            kitty_image_aliases: replay.kitty_image_aliases,
-            colors,
-        });
         Ok(true)
     }
 }
@@ -1701,9 +1881,7 @@ fn spawn_frame_producer(surface: &Arc<Surface>, requests: Receiver<u64>) -> anyh
 fn broadcast_render_scroll_locked(pty: &PtySurface, position: (u64, bool)) {
     let (offset, at_bottom) = position;
     let mut render = pty.render.lock().unwrap();
-    render
-        .taps
-        .retain(|tap| tap.send(RenderAttachFrame::ScrollChanged { offset, at_bottom }).is_ok());
+    render.taps.retain(|tap| tap.send(RenderAttachFrame::ScrollChanged { offset, at_bottom }));
 }
 
 fn terminal_scroll_position(term: &Terminal) -> (u64, bool) {
@@ -1981,10 +2159,19 @@ mod tests {
         );
         assert!(matches!(render.stream.try_recv(), Ok(RenderAttachFrame::Frame(_))));
 
-        let _byte_attach = surface.attach_stream().unwrap();
+        let byte_attach = surface.attach_stream().unwrap();
         pty.vt_replay_builds.store(0, Ordering::Release);
         surface.resize(101, 31).unwrap();
         assert_eq!(pty.vt_replay_builds.load(Ordering::Acquire), 1);
+
+        drop(byte_attach);
+        pty.vt_replay_builds.store(0, Ordering::Release);
+        surface.resize(102, 31).unwrap();
+        assert_eq!(
+            pty.vt_replay_builds.load(Ordering::Acquire),
+            0,
+            "dropping the final byte attach must suppress the next resize replay"
+        );
     }
 
     #[test]
