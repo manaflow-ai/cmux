@@ -109,6 +109,25 @@ struct BrowserDesignModeArtifactStoreTests {
         #expect(!FileManager.default.fileExists(atPath: releasedURL.path))
     }
 
+    @Test func saveFailsInsteadOfReturningAnImmediatelyPrunedArtifact() async throws {
+        let directory = URL.temporaryDirectory
+            .appendingPathComponent("cmux-design-mode-save-survival-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = BrowserDesignModeArtifactStore(directory: directory)
+
+        for value in 0..<100 {
+            _ = try await store.saveScreenshot(
+                Data([UInt8(value)]),
+                surfaceID: UUID(),
+                retention: .liveContext
+            )
+        }
+
+        await #expect(throws: CocoaError.self) {
+            _ = try await store.saveContextJSON(Data("{}".utf8), surfaceID: UUID())
+        }
+    }
+
     @Test func contextJSONUsesTheScreenshotPruningLifecycle() async throws {
         let directory = URL.temporaryDirectory
             .appendingPathComponent("cmux-design-mode-context-pruning-test-\(UUID().uuidString)", isDirectory: true)

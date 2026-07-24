@@ -85,7 +85,8 @@ import Testing
             pageURL: "http://localhost:3000/settings",
             snapshot: snapshot,
             screenshotPath: "/tmp/cmux-design/save.png",
-            requestedChange: "Make the primary action easier to scan."
+            requestedChange: "Make the primary action easier to scan.",
+            pageScreenshotPath: "/tmp/cmux-design/page.png"
         )
         let output = try handoff(for: context)
         let result = output.prompt
@@ -145,8 +146,9 @@ import Testing
                 )],
                 cssDiff: ""
             ),
-            screenshotPath: nil,
-            requestedChange: "Use the established button treatment."
+            screenshotPath: "/tmp/cmux-design/hero.png",
+            requestedChange: "Use the established button treatment.",
+            pageScreenshotPath: "/tmp/cmux-design/page.png"
         )
         let output = try handoff(for: context)
         let result = output.prompt
@@ -180,8 +182,9 @@ import Testing
                 edits: [],
                 cssDiff: ""
             ),
-            screenshotPath: nil,
-            requestedChange: "Adjust this section."
+            screenshotPath: "/tmp/cmux-design/hero.png",
+            requestedChange: "Adjust this section.",
+            pageScreenshotPath: "/tmp/cmux-design/page.png"
         )
 
         let result = try handoff(for: context).prompt
@@ -216,7 +219,8 @@ import Testing
                 cssDiff: ""
             ),
             screenshotPath: "/tmp/cmux-design/hero.png",
-            requestedChange: "Make this heading more prominent."
+            requestedChange: "Make this heading more prominent.",
+            pageScreenshotPath: "/tmp/cmux-design/page.png"
         )
         let output = try handoff(for: context)
         let payload = output.payload
@@ -288,15 +292,16 @@ import Testing
                 edits: [],
                 cssDiff: ""
             ),
-            screenshotPath: nil,
-            requestedChange: "  \n "
+            screenshotPath: "/tmp/cmux-design/hero.png",
+            requestedChange: "  \n ",
+            pageScreenshotPath: "/tmp/cmux-design/page.png"
         )
         let output = try handoff(for: context)
         let payload = output.payload
 
         #expect(output.prompt.hasPrefix("Design-mode context for the selected page elements."))
-        #expect(output.prompt.contains("Full-page screenshot: unavailable"))
-        #expect(output.prompt.contains("Selection 1 (tag: \"div\", selector: \"#hero\"): unavailable"))
+        #expect(output.prompt.contains("Full-page screenshot: /tmp/cmux-design/page.png"))
+        #expect(output.prompt.contains("Selection 1 (tag: \"div\", selector: \"#hero\"): /tmp/cmux-design/hero.png"))
         #expect(payload.selections.last?.selection.selector == "#hero")
         #expect(payload.requestedChange.isEmpty)
     }
@@ -411,10 +416,12 @@ import Testing
                 .token("#missing"),
             ]
         )
-        let payload = try handoff(for: context).payload
+        let output = try handoff(for: context)
+        let payload = output.payload
 
         // Composed order survives: text, selection 1, text, selection 0; the
         // unresolvable pill is dropped without breaking adjacent segments.
+        #expect(output.prompt.isEmpty)
         #expect(payload.prompt.map(\.text) == ["make this ", nil, " look like ", nil])
         #expect(payload.prompt.map(\.selection) == [nil, 1, nil, 0])
         #expect(payload.requestedChange == "make this look like that")
