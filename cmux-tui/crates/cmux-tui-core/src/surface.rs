@@ -2018,6 +2018,34 @@ mod tests {
     }
 
     #[test]
+    fn clear_history_enter_fallback_does_not_relock_the_terminal() {
+        let mux = Mux::new_for_test("clear-history-enter-lock", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let writer = CapturingWriter::default();
+        *surface.as_pty().unwrap().writer.lock().unwrap() = Box::new(writer.clone());
+        surface.with_terminal(|term| term.vt_write(b"\x1b[?1049h\x1b[>1u"));
+        let input = KeyInput {
+            key: ghostty_vt::sys::GHOSTTY_KEY_ENTER,
+            mods: ghostty_vt::Mods::SUPER,
+            action: Some(ghostty_vt::KeyAction::Press),
+            ..Default::default()
+        };
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+        let worker_surface = surface.clone();
+
+        std::thread::spawn(move || {
+            let _ = finished_tx.send(worker_surface.clear_history_or_encode_key(Some(&input)));
+        });
+        finished_rx
+            .recv_timeout(Duration::from_millis(250))
+            .expect("alternate-screen Enter fallback deadlocked")
+            .unwrap();
+
+        assert_eq!(&*writer.0.lock().unwrap(), b"\x1b[13;9u");
+    }
+
+    #[test]
     fn clear_history_erases_rows_scrolled_by_prompt_aware_screen_clear() {
         let mux = Mux::new_for_test("clear-prompt-history", SurfaceOptions::default());
         let surface =

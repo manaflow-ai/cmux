@@ -5750,6 +5750,24 @@ mod tests {
     }
 
     #[test]
+    fn protocol_key_input_rejects_raw_ghostty_discriminants() {
+        let raw = json!({
+            "key": u32::MAX,
+            "mods": u16::MAX,
+            "consumed_mods": 0,
+            "utf8": "",
+            "unshifted_codepoint": 0,
+            "action": "press",
+            "macos_option_as_alt": true,
+        });
+
+        assert!(
+            serde_json::from_value::<ProtocolKeyInput>(raw).is_err(),
+            "raw Ghostty enum and modifier values crossed the protocol boundary"
+        );
+    }
+
+    #[test]
     fn reload_config_returns_path_and_emits_request() {
         let mux = test_mux();
         let events = mux.subscribe();
