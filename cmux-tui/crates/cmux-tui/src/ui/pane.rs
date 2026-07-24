@@ -505,7 +505,7 @@ fn draw_scrollbar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bo
             buf[(track.x, y)].set_symbol(glyph).set_style(thumb_style);
         }
     }
-    app.hits.push((track, Hit::Scrollbar { surface: area.surface, track }));
+    app.hits.push((track, Hit::Scrollbar { surface: area.surface, track, scrollbar: sb }));
 }
 
 fn push_resize_hits(app: &mut App, area: &PaneArea) {

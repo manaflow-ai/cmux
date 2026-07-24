@@ -32,7 +32,7 @@ use crossterm::terminal::{
 };
 use ghostty_vt::{
     CursorShape, KeyEncoder, Mods, MouseAction, MouseButton as GhosttyMouseButton, MouseInput,
-    RenderState, Rgb, Screen, TerminalPointerSemanticSnapshot,
+    RenderState, Rgb, Screen, Scrollbar, TerminalPointerSemanticSnapshot,
 };
 use ratatui::Terminal as RatatuiTerminal;
 use ratatui::backend::{Backend, CrosstermBackend};
@@ -1020,7 +1020,7 @@ impl OrderedSession {
     }
 
     fn disconnect_client(&self, client: u64) {
-        self.enqueue_coalescing_session_mutation(
+        self.enqueue_coalescing_pointer_mutation(
             "disconnect client",
             ("disconnect client", client),
             move |session| match session.disconnect_client(client) {
@@ -1441,6 +1441,7 @@ impl OrderedSession {
         );
     }
 
+    #[cfg(test)]
     fn enqueue_coalescing_session_mutation(
         &self,
         label: &'static str,
@@ -2183,6 +2184,7 @@ pub enum Hit {
     Scrollbar {
         surface: SurfaceId,
         track: Rect,
+        scrollbar: Scrollbar,
     },
     /// A rail's right border.
     RailResize(RailKind),
@@ -2483,6 +2485,7 @@ pub struct ContextMenu {
     pub levels: Vec<MenuLevel>,
     right_press: (u16, u16),
     right_drag_moved: bool,
+    captured_resources: Vec<(MenuAction, Option<MenuActionResource>)>,
 }
 
 impl ContextMenu {
@@ -2512,7 +2515,32 @@ impl ContextMenu {
             levels: vec![MenuLevel::new(x.saturating_sub(1), y.saturating_sub(1), items)],
             right_press: (x, y),
             right_drag_moved: false,
+            captured_resources: Vec::new(),
         }
+    }
+
+    fn actions(&self) -> Vec<MenuAction> {
+        fn collect(items: &[MenuItem], actions: &mut Vec<MenuAction>) {
+            for item in items {
+                if let Some(action) = item.action() {
+                    actions.push(action);
+                } else if let Some(items) = item.submenu() {
+                    collect(items, actions);
+                }
+            }
+        }
+
+        let mut actions = Vec::new();
+        if let Some(level) = self.levels.first() {
+            collect(&level.all_items, &mut actions);
+        }
+        actions
+    }
+
+    fn captured_resource(&self, action: MenuAction) -> Option<Option<MenuActionResource>> {
+        self.captured_resources
+            .iter()
+            .find_map(|(candidate, resource)| (*candidate == action).then_some(*resource))
     }
 
     /// The item row at a screen cell. Border cells are dead chrome and
@@ -2909,7 +2937,13 @@ enum Drag {
         modifiers: KeyModifiers,
     },
     /// Scrollbar thumb drag.
-    Scrollbar { surface: SurfaceId, track: Rect, anchor_y: u16, anchor_offset: u64 },
+    Scrollbar {
+        surface: SurfaceId,
+        track: Rect,
+        anchor_y: u16,
+        anchor_offset: u64,
+        scrollbar: Scrollbar,
+    },
     /// Independent rail width override drag.
     RailResize(RailKind),
     /// Pane split resize drag.
@@ -5397,7 +5431,10 @@ impl App {
                         .items
                         .iter()
                         .map(|item| {
-                            item.action().and_then(|action| self.menu_action_resource(action))
+                            item.action().and_then(|action| {
+                                menu.captured_resource(action)
+                                    .unwrap_or_else(|| self.menu_action_resource(action))
+                            })
                         })
                         .collect::<Vec<_>>()
                         .into(),
@@ -8968,8 +9005,13 @@ impl App {
                     return Ok(RenderAction::Draw);
                 }
                 let Some(action) = menu.selected_action() else { return Ok(RenderAction::Draw) };
+                let expected_resource = menu.captured_resource(action);
                 self.menu = None;
-                self.activate_menu(action)?;
+                if expected_resource
+                    .is_none_or(|expected| self.menu_action_resource(action) == expected)
+                {
+                    self.activate_menu(action)?;
+                }
                 Ok(RenderAction::Draw)
             }
             _ => Ok(RenderAction::Draw), // swallow while a menu is open
@@ -9433,9 +9475,9 @@ impl App {
                     // keyboard action instead, without another request on that socket.
                     self.run_action(Action::Detach)?;
                 } else {
-                    // Peer disconnects stay ordered with PTY input but run off the UI thread.
-                    // A stale client id therefore becomes a harmless no-op instead of blocking
-                    // or terminating the event loop.
+                    // Peer disconnects can resize viewer-owned surfaces, so they pass through
+                    // the pointer-map mutation barrier while running off the UI thread. A stale
+                    // client id remains a harmless no-op.
                     self.session.disconnect_client(client);
                 }
             }
@@ -11021,7 +11063,12 @@ impl App {
             let action = menu.action_at(depth, item);
             menu.select_at(depth, item);
             if let Some(action) = action {
-                self.activate_menu(action)?;
+                let resource_matches = menu
+                    .captured_resource(action)
+                    .is_none_or(|expected| self.menu_action_resource(action) == expected);
+                if resource_matches {
+                    self.activate_menu(action)?;
+                }
             } else {
                 self.menu = Some(menu);
             }
@@ -11066,7 +11113,12 @@ impl App {
                 let action = menu.action_at(depth, item);
                 menu.select_at(depth, item);
                 if let Some(action) = action {
-                    self.activate_menu(action)?;
+                    let resource_matches = menu
+                        .captured_resource(action)
+                        .is_none_or(|expected| self.menu_action_resource(action) == expected);
+                    if resource_matches {
+                        self.activate_menu(action)?;
+                    }
                 } else {
                     self.menu = Some(menu);
                 }
@@ -11253,8 +11305,8 @@ impl App {
                     }
                 }
                 Hit::Clients { surface } => self.open_clients_menu(x, y, surface),
-                Hit::Scrollbar { surface, track } => {
-                    self.start_scrollbar_drag(surface, track, y);
+                Hit::Scrollbar { surface, track, scrollbar } => {
+                    self.start_scrollbar_drag(surface, track, scrollbar, y);
                 }
                 Hit::RailResize(kind) => {
                     self.focus = match kind {
@@ -11393,10 +11445,18 @@ impl App {
                 Ok(RenderAction::Draw)
             }
             Some(Drag::PtyMouse { .. }) => Ok(RenderAction::None),
-            Some(Drag::Scrollbar { surface, track, anchor_y, anchor_offset }) => {
-                let (surface, track, anchor_y, anchor_offset) =
-                    (*surface, *track, *anchor_y, *anchor_offset);
-                self.drag_scrollbar(surface, track, anchor_y, anchor_offset, y);
+            Some(Drag::Scrollbar { surface, track, anchor_y, anchor_offset, scrollbar }) => {
+                let (surface, track, anchor_y, anchor_offset, scrollbar) =
+                    (*surface, *track, *anchor_y, *anchor_offset, *scrollbar);
+                if let Some(updated) =
+                    self.drag_scrollbar(surface, track, anchor_y, anchor_offset, scrollbar, y)
+                {
+                    if let Some(Drag::Scrollbar { scrollbar, .. }) = &mut self.drag {
+                        *scrollbar = updated;
+                    }
+                } else {
+                    self.drag = None;
+                }
                 Ok(RenderAction::Draw)
             }
             Some(Drag::RailResize(kind)) => {
@@ -11575,32 +11635,36 @@ impl App {
 
     /// Start a scrollbar drag. Clicking the thumb only anchors; clicking
     /// outside it jumps first, then anchors at the clicked position.
-    fn start_scrollbar_drag(&mut self, surface: SurfaceId, track: Rect, y: u16) {
+    fn start_scrollbar_drag(
+        &mut self,
+        surface: SurfaceId,
+        track: Rect,
+        scrollbar: Scrollbar,
+        y: u16,
+    ) {
         let Some(handle) = self.session.surface(surface) else { return };
-        let jump_delta = handle
-            .with_terminal(|t| {
-                let sb = t.scrollbar()?;
-                let rel_y = y.saturating_sub(track.y).min(track.height.saturating_sub(1));
-                let (thumb_y, thumb_len) = thumb_geometry(&sb, track.height);
-                let on_thumb = rel_y >= thumb_y && rel_y < thumb_y + thumb_len;
-                if on_thumb {
-                    return None;
-                }
-                let denom = track.height.saturating_sub(1).max(1) as f64;
-                let frac = (rel_y as f64 / denom).clamp(0.0, 1.0);
-                let target = ((sb.total - sb.len) as f64 * frac).round() as i64;
-                let delta = target - sb.offset as i64;
-                (delta != 0).then_some(delta as isize)
-            })
-            .flatten();
-        if let Some(delta) = jump_delta {
-            let _ = handle.scroll_delta(delta);
-        }
-        let anchor_offset =
-            handle.with_terminal(|t| t.scrollbar().map(|scrollbar| scrollbar.offset)).flatten();
-        if let Some(anchor_offset) = anchor_offset {
-            self.drag = Some(Drag::Scrollbar { surface, track, anchor_y: y, anchor_offset });
-        }
+        let rel_y = y.saturating_sub(track.y).min(track.height.saturating_sub(1));
+        let (thumb_y, thumb_len) = thumb_geometry(&scrollbar, track.height);
+        let on_thumb = rel_y >= thumb_y && rel_y < thumb_y + thumb_len;
+        let target = if on_thumb {
+            scrollbar.offset
+        } else {
+            let denom = track.height.saturating_sub(1).max(1) as f64;
+            let frac = (rel_y as f64 / denom).clamp(0.0, 1.0);
+            ((scrollbar.total - scrollbar.len) as f64 * frac).round() as u64
+        };
+        let delta = (target as i128 - scrollbar.offset as i128)
+            .clamp(isize::MIN as i128, isize::MAX as i128) as isize;
+        let Some(scrollbar) = handle.scroll_delta_if_scrollbar(scrollbar, delta) else {
+            return;
+        };
+        self.drag = Some(Drag::Scrollbar {
+            surface,
+            track,
+            anchor_y: y,
+            anchor_offset: scrollbar.offset,
+            scrollbar,
+        });
     }
 
     /// Map an anchored scrollbar drag delta to a viewport offset.
@@ -11610,26 +11674,19 @@ impl App {
         track: Rect,
         anchor_y: u16,
         anchor_offset: u64,
+        scrollbar: Scrollbar,
         y: u16,
-    ) {
-        let Some(handle) = self.session.surface(surface) else { return };
-        let delta = handle
-            .with_terminal(|t| {
-                let sb = t.scrollbar()?;
-                let (_, thumb_len) = thumb_geometry(&sb, track.height);
-                let range = sb.total.saturating_sub(sb.len);
-                let travel = track.height.saturating_sub(thumb_len).max(1) as i128;
-                let dy = y as i128 - anchor_y as i128;
-                let delta = dy * range as i128 / travel;
-                let target = (anchor_offset as i128 + delta).clamp(0, range as i128) as i64;
-                let current = sb.offset as i64;
-                let scroll_delta = target - current;
-                (scroll_delta != 0).then_some(scroll_delta as isize)
-            })
-            .flatten();
-        if let Some(delta) = delta {
-            let _ = handle.scroll_delta(delta);
-        }
+    ) -> Option<Scrollbar> {
+        let handle = self.session.surface(surface)?;
+        let (_, thumb_len) = thumb_geometry(&scrollbar, track.height);
+        let range = scrollbar.total.saturating_sub(scrollbar.len);
+        let travel = track.height.saturating_sub(thumb_len).max(1) as i128;
+        let dy = y as i128 - anchor_y as i128;
+        let delta = dy * range as i128 / travel;
+        let target = (anchor_offset as i128 + delta).clamp(0, range as i128);
+        let scroll_delta = (target - scrollbar.offset as i128)
+            .clamp(isize::MIN as i128, isize::MAX as i128) as isize;
+        handle.scroll_delta_if_scrollbar(scrollbar, scroll_delta)
     }
 
     fn resize_focused_split(&mut self, delta: f32) {
@@ -11732,6 +11789,19 @@ impl App {
     }
 
     fn open_context_menu(&mut self, x: u16, y: u16) {
+        self.build_context_menu(x, y);
+        let captured_resources = self.menu.as_ref().map(|menu| {
+            menu.actions()
+                .into_iter()
+                .map(|action| (action, self.menu_action_resource(action)))
+                .collect()
+        });
+        if let (Some(menu), Some(captured_resources)) = (&mut self.menu, captured_resources) {
+            menu.captured_resources = captured_resources;
+        }
+    }
+
+    fn build_context_menu(&mut self, x: u16, y: u16) {
         self.cancel_pty_mouse_drag();
         self.menu = None;
         self.omnibar = None;
@@ -14227,7 +14297,9 @@ mod tests {
             .hits
             .iter()
             .find_map(|(_, hit)| match hit {
-                super::Hit::Scrollbar { surface: id, track } if *id == surface.id => Some(*track),
+                super::Hit::Scrollbar { surface: id, track, .. } if *id == surface.id => {
+                    Some(*track)
+                }
                 _ => None,
             })
             .expect("rendered scrollbar");

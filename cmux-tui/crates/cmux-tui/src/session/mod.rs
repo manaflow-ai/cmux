@@ -19,7 +19,7 @@ use cmux_tui_core::{
     PointerSemanticProbe, ScreenId, SidebarPluginStatus, SplitDir, SplitId, Surface, SurfaceId,
     SurfaceKind, SurfaceRenderFrame, SurfaceResizeReporter, WorkspaceId, ZoomMode,
 };
-use ghostty_vt::{MouseInput, RenderState, Terminal, TerminalPointerSemanticSnapshot};
+use ghostty_vt::{MouseInput, RenderState, Scrollbar, Terminal, TerminalPointerSemanticSnapshot};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -1279,6 +1279,27 @@ impl SurfaceHandle {
                 term.scroll_delta(delta);
                 let after = term.scrollbar().map(|sb| sb.offset).unwrap_or(0);
                 Some(before != after)
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
+        }
+    }
+
+    pub fn scroll_delta_if_scrollbar(
+        &self,
+        expected: Scrollbar,
+        delta: isize,
+    ) -> Option<Scrollbar> {
+        match self {
+            SurfaceHandle::Local(surface, _) => {
+                surface.scroll_delta_if_scrollbar(expected, delta).ok().flatten()
+            }
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
+                let mut term = surface.term.lock().unwrap();
+                if term.scrollbar() != Some(expected) {
+                    return None;
+                }
+                term.scroll_delta(delta);
+                term.scrollbar()
             }
             SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
         }
