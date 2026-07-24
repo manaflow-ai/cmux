@@ -3641,63 +3641,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         guard !availableDisplays.isEmpty else { return frame }
 
+        let resolvedFrame: CGRect
         if let targetDisplay = display(for: displaySnapshot, in: availableDisplays) {
-            if shouldPreserveExactFrame(
+            if canReuseSavedDisplayCoordinates(
                 frame: frame,
                 displaySnapshot: displaySnapshot,
                 targetDisplay: targetDisplay
             ) {
-                return preservingOrClampingExactFrame(frame, targetDisplay: targetDisplay, availableDisplays: availableDisplays, minWidth: minWidth, minHeight: minHeight)
+                resolvedFrame = frame
+            } else {
+                resolvedFrame = resolvedWindowFrame(
+                    frame: frame,
+                    displaySnapshot: displaySnapshot,
+                    targetDisplay: targetDisplay,
+                    minWidth: minWidth,
+                    minHeight: minHeight
+                )
             }
-            return resolvedWindowFrame(
-                frame: frame,
-                displaySnapshot: displaySnapshot,
-                availableDisplays: availableDisplays,
-                targetDisplay: targetDisplay,
-                minWidth: minWidth,
-                minHeight: minHeight
-            )
-        }
-
-        if let intersectingDisplay = availableDisplays.first(where: { $0.visibleFrame.intersects(frame) }) {
-            return clampFrame(
-                frame,
-                within: intersectingDisplay.visibleFrame,
-                minWidth: minWidth,
-                minHeight: minHeight
-            )
-        }
-
-        guard let fallbackDisplay else { return frame }
-        if let sourceReference = displaySnapshot?.visibleFrame?.cgRect ?? displaySnapshot?.frame?.cgRect {
-            return remappedFrame(
+        } else if availableDisplays.contains(where: { $0.visibleFrame.intersects(frame) }) {
+            resolvedFrame = frame
+        } else if let fallbackDisplay,
+                  let sourceReference = displaySnapshot?.visibleFrame?.cgRect ?? displaySnapshot?.frame?.cgRect {
+            resolvedFrame = remappedFrame(
                 frame,
                 from: sourceReference,
                 to: fallbackDisplay.visibleFrame,
                 minWidth: minWidth,
                 minHeight: minHeight
             )
+        } else if let fallbackDisplay,
+                  !availableDisplays.contains(where: { $0.visibleFrame.intersects(frame) }) {
+            resolvedFrame = centeredFrame(
+                frame,
+                in: fallbackDisplay.visibleFrame,
+                minWidth: minWidth,
+                minHeight: minHeight
+            )
+        } else {
+            resolvedFrame = frame
         }
 
-        return centeredFrame(
-            frame,
-            in: fallbackDisplay.visibleFrame,
-            minWidth: minWidth,
-            minHeight: minHeight
-        )
+        // Display identity and overlap with current displays decide whether the
+        // saved coordinates can be reused or must first be remapped. Visibility
+        // is a separate invariant: every restored candidate passes through the
+        // same fit core used after live display-topology changes.
+        return MainWindowVisibleFrameFitCore().fittedFrame(
+            for: resolvedFrame,
+            displays: availableDisplays,
+            minimumWidth: minWidth,
+            minimumHeight: minHeight
+        ) ?? resolvedFrame
     }
 
     private nonisolated static func resolvedWindowFrame(
         frame: CGRect,
         displaySnapshot: SessionDisplaySnapshot?,
-        availableDisplays: [SessionDisplayGeometry],
         targetDisplay: SessionDisplayGeometry,
         minWidth: CGFloat,
         minHeight: CGFloat
     ) -> CGRect {
-        let fitCore = MainWindowVisibleFrameFitCore()
         if targetDisplay.visibleFrame.intersects(frame) {
-            return fitCore.fittedFrame(for: frame, displays: availableDisplays, minimumWidth: minWidth, minimumHeight: minHeight) ?? frame
+            return frame
         }
 
         if let sourceReference = displaySnapshot?.visibleFrame?.cgRect ?? displaySnapshot?.frame?.cgRect {
@@ -3788,7 +3792,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return clampFrame(centered, within: visibleFrame, minWidth: minWidth, minHeight: minHeight)
     }
 
-    private nonisolated static func shouldPreserveExactFrame(
+    private nonisolated static func canReuseSavedDisplayCoordinates(
         frame: CGRect,
         displaySnapshot: SessionDisplaySnapshot?,
         targetDisplay: SessionDisplayGeometry
