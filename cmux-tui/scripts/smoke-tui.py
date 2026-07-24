@@ -4,6 +4,50 @@ BIN = os.path.abspath(os.environ.get("CMUX_TUI_BIN", "target/debug/cmux-tui"))
 SESSION = f"smoke-{os.getpid()}"
 SOCK = None
 CONTROL_SOCKET_RE = re.compile(r"control socket at (.+)$")
+SGR_RE = re.compile(rb"\x1b\[([0-9;]*)m")
+
+
+def sgr_commands(parameters):
+    values = tuple(int(part or b"0") for part in parameters.split(b";"))
+    start = 0
+    while start < len(values):
+        code = values[start]
+        if code in (38, 48) and start + 1 < len(values):
+            mode = values[start + 1]
+            if mode == 5:
+                end = min(start + 3, len(values))
+            elif mode == 2:
+                end = min(start + 5, len(values))
+            else:
+                # An invalid extended-color mode has no reliable command
+                # boundary. Keep the remainder together rather than treating
+                # a color operand as an independent SGR command.
+                end = len(values)
+        else:
+            end = start + 1
+        yield values[start:end]
+        start = end
+
+
+def has_sgr_parameters(data, expected):
+    return any(
+        command == expected
+        for match in SGR_RE.finditer(data)
+        for command in sgr_commands(match.group(1))
+    )
+
+
+def assert_sgr_parser():
+    combined = b"\x1b[1;31;48;2;31;0;0;38;5;196;48;5;236m"
+    assert has_sgr_parameters(combined, (31,))
+    assert has_sgr_parameters(combined, (38, 5, 196))
+    assert has_sgr_parameters(combined, (48, 5, 236))
+    assert not has_sgr_parameters(b"\x1b[38;5;31m", (31,))
+    assert not has_sgr_parameters(b"\x1b[48;2;31;0;0m", (31,))
+
+
+assert_sgr_parser()
+
 
 def fallback_socket_path():
     base = os.environ.get("XDG_RUNTIME_DIR") or os.environ.get("TMPDIR") or "/tmp"
@@ -233,6 +277,34 @@ def wait_render_excludes(needle, seconds=15, stable_seconds=0.5):
             return last
     raise AssertionError(last[-1200:])
 
+
+def control_string_end(data, start, allow_bel):
+    """Return the byte after an OSC/DCS-style control string, if complete."""
+    ends = []
+    if allow_bel:
+        bel = data.find(b"\x07", start)
+        if bel >= 0:
+            ends.append((bel, bel + 1))
+    st = data.find(b"\x1b\\", start)
+    if st >= 0:
+        ends.append((st, st + 2))
+    if not ends:
+        return None
+    return min(ends, key=lambda entry: entry[0])[1]
+
+
+def non_csi_escape_end(data, start):
+    """Skip one complete non-CSI escape sequence used by terminal output."""
+    if start + 1 >= len(data):
+        return None
+    kind = data[start + 1]
+    if kind == ord("]"):
+        return control_string_end(data, start + 2, allow_bel=True)
+    if kind in (ord("P"), ord("X"), ord("^"), ord("_")):
+        return control_string_end(data, start + 2, allow_bel=False)
+    return start + 2
+
+
 def render_style_snapshot(data, rows=30, cols=100):
     grid = [[{"bg": None, "bold": False, "dim": False, "reverse": False} for _ in range(cols)] for _ in range(rows)]
     x = y = 0
@@ -285,6 +357,12 @@ def render_style_snapshot(data, rows=30, cols=100):
                         k += 2
                     k += 1
             i = j + 1
+            continue
+        if b == 0x1b:
+            end = non_csi_escape_end(data, i)
+            if end is None:
+                break
+            i = end
             continue
         if b == 0x0d:
             x = 0
@@ -342,6 +420,12 @@ def render_text_snapshot(data, rows=30, cols=100):
                         chars[yy][xx] = " "
             i = j + 1
             continue
+        if b == 0x1b:
+            end = non_csi_escape_end(data, i)
+            if end is None:
+                break
+            i = end
+            continue
         if b == 0x0d:
             x = 0
             i += 1
@@ -365,6 +449,22 @@ def render_text_snapshot(data, rows=30, cols=100):
         x = min(cols - 1, x + 1)
         i += step
     return "\n".join("".join(row) for row in chars)
+
+
+def assert_snapshot_parser_controls():
+    data = (
+        b"\x1b[30;1H screens  0  1  + "
+        b"\x1b]112\x07"
+        b"\x1bPignored payload\x1b\\"
+        b"\x1b[30;20Hok"
+    )
+    line = render_text_snapshot(data).splitlines()[-1]
+    assert line.startswith(" screens  0  1  +  ok"), line
+    styles = render_style_snapshot(b"\x1b[48;5;12mA\x1b]112\x07B")
+    assert styles[0][0]["bg"] == 12 and styles[0][1]["bg"] == 12, styles[0][:2]
+
+
+assert_snapshot_parser_controls()
 
 deadline = time.time() + 15
 while not os.path.exists(SOCK) and time.time() < deadline:
@@ -477,10 +577,12 @@ os.write(
 )
 wait_screen_contains(surface_id, "CF1CF2CF3CF4")
 color_output = output[color_output_start:]
-assert re.search(rb"\x1b\[[0-9;]*(31|38;5;1)(;[0-9]*)?m", color_output), color_output[-2000:]
-assert b"38;5;196" in color_output, color_output[-2000:]
-assert b"48;5;236" in color_output, color_output[-2000:]
-assert b"204;102;102" not in color_output, color_output[-2000:]
+assert has_sgr_parameters(color_output, (31,)) or has_sgr_parameters(
+    color_output, (38, 5, 1)
+), color_output[-2000:]
+assert has_sgr_parameters(color_output, (38, 5, 196)), color_output[-2000:]
+assert has_sgr_parameters(color_output, (48, 5, 236)), color_output[-2000:]
+assert not has_sgr_parameters(color_output, (38, 2, 204, 102, 102)), color_output[-2000:]
 print("indexed color passthrough ok")
 
 inner_osc_query = """python3 - <<'PY'
