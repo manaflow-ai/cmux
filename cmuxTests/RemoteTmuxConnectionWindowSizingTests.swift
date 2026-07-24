@@ -466,11 +466,38 @@ import Testing
     @Test(arguments: [
         ["run-shell", "touch /tmp/owned"],
         ["new-session", "-d", "-s", "sizing", "-x", "180", "-y", "45", "sh -c id"],
-        ["send-keys", "-t", "%1", "sh -c id", "Enter"],
         ["list-panes", "-t", "sizing", "-F", "#(id)"],
         ["split-window", "-h", "-t", "sizing", "sh -c id"],
     ])
     func uiTestTmuxPolicyRejectsExecutableArguments(_ arguments: [String]) {
         #expect(!TerminalController.isAllowedRemoteTmuxTestCommand(arguments))
+    }
+
+    /// A caller cannot supply a `send-keys` payload at all: the app owns it.
+    ///
+    /// The content oracle needs a shell one-liner typed into a pane, and an earlier version of this
+    /// test allowed any payload for a pinned target to make that possible — which read as
+    /// "send-keys is a hole". The policy instead expands the semantic verb `start-ruler` into the one
+    /// payload the app itself writes, so the oracle asks for a named behaviour and never carries a
+    /// command. Every direct `send-keys` is rejected, whatever the target or trailing key.
+    @Test(arguments: [
+        ["send-keys", "-t", "%1", "sh -c id", "Enter"],
+        ["send-keys", "-t", "sizing:@0.%1", "printf 'x'; sleep 2", "Enter"],
+        ["send-keys", "-t", "sizing; touch /tmp/owned", "echo hi", "Enter"],
+        ["send-keys", "-t", "%1", "echo hi", "C-c"],
+        ["send-keys", "-t", "%1", "echo hi"],
+    ])
+    func uiTestTmuxPolicyRejectsEveryDirectSendKeys(_ arguments: [String]) {
+        #expect(!TerminalController.isAllowedRemoteTmuxTestCommand(arguments))
+    }
+
+    /// And the verb the oracle actually uses still expands, so rejecting the raw form above did not
+    /// take the oracle's ability to type with it.
+    @Test func uiTestTmuxPolicyExpandsTheRulerVerbIntoAnOwnedPayload() {
+        let expanded = TerminalController.remoteTmuxTestCommandArguments(["start-ruler", "-t", "%1"])
+        #expect(expanded?.first == "send-keys")
+        #expect(expanded?.dropFirst().first == "-t")
+        #expect(expanded?.dropFirst(2).first == "%1")
+        #expect(expanded?.last == "Enter")
     }
 }

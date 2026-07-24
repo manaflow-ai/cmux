@@ -1,13 +1,39 @@
+import CmuxFoundation
 import Foundation
 
 @MainActor
 extension RemoteTmuxController {
+    /// How long a fresh mirror gets to publish its first topology before the attach gives up on it
+    /// (seconds). Shared by both readiness barriers: ``mirrorsWithPublishedTopology(host:workspaceIds:in:timeoutSeconds:)``,
+    /// which the caller waits on, and ``dropMirrorIfTopologyNeverPublishes(host:sessionName:in:timeoutSeconds:)``,
+    /// which arrives late for the paths that have already returned.
+    ///
+    /// The wait has to be generous in the product: a real host answers in well under a second, but
+    /// a slow link plus a session-heavy host legitimately takes longer, and dropping a mirror that
+    /// was about to work is worse than waiting. A test driving a stream that will never publish
+    /// anything pays the full 15 seconds per case, so DEBUG builds honor
+    /// `CMUX_REMOTE_TMUX_TOPOLOGY_BARRIER_SECONDS`; see ``RemoteTmuxDebugTimers``.
+    nonisolated static let mirrorTopologyBarrierSeconds: Double = {
+        #if DEBUG
+        if let override = RemoteTmuxDebugTimers.topologyBarrierSeconds { return override }
+        #endif
+        return 15
+    }()
+
     @discardableResult
     func attachHost(
         host: RemoteTmuxHost,
         windowTarget: RemoteTmuxAttachWindowTarget,
         activate: Bool
     ) async throws -> RemoteTmuxAttachOutcome {
+        // Multiplexer mode: mirror the host's sessions over ONE shared `-CC` view
+        // stream. Hosts limited to a single concurrent connection can't run the
+        // per-session attach burst below — the first attach occupies the only
+        // channel and every later one falls back to a connection the host refuses.
+        if Self.isMultiplexerEnabled {
+            return try await attachHostMultiplexed(
+                host: host, windowTarget: windowTarget, activate: activate)
+        }
         guard let appDelegate = AppDelegate.shared else {
             throw RemoteTmuxError.unreachable("app not ready")
         }
@@ -90,14 +116,26 @@ extension RemoteTmuxController {
             bootstrapWorkspaceId = nil
         }
 
-        let workspaceIds = mirrorDiscoveredSessions(host: host, sessions: sessions, into: targetManager)
+        let mirroredWorkspaceIds = mirrorDiscoveredSessions(
+            host: host, sessions: sessions, into: targetManager)
+        // Reaching control mode is not the same as having something to mirror: a stream can send
+        // the DCS intro, the attach block, and then `%exit` without ever publishing a window.
+        // Measured on a real host, and cmux reported that RPC as success, leaving an empty
+        // workspace whose only surface was a local placeholder shell. So a mirror only counts once
+        // its connection has published a topology.
+        let readiness = await mirrorsWithPublishedTopology(
+            host: host, workspaceIds: mirroredWorkspaceIds, in: targetManager)
+        let workspaceIds = readiness.readyWorkspaceIds
         guard !workspaceIds.isEmpty else {
             cleanUpTransportAfterFailedMirror(host: host)
             if windowTarget == .dedicatedNewWindow {
                 appDelegate.discardMainWindowWithoutClosedHistory(windowId: resolvedWindowId)
             }
-            throw RemoteTmuxError.unreachable("could not mirror any tmux session on \(host.destination)")
+            throw Self.mirrorFailure(
+                destination: host.destination, awaitingCredentials: readiness.awaitingCredentials)
         }
+        // Same on the dedicated path: a mirror published, so the host authenticated.
+        Self.hostAuth.retire(host)
 
         if let bootstrapWorkspaceId,
            targetManager.tabs.count > 1,
@@ -149,6 +187,165 @@ extension RemoteTmuxController {
     /// After an attach that mirrored nothing: live mirrors in other windows
     /// still share this host's ControlMaster, so tear the transport down only
     /// when nothing live remains on the connection.
+    /// Waits for the freshly created mirrors to publish a topology, and drops the ones that never
+    /// do — closing their workspace so a dead stream cannot leave an empty mirror behind.
+    ///
+    /// The waits run CONCURRENTLY under one deadline, not one after another. Sequentially they cost
+    /// the per-mirror budget times the session count, which measured longer than the socket RPC's
+    /// own 60-second timeout on a host with eight sessions: the RPC gave up first and every empty
+    /// workspace survived, which is the bug this function exists to prevent.
+    /// What a readiness barrier learned: which mirrors are usable, and whether the ones that are not
+    /// were waiting to be authenticated.
+    struct MirrorReadiness {
+        let readyWorkspaceIds: [UUID]
+        let awaitingCredentials: Bool
+    }
+
+    /// The single place that decides what a host with nothing mirrored should say.
+    ///
+    /// A transport that authenticates itself produces no error — it prints a prompt and waits — so
+    /// without this the deadline expires first and the user is told the host is unreachable, which
+    /// sends them to the network instead of their second factor. The host answered.
+    static func mirrorFailure(destination: String, awaitingCredentials: Bool) -> RemoteTmuxError {
+        if awaitingCredentials { return .authenticationRequired(destination) }
+        return .unreachable("could not mirror any tmux session on \(destination)")
+    }
+
+    func mirrorsWithPublishedTopology(
+        host: RemoteTmuxHost,
+        workspaceIds: [UUID],
+        in tabManager: TabManager,
+        timeoutSeconds: Double = RemoteTmuxController.mirrorTopologyBarrierSeconds
+    ) async -> MirrorReadiness {
+        guard !workspaceIds.isEmpty else {
+            return MirrorReadiness(readyWorkspaceIds: [], awaitingCredentials: false)
+        }
+
+        // Pair each workspace with the connection to wait on, if any. A source that is not a
+        // dedicated control connection (the multiplexer's channel) already gates on its own
+        // readiness, and a connection that was never started has no process to publish anything,
+        // so both count as ready without waiting.
+        var pending: [(workspaceId: UUID, connection: RemoteTmuxControlConnection)] = []
+        var ready: [UUID] = []
+        for workspaceId in workspaceIds {
+            guard let mirror = sessionMirrors.values.first(where: { $0.workspace?.id == workspaceId })
+            else { continue }
+            guard let connection = mirror.connection as? RemoteTmuxControlConnection,
+                  connection.started
+            else {
+                ready.append(workspaceId)
+                continue
+            }
+            pending.append((workspaceId, connection))
+        }
+        guard !pending.isEmpty else {
+            return MirrorReadiness(readyWorkspaceIds: ready, awaitingCredentials: false)
+        }
+
+        let published: [UUID: Bool] = await withTaskGroup(
+            of: (UUID, Bool).self
+        ) { group -> [UUID: Bool] in
+            for entry in pending {
+                group.addTask {
+                    (entry.workspaceId, await entry.connection.waitUntilInitialTopology())
+                }
+            }
+            // One deadline for the whole set.
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
+                return (UUID(), false)
+            }
+            var results: [UUID: Bool] = [:]
+            let expected = pending.count
+            while let (workspaceId, isReady) = await group.next() {
+                if pending.contains(where: { $0.workspaceId == workspaceId }) {
+                    results[workspaceId] = isReady
+                    if results.count == expected { break }
+                } else {
+                    // The deadline fired: whatever has not answered is unusable for this attach.
+                    break
+                }
+            }
+            group.cancelAll()
+            return results
+        }
+
+        var awaitingCredentials = false
+        for entry in pending {
+            if published[entry.workspaceId] == true {
+                ready.append(entry.workspaceId)
+            } else {
+                // Ask before detaching. This is the only moment the connection that saw the prompt is
+                // still around to be asked; the caller decides what to report long after it is gone.
+                if entry.connection.isAwaitingCredentials { awaitingCredentials = true }
+                #if DEBUG
+                cmuxDebugLog(
+                    "remote-tmux: mirror for \(entry.connection.sessionName) published no topology; dropping it")
+                #endif
+                detach(host: host, sessionName: entry.connection.sessionName)
+                if let workspace = tabManager.tabs.first(where: { $0.id == entry.workspaceId }) {
+                    tabManager.closeWorkspace(workspace, recordHistory: false)
+                }
+            }
+        }
+        return MirrorReadiness(readyWorkspaceIds: ready, awaitingCredentials: awaitingCredentials)
+    }
+
+    /// Drops a just-created mirror if its stream never publishes a topology.
+    ///
+    /// `attachHost` can wait for readiness before it answers, because the caller is waiting for a
+    /// result anyway. The paths that mirror a session the user just created cannot — they have
+    /// already returned by the time the stream would prove itself — so the same guarantee has to
+    /// arrive late here rather than not at all. Without it those paths reproduce the bug the barrier
+    /// exists for: a workspace named after a session, wired to nothing.
+    ///
+    /// Late is visible, so it reports rather than just closing: a tab that appears and silently
+    /// vanishes is worse than one that appears and explains itself.
+    func dropMirrorIfTopologyNeverPublishes(
+        host: RemoteTmuxHost,
+        sessionName: String,
+        in manager: TabManager,
+        timeoutSeconds: Double = RemoteTmuxController.mirrorTopologyBarrierSeconds
+    ) {
+        let key = Self.connectionKey(host: host, sessionName: sessionName)
+        guard let mirror = sessionMirrors[key],
+              let connection = mirror.connection as? RemoteTmuxControlConnection,
+              connection.started,
+              connection.initialTopologyState == .pending
+        else { return }
+        Task { @MainActor [weak self] in
+            let ready = await withTaskGroup(of: Bool.self) { group -> Bool in
+                group.addTask { await connection.waitUntilInitialTopology() }
+                group.addTask {
+                    try? await Task.sleep(for: .seconds(timeoutSeconds))
+                    return false
+                }
+                let first = await group.next() ?? false
+                group.cancelAll()
+                return first
+            }
+            guard !ready, let self else { return }
+            guard let workspaceId = self.sessionMirrors[key]?.mirroredWorkspaceId,
+                  AppDelegate.shared?.windowId(for: manager) != nil
+            else { return }
+            #if DEBUG
+            cmuxDebugLog("remote-tmux: new mirror for \(sessionName) published no topology; dropping it")
+            #endif
+            self.detach(host: host, sessionName: sessionName)
+            if let workspace = manager.tabs.first(where: { $0.id == workspaceId }) {
+                manager.closeWorkspace(workspace, recordHistory: false)
+            }
+            // Same question, asked while this connection is still in scope.
+            let detail = connection.isAwaitingCredentials
+                ? RemoteTmuxError.authenticationRequired(host.destination).message
+                : String(
+                    localized: "remoteTmux.mirrorPublishedNoTopology",
+                    defaultValue: "the connection reached tmux but no window ever arrived"
+                )
+            self.reportNewSessionFailure(host, detail, manager)
+        }
+    }
+
     func cleanUpTransportAfterFailedMirror(host: RemoteTmuxHost) {
         let hasLiveMirror = sessionMirrors.values.contains { mirror in
             mirror.host.connectionHash == host.connectionHash
@@ -193,7 +390,7 @@ extension RemoteTmuxController {
         }
     }
 
-    private func selectFirstMirrorWorkspace(for host: RemoteTmuxHost, in tabManager: TabManager) {
+    func selectFirstMirrorWorkspace(for host: RemoteTmuxHost, in tabManager: TabManager) {
         let hostWorkspaceIds = Set(sessionMirrors.values.compactMap { mirror -> UUID? in
             guard mirror.host.connectionHash == host.connectionHash else { return nil }
             return mirror.mirroredWorkspaceId
@@ -202,4 +399,433 @@ extension RemoteTmuxController {
         tabManager.selectWorkspace(workspace)
     }
 
+    /// Surfaces an interactive login for a mirror whose reconnect needs authentication.
+    ///
+    /// A reconnect runs on pipes with `BatchMode=yes` and no controlling tty, so a host
+    /// that wants a password, MFA, or a security-key touch can never be satisfied by
+    /// retrying. The connection stays parked in `.reconnecting`, which keeps the tmux
+    /// session and every mirrored workspace intact, and this hands the user a real
+    /// terminal to authenticate in.
+    ///
+    /// `sshArgv` is ``RemoteTmuxHost/interactiveAuthInvocation()``: under a tty it
+    /// authenticates, opens the shared ControlMaster, runs a trivial remote `true`, and
+    /// exits. Once the master is live the parked reconnect multiplexes over it with no
+    /// further prompt. This is the same invocation the `cmux ssh-tmux` CLI runs when the
+    /// initial attach reports ``RemoteTmuxAttachOutcome/authRequired(sshArgv:)``; a
+    /// reconnect has no CLI in the loop, so cmux runs it in a workspace instead.
+    ///
+    /// Idempotent per host: a host with several mirrored sessions loses one control
+    /// stream per session, and each would otherwise open its own login terminal racing
+    /// for the same master. The first caller wins and later ones fold into it.
+    /// - Returns: whether a login was actually put in front of the user. `false` means the
+    ///   caller must fall back to retrying; treating "an observer exists" as handled is what
+    ///   left a dismissed host parked with no retry and no waiter.
+    @discardableResult
+    func presentReconnectAuthentication(host: RemoteTmuxHost, sshArgv: [String]) -> Bool {
+        guard !sshArgv.isEmpty else {
+            Self.logger.error("reconnect-auth: empty sshArgv for \(host.destination, privacy: .public)")
+            return false
+        }
+        let key = host.connectionHash
+        // A live connection to this host proves authentication is not the blocker, so asking
+        // again is wrong. This is the straggler case: several sessions park, the user signs
+        // in, the first to reconnect releases the offer, and a sibling still finishing its
+        // pre-login attempt then reports auth-required into an empty slot — producing a
+        // second login moments after a successful sign-in. Checked synchronously, before the
+        // claim, so the reserve-before-create ordering is untouched.
+        if Self.hasLiveConnection(
+            states: sessionMirrors.values
+                .filter { $0.host.connectionHash == key }
+                .map(\.connection.connectionState)
+        ) {
+            Self.logger.info(
+                "reconnect-auth: \(host.destination, privacy: .public) already has a live connection; not offering")
+            return false
+        }
+        // Reserve the slot BEFORE creating anything. Several sessions on one host report
+        // auth-required in the same turn, and creating a workspace is not instantaneous;
+        // recording afterwards let all of them through and opened a tab each.
+        guard case .present(let generation) = loginOffers.claim(
+            host: key, isOpen: { Self.workspaceExists($0) }
+        ) else {
+            if loginOffers.isDeclined(host: key) {
+                // Report NOT presented, so the caller keeps retrying quietly. Claiming
+                // otherwise is what stranded the host after a dismissal.
+                Self.logger.info(
+                    "reconnect-auth: login dismissed for \(host.destination, privacy: .public); not re-offering")
+                return false
+            }
+            Self.logger.info("reconnect-auth: login already offered for \(host.destination, privacy: .public)")
+            ensureAuthenticationWait(host: host)
+            return true
+        }
+        let params = Self.reconnectAuthWorkspaceParams(host: host, sshArgv: sshArgv)
+        // Go through `v2WorkspaceCreate`, the entry point the `workspace.create` socket
+        // command uses, so the login workspace is created the same way as any other:
+        // tab-manager resolution, window placement, and metadata refresh all included.
+        // `addWorkspace` alone registers the workspace without surfacing it in a window.
+        //
+        // The policy wrapper is required, not decorative. `focus` is honored only while a
+        // `workspace.create` allowance is on the calling thread's stack, which the socket
+        // dispatcher pushes for real socket commands. Calling straight through from here
+        // would create the login workspace unfocused and unselected — visible nowhere
+        // until the user goes looking for it.
+        let controller = TerminalController.shared
+        let result = controller.withSocketCommandPolicy(
+            commandKey: "workspace.create", isV2: true, params: params
+        ) {
+            controller.v2WorkspaceCreate(params: params)
+        }
+        Self.logger.info(
+            "reconnect-auth: login workspace for \(host.destination, privacy: .public): \(String(describing: result), privacy: .public)")
+        guard case .ok(let payload) = result,
+              let workspaceId = (payload as? [String: Any])?["workspace_id"] as? String,
+              let loginWorkspace = UUID(uuidString: workspaceId) else {
+            // No login terminal exists, so nothing will ever arrive to unblock the mirror.
+            // The connection is parked with its retry cancelled and the observer already
+            // reported the event as handled, so leaving now would freeze the mirror for
+            // good — the exact failure this feature removes. Hand it back to the retry
+            // loop instead: it is rate-limited by backoff, and a later attempt can offer
+            // the login again.
+            Self.logger.error(
+                "reconnect-auth: no login workspace for \(host.destination, privacy: .public); resuming retries")
+            loginOffers.abandon(host: key, generation: generation)
+            resumeReconnectAfterAuthentication(host: host)
+            return false
+        }
+        // Mark it so a relaunch does not restore a dead copy: a restored terminal is a fresh
+        // shell that cannot authenticate, and it would be invisible to the per-host rule.
+        if let manager = AppDelegate.shared?.tabManagerFor(tabId: loginWorkspace),
+           let tab = manager.tabs.first(where: { $0.id == loginWorkspace }) {
+            tab.isRemoteTmuxAuthLogin = true
+        }
+        loginOffers.recordOpened(host: key, workspace: loginWorkspace, generation: generation)
+        awaitAuthenticationThenResume(host: host)
+        return true
+    }
+
+    /// Releases a host's login offer because a mirror is connected again, and closes the
+    /// login workspace cmux opened for it.
+    ///
+    /// Closing is what keeps a flapping host from collecting tabs. The alternative —
+    /// releasing the slot but leaving the pane — means the next drop cannot see the pane
+    /// that is already on screen and opens another, once per flap. cmux opened this
+    /// workspace by itself for one purpose, and the reconnect proves that purpose is
+    /// served, so cmux is the right owner to close it. A login the *user* dismissed is a
+    /// different case and is already handled by the wait loop.
+    func noteMirrorConnected(host: RemoteTmuxHost) {
+        let key = host.connectionHash
+        // Reaching `.connected` is what proves the credentials were accepted, so it is also what
+        // retires the "this host is waiting for a login" note. Left set, the note would outlive the
+        // prompt that produced it and every later failure on this host — a plain network outage
+        // included — would be reported as needing a login: the misdiagnosis this note exists to
+        // prevent, in mirror image and permanent.
+        Self.hostAuth.retire(host)
+        if loginOffers.hasOffer(host: key) {
+            Self.logger.info("reconnect-auth: \(host.destination, privacy: .public) reconnected; offer released")
+            if let offer = loginOffers.openedWorkspace(host: key) {
+                closeLoginWorkspace(offer.workspace)
+            }
+            loginOffers.noteConnected(host: key)
+        }
+        // The host is authenticated, so any waiter for it has nothing left to wait on. Its
+        // guards would end it on the next tick anyway; cancelling means it stops now rather
+        // than running one more `ssh -O check` for a question already answered.
+        cancelAuthWait(host: key)
+        // One mirror connecting proves the master is authenticated, and the host's other
+        // parked connections are waiting on exactly that. Releasing the offer without
+        // resuming them leaves those mirrors frozen with their waiter already gone, since
+        // the waiter exits once the offer disappears.
+        resumeReconnectAfterAuthentication(host: host)
+    }
+
+    /// Releases a host's login offer once nothing is left for it to unblock.
+    ///
+    /// A login exists to unfreeze mirrors. When the last mirror for the host goes away — closed,
+    /// detached, or taken with its window — the offer, its waiter and the sign-in pane are all
+    /// orphaned: the waiter would keep watching a socket nobody is waiting on, and the pane would
+    /// sit there with nothing to resume. Called from every path that removes a mirror, because
+    /// which path ran is not something the offer should have to know.
+    func releaseLoginOfferIfHostHasNoMirrors(host: RemoteTmuxHost) {
+        let key = host.connectionHash
+        guard loginOffers.hasOffer(host: key) else { return }
+        guard !sessionMirrors.values.contains(where: { $0.host.connectionHash == key }) else { return }
+        if let offer = loginOffers.openedWorkspace(host: key) {
+            closeLoginWorkspace(offer.workspace)
+            loginOffers.abandon(host: key, generation: offer.generation)
+        } else {
+            loginOffers.noteConnected(host: key)
+        }
+        cancelAuthWait(host: key)
+    }
+
+    /// Stops a host's login waiter.
+    ///
+    /// Held so it can be stopped: the waiter probes the shared master on a timer, and one that
+    /// outlives its offer would keep probing with nothing able to stop it.
+    func cancelAuthWait(host key: String) {
+        authWaitTasks[key]?.cancel()
+        authWaitTasks[key] = nil
+        hostsWaitingForAuth.remove(key)
+    }
+
+    /// Closes a login workspace wherever it lives, if it still exists.
+    private func closeLoginWorkspace(_ workspace: UUID) {
+        guard let appDelegate = AppDelegate.shared,
+              let manager = appDelegate.tabManagerFor(tabId: workspace),
+              let tab = manager.tabs.first(where: { $0.id == workspace }) else { return }
+        // `closeWorkspace` refuses to close the last tab in a window, so a login that ended up
+        // alone in its own window could not be closed at all: the offer cleared while the obsolete
+        // sign-in shell stayed on screen, and cmux opened it, so cmux has to be able to remove it.
+        // Discarding the window is the equivalent action when the login *is* the window.
+        if manager.tabs.count <= 1, let windowId = appDelegate.windowId(for: manager) {
+            appDelegate.discardMainWindowWithoutClosedHistory(windowId: windowId)
+            return
+        }
+        manager.closeWorkspace(tab, recordHistory: false)
+    }
+
+    /// Whether any of a host's connections is live, meaning authentication is not the
+    /// blocker and a login must not be offered.
+    ///
+    /// Only `.connected` counts. `.reconnecting` is precisely the parked state a login exists
+    /// for, and `.connecting` has not proven anything yet — treating either as live would
+    /// suppress the offer the user needs.
+    nonisolated static func hasLiveConnection(states: [RemoteTmuxConnectionState]) -> Bool {
+        states.contains(.connected)
+    }
+
+    /// Whether a workspace still exists in any window.
+    static func workspaceExists(_ workspace: UUID) -> Bool {
+        AppDelegate.shared?.tabManagerFor(tabId: workspace) != nil
+    }
+
+    /// Starts the wait for authentication unless one is already running for this host, so
+    /// a repeat auth-required that folds into an existing offer still gets resumed.
+    private func ensureAuthenticationWait(host: RemoteTmuxHost) {
+        guard !hostsWaitingForAuth.contains(host.connectionHash) else { return }
+        awaitAuthenticationThenResume(host: host)
+    }
+
+    /// The `workspace.create` parameters for a host's login workspace.
+    ///
+    /// Separate and `nonisolated` so a test can assert these params actually earn a focus
+    /// allowance: `focus` is only honored for methods in
+    /// ``TerminalController/explicitFocusParamV2Methods``, so dropping or renaming the key
+    /// would silently produce an unfocused login workspace.
+    nonisolated static func reconnectAuthWorkspaceParams(
+        host: RemoteTmuxHost, sshArgv: [String]
+    ) -> [String: Any] {
+        [
+            "title": String(
+                format: String(
+                    localized: "remoteTmux.reconnectAuth.workspaceTitle",
+                    defaultValue: "Sign in to %@"
+                ),
+                host.destination
+            ),
+            "initial_command": interactiveAuthShellCommand(sshArgv: sshArgv),
+            "focus": true,
+            "eager_load_terminal": true,
+        ]
+    }
+
+    /// Waits for the login terminal to open the shared master, then resumes.
+    ///
+    /// Waiting on a *person* rules out a deadline — an MFA push or a hardware-key touch can take
+    /// seconds or many minutes, and a wait that expired while the login terminal was still open
+    /// would strand the mirror, parked with retrying stopped and nothing left to resume it. It
+    /// does not rule out an event, which is the mistake an earlier version of this made: opening
+    /// the master creates the socket at ``RemoteTmuxHost/controlSocketPath``, so the filesystem
+    /// reports the moment being waited for and ``FileWatcher`` delivers it.
+    ///
+    /// `ssh -O check` (``RemoteTmuxSSHTransport/isMasterLive()``) is still how the socket is
+    /// confirmed usable rather than stale — local, instant, and unable to prompt, so it can never
+    /// consume an authentication attempt mid-login — but it runs once per event instead of on a
+    /// clock. A timer's interval is dead time a frozen mirror spends *after* the user has already
+    /// finished, and no interval is short enough to make that right.
+    ///
+    /// So the wait ends on state rather than on a clock, and every ending is derived by
+    /// looking at what exists rather than by trusting some teardown path to signal:
+    ///
+    /// - the master comes up, so the mirror resumes;
+    /// - the host has no mirror left (workspace closed, host detached, app quitting), so
+    ///   there is nothing to authenticate for;
+    /// - the user closed the login without finishing it, so nothing will arrive — the
+    ///   connection goes back to retrying, and a later failure offers a fresh login. Left
+    ///   parked instead, that host would have no route back short of restarting cmux.
+    ///
+    /// The interval backs off because a person is slow and each probe forks an `ssh`.
+    private func awaitAuthenticationThenResume(host: RemoteTmuxHost) {
+        let key = host.connectionHash
+        let transport = transport(for: host)
+        hostsWaitingForAuth.insert(key)
+        authWaitTasks[key]?.cancel()
+        // A waiter must only retract its own registration. Cancelling W1 and storing W2 runs W1's
+        // `defer` afterwards, and an unconditional clear there would delete W2's entry — leaving a
+        // live waiter invisible to both dismissal and teardown, which is worse than the stale
+        // waiter this replacement was meant to fix.
+        authWaitGeneration &+= 1
+        let waiterId = authWaitGeneration
+        authWaitIds[key] = waiterId
+        authWaitTasks[key] = Task { @MainActor [weak self] in
+            defer {
+                if self?.authWaitIds[key] == waiterId {
+                    self?.hostsWaitingForAuth.remove(key)
+                    self?.authWaitTasks[key] = nil
+                    self?.authWaitIds[key] = nil
+                }
+            }
+            // Edge-driven, not polled. Completing the login is the user opening the shared ssh
+            // master, and opening it creates the socket at cmux's own ControlPath — so the
+            // filesystem already reports the exact moment being waited for. `FileWatcher` watches
+            // the path's parent directory too, which is what makes creation (not just change)
+            // visible, and this socket does not exist yet when the wait starts.
+            //
+            // A timer here would be strictly worse: the interval is dead time a frozen mirror
+            // spends after the user has finished, and no interval is short enough to be right —
+            // this is a person typing a password, not a bounded computation.
+            //
+            // `isMasterLive()` still runs, but once per event rather than on a clock: the socket
+            // appearing is the edge, and `ssh -O check` is how we confirm it is usable rather
+            // than a stale file. The loop continues on a negative answer because the directory
+            // reports unrelated churn too (other hosts' masters live in the same directory).
+            let watcher = FileWatcher(path: host.controlSocketPath)
+            defer { Task { await watcher.stop() } }
+            // A backstop behind the edge, not instead of it. `FileWatcher` returns nil from its
+            // `open(O_EVTONLY)` and carries on, so under fd exhaustion (EMFILE) the stream exists
+            // with no sources attached and can never yield — the login would complete and this
+            // wait would never hear about it. That is a silent, total failure of the edge, so it
+            // gets a slow re-check rather than trust.
+            //
+            // Deliberately slow: this is a safety net for a rare failure, and every tick it takes
+            // to notice is dead time only in the case where the edge is already broken. If this is
+            // what resumes a mirror, something is wrong that a shorter interval would only hide.
+            let backstop = Task { @MainActor [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(30))
+                    if Task.isCancelled { return }
+                    guard let self, self.loginOffers.hasOffer(host: key) else { return }
+                    if await transport.isMasterLive() {
+                        Self.logger.warning(
+                            "reconnect-auth: master found by the backstop, not the watcher — the socket watch did not fire")
+                        self.resumeReconnectAfterAuthentication(host: host)
+                        return
+                    }
+                }
+            }
+            defer { backstop.cancel() }
+            // The master may already be live: the user can finish signing in between the failure
+            // that parked this connection and this waiter starting, and an edge that already
+            // happened is never delivered. Checking once up front is what stops an event-driven
+            // wait from hanging on a condition that was true before anyone was listening.
+            if await transport.isMasterLive() {
+                self?.resumeReconnectAfterAuthentication(host: host)
+                return
+            }
+            for await _ in watcher.events {
+                guard let self else { return }
+                if Task.isCancelled { return }
+                // Another path already gave up on this host, or replaced this offer with a
+                // newer one that its own waiter owns.
+                guard let offer = loginOffers.openedWorkspace(host: key) else { return }
+                guard sessionMirrors.values.contains(where: { $0.host.connectionHash == key })
+                else {
+                    // The mirror this login existed for is gone; leaving the pane behind
+                    // would strand a tab nothing can ever close.
+                    closeLoginWorkspace(offer.workspace)
+                    loginOffers.abandon(host: key, generation: offer.generation)
+                    return
+                }
+                if await transport.isMasterLive() {
+                    self.resumeReconnectAfterAuthentication(host: host)
+                    return
+                }
+            }
+        }
+    }
+
+    /// The user closed a login cmux opened, which is a decline.
+    ///
+    /// Called from the close path rather than noticed by the waiter: a closed tab produces no
+    /// filesystem or protocol event, so this is the only edge for it. Retrying resumes quietly so
+    /// a host that starts accepting authentication recovers on its own, while the offer is marked
+    /// declined for this outage — otherwise the retry fails the same way, a new login opens, and
+    /// closing the tab looks like it did nothing.
+    func noteLoginWorkspaceClosed(workspaceId: UUID) {
+        guard let key = loginOffers.host(forOpenedWorkspace: workspaceId) else { return }
+        guard let offer = loginOffers.openedWorkspace(host: key) else { return }
+        // No mirror left for this host means there is nothing to resume, so recording the decline
+        // is the whole job: it stops this outage from offering another login the user would have
+        // to dismiss again.
+        guard let host = sessionMirrors.values.first(where: { $0.host.connectionHash == key })?.host
+        else {
+            loginOffers.noteDeclined(host: key, generation: offer.generation)
+            cancelAuthWait(host: key)
+            return
+        }
+        Self.logger.info(
+            "reconnect-auth: login dismissed for \(host.destination, privacy: .public); retrying quietly")
+        loginOffers.noteDeclined(host: key, generation: offer.generation)
+        cancelAuthWait(host: key)
+        resumeReconnectAfterAuthentication(host: host)
+    }
+
+    /// Resumes every parked control connection for `host` after authentication.
+    ///
+    /// Per host, not per session: one authenticated ControlMaster unblocks every session
+    /// mirrored from that host. Each connection's `resumeAfterInteractiveAuth()` is a
+    /// no-op unless it is actually parked, so this cannot disturb a healthy stream.
+    func resumeReconnectAfterAuthentication(host: RemoteTmuxHost) {
+        let key = host.connectionHash
+        // Deliberately no release here. A resume is an *attempt*; it can fail
+        // authentication again, and releasing on the attempt opened a new login tab per
+        // failure. ``noteMirrorConnected(host:)`` releases it once the host is actually back.
+        for mirror in sessionMirrors.values where mirror.host.connectionHash == key {
+            mirror.connection.resumeAfterInteractiveAuth()
+        }
+    }
+
+    /// The command the login terminal runs.
+    ///
+    /// Every argv element is single-quoted, so a destination carrying shell
+    /// metacharacters cannot inject anything.
+    ///
+    /// The whole payload is handed to an explicit `/bin/sh -c`, which is load-bearing
+    /// rather than stylistic. A terminal command runs as
+    /// `bash --noprofile --norc -c "exec -l <command>"`, and that `exec -l` replaces the
+    /// shell with the command's *first* program — so with the ssh invocation written at
+    /// the top level, everything after it (the result message, and the interactive shell
+    /// that keeps the pane alive) is unreachable. The pane would then die the instant ssh
+    /// exits, on success and on failure alike, and cmux closes a workspace whose child
+    /// exited: the login tab appears and vanishes in well under a second, taking the
+    /// reason with it. Wrapping means `exec -l` replaces bash with `sh`, which then runs
+    /// the payload to completion.
+    ///
+    /// Falling into an interactive shell at the end also leaves the user somewhere to
+    /// read the message and retry from.
+    nonisolated static func interactiveAuthShellCommand(sshArgv: [String]) -> String {
+        let quoted = sshArgv.map { RemoteTmuxHost.shellSingleQuoted($0) }.joined(separator: " ")
+        let ok = RemoteTmuxHost.shellSingleQuoted(String(
+            localized: "remoteTmux.reconnectAuth.success",
+            defaultValue: "Signed in. Reconnecting the mirror…"
+        ))
+        let failed = RemoteTmuxHost.shellSingleQuoted(String(
+            localized: "remoteTmux.reconnectAuth.failure",
+            defaultValue: "Sign-in failed. Run the command above again to retry."
+        ))
+        // Empty counts as unset: `exec '' -i` would kill the pane the moment ssh returns.
+        let configuredShell = ProcessInfo.processInfo.environment["SHELL"] ?? ""
+        let shell = RemoteTmuxHost.shellSingleQuoted(
+            configuredShell.isEmpty ? "/bin/zsh" : configuredShell)
+        // Echo the invocation first. The failure message says to run the command again, which
+        // is unfollowable if the command was never shown: `ssh` prints its own prompts, not
+        // its argv. One printf with the whole line as a single operand — `printf 'x %s\\n' a b`
+        // would repeat the format per element.
+        let banner = RemoteTmuxHost.shellSingleQuoted("+ \(quoted)")
+        let payload =
+            "printf '%s\\n' \(banner); "
+            + "\(quoted) && printf '%s\\n' \(ok) || printf '%s\\n' \(failed); exec \(shell) -i"
+        return "/bin/sh -c \(RemoteTmuxHost.shellSingleQuoted(payload))"
+    }
 }

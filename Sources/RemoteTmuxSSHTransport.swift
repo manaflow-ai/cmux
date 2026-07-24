@@ -259,6 +259,17 @@ actor RemoteTmuxSSHTransport {
         }
     }
 
+    /// Whether the shared ControlMaster is live, WITHOUT trying to open one.
+    ///
+    /// `ssh -O check` hits the local control socket only, so it returns in
+    /// milliseconds and can never prompt for credentials. That makes it the safe
+    /// probe for "has the user finished authenticating in the login terminal yet?" —
+    /// unlike ``ensureMasterReady()``, which would attempt a `BatchMode` open and
+    /// burn a failed authentication attempt while the user is still typing.
+    func isMasterLive() async -> Bool {
+        (try? await masterIsRunning()) ?? false
+    }
+
     /// Tears down the shared SSH master (e.g. when the user removes a host).
     func shutdownMaster() async {
         _ = try? await Self.runProcess(
@@ -378,6 +389,38 @@ actor RemoteTmuxSSHTransport {
     /// the user must fix `known_hosts` themselves. Algorithm-negotiation failures
     /// ("no matching host key type") are deliberately NOT matched: an interactive
     /// retry cannot fix them, so they surface as a normal error instead.
+    /// Whether a control-stream failure can never be fixed by trying again.
+    ///
+    /// The counterpart to ``indicatesAuthRequired``, and the same reasoning: retrying is only
+    /// honest when the next attempt could differ. A missing binary, a remote helper that is not
+    /// where the transport said it was, or a malformed invocation will fail identically forever, so
+    /// retrying converts a precise error into an opaque attach timeout — measured, after
+    /// end-of-stream stopped implying the session was over: a transport that could not start at all
+    /// produced a 60-second wait and no message.
+    ///
+    /// Deliberately narrow. Anything not listed keeps retrying, because the cost of wrongly
+    /// retrying is a delay while the cost of wrongly giving up is a mirror that never returns.
+    static func indicatesUnrecoverableTransportFailure(_ stderr: String) -> Bool {
+        let lowered = stderr.lowercased()
+        // The pty allocator could not find the transport binary. `/usr/bin/script` resolves its
+        // argument against the app's PATH, which for a GUI app is not the user's.
+        if lowered.contains("script:"), lowered.contains("no such file or directory") { return true }
+        // posix_spawn / Process launch failures for the transport itself.
+        if lowered.contains("no such file or directory"),
+           lowered.contains("etterminal") || lowered.contains("/et") { return true }
+        // et's own message when its ssh bootstrap cannot start the remote helper — wrong
+        // `--terminal-path`, or a helper missing on the server. Retrying sends the same path.
+        if lowered.contains("error starting et process") { return true }
+        // An argv the transport rejects outright is a bug in what cmux built, not a bad moment.
+        if lowered.contains("unrecognized option") || lowered.contains("unknown option") { return true }
+        // Go's flag package wording for the same thing. Wrappers that front a transport are
+        // routinely written in Go, and without this a mis-ordered argv reads as a bad moment:
+        // cmux would retry the identical rejected command forever. Measured against a real
+        // broker, which answers "flag provided but not defined: -p" and exits 2.
+        if lowered.contains("flag provided but not defined") { return true }
+        return false
+    }
+
     static func indicatesAuthRequired(_ stderr: String) -> Bool {
         let lowered = stderr.lowercased()
         return lowered.contains("permission denied")

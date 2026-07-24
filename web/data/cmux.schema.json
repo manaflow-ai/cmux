@@ -296,6 +296,47 @@
         }
       }
     },
+    "remoteTmux": {
+      "title": "remoteTmux",
+      "description": "Settings for remote tmux transports. Only brokers are configurable here; the feature itself is enabled in Settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "brokers": {
+          "type": "object",
+          "description": "Wrapper commands that reach a host on cmux's behalf, each under the name you refer to it by. A broker is named here rather than passed to cmux at connect time, so only commands you have written down can be launched. Use one when a host is reachable through a corporate SSH broker or similar wrapper instead of directly.",
+          "additionalProperties": false,
+          "propertyNames": {
+            "pattern": "^[A-Za-z0-9_.-]+$"
+          },
+          "patternProperties": {
+            "^[A-Za-z0-9_.-]+$": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "executable"
+              ],
+              "properties": {
+                "executable": {
+                  "type": "string",
+                  "description": "Absolute path to the wrapper. It must be absolute: cmux resolves it without a login shell's PATH, so a bare name fails in a way that looks like the host being unreachable.",
+                  "pattern": "^/"
+                },
+                "arguments": {
+                  "type": "array",
+                  "description": "Flags the wrapper needs before the destination, in order. Most wrappers parse their own flags up to the destination and forward everything after it, so order matters.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "default": []
+                }
+              }
+            }
+          },
+          "default": {}
+        }
+      }
+    },
     "newWorkspaceCommand": {
       "type": "string",
       "description": "Legacy name of a workspace command to run when creating a new workspace. Prefer ui.newWorkspace.action for new configs."

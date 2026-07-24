@@ -42,6 +42,10 @@ extension RemoteTmuxControlConnection {
                let completion = trackedSendCompletions.removeValue(forKey: token) {
                 completion(false)
             }
+            if case let .rawQuery(token) = kind {
+                rawQueryTimeoutTasks.removeValue(forKey: token)?.cancel()
+                rawQueryCompletions.removeValue(forKey: token)?(nil)
+            }
             // A rejected per-window size normally means the server predates
             // the '@id:WxH' form: degrade to session-wide sizing, visibly.
             // But a "can't find window" error is about ONE dead window (it
@@ -169,6 +173,15 @@ extension RemoteTmuxControlConnection {
                     initialBatchAwaiting = awaiting
                     flushInitialBatchIfDrained()
                 }
+                // A list-windows reply carrying windows means this attach is serving the session,
+                // whether it is the first attach or a reconnect. That is the edge the reattach budget
+                // resets on, and it has to be here rather than in the initial-batch flush: the batch
+                // is armed only when `windowsByID` is empty, and a reconnect keeps the frozen tree,
+                // so a recovered mirror never reached that path. The cap was therefore counting
+                // incidents for the connection's whole life instead of consecutive failures — a
+                // mirror that recovered from three separate blips would refuse to recover from the
+                // fourth.
+                if !order.isEmpty { clearTransportDeathReattachBudget() }
                 for (id, window) in next {
                     applyWindowName(windowId: id, name: window.name)
                     stagePendingLayout(
@@ -313,6 +326,9 @@ extension RemoteTmuxControlConnection {
             // One-shot reflow classification result (see requestPaneReflow). Empty
             // lines → classifyAndEmitReflow defaults to no-reflow (safe).
             classifyAndEmitReflow(paneId: paneId, rawValue: lines.first ?? "", source: "oneshot")
+        case let .rawQuery(token):
+            rawQueryTimeoutTasks.removeValue(forKey: token)?.cancel()
+            rawQueryCompletions.removeValue(forKey: token)?(lines)
         case let .activityQuery(token):
             guard let completion = activityQueryCompletions.removeValue(forKey: token) else { break }
             var states: [Int: PaneForegroundState] = [:]

@@ -416,7 +416,7 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         await controller.copySelection()
 
         let reducedPrompt = try #require(copiedPrompt)
-        let reducedPayload = try payload(from: reducedPrompt)
+        let reducedPayload = try self.payload(from: reducedPrompt)
         let reducedElements = try #require(reducedPayload["elements"] as? [[String: Any]])
         #expect(reducedElements.count == 1)
         #expect((reducedElements[0]["selection"] as? [String: Any])?["selector"] as? String == "#second")
