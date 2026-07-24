@@ -21,7 +21,7 @@ struct MobileSettingsView: View {
     @Environment(ToastCenter.self) private var toasts
     @Environment(\.irohSettingsController) private var irohSettingsController
     let connectedHostName: String
-    let rescanQR: (() -> Void)?
+    let forgetComputer: (() -> Void)?
     let startPairingScanner: (() -> Void)?
     let signOut: (() -> Void)?
     /// The shell store, used to drive the multi-Mac switcher. `nil` in previews,
@@ -87,7 +87,7 @@ struct MobileSettingsView: View {
                 }
 
                 // Hidden entirely when there is nothing to show (no connected
-                // Mac, no store to switch with, no rescan), so the no-devices
+                // Mac, no store to switch with, no forget action), so the no-devices
                 // screen's reuse of this sheet does not render an empty header.
                 if hasConnectionSection {
                     Section(L10n.string("mobile.settings.connection", defaultValue: "Connection")) {
@@ -108,17 +108,20 @@ struct MobileSettingsView: View {
                             }
                             .accessibilityIdentifier("MobileSettingsSwitchMac")
                         }
-                        if let rescanQR {
+                        if let forgetComputer {
                             Button {
-                                rescanQR()
+                                forgetComputer()
                                 dismiss()
                             } label: {
                                 Label(
-                                    L10n.string("mobile.workspaces.rescan", defaultValue: "Rescan QR"),
-                                    systemImage: "qrcode.viewfinder"
+                                    L10n.string(
+                                        "mobile.workspaces.forgetComputer",
+                                        defaultValue: "Forget This Computer"
+                                    ),
+                                    systemImage: "minus.circle"
                                 )
                             }
-                            .accessibilityIdentifier("MobileSettingsRescanQR")
+                            .accessibilityIdentifier("MobileSettingsForgetComputer")
                         }
                     }
                     Button {
@@ -515,9 +518,9 @@ struct MobileSettingsView: View {
 
     /// Whether the Connection section has any rows to show. When this sheet is
     /// reused from the no-devices screen there is no connected Mac, no store to
-    /// switch with, and no rescan action, so the section is omitted entirely.
+    /// switch with, and no forget action, so the section is omitted entirely.
     private var hasConnectionSection: Bool {
-        !connectedHostName.isEmpty || store != nil || rescanQR != nil
+        !connectedHostName.isEmpty || store != nil || forgetComputer != nil
     }
 
     /// Drives the team Picker. Reads the EFFECTIVE current team (`resolvedTeamID`,

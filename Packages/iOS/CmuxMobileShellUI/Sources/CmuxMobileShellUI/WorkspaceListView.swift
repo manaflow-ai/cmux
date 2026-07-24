@@ -57,9 +57,9 @@ struct WorkspaceListView: View {
     /// SwiftUI's `refreshable(action:)` action type under Swift 6.
     var refresh: (@Sendable () async -> Void)?
     /// Optional: when present, the toolbar shows a "settings" menu offering
-    /// "Rescan QR" (disconnect + re-pair) and "Sign out". When nil (e.g.
-    /// previews), the menu is hidden.
-    var rescanQR: (() -> Void)?
+    /// "Forget This Computer" and "Sign out". When nil (e.g. previews), the
+    /// menu is hidden.
+    var forgetComputer: (() -> Void)?
     var signOut: (() -> Void)?
     /// Manual reconnect for the offline status row. `nil` in previews.
     var reconnect: (() -> Void)?
@@ -376,7 +376,7 @@ struct WorkspaceListView: View {
         }) {
             MobileSettingsView(
                 connectedHostName: host,
-                rescanQR: rescanQR,
+                forgetComputer: forgetComputer,
                 startPairingScanner: {
                     settingsPairingScannerHandoff.requestScannerAfterDismiss(
                         isSettingsPresented: $showingSettings
@@ -717,16 +717,19 @@ struct WorkspaceListView: View {
                 )
             }
             .accessibilityIdentifier("MobileWorkspaceTerminalShortcutsMenuItem")
-            if let rescanQR {
+            if let forgetComputer {
                 Button {
-                    rescanQR()
+                    forgetComputer()
                 } label: {
                     Label(
-                        L10n.string("mobile.workspaces.rescan", defaultValue: "Rescan QR"),
-                        systemImage: "qrcode.viewfinder"
+                        L10n.string(
+                            "mobile.workspaces.forgetComputer",
+                            defaultValue: "Forget This Computer"
+                        ),
+                        systemImage: "minus.circle"
                     )
                 }
-                .accessibilityIdentifier("MobileWorkspaceRescanQRMenuItem")
+                .accessibilityIdentifier("MobileWorkspaceForgetComputerMenuItem")
             }
             if let signOut {
                 Button(role: .destructive) {
