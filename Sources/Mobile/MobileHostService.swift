@@ -2594,9 +2594,5 @@ extension MobileHostConnection {
     func debugQueuedEventCountForTesting() -> Int {
         eventQueue.count
     }
-
-    func debugQueuedEventByteCountForTesting() -> Int {
-        eventQueue.byteCount
-    }
 }
 #endif

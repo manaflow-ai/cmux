@@ -400,9 +400,8 @@ extension MobileHostAuthorizationTests {
         }
 
         #expect(await transport.observedCloseCount() == 0)
-        #expect(await session.debugQueuedEventCountForTesting() <= 256)
-        #expect(await session.debugQueuedEventByteCountForTesting()
-            <= MobileHostConnectionEventQueue.defaultMaximumByteCount)
+        #expect(session.eventQueue.count <= 256)
+        #expect(session.eventQueue.byteCount <= MobileHostConnectionEventQueue.defaultMaximumByteCount)
         #expect(registry.count == 1)
 
         await session.close(reason: "test cleanup")
