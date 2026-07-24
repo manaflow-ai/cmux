@@ -3050,9 +3050,7 @@ class TerminalController {
         selected: Bool
     ) -> [String: Any] {
         let topology = controlSystemTreeWorkspaceNode(
-            workspace: workspace,
-            index: index,
-            selected: selected
+            workspace: workspace, index: index, selected: selected, dockStores: []
         )
         let panes = topology.panes.map { pane in
             return [
