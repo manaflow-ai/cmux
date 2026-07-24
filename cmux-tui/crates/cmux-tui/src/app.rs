@@ -4305,14 +4305,20 @@ impl App {
         if self.machine_action_in_flight {
             return RenderAction::None;
         }
-        if self.machine_provider_reconnect_retry_at.is_some_and(|retry_at| {
-            Instant::now() < retry_at
-                && self
+        if let Some(retry_at) = self.machine_provider_reconnect_retry_at {
+            if Instant::now() < retry_at {
+                if self
                     .machine_ui
                     .as_ref()
                     .is_some_and(|ui| matches!(ui.request, Some(MachineRequest::ReconnectProvider)))
-        }) {
-            return RenderAction::None;
+                {
+                    return RenderAction::None;
+                }
+            } else if let Some(ui) = self.machine_ui.as_mut()
+                && ui.request.is_none()
+            {
+                ui.request = Some(MachineRequest::ReconnectProvider);
+            }
         }
         let Some(request) = self.machine_ui.as_mut().and_then(|ui| ui.request.take()) else {
             return RenderAction::None;
@@ -4359,7 +4365,9 @@ impl App {
             .min(MACHINE_PROVIDER_RECONNECT_MAX_BACKOFF_EXPONENT);
         self.machine_provider_reconnect_retry_at =
             Some(Instant::now() + Duration::from_secs(1_u64 << exponent));
-        if let Some(ui) = self.machine_ui.as_mut() {
+        if let Some(ui) = self.machine_ui.as_mut()
+            && ui.request.is_none()
+        {
             ui.request = Some(MachineRequest::ReconnectProvider);
         }
     }
