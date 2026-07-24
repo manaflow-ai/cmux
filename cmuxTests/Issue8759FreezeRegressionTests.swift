@@ -40,13 +40,18 @@ import Testing
         var state = MainThreadHangWatchdogState(stallThreshold: 8)
         state.recordHeartbeat(at: 100)
 
-        #expect(!state.shouldCapture(at: 107.999))
-        #expect(state.shouldCapture(at: 108))
-        #expect(!state.shouldCapture(at: 109), "one stall must produce only one capture")
+        let beforeThreshold = state.shouldCapture(at: 107.999)
+        let reachesThreshold = state.shouldCapture(at: 108)
+        let duplicateCapture = state.shouldCapture(at: 109)
+        #expect(!beforeThreshold)
+        #expect(reachesThreshold)
+        #expect(!duplicateCapture, "one stall must produce only one capture")
 
         state.recordHeartbeat(at: 110)
-        #expect(!state.shouldCapture(at: 117.999))
-        #expect(state.shouldCapture(at: 118), "a heartbeat starts a new starvation episode")
+        let beforeNextThreshold = state.shouldCapture(at: 117.999)
+        let reachesNextThreshold = state.shouldCapture(at: 118)
+        #expect(!beforeNextThreshold)
+        #expect(reachesNextThreshold, "a heartbeat starts a new starvation episode")
     }
 
     @Test func hangWatchdogCaptureRetentionKeepsNewestBoundedSet() throws {
