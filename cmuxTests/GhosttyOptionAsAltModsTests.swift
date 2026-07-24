@@ -202,6 +202,91 @@ import Testing
         #expect(codepoint == UnicodeScalar("c").value)
     }
 
+    @Test func controlTextRecoveryAcceptsAnyPrintableLayoutResult() throws {
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.control, .shift],
+            timestamp: 1,
+            windowNumber: 0,
+            context: nil,
+            characters: "\u{001B}",
+            charactersIgnoringModifiers: "x",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_X)
+        ))
+
+        let recovered = KeyboardLayout.recoveredTextForControlCharacterEvent(
+            event,
+            appKitCharacterProvider: { candidateEvent, modifiers in
+                #expect(candidateEvent === event)
+                #expect(modifiers == [.shift])
+                return "\u{001B}"
+            },
+            layoutCharacterProvider: { keyCode, modifiers in
+                #expect(keyCode == UInt16(kVK_ANSI_X))
+                #expect(modifiers == [.shift])
+                return "Ж"
+            }
+        )
+
+        #expect(recovered == "Ж")
+    }
+
+    @Test func controlTextRecoveryPrefersAppKitReinterpretation() throws {
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.control],
+            timestamp: 1,
+            windowNumber: 0,
+            context: nil,
+            characters: "\u{0001}",
+            charactersIgnoringModifiers: "a",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_A)
+        ))
+        var consultedLayout = false
+
+        let recovered = KeyboardLayout.recoveredTextForControlCharacterEvent(
+            event,
+            appKitCharacterProvider: { _, modifiers in
+                #expect(modifiers.isEmpty)
+                return "α"
+            },
+            layoutCharacterProvider: { _, _ in
+                consultedLayout = true
+                return "a"
+            }
+        )
+
+        #expect(recovered == "α")
+        #expect(!consultedLayout)
+    }
+
+    @Test func controlTextRecoveryDoesNotInventTextForEscape() throws {
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 1,
+            windowNumber: 0,
+            context: nil,
+            characters: "\u{001B}",
+            charactersIgnoringModifiers: "\u{001B}",
+            isARepeat: false,
+            keyCode: UInt16(kVK_Escape)
+        ))
+
+        let recovered = KeyboardLayout.recoveredTextForControlCharacterEvent(
+            event,
+            appKitCharacterProvider: { _, _ in "\u{001B}" },
+            layoutCharacterProvider: { _, _ in nil }
+        )
+
+        #expect(recovered == nil)
+    }
+
     @Test func unshiftedCodepointUsesProductionKeyboardLayoutResolverForC0ControlEvent() throws {
         let expectedText = try #require(
             KeyboardLayout.character(forKeyCode: UInt16(kVK_ANSI_C))

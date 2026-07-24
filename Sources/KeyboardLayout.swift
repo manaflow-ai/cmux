@@ -13,10 +13,11 @@ class KeyboardLayout {
            let result = characterFromInputSource(
                source,
                forKeyCode: keyCode,
-               modifierFlags: modifierFlags
+               modifierFlags: modifierFlags,
+               includeTextModifiers: false
            ),
            result.allSatisfy(\.isASCII) {
-            return result
+            return result.lowercased()
         }
         // Current input source has no Unicode layout data or returned a
         // non-ASCII character. Fall back to the ASCII-capable source so
@@ -25,11 +26,41 @@ class KeyboardLayout {
            let result = characterFromInputSource(
                asciiSource,
                forKeyCode: keyCode,
-               modifierFlags: modifierFlags
+               modifierFlags: modifierFlags,
+               includeTextModifiers: false
            ) {
-            return result
+            return result.lowercased()
         }
         return nil
+    }
+
+    /// Recovers printable text when AppKit reports a single C0 payload for a
+    /// physical key. AppKit gets the first retry with Control removed; if it
+    /// still returns control input, the active keyboard layout resolves the
+    /// same physical key and modifiers without classifying a language or key.
+    static func recoveredTextForControlCharacterEvent(
+        _ event: NSEvent,
+        appKitCharacterProvider: (NSEvent, NSEvent.ModifierFlags) -> String? = {
+            $0.characters(byApplyingModifiers: $1)
+        },
+        layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? =
+            KeyboardLayout.textCharacter(forKeyCode:modifierFlags:)
+    ) -> String? {
+        let modifiersWithoutControl = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting(.control)
+
+        if let text = appKitCharacterProvider(event, modifiersWithoutControl),
+           isPrintableFallbackText(text) {
+            return text
+        }
+        guard let text = layoutCharacterProvider(
+            event.keyCode,
+            modifiersWithoutControl
+        ), isPrintableFallbackText(text) else {
+            return nil
+        }
+        return text
     }
 
     /// Return the ASCII-normalized equivalent of `event.charactersIgnoringModifiers`,
@@ -97,7 +128,8 @@ class KeyboardLayout {
     private static func characterFromInputSource(
         _ source: TISInputSource,
         forKeyCode keyCode: UInt16,
-        modifierFlags: NSEvent.ModifierFlags
+        modifierFlags: NSEvent.ModifierFlags,
+        includeTextModifiers: Bool
     ) -> String? {
         guard let layoutDataPointer = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else {
             return nil
@@ -115,7 +147,10 @@ class KeyboardLayout {
             keyboardLayout,
             keyCode,
             UInt16(kUCKeyActionDisplay),
-            shortcutModifierKeyState(for: modifierFlags),
+            carbonModifierKeyState(
+                for: modifierFlags,
+                includeTextModifiers: includeTextModifiers
+            ),
             UInt32(LMGetKbdType()),
             UInt32(kUCKeyTranslateNoDeadKeysBit),
             &deadKeyState,
@@ -125,23 +160,68 @@ class KeyboardLayout {
         )
 
         guard status == noErr, length > 0 else { return nil }
-        let result = String(utf16CodeUnits: chars, count: length)
-        return result.lowercased()
+        return String(utf16CodeUnits: chars, count: length)
     }
 
-    private static func shortcutModifierKeyState(
-        for modifierFlags: NSEvent.ModifierFlags
+    private static func textCharacter(
+        forKeyCode keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> String? {
+        if let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
+           let result = characterFromInputSource(
+               source,
+               forKeyCode: keyCode,
+               modifierFlags: modifierFlags,
+               includeTextModifiers: true
+           ) {
+            return result
+        }
+        if let asciiSource = TISCopyCurrentASCIICapableKeyboardLayoutInputSource()?.takeRetainedValue() {
+            return characterFromInputSource(
+                asciiSource,
+                forKeyCode: keyCode,
+                modifierFlags: modifierFlags,
+                includeTextModifiers: true
+            )
+        }
+        return nil
+    }
+
+    private static func isPrintableFallbackText(_ text: String) -> Bool {
+        guard !text.isEmpty else { return false }
+        let scalars = text.unicodeScalars
+        guard let scalar = scalars.first,
+              scalars.index(after: scalars.startIndex) == scalars.endIndex else {
+            return true
+        }
+        return scalar.value >= 0x20 &&
+            !(scalar.value >= 0xF700 && scalar.value <= 0xF8FF)
+    }
+
+    private static func carbonModifierKeyState(
+        for modifierFlags: NSEvent.ModifierFlags,
+        includeTextModifiers: Bool
     ) -> UInt32 {
+        var supportedFlags: NSEvent.ModifierFlags = [.shift, .command]
+        if includeTextModifiers {
+            supportedFlags.formUnion([.option, .capsLock])
+        }
         let normalized = modifierFlags
             .intersection(.deviceIndependentFlagsMask)
-            .intersection([.shift, .command])
+            .intersection(supportedFlags)
 
         var carbonModifiers: Int = 0
         if normalized.contains(.shift) {
             carbonModifiers |= shiftKey
         }
+        if normalized.contains(.option) {
+            carbonModifiers |= optionKey
+        }
         if normalized.contains(.command) {
             carbonModifiers |= cmdKey
+        }
+        if normalized.contains(.capsLock) {
+            carbonModifiers |= alphaLock
         }
         return UInt32((carbonModifiers >> 8) & 0xFF)
     }

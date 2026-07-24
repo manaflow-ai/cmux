@@ -5933,9 +5933,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // If we have a single control character, return the character without
             // the control modifier so Ghostty's KeyEncoder can handle it.
             if isControlCharacterScalar(scalar) {
-                return event.characters(
-                    byApplyingModifiers: event.modifierFlags.subtracting(.control)
-                )
+                return KeyboardLayout.recoveredTextForControlCharacterEvent(event)
             }
 
             // Private Use Area characters (function keys) should not be sent
