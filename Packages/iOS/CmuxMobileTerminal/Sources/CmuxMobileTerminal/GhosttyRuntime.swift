@@ -150,8 +150,8 @@ public final class GhosttyRuntime {
             GhosttyRuntime.handleAction(app, target: target, action: action)
         }
         runtimeConfig.read_clipboard_cb = cmuxIOSRuntimeReadClipboardCallback
-        runtimeConfig.confirm_read_clipboard_cb = { _, _, _, _ in
-            // iOS embed doesn't currently support clipboard confirmation prompts.
+        runtimeConfig.confirm_read_clipboard_cb = { userdata, _, state, _ in
+            GhosttyRuntime.denyClipboardRead(userdata, state: state)
         }
         runtimeConfig.write_clipboard_cb = { userdata, location, content, len, confirm in
             GhosttyRuntime.handleWriteClipboard(
@@ -346,6 +346,7 @@ public final class GhosttyRuntime {
         len: Int,
         confirm: Bool
     ) {
+        guard !confirm else { return }
         guard let content, len > 0 else { return }
 
         for index in 0..<len {
@@ -359,6 +360,32 @@ public final class GhosttyRuntime {
                 clipboardWriter(value)
             }
             return
+        }
+    }
+
+    nonisolated private static func denyClipboardRead(
+        _ userdata: UnsafeMutableRawPointer?,
+        state: UnsafeMutableRawPointer?
+    ) {
+        let userdataBits: Int = userdata.map { Int(bitPattern: $0) } ?? 0
+        let stateBits: Int = state.map { Int(bitPattern: $0) } ?? 0
+        Task { @MainActor in
+            let userdataPointer = userdataBits == 0
+                ? nil
+                : UnsafeMutableRawPointer(bitPattern: userdataBits)
+            let statePointer = stateBits == 0
+                ? nil
+                : UnsafeMutableRawPointer(bitPattern: stateBits)
+            guard let surfaceView = surfaceView(from: userdataPointer),
+                  let surface = surfaceView.surface else { return }
+            "".withCString { pointer in
+                ghostty_surface_complete_clipboard_request(
+                    surface,
+                    pointer,
+                    statePointer,
+                    true
+                )
+            }
         }
     }
 
@@ -452,6 +479,8 @@ private extension GhosttyRuntime {
         scrollback-limit = 2000000
         font-family = Menlo
         font-size = 10
+        clipboard-read = deny
+        clipboard-write = deny
         window-padding-balance = false
         window-padding-y = 0
         cursor-style = bar

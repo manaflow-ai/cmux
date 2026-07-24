@@ -1832,6 +1832,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		8362A0010000000000000001 /* TerminalCallerTTYResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8362A0020000000000000002 /* TerminalCallerTTYResolver.swift */; };
 		8362B0010000000000000001 /* TerminalCallerTTYResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8362B0020000000000000002 /* TerminalCallerTTYResolverTests.swift */; };
 		E4D1768B7041CDE4F9A084A4 /* TerminalClearScreenKeepScrollbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2B7555E04A04849992547A2 /* TerminalClearScreenKeepScrollbackTests.swift */; };
+		C15200000000000000000003 /* TerminalClipboardAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = C15200000000000000000004 /* TerminalClipboardAccess.swift */; };
+		C15200000000000000000001 /* TerminalClipboardAccessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C15200000000000000000002 /* TerminalClipboardAccessTests.swift */; };
 		C2577000A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */; };
 		D35A00000000000000000014 /* TerminalController+AgentPromptDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000014 /* TerminalController+AgentPromptDelivery.swift */; };
 		8054A0030000000000000003 /* TerminalController+BrowserAutomationRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8054A0040000000000000004 /* TerminalController+BrowserAutomationRecovery.swift */; };
@@ -4019,6 +4021,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		8362A0020000000000000002 /* TerminalCallerTTYResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCallerTTYResolver.swift; sourceTree = "<group>"; };
 		8362B0020000000000000002 /* TerminalCallerTTYResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCallerTTYResolverTests.swift; sourceTree = "<group>"; };
 		F2B7555E04A04849992547A2 /* TerminalClearScreenKeepScrollbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalClearScreenKeepScrollbackTests.swift; sourceTree = "<group>"; };
+		C15200000000000000000004 /* TerminalClipboardAccess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalClipboardAccess.swift; sourceTree = "<group>"; };
+		C15200000000000000000002 /* TerminalClipboardAccessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalClipboardAccessTests.swift; sourceTree = "<group>"; };
 		C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCmdClickUITests.swift; sourceTree = "<group>"; };
 		D35B00000000000000000014 /* TerminalController+AgentPromptDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+AgentPromptDelivery.swift"; sourceTree = "<group>"; };
 		8054A0040000000000000004 /* TerminalController+BrowserAutomationRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+BrowserAutomationRecovery.swift"; sourceTree = "<group>"; };
@@ -5196,6 +5200,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C40410010000000000000020 /* FileExplorerDoubleClickActionSettings.swift */,
 				C0DEF828300000000000002 /* GhosttyTerminalImmediateHostedStateAction.swift */,
 				A5001015 /* GhosttyTerminalView.swift */,
+				C15200000000000000000004 /* TerminalClipboardAccess.swift */,
 				85510002A1B2C3D4E5F60001 /* GhosttyApp+ChildExitPolicy.swift */,
 				816400000000000000000002 /* GhosttyScrollView.swift */,
 				A11E5E1E0000000000000002 /* TerminalSelectionAccessibilityNotifier.swift */,
@@ -6347,6 +6352,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					D3052001000000000000002 /* TerminalSurfaceResizePolicyTests.swift */,
 				EC010C02 /* TerminalUploadCommandTests.swift */,
 				02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */,
+				C15200000000000000000002 /* TerminalClipboardAccessTests.swift */,
 				A11E5E1E0000000000000012 /* TerminalSelectionAccessibilityIngressGateTests.swift */,
 				570ED364A7E41085FB2D31FE /* MainWindowSelfSizingTests.swift */,
 				43DB195131CD53CCCCEEEB79 /* TerminalWindowPortalLifecycleHiddenRefreshTests.swift */,
@@ -8290,6 +8296,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				7490C00F7490C00F7490C00F /* TaskVMInfoMemoryPressureFootprintSampler.swift in Sources */,
 				8362A0030000000000000003 /* TerminalCallerTTYBinding.swift in Sources */,
 				8362A0010000000000000001 /* TerminalCallerTTYResolver.swift in Sources */,
+				C15200000000000000000003 /* TerminalClipboardAccess.swift in Sources */,
 				D35A00000000000000000014 /* TerminalController+AgentPromptDelivery.swift in Sources */,
 				8054A0030000000000000003 /* TerminalController+BrowserAutomationRecovery.swift in Sources */,
 				D35A00000000000000000011 /* TerminalController+BrowserDesignMode.swift in Sources */,
@@ -9239,6 +9246,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				46F6AC15863EC84DCD3770A2 /* TerminalAndGhosttyTests.swift in Sources */,
 				8362B0010000000000000001 /* TerminalCallerTTYResolverTests.swift in Sources */,
 				E4D1768B7041CDE4F9A084A4 /* TerminalClearScreenKeepScrollbackTests.swift in Sources */,
+				C15200000000000000000001 /* TerminalClipboardAccessTests.swift in Sources */,
 				8C4BBF2DEF6DF93F395A9EE7 /* TerminalControllerSocketSecurityTests.swift in Sources */,
 				9C1BEA3D2E6F49709A71C020 /* TerminalControllerTerminalTextTests.swift in Sources */,
 				6190C0126190C0126190C012 /* TerminalCopyOnSelectManagedConfigLayeringTests.swift in Sources */,

@@ -28,6 +28,35 @@ Its universal ReleaseFast GhosttyKit archive is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-c55514dd52d806e9aa661ee20381aa19c91c1c09-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
 
+### Terminal clipboard confirmation defaults
+
+- Pending fork PR: https://github.com/manaflow-ai/ghostty/pull/138
+- Commits:
+  - `60f35fedd` (test: require clipboard access confirmation defaults)
+  - `21f089e33` (fix: prompt for terminal clipboard writes by default)
+- Files:
+  - `include/ghostty.h`
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+  - `src/config/Config.zig`
+- Summary:
+  - Terminal-driven clipboard reads and writes default to `ask`.
+  - The embedded write callback documents that `confirm = true` requires
+    explicit approval and must leave the clipboard unchanged after denial.
+  - cmux handles the read and write confirmation callbacks through one
+    serialized AppKit prompt path. The iOS embed denies terminal-driven
+    clipboard access because it does not present confirmation prompts.
+- Integration note:
+  - The cmux PR pins the pending fork commit so its builds exercise the new
+    default. Land the fork PR first, then verify the pinned commit is reachable
+    from fork `main` before merging the cmux PR.
+- Conflict notes:
+  - Preserve the `confirm` boolean across `Surface.clipboardWrite`,
+    `apprt.embedded.Surface.setClipboard`, and the C callback contract.
+  - If upstream changes clipboard defaults or confirmation ownership, retain
+    the invariant that an `ask` request cannot access the platform clipboard
+    before the embedder approves it.
+
 ### External frontend rendering and recovery
 
 - Commits:
