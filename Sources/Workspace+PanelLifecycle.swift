@@ -336,12 +336,10 @@ extension Workspace {
         var removedLedgerStatusKey: String?
         if let lifecyclePanelId = ownedPanelId ?? panelId {
             let lifecycleStatusKey = agentStatusKey(forAgentPIDKey: key)
-            if clearAgentLifecycle(key: lifecycleStatusKey, panelId: lifecyclePanelId) {
-                didChange = true
-            }
             let panelStillHasRuntime = (agentPIDKeysByPanelId[lifecyclePanelId] ?? []).contains {
                 agentStatusKey(forAgentPIDKey: $0) == lifecycleStatusKey
             }
+            if (didChange || !panelStillHasRuntime), clearAgentLifecycle(key: lifecycleStatusKey, panelId: lifecyclePanelId) { didChange = true }
             if !panelStillHasRuntime {
                 sidebarAgentRuntimeObservation.agentStatusLedger.remove(
                     statusKey: lifecycleStatusKey,
