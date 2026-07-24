@@ -12967,6 +12967,93 @@ mod tests {
     }
 
     #[test]
+    fn immediate_terminal_press_fails_closed_before_surface_output_marks_route_stale() {
+        let (mux, surface) = test_mux("immediate-mouse-semantics-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_visible = false;
+        app.sync_layout((40, 15));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let content = app.pane_areas[0].content;
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::Fresh);
+        assert_eq!(surface.with_terminal(|terminal| terminal.mouse_tracking()), Some(false));
+
+        // Change only the mouse protocol. Reporting remains disabled, so the
+        // event-specific route still looks cmux-owned even though its encoder
+        // semantics no longer match the committed frame.
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1006h"));
+        assert_eq!(surface.with_terminal(|terminal| terminal.mouse_tracking()), Some(false));
+        assert_eq!(
+            app.pointer_route_phase,
+            PointerRoutePhase::Fresh,
+            "the queued SurfaceOutput has not marked the rendered route stale yet"
+        );
+
+        let action = app
+            .handle(AppEvent::Input(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: content.x + 4,
+                row: content.y + 2,
+                modifiers: KeyModifiers::NONE,
+            })))
+            .unwrap();
+
+        assert_eq!(
+            action,
+            RenderAction::None,
+            "an immediate press must fail closed when its rendered semantic token changed"
+        );
+        assert!(app.drag.is_none());
+        assert!(app.selection.is_none());
+        assert!(app.encode_buf.is_empty());
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn immediate_untracked_wheel_fails_closed_before_surface_output_marks_route_stale() {
+        let (mux, surface) = test_mux("immediate-wheel-semantics-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_visible = false;
+        app.sync_layout((40, 15));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let content = app.pane_areas[0].content;
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::Fresh);
+
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1049h"));
+        assert_eq!(
+            app.pointer_route_phase,
+            PointerRoutePhase::Fresh,
+            "the queued SurfaceOutput has not marked the rendered route stale yet"
+        );
+
+        let action = app
+            .handle(AppEvent::Input(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::ScrollUp,
+                column: content.x + 4,
+                row: content.y + 2,
+                modifiers: KeyModifiers::NONE,
+            })))
+            .unwrap();
+
+        assert_eq!(
+            action,
+            RenderAction::None,
+            "an immediate wheel must not cross from host scrollback into alternate-screen arrows"
+        );
+        assert!(app.encode_buf.is_empty());
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn rejected_input_shows_an_error_without_disconnecting() {
         let mux = Mux::new("oversized-input-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
