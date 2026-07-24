@@ -212,7 +212,7 @@ import Testing
         // but the failed hot reload surfaces as a snapshot warning.
         try await store.switchAccount(provider: .codex, accountID: "dev@example.com")
         #expect(store.lastSwitchError == nil)
-        #expect(store.snapshot.lastErrorDescription == "daemon reload reported failure")
+        #expect(store.snapshot.lastErrorDescription == "Daemon reload reported failure")
     }
 
     @Test func reloadDaemonAccountsRefreshes() async throws {
