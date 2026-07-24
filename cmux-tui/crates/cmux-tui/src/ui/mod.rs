@@ -18,16 +18,25 @@ use cmux_tui_core::Rect;
 use ratatui::Frame;
 use ratatui::layout::Position;
 use ratatui::style::{Color, Modifier, Style};
+use unicode_width::UnicodeWidthStr;
 
 use crate::app::{App, Hit};
+use crate::config::Action;
+use crate::localization::catalog;
 
-pub(crate) use scrollbar::thumb_geometry;
+pub(crate) use scrollbar::{
+    ScrollbarState, ScrollbarStyle, thumb_geometry, viewport_drag_offset, viewport_jump_offset,
+    viewport_thumb_geometry,
+};
 
 pub fn draw(app: &mut App, frame: &mut Frame) {
     app.reset_frame_cursor_spec();
     let area = frame.area();
     if area.height == 0 {
         return;
+    }
+    if app.shortcut_help.is_some() && (area.width < 24 || area.height < 7) {
+        app.shortcut_help = None;
     }
 
     app.hits.clear();
@@ -37,9 +46,14 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     let sidebar_input_cursor = (app.sidebar_width > 0).then(|| sidebar::draw(app, frame)).flatten();
 
     let pane_cursors = pane::draw_all(app, frame);
-    draw_status_bar(app, frame);
+    if app.is_surface_only() {
+        draw_surface_status(app, frame);
+    } else {
+        draw_status_bar(app, frame);
+    }
     overlay::draw_toast(app, frame);
     overlay::draw_menu(app, frame);
+    overlay::draw_shortcut_help(app, frame);
 
     if app.pairing_dialog.is_some() {
         overlay::draw_pairing_dialog(app, frame);
@@ -47,10 +61,28 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     } else if app.prompt.is_some() {
         overlay::draw_prompt(app, frame);
     } else if app.menu.is_none()
+        && app.shortcut_help.is_none()
         && let Some((x, y)) = pane_cursors.input.or(sidebar_input_cursor).or(pane_cursors.terminal)
     {
         frame.set_cursor_position(Position::new(x, y));
     }
+}
+
+/// Single-surface clients keep the full terminal grid and overlay transient
+/// notices on its last row using foreground styling only.
+fn draw_surface_status(app: &App, frame: &mut Frame) {
+    let Some(message) = app.status_message.as_deref() else { return };
+    let area = frame.area();
+    if area.width == 0 {
+        return;
+    }
+    frame.buffer_mut().set_stringn(
+        0,
+        area.height - 1,
+        message,
+        area.width as usize,
+        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+    );
 }
 
 /// Status bar: the active workspace's screens, one clickable segment per
@@ -65,7 +97,6 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     for x in bar_x..area.width {
         frame.buffer_mut()[(x, status_y)].set_symbol(" ").set_style(base);
     }
-
     let active_style = Style::default()
         .bg(chrome.status_active_bg)
         .fg(chrome.status_active_fg)
@@ -82,7 +113,12 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
         (start, width)
     };
 
-    let Some(ws) = app.tree.active_workspace().cloned() else { return };
+    let Some(ws) = app.tree.active_workspace().cloned() else {
+        if app.prefix_armed {
+            draw_prefix_help_bar(app, frame, bar_x, status_y.saturating_sub(1));
+        }
+        return;
+    };
     put(frame, &mut x, " screens ", base.fg(chrome.status_dim_fg));
     for (i, screen) in ws.screens.iter().enumerate() {
         let active = i == ws.active_screen;
@@ -101,15 +137,15 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     }
     app.hits.extend(hits);
 
-    // Session label / status message, right-aligned (the prefix indicator
-    // replaces it).
+    // Session label / status message, right-aligned. Prefix help renders
+    // over the pane border above this row.
     let label = app
         .status_message
         .as_ref()
         .map(|msg| format!(" {} ", truncate(msg, area.width.saturating_sub(x) as usize)))
         .unwrap_or_else(|| format!("[{}] ", app.session_label));
     let label_w = label.chars().count() as u16;
-    if !app.prefix_armed && x + label_w < area.width {
+    if x + label_w < area.width {
         frame.buffer_mut().set_stringn(
             area.width - label_w,
             status_y,
@@ -122,17 +158,73 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
             },
         );
     }
-
     if app.prefix_armed {
-        let indicator = " C-b ";
-        let x = area.width.saturating_sub(indicator.len() as u16);
+        draw_prefix_help_bar(app, frame, bar_x, status_y.saturating_sub(1));
+    }
+}
+
+fn draw_prefix_help_bar(app: &App, frame: &mut Frame, bar_x: u16, y: u16) {
+    let area = frame.area();
+    let chrome = app.chrome;
+    let base = Style::default()
+        .bg(chrome.status_active_bg)
+        .fg(chrome.status_active_fg)
+        .add_modifier(Modifier::BOLD);
+    let keycap = base.fg(app.config.theme.border_active).add_modifier(Modifier::BOLD);
+    for x in bar_x..area.width {
+        frame.buffer_mut()[(x, y)].set_symbol(" ").set_style(base);
+    }
+
+    let mut x = bar_x;
+    let prefix = app
+        .config
+        .keys
+        .prefix
+        .display_label()
+        .map(|label| format!(" {label} "))
+        .unwrap_or_default();
+    let prefix_width = prefix.width() as u16;
+    if prefix_width > 0 && x.saturating_add(prefix_width) <= area.width {
+        frame.buffer_mut().set_stringn(x, y, &prefix, prefix_width as usize, keycap);
+        x += prefix_width;
+    }
+    if x < area.width {
         frame.buffer_mut().set_stringn(
             x,
-            status_y,
-            indicator,
-            indicator.len(),
-            Style::default().bg(Color::Yellow).fg(Color::Black),
+            y,
+            " › ",
+            area.width.saturating_sub(x).min(3) as usize,
+            base.fg(app.config.theme.border_active),
         );
+        x = x.saturating_add(3);
+    }
+
+    let actions = [
+        Action::SendPrefix,
+        Action::ShowShortcuts,
+        Action::ClosePane,
+        Action::CloseTab,
+        Action::PrevWorkspace,
+        Action::NextWorkspace,
+        Action::NewWorkspace,
+        Action::CloseWorkspace,
+        Action::ZoomPane,
+        Action::FocusSidebar,
+        Action::Detach,
+    ];
+    for action in actions {
+        let Some(key) = app.config.keys.prefixed_key_label(action) else { continue };
+        let key = format!(" {key} ");
+        let label = format!(" {} ", catalog().action_label(action));
+        let key_width = key.width() as u16;
+        let label_width = label.width() as u16;
+        if x.saturating_add(key_width).saturating_add(label_width) > area.width {
+            break;
+        }
+        frame.buffer_mut().set_stringn(x, y, &key, key_width as usize, keycap);
+        x += key_width;
+        frame.buffer_mut().set_stringn(x, y, &label, label_width as usize, base);
+        x += label_width;
     }
 }
 

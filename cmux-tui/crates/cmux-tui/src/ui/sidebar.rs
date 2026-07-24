@@ -7,7 +7,9 @@ use cmux_tui_core::Rect;
 use ratatui::Frame;
 use ratatui::style::{Color, Modifier, Style};
 
-use super::{middle_truncate, rail, truncate};
+use super::{
+    ScrollbarState, ScrollbarStyle, middle_truncate, rail, truncate, viewport_thumb_geometry,
+};
 use crate::app::{App, Hit, RailKind, WorkspaceRailSelection};
 use crate::config::SidebarView;
 use crate::localization;
@@ -266,16 +268,11 @@ fn draw_plugin(app: &mut App, frame: &mut Frame) {
     }
     let content = app.sidebar_plugin_rect();
     let border_x = area.x + width - 1;
-    let focused = app.workspace_sidebar_focused();
-    let border_style = Style::default().fg(if focused {
-        app.config.theme.border_active
-    } else {
-        app.config.theme.border_inactive
-    });
+    let palette = rail::RailPalette::for_app(app, app.workspace_sidebar_focused());
     {
         let buf = frame.buffer_mut();
         for y in area.y..area.y + height {
-            buf[(border_x, y)].set_symbol("│").set_style(border_style);
+            buf[(border_x, y)].set_symbol(palette.border_symbol).set_style(palette.border);
         }
     }
     // The divider column is a drag handle exactly like the built-in sidebar's;
@@ -302,7 +299,7 @@ fn draw_plugin(app: &mut App, frame: &mut Frame) {
             {
                 let buf = frame.buffer_mut();
                 for y in area.y..area.y + height {
-                    buf[(border_x, y)].set_symbol("│").set_style(border_style);
+                    buf[(border_x, y)].set_symbol(palette.border_symbol).set_style(palette.border);
                 }
             }
             return;
@@ -384,8 +381,27 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         selected_body,
         selected_footer,
     );
-
     let mut hits = Vec::new();
+    let scrollbar_track = if viewport.body.height > 0 && body_rows > viewport.body.height as usize {
+        Rect {
+            x: area.x + area.width.saturating_sub(2),
+            y: viewport.body.y,
+            width: 1,
+            height: viewport.body.height,
+        }
+    } else {
+        Rect::default()
+    };
+    if scrollbar_track.height > 0 {
+        hits.push((
+            scrollbar_track,
+            Hit::WorkspaceScrollbar {
+                track: scrollbar_track,
+                total_rows: body_rows,
+                visible_rows: viewport.body.height as usize,
+            },
+        ));
+    }
     for (i, ws) in app.tree.workspaces.iter().enumerate() {
         let span = rail::RowSpan::new(i * rail::ENTRY_STRIDE, rail::ENTRY_HEIGHT);
         let Some(y) = viewport.body_y(span) else { continue };
@@ -479,6 +495,30 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         );
         hits.push((rail::row(area, y), Hit::CreateWorkspace { mode }));
     }
+    if scrollbar_track.height > 0 {
+        let (thumb_y, thumb_height) = viewport_thumb_geometry(
+            body_rows,
+            viewport.body.height as usize,
+            viewport.body_offset,
+            scrollbar_track.height,
+        );
+        let expanded = app.hover.is_some_and(|(x, y)| scrollbar_track.contains(x, y))
+            || app.dragging_workspace_scrollbar();
+        let state = if expanded {
+            ScrollbarState::Expanded
+        } else if app.workspace_sidebar_focused() {
+            ScrollbarState::Highlighted
+        } else {
+            ScrollbarState::Idle
+        };
+        ScrollbarStyle::from_chrome(app.chrome).draw_thumb(
+            frame.buffer_mut(),
+            scrollbar_track,
+            (thumb_y, thumb_height),
+            Style::default(),
+            state,
+        );
+    }
     hits.push((rail::divider(area), Hit::RailResize(RailKind::Workspace)));
     app.hits.extend(hits);
 }
@@ -504,11 +544,19 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
         .bg(selected_bg)
         .fg(chrome.sidebar_selected_fg)
         .add_modifier(Modifier::BOLD);
-    let border = base.fg(if app.workspace_sidebar_focused() {
-        app.config.theme.border_active
+    let focused = app.workspace_sidebar_focused();
+    let border = base
+        .fg(if focused { app.config.theme.border_active } else { chrome.sidebar_border })
+        .add_modifier(if focused { Modifier::BOLD } else { Modifier::empty() });
+    let border_symbol = if focused { "┃" } else { "│" };
+    let header_style = if focused {
+        Style::default()
+            .bg(chrome.status_active_bg)
+            .fg(app.config.theme.border_active)
+            .add_modifier(Modifier::BOLD)
     } else {
-        chrome.sidebar_border
-    });
+        dim
+    };
 
     let entries = app
         .sidebar_files
@@ -532,16 +580,22 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
         for x in area.x..area.x + content_width {
             buf[(x, y)].set_symbol(" ").set_style(base);
         }
-        buf[(area.x + width - 1, y)].set_symbol("│").set_style(border);
+        buf[(area.x + width - 1, y)].set_symbol(border_symbol).set_style(border);
     }
 
+    if focused {
+        for x in area.x..area.x + content_width {
+            buf[(x, area.y)].set_style(header_style);
+        }
+    }
     let marker = if pinned { "● " } else { "  " };
-    buf.set_stringn(area.x, area.y, marker, content_w, dim);
+    buf.set_stringn(area.x, area.y, marker, content_w, if focused { header_style } else { dim });
     let badge = unread.map(|(count, _)| format!("• {count}"));
     let badge_width = badge.as_ref().map(|text| text.chars().count()).unwrap_or(0);
     let path_width = content_w.saturating_sub(2 + badge_width + usize::from(badge_width > 0));
     let path = middle_truncate(&current_dir, path_width);
-    buf.set_stringn(area.x + 2, area.y, &path, path_width, base.add_modifier(Modifier::BOLD));
+    let path_style = if focused { header_style } else { base }.add_modifier(Modifier::BOLD);
+    buf.set_stringn(area.x + 2, area.y, &path, path_width, path_style);
     if let (Some(text), Some((_, color))) = (badge, unread) {
         let badge_x = area.x + content_width.saturating_sub(text.chars().count() as u16);
         buf.set_stringn(
@@ -549,7 +603,7 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
             area.y,
             &text,
             text.chars().count(),
-            base.fg(color).add_modifier(Modifier::BOLD),
+            header_style.fg(color).add_modifier(Modifier::BOLD),
         );
     }
 

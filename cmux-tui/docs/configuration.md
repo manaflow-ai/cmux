@@ -42,6 +42,7 @@ The built-in sidebar defaults to the workspace list. Set `"sidebar": {"view": "f
 | --- | --- | --- | --- |
 | `sidebar.view` | `"files"` or `"workspaces"` | `"workspaces"` | Built-in sidebar view when `sidebar.plugin` is unset |
 | `sidebar.width` | integer | `22` | Sidebar width, clamped to 10 through 60 on load |
+| `sidebar.compact_width` | integer | `10` | Width used by compact mode, clamped to 10 through 60 and capped at `sidebar.width` |
 | `sidebar.max_width` | integer | `0` | Maximum live drag width; `0` means no configured maximum |
 | `sidebar.plugin.command` | array of strings | unset | External sidebar plugin argv; when set, the sidebar hosts this program in a PTY instead of the built-in list |
 | `sidebar.plugin.cwd` | string | unset | Working directory for the sidebar plugin process |
@@ -188,6 +189,8 @@ Chrome 136 and newer reject CDP remote debugging on the OS-default profile direc
 | --- | --- | --- | --- |
 | `scrollbar.position` | `"column"` or `"border"` | `"column"` | Dedicated scrollbar column or right-border overlay |
 
+Terminal panes, the workspace sidebar, and the shortcut modal share the same `▕` thumb, which expands to `▐` while hovered or dragged. A scrollbar is drawn only when its content exceeds the visible rows.
+
 ## Server
 
 | Key | Type | Default | Effect |
@@ -203,6 +206,7 @@ WebSocket clients pair through a six-digit browser/TUI comparison by default. We
 | --- | --- | --- | --- |
 | `keys.prefix` | chord string | `"ctrl+b"` | Prefix chord |
 | `keys.alt_shortcuts` | boolean | `true` | Enables default modeless Alt bindings when true |
+| `keys.send-prefix` | chord string or array or `"none"` | current prefix chord | Send the configured prefix to the active surface |
 | `keys.new-tab` | chord string or array or `"none"` | `["t","alt+t"]` | New PTY tab |
 | `keys.new_browser_tab` | chord string or array or `"none"` | `"B"` | Browser URL prompt |
 | `keys.new-pane-smart` | chord string or array or `"none"` | `"alt+n"` | New pane using the default automatic layout |
@@ -211,8 +215,8 @@ WebSocket clients pair through a six-digit browser/TUI comparison by default. We
 | `keys.select-tab-0` through `keys.select-tab-9` | chord string or array or `"none"` | unbound | Select tab by its zero-based visible index |
 | `keys.split-right` | chord string or array or `"none"` | `"%"` | Split right |
 | `keys.split-down` | chord string or array or `"none"` | `"\""` | Split down |
-| `keys.close-pane` | chord string or array or `"none"` | `"x"` | Close active pane |
-| `keys.close-tab` | chord string or array or `"none"` | `"X"` | Close active tab |
+| `keys.close-pane` | chord string or array or `"none"` | `"X"` | Close active pane |
+| `keys.close-tab` | chord string or array or `"none"` | `"x"` | Close active tab |
 | `keys.rename-tab` | chord string or array or `"none"` | unbound | Rename active tab |
 | `keys.rename-pane` | chord string or array or `"none"` | alias | Alias for `rename-tab` |
 | `keys.rename-screen` | chord string or array or `"none"` | `","` | Rename active screen |
@@ -222,9 +226,12 @@ WebSocket clients pair through a six-digit browser/TUI comparison by default. We
 | `keys.next-screen` | chord string or array or `"none"` | `["n","alt+]"]` | Next screen |
 | `keys.select-screen-0` through `keys.select-screen-9` | chord string or array or `"none"` | `"0"` through `"9"` | Select visible screen 0 through 9 |
 | `keys.new-screen` | chord string or array or `"none"` | `"c"` | New screen |
-| `keys.next-workspace` | chord string or array or `"none"` | `"w"` | Next workspace |
+| `keys.prev-workspace` | chord string or array or `"none"` | `["(","alt+{"]` | Previous workspace |
+| `keys.next-workspace` | chord string or array or `"none"` | `["w",")","alt+}"]` | Next workspace |
 | `keys.new-workspace` | chord string or array or `"none"` | `"W"` | New workspace |
+| `keys.close-workspace` | chord string or array or `"none"` | `"D"` | Close active workspace |
 | `keys.toggle-sidebar` | chord string or array or `"none"` | `"s"` | Toggle sidebar |
+| `keys.toggle-sidebar-compact` | chord string or array or `"none"` | `"m"` | Toggle compact/full sidebar width and show the sidebar |
 | `keys.toggle-sidebar-view` | chord string or array or `"none"` | `"e"` | Toggle the built-in files/workspaces view; a plugin still takes precedence |
 | `keys.focus-sidebar` | chord string or array or `"none"` | `"S"` | Focus the built-in sidebar or sidebar plugin; a prefixed command returns focus to the pane |
 | `keys.focus-next-pane` | chord string or array or `"none"` | `"o"` | Cycle to the next pane in the current screen |
@@ -243,11 +250,12 @@ WebSocket clients pair through a six-digit browser/TUI comparison by default. We
 | `keys.browser-forward` | chord string or array or `"none"` | `">"` | Browser forward |
 | `keys.browser-reload` | chord string or array or `"none"` | `"r"` | Browser reload |
 | `keys.browser-edit-url` | chord string or array or `"none"` | `"u"` | Browser URL prompt |
+| `keys.show-shortcuts` | chord string or array or `"none"` | `"?"` | Open the resolved keyboard shortcut modal |
 | `keys.detach` | chord string or array or `"none"` | `"d"` | Quit local TUI or detach attached TUI |
 
-Each action override replaces all default chords for that action. Values may be a string, an array of strings, or `"none"`. Non-string array entries are ignored. Set `keys.alt_shortcuts` to `false` to remove default Alt chords before applying user overrides; explicitly configured Alt chords still work.
+Each action override replaces all default chords for that action. Values may be a string, an array of strings, or `"none"`. Non-string array entries are ignored. Changing `keys.prefix` also moves the default `send-prefix` chord so pressing the configured prefix twice continues to pass it through. An explicit `keys.send-prefix` override takes precedence. Set `keys.alt_shortcuts` to `false` to remove default Alt chords before applying user overrides; explicitly configured Alt chords still work.
 
-`Ctrl-b x` now follows tmux and closes the active pane. `Ctrl-b X` closes the active tab. Existing users can restore the old cmux behavior with `"close-tab": "x"` and `"close-pane": "X"`.
+`Ctrl-b x` closes the active tab because tab lifecycle is the more frequent cmux action. `Ctrl-b X` closes its containing pane. Both bindings accept independent overrides.
 
 Screen and tab positions are zero-based, so each `select-screen-N` or `select-tab-N` action selects index `N`. Generated workspace names also start at `0`. The snake_case spellings `select_screen_N` and `select_tab_N` are accepted as aliases. `Ctrl-b ]` and `Ctrl-b q` are intentionally unbound: cmux has no paste-buffer command and no pane-number quick-jump overlay yet. Zellij's modal `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are not defaults because they conflict with common shell and editor control keys.
 
@@ -280,6 +288,7 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
   "sidebar": {
     "view": "files",
     "width": 24,
+    "compact_width": 10,
     "max_width": 40
   },
   "machine_sidebar": {
@@ -331,14 +340,16 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
     "prev-screen": ["p", "alt+["],
     "rename-tab": "r",
     "rename-screen": ",",
+    "toggle-sidebar-compact": "m",
     "toggle-sidebar-view": "e",
     "focus-left": ["h", "left", "alt+h", "alt+left"],
     "focus-right": ["l", "right", "alt+l", "alt+right"],
-    "close-pane": "x",
-    "close-tab": "X",
+    "close-tab": "x",
+    "close-pane": "X",
     "zoom-pane": "z",
     "swap-pane-prev": "{",
     "swap-pane-next": "}",
+    "show-shortcuts": "?",
     "detach": "d"
   }
 }

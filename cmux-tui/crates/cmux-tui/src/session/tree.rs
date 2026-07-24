@@ -18,6 +18,9 @@ pub struct TreeView {
     pub active_workspace: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AmbiguousSurfaceReference;
+
 #[derive(Clone)]
 pub struct WorkspaceView {
     pub id: WorkspaceId,
@@ -105,6 +108,71 @@ impl TreeView {
             .flat_map(|workspace| workspace.screens.iter_mut())
             .flat_map(|screen| screen.panes.iter_mut())
             .find(|pane| pane.id == id)
+    }
+
+    pub fn surface(&self, id: SurfaceId) -> Option<&TabView> {
+        self.workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .flat_map(|pane| pane.tabs.iter())
+            .find(|tab| tab.surface == id)
+    }
+
+    /// Resolve either a canonical decimal protocol id or the short id shown
+    /// by the TUI and CLI. Six-digit references beginning with zero use the
+    /// fixed-width short-id namespace, so their meaning cannot change as
+    /// colliding numeric surfaces exit.
+    pub fn resolve_surface(
+        &self,
+        reference: &str,
+    ) -> Result<Option<SurfaceId>, AmbiguousSurfaceReference> {
+        let tabs = || {
+            self.workspaces
+                .iter()
+                .flat_map(|workspace| workspace.screens.iter())
+                .flat_map(|screen| screen.panes.iter())
+                .flat_map(|pane| pane.tabs.iter())
+        };
+        if reference.bytes().all(|byte| byte.is_ascii_digit()) {
+            if reference.len() == 6 && reference.starts_with('0') {
+                return Ok(tabs().find(|tab| tab.short_id == reference).map(|tab| tab.surface));
+            }
+            if reference.len() > 1 && reference.starts_with('0') {
+                return Err(AmbiguousSurfaceReference);
+            }
+            return Ok(reference.parse::<SurfaceId>().ok().and_then(|numeric| {
+                tabs().find(|tab| tab.surface == numeric).map(|tab| tab.surface)
+            }));
+        }
+        Ok(tabs().find(|tab| tab.short_id == reference).map(|tab| tab.surface))
+    }
+
+    /// Select the workspace, screen, pane, and tab containing a surface.
+    /// Single-surface clients reapply this to every remote tree snapshot so
+    /// unrelated focus changes cannot move them to another terminal.
+    pub fn select_surface(&mut self, id: SurfaceId) -> bool {
+        let location =
+            self.workspaces.iter().enumerate().find_map(|(workspace_index, workspace)| {
+                workspace.screens.iter().enumerate().find_map(|(screen_index, screen)| {
+                    screen.panes.iter().enumerate().find_map(|(pane_index, pane)| {
+                        pane.tabs
+                            .iter()
+                            .position(|tab| tab.surface == id)
+                            .map(|tab_index| (workspace_index, screen_index, pane_index, tab_index))
+                    })
+                })
+            });
+        let Some((workspace_index, screen_index, pane_index, tab_index)) = location else {
+            return false;
+        };
+        self.active_workspace = workspace_index;
+        let workspace = &mut self.workspaces[workspace_index];
+        workspace.active_screen = screen_index;
+        let screen = &mut workspace.screens[screen_index];
+        screen.active_pane = screen.panes[pane_index].id;
+        screen.panes[pane_index].active_tab = tab_index;
+        true
     }
 
     /// The active surface of the active pane of the active screen.
@@ -456,6 +524,67 @@ mod tests {
         .unwrap();
 
         assert!(matches!(layout, Node::Stack { expanded: 4, .. }));
+    }
+
+    #[test]
+    fn selecting_surface_updates_the_full_active_path() {
+        let mut tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "active": true,
+                "screens": [{
+                    "id": 2,
+                    "active": true,
+                    "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "active_tab": 0,
+                        "tabs": [
+                            {"surface": 4, "short_id": "aaa004"},
+                            {"surface": 5, "short_id": "bbb005"}
+                        ]
+                    }]
+                }]
+            }]
+        }));
+
+        assert_eq!(tree.resolve_surface("bbb005"), Ok(Some(5)));
+        assert_eq!(tree.resolve_surface("4"), Ok(Some(4)));
+        assert!(tree.select_surface(5));
+        assert_eq!(tree.active_surface(), Some(5));
+        assert!(!tree.select_surface(99));
+    }
+
+    #[test]
+    fn padded_numeric_surface_reference_resolves_stably_as_short_id() {
+        let mut tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "active": true,
+                "screens": [{
+                    "id": 2,
+                    "active": true,
+                    "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "active_tab": 0,
+                        "tabs": [
+                            {"surface": 10, "short_id": "ten010"},
+                            {"surface": 36, "short_id": "000010"}
+                        ]
+                    }]
+                }]
+            }]
+        }));
+        tree.workspaces[0].screens[0].panes[0].tabs[1].short_id = "000010".to_string();
+
+        assert_eq!(tree.resolve_surface("000010"), Ok(Some(36)));
+        assert_eq!(tree.resolve_surface("10"), Ok(Some(10)));
+
+        tree.workspaces[0].screens[0].panes[0].tabs.remove(0);
+        assert_eq!(tree.resolve_surface("000010"), Ok(Some(36)));
     }
 
     #[test]

@@ -432,6 +432,7 @@ pub struct RemoteSession {
     tree: Mutex<RemoteTreeCache>,
     tree_refresh: Mutex<()>,
     tree_stale: AtomicBool,
+    event_surface_filter: AtomicU64,
     subscription_recovery: Mutex<SubscriptionRecoveryState>,
     subscribers: MuxEventBroadcaster,
     frame_logs: Mutex<HashMap<SurfaceId, Vec<String>>>,
@@ -569,6 +570,7 @@ impl RemoteSession {
             tree: Mutex::new(RemoteTreeCache::default()),
             tree_refresh: Mutex::new(()),
             tree_stale: AtomicBool::new(true),
+            event_surface_filter: AtomicU64::new(0),
             subscription_recovery: Mutex::new(SubscriptionRecoveryState::default()),
             subscribers: MuxEventBroadcaster::default(),
             frame_logs: Mutex::new(HashMap::new()),
@@ -656,9 +658,52 @@ impl RemoteSession {
         self.subscribers.subscribe()
     }
 
+    /// Limit this connection to events that can affect one attached terminal.
+    /// Surface IDs are allocated from one, so zero is the unscoped sentinel.
+    pub fn scope_events_to_surface(&self, surface: SurfaceId) {
+        debug_assert_ne!(surface, 0);
+        self.event_surface_filter.store(surface, Ordering::Release);
+    }
+
+    fn accepts_event_in_surface_scope(&self, event: &str, value: &Value) -> bool {
+        let target = self.event_surface_filter.load(Ordering::Acquire);
+        if target == 0 {
+            return true;
+        }
+        let surface = value.get("surface").and_then(Value::as_u64);
+        match event {
+            "client-attached"
+            | "client-changed"
+            | "client-detached"
+            | "client-list-invalidated" => false,
+            "notification" => surface.is_none_or(|surface| surface == target),
+            "overflow" if value.get("scope").and_then(Value::as_str) == Some("surface") => {
+                surface == Some(target)
+            }
+            "vt-state"
+            | "surface-resized"
+            | "surface-resize-failed"
+            | "output"
+            | "resized"
+            | "colors-changed"
+            | "browser-state"
+            | "frame"
+            | "detached"
+            | "surface-exited"
+            | "title-changed"
+            | "bell"
+            | "scroll-changed" => surface == Some(target),
+            _ => true,
+        }
+    }
+
     fn handle_line(self: &Arc<Self>, value: Value) {
         let surface_id = || value.get("surface").and_then(|v| v.as_u64());
-        match value.get("event").and_then(|v| v.as_str()) {
+        let event = value.get("event").and_then(Value::as_str);
+        if event.is_some_and(|event| !self.accepts_event_in_surface_scope(event, &value)) {
+            return;
+        }
+        match event {
             None => {
                 // Response: route to the waiting request.
                 let Some(id) = value.get("id").and_then(|v| v.as_u64()) else { return };
@@ -1599,6 +1644,7 @@ fn test_session_with_provider_context(
         tree: Mutex::new(RemoteTreeCache::default()),
         tree_refresh: Mutex::new(()),
         tree_stale: AtomicBool::new(true),
+        event_surface_filter: AtomicU64::new(0),
         subscription_recovery: Mutex::new(SubscriptionRecoveryState::default()),
         subscribers: MuxEventBroadcaster::default(),
         frame_logs: Mutex::new(HashMap::new()),
@@ -1918,6 +1964,7 @@ mod tests {
             tree: Mutex::new(RemoteTreeCache::default()),
             tree_refresh: Mutex::new(()),
             tree_stale: AtomicBool::new(true),
+            event_surface_filter: AtomicU64::new(0),
             subscription_recovery: Mutex::new(SubscriptionRecoveryState::default()),
             subscribers: MuxEventBroadcaster::default(),
             frame_logs: Mutex::new(HashMap::new()),
@@ -2240,6 +2287,82 @@ mod tests {
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)),
             Ok(MuxEvent::ClientDetached(7))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn surface_event_scope_filters_before_remote_cache_invalidation() {
+        let (client, _server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        session.tree.lock().unwrap().replace(
+            parse_tree(&json!({
+                "workspaces": [{
+                    "id": 1,
+                    "active": true,
+                    "screens": [{
+                        "id": 2,
+                        "active": true,
+                        "layout": {"type": "leaf", "pane": 3},
+                        "panes": [{
+                            "id": 3,
+                            "tabs": [
+                                {"surface": 7, "title": "target"},
+                                {"surface": 8, "title": "unrelated"}
+                            ]
+                        }]
+                    }]
+                }]
+            })),
+            0,
+        );
+        session.scope_events_to_surface(7);
+        session.tree_stale.store(false, Ordering::Release);
+        let events = session.subscribe();
+
+        for event in [
+            json!({"event": "title-changed", "surface": 8, "title": "changed"}),
+            json!({"event": "surface-exited", "surface": 8}),
+            json!({"event": "client-list-invalidated"}),
+            json!({"event": "client-attached", "client": 11, "transport": "unix"}),
+            json!({"event": "notification", "notification": 12, "surface": 8}),
+        ] {
+            session.handle_line(event);
+        }
+
+        assert!(!session.tree_is_stale());
+        assert!(events.try_iter().next().is_none());
+        assert_eq!(session.tree.lock().unwrap().view.surface(8).unwrap().title, "unrelated");
+
+        session.handle_line(json!({"event": "tree-changed"}));
+        assert!(session.tree_is_stale());
+        assert!(matches!(events.recv_timeout(Duration::from_secs(1)), Ok(MuxEvent::TreeChanged)));
+        session.tree_stale.store(false, Ordering::Release);
+
+        session.handle_line(json!({"event": "layout-changed", "screen": 2}));
+        assert!(session.tree_is_stale());
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::LayoutChanged(2))
+        ));
+        session.tree_stale.store(false, Ordering::Release);
+
+        session.handle_line(json!({
+            "event": "title-changed",
+            "surface": 7,
+            "title": "target changed",
+        }));
+        assert!(!session.tree_is_stale());
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::TitleChanged { surface: 7, .. })
+        ));
+
+        session.handle_line(json!({"event": "surface-exited", "surface": 7}));
+        assert!(session.tree_is_stale());
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::SurfaceExited(7))
         ));
     }
 
