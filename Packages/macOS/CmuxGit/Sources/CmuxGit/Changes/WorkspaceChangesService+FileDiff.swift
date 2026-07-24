@@ -54,10 +54,22 @@ extension WorkspaceChangesService {
             ]
             acceptedExitCodes = [0, 1]
         } else {
+            // Git filters pathspecs before rename detection, so a rename's old
+            // path must be in the pathspec for -M to pair it; with only the new
+            // path the diff degrades to a full-file addition. The old path comes
+            // from git's own snapshot output, but it crosses the same boundary,
+            // so validate it exactly like the requested path.
+            var pathspecs = [normalizedPath]
+            if let oldPath = file.oldPath {
+                try pathspecs.insert(
+                    pathValidator.validatedPath(oldPath, repoRoot: scope.repoRoot),
+                    at: 0
+                )
+            }
             arguments = [
                 "--literal-pathspecs", "diff", "-M", "--unified=3",
-                scope.diffBase, "--", normalizedPath,
-            ]
+                scope.diffBase, "--",
+            ] + pathspecs
             acceptedExitCodes = [0]
         }
         let truncator = WorkspaceDiffTruncator(requestedMaximumLines: maxLines)
