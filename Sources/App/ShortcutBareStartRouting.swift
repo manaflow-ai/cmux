@@ -87,7 +87,7 @@ extension AppDelegate {
         guard normalizedFlags.isEmpty,
               activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
               event.cmuxIsPrintableTextInput,
-              let window = event.window ?? NSApp.keyWindow,
+              let window = event.window ?? shortcutRoutingKeyWindow,
               window.firstResponder is GhosttyNSView,
               NSApp.modalWindow == nil,
               window.attachedSheet == nil,

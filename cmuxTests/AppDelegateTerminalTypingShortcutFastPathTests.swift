@@ -25,6 +25,7 @@ struct AppDelegateTerminalTypingShortcutFastPathTests {
         }
 
         let terminalWindow = try #require(findMainWindow(withId: windowId))
+        appDelegate.debugSetShortcutRoutingFocusedWindowForTesting(terminalWindow)
         let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
         let workspace = try #require(manager.selectedWorkspace)
         let panelId = try #require(workspace.focusedPanelId)
