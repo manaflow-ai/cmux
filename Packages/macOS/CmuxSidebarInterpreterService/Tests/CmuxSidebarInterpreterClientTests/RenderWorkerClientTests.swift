@@ -104,6 +104,10 @@ import Testing
             bottomInset: 0
         )
         let events = await collector.waitForEvents(count: 1)
+        #expect(
+            FileManager.default.fileExists(atPath: closeStdinMarker.path),
+            "expected the closed-stdin fixture fault injection to activate"
+        )
         await client.shutdown()
 
         guard case .context = events.first else {
