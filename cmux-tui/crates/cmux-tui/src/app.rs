@@ -11441,6 +11441,30 @@ mod tests {
     }
 
     #[test]
+    fn close_tab_action_honors_its_explicit_pane_target() {
+        let mux = Mux::new("explicit-close-tab-target-test", SurfaceOptions::default());
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.split(first_pane, SplitDir::Right, Some((40, 24))).unwrap();
+        assert_eq!(mux.active_surface(), Some(second.id));
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+
+        app.run_action_for_pane(Action::CloseTab, Some(first_pane)).unwrap();
+        while app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
+            app.handle(event).unwrap();
+        }
+
+        assert!(!app.session.has_surface(first.id));
+        assert!(app.session.has_surface(second.id));
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
     fn doubled_prefix_runs_the_shared_send_prefix_action() {
         let (mux, _) = test_mux("send-prefix-test", None);
         let mut app = test_app(Session::Local(mux.clone()));
