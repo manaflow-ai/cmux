@@ -668,6 +668,7 @@ pub struct Mux {
     #[cfg(test)]
     terminal_create_after_workspace_reservation: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
+    cell_pixel_lifecycle: Mutex<()>,
     cell_pixels: Mutex<(u16, u16)>,
     #[cfg(test)]
     cell_pixel_before_publish: Mutex<Option<Arc<dyn Fn((u16, u16)) + Send + Sync>>>,
@@ -789,6 +790,7 @@ impl Mux {
             #[cfg(test)]
             terminal_create_after_workspace_reservation: Mutex::new(None),
             browser_runtime: Mutex::new(None),
+            cell_pixel_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
             #[cfg(test)]
             cell_pixel_before_publish: Mutex::new(None),
@@ -1209,6 +1211,7 @@ impl Mux {
         size: Option<(u16, u16)>,
         pending_workspace: Option<WorkspaceId>,
     ) -> anyhow::Result<Arc<Surface>> {
+        let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
         let id = self.next_id();
         if let Some(workspace) = pending_workspace {
             self.pending_workspace_surfaces.lock().unwrap().insert(id, workspace);
@@ -1258,6 +1261,7 @@ impl Mux {
         options: &SidebarPluginOptions,
         size: (u16, u16),
     ) -> anyhow::Result<Arc<Surface>> {
+        let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
         if options.command.is_empty() {
             anyhow::bail!("sidebar plugin command is empty");
         }
@@ -1286,6 +1290,7 @@ impl Mux {
         size: Option<(u16, u16)>,
         pending_workspace: Option<WorkspaceId>,
     ) -> Arc<Surface> {
+        let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
         let id = self.next_id();
         if let Some(workspace) = pending_workspace {
             self.pending_workspace_surfaces.lock().unwrap().insert(id, workspace);
@@ -2200,15 +2205,8 @@ impl Mux {
         height_px: u16,
         report: SurfaceResizeReporter,
     ) -> CellPixelUpdate {
+        let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
         let next = (width_px.max(1), height_px.max(1));
-        // This is the desired global metric used for new browser surfaces.
-        // Existing surfaces still check their settled geometry on every call,
-        // so a rejected queue submission can be retried with the same value.
-        *self.cell_pixels.lock().unwrap() = next;
-        #[cfg(test)]
-        if let Some(hook) = self.cell_pixel_before_publish.lock().unwrap().clone() {
-            hook(self.cell_pixel_size());
-        }
         let surfaces = self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
         let mut update = CellPixelUpdate::default();
         for surface in surfaces {
@@ -2227,6 +2225,14 @@ impl Mux {
                     .push(CellPixelUpdateFailure { surface: id, error: error.to_string() }),
             }
         }
+        #[cfg(test)]
+        if let Some(hook) = self.cell_pixel_before_publish.lock().unwrap().clone() {
+            hook(self.cell_pixel_size());
+        }
+        // Publish only after the fan-out has settled. Surface creation holds
+        // the same lifecycle lock, so it cannot start from a metric that
+        // existing surfaces have not yet received.
+        *self.cell_pixels.lock().unwrap() = next;
         update
     }
 
@@ -3178,6 +3184,7 @@ impl Mux {
         url: String,
         runtime: Arc<BrowserRuntime>,
     ) -> bool {
+        let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
         let (pane_id, size) = {
             let state = self.state.lock().unwrap();
             let Some(pane_id) = state.pane_of(opener_surface) else {

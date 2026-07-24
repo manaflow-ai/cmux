@@ -412,6 +412,25 @@ impl Deref for Surface {
 /// The terminal is behind a mutex; the pty reader thread holds it only
 /// while feeding bytes, renderers hold it only while snapshotting into a
 /// [`RenderState`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PtyGeometry {
+    cols: u16,
+    rows: u16,
+    cell_width: u16,
+    cell_height: u16,
+}
+
+impl PtyGeometry {
+    fn pty_size(self) -> PtySize {
+        PtySize {
+            rows: self.rows,
+            cols: self.cols,
+            pixel_width: total_pixels(self.cols, self.cell_width),
+            pixel_height: total_pixels(self.rows, self.cell_height),
+        }
+    }
+}
+
 pub struct PtySurface {
     pub(crate) meta: SurfaceMeta,
     term: Mutex<Terminal>,
@@ -428,8 +447,7 @@ pub struct PtySurface {
     dirty: AtomicBool,
     title: Mutex<String>,
     pwd: Mutex<Option<String>>,
-    size: Mutex<(u16, u16)>,
-    cell_pixels: Mutex<(u16, u16)>,
+    geometry: Mutex<PtyGeometry>,
     #[cfg(test)]
     geometry_test_hook: Mutex<Option<Arc<dyn Fn(PtyGeometryTestStep) + Send + Sync>>>,
     #[cfg(test)]
@@ -555,8 +573,12 @@ impl Surface {
             dirty: AtomicBool::new(false),
             title: Mutex::new(String::new()),
             pwd: Mutex::new(None),
-            size: Mutex::new((opts.cols, opts.rows)),
-            cell_pixels: Mutex::new(cell_pixels),
+            geometry: Mutex::new(PtyGeometry {
+                cols: opts.cols,
+                rows: opts.rows,
+                cell_width: cell_pixels.0,
+                cell_height: cell_pixels.1,
+            }),
             #[cfg(test)]
             geometry_test_hook: Mutex::new(None),
             #[cfg(test)]
@@ -712,8 +734,12 @@ impl Surface {
             dirty: AtomicBool::new(false),
             title: Mutex::new(String::new()),
             pwd: Mutex::new(None),
-            size: Mutex::new((opts.cols, opts.rows)),
-            cell_pixels: Mutex::new(cell_pixels),
+            geometry: Mutex::new(PtyGeometry {
+                cols: opts.cols,
+                rows: opts.rows,
+                cell_width: cell_pixels.0,
+                cell_height: cell_pixels.1,
+            }),
             geometry_test_hook: Mutex::new(None),
             test_master_control: Some(test_master_control),
             mux,
@@ -979,7 +1005,7 @@ impl Surface {
     /// reconfiguration completes on its worker and emits the final size there.
     pub fn resize(&self, cols: u16, rows: u16) -> anyhow::Result<bool> {
         match self {
-            Surface::Pty(pty) => Ok(pty.resize(cols, rows)),
+            Surface::Pty(pty) => pty.resize(cols, rows),
             Surface::Browser(browser) => browser.resize(cols, rows),
         }
     }
@@ -991,11 +1017,16 @@ impl Surface {
         report: Box<dyn FnOnce(Option<u64>) + Send>,
     ) -> anyhow::Result<Option<u64>> {
         match self {
-            Surface::Pty(pty) => {
-                let accepted = pty.resize(cols, rows);
-                report(accepted.then_some(0));
-                Ok(accepted.then_some(0))
-            }
+            Surface::Pty(pty) => match pty.resize(cols, rows) {
+                Ok(accepted) => {
+                    report(accepted.then_some(0));
+                    Ok(accepted.then_some(0))
+                }
+                Err(error) => {
+                    report(None);
+                    Err(error)
+                }
+            },
             Surface::Browser(browser) => browser.resize_reporting_acceptance(cols, rows, report),
         }
     }
@@ -1008,14 +1039,22 @@ impl Surface {
         completion: Option<BrowserResizeWaiter>,
     ) -> anyhow::Result<Option<u64>> {
         match self {
-            Surface::Pty(pty) => {
-                let accepted = pty.resize(cols, rows);
-                report(accepted.then_some(0));
-                if let Some(completion) = completion {
-                    let _ = completion.send(Ok(()));
+            Surface::Pty(pty) => match pty.resize(cols, rows) {
+                Ok(accepted) => {
+                    report(accepted.then_some(0));
+                    if let Some(completion) = completion {
+                        let _ = completion.send(Ok(()));
+                    }
+                    Ok(accepted.then_some(0))
                 }
-                Ok(accepted.then_some(0))
-            }
+                Err(error) => {
+                    report(None);
+                    if let Some(completion) = completion {
+                        let _ = completion.send(Err(error.to_string().into()));
+                    }
+                    Err(error)
+                }
+            },
             Surface::Browser(browser) => {
                 browser.resize_reporting_completion(cols, rows, report, completion)
             }
@@ -1025,7 +1064,10 @@ impl Surface {
     pub fn resize_needed(&self, cols: u16, rows: u16) -> bool {
         let desired = (cols.max(1), rows.max(1));
         match self {
-            Surface::Pty(pty) => *pty.size.lock().unwrap() != desired,
+            Surface::Pty(pty) => {
+                let geometry = *pty.geometry.lock().unwrap();
+                (geometry.cols, geometry.rows) != desired
+            }
             Surface::Browser(browser) => browser.resize_needed(desired.0, desired.1),
         }
     }
@@ -1053,11 +1095,16 @@ impl Surface {
         report: Box<dyn FnOnce(Option<u64>) + Send>,
     ) -> anyhow::Result<Option<u64>> {
         match self {
-            Surface::Pty(pty) => {
-                let changed = pty.set_cell_pixel_size(width_px, height_px);
-                report(changed.then_some(0));
-                Ok(changed.then_some(0))
-            }
+            Surface::Pty(pty) => match pty.set_cell_pixel_size(width_px, height_px) {
+                Ok(changed) => {
+                    report(changed.then_some(0));
+                    Ok(changed.then_some(0))
+                }
+                Err(error) => {
+                    report(None);
+                    Err(error)
+                }
+            },
             Surface::Browser(browser) => {
                 browser.set_cell_pixel_size_reporting(width_px, height_px, report)
             }
@@ -1066,7 +1113,10 @@ impl Surface {
 
     pub fn size(&self) -> (u16, u16) {
         match self {
-            Surface::Pty(pty) => *pty.size.lock().unwrap(),
+            Surface::Pty(pty) => {
+                let geometry = *pty.geometry.lock().unwrap();
+                (geometry.cols, geometry.rows)
+            }
             Surface::Browser(browser) => browser.size(),
         }
     }
@@ -1087,7 +1137,8 @@ impl Surface {
 
     #[cfg(test)]
     pub(crate) fn test_cell_pixel_size(&self) -> (u16, u16) {
-        *self.as_pty().expect("test PTY surface").cell_pixels.lock().unwrap()
+        let geometry = *self.as_pty().expect("test PTY surface").geometry.lock().unwrap();
+        (geometry.cell_width, geometry.cell_height)
     }
 
     pub fn title(&self) -> String {
@@ -1487,85 +1538,101 @@ impl PtySurface {
 
     /// Resize both the PTY and the terminal state. Returns whether the
     /// final clamped size actually changed.
-    fn resize(&self, cols: u16, rows: u16) -> bool {
+    fn resize(&self, cols: u16, rows: u16) -> anyhow::Result<bool> {
         #[cfg(test)]
         self.run_geometry_test_hook(PtyGeometryTestStep::ResizeStarted);
         let (cols, rows) = (cols.max(1), rows.max(1));
-        {
-            let mut size = self.size.lock().unwrap();
-            if *size == (cols, rows) {
-                return false;
-            }
-            *size = (cols, rows);
-        }
-        #[cfg(test)]
-        self.run_geometry_test_hook(PtyGeometryTestStep::ResizeCommitBoundary);
-        // Hold the terminal lock while resizing and while sending the
-        // attach marker, so attach mirrors observe bytes and resizes in
-        // the exact order the server terminal applied them.
-        let mut term = self.term.lock().unwrap();
-        let cell_pixels = *self.cell_pixels.lock().unwrap();
-        let _ = self.master.lock().unwrap().resize(PtySize {
-            rows,
-            cols,
-            pixel_width: total_pixels(cols, cell_pixels.0),
-            pixel_height: total_pixels(rows, cell_pixels.1),
-        });
-        let _ = term.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1));
-        let replay = term.vt_replay_bounded(VT_REPLAY_MAX_BYTES).unwrap_or_default();
-        let defaults = self.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
-        let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
-        let _ = self.build_frame_locked(&mut term, generation, false);
-        let live_colors = TerminalColors::from_pty_output(&term, defaults);
-        let colors = Box::new(self.terminal_colors_locked(&mut term, defaults));
-        self.attach_colors_pending.store(false, Ordering::Release);
-        self.attach_colors_force_pending.store(false, Ordering::Release);
-        *self.last_attach_colors.lock().unwrap() = Some(Box::new(live_colors));
-        self.broadcast_attach_frame(AttachFrame::Resized {
-            cols,
-            rows,
-            replay: replay.bytes,
-            kitty_image_aliases: replay.kitty_image_aliases,
-            colors,
-        });
-        true
+        let mut geometry = self.geometry.lock().unwrap();
+        let next = PtyGeometry { cols, rows, ..*geometry };
+        self.commit_geometry(&mut geometry, next, true)
     }
 
-    fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) -> bool {
+    fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) -> anyhow::Result<bool> {
         #[cfg(test)]
         self.run_geometry_test_hook(PtyGeometryTestStep::CellPixelStarted);
-        let next = (width_px.max(1), height_px.max(1));
-        {
-            let mut current = self.cell_pixels.lock().unwrap();
-            if *current == next {
-                return false;
-            }
-            *current = next;
+        let mut geometry = self.geometry.lock().unwrap();
+        let next =
+            PtyGeometry { cell_width: width_px.max(1), cell_height: height_px.max(1), ..*geometry };
+        self.commit_geometry(&mut geometry, next, false)
+    }
+
+    /// Commit the PTY ioctl, Ghostty geometry, and the published logical tuple
+    /// while holding the single geometry transaction lock.
+    fn commit_geometry(
+        &self,
+        geometry: &mut PtyGeometry,
+        next: PtyGeometry,
+        refresh_attach_colors: bool,
+    ) -> anyhow::Result<bool> {
+        if *geometry == next {
+            return Ok(false);
         }
-        #[cfg(test)]
-        self.run_geometry_test_hook(PtyGeometryTestStep::CellPixelCommitBoundary);
-        let (cols, rows) = *self.size.lock().unwrap();
+        let previous = *geometry;
+        // Hold the terminal lock while resizing and while sending the attach
+        // marker, so mirrors observe bytes and geometry in server order.
         let mut term = self.term.lock().unwrap();
-        let _ = self.master.lock().unwrap().resize(PtySize {
-            rows,
-            cols,
-            pixel_width: total_pixels(cols, next.0),
-            pixel_height: total_pixels(rows, next.1),
+        let master = self.master.lock().unwrap();
+        master.resize(next.pty_size()).map_err(|error| {
+            anyhow::anyhow!(
+                "could not resize PTY master to {}x{} at {}x{} px per cell: {error}",
+                next.cols,
+                next.rows,
+                next.cell_width,
+                next.cell_height
+            )
+        })?;
+        if let Err(error) = term.resize(
+            next.cols,
+            next.rows,
+            u32::from(next.cell_width),
+            u32::from(next.cell_height),
+        ) {
+            let rollback = master.resize(previous.pty_size());
+            return match rollback {
+                Ok(()) => Err(anyhow::anyhow!(
+                    "could not resize Ghostty terminal to {}x{} at {}x{} px per cell: {error}",
+                    next.cols,
+                    next.rows,
+                    next.cell_width,
+                    next.cell_height
+                )),
+                Err(rollback_error) => Err(anyhow::anyhow!(
+                    "could not resize Ghostty terminal to {}x{} at {}x{} px per cell: {error}; \
+                     PTY master rollback also failed: {rollback_error}",
+                    next.cols,
+                    next.rows,
+                    next.cell_width,
+                    next.cell_height
+                )),
+            };
+        }
+        drop(master);
+        *geometry = next;
+        #[cfg(test)]
+        self.run_geometry_test_hook(if refresh_attach_colors {
+            PtyGeometryTestStep::ResizeCommitBoundary
+        } else {
+            PtyGeometryTestStep::CellPixelCommitBoundary
         });
-        let _ = term.resize(cols, rows, u32::from(next.0), u32::from(next.1));
         let replay = term.vt_replay_bounded(VT_REPLAY_MAX_BYTES).unwrap_or_default();
         let defaults = self.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
         let _ = self.build_frame_locked(&mut term, generation, false);
         let colors = Box::new(self.terminal_colors_locked(&mut term, defaults));
+        if refresh_attach_colors {
+            let live_colors = TerminalColors::from_pty_output(&term, defaults);
+            self.attach_colors_pending.store(false, Ordering::Release);
+            self.attach_colors_force_pending.store(false, Ordering::Release);
+            *self.last_attach_colors.lock().unwrap() = Some(Box::new(live_colors));
+        }
         self.broadcast_attach_frame(AttachFrame::Resized {
-            cols,
-            rows,
+            cols: next.cols,
+            rows: next.rows,
             replay: replay.bytes,
             kitty_image_aliases: replay.kitty_image_aliases,
             colors,
         });
-        true
+        Ok(true)
     }
 }
 

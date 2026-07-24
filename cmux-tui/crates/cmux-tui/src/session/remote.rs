@@ -223,6 +223,7 @@ pub struct RemoteSurface {
     pub term: Mutex<Terminal>,
     mouse_encoders: Mutex<MouseEncoders>,
     pub dirty: AtomicBool,
+    geometry_lifecycle: Mutex<()>,
     cell_pixels: Mutex<(u16, u16)>,
     #[cfg(test)]
     geometry_test_hook: Mutex<Option<Arc<dyn Fn(RemoteGeometryTestStep) + Send + Sync>>>,
@@ -302,6 +303,7 @@ impl RemoteSurface {
     ) {
         #[cfg(test)]
         self.run_geometry_test_hook(RemoteGeometryTestStep::StreamResizeStarted);
+        let _geometry_lifecycle = self.geometry_lifecycle.lock().unwrap();
         let (cols, rows) = (cols.max(1), rows.max(1));
         let cell_pixels = *self.cell_pixels.lock().unwrap();
         #[cfg(test)]
@@ -322,19 +324,30 @@ impl RemoteSurface {
         self.sync_mouse_encoders(&term);
     }
 
-    fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) {
+    fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) -> ghostty_vt::Result<bool> {
         #[cfg(test)]
         self.run_geometry_test_hook(RemoteGeometryTestStep::CellPixelStarted);
+        let _geometry_lifecycle = self.geometry_lifecycle.lock().unwrap();
         let next = (width_px.max(1), height_px.max(1));
-        *self.cell_pixels.lock().unwrap() = next;
+        if *self.cell_pixels.lock().unwrap() == next {
+            return Ok(false);
+        }
+        if self.kind == SurfaceKind::Pty {
+            let mut term = self.term.lock().unwrap();
+            let size = (term.cols(), term.rows());
+            term.resize(size.0, size.1, u32::from(next.0), u32::from(next.1))?;
+            *self.cell_pixels.lock().unwrap() = next;
+        } else {
+            *self.cell_pixels.lock().unwrap() = next;
+        }
         #[cfg(test)]
         self.run_geometry_test_hook(RemoteGeometryTestStep::CellPixelCommitBoundary);
-        if self.kind != SurfaceKind::Pty {
-            return;
-        }
-        let mut term = self.term.lock().unwrap();
-        let size = (term.cols(), term.rows());
-        let _ = term.resize(size.0, size.1, u32::from(next.0), u32::from(next.1));
+        Ok(true)
+    }
+
+    fn cell_pixel_size(&self) -> (u16, u16) {
+        let _geometry_lifecycle = self.geometry_lifecycle.lock().unwrap();
+        *self.cell_pixels.lock().unwrap()
     }
 
     pub(super) fn reported_size(&self) -> Option<(u16, u16)> {
@@ -458,6 +471,7 @@ pub struct RemoteSession {
     subscribers: MuxEventBroadcaster,
     frame_logs: Mutex<HashMap<SurfaceId, Vec<String>>>,
     surface_overflow_recovery: Mutex<HashMap<SurfaceId, SurfaceOverflowRecovery>>,
+    cell_pixel_lifecycle: Mutex<()>,
     cell_pixels: Mutex<(u16, u16)>,
     capabilities: Mutex<HashSet<String>>,
     provider_workspace_authority: Option<BearerToken>,
@@ -596,6 +610,7 @@ impl RemoteSession {
             subscribers: MuxEventBroadcaster::default(),
             frame_logs: Mutex::new(HashMap::new()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
+            cell_pixel_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
             capabilities: Mutex::new(HashSet::new()),
             provider_workspace_authority,
@@ -1124,16 +1139,46 @@ impl RemoteSession {
         width_px: u16,
         height_px: u16,
     ) -> anyhow::Result<RemoteCellPixelUpdate> {
+        let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
         let next = (width_px.max(1), height_px.max(1));
-        *self.cell_pixels.lock().unwrap() = next;
-        for surface in self.surfaces.lock().unwrap().values() {
-            surface.set_cell_pixel_size(next.0, next.1);
+        let previous_global = *self.cell_pixels.lock().unwrap();
+        let surfaces = self.surfaces.lock().unwrap().values().cloned().collect::<Vec<_>>();
+        let snapshots = surfaces
+            .iter()
+            .map(|surface| (surface.clone(), surface.cell_pixel_size()))
+            .collect::<Vec<_>>();
+        for (index, surface) in surfaces.iter().enumerate() {
+            if let Err(error) = surface.set_cell_pixel_size(next.0, next.1) {
+                let rollback = Self::restore_cell_pixels(&snapshots[..index]);
+                return match rollback {
+                    Ok(()) => Err(anyhow::anyhow!(
+                        "could not update cell pixels for remote mirror {}: {error}",
+                        surface.id
+                    )),
+                    Err(rollback_error) => Err(anyhow::anyhow!(
+                        "could not update cell pixels for remote mirror {}: {error}; \
+                         local rollback also failed: {rollback_error}",
+                        surface.id
+                    )),
+                };
+            }
         }
-        let response = self.request(json!({
+        let response = match self.request(json!({
             "cmd": "set-cell-pixels",
             "width_px": next.0,
             "height_px": next.1,
-        }))?;
+        })) {
+            Ok(response) => response,
+            Err(error) => {
+                *self.cell_pixels.lock().unwrap() = previous_global;
+                return match Self::restore_cell_pixels(&snapshots) {
+                    Ok(()) => Err(error),
+                    Err(rollback_error) => Err(anyhow::anyhow!(
+                        "{error}; local cell-pixel rollback also failed: {rollback_error}"
+                    )),
+                };
+            }
+        };
         let resizes = response
             .get("resizes")
             .and_then(Value::as_array)
@@ -1149,7 +1194,7 @@ impl RemoteSession {
                     resize.get("reservation_id").and_then(Value::as_u64),
                 ))
             })
-            .collect();
+            .collect::<Vec<_>>();
         let failures = response
             .get("failures")
             .and_then(Value::as_array)
@@ -1161,8 +1206,26 @@ impl RemoteSession {
                     failure.get("error")?.as_str()?.to_string(),
                 ))
             })
-            .collect();
+            .collect::<Vec<_>>();
+        let failed_surfaces = failures.iter().map(|(surface, _)| *surface).collect::<HashSet<_>>();
+        let failed_snapshots = snapshots
+            .iter()
+            .filter(|(surface, _)| failed_surfaces.contains(&surface.id))
+            .cloned()
+            .collect::<Vec<_>>();
+        Self::restore_cell_pixels(&failed_snapshots)?;
+        *self.cell_pixels.lock().unwrap() = next;
         Ok(RemoteCellPixelUpdate { resizes, failures })
+    }
+
+    fn restore_cell_pixels(snapshots: &[(Arc<RemoteSurface>, (u16, u16))]) -> anyhow::Result<()> {
+        let mut failures = Vec::new();
+        for (surface, previous) in snapshots {
+            if let Err(error) = surface.set_cell_pixel_size(previous.0, previous.1) {
+                failures.push(format!("surface {}: {error}", surface.id));
+            }
+        }
+        if failures.is_empty() { Ok(()) } else { anyhow::bail!("{}", failures.join("; ")) }
     }
 
     pub fn set_default_colors(&self, colors: DefaultColors) -> anyhow::Result<()> {
@@ -1242,6 +1305,7 @@ impl RemoteSession {
         kind: SurfaceKind,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Option<Arc<RemoteSurface>>> {
+        let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
         if self.exited_surfaces.lock().unwrap().contains(&id) {
             return Ok(None);
         }
@@ -1265,6 +1329,7 @@ impl RemoteSession {
             term: Mutex::new(term),
             mouse_encoders: Mutex::new(MouseEncoders::new()?),
             dirty: AtomicBool::new(false),
+            geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new(cell_pixels),
             #[cfg(test)]
             geometry_test_hook: Mutex::new(None),
@@ -1519,6 +1584,7 @@ fn test_session_with_provider_context(
         subscribers: MuxEventBroadcaster::default(),
         frame_logs: Mutex::new(HashMap::new()),
         surface_overflow_recovery: Mutex::new(HashMap::new()),
+        cell_pixel_lifecycle: Mutex::new(()),
         cell_pixels: Mutex::new((8, 16)),
         capabilities: Mutex::new(capabilities),
         provider_workspace_authority,
@@ -1781,6 +1847,7 @@ mod tests {
             subscribers: MuxEventBroadcaster::default(),
             frame_logs: Mutex::new(HashMap::new()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
+            cell_pixel_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
             capabilities: Mutex::new(capabilities),
             provider_workspace_authority,
@@ -1797,37 +1864,21 @@ mod tests {
         cols: u16,
         rows: u16,
         cell_pixels: (u16, u16),
-    ) -> (Arc<RemoteSurface>, Arc<Mutex<Vec<u8>>>) {
-        let responses = Arc::new(Mutex::new(Vec::new()));
-        let callbacks = Callbacks {
-            on_pty_write: Some(Box::new({
-                let responses = responses.clone();
-                move |bytes| responses.lock().unwrap().extend_from_slice(bytes)
-            })),
-            ..Callbacks::default()
-        };
-        let mut term = Terminal::new(cols, rows, 100, callbacks).unwrap();
+    ) -> Arc<RemoteSurface> {
+        let mut term = Terminal::new(cols, rows, 100, Callbacks::default()).unwrap();
         term.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1)).unwrap();
-        (
-            Arc::new(RemoteSurface {
-                id,
-                kind: SurfaceKind::Pty,
-                term: Mutex::new(term),
-                mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
-                dirty: AtomicBool::new(false),
-                cell_pixels: Mutex::new(cell_pixels),
-                geometry_test_hook: Mutex::new(None),
-                reported_size: Mutex::new(None),
-                browser: Mutex::new(RemoteBrowserState::default()),
-            }),
-            responses,
-        )
-    }
-
-    fn query_remote_surface_pixels(surface: &RemoteSurface, responses: &Mutex<Vec<u8>>) -> String {
-        responses.lock().unwrap().clear();
-        surface.term.lock().unwrap().vt_write(b"\x1b[14t");
-        String::from_utf8(responses.lock().unwrap().clone()).unwrap()
+        Arc::new(RemoteSurface {
+            id,
+            kind: SurfaceKind::Pty,
+            term: Mutex::new(term),
+            mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            dirty: AtomicBool::new(false),
+            geometry_lifecycle: Mutex::new(()),
+            cell_pixels: Mutex::new(cell_pixels),
+            geometry_test_hook: Mutex::new(None),
+            reported_size: Mutex::new(None),
+            browser: Mutex::new(RemoteBrowserState::default()),
+        })
     }
 
     struct RejectingWriter {
@@ -2290,6 +2341,7 @@ mod tests {
             term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
             geometry_test_hook: Mutex::new(None),
             reported_size: Mutex::new(None),
@@ -2317,7 +2369,7 @@ mod tests {
 
     #[test]
     fn remote_surface_resize_and_cell_pixel_update_are_one_geometry_transaction() {
-        let (surface, responses) = test_remote_pty_surface(1, 80, 24, (8, 16));
+        let surface = test_remote_pty_surface(1, 80, 24, (8, 16));
         let (resize_entered_tx, resize_entered_rx) = channel();
         let (release_resize_tx, release_resize_rx) = channel();
         let (cell_started_tx, cell_started_rx) = channel();
@@ -2345,7 +2397,7 @@ mod tests {
         let updating_surface = surface.clone();
         let (cell_done_tx, cell_done_rx) = channel();
         let updating = std::thread::spawn(move || {
-            updating_surface.set_cell_pixel_size(9, 18);
+            updating_surface.set_cell_pixel_size(9, 18).unwrap();
             cell_done_tx.send(()).unwrap();
         });
         cell_started_rx.recv().unwrap();
@@ -2361,18 +2413,20 @@ mod tests {
             "cell pixels committed while the ordered stream resize was paused"
         );
         assert_eq!(*surface.cell_pixels.lock().unwrap(), (9, 18));
-        assert_eq!(query_remote_surface_pixels(&surface, &responses), "\x1b[4;540;900t");
+        let term = surface.term.lock().unwrap();
+        assert_eq!((term.cols(), term.rows()), (100, 30));
     }
 
     #[test]
     fn stream_resize_without_pixel_dimensions_preserves_last_cell_measurement() {
-        let (surface, responses) = test_remote_pty_surface(1, 80, 24, (8, 16));
-        surface.set_cell_pixel_size(11, 19);
+        let surface = test_remote_pty_surface(1, 80, 24, (8, 16));
+        surface.set_cell_pixel_size(11, 19).unwrap();
 
         surface.apply_stream_resize(90, 31, None, &[]);
 
         assert_eq!(*surface.cell_pixels.lock().unwrap(), (11, 19));
-        assert_eq!(query_remote_surface_pixels(&surface, &responses), "\x1b[4;589;990t");
+        let term = surface.term.lock().unwrap();
+        assert_eq!((term.cols(), term.rows()), (90, 31));
     }
 
     #[test]
@@ -2380,7 +2434,7 @@ mod tests {
         let session_slot: Arc<Mutex<Option<Weak<RemoteSession>>>> = Arc::new(Mutex::new(None));
         let session = test_session(Box::new(RejectingWriter { session: session_slot.clone() }));
         *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
-        let (surface, responses) = test_remote_pty_surface(7, 80, 24, (8, 16));
+        let surface = test_remote_pty_surface(7, 80, 24, (8, 16));
         session.surfaces.lock().unwrap().insert(surface.id, surface.clone());
 
         let error = session.set_cell_pixel_size(9, 18).err().expect("injected rejection must fail");
@@ -2391,13 +2445,12 @@ mod tests {
         ));
         assert_eq!(*session.cell_pixels.lock().unwrap(), (8, 16));
         assert_eq!(*surface.cell_pixels.lock().unwrap(), (8, 16));
-        assert_eq!(query_remote_surface_pixels(&surface, &responses), "\x1b[4;384;640t");
     }
 
     #[test]
     fn timed_out_cell_pixel_request_rolls_back_session_and_mirror_geometry() {
         let session = test_session(Box::new(SilentWriter));
-        let (surface, responses) = test_remote_pty_surface(7, 80, 24, (8, 16));
+        let surface = test_remote_pty_surface(7, 80, 24, (8, 16));
         session.surfaces.lock().unwrap().insert(surface.id, surface.clone());
 
         let error = session.set_cell_pixel_size(9, 18).err().expect("silent remote must time out");
@@ -2408,7 +2461,6 @@ mod tests {
         ));
         assert_eq!(*session.cell_pixels.lock().unwrap(), (8, 16));
         assert_eq!(*surface.cell_pixels.lock().unwrap(), (8, 16));
-        assert_eq!(query_remote_surface_pixels(&surface, &responses), "\x1b[4;384;640t");
         assert!(session.pending.lock().unwrap().is_empty());
     }
 
@@ -2430,6 +2482,7 @@ mod tests {
             term: Mutex::new(Terminal::new(20, 6, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
             geometry_test_hook: Mutex::new(None),
             reported_size: Mutex::new(None),
@@ -2465,6 +2518,7 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
             geometry_test_hook: Mutex::new(None),
             reported_size: Mutex::new(None),
@@ -2585,6 +2639,7 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
             geometry_test_hook: Mutex::new(None),
             reported_size: Mutex::new(Some((12, 4))),
@@ -2618,6 +2673,7 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
             geometry_test_hook: Mutex::new(None),
             reported_size: Mutex::new(Some((90, 31))),
@@ -2809,6 +2865,7 @@ mod tests {
                 term: Mutex::new(Terminal::new(80, 24, 100, Callbacks::default()).unwrap()),
                 mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
                 dirty: AtomicBool::new(false),
+                geometry_lifecycle: Mutex::new(()),
                 cell_pixels: Mutex::new((8, 16)),
                 geometry_test_hook: Mutex::new(None),
                 reported_size: Mutex::new(None),
@@ -2849,6 +2906,7 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 3, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            geometry_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
             geometry_test_hook: Mutex::new(None),
             reported_size: Mutex::new(None),

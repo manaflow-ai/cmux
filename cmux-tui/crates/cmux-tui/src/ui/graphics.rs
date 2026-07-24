@@ -721,14 +721,14 @@ pub fn probe_kitty_graphics() -> bool {
     }
 }
 
-pub fn detect_cell_pixels(query_fallback: bool) -> (u16, u16) {
+pub fn detect_cell_pixels(query_fallback: bool) -> Option<(u16, u16)> {
     if let Some(cell) = ioctl_cell_pixels() {
-        return cell;
+        return Some(cell);
     }
     if query_fallback && let Some(cell) = query_cell_pixels() {
-        return cell;
+        return Some(cell);
     }
-    (8, 16)
+    None
 }
 
 #[cfg(unix)]

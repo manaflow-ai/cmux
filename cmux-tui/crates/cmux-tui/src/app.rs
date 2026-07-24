@@ -3792,7 +3792,7 @@ fn run_with_machine_updates_inner(
     // have dropped, so graphics are quiescent before terminal restoration.
     let mut terminal_restore = TerminalRestoreGuard::new(stdout_lock.clone());
 
-    let cell_pixels = crate::ui::graphics::detect_cell_pixels(true);
+    let cell_pixels = crate::ui::graphics::detect_cell_pixels(true).unwrap_or((8, 16));
     if session_available {
         session.set_cell_pixel_size(cell_pixels.0, cell_pixels.1);
     }
@@ -5171,7 +5171,9 @@ impl App {
     }
 
     fn refresh_cell_pixels(&mut self, query_fallback: bool) {
-        let next = crate::ui::graphics::detect_cell_pixels(query_fallback);
+        let Some(next) = crate::ui::graphics::detect_cell_pixels(query_fallback) else {
+            return;
+        };
         if self.cell_pixels != next {
             if !self.prepare_pty_input_before_mutation() {
                 return;
