@@ -1377,7 +1377,7 @@ struct ContentView: View {
         guard sidebarState.isVisible || rightSidebarVisible,
               let window = observedWindow,
               let contentView = window.contentView else {
-            isResizerBandActive = false
+            if isResizerBandActive { isResizerBandActive = false }
             scheduleSidebarResizerCursorRelease(force: true)
             return
         }
@@ -1399,7 +1399,12 @@ struct ContentView: View {
             screenPoint: NSEvent.mouseLocation,
             observedWindowNumber: window.windowNumber
         )
-        isResizerBandActive = mayActivate && isInDividerBand
+        let nextResizerBandActive = mayActivate && isInDividerBand
+        // Writing an unchanged @State still pays SwiftUI's setter machinery,
+        // and this runs at pointer-event rate; only publish transitions.
+        if isResizerBandActive != nextResizerBandActive {
+            isResizerBandActive = nextResizerBandActive
+        }
 
         if mayActivate {
             activateSidebarResizerCursor()
@@ -1469,7 +1474,15 @@ struct ContentView: View {
                 .leftMouseDragged,
             ]
         ) { event in
-            updateSidebarResizerBandState(using: event)
+            // .appKitDefined/.systemDefined events don't move the pointer; they
+            // are monitored only so window-state churn can't strand an engaged
+            // resize cursor. When nothing is engaged, skip the band recompute —
+            // these events arrive interleaved with typing, and the recompute
+            // does live pointer math per call.
+            let isNonPointerEvent = event.type == .appKitDefined || event.type == .systemDefined
+            if !isNonPointerEvent || isResizerBandActive || isResizerDragging || isSidebarResizerCursorActive {
+                updateSidebarResizerBandState(using: event)
+            }
             let shouldOverrideCursorEvent: Bool = {
                 switch event.type {
                 case .cursorUpdate, .mouseMoved, .mouseEntered, .mouseExited, .appKitDefined, .systemDefined:
