@@ -114,12 +114,13 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         super.init(window: panel)
         stashOverlay.translatesAutoresizingMaskIntoConstraints = false
         stashOverlay.isHidden = true
-        hostingView.addSubview(stashOverlay)
+        let stashOverlayHost = hostingView.superview ?? hostingView
+        stashOverlayHost.addSubview(stashOverlay, positioned: .above, relativeTo: nil)
         NSLayoutConstraint.activate([
-            stashOverlay.topAnchor.constraint(equalTo: hostingView.topAnchor),
-            stashOverlay.bottomAnchor.constraint(equalTo: hostingView.bottomAnchor),
-            stashOverlay.leadingAnchor.constraint(equalTo: hostingView.leadingAnchor),
-            stashOverlay.trailingAnchor.constraint(equalTo: hostingView.trailingAnchor),
+            stashOverlay.topAnchor.constraint(equalTo: stashOverlayHost.topAnchor),
+            stashOverlay.bottomAnchor.constraint(equalTo: stashOverlayHost.bottomAnchor),
+            stashOverlay.leadingAnchor.constraint(equalTo: stashOverlayHost.leadingAnchor),
+            stashOverlay.trailingAnchor.constraint(equalTo: stashOverlayHost.trailingAnchor),
         ])
         stashOverlay.onHoverChange = { [weak self] isHovering in
             self?.setStashedWindowHovered(isHovering)
