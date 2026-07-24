@@ -72,6 +72,29 @@ struct MobileHostIdentityTests {
         #expect(payload["terminal_theme_revision_epoch"] == nil)
     }
 
+    @Test func onlyAuthenticatedStatusIncludesPrivateNetworkAddresses() throws {
+        let address = try #require(CmxPrivateNetworkAddress.classify(
+            interfaceName: "utun4",
+            address: "10.8.0.1"
+        ))
+        let authenticated = MobileHostService.identityStatusPayload(
+            routes: [],
+            privateNetworkAddresses: [address]
+        )
+        let encoded = try #require(
+            authenticated["private_network_addresses"] as? [[String: String]]
+        )
+        #expect(encoded == [[
+            "address": "10.8.0.1",
+            "family": "ipv4",
+            "interface": "utun4",
+            "kind": "vpn_tunnel",
+        ]])
+
+        let publicPayload = MobileHostService.publicStatusPayload(routes: [])
+        #expect(publicPayload["private_network_addresses"] == nil)
+    }
+
     @Test func taggedDebugBuildSuffixesPairingDisplayName() throws {
         let suiteName = "mobile-host-display-name-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
