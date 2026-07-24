@@ -103,7 +103,6 @@ struct DisconnectedWorkspaceShellView: View {
             // paired Mac; the sheet also surfaces the account + Sign Out.
             MobileSettingsView(
                 connectedHostName: "",
-                forgetComputer: nil,
                 startPairingScanner: {
                     settingsPairingScannerHandoff.requestScannerAfterDismiss(
                         isSettingsPresented: $showingSettings

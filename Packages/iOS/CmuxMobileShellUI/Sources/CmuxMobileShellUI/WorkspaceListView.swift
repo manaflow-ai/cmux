@@ -56,10 +56,6 @@ struct WorkspaceListView: View {
     /// in previews, where pull-to-refresh is hidden. `@Sendable` to match
     /// SwiftUI's `refreshable(action:)` action type under Swift 6.
     var refresh: (@Sendable () async -> Void)?
-    /// Optional: when present, the toolbar shows a "settings" menu offering
-    /// "Forget This Computer" and "Sign out". When nil (e.g. previews), the
-    /// menu is hidden.
-    var forgetComputer: (() -> Void)?
     var signOut: (() -> Void)?
     /// Manual reconnect for the offline status row. `nil` in previews.
     var reconnect: (() -> Void)?
@@ -376,7 +372,6 @@ struct WorkspaceListView: View {
         }) {
             MobileSettingsView(
                 connectedHostName: host,
-                forgetComputer: forgetComputer,
                 startPairingScanner: {
                     settingsPairingScannerHandoff.requestScannerAfterDismiss(
                         isSettingsPresented: $showingSettings
@@ -717,20 +712,6 @@ struct WorkspaceListView: View {
                 )
             }
             .accessibilityIdentifier("MobileWorkspaceTerminalShortcutsMenuItem")
-            if let forgetComputer {
-                Button {
-                    forgetComputer()
-                } label: {
-                    Label(
-                        L10n.string(
-                            "mobile.workspaces.forgetComputer",
-                            defaultValue: "Forget This Computer"
-                        ),
-                        systemImage: "minus.circle"
-                    )
-                }
-                .accessibilityIdentifier("MobileWorkspaceForgetComputerMenuItem")
-            }
             if let signOut {
                 Button(role: .destructive) {
                     signOut()

@@ -18,6 +18,10 @@ final class MobilePairingWindowController: ReleasingWindowController {
     /// window behind it; referenced from the Cmd+W regression test.
     static let windowIdentifier = "cmux.mobilePairingWindow"
 
+    private static let screenMargin: CGFloat = 40
+    private var idealContentHeight: CGFloat?
+    private var isUserResizing = false
+
     private override init() {
         super.init()
     }
@@ -38,13 +42,16 @@ final class MobilePairingWindowController: ReleasingWindowController {
         if !window.isVisible {
             window.center()
         }
+        resizeWindowToIdealContentHeight(window)
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
     }
 
     override func makeWindow() -> NSWindow {
         let appearanceMode = UserDefaults.standard.string(forKey: AppearanceSettings.appearanceModeKey)
-        let root = MobilePairingView()
+        let root = MobilePairingView { [weak self] height in
+            self?.pairingContentHeightDidChange(height)
+        }
             .cmuxAppearanceColorScheme(appearanceMode)
         let hostingController = NSHostingController(rootView: root)
 
@@ -60,8 +67,58 @@ final class MobilePairingWindowController: ReleasingWindowController {
         // dogfood. The minimum keeps the QR plus the manual block usable on
         // small screens.
         window.setContentSize(NSSize(width: 560, height: 800))
-        window.contentMinSize = NSSize(width: 480, height: 600)
+        window.contentMinSize = NSSize(width: 480, height: 320)
         window.center()
         return window
+    }
+
+    override func managedWindowWillClose(_ window: NSWindow) {
+        idealContentHeight = nil
+        isUserResizing = false
+    }
+
+    func windowWillStartLiveResize(_ notification: Notification) {
+        isUserResizing = true
+    }
+
+    func windowDidEndLiveResize(_ notification: Notification) {
+        isUserResizing = false
+    }
+
+    private func pairingContentHeightDidChange(_ height: CGFloat) {
+        guard height > 0 else { return }
+        idealContentHeight = ceil(height)
+        guard !isUserResizing, let window else { return }
+        resizeWindowToIdealContentHeight(window)
+    }
+
+    /// Keeps the current width and top edge, growing downward until the screen
+    /// margin would be crossed, then shifts the window up just enough to fit.
+    private func resizeWindowToIdealContentHeight(_ window: NSWindow) {
+        guard !isUserResizing,
+              let idealContentHeight,
+              let screen = window.screen ?? NSScreen.main else { return }
+
+        let visibleFrame = screen.visibleFrame.insetBy(
+            dx: 0,
+            dy: Self.screenMargin / 2
+        )
+        let contentChromeHeight = window.frame.height - window.contentLayoutRect.height
+        let targetFrameHeight = min(
+            idealContentHeight + contentChromeHeight,
+            visibleFrame.height
+        )
+        guard targetFrameHeight > 0 else { return }
+
+        var targetFrame = window.frame
+        targetFrame.origin.y = targetFrame.maxY - targetFrameHeight
+        targetFrame.size.height = targetFrameHeight
+        if targetFrame.minY < visibleFrame.minY {
+            targetFrame.origin.y = visibleFrame.minY
+        }
+        if targetFrame.maxY > visibleFrame.maxY {
+            targetFrame.origin.y = visibleFrame.maxY - targetFrameHeight
+        }
+        window.setFrame(targetFrame, display: true)
     }
 }

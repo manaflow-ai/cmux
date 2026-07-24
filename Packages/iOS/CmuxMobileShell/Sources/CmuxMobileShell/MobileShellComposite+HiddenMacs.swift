@@ -179,6 +179,42 @@ extension MobileShellComposite {
         await hideStoredPairedMacs(targets, scope: scope)
     }
 
+    /// Disconnects the live session and hides every stored computer pairing.
+    ///
+    /// Each tagged app instance is hidden separately so all retained pairing
+    /// rows remain available for later unhide or re-pairing.
+    public func forgetAllComputers() async {
+        let activeMacDeviceID = connectedMacDeviceID ?? activeTicket?.macDeviceID
+        disconnectLiveConnection()
+        storedMacReconnectGeneration &+= 1
+        isReconnectingStoredMac = false
+        didFinishStoredMacReconnectAttempt = false
+
+        if storedPairedMacsIncludingHidden.isEmpty {
+            await loadPairedMacs()
+        }
+        let knownPairings = storedPairedMacsIncludingHidden.sorted {
+            if $0.macDeviceID != $1.macDeviceID {
+                return $0.macDeviceID < $1.macDeviceID
+            }
+            return ($0.instanceTag ?? "") < ($1.instanceTag ?? "")
+        }
+        if !knownPairings.isEmpty || activeMacDeviceID != nil {
+            hasKnownPairedMac = true
+        }
+        for pairing in knownPairings {
+            await hideMac(
+                macDeviceID: pairing.macDeviceID,
+                instanceTag: pairing.instanceTag
+            )
+        }
+
+        if let activeMacDeviceID,
+           !knownPairings.contains(where: { $0.macDeviceID == activeMacDeviceID }) {
+            await hideMac(macDeviceID: activeMacDeviceID)
+        }
+    }
+
     /// Hides exactly one stored paired-Mac row.
     public func hideStoredMac(macDeviceID: String) async {
         guard let scope = await currentScopeSnapshot() else { return }
