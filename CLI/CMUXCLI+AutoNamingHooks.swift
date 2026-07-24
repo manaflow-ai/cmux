@@ -123,12 +123,12 @@ extension CMUXCLI {
                     fileURLWithPath: first,
                     relativeTo: URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
                 ).standardizedFileURL.path
-                if FileManager.default.isExecutableFile(atPath: resolved) {
+                if isExecutableRegularFile(atPath: resolved) {
                     return resolved
                 }
             }
             if let bundled = normalizedHookValue(env["CMUX_BUNDLED_CLI_PATH"]),
-               FileManager.default.isExecutableFile(atPath: bundled) {
+               isExecutableRegularFile(atPath: bundled) {
                 return bundled
             }
             return "cmux"
@@ -156,6 +156,16 @@ extension CMUXCLI {
         } catch {
             telemetry.breadcrumb("\(def.name)-hook.auto-name.spawn-failed")
         }
+    }
+
+    private func isExecutableRegularFile(atPath path: String) -> Bool {
+        // Resolve symlinks before rejecting non-regular filesystem entries.
+        let resolvedURL = URL(fileURLWithPath: path).resolvingSymlinksInPath()
+        guard let values = try? resolvedURL.resourceValues(forKeys: [.isRegularFileKey]),
+              values.isRegularFile == true else {
+            return false
+        }
+        return FileManager.default.isExecutableFile(atPath: path)
     }
 
     /// Detached Codex naming pass.
