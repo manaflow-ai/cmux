@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use cmux_remote_protocol::{
-    CircuitId, LaneToken, MAX_WIRE_FRAME_BYTES, REMOTE_PROTOCOL_VERSION, RelayControl,
+    CircuitId, LaneToken, MAX_RELAY_BATCH_BYTES, REMOTE_PROTOCOL_VERSION, RelayControl,
     RelayPermission, RelayRole, RelaySocketAttachment,
 };
 use serde::{Deserialize, Serialize};
@@ -407,7 +407,7 @@ impl RelayCircuit {
         mut attachment: CircuitAttachment,
         bytes: Vec<u8>,
     ) -> Result<()> {
-        if bytes.len() > MAX_WIRE_FRAME_BYTES {
+        if bytes.len() > MAX_RELAY_BATCH_BYTES {
             close(socket, 1009, "relay frame is too large");
             return Ok(());
         }

@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::fmt;
 use std::future::Future;
@@ -11,7 +12,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use bytes::Bytes;
 use cmux_remote_protocol::{
-    CircuitId, LaneToken, REMOTE_PROTOCOL_VERSION, RelayControl, RelayRole,
+    CircuitId, LaneToken, MAX_RELAY_BATCH_BYTES, REMOTE_PROTOCOL_VERSION, RelayControl, RelayRole,
 };
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
@@ -20,7 +21,7 @@ use http::header::{AUTHORIZATION, HeaderValue};
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpStream;
 use tokio::process::Command;
-use tokio::sync::{Mutex, oneshot, watch};
+use tokio::sync::{Mutex, mpsc, oneshot, watch};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::{Error as WebSocketError, Message};
@@ -43,6 +44,13 @@ type RelayCircuitStream = SplitStream<RelaySocket>;
 const MAX_RELAY_CREDENTIAL_BYTES: usize = 4 * 1024;
 const MAX_RELAY_CONTROL_MESSAGE_BYTES: usize = 16 * 1024;
 const DEFAULT_CREDENTIAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
+const RELAY_BATCH_MAGIC: [u8; 4] = *b"CMXB";
+const RELAY_BATCH_VERSION: u8 = 1;
+const RELAY_BATCH_HEADER_BYTES: usize = 8;
+const RELAY_BATCH_ENTRY_HEADER_BYTES: usize = 4;
+const MAX_RELAY_BATCH_FRAMES: usize = 32;
+const RELAY_BATCH_QUEUE_FRAMES: usize = 128;
+const RELAY_BATCH_DELAY: Duration = Duration::from_millis(1);
 
 type CredentialFuture = Pin<Box<dyn Future<Output = Result<String, ()>> + Send + 'static>>;
 type CredentialCallback = dyn Fn() -> CredentialFuture + Send + Sync + 'static;
@@ -357,6 +365,7 @@ impl TransportProvider for RelayProvider {
 
     async fn connect(&self, request: ConnectRequest) -> Result<Arc<dyn LinkGroup>, ProviderError> {
         let route = sanitized_route(&request.endpoint);
+        let framing = RelayCircuitFraming::for_route(&route);
         let endpoint =
             relay_websocket_url(&request.endpoint, &self.config.slot, RelayRole::Client)?;
         let control = connect_provider_control(&endpoint, &self.credentials).await?;
@@ -367,6 +376,7 @@ impl TransportProvider for RelayProvider {
             },
             route,
             endpoint,
+            framing,
             config: self.config.clone(),
             credentials: self.credentials.clone(),
             control: Mutex::new(Some(control)),
@@ -380,6 +390,7 @@ struct RelayLinkGroup {
     evidence: CarrierEvidence,
     route: String,
     endpoint: Url,
+    framing: RelayCircuitFraming,
     config: RelayClientConfig,
     credentials: RelayCredentialSource,
     // An allocation temporarily takes ownership of the control socket. If the
@@ -389,33 +400,283 @@ struct RelayLinkGroup {
     closed: AtomicBool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RelayCircuitFraming {
+    Single,
+    Batch,
+}
+
+impl RelayCircuitFraming {
+    fn for_route(route: &str) -> Self {
+        if Url::parse(route).is_ok_and(|url| url.scheme() == "relay+do") {
+            Self::Batch
+        } else {
+            Self::Single
+        }
+    }
+
+    fn websocket_message_limit(self, logical_frame_limit: usize) -> usize {
+        match self {
+            Self::Single => logical_frame_limit.max(MAX_RELAY_CONTROL_MESSAGE_BYTES),
+            Self::Batch => MAX_RELAY_BATCH_BYTES.max(MAX_RELAY_CONTROL_MESSAGE_BYTES),
+        }
+    }
+}
+
 struct RelayCircuitLink {
     description: String,
     maximum: usize,
-    sender: Mutex<RelayCircuitSink>,
-    receiver: Mutex<RelayCircuitStream>,
+    framing: RelayCircuitFraming,
+    sender: RelayCircuitSender,
+    receiver: Mutex<RelayCircuitReceiver>,
+    terminal: watch::Sender<Option<LinkError>>,
+    closed: AtomicBool,
+}
+
+enum RelayCircuitSender {
+    Direct(Mutex<RelayCircuitSink>),
+    Batched(mpsc::Sender<RelayCircuitCommand>),
+}
+
+struct RelayCircuitReceiver {
+    stream: RelayCircuitStream,
+    pending: VecDeque<Bytes>,
+}
+
+enum RelayCircuitCommand {
+    Frame(Bytes),
+    Message(Message),
+    Close(oneshot::Sender<Result<(), LinkError>>),
 }
 
 impl RelayCircuitLink {
+    #[cfg(test)]
     fn new(description: impl Into<String>, maximum: usize, socket: RelaySocket) -> Self {
+        let description = description.into();
+        let framing = RelayCircuitFraming::for_route(&description);
+        Self::new_with_framing(description, maximum, framing, socket)
+    }
+
+    fn new_with_framing(
+        description: impl Into<String>,
+        maximum: usize,
+        framing: RelayCircuitFraming,
+        socket: RelaySocket,
+    ) -> Self {
         let (sender, receiver) = socket.split();
+        let (terminal, _) = watch::channel(None);
+        let sender = match framing {
+            RelayCircuitFraming::Single => RelayCircuitSender::Direct(Mutex::new(sender)),
+            RelayCircuitFraming::Batch => {
+                let (commands, receiver) = mpsc::channel(RELAY_BATCH_QUEUE_FRAMES);
+                tokio::spawn(run_batched_relay_sender(sender, receiver, terminal.clone()));
+                RelayCircuitSender::Batched(commands)
+            }
+        };
         Self {
             description: description.into(),
             maximum,
-            sender: Mutex::new(sender),
-            receiver: Mutex::new(receiver),
+            framing,
+            sender,
+            receiver: Mutex::new(RelayCircuitReceiver {
+                stream: receiver,
+                pending: VecDeque::new(),
+            }),
+            terminal,
+            closed: AtomicBool::new(false),
         }
     }
 
     async fn send_control(&self, control: &RelayControl) -> Result<(), LinkError> {
         let encoded = serde_json::to_string(control)
             .map_err(|error| LinkError::Protocol(format!("invalid relay control: {error}")))?;
-        self.sender
-            .lock()
-            .await
-            .send(Message::Text(encoded.into()))
-            .await
-            .map_err(|error| LinkError::Transport(error.to_string()))
+        self.send_message(RelayCircuitCommand::Message(Message::Text(encoded.into()))).await
+    }
+
+    async fn send_message(&self, command: RelayCircuitCommand) -> Result<(), LinkError> {
+        if self.closed.load(Ordering::Acquire) {
+            return Err(LinkError::Closed);
+        }
+        if let Some(error) = self.terminal.borrow().clone() {
+            return Err(error);
+        }
+        let result = match (&self.sender, command) {
+            (RelayCircuitSender::Direct(sender), RelayCircuitCommand::Frame(frame)) => {
+                sender.lock().await.send(Message::Binary(frame)).await.map_err(relay_link_error)
+            }
+            (RelayCircuitSender::Direct(sender), RelayCircuitCommand::Message(message)) => {
+                sender.lock().await.send(message).await.map_err(relay_link_error)
+            }
+            (RelayCircuitSender::Direct(_), RelayCircuitCommand::Close(_)) => {
+                unreachable!("direct relay close bypasses the command queue")
+            }
+            (RelayCircuitSender::Batched(sender), command) => sender
+                .send(command)
+                .await
+                .map_err(|_| self.terminal.borrow().clone().unwrap_or(LinkError::Closed)),
+        };
+        if let Err(error) = &result {
+            self.publish_terminal(error.clone());
+        }
+        result
+    }
+
+    fn publish_terminal(&self, error: LinkError) {
+        if self.terminal.borrow().is_none() {
+            self.terminal.send_replace(Some(error));
+        }
+    }
+
+    fn terminal_receive_result(&self) -> Result<Option<Bytes>, LinkError> {
+        match self.terminal.borrow().clone() {
+            Some(LinkError::Closed) => Ok(None),
+            Some(error) => Err(error),
+            None => {
+                Err(LinkError::Protocol("relay terminal notification had no terminal state".into()))
+            }
+        }
+    }
+}
+
+fn relay_link_error(error: WebSocketError) -> LinkError {
+    LinkError::Transport(error.to_string())
+}
+
+fn relay_batch_encoded_len(frames: &[Bytes]) -> Option<usize> {
+    frames.iter().try_fold(RELAY_BATCH_HEADER_BYTES, |total, frame| {
+        total.checked_add(RELAY_BATCH_ENTRY_HEADER_BYTES)?.checked_add(frame.len())
+    })
+}
+
+fn encode_relay_batch(frames: &[Bytes]) -> Result<Bytes, LinkError> {
+    if frames.is_empty() || frames.len() > MAX_RELAY_BATCH_FRAMES {
+        return Err(LinkError::Protocol("relay batch has an invalid frame count".into()));
+    }
+    let encoded_len = relay_batch_encoded_len(frames)
+        .filter(|size| *size <= MAX_RELAY_BATCH_BYTES)
+        .ok_or_else(|| LinkError::Protocol("relay batch exceeds its carrier limit".into()))?;
+    let mut encoded = Vec::with_capacity(encoded_len);
+    encoded.extend_from_slice(&RELAY_BATCH_MAGIC);
+    encoded.push(RELAY_BATCH_VERSION);
+    encoded.push(frames.len() as u8);
+    encoded.extend_from_slice(&[0, 0]);
+    for frame in frames {
+        let frame_len = u32::try_from(frame.len())
+            .map_err(|_| LinkError::Protocol("relay batch frame length overflowed".into()))?;
+        encoded.extend_from_slice(&frame_len.to_be_bytes());
+        encoded.extend_from_slice(frame);
+    }
+    Ok(Bytes::from(encoded))
+}
+
+fn decode_relay_batch(encoded: Bytes, maximum: usize) -> Result<VecDeque<Bytes>, LinkError> {
+    if encoded.len() < RELAY_BATCH_HEADER_BYTES
+        || encoded[..4] != RELAY_BATCH_MAGIC
+        || encoded[4] != RELAY_BATCH_VERSION
+        || encoded[6..8] != [0, 0]
+    {
+        return Err(LinkError::Protocol("relay batch header is invalid".into()));
+    }
+    let count = usize::from(encoded[5]);
+    if count == 0 || count > MAX_RELAY_BATCH_FRAMES {
+        return Err(LinkError::Protocol("relay batch has an invalid frame count".into()));
+    }
+    let mut frames = VecDeque::with_capacity(count);
+    let mut offset = RELAY_BATCH_HEADER_BYTES;
+    for _ in 0..count {
+        let length_end = offset
+            .checked_add(RELAY_BATCH_ENTRY_HEADER_BYTES)
+            .filter(|end| *end <= encoded.len())
+            .ok_or_else(|| LinkError::Protocol("relay batch is truncated".into()))?;
+        let length = u32::from_be_bytes(encoded[offset..length_end].try_into().unwrap()) as usize;
+        if length == 0 || length > maximum {
+            return Err(LinkError::FrameTooLarge { actual: length, maximum });
+        }
+        let frame_end = length_end
+            .checked_add(length)
+            .filter(|end| *end <= encoded.len())
+            .ok_or_else(|| LinkError::Protocol("relay batch frame is truncated".into()))?;
+        frames.push_back(encoded.slice(length_end..frame_end));
+        offset = frame_end;
+    }
+    if offset != encoded.len() {
+        return Err(LinkError::Protocol("relay batch has trailing bytes".into()));
+    }
+    Ok(frames)
+}
+
+async fn run_batched_relay_sender(
+    mut socket: RelayCircuitSink,
+    mut commands: mpsc::Receiver<RelayCircuitCommand>,
+    terminal: watch::Sender<Option<LinkError>>,
+) {
+    let mut deferred = None;
+    loop {
+        let command = match deferred.take() {
+            Some(command) => command,
+            None => match commands.recv().await {
+                Some(command) => command,
+                None => {
+                    let _ = socket.close().await;
+                    return;
+                }
+            },
+        };
+        let result = match command {
+            RelayCircuitCommand::Frame(first) => {
+                let mut frames = vec![first];
+                tokio::time::sleep(RELAY_BATCH_DELAY).await;
+                while frames.len() < MAX_RELAY_BATCH_FRAMES {
+                    let Ok(command) = commands.try_recv() else {
+                        break;
+                    };
+                    match command {
+                        RelayCircuitCommand::Frame(frame) => {
+                            let fits = relay_batch_encoded_len(&frames)
+                                .and_then(|bytes| {
+                                    bytes
+                                        .checked_add(RELAY_BATCH_ENTRY_HEADER_BYTES)?
+                                        .checked_add(frame.len())
+                                })
+                                .is_some_and(|bytes| bytes <= MAX_RELAY_BATCH_BYTES);
+                            if fits {
+                                frames.push(frame);
+                            } else {
+                                deferred = Some(RelayCircuitCommand::Frame(frame));
+                                break;
+                            }
+                        }
+                        other => {
+                            deferred = Some(other);
+                            break;
+                        }
+                    }
+                }
+                match encode_relay_batch(&frames) {
+                    Ok(batch) => {
+                        socket.send(Message::Binary(batch)).await.map_err(relay_link_error)
+                    }
+                    Err(error) => Err(error),
+                }
+            }
+            RelayCircuitCommand::Message(message) => {
+                socket.send(message).await.map_err(relay_link_error)
+            }
+            RelayCircuitCommand::Close(completion) => {
+                let result = socket.close().await.map_err(relay_link_error);
+                let _ = completion.send(result.clone());
+                if let Err(error) = result {
+                    terminal.send_replace(Some(error));
+                } else {
+                    terminal.send_replace(Some(LinkError::Closed));
+                }
+                return;
+            }
+        };
+        if let Err(error) = result {
+            terminal.send_replace(Some(error));
+            return;
+        }
     }
 }
 
@@ -425,6 +686,7 @@ impl fmt::Debug for RelayCircuitLink {
             .debug_struct("RelayCircuitLink")
             .field("description", &self.description)
             .field("maximum", &self.maximum)
+            .field("framing", &self.framing)
             .finish_non_exhaustive()
     }
 }
@@ -441,22 +703,40 @@ impl FrameLink for RelayCircuitLink {
 
     async fn send(&self, frame: Bytes) -> Result<(), LinkError> {
         ensure_relay_frame_size(frame.len(), self.maximum)?;
-        self.sender
-            .lock()
-            .await
-            .send(Message::Binary(frame))
-            .await
-            .map_err(|error| LinkError::Transport(error.to_string()))
+        self.send_message(RelayCircuitCommand::Frame(frame)).await
     }
 
     async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+        let mut receiver = self.receiver.lock().await;
+        if let Some(frame) = receiver.pending.pop_front() {
+            return Ok(Some(frame));
+        }
+        let mut terminal = self.terminal.subscribe();
         loop {
-            let next = self.receiver.lock().await.next().await;
-            match next {
-                Some(Ok(Message::Binary(frame))) => {
-                    ensure_relay_frame_size(frame.len(), self.maximum)?;
-                    return Ok(Some(frame));
+            if terminal.borrow().is_some() {
+                return self.terminal_receive_result();
+            }
+            let next = tokio::select! {
+                biased;
+                changed = terminal.changed() => {
+                    if changed.is_ok() {
+                        return self.terminal_receive_result();
+                    }
+                    return Err(LinkError::Closed);
                 }
+                next = receiver.stream.next() => next,
+            };
+            match next {
+                Some(Ok(Message::Binary(frame))) => match self.framing {
+                    RelayCircuitFraming::Single => {
+                        ensure_relay_frame_size(frame.len(), self.maximum)?;
+                        return Ok(Some(frame));
+                    }
+                    RelayCircuitFraming::Batch => {
+                        receiver.pending = decode_relay_batch(frame, self.maximum)?;
+                        return Ok(receiver.pending.pop_front());
+                    }
+                },
                 Some(Ok(Message::Text(text))) => {
                     if text.len() > MAX_RELAY_CONTROL_MESSAGE_BYTES {
                         return Err(LinkError::Protocol(
@@ -491,32 +771,51 @@ impl FrameLink for RelayCircuitLink {
                     }
                 }
                 Some(Ok(Message::Ping(payload))) => {
-                    self.sender
-                        .lock()
-                        .await
-                        .send(Message::Pong(payload))
-                        .await
-                        .map_err(|error| LinkError::Transport(error.to_string()))?;
+                    self.send_message(RelayCircuitCommand::Message(Message::Pong(payload))).await?;
                 }
                 Some(Ok(Message::Pong(_))) => {}
-                Some(Ok(Message::Close(_))) | None => return Ok(None),
+                Some(Ok(Message::Close(_))) | None => {
+                    self.publish_terminal(LinkError::Closed);
+                    return Ok(None);
+                }
                 Some(Ok(_)) => {
                     return Err(LinkError::Protocol(
                         "relay circuit accepts binary data and relay control only".into(),
                     ));
                 }
-                Some(Err(error)) => return Err(LinkError::Transport(error.to_string())),
+                Some(Err(error)) => {
+                    let error = relay_link_error(error);
+                    self.publish_terminal(error.clone());
+                    return Err(error);
+                }
             }
         }
     }
 
     async fn close(&self) -> Result<(), LinkError> {
-        self.sender
-            .lock()
-            .await
-            .close()
-            .await
-            .map_err(|error| LinkError::Transport(error.to_string()))
+        if self.closed.swap(true, Ordering::AcqRel) {
+            return Ok(());
+        }
+        let result = match &self.sender {
+            RelayCircuitSender::Direct(sender) => {
+                sender.lock().await.close().await.map_err(relay_link_error)
+            }
+            RelayCircuitSender::Batched(sender) => {
+                let (completion, finished) = oneshot::channel();
+                sender
+                    .send(RelayCircuitCommand::Close(completion))
+                    .await
+                    .map_err(|_| self.terminal.borrow().clone().unwrap_or(LinkError::Closed))?;
+                finished
+                    .await
+                    .map_err(|_| self.terminal.borrow().clone().unwrap_or(LinkError::Closed))?
+            }
+        };
+        match &result {
+            Ok(()) => self.publish_terminal(LinkError::Closed),
+            Err(error) => self.publish_terminal(error.clone()),
+        }
+        result
     }
 }
 
@@ -613,6 +912,7 @@ impl LinkGroup for RelayLinkGroup {
             &self.endpoint,
             &self.config.slot,
             RelayRole::Client,
+            self.framing,
             allocation.0,
             lane,
             request.generation,
@@ -715,6 +1015,7 @@ async fn join_circuit(
     endpoint: &Url,
     slot: &str,
     role: RelayRole,
+    framing: RelayCircuitFraming,
     circuit: CircuitId,
     lane: LaneToken,
     generation: u64,
@@ -727,8 +1028,8 @@ async fn join_circuit(
     // binary frame link. A caller may intentionally choose a data-frame limit
     // smaller than those control messages, so keep the WebSocket handshake
     // ceiling large enough for control and enforce the advertised data limit
-    // in TungsteniteWebSocketLink after the circuit is ready.
-    let websocket_message_limit = maximum_frame_bytes.max(MAX_RELAY_CONTROL_MESSAGE_BYTES);
+    // in RelayCircuitLink after the circuit is ready.
+    let websocket_message_limit = framing.websocket_message_limit(maximum_frame_bytes);
     let mut socket =
         connect_relay_socket(&circuit_endpoint, Some(&ticket), websocket_message_limit).await?;
     send_control(
@@ -770,7 +1071,12 @@ async fn join_circuit(
     })
     .await
     .map_err(|_| relay_carrier_error("relay circuit join timed out"))??;
-    Ok(Box::new(RelayCircuitLink::new(sanitized_route(endpoint), maximum_frame_bytes, socket)))
+    Ok(Box::new(RelayCircuitLink::new_with_framing(
+        sanitized_route(endpoint),
+        maximum_frame_bytes,
+        framing,
+        socket,
+    )))
 }
 
 #[derive(Clone)]
@@ -852,6 +1158,7 @@ pub async fn register_relay_daemon_with_credentials(
 ) -> Result<RelayDaemonRegistration, ProviderError> {
     config.ticket.zeroize();
     config.validate_common()?;
+    let framing = RelayCircuitFraming::for_route(&sanitized_route(&config.endpoint));
     let endpoint = relay_websocket_url(&config.endpoint, &config.slot, RelayRole::Daemon)?;
     let config = RelayDaemonConfig { endpoint, ..config };
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -859,6 +1166,7 @@ pub async fn register_relay_daemon_with_credentials(
     let task = tokio::spawn(run_registration_loop(
         daemon,
         config,
+        framing,
         credentials,
         shutdown_rx,
         Some(ready_tx),
@@ -872,6 +1180,7 @@ pub async fn register_relay_daemon_with_credentials(
 async fn run_registration_loop(
     daemon: Arc<RemoteDaemon>,
     config: RelayDaemonConfig,
+    framing: RelayCircuitFraming,
     credentials: RelayCredentialSource,
     mut shutdown: watch::Receiver<bool>,
     mut first_ready: Option<oneshot::Sender<Result<(), ProviderError>>>,
@@ -887,6 +1196,7 @@ async fn run_registration_loop(
         let result = run_registration_once(
             daemon.clone(),
             &config,
+            framing,
             &credentials,
             &mut shutdown,
             &mut first_ready,
@@ -920,6 +1230,7 @@ async fn run_registration_loop(
 async fn run_registration_once(
     daemon: Arc<RemoteDaemon>,
     config: &RelayDaemonConfig,
+    framing: RelayCircuitFraming,
     credentials: &RelayCredentialSource,
     shutdown: &mut watch::Receiver<bool>,
     first_ready: &mut Option<oneshot::Sender<Result<(), ProviderError>>>,
@@ -963,6 +1274,7 @@ async fn run_registration_once(
                                 &endpoint,
                                 &slot,
                                 RelayRole::Daemon,
+                                framing,
                                 circuit,
                                 lane,
                                 generation,
@@ -1446,11 +1758,62 @@ mod tests {
         .await;
 
         let (first, second) = server.await.unwrap();
-        assert!(matches!(first, Message::Binary(_)));
+        let Message::Binary(batch) = first else {
+            panic!("Durable Object relay emitted a non-binary carrier message");
+        };
+        let frames = decode_relay_batch(batch, 64).unwrap();
+        assert_eq!(frames.len(), 10);
+        let mut markers = frames.iter().map(|frame| frame[0]).collect::<Vec<_>>();
+        markers.sort_unstable();
+        assert_eq!(markers, (0_u8..10).collect::<Vec<_>>());
         assert!(
             second.is_err(),
             "Durable Object relay emitted one WebSocket message per logical frame"
         );
+    }
+
+    #[test]
+    fn durable_object_batch_codec_preserves_frames_and_rejects_malformed_input() {
+        let frames = Vec::from([
+            Bytes::from_static(b"alpha"),
+            Bytes::from_static(b"beta"),
+            Bytes::from_static(b"gamma"),
+        ]);
+        let encoded = encode_relay_batch(&frames).unwrap();
+        assert_eq!(decode_relay_batch(encoded, 16).unwrap(), VecDeque::from(frames));
+
+        let mut truncated = encode_relay_batch(&[Bytes::from_static(b"alpha")]).unwrap().to_vec();
+        truncated.pop();
+        assert!(matches!(
+            decode_relay_batch(Bytes::from(truncated), 16),
+            Err(LinkError::Protocol(_))
+        ));
+
+        let oversized = encode_relay_batch(&[Bytes::from_static(b"alpha")]).unwrap();
+        assert!(matches!(
+            decode_relay_batch(oversized, 4),
+            Err(LinkError::FrameTooLarge { actual: 5, maximum: 4 })
+        ));
+    }
+
+    #[test]
+    fn durable_object_batching_is_scoped_to_its_route_scheme() {
+        assert_eq!(
+            RelayCircuitFraming::for_route("relay+do://relay.example"),
+            RelayCircuitFraming::Batch
+        );
+        for route in [
+            "relay+ws://relay.example",
+            "relay+wss://relay.example",
+            "relay+https://relay.example",
+            "wss://relay.example",
+        ] {
+            assert_eq!(
+                RelayCircuitFraming::for_route(route),
+                RelayCircuitFraming::Single,
+                "{route}"
+            );
+        }
     }
 
     #[tokio::test]
@@ -1497,6 +1860,7 @@ mod tests {
             &endpoint,
             "test-slot",
             RelayRole::Client,
+            RelayCircuitFraming::Single,
             circuit,
             lane,
             4,
@@ -1541,6 +1905,7 @@ mod tests {
             &endpoint,
             "test-slot",
             RelayRole::Client,
+            RelayCircuitFraming::Single,
             circuit,
             lane,
             5,
@@ -1585,6 +1950,7 @@ mod tests {
             &endpoint,
             "test-slot",
             RelayRole::Client,
+            RelayCircuitFraming::Single,
             circuit,
             lane,
             6,

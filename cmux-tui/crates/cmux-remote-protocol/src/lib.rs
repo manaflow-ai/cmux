@@ -14,8 +14,8 @@ pub use frame::{
     REMOTE_PROTOCOL_VERSION, SessionId, WireFrame,
 };
 pub use relay::{
-    CircuitId, LaneToken, RelayControl, RelayPermission, RelayRole, RelaySocketAttachment,
-    RelayTicketClaims,
+    CircuitId, LaneToken, MAX_RELAY_BATCH_BYTES, RelayControl, RelayPermission, RelayRole,
+    RelaySocketAttachment, RelayTicketClaims,
 };
 pub use rpc::{
     ByteString, ComputerUseAction, ComputerUseCapability, ComputerUseFeature,
