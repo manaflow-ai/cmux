@@ -50,11 +50,19 @@ impl KittyInFlightTracker {
         for &byte in data {
             let state = std::mem::take(&mut self.scan);
             self.scan = match state {
-                KittyStreamScan::Ground => match byte {
-                    0x1b => KittyStreamScan::Escape,
-                    0x9f => KittyStreamScan::ApcType(KittyApcIntroducer::C1),
-                    _ => KittyStreamScan::Ground,
-                },
+                KittyStreamScan::Ground => KittyStreamScan::from_ground(byte),
+                KittyStreamScan::Utf8(mut continuation) => {
+                    if !(continuation.next_min..=continuation.next_max).contains(&byte) {
+                        KittyStreamScan::from_ground(byte)
+                    } else if continuation.remaining == 1 {
+                        KittyStreamScan::Ground
+                    } else {
+                        continuation.remaining -= 1;
+                        continuation.next_min = 0x80;
+                        continuation.next_max = 0xbf;
+                        KittyStreamScan::Utf8(continuation)
+                    }
+                }
                 KittyStreamScan::Escape => match byte {
                     b'_' => KittyStreamScan::ApcType(KittyApcIntroducer::Esc),
                     b'c' => {
@@ -165,12 +173,40 @@ impl KittyInFlightTracker {
 enum KittyStreamScan {
     #[default]
     Ground,
+    Utf8(Utf8Continuation),
     Escape,
     ApcType(KittyApcIntroducer),
     Kitty(KittyCommand),
     OtherApc {
         saw_escape: bool,
     },
+}
+
+impl KittyStreamScan {
+    fn from_ground(byte: u8) -> Self {
+        match byte {
+            0x1b => Self::Escape,
+            0x9f => Self::ApcType(KittyApcIntroducer::C1),
+            0xc2..=0xdf => Self::utf8(1, 0x80, 0xbf),
+            0xe0 => Self::utf8(2, 0xa0, 0xbf),
+            0xe1..=0xec | 0xee..=0xef => Self::utf8(2, 0x80, 0xbf),
+            0xed => Self::utf8(2, 0x80, 0x9f),
+            0xf0 => Self::utf8(3, 0x90, 0xbf),
+            0xf1..=0xf3 => Self::utf8(3, 0x80, 0xbf),
+            0xf4 => Self::utf8(3, 0x80, 0x8f),
+            _ => Self::Ground,
+        }
+    }
+
+    fn utf8(remaining: u8, next_min: u8, next_max: u8) -> Self {
+        Self::Utf8(Utf8Continuation { remaining, next_min, next_max })
+    }
+}
+
+struct Utf8Continuation {
+    remaining: u8,
+    next_min: u8,
+    next_max: u8,
 }
 
 enum KittyApcIntroducer {
