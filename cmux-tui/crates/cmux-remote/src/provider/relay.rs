@@ -591,16 +591,10 @@ impl LinkGroup for RelayLinkGroup {
                             "relay connection group is closed".into(),
                         ));
                     }
-                    let mut replacement = connect_provider_control(
-                        &self.endpoint,
-                        &self.credentials,
-                    )
-                    .await
-                    .map_err(|error| {
-                        ProviderError::Transport(format!(
-                            "relay control failed ({control_error}); reconnect failed: {error}"
-                        ))
-                    })?;
+                    let mut replacement =
+                        connect_provider_control(&self.endpoint, &self.credentials)
+                            .await
+                            .map_err(|error| relay_reconnect_error(&control_error, error))?;
                     let allocation = request_allocation(
                         &mut replacement,
                         &self.config,
@@ -679,9 +673,7 @@ async fn request_allocation(
     tokio::time::timeout(config.control_timeout, read_until_allocation(socket, lane, generation))
         .await
         .map_err(|_| {
-            AllocationError::Reconnect(ProviderError::Transport(
-                "relay allocation timed out".into(),
-            ))
+            AllocationError::Reconnect(relay_carrier_error("relay allocation timed out"))
         })?
 }
 
@@ -697,12 +689,15 @@ async fn read_until_allocation(
             {
                 return Ok((circuit, join_ticket));
             }
-            RelayControl::Error { code, .. } => {
-                let error = relay_rejection();
+            RelayControl::Error { code, retryable, .. } => {
                 return Err(if relay_authentication_error(&code) {
-                    AllocationError::Authentication(error)
+                    AllocationError::Authentication(relay_rejection())
+                } else if retryable {
+                    AllocationError::Reconnect(relay_carrier_error(
+                        "relay allocation is temporarily unavailable",
+                    ))
                 } else {
-                    AllocationError::Terminal(error)
+                    AllocationError::Terminal(relay_rejection())
                 });
             }
             RelayControl::Ping { nonce } => {
@@ -762,15 +757,19 @@ async fn join_circuit(
                 {
                     return Ok(());
                 }
-                RelayControl::Error { .. } => {
-                    return Err(relay_rejection());
+                RelayControl::Error { code, retryable, .. } => {
+                    return Err(relay_operation_rejection(
+                        &code,
+                        retryable,
+                        "relay circuit is temporarily unavailable",
+                    ));
                 }
                 _ => {}
             }
         }
     })
     .await
-    .map_err(|_| ProviderError::Transport("relay circuit join timed out".into()))??;
+    .map_err(|_| relay_carrier_error("relay circuit join timed out"))??;
     Ok(Box::new(RelayCircuitLink::new(sanitized_route(endpoint), maximum_frame_bytes, socket)))
 }
 
@@ -980,8 +979,12 @@ async fn run_registration_once(
                         send_control(&mut socket, &RelayControl::Pong { nonce }).await?;
                     }
                     RelayControl::Pong { .. } => {}
-                    RelayControl::Error { .. } => {
-                        return Err(relay_rejection());
+                    RelayControl::Error { code, retryable, .. } => {
+                        return Err(relay_operation_rejection(
+                            &code,
+                            retryable,
+                            "relay registration is temporarily unavailable",
+                        ));
                     }
                     _ => {}
                 }
@@ -1022,7 +1025,7 @@ async fn authenticate_daemon_control(
         .await?;
         let reply = tokio::time::timeout(config.control_timeout, read_control(&mut socket))
             .await
-            .map_err(|_| ProviderError::Transport("relay registration timed out".into()))??;
+            .map_err(|_| relay_carrier_error("relay registration timed out"))??;
         match reply {
             RelayControl::Registered { lease_seconds } => return Ok((socket, lease_seconds)),
             RelayControl::Error { code, .. }
@@ -1030,13 +1033,17 @@ async fn authenticate_daemon_control(
             {
                 retried_authentication = true;
             }
-            RelayControl::Error { .. } => {
-                return Err(relay_rejection());
+            RelayControl::Error { code, retryable, .. } => {
+                return Err(relay_operation_rejection(
+                    &code,
+                    retryable,
+                    "relay registration is temporarily unavailable",
+                ));
             }
             _ => {
-                return Err(ProviderError::Transport(
+                return Err(ProviderError::Link(LinkError::Protocol(
                     "relay sent an invalid registration reply".into(),
-                ));
+                )));
             }
         }
     }
@@ -1155,6 +1162,35 @@ fn relay_authentication_error(code: &str) -> bool {
     matches!(code, "unauthorized" | "invalid-ticket" | "ticket-expired" | "registration-expired")
 }
 
+fn relay_carrier_error(message: impl Into<String>) -> ProviderError {
+    ProviderError::Link(LinkError::Transport(message.into()))
+}
+
+fn relay_operation_rejection(
+    code: &str,
+    retryable: bool,
+    retryable_message: &'static str,
+) -> ProviderError {
+    if retryable && !relay_authentication_error(code) {
+        relay_carrier_error(retryable_message)
+    } else {
+        relay_rejection()
+    }
+}
+
+fn relay_reconnect_error(
+    control_error: &ProviderError,
+    reconnect_error: ProviderError,
+) -> ProviderError {
+    let message =
+        format!("relay control failed ({control_error}); reconnect failed: {reconnect_error}");
+    if reconnect_error.is_retryable_carrier_failure() {
+        relay_carrier_error(message)
+    } else {
+        ProviderError::Transport(message)
+    }
+}
+
 fn relay_rejection() -> ProviderError {
     ProviderError::Transport("relay rejected the authenticated operation".into())
 }
@@ -1164,11 +1200,11 @@ async fn send_control(
     control: &RelayControl,
 ) -> Result<(), ProviderError> {
     let encoded = serde_json::to_string(control)
-        .map_err(|error| ProviderError::Transport(error.to_string()))?;
+        .map_err(|error| ProviderError::Link(LinkError::Protocol(error.to_string())))?;
     socket
         .send(Message::Text(encoded.into()))
         .await
-        .map_err(|_| ProviderError::Transport("relay WebSocket write failed".into()))
+        .map_err(|_| relay_carrier_error("relay WebSocket write failed"))
 }
 
 async fn read_control(socket: &mut RelaySocket) -> Result<RelayControl, ProviderError> {
@@ -1176,27 +1212,29 @@ async fn read_control(socket: &mut RelaySocket) -> Result<RelayControl, Provider
         match socket.next().await {
             Some(Ok(Message::Text(text))) => {
                 return serde_json::from_str(&text).map_err(|error| {
-                    ProviderError::Transport(format!("invalid relay control: {error}"))
+                    ProviderError::Link(LinkError::Protocol(format!(
+                        "invalid relay control: {error}"
+                    )))
                 });
             }
             Some(Ok(Message::Ping(bytes))) => {
                 socket
                     .send(Message::Pong(bytes))
                     .await
-                    .map_err(|_| ProviderError::Transport("relay WebSocket write failed".into()))?;
+                    .map_err(|_| relay_carrier_error("relay WebSocket write failed"))?;
             }
             Some(Ok(Message::Pong(_))) => {}
             Some(Ok(Message::Close(_))) | None => {
-                return Err(ProviderError::Transport("relay WebSocket closed".into()));
+                return Err(relay_carrier_error("relay WebSocket closed"));
             }
             Some(Ok(Message::Binary(_))) => {
-                return Err(ProviderError::Transport(
+                return Err(ProviderError::Link(LinkError::Protocol(
                     "relay sent binary data on a control socket".into(),
-                ));
+                )));
             }
             Some(Ok(_)) => {}
             Some(Err(_)) => {
-                return Err(ProviderError::Transport("relay WebSocket read failed".into()));
+                return Err(relay_carrier_error("relay WebSocket read failed"));
             }
         }
     }
