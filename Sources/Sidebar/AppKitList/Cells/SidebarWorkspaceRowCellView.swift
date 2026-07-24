@@ -534,6 +534,23 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         ))
     }
 
+    /// Live drop-line painting during native reorder drags. The controller
+    /// owns the indicator for the drag's lifetime (the model's flags stay
+    /// false, so no SwiftUI rows rebuild runs per gap change) and moves it
+    /// with two direct view mutations instead of a full-list apply.
+    func paintControllerDropIndicator(top: Bool, bottom: Bool) {
+        topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
+        bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
+        topDropIndicator.isHidden = !top
+        bottomDropIndicator.isHidden = !bottom
+    }
+
+#if DEBUG
+    var dropIndicatorPaintForTesting: (top: Bool, bottom: Bool) {
+        (!topDropIndicator.isHidden, !bottomDropIndicator.isHidden)
+    }
+#endif
+
     private func configureStatusSlot(
         model: SidebarWorkspaceRowModel,
         palette: SidebarRowPalette,

@@ -32,10 +32,6 @@ struct DisconnectedWorkspaceShellView: View {
 
     #if os(iOS)
     @State private var isShowingSetupHelp = false
-    /// The computer whose destructive remove action is awaiting confirmation.
-    /// Stored at list scope so reusable rows do not own transient presentation
-    /// state while `List` is recycling swipe-action rows.
-    @State private var computerPendingRemovalID: String?
     /// The computer a reconnect attempt is in flight for. Also the re-entry
     /// guard: while non-nil, row taps are ignored.
     @State private var connectingMacID: String?
@@ -73,7 +69,7 @@ struct DisconnectedWorkspaceShellView: View {
                     // auto-present the pairing sheet when there is nothing to pick,
                     // so a returning user is not buried under the add-device flow.
                     await store?.loadPairedMacs()
-                    if store?.pairedMacs.isEmpty ?? true {
+                    if shouldAutoPresentAddDeviceAfterLoadingSavedMacs {
                         showAddDevice()
                         return
                     }
@@ -142,6 +138,12 @@ struct DisconnectedWorkspaceShellView: View {
         store.map { MacComputerSnapshot.snapshots(from: $0) } ?? []
     }
 
+    var shouldAutoPresentAddDeviceAfterLoadingSavedMacs: Bool {
+        guard let store else { return false }
+        return store.pairedMacLoadState == .loaded
+            && store.pairedMacs.isEmpty
+    }
+
     @ViewBuilder
     private var content: some View {
         if !savedComputers.isEmpty {
@@ -153,7 +155,7 @@ struct DisconnectedWorkspaceShellView: View {
 
     /// The returning-user state: a real list of the saved computers, one row per
     /// logical Mac, with presence, last-seen, tap-to-reconnect, and
-    /// swipe-to-remove — the same row component as the Computers screen.
+    /// swipe-to-hide — the same row component as the Computers screen.
     /// Snapshot boundary (see AGENTS.md): rows receive immutable
     /// ``MacComputerSnapshot`` values and closures only, never the store.
     private func savedComputersList(_ computers: [MacComputerSnapshot]) -> some View {
@@ -162,9 +164,7 @@ struct DisconnectedWorkspaceShellView: View {
                 ForEach(computers) { computer in
                     MacComputerRow(
                         computer: computer,
-                        requestRemove: { computerPendingRemovalID = $0 },
-                        isConfirmingRemove: removalConfirmationBinding(for: computer.id),
-                        confirmRemove: { _ in confirmComputerRemoval() },
+                        hide: { _ in hideComputer(computer) },
                         style: .reconnect,
                         connect: { _ in connect(to: computer) },
                         isConnecting: connectingMacID == computer.id
@@ -175,7 +175,7 @@ struct DisconnectedWorkspaceShellView: View {
             } footer: {
                 Text(L10n.string(
                     "mobile.disconnected.listFooter",
-                    defaultValue: "Tap a computer to reconnect. Swipe left to remove one."
+                    defaultValue: "Tap a computer to reconnect. Swipe left to hide one."
                 ))
             }
             Section {
@@ -286,31 +286,9 @@ struct DisconnectedWorkspaceShellView: View {
         )
     }
 
-    private func removalConfirmationBinding(for deviceID: String) -> Binding<Bool> {
-        Binding(
-            get: { computerPendingRemovalID == deviceID },
-            set: { isPresented in
-                if isPresented {
-                    computerPendingRemovalID = deviceID
-                } else if computerPendingRemovalID == deviceID {
-                    computerPendingRemovalID = nil
-                }
-            }
-        )
-    }
-
-    private func confirmComputerRemoval() {
-        guard let pairingID = computerPendingRemovalID,
-              let computer = savedComputers.first(where: { $0.id == pairingID }) else {
-            return
-        }
-        computerPendingRemovalID = nil
+    private func hideComputer(_ computer: MacComputerSnapshot) {
         Task {
-            await store?.forgetMac(
-                macDeviceID: computer.deviceId,
-                instanceTag: computer.instanceTag
-            )
-            await store?.loadPairedMacs()
+            await store?.hideMac(macDeviceID: computer.deviceId)
         }
     }
     #else

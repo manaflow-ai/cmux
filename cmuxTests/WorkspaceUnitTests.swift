@@ -3269,6 +3269,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
         }
 
         override func makeWorkspaceForCreation(
+            id: UUID? = nil,
             title: String,
             workingDirectory: String?,
             portOrdinal: Int,
@@ -3285,6 +3286,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
         ) -> Workspace {
             beforeCreateWorkspace?()
             return super.makeWorkspaceForCreation(
+                id: id,
                 title: title,
                 workingDirectory: workingDirectory,
                 portOrdinal: portOrdinal,
@@ -3580,6 +3582,7 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
         }
 
         override func makeWorkspaceForCreation(
+            id: UUID? = nil,
             title: String,
             workingDirectory: String?,
             portOrdinal: Int,
@@ -3596,6 +3599,7 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
         ) -> Workspace {
             capturedConfigTemplate = configTemplate
             return super.makeWorkspaceForCreation(
+                id: id,
                 title: title,
                 workingDirectory: workingDirectory,
                 portOrdinal: portOrdinal,

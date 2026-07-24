@@ -21,6 +21,8 @@ extension MobileShellComposite {
     public var supportsWorkspaceGroups: Bool { supportedHostCapabilities.contains(Self.workspaceGroupsCapability) }
     /// Whether the Mac supports rename/pin workspace actions.
     public var supportsWorkspaceActions: Bool { supportedHostCapabilities.contains(Self.workspaceActionsCapability) }
+    /// Whether the Mac supports workspace description/color actions.
+    public var supportsWorkspaceMetadata: Bool { supportedHostCapabilities.contains(Self.workspaceMetadataCapability) }
     /// Whether the Mac supports mark read/unread workspace actions.
     public var supportsWorkspaceReadStateActions: Bool { supportedHostCapabilities.contains(Self.workspaceReadStateCapability) }
 
