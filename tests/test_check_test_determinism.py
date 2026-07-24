@@ -404,6 +404,12 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "await fixture.Bun.sleep(1)\n"
                     "expect(completed).toBe(true)\n"
                 ),
+                "spaced-members.ts": (
+                    "fixture. setTimeout(resolve, 1)\n"
+                    "expect(completed).toBe(true)\n"
+                    "fixture./* delegate */setTimeout(resolve, 1)\n"
+                    "expect(completed).toBe(true)\n"
+                ),
                 "dollar-identifiers.ts": (
                     "$setTimeout(callback, 1)\n"
                     "expect(completed).toBe(true)\n"
@@ -768,6 +774,17 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "values = [lambda time: None, time.sleep(0.01)]\n"
                 "assert finished\n"
             ),
+            "loop-break-real.py": (
+                "for item in items:\n"
+                "    import time\n"
+                "    if ready:\n"
+                "        break\n"
+                "    time = fake_clock\n"
+                "else:\n"
+                "    import time\n"
+                "time.sleep(0.01)\n"
+                "assert finished\n"
+            ),
         }
 
         result = self.run_checker(fixtures)
@@ -783,6 +800,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             "keyword-argument.py": 2,
             "class-method-global.py": 5,
             "lambda-and-real-sleep.py": 1,
+            "loop-break-real.py": 8,
         }
         findings = [
             line
@@ -1118,6 +1136,12 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 ),
                 "assert-case-pattern.sh": (
                     'case "$cmd" in assert) sleep 1 ;; esac\n'
+                ),
+                "assert-pattern-after-sleep.sh": (
+                    'sleep 1; case "$cmd" in assert) : ;; esac\n'
+                ),
+                "assert-argument-after-sleep.sh": (
+                    "sleep 1; echo assert\n"
                 ),
             },
             timeout=2,
