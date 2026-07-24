@@ -55,7 +55,7 @@ struct SidebarWorkspaceRowSuspensionTests {
         )
     }
 
-    private static func makeModel(
+    static func makeModel(
         checklistAddFieldActivationToken: Int = 0,
         manualTaskStatus: WorkspaceTaskStatus? = nil,
         checklistItems: [WorkspaceChecklistItem] = [],
@@ -102,7 +102,7 @@ struct SidebarWorkspaceRowSuspensionTests {
         )
     }
 
-    private static func makeActions(
+    static func makeActions(
         model: SidebarWorkspaceRowModel,
         workspace: Workspace? = nil,
         onCommitRename: @escaping (String) -> Void = { _ in },

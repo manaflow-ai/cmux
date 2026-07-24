@@ -197,6 +197,20 @@ struct SidebarHiddenPresentationTests {
             "Reopening must project each current workspace row exactly once."
         )
 
+        let sidebarField = NSTextField(frame: NSRect(x: 20, y: 40, width: 120, height: 24))
+        window.contentView?.addSubview(sidebarField)
+        #expect(window.makeFirstResponder(sidebarField))
+        sidebarState.toggle()
+        await drainMainRunLoop(for: window)
+        let responderAfterSidebarFieldHide = try #require(window.firstResponder)
+        #expect(
+            focusedPanel.ownedFocusIntent(for: responderAfterSidebarFieldHide, in: window) != nil,
+            "Hiding must restore main-panel focus from controls anywhere in the sidebar boundary."
+        )
+        sidebarState.toggle()
+        await drainMainRunLoop(for: window)
+        sidebarField.removeFromSuperview()
+
         let foreignField = NSTextField(frame: NSRect(x: 500, y: 400, width: 120, height: 24))
         window.contentView?.addSubview(foreignField)
         defer { foreignField.removeFromSuperview() }

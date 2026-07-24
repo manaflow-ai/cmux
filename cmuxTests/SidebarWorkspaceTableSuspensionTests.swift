@@ -149,6 +149,61 @@ struct SidebarWorkspaceTableSuspensionTests {
     }
 
     @Test
+    func cellDetachmentDefersInlineEditCommitThroughControllerScheduler() async throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let model = SidebarWorkspaceRowSuspensionTests.makeModel()
+        var committedTitle: String?
+        let row = SidebarWorkspaceTableRowConfiguration(
+            workspaceRowModel: model,
+            actions: SidebarWorkspaceRowSuspensionTests.makeActions(
+                model: model,
+                onCommitRename: { committedTitle = $0 }
+            ),
+            groupId: nil,
+            isPinned: false,
+            environment: SidebarWorkspaceTableEnvironmentSnapshot(
+                colorScheme: .light,
+                globalFontMagnificationPercent: 100,
+                lazyContractProbe: SidebarLazyContractProbe()
+            )
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer { window.close() }
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(),
+            workspaceIds: [model.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+        let cell = try #require(
+            container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: false)
+                as? SidebarWorkspaceRowTableCellView
+        )
+        cell.beginInlineRename()
+        let field = try #require(
+            Self.descendants(of: cell).compactMap { $0 as? SidebarRowInlineRenameField }.first
+        )
+        field.stringValue = "Detached rename"
+
+        window.contentView = nil
+
+        #expect(committedTitle == nil)
+        await flushStagedTableMutations()
+        #expect(committedTitle == "Detached rename")
+    }
+
+    @Test
     func mutationSchedulerCancelsHiddenWorkAndFlushesRevealOnce() async {
         var appliedInputs = 0
         var viewportFlushes = 0
@@ -250,6 +305,10 @@ struct SidebarWorkspaceTableSuspensionTests {
                 continuation.resume()
             }
         }
+    }
+
+    private static func descendants(of view: NSView) -> [NSView] {
+        view.subviews + view.subviews.flatMap { descendants(of: $0) }
     }
 
     private struct TestRowContent: View, Equatable {
