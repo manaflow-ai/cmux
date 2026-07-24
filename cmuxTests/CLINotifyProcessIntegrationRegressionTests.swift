@@ -77,9 +77,34 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let context = try makeClaudeHookContext(name: "pi-first-prompt-auto-name")
         defer { context.cleanup() }
 
-        // Supply a deterministic Pi summarizer so the detached naming pass reaches the socket apply.
+        // Gate the Pi summarizer so the test controls when detached naming can finish.
         let piURL = context.root.appendingPathComponent("pi", isDirectory: false)
-        try "#!/bin/sh\nsleep 1\nprintf 'Java Workspace\\n'\n".write(
+        let piStartedURL = context.root.appendingPathComponent("pi-started", isDirectory: false)
+        let piReleaseURL = context.root.appendingPathComponent("pi-release", isDirectory: false)
+        guard Darwin.mkfifo(piReleaseURL.path, 0o600) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        let piReleaseFD = Darwin.open(piReleaseURL.path, O_RDWR | O_CLOEXEC)
+        guard piReleaseFD >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        var piWasReleased = false
+        let releasePiSummarizer = {
+            guard !piWasReleased else { return }
+            piWasReleased = true
+            // A newline releases the mock's blocking read exactly once.
+            _ = "\n".withCString { Darwin.write(piReleaseFD, $0, 1) }
+        }
+        defer {
+            releasePiSummarizer()
+            Darwin.close(piReleaseFD)
+        }
+        try """
+        #!/bin/sh
+        : > "$CMUX_TEST_PI_STARTED"
+        IFS= read -r _ < "$CMUX_TEST_PI_RELEASE_FIFO"
+        printf 'Java Workspace\\n'
+        """.write(
             to: piURL,
             atomically: true,
             encoding: .utf8
@@ -100,11 +125,31 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             agent: "pi",
             subcommand: "prompt-submit",
             standardInput: #"{"session_id":"pi-first-prompt","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"Fix the Java build"}"#,
-            extraEnvironment: ["PATH": "\(context.root.path):/usr/bin:/bin:/usr/sbin:/sbin"]
+            extraEnvironment: [
+                "PATH": "\(context.root.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_TEST_PI_STARTED": piStartedURL.path,
+                "CMUX_TEST_PI_RELEASE_FIFO": piReleaseURL.path,
+            ]
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertFalse(result.timedOut, "The prompt hook must return before Pi completes: \(result.stderr)")
         XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(
+            waitForCondition(timeout: 5) { FileManager.default.fileExists(atPath: piStartedURL.path) },
+            "The Pi summarizer must reach the controlled release point."
+        )
+        XCTAssertFalse(
+            context.state.snapshot().compactMap(self.jsonObject).contains { payload in
+                guard payload["method"] as? String == "workspace.set_auto_title",
+                      let params = payload["params"] as? [String: Any] else {
+                    return false
+                }
+                return params["title"] != nil
+            },
+            "Auto-naming must remain blocked until the test releases Pi."
+        )
+
+        releasePiSummarizer()
         XCTAssertTrue(waitForCondition(timeout: 5) {
             context.state.snapshot().compactMap(self.jsonObject).contains { payload in
                 guard payload["method"] as? String == "workspace.set_auto_title",
