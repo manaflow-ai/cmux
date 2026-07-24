@@ -221,7 +221,7 @@ _SHELL_HEREDOC_START = re.compile(
     (?:
         '(?P<single>[^'\n]+)'
       | "(?P<double>[^"\n]+)"
-      | (?P<backslash>\\)?(?P<bare>[A-Za-z_][A-Za-z0-9_]*)
+      | (?P<backslash>\\)?(?P<bare>[^ \t\r\n;&|()<>"'`]+)
     )
     """
 )
@@ -244,9 +244,10 @@ _SHELL_BARE_SLEEP = re.compile(
       | (?<!\S)!
     )
     \s* sleep (?=\s|$)
-  | ^\s* [^;&()]+ (?:\|[^;&()]+)* \) \s* sleep (?=\s|$)
+  | ^\s* [^;&|()]+ (?:\|[^;&|()]+)* \) \s* sleep (?=\s|$)
     """
 )
+_SHELL_COMMAND_SEPARATOR = re.compile(r";|&&|\|\||(?<!\|)\|(?!\|)")
 
 # Loop-body markers: if the sleep line itself is a loop header or sits in an
 # obvious poll, we treat it as an allowed deadline-bounded poll, not a sync hack.
@@ -550,6 +551,42 @@ def _javascript_real_sleep_positions(
         line_start = text.rfind("\n", 0, sleep_offset) + 1
         positions.setdefault(line, set()).add(sleep_offset - line_start)
     return positions
+
+
+def _sleep_call_end_lines(
+    masked_lines: list[str],
+    positions: dict[int, set[int]],
+) -> dict[int, int]:
+    """Map each sleep-token line to the end of its balanced call."""
+    end_lines: dict[int, int] = {}
+    for start_line, columns in positions.items():
+        for column in columns:
+            depth = 0
+            call_started = False
+            call_end = start_line
+            for line_index in range(start_line, len(masked_lines)):
+                line = masked_lines[line_index]
+                start_column = column if line_index == start_line else 0
+                for char in line[start_column:]:
+                    if not call_started:
+                        if char == "(":
+                            call_started = True
+                            depth = 1
+                        continue
+                    if char == "(":
+                        depth += 1
+                    elif char == ")":
+                        depth -= 1
+                        if depth == 0:
+                            call_end = line_index
+                            break
+                if call_started and depth == 0:
+                    break
+            end_lines[start_line] = max(
+                end_lines.get(start_line, start_line),
+                call_end,
+            )
+    return end_lines
 
 
 _PYTHON_MODULE_BINDING = "module"
@@ -1051,37 +1088,96 @@ def _unescaped_token_index(line: str, token: str, start: int) -> int:
     return -1
 
 
-def _mask_shell_heredoc_expansions(line: str) -> str:
-    """Expose executable substitutions while masking unquoted heredoc data."""
+@dataclass
+class _ShellExpansionFrame:
+    """Parser state for executable substitutions inside an unquoted heredoc."""
+
+    kind: str
+    depth: int = 1
+    quote: Optional[str] = None
+
+
+def _mask_shell_heredoc_expansions(
+    line: str,
+    frames: list[_ShellExpansionFrame],
+) -> str:
+    """Expose executable heredoc substitutions, preserving multiline state."""
     masked = [" "] * len(line)
-    cursor = 0
-    while cursor < len(line):
-        dollar = _unescaped_token_index(line, "$(", cursor)
-        backtick = _unescaped_token_index(line, "`", cursor)
-        starts = [index for index in (dollar, backtick) if index >= 0]
-        if not starts:
+    index = 0
+    while index < len(line):
+        if not frames:
+            if line[index] == "\\":
+                index += 2
+                continue
+            if line.startswith("$(", index):
+                masked[index : index + 2] = "$("
+                frames.append(_ShellExpansionFrame("paren"))
+                index += 2
+                continue
+            if line[index] == "`":
+                masked[index] = "`"
+                frames.append(_ShellExpansionFrame("backtick"))
+            index += 1
+            continue
+
+        frame = frames[-1]
+        char = line[index]
+        if frame.quote == "'":
+            if char == "'":
+                frame.quote = None
+            index += 1
+            continue
+        if frame.quote == '"':
+            if char == "\\":
+                index += 2
+                continue
+            if char == '"':
+                frame.quote = None
+                index += 1
+                continue
+            if line.startswith("$(", index):
+                masked[index : index + 2] = "$("
+                frames.append(_ShellExpansionFrame("paren"))
+                index += 2
+                continue
+            if char == "`":
+                masked[index] = char
+                frames.append(_ShellExpansionFrame("backtick"))
+            index += 1
+            continue
+
+        if char == "#":
             break
-        start = min(starts)
+        if char == "\\":
+            index += 2
+            continue
+        if char in ("'", '"'):
+            frame.quote = char
+            index += 1
+            continue
+        if line.startswith("$(", index):
+            masked[index : index + 2] = "$("
+            frames.append(_ShellExpansionFrame("paren"))
+            index += 2
+            continue
+        if char == "`":
+            masked[index] = char
+            if frame.kind == "backtick":
+                frames.pop()
+            else:
+                frames.append(_ShellExpansionFrame("backtick"))
+            index += 1
+            continue
 
-        if start == dollar:
-            code = _mask_noncode([line[start:]], ".sh")[0]
-            depth = 1
-            end = len(line)
-            for offset, char in enumerate(code[2:], start=2):
-                if char == "(":
-                    depth += 1
-                elif char == ")":
-                    depth -= 1
-                    if depth == 0:
-                        end = start + offset + 1
-                        break
-        else:
-            closing = _unescaped_token_index(line, "`", start + 1)
-            end = len(line) if closing < 0 else closing + 1
-
-        executable = _mask_noncode([line[start:end]], ".sh")[0]
-        masked[start:end] = executable
-        cursor = end
+        masked[index] = char
+        if frame.kind == "paren":
+            if char == "(":
+                frame.depth += 1
+            elif char == ")":
+                frame.depth -= 1
+                if frame.depth == 0:
+                    frames.pop()
+        index += 1
     return "".join(masked)
 
 
@@ -1093,6 +1189,7 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
     template_interpolation_depths: list[int] = []
     shell_interpolations: list[tuple[str, int]] = []
     shell_heredocs: list[tuple[str, bool, bool]] = []
+    shell_heredoc_expansions: list[_ShellExpansionFrame] = []
     hash_comments = path_suffix in (".py", ".sh")
     marker_pattern = (
         _HASH_NONCODE_MARKER if hash_comments else _SLASH_NONCODE_MARKER
@@ -1104,10 +1201,14 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
             candidate = line.lstrip("\t") if strip_tabs else line
             if candidate == delimiter:
                 shell_heredocs.pop(0)
+                shell_heredoc_expansions.clear()
                 masked_lines.append(" " * len(line))
             elif allow_expansions:
                 masked_lines.append(
-                    _mask_shell_heredoc_expansions(line)
+                    _mask_shell_heredoc_expansions(
+                        line,
+                        shell_heredoc_expansions,
+                    )
                 )
             else:
                 masked_lines.append(" " * len(line))
@@ -1123,7 +1224,8 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
                     break
                 masked[i : marker.end()] = " " * (marker.end() - i)
                 if marker.group() == "/*":
-                    block_comment_depth += 1
+                    if path_suffix == ".swift":
+                        block_comment_depth += 1
                 else:
                     block_comment_depth -= 1
                 i = marker.end()
@@ -1303,6 +1405,7 @@ def detect_sleep_then_assert(
     path_suffix: str,
     known_sleep_lines: Optional[set[int]] = None,
     known_sleep_positions: Optional[dict[int, set[int]]] = None,
+    known_sleep_end_lines: Optional[dict[int, int]] = None,
 ) -> bool:
     """Sleep on lines[idx] followed by an assertion within 3 non-blank lines."""
     line = masked_lines[idx]
@@ -1322,7 +1425,8 @@ def detect_sleep_then_assert(
         sleep_starts = known_sleep_positions.get(idx, set())
     elif path_suffix == ".sh":
         sleep_starts = {
-            match.start() for match in _SHELL_BARE_SLEEP.finditer(line)
+            match.start() + match.group().rfind("sleep")
+            for match in _SHELL_BARE_SLEEP.finditer(line)
         }
     else:
         sleep_starts = (
@@ -1340,11 +1444,20 @@ def detect_sleep_then_assert(
         for assertion_start in assertion_starts:
             if assertion_start > sleep_start:
                 return True
-            if ";" not in line[assertion_start:sleep_start]:
+            between = line[assertion_start:sleep_start]
+            if path_suffix == ".sh":
+                if not _SHELL_COMMAND_SEPARATOR.search(between):
+                    return True
+            elif ";" not in between:
                 return True
 
     seen = 0
-    for j in range(idx + 1, len(lines)):
+    search_after = (
+        known_sleep_end_lines.get(idx, idx)
+        if known_sleep_end_lines is not None
+        else idx
+    )
+    for j in range(search_after + 1, len(lines)):
         nxt = masked_lines[j]
         if not nxt.strip():
             continue
@@ -1398,6 +1511,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
         _mask_noncode(raw_lines, suffix) if has_sleep_candidate else code_lines
     )
     known_sleep_positions: Optional[dict[int, set[int]]] = None
+    known_sleep_end_lines: Optional[dict[int, int]] = None
     known_sleep_lines: Optional[set[int]] = None
     if suffix == ".py" and has_sleep_candidate:
         known_sleep_positions = {}
@@ -1411,6 +1525,11 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
     elif suffix in _JS_SUFFIXES and has_sleep_candidate:
         known_sleep_positions = _javascript_real_sleep_positions(masked_lines)
         known_sleep_lines = set(known_sleep_positions)
+    if known_sleep_positions is not None:
+        known_sleep_end_lines = _sleep_call_end_lines(
+            masked_lines,
+            known_sleep_positions,
+        )
     if known_sleep_lines is not None:
         has_sleep_candidate = bool(known_sleep_lines)
     findings: list[Finding] = []
@@ -1443,6 +1562,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
                 suffix,
                 known_sleep_lines,
                 known_sleep_positions,
+                known_sleep_end_lines,
             )
         ):
             findings.append(Finding(rel_posix, line_no, RULE_SLEEP_THEN_ASSERT, snippet))
