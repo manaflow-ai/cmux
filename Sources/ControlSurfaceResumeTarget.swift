@@ -279,9 +279,9 @@ extension TerminalController {
         content.apply(to: alert, presentingWindow: nil)
 
         switch alert.runModal() {
-        case .alertFirstButtonReturn: .auto
-        case .alertSecondButtonReturn: .prompt
-        default: .manual
+        case .alertFirstButtonReturn: SurfaceResumeApprovalPolicy.auto
+        case .alertSecondButtonReturn: SurfaceResumeApprovalPolicy.prompt
+        default: SurfaceResumeApprovalPolicy.manual
         }
     }
 
