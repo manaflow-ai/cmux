@@ -365,6 +365,44 @@ import CmuxSettings
         #expect(model.bareKeyRejections.contains(action.rawValue))
     }
 
+    @Test func chordModeToggleEnablesRecorderForChordCapableAction() {
+        // WHY: the Settings row needs an explicit way to switch its recorder
+        // from one stroke to a two-stroke chord. The post-refactor model kept
+        // chord assignment but lost the user-triggered insertion path.
+        let (store, catalog, errorLog) = makeStore()
+        let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
+        let chordAction = ShortcutAction.resizeSplitRight
+        let singleStrokeOnlyAction = ShortcutAction.fileExplorerOpenSelection
+
+        #expect(!model.chordsEnabled(for: chordAction))
+        model.toggleChordMode(for: chordAction)
+        #expect(model.chordsEnabled(for: chordAction))
+        model.toggleChordMode(for: chordAction)
+        #expect(!model.chordsEnabled(for: chordAction))
+
+        model.toggleChordMode(for: singleStrokeOnlyAction)
+        #expect(!model.chordsEnabled(for: singleStrokeOnlyAction))
+    }
+
+    @Test func existingChordKeepsRecorderInChordMode() async throws {
+        // WHY: reopening Settings for an existing chord must keep the recorder
+        // in chord mode so replacing it records both strokes instead of silently
+        // downgrading the binding to a single stroke.
+        let (store, catalog, errorLog) = makeStore()
+        let action = ShortcutAction.resizeSplitRight
+        let chord = StoredShortcut(
+            first: ShortcutStroke(key: "b", control: true),
+            second: ShortcutStroke(key: "→", option: true)
+        )
+        try await store.set([action.rawValue: chord], for: catalog.shortcuts.bindings)
+
+        let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
+        model.startObserving()
+        await spin(until: { model.bindings[action.rawValue] == chord })
+
+        #expect(model.chordsEnabled(for: action))
+    }
+
     @Test func assignChordWritesValidTwoStrokeChord() async throws {
         // WHY: assignChord is the recorder's onChord path for chord-capable
         // actions (wired from ShortcutListRowView). Only its rejection branches
