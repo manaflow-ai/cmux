@@ -1023,6 +1023,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D1F0A00800000000000000C1 /* MacPairedMacBackupRecordWire.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00800000000000000C2 /* MacPairedMacBackupRecordWire.swift */; };
 		D1F0A00500000000000000E1 /* MacPresenceDecisionCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00500000000000000E2 /* MacPresenceDecisionCache.swift */; };
 		D1F0A00200000000000000B1 /* MacPresenceMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00200000000000000B2 /* MacPresenceMonitor.swift */; };
+		D8561A010000000000000001 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8561A020000000000000002 /* main.swift */; };
 		2F0C05000000000000000002 /* MainWindowFocusController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C05000000000000000001 /* MainWindowFocusController.swift */; };
 		6512F0C06512F0C06512F002 /* MainWindowFocusRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6512F0C06512F0C06512F001 /* MainWindowFocusRestoreTests.swift */; };
 		B37A00000000000000000005 /* MainWindowFocusTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A00000000000000000006 /* MainWindowFocusTypes.swift */; };
@@ -2196,6 +2197,13 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 			remoteGlobalIDString = D1320AA0D1320AA0D1320AA8;
 			remoteInfo = CmuxDockTilePlugin;
 		};
+		D8561A050000000000000005 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A5001070 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D8561A070000000000000007;
+			remoteInfo = ShortcutProbe;
+		};
 		F1000008A1B2C3D4E5F60718 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = A5001070 /* Project object */;
@@ -3195,6 +3203,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D1F0A00800000000000000C2 /* MacPairedMacBackupRecordWire.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacPairedMacBackupRecordWire.swift; sourceTree = "<group>"; };
 		D1F0A00500000000000000E2 /* MacPresenceDecisionCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPresenceDecisionCache.swift; sourceTree = "<group>"; };
 		D1F0A00200000000000000B2 /* MacPresenceMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPresenceMonitor.swift; sourceTree = "<group>"; };
+		D8561A020000000000000002 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		2F0C05000000000000000001 /* MainWindowFocusController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowFocusController.swift; sourceTree = "<group>"; };
 		6512F0C06512F0C06512F001 /* MainWindowFocusRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowFocusRestoreTests.swift; sourceTree = "<group>"; };
 		B37A00000000000000000006 /* MainWindowFocusTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowFocusTypes.swift; sourceTree = "<group>"; };
@@ -3698,6 +3707,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		6042B0016042B0016042B001 /* ShortcutHintModifierPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutHintModifierPolicyTests.swift; sourceTree = "<group>"; };
 		A080D1F6CCCBFBED8D95DD1D /* ShortcutHintPill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutHintPill.swift; sourceTree = "<group>"; };
 		6042D0046042D0046042D004 /* ShortcutHintTitlebarPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutHintTitlebarPolicy.swift; sourceTree = "<group>"; };
+		D8561A030000000000000003 /* ShortcutProbe.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ShortcutProbe.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D35B00000000000000000010 /* ShortcutRecorderRejectedAttempt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutRecorderRejectedAttempt.swift; sourceTree = "<group>"; };
 		B42A82C6AA614E74873D9A5F /* ShortcutRoutingSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ShortcutRoutingSupport.swift; sourceTree = "<group>"; };
 		F6001001A1B2C3D4E5F60718 /* ShortcutUnbindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutUnbindingTests.swift; sourceTree = "<group>"; };
@@ -4391,6 +4401,13 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D8561A060000000000000006 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		B900000CA1B2C3D4E5F60719 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -4649,6 +4666,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001016 /* GhosttyKit.xcframework */,
 				A5001017 /* ghostty.h */,
 				A5001018 /* cmux-Bridging-Header.h */,
+				D8561A040000000000000004 /* ShortcutProbe */,
 				3196C9C2D01F054C1D3385DD /* cmuxUITests */,
 				F1000003A1B2C3D4E5F60718 /* cmuxTests */,
 				A5001042 /* Products */,
@@ -5950,10 +5968,20 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001000 /* cmux.app */,
 				B9000004A1B2C3D4E5F60719 /* cmux */,
 				D1320AA0D1320AA0D1320AA5 /* CmuxDockTilePlugin.plugin */,
+				D8561A030000000000000003 /* ShortcutProbe.app */,
 				7E7E6EF344A568AC7FEE3715 /* cmuxUITests.xctest */,
 				F1000002A1B2C3D4E5F60718 /* cmuxTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		D8561A040000000000000004 /* ShortcutProbe */ = {
+			isa = PBXGroup;
+			children = (
+				D8561A020000000000000002 /* main.swift */,
+			);
+			name = ShortcutProbe;
+			path = cmuxUITestSupport/ShortcutProbe;
 			sourceTree = "<group>";
 		};
 		B9000003A1B2C3D4E5F60719 /* CLI */ = {
@@ -6748,11 +6776,29 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			);
 			dependencies = (
 				32568B0DCFC8656BA952468E /* PBXTargetDependency */,
+				D8561A0A000000000000000A /* PBXTargetDependency */,
 			);
 			name = cmuxUITests;
 			productName = cmuxUITests;
 			productReference = 7E7E6EF344A568AC7FEE3715 /* cmuxUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		D8561A070000000000000007 /* ShortcutProbe */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D8561A0D000000000000000D /* Build configuration list for PBXNativeTarget "ShortcutProbe" */;
+			buildPhases = (
+				D8561A090000000000000009 /* Sources */,
+				D8561A060000000000000006 /* Frameworks */,
+				D8561A080000000000000008 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ShortcutProbe;
+			productName = ShortcutProbe;
+			productReference = D8561A030000000000000003 /* ShortcutProbe.app */;
+			productType = "com.apple.product-type.application";
 		};
 		D1320AA0D1320AA0D1320AA8 /* CmuxDockTilePlugin */ = {
 			isa = PBXNativeTarget;
@@ -6903,6 +6949,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001050 /* cmux */,
 				D1320AA0D1320AA0D1320AA8 /* CmuxDockTilePlugin */,
 				B9000005A1B2C3D4E5F60719 /* cmux-cli */,
+				D8561A070000000000000007 /* ShortcutProbe */,
 				CB450DF0F0B3839599082C4D /* cmuxUITests */,
 				F1000004A1B2C3D4E5F60718 /* cmuxTests */,
 			);
@@ -6930,6 +6977,13 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		D1320AA0D1320AA0D1320AA9 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D8561A080000000000000008 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -8559,6 +8613,14 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D8561A090000000000000009 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D8561A010000000000000001 /* main.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		E436EF0BA8EC9E6721A42F79 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -9216,6 +9278,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			target = D1320AA0D1320AA0D1320AA8 /* CmuxDockTilePlugin */;
 			targetProxy = D1320AA0D1320AA0D1320AA3 /* PBXContainerItemProxy */;
 		};
+		D8561A0A000000000000000A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D8561A070000000000000007 /* ShortcutProbe */;
+			targetProxy = D8561A050000000000000005 /* PBXContainerItemProxy */;
+		};
 		F1000009A1B2C3D4E5F60718 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = A5001050 /* cmux */;
@@ -9224,6 +9291,37 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		D8561A0B000000000000000B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.tests.shortcut-probe;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		D8561A0C000000000000000C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.tests.shortcut-probe;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 		442A6A86CAC6E8AD27FDD8F2 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -9566,6 +9664,15 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			buildConfigurations = (
 				C117776A77E71D1432F570D7 /* Debug */,
 				442A6A86CAC6E8AD27FDD8F2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		D8561A0D000000000000000D /* Build configuration list for PBXNativeTarget "ShortcutProbe" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D8561A0B000000000000000B /* Debug */,
+				D8561A0C000000000000000C /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

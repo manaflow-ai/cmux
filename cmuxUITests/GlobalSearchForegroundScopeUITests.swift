@@ -7,7 +7,6 @@ final class GlobalSearchForegroundScopeUITests: XCTestCase {
     private var app: XCUIApplication!
     private var appProcess: Process?
     private var shortcutProbeProcess: Process?
-    private var shortcutProbeRootURL: URL?
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -42,10 +41,6 @@ final class GlobalSearchForegroundScopeUITests: XCTestCase {
         terminateProcess(&shortcutProbeProcess)
         app?.terminate()
         terminateProcess(&appProcess)
-        if let shortcutProbeRootURL {
-            try? FileManager.default.removeItem(at: shortcutProbeRootURL)
-        }
-        shortcutProbeRootURL = nil
         app = nil
     }
 
@@ -55,7 +50,7 @@ final class GlobalSearchForegroundScopeUITests: XCTestCase {
         let globalSearchField = app.textFields["GlobalSearchSearchField"].firstMatch
         XCTAssertFalse(globalSearchField.exists, "Global Search should start closed")
 
-        let probeExecutableURL = try buildShortcutProbe()
+        let probeExecutableURL = try builtShortcutProbeExecutableURL()
         let probeProcess = Process()
         probeProcess.executableURL = probeExecutableURL
         try probeProcess.run()
@@ -119,13 +114,7 @@ final class GlobalSearchForegroundScopeUITests: XCTestCase {
     }
 
     private func builtCmuxExecutablePath() throws -> String {
-        let testBundle = Bundle(for: Self.self)
-        let productsDirectory = testBundle.bundleURL
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let executablePath = productsDirectory
+        let executablePath = builtProductsDirectory()
             .appendingPathComponent("cmux DEV.app")
             .appendingPathComponent("Contents/MacOS/cmux DEV")
             .path
@@ -139,74 +128,26 @@ final class GlobalSearchForegroundScopeUITests: XCTestCase {
         return executablePath
     }
 
-    private func buildShortcutProbe() throws -> URL {
-        let rootURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-shortcut-probe-\(UUID().uuidString)", isDirectory: true)
-        let appURL = rootURL.appendingPathComponent("ShortcutProbe.app", isDirectory: true)
-        let contentsURL = appURL.appendingPathComponent("Contents", isDirectory: true)
-        let executableDirectoryURL = contentsURL.appendingPathComponent("MacOS", isDirectory: true)
-        let executableURL = executableDirectoryURL.appendingPathComponent("ShortcutProbe")
-        let sourceURL = rootURL.appendingPathComponent("main.swift")
-
-        try FileManager.default.createDirectory(at: executableDirectoryURL, withIntermediateDirectories: true)
-        try Self.shortcutProbeSource.write(to: sourceURL, atomically: true, encoding: .utf8)
-        shortcutProbeRootURL = rootURL
-
-        let developerDirectory = ProcessInfo.processInfo.environment["DEVELOPER_DIR"]
-            ?? "/Applications/Xcode.app/Contents/Developer"
-        let swiftCompilerURL = URL(fileURLWithPath: developerDirectory)
-            .appendingPathComponent("Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc")
-        let sdkURL = URL(fileURLWithPath: developerDirectory)
-            .appendingPathComponent("Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk")
-        guard FileManager.default.isExecutableFile(atPath: swiftCompilerURL.path) else {
+    private func builtShortcutProbeExecutableURL() throws -> URL {
+        let executableURL = builtProductsDirectory()
+            .appendingPathComponent("ShortcutProbe.app")
+            .appendingPathComponent("Contents/MacOS/ShortcutProbe")
+        guard FileManager.default.isExecutableFile(atPath: executableURL.path) else {
             throw NSError(
                 domain: "GlobalSearchForegroundScopeUITests",
                 code: 2,
-                userInfo: [NSLocalizedDescriptionKey: "Could not locate Swift compiler at \(swiftCompilerURL.path)"]
+                userInfo: [NSLocalizedDescriptionKey: "Could not locate shortcut probe at \(executableURL.path)"]
             )
         }
-
-        let compiler = Process()
-        compiler.executableURL = swiftCompilerURL
-        compiler.arguments = [
-            sourceURL.path,
-            "-o", executableURL.path,
-            "-framework", "AppKit",
-            "-sdk", sdkURL.path,
-            "-module-cache-path", rootURL.appendingPathComponent("ModuleCache").path,
-        ]
-        let diagnostics = Pipe()
-        compiler.standardError = diagnostics
-        try compiler.run()
-        compiler.waitUntilExit()
-        guard compiler.terminationStatus == 0 else {
-            let output = String(
-                data: diagnostics.fileHandleForReading.readDataToEndOfFile(),
-                encoding: .utf8
-            ) ?? "<no compiler diagnostics>"
-            throw NSError(
-                domain: "GlobalSearchForegroundScopeUITests",
-                code: Int(compiler.terminationStatus),
-                userInfo: [NSLocalizedDescriptionKey: "Failed to build shortcut probe: \(output)"]
-            )
-        }
-
-        let info: [String: Any] = [
-            "CFBundleExecutable": "ShortcutProbe",
-            "CFBundleIdentifier": Self.shortcutProbeBundleIdentifier,
-            "CFBundleName": "ShortcutProbe",
-            "CFBundlePackageType": "APPL",
-            "CFBundleShortVersionString": "1.0",
-            "CFBundleVersion": "1",
-            "LSMinimumSystemVersion": "14.0",
-        ]
-        let infoData = try PropertyListSerialization.data(
-            fromPropertyList: info,
-            format: .xml,
-            options: 0
-        )
-        try infoData.write(to: contentsURL.appendingPathComponent("Info.plist"), options: .atomic)
         return executableURL
+    }
+
+    private func builtProductsDirectory() -> URL {
+        Bundle(for: Self.self).bundleURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
     }
 
     private func terminateProcess(_ process: inout Process?) {
@@ -230,63 +171,4 @@ final class GlobalSearchForegroundScopeUITests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
     }
-
-    private static let shortcutProbeSource = """
-    import AppKit
-
-    final class ShortcutProbeDelegate: NSObject, NSApplicationDelegate {
-        private let statusLabel = NSTextField(labelWithString: "Waiting for Cmd-Option-F")
-        private let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 220),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-
-        func applicationDidFinishLaunching(_ notification: Notification) {
-            let contentView = NSView(frame: window.contentLayoutRect)
-            statusLabel.setAccessibilityIdentifier("ShortcutProbeStatus")
-            statusLabel.alignment = .center
-            statusLabel.font = .systemFont(ofSize: 24, weight: .medium)
-            statusLabel.frame = NSRect(x: 30, y: 80, width: 460, height: 40)
-            contentView.addSubview(statusLabel)
-            window.contentView = contentView
-            window.title = "Foreground Shortcut Probe"
-
-            let mainMenu = NSMenu()
-            let applicationMenuItem = NSMenuItem()
-            let applicationMenu = NSMenu()
-            let shortcutItem = NSMenuItem(
-                title: "Receive Cmd-Option-F",
-                action: #selector(receiveShortcut),
-                keyEquivalent: "f"
-            )
-            shortcutItem.keyEquivalentModifierMask = [.command, .option]
-            shortcutItem.target = self
-            applicationMenu.addItem(shortcutItem)
-            applicationMenuItem.submenu = applicationMenu
-            mainMenu.addItem(applicationMenuItem)
-            NSApp.mainMenu = mainMenu
-
-            window.center()
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-        }
-
-        @objc private func receiveShortcut() {
-            statusLabel.stringValue = "Received Cmd-Option-F"
-            statusLabel.setAccessibilityLabel("Received Cmd-Option-F")
-        }
-
-        func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-            true
-        }
-    }
-
-    let application = NSApplication.shared
-    let delegate = ShortcutProbeDelegate()
-    application.delegate = delegate
-    application.setActivationPolicy(.regular)
-    application.run()
-    """
 }
