@@ -6,6 +6,14 @@ use crossterm::event::{
 use ghostty_vt::sys;
 use ghostty_vt::{KeyAction, KeyInput, Mods};
 
+/// Modifiers that keep generated text structured so overlays, browser
+/// surfaces, and cmux bindings can process the original shortcut.
+pub const SHORTCUT_MODIFIERS: KeyModifiers = KeyModifiers::CONTROL
+    .union(KeyModifiers::ALT)
+    .union(KeyModifiers::SUPER)
+    .union(KeyModifiers::HYPER)
+    .union(KeyModifiers::META);
+
 /// A host key event normalized once before cmux routes it through overlays,
 /// shortcuts, browser input, or a PTY.
 #[derive(Debug, Clone)]
@@ -57,8 +65,20 @@ impl KeyboardInput {
         key
     }
 
-    pub fn associated_text(&self) -> Option<&str> {
-        (!self.associated_text.is_empty()).then_some(self.associated_text.as_str())
+    /// Complete generated text that is safe to insert atomically. Shift is
+    /// already reflected in the text, and a consumed macOS Option modifier is
+    /// no longer an active Alt shortcut.
+    pub fn text_for_direct_input(&self) -> Option<&str> {
+        let mut modifiers = self.key_event.modifiers & SHORTCUT_MODIFIERS;
+        if self.consumed_alt {
+            modifiers.remove(KeyModifiers::ALT);
+        }
+        (modifiers.is_empty() && !self.associated_text.is_empty())
+            .then_some(self.associated_text.as_str())
+    }
+
+    pub fn base_layout_key(&self) -> Option<char> {
+        self.base_layout_key
     }
 
     pub fn associated_text_bytes(&self) -> usize {

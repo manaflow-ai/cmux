@@ -67,11 +67,11 @@ pub enum BrowserInputKind {
     },
     Key {
         event_type: &'static str,
-        key: &'static str,
-        code: &'static str,
+        key: String,
+        code: String,
         windows_virtual_key_code: u32,
         modifiers: u32,
-        text: Option<&'static str>,
+        text: Option<String>,
     },
     InsertText(String),
     Resize {
@@ -471,7 +471,14 @@ fn dispatch(event: &BrowserInputEvent) -> anyhow::Result<bool> {
             modifiers,
             text,
         } => surface
-            .browser_key_event(event_type, key, code, *windows_virtual_key_code, *modifiers, *text)
+            .browser_key_event(
+                event_type,
+                key,
+                code,
+                *windows_virtual_key_code,
+                *modifiers,
+                text.as_deref(),
+            )
             .map(|()| true),
         BrowserInputKind::InsertText(text) => surface.browser_insert_text(text).map(|()| true),
         BrowserInputKind::Resize { cols, rows, reassert, .. } => {

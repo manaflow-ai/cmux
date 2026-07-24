@@ -6961,7 +6961,7 @@ impl App {
             return self.handle_pairing_key(key);
         }
         if self.prompt.is_some() {
-            if let Some(text) = input.associated_text() {
+            if let Some(text) = input.text_for_direct_input() {
                 return self.handle_prompt_text(text);
             }
             return self.handle_prompt_key(key);
@@ -6970,7 +6970,7 @@ impl App {
             return self.handle_menu_key(key);
         }
         if self.omnibar.is_some() {
-            if let Some(text) = input.associated_text() {
+            if let Some(text) = input.text_for_direct_input() {
                 return self.handle_omnibar_text(text);
             }
             return self.handle_omnibar_key(key);
@@ -6999,7 +6999,7 @@ impl App {
                 });
             } else {
                 if self.sidebar_view == SidebarView::Files
-                    && let Some(text) = input.associated_text()
+                    && let Some(text) = input.text_for_direct_input()
                     && self.sidebar_files.insert_filter_text(text)
                 {
                     return Ok(RenderAction::Draw);
@@ -7596,9 +7596,7 @@ impl App {
                 KeyCode::Backspace
                     | KeyCode::Delete
                     | KeyCode::Char(_)
-                        if !key.modifiers.intersects(
-                            KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER
-                        )
+                        if !key.modifiers.intersects(keys::SHORTCUT_MODIFIERS)
             );
         if replace_selection {
             state.input.clear();
@@ -8408,7 +8406,7 @@ impl App {
         input: &keys::KeyboardInput,
     ) {
         let key = input.ui_key();
-        if let Some(text) = input.associated_text() {
+        if let Some(text) = input.text_for_direct_input() {
             let _ = self.browser_input.enqueue(BrowserInputEvent {
                 surface_id,
                 surface,
@@ -8417,9 +8415,7 @@ impl App {
             return;
         }
         if let KeyCode::Char(c) = key.code
-            && !key
-                .modifiers
-                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER)
+            && !key.modifiers.intersects(keys::SHORTCUT_MODIFIERS)
         {
             let _ = self.browser_input.enqueue(BrowserInputEvent {
                 surface_id,
@@ -8428,27 +8424,36 @@ impl App {
             });
             return;
         }
-        let Some((key_name, code, vk, text)) = browser_key_mapping(key.code) else { return };
+        let Some((key_name, code, vk, text)) =
+            browser_key_mapping(key.code, input.base_layout_key())
+        else {
+            return;
+        };
         let modifiers = browser_modifiers(key.modifiers);
-        let key_event =
-            |event_type: &'static str, text: Option<&'static str>| BrowserInputKind::Key {
-                event_type,
-                key: key_name,
-                code,
-                windows_virtual_key_code: vk,
-                modifiers,
-                text,
-            };
         let _ = self.browser_input.enqueue(BrowserInputEvent {
             surface_id,
             surface: surface.clone(),
-            kind: key_event("keyDown", text),
+            kind: BrowserInputKind::Key {
+                event_type: "keyDown",
+                key: key_name.clone(),
+                code: code.clone(),
+                windows_virtual_key_code: vk,
+                modifiers,
+                text,
+            },
         });
         if key.kind == KeyEventKind::Press {
             let _ = self.browser_input.enqueue(BrowserInputEvent {
                 surface_id,
                 surface,
-                kind: key_event("keyUp", None),
+                kind: BrowserInputKind::Key {
+                    event_type: "keyUp",
+                    key: key_name,
+                    code,
+                    windows_virtual_key_code: vk,
+                    modifiers,
+                    text: None,
+                },
             });
         }
     }
@@ -10791,22 +10796,80 @@ fn rects_intersect(a: Rect, b: Rect) -> bool {
 
 fn browser_key_mapping(
     code: KeyCode,
-) -> Option<(&'static str, &'static str, u32, Option<&'static str>)> {
+    base_layout_key: Option<char>,
+) -> Option<(String, String, u32, Option<String>)> {
     match code {
-        KeyCode::Enter => Some(("Enter", "Enter", 13, Some("\r"))),
-        KeyCode::Backspace => Some(("Backspace", "Backspace", 8, None)),
-        KeyCode::Tab | KeyCode::BackTab => Some(("Tab", "Tab", 9, None)),
-        KeyCode::Esc => Some(("Escape", "Escape", 27, None)),
-        KeyCode::Left => Some(("ArrowLeft", "ArrowLeft", 37, None)),
-        KeyCode::Up => Some(("ArrowUp", "ArrowUp", 38, None)),
-        KeyCode::Right => Some(("ArrowRight", "ArrowRight", 39, None)),
-        KeyCode::Down => Some(("ArrowDown", "ArrowDown", 40, None)),
-        KeyCode::Home => Some(("Home", "Home", 36, None)),
-        KeyCode::End => Some(("End", "End", 35, None)),
-        KeyCode::PageUp => Some(("PageUp", "PageUp", 33, None)),
-        KeyCode::PageDown => Some(("PageDown", "PageDown", 34, None)),
-        KeyCode::Delete => Some(("Delete", "Delete", 46, None)),
+        KeyCode::Char(character) => {
+            let physical =
+                base_layout_key.unwrap_or_else(|| browser_unshifted_character(character));
+            let (code, vk) = browser_character_code(physical);
+            Some((character.to_string(), code, vk, None))
+        }
+        KeyCode::Enter => Some(("Enter".into(), "Enter".into(), 13, Some("\r".into()))),
+        KeyCode::Backspace => Some(("Backspace".into(), "Backspace".into(), 8, None)),
+        KeyCode::Tab | KeyCode::BackTab => Some(("Tab".into(), "Tab".into(), 9, None)),
+        KeyCode::Esc => Some(("Escape".into(), "Escape".into(), 27, None)),
+        KeyCode::Left => Some(("ArrowLeft".into(), "ArrowLeft".into(), 37, None)),
+        KeyCode::Up => Some(("ArrowUp".into(), "ArrowUp".into(), 38, None)),
+        KeyCode::Right => Some(("ArrowRight".into(), "ArrowRight".into(), 39, None)),
+        KeyCode::Down => Some(("ArrowDown".into(), "ArrowDown".into(), 40, None)),
+        KeyCode::Home => Some(("Home".into(), "Home".into(), 36, None)),
+        KeyCode::End => Some(("End".into(), "End".into(), 35, None)),
+        KeyCode::PageUp => Some(("PageUp".into(), "PageUp".into(), 33, None)),
+        KeyCode::PageDown => Some(("PageDown".into(), "PageDown".into(), 34, None)),
+        KeyCode::Delete => Some(("Delete".into(), "Delete".into(), 46, None)),
         _ => None,
+    }
+}
+
+fn browser_unshifted_character(character: char) -> char {
+    match character {
+        'A'..='Z' => character.to_ascii_lowercase(),
+        '!' => '1',
+        '@' => '2',
+        '#' => '3',
+        '$' => '4',
+        '%' => '5',
+        '^' => '6',
+        '&' => '7',
+        '*' => '8',
+        '(' => '9',
+        ')' => '0',
+        '_' => '-',
+        '+' => '=',
+        '{' => '[',
+        '}' => ']',
+        '|' => '\\',
+        ':' => ';',
+        '"' => '\'',
+        '<' => ',',
+        '>' => '.',
+        '?' => '/',
+        '~' => '`',
+        _ => character,
+    }
+}
+
+fn browser_character_code(character: char) -> (String, u32) {
+    match character {
+        'a'..='z' | 'A'..='Z' => {
+            let upper = character.to_ascii_uppercase();
+            (format!("Key{upper}"), upper as u32)
+        }
+        '0'..='9' => (format!("Digit{character}"), character as u32),
+        ' ' => ("Space".into(), 32),
+        ';' => ("Semicolon".into(), 186),
+        '=' => ("Equal".into(), 187),
+        ',' => ("Comma".into(), 188),
+        '-' => ("Minus".into(), 189),
+        '.' => ("Period".into(), 190),
+        '/' => ("Slash".into(), 191),
+        '`' => ("Backquote".into(), 192),
+        '[' => ("BracketLeft".into(), 219),
+        '\\' => ("Backslash".into(), 220),
+        ']' => ("BracketRight".into(), 221),
+        '\'' => ("Quote".into(), 222),
+        _ => (String::new(), 0),
     }
 }
 
@@ -10957,8 +11020,7 @@ mod tests {
                 text: "a".to_string(),
             })
         };
-        app.prompt =
-            Some(super::Prompt::new("Rename", "word".into(), PromptTarget::Workspace(1)));
+        app.prompt = Some(super::Prompt::new("Rename", "word".into(), PromptTarget::Workspace(1)));
 
         app.handle(AppEvent::Input(control_a())).unwrap();
 
@@ -11162,12 +11224,12 @@ mod tests {
             event.kind,
             BrowserInputKind::Key {
                 event_type: "keyDown",
-                key: "j",
-                code: "KeyJ",
+                ref key,
+                ref code,
                 windows_virtual_key_code: 74,
                 modifiers: 1,
                 text: None,
-            }
+            } if key == "j" && code == "KeyJ"
         ));
     }
 
