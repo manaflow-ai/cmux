@@ -1,5 +1,6 @@
 import Bonsplit
 import Combine
+import CmuxControlSocket
 import Foundation
 import Testing
 
@@ -182,7 +183,7 @@ struct DockRuntimeParityTests {
             let globalDock = appDelegate.windowDock(forWindowId: windowID)
             let workspaceTerminal = TerminalPanel(
                 workspaceId: workspace.id,
-                runtimeSpawnPolicy: .deferredUntilVisible
+                runtimeSpawnPolicy: .pacedSessionRestore
             )
             let globalPanel = DockRuntimeParityPanel(title: "Global Dock")
             let workspacePane = try workspaceDock.seedRuntimeParityPanel(workspaceTerminal)
