@@ -32,13 +32,23 @@ const {
 describe("TestFlight ASC service", () => {
   beforeEach(() => {
     ascFetch.mockClear();
-    mockImplementation(ascFetch, async () => ({}));
+    mockImplementation(ascFetch, async (path: unknown, init?: unknown) => {
+      if (path === "/v1/betaTesters" && (init as { method?: string })?.method === "POST") {
+        return {
+          data: {
+            type: "betaTesters",
+            id: "tester_new",
+          },
+        };
+      }
+      return {};
+    });
   });
 
-  test("enrolls a new email with a beta group relationship", async () => {
+  test("enrolls a new email in the Pro group and asks Apple to send the invitation", async () => {
     await enrollTester("New@Example.com", "New", "Tester");
 
-    expect(ascFetch).toHaveBeenCalledTimes(1);
+    expect(ascFetch).toHaveBeenCalledTimes(2);
     expect(ascFetch).toHaveBeenCalledWith(
       "/v1/betaTesters",
       expect.objectContaining({ method: "POST" }),
@@ -57,9 +67,25 @@ describe("TestFlight ASC service", () => {
             data: [
               {
                 type: "betaGroups",
-                id: "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
+                id: "34fbede5-3880-4560-b1bb-a45787249780",
               },
             ],
+          },
+        },
+      },
+    });
+
+    expect(ascFetch).toHaveBeenCalledWith(
+      "/v1/betaTesterInvitations",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(JSON.parse(String(callInit(1).body))).toEqual({
+      data: {
+        type: "betaTesterInvitations",
+        relationships: {
+          app: { data: { type: "apps", id: "6757092429" } },
+          betaTester: {
+            data: { type: "betaTesters", id: "tester_new" },
           },
         },
       },
@@ -80,13 +106,17 @@ describe("TestFlight ASC service", () => {
     await enrollTester("exists@example.com");
 
     expect(ascFetch).toHaveBeenCalledWith(
-      "/v1/betaGroups/3ee84bfa-10ad-4f23-a45c-f9a3b037373e/relationships/betaTesters",
+      "/v1/betaGroups/34fbede5-3880-4560-b1bb-a45787249780/relationships/betaTesters",
       expect.objectContaining({ method: "POST" }),
     );
     const body = JSON.parse(String(callInit(2).body));
     expect(body).toEqual({
       data: [{ type: "betaTesters", id: "tester_123" }],
     });
+    expect(ascFetch).toHaveBeenCalledWith(
+      "/v1/betaTesterInvitations",
+      expect.objectContaining({ method: "POST" }),
+    );
   });
 
   test("double-enroll is a no-op when the group relationship already exists", async () => {
@@ -101,6 +131,11 @@ describe("TestFlight ASC service", () => {
     });
 
     await expect(enrollTester("exists@example.com")).resolves.toBeUndefined();
+    expect(
+      (ascFetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.some(
+        ([path]) => path === "/v1/betaTesterInvitations",
+      ),
+    ).toBe(false);
   });
 
   test("removes a tester from the configured group", async () => {
@@ -114,7 +149,7 @@ describe("TestFlight ASC service", () => {
     await removeTester("Leave@Example.com");
 
     expect(ascFetch).toHaveBeenCalledWith(
-      "/v1/betaGroups/3ee84bfa-10ad-4f23-a45c-f9a3b037373e/relationships/betaTesters",
+      "/v1/betaGroups/34fbede5-3880-4560-b1bb-a45787249780/relationships/betaTesters",
       expect.objectContaining({ method: "DELETE" }),
     );
     const body = JSON.parse(String(callInit(1).body));
@@ -133,7 +168,7 @@ describe("TestFlight ASC service", () => {
           { type: "betaGroups", id: "other" },
           {
             type: "betaGroups",
-            id: "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
+            id: "34fbede5-3880-4560-b1bb-a45787249780",
           },
         ],
       };
@@ -142,6 +177,27 @@ describe("TestFlight ASC service", () => {
     await expect(testerGroupStatus("status@example.com")).resolves.toEqual({
       enrolled: true,
       state: "INVITED",
+    });
+  });
+
+  test("does not treat Founder’s Edition membership as Pro enrollment", async () => {
+    mockImplementation(ascFetch, async (path: unknown) => {
+      if (String(path).startsWith("/v1/betaTesters?")) {
+        return betaTesterList("tester_123", "ACCEPTED");
+      }
+      return {
+        data: [
+          {
+            type: "betaGroups",
+            id: "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
+          },
+        ],
+      };
+    });
+
+    await expect(testerGroupStatus("founder@example.com")).resolves.toEqual({
+      enrolled: false,
+      state: "ACCEPTED",
     });
   });
 

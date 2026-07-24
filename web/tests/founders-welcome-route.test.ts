@@ -10,14 +10,10 @@ import {
   test,
 } from "bun:test";
 
-// Route-level coverage for /api/stripe/founders-welcome. The webhook must send
-// the identical welcome email for EVERY completed checkout session — Founder's
-// Edition payment-link sessions (founders_edition=true), cmux Pro and Team
-// subscription checkouts, and anything else — skipping only non-checkout
-// events, invalid/stale signatures, and sessions without a customer email.
-// Pro coverage is a regression guard: before the webhook welcomed every
-// checkout, Pro sessions were skipped as not-founders and a real Pro
-// subscriber never received the welcome.
+// Route-level coverage for /api/stripe/founders-welcome. Founder's Edition
+// purchases retain their personal founder welcome, while cmux Pro purchases
+// are fulfilled by the separate billing webhook and must not receive this
+// message as well.
 
 // Pinned by tests/test-preload.ts before @/app/env loads.
 const WEBHOOK_SECRET = process.env.STRIPE_FOUNDERS_WEBHOOK_SECRET ?? "";
@@ -154,7 +150,7 @@ describe("founders welcome route", () => {
     expect(resendSend).toHaveBeenCalledTimes(1);
   });
 
-  test("sends the identical welcome for a cmux Pro checkout (no founders key)", async () => {
+  test("skips a cmux Pro checkout so it receives only the separate Pro welcome", async () => {
     const response = await POST(
       signedRequest(
         checkoutCompletedEvent({
@@ -165,19 +161,8 @@ describe("founders welcome route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true, sent: true });
-    expect(resendSend).toHaveBeenCalledTimes(1);
-
-    // Same builder, same idempotency/threading keyed by the session id — a
-    // Pro welcome is indistinguishable from a founders welcome apart from the
-    // per-session ref.
-    const { payload, options } = sentEmails[0];
-    expect(payload.subject).toBe("cmux Founder's Edition");
-    expect(payload.to).toEqual(["customer@example.com"]);
-    expect(payload.headers["X-Entity-Ref-ID"]).toBe(
-      "founders-welcome/cs_test_pro",
-    );
-    expect(options.idempotencyKey).toBe("founders-welcome/cs_test_pro");
+    expect(await response.json()).toEqual({ ok: true, skipped: "pro_plan" });
+    expect(resendSend).not.toHaveBeenCalled();
   });
 
   test("sends the identical welcome for a Team plan checkout", async () => {
