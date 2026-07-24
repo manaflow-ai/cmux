@@ -198,10 +198,14 @@ public struct WorkspaceChangesService: Sendable {
                     projectedSize: blobSize
                 )
             }
-            return try contentReader.stat(
-                repoRoot: authorizedFile.snapshot.scope.repoRoot,
-                relativePath: authorizedFile.relativePath
-            )
+            // The open+fstat blocks; keep it off the cooperative pool like
+            // the rest of the service's filesystem and git work.
+            return try await offCooperativePool { [contentReader] in
+                try contentReader.stat(
+                    repoRoot: authorizedFile.snapshot.scope.repoRoot,
+                    relativePath: authorizedFile.relativePath
+                )
+            }
         } catch ArtifactByteReader.Error.fileNotFound {
             throw WorkspaceChangesServiceError.fileNotFound
         } catch {
@@ -246,12 +250,17 @@ public struct WorkspaceChangesService: Sendable {
                     length: clampedLength
                 )
             }
-            return try contentReader.fetch(
-                repoRoot: authorizedFile.snapshot.scope.repoRoot,
-                relativePath: authorizedFile.relativePath,
-                offset: clampedOffset,
-                length: clampedLength
-            )
+            // The open/seek/read of up to a full chunk blocks; a repo on a
+            // network or external volume can hold a cooperative thread for
+            // seconds, so route it through the blocking-work queue.
+            return try await offCooperativePool { [contentReader] in
+                try contentReader.fetch(
+                    repoRoot: authorizedFile.snapshot.scope.repoRoot,
+                    relativePath: authorizedFile.relativePath,
+                    offset: clampedOffset,
+                    length: clampedLength
+                )
+            }
         } catch ArtifactByteReader.Error.fileNotFound {
             throw WorkspaceChangesServiceError.fileNotFound
         } catch let error as WorkspaceChangesServiceError {

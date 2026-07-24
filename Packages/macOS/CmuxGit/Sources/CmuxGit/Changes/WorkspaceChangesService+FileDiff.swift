@@ -96,9 +96,13 @@ extension WorkspaceChangesService {
                 if attempt == 0 { continue }
                 throw WorkspaceChangesServiceError.gitFailure
             }
-            let bounded = truncator.truncate(
-                String(decoding: result.output, as: UTF8.self)
-            )
+            // Decoding and hunk-splitting up to ~13 MiB of git output is CPU
+            // work worth keeping off the cooperative pool as well.
+            let bounded = try await offCooperativePool {
+                truncator.truncate(
+                    String(decoding: result.output, as: UTF8.self)
+                )
+            }
             return fileDiffValue(
                 file: file,
                 unifiedDiff: bounded.text,
