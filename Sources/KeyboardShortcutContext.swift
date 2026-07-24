@@ -9,6 +9,7 @@ struct ShortcutEventFocusContext {
     let filePreviewTextEditorFocused: Bool
     let simulatorFocused: Bool
     let simulatorPanel: SimulatorPanel?
+    let simulatorTextEditorFocused: Bool
     let rightSidebarFocused: Bool
     /// The full context snapshot a ``ShortcutWhenClause`` evaluates against.
     let shortcutContext: ShortcutContext
@@ -19,6 +20,7 @@ struct ShortcutEventFocusContext {
         filePreviewTextEditorFocused: Bool,
         simulatorFocused: Bool,
         simulatorPanel: SimulatorPanel? = nil,
+        simulatorTextEditorFocused: Bool = false,
         rightSidebarFocused: Bool,
         shortcutContext: ShortcutContext
     ) {
@@ -27,8 +29,13 @@ struct ShortcutEventFocusContext {
         self.filePreviewTextEditorFocused = filePreviewTextEditorFocused
         self.simulatorFocused = simulatorFocused
         self.simulatorPanel = simulatorPanel
+        self.simulatorTextEditorFocused = simulatorTextEditorFocused
         self.rightSidebarFocused = rightSidebarFocused
         self.shortcutContext = shortcutContext
+    }
+
+    var allowsSimulatorShortcutRouting: Bool {
+        simulatorFocused && !simulatorTextEditorFocused
     }
 
     /// Projects the runtime focus snapshot onto the atoms a
@@ -95,6 +102,8 @@ extension AppDelegate {
         let shortcutWindow = shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
         let simulatorPanel = shortcutFocusedSimulatorPanel(in: shortcutWindow)
         let simulatorFocused = simulatorPanel != nil
+        let simulatorTextEditorFocused = simulatorFocused
+            && shortcutWindow?.firstResponder.map(shortcutResponderAcceptsTextEditing) == true
         let browserPanel = simulatorFocused
             ? nil
             : shortcutEventFocusedBrowserPanel(event) ?? shortcutWebInspectorFocusedBrowserPanel(in: shortcutWindow)
@@ -119,6 +128,7 @@ extension AppDelegate {
             filePreviewTextEditorFocused: filePreviewTextEditorFocused,
             simulatorFocused: simulatorFocused,
             simulatorPanel: simulatorPanel,
+            simulatorTextEditorFocused: simulatorTextEditorFocused,
             rightSidebarFocused: rightSidebarFocused,
             shortcutContext: buildShortcutContext(focusState: focusState, window: shortcutWindow)
         )
@@ -345,7 +355,6 @@ extension AppDelegate {
 
     private func shortcutFocusedSimulatorPanel(in window: NSWindow?) -> SimulatorPanel? {
         guard let window, let responder = window.firstResponder else { return nil }
-        guard !shortcutResponderAcceptsTextEditing(responder) else { return nil }
         if let context = shortcutMainWindowContext(in: window),
            let dock = existingWindowDock(forWindowId: context.windowId) {
             if let panelId = dock.focusedPanelId,

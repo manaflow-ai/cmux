@@ -85,7 +85,7 @@ extension AppDelegate {
     func handleSimulatorShortcut(_ event: NSEvent) -> Bool {
         guard CmuxFeatureFlags.shared.isSimulatorEnabled else { return false }
         let focusContext = shortcutEventFocusContext(event)
-        guard focusContext.shortcutContext.bool(ShortcutContextKnownKey.simulatorFocus.rawValue),
+        guard focusContext.allowsSimulatorShortcutRouting,
               let panel = focusContext.simulatorPanel,
               let action = KeyboardShortcutSettings.Action.simulatorActions.first(where: {
                   matchConfiguredShortcut(event: event, action: $0)
