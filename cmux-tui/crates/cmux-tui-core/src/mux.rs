@@ -9662,6 +9662,57 @@ mod tests {
     }
 
     #[test]
+    fn surface_session_subscription_tracks_real_tab_moves() {
+        let mux = test_mux();
+        let source_workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let target = mux
+            .create_browser_surface_in_workspace(
+                source_workspace.workspace,
+                "about:blank#target".into(),
+                Some((80, 24)),
+            )
+            .unwrap();
+        let destination_workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let destination = mux
+            .create_browser_surface_in_workspace(
+                destination_workspace.workspace,
+                "about:blank#destination".into(),
+                Some((80, 24)),
+            )
+            .unwrap();
+        let (source_screen, destination_screen, destination_pane) = mux.with_state(|state| {
+            let source_pane = state.pane_of(target.id).unwrap();
+            let destination_pane = state.pane_of(destination.id).unwrap();
+            let (source_workspace_index, source_screen_index) =
+                state.screen_of(source_pane).unwrap();
+            let (destination_workspace_index, destination_screen_index) =
+                state.screen_of(destination_pane).unwrap();
+            (
+                state.workspaces[source_workspace_index].screens[source_screen_index].id,
+                state.workspaces[destination_workspace_index].screens[destination_screen_index].id,
+                destination_pane,
+            )
+        });
+        let events = mux.subscribe_surface_session(target.id).unwrap();
+
+        assert!(mux.move_tab(target.id, destination_pane, 0));
+        mux.emit(MuxEvent::LayoutChanged(source_screen));
+        mux.emit(MuxEvent::LayoutChanged(destination_screen));
+
+        let received = events.try_iter().collect::<Vec<_>>();
+        assert!(received.iter().any(|event| matches!(event, MuxEvent::TreeChanged)));
+        let layouts = received
+            .iter()
+            .filter_map(|event| match event {
+                MuxEvent::LayoutChanged(screen) => Some(*screen),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(layouts, vec![destination_screen]);
+        mux.shutdown();
+    }
+
+    #[test]
     fn move_tab_does_not_emit_layout_for_a_removed_source_screen() {
         let mux = test_mux();
         let source = mux.new_workspace(None, None).unwrap();
