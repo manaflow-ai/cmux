@@ -4,6 +4,7 @@ import WebKit
 
 enum BrowserScreenshotCaptureBounds {
     static let maximumFullPagePixels: CGFloat = 100_000_000
+    static let maximumSelectionPixels: CGFloat = 4_194_304
 
     static func validateFullPageSize(_ size: NSSize) throws {
         guard size.width.isFinite,
@@ -17,6 +18,27 @@ enum BrowserScreenshotCaptureBounds {
         guard pixelCount <= maximumFullPagePixels else {
             throw BrowserScreenshotError.captureAreaTooLarge
         }
+    }
+
+    static func boundedSnapshotWidth(for rect: NSRect) throws -> CGFloat {
+        guard rect.minX.isFinite,
+              rect.minY.isFinite,
+              rect.maxX.isFinite,
+              rect.maxY.isFinite,
+              rect.width.isFinite,
+              rect.height.isFinite,
+              rect.width > 0,
+              rect.height > 0 else {
+            throw BrowserScreenshotError.invalidSelection
+        }
+        let areaBoundedWidth = sqrt(
+            maximumSelectionPixels * rect.width / rect.height
+        )
+        let width = floor(min(rect.width, areaBoundedWidth))
+        guard width >= 1 else {
+            throw BrowserScreenshotError.captureAreaTooLarge
+        }
+        return width
     }
 }
 
@@ -72,6 +94,80 @@ enum BrowserScreenshotWebViewSnapshotter {
             afterScreenUpdates: afterScreenUpdates,
             renderer: renderer
         )
+    }
+
+    static func captureDocumentRect(
+        _ rect: NSRect,
+        from webView: WKWebView,
+        afterScreenUpdates: Bool = true
+    ) async throws -> NSImage {
+        try Task.checkCancellation()
+        let metrics = try await webContentMetrics(for: webView)
+        let bounds = webView.bounds
+        let scaleX = bounds.width / metrics.viewportSize.width
+        let scaleY = bounds.height / metrics.viewportSize.height
+        guard scaleX.isFinite,
+              scaleY.isFinite,
+              scaleX > 0,
+              scaleY > 0 else {
+            throw BrowserScreenshotError.webContentMetricsUnavailable
+        }
+        let documentRect = NSRect(
+            x: (rect.minX - bounds.minX) / scaleX,
+            y: (rect.minY - bounds.minY) / scaleY,
+            width: rect.width / scaleX,
+            height: rect.height / scaleY
+        )
+        _ = try BrowserScreenshotCaptureBounds.boundedSnapshotWidth(for: rect)
+        let maximumScrollX = max(0, metrics.contentSize.width - metrics.viewportSize.width)
+        let maximumScrollY = max(0, metrics.contentSize.height - metrics.viewportSize.height)
+        let targetScroll = CGPoint(
+            x: min(max(0, documentRect.midX - metrics.viewportSize.width / 2), maximumScrollX),
+            y: min(max(0, documentRect.midY - metrics.viewportSize.height / 2), maximumScrollY)
+        )
+
+        let result: Result<NSImage, any Error>
+        do {
+            let actualScroll = try await scrollImmediately(webView, to: targetScroll)
+            try Task.checkCancellation()
+            let snapshotRect = NSRect(
+                x: bounds.minX + (documentRect.minX - actualScroll.x) * scaleX,
+                y: bounds.maxY - (documentRect.maxY - actualScroll.y) * scaleY,
+                width: documentRect.width * scaleX,
+                height: documentRect.height * scaleY
+            )
+            _ = try BrowserScreenshotCaptureBounds.boundedSnapshotWidth(for: snapshotRect)
+            let containmentTolerance: CGFloat = 0.5
+            guard snapshotRect.minX >= bounds.minX - containmentTolerance,
+                  snapshotRect.minY >= bounds.minY - containmentTolerance,
+                  snapshotRect.maxX <= bounds.maxX + containmentTolerance,
+                  snapshotRect.maxY <= bounds.maxY + containmentTolerance else {
+                throw BrowserScreenshotError.captureAreaTooLarge
+            }
+            let visibleImage = try await captureVisibleViewport(
+                from: webView,
+                afterScreenUpdates: afterScreenUpdates,
+                renderer: viewportSnapshotRenderer(for: webView)
+            )
+            let image = try BrowserScreenshotCrop.croppedImage(
+                from: visibleImage,
+                selectionInView: snapshotRect,
+                viewBounds: bounds
+            )
+            result = .success(image)
+        } catch {
+            result = .failure(error)
+        }
+
+        // Restore independently of the caller's cancellation state. Design-mode
+        // fallback capture must never move the page the user was inspecting.
+        let restoration = Task { @MainActor [weak webView] in
+            guard let webView else { return }
+            _ = try? await scrollImmediately(webView, to: metrics.scrollOffset)
+        }
+        await restoration.value
+        try Task.checkCancellation()
+        return try result.get()
     }
 
     static func captureVisibleViewport(
@@ -170,7 +266,7 @@ enum BrowserScreenshotWebViewSnapshotter {
         // must not leave the user's page scrolled to an intermediate tile.
         let restoration = Task { @MainActor [weak webView] in
             guard let webView else { return }
-            try? await scroll(webView, to: metrics.scrollOffset)
+            _ = try? await scroll(webView, to: metrics.scrollOffset)
         }
         await restoration.value
         onProgress()
@@ -506,8 +602,9 @@ enum BrowserScreenshotWebViewSnapshotter {
         return metrics
     }
 
-    private static func scroll(_ webView: WKWebView, to point: NSPoint) async throws {
-        _ = try await webView.callAsyncJavaScript(
+    @discardableResult
+    private static func scroll(_ webView: WKWebView, to point: NSPoint) async throws -> CGPoint {
+        let value = try await webView.callAsyncJavaScript(
             """
             window.scrollTo(x, y);
             await new Promise((resolve) => {
@@ -522,6 +619,44 @@ enum BrowserScreenshotWebViewSnapshotter {
             in: nil,
             contentWorld: .page
         )
+        guard let result = value as? [String: Any] else {
+            throw BrowserScreenshotError.webContentMetricsUnavailable
+        }
+        let x = numberValue(result["x"])
+        let y = numberValue(result["y"])
+        guard x.isFinite, y.isFinite else {
+            throw BrowserScreenshotError.webContentMetricsUnavailable
+        }
+        return CGPoint(x: x, y: y)
+    }
+
+    @discardableResult
+    private static func scrollImmediately(
+        _ webView: WKWebView,
+        to point: NSPoint
+    ) async throws -> CGPoint {
+        let value = try await webView.callAsyncJavaScript(
+            """
+            window.scrollTo(x, y);
+            document.documentElement?.getBoundingClientRect();
+            return { x: window.scrollX || 0, y: window.scrollY || 0 };
+            """,
+            arguments: [
+                "x": Double(point.x),
+                "y": Double(point.y),
+            ],
+            in: nil,
+            contentWorld: .page
+        )
+        guard let result = value as? [String: Any] else {
+            throw BrowserScreenshotError.webContentMetricsUnavailable
+        }
+        let x = numberValue(result["x"])
+        let y = numberValue(result["y"])
+        guard x.isFinite, y.isFinite else {
+            throw BrowserScreenshotError.webContentMetricsUnavailable
+        }
+        return CGPoint(x: x, y: y)
     }
 
     private static func takeSnapshot(

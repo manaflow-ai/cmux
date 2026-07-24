@@ -1,6 +1,18 @@
 import Foundation
 
 extension BrowserDesignModeController {
+    /// Synchronously relinquishes panel ownership, then removes the lease
+    /// markers asynchronously so panel teardown never waits on filesystem I/O.
+    func releaseDeliveredHandoffForTeardown() {
+        guard let deliveredHandoffLease else { return }
+        self.deliveredHandoffLease = nil
+        Task {
+            await deliveredHandoffLease.artifactStore.releaseHandoff(
+                deliveredHandoffLease.id
+            )
+        }
+    }
+
     func deliverHandoff(
         prompt: String,
         artifactPaths: [String],

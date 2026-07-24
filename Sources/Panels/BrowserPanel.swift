@@ -5445,6 +5445,7 @@ final class BrowserPanel: Panel, ObservableObject {
         for popup in popupsToClose { popup.closeAllChildPopups(); popup.closePopup() }
         webAuthnCoordinator.tearDown(from: webView); webView.stopLoading()
         designModeController.webViewWillBeRemoved(webView)
+        designModeController.releaseDeliveredHandoffForTeardown()
         isMainFrameProvisionalNavigationActive = false
         webView.navigationDelegate = nil
         webView.uiDelegate = nil

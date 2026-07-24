@@ -127,7 +127,13 @@ struct BrowserDesignModeOffscreenSelectionHandoffTests {
             return try #require(NSImage(contentsOfFile: path))
         }
         #expect(selectionScreenshots.map(averageColor(of:)) == [.systemRed, .systemBlue])
-        #expect(NSImage(contentsOf: pageScreenshotURL)?.size.height == fullPageImage.size.height)
+        let pageScreenshot = try #require(
+            NSBitmapImageRep(data: Data(contentsOf: pageScreenshotURL))
+        )
+        #expect(pageScreenshot.pixelsWide * pageScreenshot.pixelsHigh <= 4_194_304)
+        let encodedAspectRatio = Double(pageScreenshot.pixelsWide) / Double(pageScreenshot.pixelsHigh)
+        let sourceAspectRatio = fullPageImage.size.width / fullPageImage.size.height
+        #expect(abs(encodedAspectRatio - sourceAspectRatio) < 0.01)
         #expect(visibleCaptureCount == 2)
         #expect(fullPageCaptureCount == 1)
         _ = navigationDelegate
@@ -150,7 +156,7 @@ struct BrowserDesignModeOffscreenSelectionHandoffTests {
             artifactStore: BrowserDesignModeArtifactStore(directory: directory),
             javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator(),
             screenshotEvaluator: BrowserDesignModeScreenshotEvaluator(
-                timeout: 1,
+                timeout: 5,
                 visibleViewportCapture: { _, completion in
                     completion(.success(visibleImage))
                 },
@@ -223,12 +229,78 @@ struct BrowserDesignModeOffscreenSelectionHandoffTests {
         )
         let selections = try #require(payload["selections"] as? [[String: Any]])
         #expect(selections.count == 2)
-        #expect(selections.allSatisfy {
-            guard let path = $0["screenshot_path"] as? String else { return false }
-            return FileManager.default.fileExists(atPath: path)
-        })
+        let selectionScreenshots = try selections.map { selection in
+            let path = try #require(selection["screenshot_path"] as? String)
+            return try #require(NSImage(contentsOfFile: path))
+        }
+        #expect(selectionScreenshots.map(averageColor(of:)) == [.systemRed, .systemBlue])
         #expect(payload["page_screenshot_path"] == nil)
         #expect(!prompt.contains("Full-page screenshot:"))
+        _ = navigationDelegate
+    }
+
+    @Test func fullPageCancellationDoesNotInvokeSelectionFallback() async throws {
+        let visibleImage = solidImage(size: NSSize(width: 640, height: 480))
+        let directory = URL.temporaryDirectory.appendingPathComponent(
+            "cmux-design-mode-cancelled-full-page-test-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        var documentRectCaptureCount = 0
+        var copiedPrompt: String?
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        let controller = BrowserDesignModeController(
+            surfaceID: UUID(),
+            script: BrowserDesignModeScript(),
+            promptFormatter: BrowserDesignModePromptFormatter(),
+            artifactStore: BrowserDesignModeArtifactStore(directory: directory),
+            javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator(),
+            screenshotEvaluator: BrowserDesignModeScreenshotEvaluator(
+                timeout: 1,
+                visibleViewportCapture: { _, completion in
+                    completion(.success(visibleImage))
+                },
+                fullPageCapture: { _ in
+                    throw CancellationError()
+                },
+                documentRectCapture: { _, _ in
+                    documentRectCaptureCount += 1
+                    return visibleImage
+                }
+            ),
+            canEnable: { true },
+            clipboardWriter: { prompt in
+                copiedPrompt = prompt
+                return true
+            },
+            onActivityChanged: {}
+        )
+        controller.install(on: webView)
+
+        let (loaded, loadedContinuation) = AsyncStream<Void>.makeStream()
+        let navigationDelegate = BrowserDesignModeOffscreenNavigationDelegate {
+            loadedContinuation.yield()
+            loadedContinuation.finish()
+        }
+        webView.navigationDelegate = navigationDelegate
+        webView.loadHTMLString("<button id='target'>Target</button>", baseURL: nil)
+        var loadedIterator = loaded.makeAsyncIterator()
+        _ = await loadedIterator.next()
+
+        #expect(await controller.setEnabled(true, reason: "test"))
+        let evaluator = BrowserDesignModeJavaScriptEvaluator()
+        _ = try await evaluator.call(
+            "return globalThis.__cmuxDesignMode.select('#target');",
+            arguments: [:],
+            in: webView,
+            contentWorld: BrowserDesignModeController.contentWorld
+        )
+
+        await controller.copySelection()
+
+        #expect(documentRectCaptureCount == 0)
+        #expect(copiedPrompt == nil)
         _ = navigationDelegate
     }
 

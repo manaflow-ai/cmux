@@ -26,8 +26,6 @@ public struct BrowserDesignModePromptFormatter: Sendable {
         let selections = context.snapshot.selections
         guard !selections.isEmpty,
               !contextJSONPath.isEmpty,
-              let pageScreenshotPath = context.pageScreenshotPath,
-              !pageScreenshotPath.isEmpty,
               context.screenshotPaths.count == selections.count,
               context.screenshotPaths.allSatisfy({ path in
                   guard let path else { return false }
@@ -53,11 +51,14 @@ public struct BrowserDesignModePromptFormatter: Sendable {
                 localized: "browser.designMode.handoff.pageURL",
                 defaultValue: "Page URL: \(context.pageURL)"
             ),
-            String(
+        ]
+        if let pageScreenshotPath = context.pageScreenshotPath,
+           !pageScreenshotPath.isEmpty {
+            lines.append(String(
                 localized: "browser.designMode.handoff.pageScreenshot",
                 defaultValue: "Full-page screenshot: \(pageScreenshotPath)"
-            ),
-        ]
+            ))
+        }
 
         for (index, selection) in selections.enumerated() {
             let tagName = Self.quotedOneLine(selection.tagName)

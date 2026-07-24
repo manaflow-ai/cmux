@@ -261,12 +261,13 @@ struct BrowserDesignModeArtifactStoreTests {
                 retention: .liveContext
             ))
         }
-        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).count == 101)
+        let processDirectory = try #require(pinned.first?.deletingLastPathComponent())
+        #expect(try FileManager.default.contentsOfDirectory(atPath: processDirectory.path).count == 101)
 
         await store.release(pinned[0])
 
         #expect(!FileManager.default.fileExists(atPath: pinned[0].path))
-        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).count == 100)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: processDirectory.path).count == 100)
         for url in pinned.dropFirst() {
             await store.remove(url)
         }
@@ -352,7 +353,8 @@ struct BrowserDesignModeArtifactStoreTests {
         )
 
         #expect(contextURL.pathExtension == "json")
-        #expect(contextURL.deletingLastPathComponent() == directory)
+        #expect(contextURL.deletingLastPathComponent().deletingLastPathComponent() == directory)
+        #expect(contextURL.deletingLastPathComponent().lastPathComponent.hasPrefix("process-"))
         for value in 0...100 {
             _ = try await store.saveScreenshot(Data([UInt8(value)]), surfaceID: surfaceID)
         }
@@ -399,7 +401,8 @@ struct BrowserDesignModeArtifactStoreTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let oldStore = BrowserDesignModeArtifactStore(
             directory: directory,
-            liveContextSessionID: "old"
+            liveContextSessionID: "old",
+            processIdentifier: 2_147_483_646
         )
         let staleURL = try await oldStore.saveScreenshot(
             Data([0]),
@@ -428,7 +431,8 @@ struct BrowserDesignModeArtifactStoreTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let oldStore = BrowserDesignModeArtifactStore(
             directory: directory,
-            liveContextSessionID: "old"
+            liveContextSessionID: "old",
+            processIdentifier: 2_147_483_646
         )
         let staleURL = try await oldStore.saveContextJSON(
             Data("{}".utf8),
@@ -453,7 +457,17 @@ struct BrowserDesignModeArtifactStoreTests {
     }
 
     private func handoffMarkerNames(in directory: URL) throws -> [String] {
-        try FileManager.default.contentsOfDirectory(atPath: directory.path)
-            .filter { $0.hasPrefix(".handoff-") }
+        try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isDirectoryKey]
+        ).flatMap { child -> [String] in
+            guard (try child.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else {
+                return child.lastPathComponent.hasPrefix(".handoff-")
+                    ? [child.lastPathComponent]
+                    : []
+            }
+            return try FileManager.default.contentsOfDirectory(atPath: child.path)
+                .filter { $0.hasPrefix(".handoff-") }
+        }
     }
 }

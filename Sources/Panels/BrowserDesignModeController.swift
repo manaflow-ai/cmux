@@ -58,6 +58,7 @@ final class BrowserDesignModeController {
     )?
     @ObservationIgnored private let javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator
     @ObservationIgnored let screenshotEvaluator: BrowserDesignModeScreenshotEvaluator
+    @ObservationIgnored let screenshotWriter: BrowserScreenshotPasteboardWriter
     @ObservationIgnored private let canEnable: @MainActor @Sendable () -> Bool
     @ObservationIgnored let clipboardWriter: ClipboardWriter
     @ObservationIgnored private let onActivityChanged: @MainActor @Sendable () -> Void
@@ -98,6 +99,7 @@ final class BrowserDesignModeController {
         artifactStore: BrowserDesignModeArtifactStore,
         javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator,
         screenshotEvaluator: BrowserDesignModeScreenshotEvaluator,
+        screenshotWriter: BrowserScreenshotPasteboardWriter = .init(),
         canEnable: @escaping @MainActor @Sendable () -> Bool,
         clipboardWriter: @escaping ClipboardWriter,
         onActivityChanged: @escaping @MainActor @Sendable () -> Void
@@ -108,6 +110,7 @@ final class BrowserDesignModeController {
         self.artifactStore = artifactStore
         self.javaScriptEvaluator = javaScriptEvaluator
         self.screenshotEvaluator = screenshotEvaluator
+        self.screenshotWriter = screenshotWriter
         self.canEnable = canEnable
         self.clipboardWriter = clipboardWriter
         self.onActivityChanged = onActivityChanged
@@ -506,12 +509,19 @@ final class BrowserDesignModeController {
                     screenshotPaths.append(annotationPath)
                     continue
                 }
-                let crop = try BrowserScreenshotCrop.croppedImage(
-                    from: capture.image,
-                    selectionInView: selection.fullPageCaptureRect(imageSize: capture.image.size),
-                    viewBounds: NSRect(origin: .zero, size: capture.image.size)
-                )
-                let pngData = try BrowserScreenshotPasteboardWriter.pngData(for: crop)
+                let selectionImage: NSImage
+                if let fallbackImage = capture.selectionImages[selection.selector] {
+                    selectionImage = fallbackImage
+                } else if let pageImage = capture.pageImage {
+                    selectionImage = try BrowserScreenshotCrop.croppedImage(
+                        from: pageImage,
+                        selectionInView: selection.fullPageCaptureRect(imageSize: pageImage.size),
+                        viewBounds: NSRect(origin: .zero, size: pageImage.size)
+                    )
+                } else {
+                    throw BrowserScreenshotError.invalidSelection
+                }
+                let pngData = try await screenshotWriter.pngData(for: selectionImage)
                 screenshotPaths.append(try await artifactStore.saveScreenshot(
                     pngData,
                     surfaceID: surfaceID,
@@ -522,12 +532,17 @@ final class BrowserDesignModeController {
                 await artifactStore.releaseHandoff(lease)
                 return
             }
-            let pagePNG = try BrowserScreenshotPasteboardWriter.pngData(for: capture.image)
-            let pageScreenshotPath = try await artifactStore.saveScreenshot(
-                pagePNG,
-                surfaceID: surfaceID,
-                handoffLease: lease
-            ).path
+            let pageScreenshotPath: String?
+            if let pageImage = capture.pageImage {
+                let pagePNG = try await screenshotWriter.pngData(for: pageImage)
+                pageScreenshotPath = try await artifactStore.saveScreenshot(
+                    pagePNG,
+                    surfaceID: surfaceID,
+                    handoffLease: lease
+                ).path
+            } else {
+                pageScreenshotPath = nil
+            }
             guard operation == operationRevision else {
                 await artifactStore.releaseHandoff(lease)
                 return
@@ -550,7 +565,8 @@ final class BrowserDesignModeController {
                 await artifactStore.releaseHandoff(lease)
                 return
             }
-            let artifactPaths = screenshotPaths.compactMap { $0 } + [pageScreenshotPath, contextJSONPath]
+            let artifactPaths = screenshotPaths.compactMap { $0 }
+                + [pageScreenshotPath, contextJSONPath].compactMap { $0 }
             let prompt = promptFormatter.format(context, contextJSONPath: contextJSONPath)
             guard !prompt.isEmpty else { throw BrowserDesignModeError.invalidRuntimeResponse }
             deliveryOwnsLease = true

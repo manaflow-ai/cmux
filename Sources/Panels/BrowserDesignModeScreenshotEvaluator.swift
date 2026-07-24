@@ -14,10 +14,12 @@ final class BrowserDesignModeScreenshotEvaluator {
         WKWebView,
         @escaping @MainActor () -> Void
     ) async throws -> NSImage
+    typealias DocumentRectCapture = @MainActor (WKWebView, NSRect) async throws -> NSImage
 
     private let timeout: TimeInterval
     private let visibleViewportCapture: Capture
     private let fullPageCapture: ProgressiveCapture
+    private let documentRectCapture: DocumentRectCapture
     private let fullPageUsesInactivityTimeout: Bool
     private var continuations: [UUID: CheckedContinuation<NSImage, any Error>] = [:]
     private var timeoutTasks: [UUID: Task<Void, Never>] = [:]
@@ -35,6 +37,12 @@ final class BrowserDesignModeScreenshotEvaluator {
             try await BrowserScreenshotWebViewSnapshotter.captureFullPage(
                 from: webView,
                 onProgress: onProgress
+            )
+        }
+        documentRectCapture = { webView, rect in
+            try await BrowserScreenshotWebViewSnapshotter.captureDocumentRect(
+                rect,
+                from: webView
             )
         }
         fullPageUsesInactivityTimeout = true
@@ -57,24 +65,38 @@ final class BrowserDesignModeScreenshotEvaluator {
     init(
         timeout: TimeInterval,
         visibleViewportCapture: @escaping Capture,
-        fullPageCapture: @escaping AsyncCapture
+        fullPageCapture: @escaping AsyncCapture,
+        documentRectCapture: @escaping DocumentRectCapture = { webView, rect in
+            try await BrowserScreenshotWebViewSnapshotter.captureDocumentRect(
+                rect,
+                from: webView
+            )
+        }
     ) {
         self.timeout = timeout
         self.visibleViewportCapture = visibleViewportCapture
         self.fullPageCapture = { webView, _ in
             try await fullPageCapture(webView)
         }
+        self.documentRectCapture = documentRectCapture
         fullPageUsesInactivityTimeout = false
     }
 
     init(
         timeout: TimeInterval,
         visibleViewportCapture: @escaping Capture,
-        fullPageCapture: @escaping ProgressiveCapture
+        fullPageCapture: @escaping ProgressiveCapture,
+        documentRectCapture: @escaping DocumentRectCapture = { webView, rect in
+            try await BrowserScreenshotWebViewSnapshotter.captureDocumentRect(
+                rect,
+                from: webView
+            )
+        }
     ) {
         self.timeout = timeout
         self.visibleViewportCapture = visibleViewportCapture
         self.fullPageCapture = fullPageCapture
+        self.documentRectCapture = documentRectCapture
         fullPageUsesInactivityTimeout = true
     }
 
@@ -96,6 +118,20 @@ final class BrowserDesignModeScreenshotEvaluator {
                     let image = try await fullPageCapture(webView) { [weak self] in
                         self?.resetTimeout(operationID)
                     }
+                    self?.finish(operationID, returning: image)
+                } catch {
+                    self?.finish(operationID, throwing: error)
+                }
+            }
+        }
+    }
+
+    func captureDocumentRect(_ rect: NSRect, from webView: WKWebView) async throws -> NSImage {
+        try await captureImage(usesTimeout: true) { [weak self, documentRectCapture] operationID in
+            guard let self else { return }
+            self.captureTasks[operationID] = Task { @MainActor [weak self] in
+                do {
+                    let image = try await documentRectCapture(webView, rect)
                     self?.finish(operationID, returning: image)
                 } catch {
                     self?.finish(operationID, throwing: error)

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Persists design-mode handoff artifacts away from the main actor.
@@ -8,20 +9,28 @@ actor BrowserDesignModeArtifactStore {
     private static let releasedMarkerPrefix = ".released-"
     private static let screenshotSuffix = "screenshot.png"
 
+    private let rootDirectory: URL
     private let directory: URL
     private let fileManager: FileManager
     private let handoffMarkerPrefix: String
     private let liveContextSuffix: String
+    private var didCleanDeadProcessDirectories = false
 
     init(
         directory: URL,
         fileManager: FileManager = .default,
-        liveContextSessionID: String = processLiveContextSessionID
+        liveContextSessionID: String = processLiveContextSessionID,
+        processIdentifier: Int32 = getpid()
     ) {
-        self.directory = directory
+        let sessionID = Self.filenameComponent(liveContextSessionID)
+        self.rootDirectory = directory
+        self.directory = directory.appendingPathComponent(
+            "process-\(processIdentifier)-\(sessionID)",
+            isDirectory: true
+        )
         self.fileManager = fileManager
-        self.handoffMarkerPrefix = "\(Self.handoffMarkerBasePrefix)\(liveContextSessionID)-"
-        self.liveContextSuffix = "live-context-\(liveContextSessionID).png"
+        self.handoffMarkerPrefix = "\(Self.handoffMarkerBasePrefix)\(sessionID)-"
+        self.liveContextSuffix = "live-context-\(sessionID).png"
     }
 
     func saveScreenshot(
@@ -71,7 +80,7 @@ actor BrowserDesignModeArtifactStore {
             filenameSuffix,
         ].joined(separator: "-")
         let url = directory.appendingPathComponent(filename, isDirectory: false)
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        try prepareDirectory()
         try data.write(to: url, options: .atomic)
         if let handoffLease {
             do {
@@ -89,6 +98,36 @@ actor BrowserDesignModeArtifactStore {
             throw CocoaError(.fileNoSuchFile)
         }
         return url
+    }
+
+    private func prepareDirectory() throws {
+        try fileManager.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
+        if !didCleanDeadProcessDirectories {
+            removeDeadProcessDirectories()
+            didCleanDeadProcessDirectories = true
+        }
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+
+    /// Removes only process roots whose owner no longer exists. Live sibling
+    /// processes keep independent pruning domains and cannot delete each
+    /// other's clipboard handoffs.
+    private func removeDeadProcessDirectories() {
+        guard let processDirectories = try? fileManager.contentsOfDirectory(
+            at: rootDirectory,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: []
+        ) else { return }
+
+        for processDirectory in processDirectories {
+            guard processDirectory.standardizedFileURL != directory.standardizedFileURL,
+                  (try? processDirectory.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true,
+                  let processIdentifier = Self.processIdentifier(
+                      fromDirectoryName: processDirectory.lastPathComponent
+                  ),
+                  !Self.isProcessRunning(processIdentifier) else { continue }
+            try? fileManager.removeItem(at: processDirectory)
+        }
     }
 
     /// Validates and retains a handoff bundle across other stores' pruning.
@@ -275,5 +314,30 @@ actor BrowserDesignModeArtifactStore {
 
     private func isCurrentHandoffMarker(_ url: URL) -> Bool {
         url.lastPathComponent.hasPrefix(handoffMarkerPrefix)
+    }
+
+    private static func filenameComponent(_ value: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(
+            CharacterSet(charactersIn: "-_")
+        )
+        let result = value.unicodeScalars.map {
+            allowed.contains($0) ? String($0) : "_"
+        }.joined()
+        return result.isEmpty ? "session" : result
+    }
+
+    private static func processIdentifier(fromDirectoryName name: String) -> Int32? {
+        guard name.hasPrefix("process-") else { return nil }
+        let remainder = name.dropFirst("process-".count)
+        guard let separator = remainder.firstIndex(of: "-") else { return nil }
+        return Int32(remainder[..<separator])
+    }
+
+    private static func isProcessRunning(_ processIdentifier: Int32) -> Bool {
+        guard processIdentifier > 0 else { return false }
+        if kill(processIdentifier, 0) == 0 {
+            return true
+        }
+        return errno == EPERM
     }
 }

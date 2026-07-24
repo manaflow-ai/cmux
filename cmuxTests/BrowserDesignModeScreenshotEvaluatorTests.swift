@@ -288,7 +288,10 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         #expect(!prompt.contains("base64"))
         #expect(prompt.contains("Full-page screenshot: \(directory.path)/"))
         #expect(prompt.contains("Selection 1 (tag: \"button\", selector: \"#target\"): \(directory.path)/"))
-        #expect(try contextURL(from: prompt).deletingLastPathComponent() == directory)
+        let contextURL = try contextURL(from: prompt)
+        let processDirectory = contextURL.deletingLastPathComponent()
+        #expect(processDirectory.deletingLastPathComponent() == directory)
+        #expect(processDirectory.lastPathComponent.hasPrefix("process-"))
         #expect(try requestedChange(from: prompt) == "")
         let context = try payload(from: prompt)
         let selections = try #require(context["selections"] as? [[String: Any]])
@@ -296,7 +299,7 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         let pagePath = try #require(context["page_screenshot_path"] as? String)
         #expect(FileManager.default.fileExists(atPath: selectionPath))
         #expect(FileManager.default.fileExists(atPath: pagePath))
-        #expect(FileManager.default.fileExists(atPath: try contextURL(from: prompt).path))
+        #expect(FileManager.default.fileExists(atPath: contextURL.path))
         _ = navigationDelegate
     }
 
