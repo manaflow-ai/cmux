@@ -2136,15 +2136,6 @@ impl Terminal {
                 segment_start = segment_end.saturating_add(1);
             }
         }
-        let expected_breaks =
-            usize::try_from(range.end.saturating_sub(range.start)).unwrap_or(usize::MAX);
-        let emitted_breaks = bytes.windows(2).filter(|bytes| *bytes == b"\r\n").count();
-        for _ in emitted_breaks..expected_breaks {
-            if bytes.len().saturating_add(2) > format_max_bytes {
-                return Ok(None);
-            }
-            bytes.extend_from_slice(b"\r\n");
-        }
         if let Some(suffix) = suffix {
             bytes.extend_from_slice(&suffix);
         }
