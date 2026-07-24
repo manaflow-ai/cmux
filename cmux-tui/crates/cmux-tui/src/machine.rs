@@ -416,21 +416,19 @@ pub(crate) trait MachineController: Send {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum MachineRailSelection {
-    Scope,
-    Actions,
     #[default]
     Machine,
     NewVm,
     ConnectMachine,
+    Settings,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MachineRailTarget {
-    Scope,
-    Actions,
     Machine(MachineKey),
     NewVm,
     ConnectMachine,
+    Settings,
 }
 
 #[derive(Debug, Clone)]
@@ -521,13 +519,7 @@ impl MachineUiState {
     #[allow(dead_code)]
     pub fn set_provider_presentation(&mut self, provider: ProviderPresentation) {
         self.provider = Some(provider);
-        if self.snapshot.machines.is_empty()
-            && self.provider.as_ref().is_some_and(|provider| !provider.scopes.is_empty())
-        {
-            self.rail_selection = MachineRailSelection::Scope;
-        } else {
-            self.ensure_rail_selection();
-        }
+        self.ensure_rail_selection();
     }
 
     #[allow(dead_code)]
@@ -594,13 +586,7 @@ impl MachineUiState {
     }
 
     pub fn rail_targets(&self) -> Vec<MachineRailTarget> {
-        let mut targets = Vec::with_capacity(self.snapshot.machines.len() + 4);
-        if self.provider.as_ref().is_some_and(|provider| !provider.scopes.is_empty()) {
-            targets.push(MachineRailTarget::Scope);
-        }
-        if self.provider.as_ref().is_some_and(|provider| !provider.actions.is_empty()) {
-            targets.push(MachineRailTarget::Actions);
-        }
+        let mut targets = Vec::with_capacity(self.snapshot.machines.len() + 3);
         targets.extend(
             self.snapshot.machines.iter().map(|machine| MachineRailTarget::Machine(machine.key)),
         );
@@ -610,25 +596,29 @@ impl MachineUiState {
         if self.snapshot.capabilities.connect {
             targets.push(MachineRailTarget::ConnectMachine);
         }
+        if self
+            .provider
+            .as_ref()
+            .is_some_and(|provider| !provider.scopes.is_empty() || !provider.actions.is_empty())
+        {
+            targets.push(MachineRailTarget::Settings);
+        }
         targets
     }
 
     pub fn rail_target(&self) -> Option<MachineRailTarget> {
         match self.rail_selection {
-            MachineRailSelection::Scope => Some(MachineRailTarget::Scope),
-            MachineRailSelection::Actions => Some(MachineRailTarget::Actions),
             MachineRailSelection::Machine => {
                 self.selected().map(|machine| MachineRailTarget::Machine(machine.key))
             }
             MachineRailSelection::NewVm => Some(MachineRailTarget::NewVm),
             MachineRailSelection::ConnectMachine => Some(MachineRailTarget::ConnectMachine),
+            MachineRailSelection::Settings => Some(MachineRailTarget::Settings),
         }
     }
 
     pub fn select_rail_target(&mut self, target: MachineRailTarget) {
         match target {
-            MachineRailTarget::Scope => self.rail_selection = MachineRailSelection::Scope,
-            MachineRailTarget::Actions => self.rail_selection = MachineRailSelection::Actions,
             MachineRailTarget::Machine(key) => {
                 if let Some(index) =
                     self.snapshot.machines.iter().position(|machine| machine.key == key)
@@ -641,6 +631,7 @@ impl MachineUiState {
             MachineRailTarget::ConnectMachine => {
                 self.rail_selection = MachineRailSelection::ConnectMachine;
             }
+            MachineRailTarget::Settings => self.rail_selection = MachineRailSelection::Settings,
         }
     }
 
@@ -770,7 +761,7 @@ mod tests {
     }
 
     #[test]
-    fn rail_targets_include_controls_catalog_and_pinned_actions_in_visual_order() {
+    fn rail_targets_include_catalog_and_pinned_actions_in_visual_order() {
         let mut ui = MachineUiState::new(MachineSnapshot {
             machines: vec![MachineDescriptor {
                 key: MachineKey(7),
@@ -801,11 +792,10 @@ mod tests {
         assert_eq!(
             ui.rail_targets(),
             vec![
-                MachineRailTarget::Scope,
-                MachineRailTarget::Actions,
                 MachineRailTarget::Machine(MachineKey(7)),
                 MachineRailTarget::NewVm,
                 MachineRailTarget::ConnectMachine,
+                MachineRailTarget::Settings,
             ]
         );
     }
@@ -886,7 +876,7 @@ mod tests {
         });
 
         assert_eq!(ui.selected_scope().map(|scope| scope.name.as_str()), Some("Acme"));
-        assert_eq!(ui.rail_selection, MachineRailSelection::Scope);
+        assert_eq!(ui.rail_selection, MachineRailSelection::Settings);
     }
 
     #[test]
