@@ -4487,10 +4487,10 @@ impl App {
                 RenderAction::None
             }
             MachineControllerCompletion::ReplacementSettled { action_id, committed, updates } => {
-                if !self
+                if self
                     .pending_machine_replacement
                     .as_ref()
-                    .is_some_and(|pending| pending.action_id == action_id)
+                    .is_none_or(|pending| pending.action_id != action_id)
                 {
                     self.status_message = Some(format!(
                         "{}: {}",
