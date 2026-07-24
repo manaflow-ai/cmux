@@ -103,7 +103,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             context: context,
             arguments: ["hooks", "claude", "session-start"],
             standardInput: #"{"session_id":"\#(sessionId)","source":"compact","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#,
-            expectedConnectionCount: 4
+            expectedConnectionCount: 2
         )
         XCTAssertFalse(compact.timedOut, compact.stderr)
         XCTAssertEqual(compact.status, 0, compact.stderr)
@@ -112,7 +112,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertNotNil(record["autoNameTitleReconciliationGeneration"] as? String)
         XCTAssertEqual(record["autoNameLastLineCount"] as? Int, unchangedBaseline)
 
-        startDetachedMockServer(listenerFD: context.listenerFD, state: context.state, connectionCount: 1) { line in
+        let retryServerHandled = startMockServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            connectionCount: 1,
+            waitForAllConnections: true
+        ) { line in
             self.autoNamingMockResponse(
                 line: line,
                 context: context,
@@ -125,6 +130,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             arguments: ["hooks", "claude", "auto-name"],
             standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#
         )
+        wait(for: [retryServerHandled], timeout: 5)
         XCTAssertFalse(stop.timedOut, stop.stderr)
         XCTAssertEqual(stop.status, 0, stop.stderr)
         XCTAssertEqual(autoNamingApplyRequests(in: context).count, 2)
@@ -160,7 +166,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             context: context,
             arguments: ["hooks", "claude", "session-start"],
             standardInput: #"{"session_id":"\#(sessionId)","source":"compact","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#,
-            expectedConnectionCount: 4,
+            expectedConnectionCount: 2,
             autoNamingPanelApplySkipped: false
         )
         XCTAssertFalse(compact.timedOut, compact.stderr)
@@ -171,7 +177,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertNil(record["autoNameInFlightAt"])
         XCTAssertEqual(record["autoNameLastLineCount"] as? Int, 500)
 
-        startDetachedMockServer(listenerFD: context.listenerFD, state: context.state, connectionCount: 1) { line in
+        let unresolvedServerHandled = startMockServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            connectionCount: 1,
+            waitForAllConnections: true
+        ) { line in
             self.autoNamingMockResponse(
                 line: line,
                 context: context,
@@ -184,6 +195,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             arguments: ["hooks", "claude", "auto-name"],
             standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#
         )
+        wait(for: [unresolvedServerHandled], timeout: 5)
         XCTAssertFalse(unresolvedStop.timedOut, unresolvedStop.stderr)
         XCTAssertEqual(unresolvedStop.status, 0, unresolvedStop.stderr)
         XCTAssertEqual(autoNamingApplyRequests(in: context).count, 2)
@@ -192,7 +204,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertNil(record["autoNameInFlightAt"])
         XCTAssertEqual(record["autoNameLastLineCount"] as? Int, 500)
 
-        startDetachedMockServer(listenerFD: context.listenerFD, state: context.state, connectionCount: 1) { line in
+        let confirmedServerHandled = startMockServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            connectionCount: 1,
+            waitForAllConnections: true
+        ) { line in
             self.autoNamingMockResponse(
                 line: line,
                 context: context,
@@ -205,6 +222,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             arguments: ["hooks", "claude", "auto-name"],
             standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#
         )
+        wait(for: [confirmedServerHandled], timeout: 5)
         XCTAssertFalse(confirmedStop.timedOut, confirmedStop.stderr)
         XCTAssertEqual(confirmedStop.status, 0, confirmedStop.stderr)
         XCTAssertEqual(autoNamingApplyRequests(in: context).count, 3)
@@ -238,12 +256,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             context: context,
             arguments: ["hooks", "claude", "session-start"],
             standardInput: #"{"session_id":"\#(sessionId)","source":"compact","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#,
-            expectedConnectionCount: 4,
+            expectedConnectionCount: 2,
             autoNamingWorkspaceUserOwned: true,
             autoNamingWorkspaceApplied: false,
             autoNamingWorkspaceApplySkipped: true,
             autoNamingPanelApplied: true,
-            autoNamingPanelApplySkipped: false
+            autoNamingPanelApplySkipped: false,
+            autoNamingExpectedTitle: "Earlier automatic topic"
         )
         XCTAssertFalse(compact.timedOut, compact.stderr)
         XCTAssertEqual(compact.status, 0, compact.stderr)
@@ -254,14 +273,20 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(record["autoNameLastTitle"] as? String, "Earlier automatic topic")
         XCTAssertEqual(record["autoNameLastLineCount"] as? Int, baseline)
 
-        startDetachedMockServer(listenerFD: context.listenerFD, state: context.state, connectionCount: 1) { line in
+        let retryServerHandled = startMockServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            connectionCount: 1,
+            waitForAllConnections: true
+        ) { line in
             self.autoNamingMockResponse(
                 line: line,
                 context: context,
                 workspaceApplied: false,
                 workspaceApplySkipped: true,
                 panelApplied: true,
-                workspaceUserOwned: true
+                workspaceUserOwned: true,
+                expectedTitle: "Earlier automatic topic"
             )
         }
         let stop = runClaudeHookWithoutServer(
@@ -269,6 +294,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             arguments: ["hooks", "claude", "auto-name"],
             standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#
         )
+        wait(for: [retryServerHandled], timeout: 5)
         XCTAssertFalse(stop.timedOut, stop.stderr)
         XCTAssertEqual(stop.status, 0, stop.stderr)
         XCTAssertEqual(autoNamingApplyRequests(in: context).count, 2)
@@ -302,7 +328,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             context: context,
             arguments: ["hooks", "claude", "session-start"],
             standardInput: #"{"session_id":"\#(sessionId)","source":"compact","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#,
-            expectedConnectionCount: 3
+            expectedConnectionCount: 2
         )
         XCTAssertFalse(compact.timedOut, compact.stderr)
         XCTAssertEqual(compact.status, 0, compact.stderr)
@@ -321,7 +347,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             session["updatedAt"] = completedAt
         }
 
-        startDetachedMockServer(listenerFD: context.listenerFD, state: context.state, connectionCount: 1) { line in
+        let retryServerHandled = startMockServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            connectionCount: 1,
+            waitForAllConnections: true
+        ) { line in
             self.autoNamingMockResponse(
                 line: line,
                 context: context,
@@ -334,6 +365,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             arguments: ["hooks", "claude", "auto-name"],
             standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#
         )
+        wait(for: [retryServerHandled], timeout: 5)
         XCTAssertFalse(stop.timedOut, stop.stderr)
         XCTAssertEqual(stop.status, 0, stop.stderr)
         XCTAssertEqual(autoNamingApplyRequests(in: context).count, 1)
@@ -366,7 +398,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             context: context,
             arguments: ["hooks", "claude", "session-start"],
             standardInput: #"{"session_id":"\#(sessionId)","source":"compact","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#,
-            expectedConnectionCount: 4
+            expectedConnectionCount: 2
         )
         XCTAssertFalse(firstCompact.timedOut, firstCompact.stderr)
         XCTAssertEqual(firstCompact.status, 0, firstCompact.stderr)
@@ -379,7 +411,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         startDetachedMockServer(
             listenerFD: context.listenerFD,
             state: context.state,
-            connectionCount: 6
+            connectionCount: 4
         ) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
@@ -486,7 +518,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             encoding: .utf8
         ) ?? ""
         XCTAssertEqual(olderStop.terminationStatus, 0, olderStopStderr)
-        XCTAssertEqual(olderStopStdout, "OK\n")
+        XCTAssertEqual(olderStopStdout, "{}\n")
         var record = try readClaudeHookSession(sessionId, context: context)
         XCTAssertEqual(record["autoNameTitleReconciliationGeneration"] as? String, secondGeneration)
         XCTAssertEqual(
@@ -536,7 +568,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         startDetachedMockServer(
             listenerFD: context.listenerFD,
             state: context.state,
-            connectionCount: 8
+            connectionCount: 1
         ) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
@@ -577,7 +609,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertEqual(result.stdout, "{}\n")
         let autoTitleRequests = context.state.snapshot().filter {
             jsonObject($0)?["method"] as? String == "workspace.set_auto_title"
         }
@@ -719,7 +751,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             inFlightAt: now
         )
 
-        let serverHandled = startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+        let serverHandled = startMockServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            connectionCount: 1,
+            waitForAllConnections: true
+        ) { line in
             self.autoNamingMockResponse(line: line, context: context, workspaceApplied: true)
         }
         let result = runClaudeHookWithoutServer(
@@ -731,7 +768,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(autoNamingApplyRequests(in: context).isEmpty)
         let record = try readClaudeHookSession(sessionId, context: context)
         XCTAssertEqual(record["autoNameInFlightAt"] as? Double, now)
@@ -880,12 +917,23 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let serverHandled = startMockServer(
             listenerFD: context.listenerFD,
             state: context.state,
-            connectionCount: 2
+            connectionCount: 1,
+            waitForAllConnections: true
         ) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
-                  payload["method"] as? String == "workspace.set_auto_title" else {
+                  let method = payload["method"] as? String else {
                 return self.malformedRequestResponse(raw: line)
+            }
+            if method == "surface.list" {
+                return self.surfaceListResponse(id: id, surfaceId: context.surfaceId)
+            }
+            guard method == "workspace.set_auto_title" else {
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
+                )
             }
             let params = payload["params"] as? [String: Any] ?? [:]
             if params["probe"] as? Bool == true {
@@ -958,12 +1006,23 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let serverHandled = startMockServer(
             listenerFD: context.listenerFD,
             state: context.state,
-            connectionCount: 2
+            connectionCount: 1,
+            waitForAllConnections: true
         ) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
-                  payload["method"] as? String == "workspace.set_auto_title" else {
+                  let method = payload["method"] as? String else {
                 return self.malformedRequestResponse(raw: line)
+            }
+            if method == "surface.list" {
+                return self.surfaceListResponse(id: id, surfaceId: context.surfaceId)
+            }
+            guard method == "workspace.set_auto_title" else {
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
+                )
             }
             let params = payload["params"] as? [String: Any] ?? [:]
             if params["probe"] as? Bool == true {
@@ -9737,17 +9796,19 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         arguments: [String],
         standardInput: String,
         extraEnvironment: [String: String] = [:],
-        expectedConnectionCount: Int = 4,
+        expectedConnectionCount: Int = 2,
         autoNamingWorkspaceUserOwned: Bool = false,
         autoNamingWorkspaceApplied: Bool = true,
         autoNamingWorkspaceApplySkipped: Bool = false,
         autoNamingPanelApplied: Bool? = nil,
-        autoNamingPanelApplySkipped: Bool = true
+        autoNamingPanelApplySkipped: Bool = true,
+        autoNamingExpectedTitle: String = "Fix auth bug"
     ) -> ProcessRunResult {
         let serverHandled = startMockServer(
             listenerFD: context.listenerFD,
             state: context.state,
-            connectionCount: expectedConnectionCount
+            connectionCount: expectedConnectionCount,
+            waitForAllConnections: true
         ) { line in
             guard let payload = self.jsonObject(line) else {
                 return "OK"
@@ -9770,7 +9831,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                     workspaceApplySkipped: autoNamingWorkspaceApplySkipped,
                     panelApplied: autoNamingPanelApplied,
                     panelApplySkipped: autoNamingPanelApplySkipped,
-                    workspaceUserOwned: autoNamingWorkspaceUserOwned
+                    workspaceUserOwned: autoNamingWorkspaceUserOwned,
+                    expectedTitle: autoNamingExpectedTitle
                 )
             default:
                 return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
@@ -9919,7 +9981,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         workspaceApplySkipped: Bool = false,
         panelApplied: Bool? = nil,
         panelApplySkipped: Bool = false,
-        workspaceUserOwned: Bool = false
+        workspaceUserOwned: Bool = false,
+        expectedTitle: String = "Fix auth bug"
     ) -> String {
         guard let payload = jsonObject(line),
               let id = payload["id"] as? String,
@@ -9937,8 +10000,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                     "workspace_user_owned": workspaceUserOwned,
                 ])
             }
-            XCTAssertEqual(params["title"] as? String, "Fix auth bug")
-            XCTAssertEqual(params["expected_workspace_title"] as? String, "Fix auth bug")
+            XCTAssertEqual(params["title"] as? String, expectedTitle)
+            XCTAssertEqual(params["expected_workspace_title"] as? String, expectedTitle)
             XCTAssertEqual(params["clear_status_on_apply"] as? Bool, false)
             return v2Response(id: id, ok: true, result: [
                 "workspace_applied": workspaceApplied,

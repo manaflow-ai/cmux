@@ -105,6 +105,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         listenerFD: Int32,
         state: MockSocketServerState,
         connectionCount: Int = 1,
+        waitForAllConnections: Bool = false,
         fulfillWhen: (@Sendable (String) -> Bool)? = nil,
         handler: @escaping @Sendable (String) -> String
     ) -> XCTestExpectation {
@@ -112,6 +113,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             listenerFD: listenerFD,
             state: state,
             connectionCount: connectionCount,
+            waitForAllConnections: waitForAllConnections,
             fulfillWhen: fulfillWhen
         ) { line in
             handler(line)
@@ -122,15 +124,28 @@ extension CLINotifyProcessIntegrationRegressionTests {
         listenerFD: Int32,
         state: MockSocketServerState,
         connectionCount: Int = 1,
+        waitForAllConnections: Bool = false,
         fulfillWhen: (@Sendable (String) -> Bool)? = nil,
         handler: @escaping @Sendable (String) -> String?
     ) -> XCTestExpectation {
         let handled = expectation(description: "cli mock socket handled")
+        let expectedConnectionCount = max(1, connectionCount)
+        if waitForAllConnections {
+            handled.expectedFulfillmentCount = expectedConnectionCount
+        }
         let fulfillmentGate = MockSocketFulfillmentGate()
-        for _ in 0..<max(1, connectionCount) {
+        for _ in 0..<expectedConnectionCount {
             DispatchQueue.global(qos: .userInitiated).async {
+                var didFulfillConnection = false
+
                 func fulfillOnce() {
-                    fulfillmentGate.fulfill(handled)
+                    if waitForAllConnections {
+                        guard !didFulfillConnection else { return }
+                        didFulfillConnection = true
+                        handled.fulfill()
+                    } else {
+                        fulfillmentGate.fulfill(handled)
+                    }
                 }
 
                 var clientAddr = sockaddr_un()
