@@ -79,7 +79,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         // Supply a deterministic Pi summarizer so the detached naming pass reaches the socket apply.
         let piURL = context.root.appendingPathComponent("pi", isDirectory: false)
-        try "#!/bin/sh\nprintf 'Java Workspace\\n'\n".write(to: piURL, atomically: true, encoding: .utf8)
+        try "#!/bin/sh\nsleep 1\nprintf 'Java Workspace\\n'\n".write(
+            to: piURL,
+            atomically: true,
+            encoding: .utf8
+        )
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: piURL.path)
         startAgentHookMockServerAccepting(
             context: context,
