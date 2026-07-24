@@ -45,17 +45,27 @@ extension GhosttySurfaceRepresentable.Coordinator {
             case .none:
                 break
             case .report(let report):
-                guard surfaceView.reportArtifactCount(
-                    report.count,
-                    generation: report.surfaceGeneration
-                ) else { return }
-                onArtifactGalleryRefreshSignal(TerminalArtifactGalleryRefreshSignal(
-                    count: report.count,
-                    surfaceGeneration: report.surfaceGeneration
-                ))
+                deliverArtifactCountReport(report, surfaceView: surfaceView)
             case .request(let request):
                 startArtifactCountRequest(request, surfaceView: surfaceView)
+            case .reportAndRequest(let report, let request):
+                deliverArtifactCountReport(report, surfaceView: surfaceView)
+                startArtifactCountRequest(request, surfaceView: surfaceView)
             }
+        }
+
+        private func deliverArtifactCountReport(
+            _ report: TerminalArtifactChipCountState.Report,
+            surfaceView: GhosttySurfaceView
+        ) {
+            guard surfaceView.reportArtifactCount(
+                report.count,
+                generation: report.surfaceGeneration
+            ) else { return }
+            onArtifactGalleryRefreshSignal(TerminalArtifactGalleryRefreshSignal(
+                count: report.count,
+                surfaceGeneration: report.surfaceGeneration
+            ))
         }
 
         private func startArtifactCountRequest(

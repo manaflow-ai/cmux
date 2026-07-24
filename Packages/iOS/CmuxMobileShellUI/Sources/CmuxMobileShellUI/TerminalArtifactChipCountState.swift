@@ -17,6 +17,15 @@ struct TerminalArtifactChipCountState: Sendable {
         case none
         case report(Report)
         case request(Request)
+        /// Report a provisional count now and refine it with a session scan.
+        ///
+        /// The provisional report is what keeps the chip honest on a busy
+        /// terminal: a session scan only survives if no output arrives while
+        /// its RPC is in flight, so waiting for it systematically drops the
+        /// positive counts (scanned right before the next output burst) while
+        /// zero counts (scanned in quiet pauses) get through, parking the
+        /// chip on zero and flickering it. The local count needs no RPC.
+        case reportAndRequest(Report, Request)
     }
 
     enum CompletionOutcome: Sendable, Equatable {
@@ -65,14 +74,28 @@ struct TerminalArtifactChipCountState: Sendable {
         guard supportsSessionCount else {
             return .report(Report(count: localCount, surfaceGeneration: surfaceGeneration))
         }
+        let provisional = Report(
+            count: displayCount(forLocalCount: localCount),
+            surfaceGeneration: surfaceGeneration
+        )
         let pending = Pending(surfaceGeneration: surfaceGeneration, localCount: localCount)
         guard inFlight == nil else {
             trailing = pending
-            return .none
+            return .report(provisional)
         }
         let request = makeRequest(pending)
         inFlight = request
-        return .request(request)
+        return .reportAndRequest(provisional, request)
+    }
+
+    /// The count the chip should show for a fresh local scan: the last known
+    /// session total wins while the session has artifacts, the viewport-only
+    /// count otherwise.
+    private func displayCount(forLocalCount localCount: Int) -> Int {
+        if let lastSessionTotal, lastSessionTotal > 0 {
+            return lastSessionTotal
+        }
+        return localCount
     }
 
     mutating func complete(
@@ -92,16 +115,8 @@ struct TerminalArtifactChipCountState: Sendable {
 
         let outcome: CompletionOutcome
         if request.surfaceGeneration == currentSurfaceGeneration {
-            let count: Int
-            if let sessionTotal {
-                count = sessionTotal > 0 ? sessionTotal : request.localCount
-            } else if let lastSessionTotal, lastSessionTotal > 0 {
-                count = lastSessionTotal
-            } else {
-                count = request.localCount
-            }
             outcome = .reported(Report(
-                count: count,
+                count: displayCount(forLocalCount: request.localCount),
                 surfaceGeneration: request.surfaceGeneration
             ))
             consecutiveRearmCount = 0
