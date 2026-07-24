@@ -20,7 +20,6 @@ struct AppDelegateTerminalTypingShortcutFastPathTests {
         let windowId = appDelegate.createMainWindow()
         defer {
             KeyboardShortcutSettings.shortcutLookupObserver = nil
-            AppDelegate.shortcutEventFocusContextResolutionObserverForTesting = nil
             closeWindow(withId: windowId)
             appDelegate.debugResetShortcutRoutingStateForTesting()
         }
@@ -47,10 +46,6 @@ struct AppDelegateTerminalTypingShortcutFastPathTests {
         KeyboardShortcutSettings.shortcutLookupObserver = { action in
             resolvedActions.append(action)
         }
-        var focusContextResolutionCount = 0
-        AppDelegate.shortcutEventFocusContextResolutionObserverForTesting = {
-            focusContextResolutionCount += 1
-        }
 
         let event = try #require(
             NSEvent.keyEvent(
@@ -75,12 +70,8 @@ struct AppDelegateTerminalTypingShortcutFastPathTests {
         )
         #expect(!appDelegate.debugHandleCustomShortcut(event: event))
         #expect(
-            focusContextResolutionCount == 0,
-            "Plain terminal text must bypass browser, palette, and workspace focus-context resolution"
-        )
-        #expect(
             resolvedActions.isEmpty,
-            "Plain terminal text must bypass app-wide shortcut resolution"
+            "Plain terminal text must bypass browser, palette, workspace, and app-wide shortcut resolution"
         )
     }
 

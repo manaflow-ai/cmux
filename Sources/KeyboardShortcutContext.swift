@@ -33,10 +33,6 @@ extension Notification.Name {
 }
 
 extension AppDelegate {
-#if DEBUG
-    static var shortcutEventFocusContextResolutionObserverForTesting: (() -> Void)?
-#endif
-
     func reloadBrowserPanelForShortcut(_ panel: BrowserPanel) {
 #if DEBUG
         NotificationCenter.default.post(name: .debugBrowserReloadShortcutInvoked, object: panel)
@@ -64,9 +60,6 @@ extension AppDelegate {
             return cache.context
         }
 
-#if DEBUG
-        Self.shortcutEventFocusContextResolutionObserverForTesting?()
-#endif
         let shortcutWindow = shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
         let browserPanel = shortcutEventFocusedBrowserPanel(event) ?? shortcutWebInspectorFocusedBrowserPanel(in: shortcutWindow)
         // Only treat a markdown panel as focused when no browser panel owns the
