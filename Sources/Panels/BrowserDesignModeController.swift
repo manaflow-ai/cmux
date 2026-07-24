@@ -50,6 +50,12 @@ final class BrowserDesignModeController {
     @ObservationIgnored private let script: BrowserDesignModeScript
     @ObservationIgnored private let promptFormatter: BrowserDesignModePromptFormatter
     @ObservationIgnored let artifactStore: BrowserDesignModeArtifactStore
+    /// The latest bundle delivered by this browser panel. A later handoff from
+    /// the same panel replaces it without invalidating other panels' bundles.
+    @ObservationIgnored var deliveredHandoffLease: (
+        artifactStore: BrowserDesignModeArtifactStore,
+        id: UUID
+    )?
     @ObservationIgnored private let javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator
     @ObservationIgnored let screenshotEvaluator: BrowserDesignModeScreenshotEvaluator
     @ObservationIgnored private let canEnable: @MainActor @Sendable () -> Bool

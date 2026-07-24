@@ -1,15 +1,5 @@
 import Foundation
 
-@MainActor
-private enum BrowserDesignModeHandoffState {
-    struct Lease {
-        let artifactStore: BrowserDesignModeArtifactStore
-        let id: UUID
-    }
-
-    static var currentLease: Lease?
-}
-
 extension BrowserDesignModeController {
     func deliverHandoff(
         prompt: String,
@@ -36,8 +26,8 @@ extension BrowserDesignModeController {
             throw BrowserScreenshotError.pasteboardWriteFailed
         }
 
-        let previousLease = BrowserDesignModeHandoffState.currentLease
-        BrowserDesignModeHandoffState.currentLease = .init(
+        let previousLease = deliveredHandoffLease
+        deliveredHandoffLease = (
             artifactStore: artifactStore,
             id: lease
         )
