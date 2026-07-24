@@ -76,7 +76,7 @@ struct OnboardingScreenshot: View {
     static func image(
         content: Content,
         language: OnboardingScreenshotLanguage,
-        appearance: OnboardingScreenshotAppearance = .light
+        appearance: OnboardingScreenshotAppearance
     ) async -> UIImage {
         let resourceName = resourceName(
             content: content,
