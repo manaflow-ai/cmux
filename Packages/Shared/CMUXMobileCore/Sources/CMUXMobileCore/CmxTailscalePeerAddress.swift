@@ -42,7 +42,7 @@ public struct CmxTailscalePeerAddress: Hashable, Sendable {
         return nil
     }
 
-    private static func parseIPv4(_ value: String) -> (canonical: String, bytes: [UInt8])? {
+    static func parseIPv4(_ value: String) -> (canonical: String, bytes: [UInt8])? {
         var address = in_addr()
         guard value.withCString({ inet_pton(AF_INET, $0, &address) }) == 1 else { return nil }
         let bytes = withUnsafeBytes(of: &address) { Array($0) }
@@ -51,7 +51,7 @@ public struct CmxTailscalePeerAddress: Hashable, Sendable {
         return (decode(buffer), bytes)
     }
 
-    private static func parseIPv6(_ value: String) -> (canonical: String, bytes: [UInt8])? {
+    static func parseIPv6(_ value: String) -> (canonical: String, bytes: [UInt8])? {
         guard !value.contains("%") else { return nil }
         var address = in6_addr()
         guard value.withCString({ inet_pton(AF_INET6, $0, &address) }) == 1 else { return nil }
@@ -68,7 +68,7 @@ public struct CmxTailscalePeerAddress: Hashable, Sendable {
         )
     }
 
-    private static func isTailscaleIPv4Peer(_ bytes: [UInt8]) -> Bool {
+    static func isTailscaleIPv4Peer(_ bytes: [UInt8]) -> Bool {
         guard bytes.count == 4,
               bytes[0] == 100,
               (bytes[1] & 0xC0) == 64 else {
@@ -85,13 +85,17 @@ public struct CmxTailscalePeerAddress: Hashable, Sendable {
         return true
     }
 
-    private static func isTailscaleIPv6Peer(_ bytes: [UInt8]) -> Bool {
-        guard bytes.count == 16,
-              bytes.starts(with: [0xFD, 0x7A, 0x11, 0x5C, 0xA1, 0xE0]) else {
+    static func isTailscaleIPv6Peer(_ bytes: [UInt8]) -> Bool {
+        guard isTailscaleIPv6Range(bytes) else {
             return false
         }
         // `fd7a:115c:a1e0::53` is the local MagicDNS service, not a peer.
         let magicDNS = [UInt8](repeating: 0, count: 9) + [0x53]
         return Array(bytes[6...]) != magicDNS
+    }
+
+    static func isTailscaleIPv6Range(_ bytes: [UInt8]) -> Bool {
+        bytes.count == 16
+            && bytes.starts(with: [0xFD, 0x7A, 0x11, 0x5C, 0xA1, 0xE0])
     }
 }
