@@ -10732,12 +10732,12 @@ fn browser_key_mapping(
 #[cfg(test)]
 mod tests {
     use super::{
-        App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput, Drag, FocusTarget,
-        ForwardMuxOutcome, MachineActionWorker, MenuAction, MenuItem, MutationImpact,
-        MuxTitleIngress, OrderedSession, PaneArea, PaneEdge, PaneFocusHistory,
-        PendingSessionMutation, PendingSessionMutationState, PointerRoutePhase, Prompt,
-        PromptTarget, PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction, Selection,
-        SessionCompletion, SessionCompletionAction, SessionEventSender, SidebarLayout,
+        App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput,
+        DeferredReplayDisposition, Drag, FocusTarget, ForwardMuxOutcome, MachineActionWorker,
+        MenuAction, MenuItem, MutationImpact, MuxTitleIngress, OrderedSession, PaneArea, PaneEdge,
+        PaneFocusHistory, PendingSessionMutation, PendingSessionMutationState, PointerRoutePhase,
+        Prompt, PromptTarget, PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction,
+        Selection, SessionCompletion, SessionCompletionAction, SessionEventSender, SidebarLayout,
         SidebarPluginSyncClaim, SidebarPluginSyncState, SurfaceResizeDecision,
         SurfaceResizeOwnership, WorkspaceRailSelection, browser_content_size_for_rect,
         browser_hover_forward_allowed, clamp_split_ratio_for_tab_bars, client_menu_item,
@@ -14797,6 +14797,147 @@ mod tests {
             app.hover,
             Some((newer_motion.column, newer_motion.row)),
             "newer retained motion must replay after the older click"
+        );
+    }
+
+    #[test]
+    fn missing_surface_motion_stays_ahead_of_later_deferred_input() {
+        let mux = Mux::new("replayed-missing-motion-order-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let missing_surface = 77;
+        app.pane_areas.push(browser_completion_area(missing_surface));
+        app.session.surface_attach_failures.lock().unwrap().insert(
+            missing_surface,
+            super::SurfaceSyncFailureState {
+                attempts: 1,
+                retry_after: Some(Instant::now() + Duration::from_secs(30)),
+                sticky_until_reconnect: false,
+            },
+        );
+        app.prompt = Some(Prompt::new("Rename", String::new(), PromptTarget::Surface(88)));
+        app.pending_pointer_motion = Some(super::PendingPointerMotion {
+            event: MouseEvent {
+                kind: MouseEventKind::Moved,
+                column: 14,
+                row: 6,
+                modifiers: KeyModifiers::NONE,
+            },
+            sequence: 1,
+        });
+        app.deferred_input.push_back(DeferredInput {
+            event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
+            destination: None,
+            destination_intent: None,
+            sidebar_focus_intent: false,
+            sequence: 2,
+        });
+        app.deferred_input_sequence = 2;
+
+        let replay = app.replay_deferred_input_batch().unwrap();
+
+        assert_eq!(
+            app.prompt.as_ref().unwrap().input.as_str(),
+            "",
+            "later input must not pass motion that is still waiting for its surface"
+        );
+        assert_eq!(app.pending_pointer_motion.map(|pointer| pointer.sequence), Some(1));
+        assert_eq!(app.deferred_input.front().map(|input| input.sequence), Some(2));
+        assert_eq!(replay.action, RenderAction::None);
+        assert_eq!(replay.disposition, DeferredReplayDisposition::Blocked);
+    }
+
+    #[test]
+    fn replayed_key_requeue_keeps_its_original_order() {
+        let mux = Mux::new("replayed-missing-key-order-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let missing_surface = 77;
+        app.replace_tree(notify_tree(missing_surface, false));
+        app.deferred_input.push_back(DeferredInput {
+            event: Event::Key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE)),
+            destination: Some(missing_surface),
+            destination_intent: None,
+            sidebar_focus_intent: false,
+            sequence: 2,
+        });
+        app.deferred_input_sequence = 2;
+
+        app.handle_replayed_input(
+            Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
+            1,
+        )
+        .unwrap();
+
+        assert_eq!(
+            app.deferred_input
+                .iter()
+                .map(|input| {
+                    let Event::Key(key) = &input.event else { panic!("expected a deferred key") };
+                    (key.code, input.sequence)
+                })
+                .collect::<Vec<_>>(),
+            vec![(KeyCode::Char('x'), 1), (KeyCode::Char('y'), 2)]
+        );
+    }
+
+    #[test]
+    fn replayed_discrete_pointer_requeue_keeps_its_original_order() {
+        let mux = Mux::new("replayed-missing-pointer-order-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let missing_surface = 77;
+        app.pane_areas.push(browser_completion_area(missing_surface));
+        app.deferred_input.push_back(DeferredInput {
+            event: Event::Key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE)),
+            destination: None,
+            destination_intent: None,
+            sidebar_focus_intent: false,
+            sequence: 2,
+        });
+        app.deferred_input_sequence = 2;
+        let pointer = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Right),
+            column: 14,
+            row: 6,
+            modifiers: KeyModifiers::SHIFT,
+        };
+
+        app.handle_replayed_input(Event::Mouse(pointer), 1).unwrap();
+
+        assert!(matches!(
+            app.deferred_input.front(),
+            Some(DeferredInput {
+                event: Event::Mouse(event),
+                sequence: 1,
+                ..
+            }) if *event == pointer
+        ));
+        assert_eq!(app.deferred_input.back().map(|input| input.sequence), Some(2));
+    }
+
+    #[test]
+    fn replay_without_a_render_action_blocks_instead_of_spinning() {
+        let mux = Mux::new("replay-no-render-progress-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.deferred_input.push_back(DeferredInput {
+            event: Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: 9,
+                row: 3,
+                modifiers: KeyModifiers::NONE,
+            }),
+            destination: None,
+            destination_intent: None,
+            sidebar_focus_intent: false,
+            sequence: 1,
+        });
+        app.pointer_route_phase = PointerRoutePhase::NeedsRender;
+
+        let replay = app.replay_deferred_input_batch().unwrap();
+
+        assert_eq!(replay.action, RenderAction::None);
+        assert_eq!(
+            replay.disposition,
+            DeferredReplayDisposition::Blocked,
+            "a replay boundary without a render action cannot make immediate progress"
         );
     }
 
