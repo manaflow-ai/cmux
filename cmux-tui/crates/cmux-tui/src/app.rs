@@ -14830,6 +14830,130 @@ mod tests {
     }
 
     #[test]
+    fn pointer_captured_before_pairing_dialog_render_cannot_approve_it() {
+        let mux = Mux::new("pairing-render-pointer-route-test", SurfaceOptions::default());
+        let (challenge, decision) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
+        let mut app = test_app(Session::Local(mux));
+        let width = 48;
+        let dialog_x = (100 - width) / 2;
+        let dialog_y = (20 - 10) / 2;
+        let approve_width = localization::catalog().pairing.approve.chars().count() as u16;
+        let approve_x = dialog_x + width - 2 - approve_width;
+        let (events, receiver) = std::sync::mpsc::channel();
+        events.send(AppEvent::Mux(MuxEvent::PairingRequested(challenge.clone()))).unwrap();
+        events
+            .send(AppEvent::Input(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: approve_x,
+                row: dialog_y + 8,
+                modifiers: KeyModifiers::NONE,
+            })))
+            .unwrap();
+        drop(events);
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+
+        app.event_loop(&mut terminal, receiver).unwrap();
+
+        assert_eq!(
+            app.pairing_dialog.as_ref().map(|dialog| dialog.challenge.id),
+            Some(challenge.id),
+            "a click from the previous frame must not activate a newly rendered trusted dialog"
+        );
+        assert!(decision.try_recv().is_err(), "the unseen pairing request must remain unresolved");
+        assert!(
+            app.status_message.as_deref().is_none_or(|message| !message.contains("discarded")),
+            "stale pointer samples should be dropped without noisy user-facing warnings"
+        );
+    }
+
+    #[test]
+    fn focus_loss_purges_pointer_press_waiting_for_a_paint() {
+        let mux = Mux::new(
+            "focus-loss-deferred-pointer-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "sleep 30".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
+        let (mut app, mutation_events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.sync_layout((100, 12));
+        while app.session.has_pending_mutations() {
+            app.handle(mutation_events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let content = app.pane_areas[0].content;
+        let (events, receiver) = std::sync::mpsc::channel();
+        events.send(AppEvent::Mux(MuxEvent::SurfaceOutput(surface.id))).unwrap();
+        events
+            .send(AppEvent::Input(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: content.x + 4,
+                row: content.y + 2,
+                modifiers: KeyModifiers::NONE,
+            })))
+            .unwrap();
+        events.send(AppEvent::Input(Event::FocusLost)).unwrap();
+        drop(events);
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+
+        app.event_loop(&mut terminal, receiver).unwrap();
+
+        assert!(
+            app.drag.is_none(),
+            "focus loss must not allow an earlier retained PTY press to start a new drag"
+        );
+        assert!(app.deferred_input.is_empty());
+        assert!(app.pending_pointer_motion.is_none());
+        mux.close_surface(surface.id);
+    }
+
+    #[test]
+    fn routine_paint_and_draw_do_not_defer_key_or_paste_input() {
+        let mux = Mux::new("paint-key-latency-test", SurfaceOptions::default());
+        let mut paint_app = test_app(Session::Local(mux));
+        paint_app.prompt = Some(Prompt::new("Rename", String::new(), PromptTarget::Surface(77)));
+
+        assert_eq!(
+            paint_app.handle(AppEvent::Mux(MuxEvent::SurfaceOutput(77))).unwrap(),
+            RenderAction::Paint
+        );
+        paint_app
+            .handle(AppEvent::Input(Event::Key(KeyEvent::new(
+                KeyCode::Char('k'),
+                KeyModifiers::NONE,
+            ))))
+            .unwrap();
+
+        assert_eq!(paint_app.prompt.as_ref().unwrap().input.as_str(), "k");
+        assert!(
+            paint_app.deferred_input.is_empty(),
+            "routine Paint must not put key input on the replay queue"
+        );
+
+        let mux = Mux::new("draw-paste-latency-test", SurfaceOptions::default());
+        let mut draw_app = test_app(Session::Local(mux));
+        draw_app.prompt = Some(Prompt::new("Rename", String::new(), PromptTarget::Surface(77)));
+
+        assert_eq!(
+            draw_app.handle(AppEvent::Mux(MuxEvent::Status("notice".to_string()))).unwrap(),
+            RenderAction::Draw
+        );
+        draw_app.handle(AppEvent::Input(Event::Paste("paste".to_string()))).unwrap();
+
+        assert_eq!(draw_app.prompt.as_ref().unwrap().input.as_str(), "paste");
+        assert!(
+            draw_app.deferred_input.is_empty(),
+            "routine Draw must not put paste input on the replay queue"
+        );
+    }
+
+    #[test]
     fn older_replayed_pointer_does_not_erase_newer_retained_motion() {
         let mux = Mux::new("replayed-pointer-motion-order-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
