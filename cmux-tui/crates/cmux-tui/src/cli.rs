@@ -1294,6 +1294,13 @@ impl FlagMap {
 }
 
 fn parse_u64(name: &str, value: &str) -> Result<u64, UsageError> {
+    let is_id =
+        matches!(name, "client" | "pane" | "screen" | "split" | "surface" | "target" | "workspace");
+    if is_id && value.len() > 1 && value.starts_with('0') {
+        return Err(UsageError(format!(
+            "--{name} must be a canonical uint64; short ids are supported only by interactive attach"
+        )));
+    }
     value.parse::<u64>().map_err(|_| UsageError(format!("--{name} must be a uint64")))
 }
 

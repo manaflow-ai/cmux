@@ -5,7 +5,7 @@ use std::sync::mpsc::{RecvError, RecvTimeoutError, TryRecvError};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
-use crate::{MuxEvent, SurfaceId, TreeDeltaKind};
+use crate::{MuxEvent, PaneId, ScreenId, SurfaceId, TreeDelta, TreeDeltaKind, WorkspaceId};
 
 // A subscriber may drain accepted events after crossing this limit, then observes a disconnect.
 const MAX_PENDING_EVENTS: usize = 4_096;
@@ -20,10 +20,17 @@ struct MuxEventSubscriber {
     filter: MuxEventFilter,
 }
 
-#[derive(Clone, Copy)]
 enum MuxEventFilter {
     All,
     AttachedSurface(SurfaceId),
+    SurfaceSession(SurfaceSessionScope),
+}
+
+struct SurfaceSessionScope {
+    surface: SurfaceId,
+    workspace: WorkspaceId,
+    screen: ScreenId,
+    pane: PaneId,
 }
 
 pub struct MuxEventReceiver {
@@ -57,6 +64,21 @@ impl MuxEventBroadcaster {
         self.subscribe_with_filter(MuxEventFilter::AttachedSurface(surface))
     }
 
+    pub fn subscribe_surface_session(
+        &self,
+        surface: SurfaceId,
+        workspace: WorkspaceId,
+        screen: ScreenId,
+        pane: PaneId,
+    ) -> MuxEventReceiver {
+        self.subscribe_with_filter(MuxEventFilter::SurfaceSession(SurfaceSessionScope {
+            surface,
+            workspace,
+            screen,
+            pane,
+        }))
+    }
+
     fn subscribe_with_filter(&self, filter: MuxEventFilter) -> MuxEventReceiver {
         let mailbox = Arc::new(MuxEventMailbox::default());
         self.subscribers
@@ -68,7 +90,7 @@ impl MuxEventBroadcaster {
 
     pub fn emit(&self, event: MuxEvent) {
         let mut subscribers = self.subscribers.lock().unwrap();
-        subscribers.retain(|subscriber| {
+        subscribers.retain_mut(|subscriber| {
             let Some(mailbox) = subscriber.mailbox.upgrade() else { return false };
             !subscriber.filter.accepts(&event) || mailbox.push(event.clone())
         });
@@ -76,15 +98,68 @@ impl MuxEventBroadcaster {
 }
 
 impl MuxEventFilter {
-    fn accepts(self, event: &MuxEvent) -> bool {
+    fn accepts(&mut self, event: &MuxEvent) -> bool {
         match self {
             Self::All => true,
             Self::AttachedSurface(surface) => match event {
-                MuxEvent::Notification(notification) => notification.surface == Some(surface),
-                MuxEvent::ScrollChanged { surface: event_surface, .. } => *event_surface == surface,
+                MuxEvent::Notification(notification) => notification.surface == Some(*surface),
+                MuxEvent::ScrollChanged { surface: event_surface, .. } => {
+                    *event_surface == *surface
+                }
                 _ => false,
             },
+            Self::SurfaceSession(scope) => scope.accepts(event),
         }
+    }
+}
+
+impl SurfaceSessionScope {
+    fn accepts(&mut self, event: &MuxEvent) -> bool {
+        match event {
+            MuxEvent::SurfaceOutput(surface)
+            | MuxEvent::SurfaceExited(surface)
+            | MuxEvent::Bell(surface) => *surface == self.surface,
+            MuxEvent::SurfaceResized { surface, .. }
+            | MuxEvent::SurfaceResizeFailed { surface, .. }
+            | MuxEvent::TitleChanged { surface, .. }
+            | MuxEvent::ScrollChanged { surface, .. } => *surface == self.surface,
+            MuxEvent::Notification(notification) => {
+                notification.surface.is_none_or(|surface| surface == self.surface)
+            }
+            MuxEvent::TreeDelta(delta) => self.accepts_tree_delta(delta),
+            MuxEvent::LayoutChanged(screen) => *screen == self.screen,
+            MuxEvent::ClientAttached { .. }
+            | MuxEvent::ClientChanged { .. }
+            | MuxEvent::ClientDetached(_)
+            | MuxEvent::ClientListInvalidated
+            | MuxEvent::TreeSelectionChanged => false,
+            MuxEvent::TreeChanged
+            | MuxEvent::Status(_)
+            | MuxEvent::ConfigReloadRequested
+            | MuxEvent::WindowTitleRequested(_)
+            | MuxEvent::FrontendProjectionChanged { .. }
+            | MuxEvent::TerminalRegistryChanged { .. }
+            | MuxEvent::PairingRequested(_)
+            | MuxEvent::PairingResolved { .. }
+            | MuxEvent::Empty => true,
+        }
+    }
+
+    fn accepts_tree_delta(&mut self, delta: &TreeDelta) -> bool {
+        let relevant = delta.surface == Some(self.surface)
+            || delta.pane == Some(self.pane)
+            || delta.screen == Some(self.screen)
+            || delta.workspace == self.workspace;
+        if delta.surface == Some(self.surface) && delta.kind == TreeDeltaKind::TabAdded {
+            self.workspace = delta.workspace;
+            if let Some(screen) = delta.screen {
+                self.screen = screen;
+            }
+            if let Some(pane) = delta.pane {
+                self.pane = pane;
+            }
+        }
+        relevant
     }
 }
 
@@ -434,6 +509,53 @@ mod tests {
             MuxEvent::ScrollChanged { surface: 7, offset: 42, at_bottom: false }
         ));
         assert!(!events.overflowed());
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn surface_session_subscription_filters_unrelated_hot_events_before_bounded_mailbox() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let events = broadcaster.subscribe_surface_session(7, 1, 2, 3);
+
+        for index in 0..=MAX_PENDING_EVENTS {
+            broadcaster.emit(MuxEvent::Bell(8));
+            broadcaster.emit(MuxEvent::SurfaceOutput(8));
+            broadcaster.emit(MuxEvent::LayoutChanged(9));
+            broadcaster.emit(MuxEvent::TitleChanged {
+                surface: 8,
+                title: Arc::from(format!("unrelated-{index}")),
+            });
+        }
+        broadcaster.emit(MuxEvent::LayoutChanged(2));
+        broadcaster.emit(MuxEvent::SurfaceOutput(7));
+
+        assert!(matches!(events.recv().unwrap(), MuxEvent::LayoutChanged(2)));
+        assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceOutput(7)));
+        assert!(!events.overflowed());
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn surface_session_subscription_tracks_the_target_tab_path_after_a_move() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let events = broadcaster.subscribe_surface_session(7, 1, 2, 3);
+        let moved = TreeDelta {
+            kind: TreeDeltaKind::TabAdded,
+            workspace: 10,
+            screen: Some(20),
+            pane: Some(30),
+            surface: Some(7),
+            index: Some(0),
+            entity: serde_json::json!({}),
+            workspace_revision: None,
+        };
+
+        broadcaster.emit(MuxEvent::TreeDelta(moved));
+        broadcaster.emit(MuxEvent::LayoutChanged(2));
+        broadcaster.emit(MuxEvent::LayoutChanged(20));
+
+        assert!(matches!(events.recv().unwrap(), MuxEvent::TreeDelta(_)));
+        assert!(matches!(events.recv().unwrap(), MuxEvent::LayoutChanged(20)));
         assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
     }
 

@@ -1956,6 +1956,15 @@ impl Mux {
         self.subscribers.subscribe_attached_surface(surface)
     }
 
+    pub fn subscribe_surface_session(&self, surface: SurfaceId) -> Option<MuxEventReceiver> {
+        let state = self.state.lock().unwrap();
+        let pane = state.pane_of(surface)?;
+        let (workspace_index, screen_index) = state.screen_of(pane)?;
+        let workspace = state.workspaces.get(workspace_index)?;
+        let screen = workspace.screens.get(screen_index)?;
+        Some(self.subscribers.subscribe_surface_session(surface, workspace.id, screen.id, pane))
+    }
+
     pub fn emit(&self, event: MuxEvent) {
         self.subscribers.emit(event);
     }

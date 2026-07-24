@@ -756,7 +756,11 @@ fn run_attach(args: Args) -> anyhow::Result<()> {
     let socket_path =
         args.socket.unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
     let config = config::load();
-    let remote = RemoteSession::connect(&socket_path)?;
+    let remote = if args.surface.is_some() {
+        RemoteSession::connect_for_surface_attach(&socket_path)?
+    } else {
+        RemoteSession::connect(&socket_path)?
+    };
     let surface_only = if let Some(reference) = args.surface.as_deref() {
         let tree = remote.refresh_tree()?;
         let messages = &localization::catalog().attach;
@@ -768,7 +772,14 @@ fn run_attach(args: Args) -> anyhow::Result<()> {
         if tab.kind != SurfaceKind::Pty {
             anyhow::bail!(messages.browser_not_terminal(reference));
         }
-        remote.scope_events_to_surface(surface);
+        if !remote.supports_surface_subscription_filter() {
+            anyhow::bail!(messages.filtered_subscription_unavailable);
+        }
+        remote.scope_events_to_surface(surface)?;
+        let tree = remote.refresh_tree()?;
+        if tree.surface(surface).is_none() {
+            anyhow::bail!(messages.unknown_terminal(reference));
+        }
         Some(surface)
     } else {
         None

@@ -41,6 +41,7 @@ pub(crate) struct ShortcutMessages {
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct AttachMessages {
+    pub filtered_subscription_unavailable: &'static str,
     unknown_terminal_prefix: &'static str,
     unknown_terminal_suffix: &'static str,
     ambiguous_terminal_prefix: &'static str,
@@ -215,6 +216,7 @@ static ENGLISH: Catalog = Catalog {
         footer: "↑/↓ or wheel scroll · Esc or ? close",
     },
     attach: AttachMessages {
+        filtered_subscription_unavailable: "single-terminal attach requires a newer cmux-tui server; restart the session",
         unknown_terminal_prefix: "unknown terminal ",
         unknown_terminal_suffix: "; use `cmux-tui ids` to list surfaces",
         ambiguous_terminal_prefix: "ambiguous terminal reference ",
@@ -318,6 +320,7 @@ static JAPANESE: Catalog = Catalog {
         footer: "↑/↓ またはホイールでスクロール · Esc または ? で閉じる",
     },
     attach: AttachMessages {
+        filtered_subscription_unavailable: "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください",
         unknown_terminal_prefix: "ターミナル ",
         unknown_terminal_suffix: " が見つかりません。`cmux-tui ids` でサーフェス一覧を確認してください",
         ambiguous_terminal_prefix: "ターミナル参照 ",
@@ -429,6 +432,10 @@ mod tests {
         assert_eq!(JAPANESE.shortcuts.title, "キーボードショートカット");
         assert_eq!(ENGLISH.shortcuts.close_button, "Esc close");
         assert_eq!(JAPANESE.shortcuts.close_button, "Esc 閉じる");
+        assert_eq!(
+            JAPANESE.attach.filtered_subscription_unavailable,
+            "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください"
+        );
         assert_eq!(
             ENGLISH.attach.unknown_terminal("missing"),
             "unknown terminal \"missing\"; use `cmux-tui ids` to list surfaces"

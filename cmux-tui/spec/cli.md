@@ -68,7 +68,7 @@ Future commands may opt into stdin only when their command block says so. By def
 
 ### Id Arguments
 
-Protocol v5 CLI arguments for ids are numeric. Protocol v6 accepts numeric ids and short ids for any `IdRef` parameter. Canonical decimal strings resolve as numeric ids. Six-character strings beginning with zero use the fixed-width short-id namespace. Other digit-only strings with leading zeroes are rejected, so reference meaning cannot change when live ids change.
+Generated command verbs accept canonical decimal ids. They reject leading-zero values instead of interpreting a copied short id as a different numeric object. Interactive `attach --surface` also accepts exact six-character short ids; digit-only short ids beginning with zero stay in that fixed-width namespace, so their meaning cannot change when live ids change.
 
 ### Selector Arguments
 
