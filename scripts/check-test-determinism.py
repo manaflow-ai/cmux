@@ -194,20 +194,20 @@ _DURATION_COMPARE = re.compile(
 # resolving those correctly requires compiler semantics.
 _SWIFT_SLEEP_CALL = re.compile(
     r"""(?x)
-    (?<![.\w])sleep\s*\(                  # unqualified POSIX sleep(...)
-  | (?<![.\w])usleep\s*\(
-  | (?<![.\w])nanosleep\s*\(
-  | (?<![.\w])(?:Darwin|Glibc)\.(?:sleep|usleep|nanosleep)\s*\(
-  | (?<![.\w])(?:Foundation\.)?Thread\.sleep\s*\(
-  | (?<![.\w])Task(?:\s*<[^>\n]+>)?\s*\.sleep\s*\(
+    (?<![.$\w])sleep\s*\(                  # unqualified POSIX sleep(...)
+  | (?<![.$\w])usleep\s*\(
+  | (?<![.$\w])nanosleep\s*\(
+  | (?<![.$\w])(?:Darwin|Glibc)\.(?:sleep|usleep|nanosleep)\s*\(
+  | (?<![.$\w])(?:Foundation\.)?Thread\.sleep\s*\(
+  | (?<![.$\w])Task(?:\s*<[^>\n]+>)?\s*\.sleep\s*\(
     """
 )
 _PYTHON_SLEEP_MODULES = frozenset(("time", "asyncio", "trio", "anyio", "gevent"))
 _JS_SLEEP_CALL = re.compile(
     r"""(?x)
-    (?<![.\w])Bun\.sleep\s*\(
-  | (?<![.\w])(?:global|globalThis|self|window)\.setTimeout\s*\(
-  | (?<![.\w])setTimeout\s*\(
+    (?<![.$\w])Bun\.sleep\s*\(
+  | (?<![.$\w])(?:global|globalThis|self|window)\.setTimeout\s*\(
+  | (?<![.$\w])setTimeout\s*\(
     """
 )
 _JS_SUFFIXES = (".ts", ".tsx", ".js", ".mjs")
@@ -243,7 +243,7 @@ _SHELL_BARE_SLEEP = re.compile(
       | \b(?:if|elif|while|until|then|do|else)\b
       | (?<!\S)!
     )
-    \s* sleep (?=\s|$)
+    \s* (?:time(?:\s+-p)?\s+)? sleep (?=\s|$)
   | ^\s* [^;&|()]+ (?:\|[^;&|()]+)* \) \s* sleep (?=\s|$)
     """
 )
@@ -504,7 +504,7 @@ def _swift_real_sleep_positions(
         sleep_offset = match.start() + match.group().rfind("sleep")
         record(sleep_offset)
 
-    for task in re.finditer(r"(?<![.\w])Task\b", text):
+    for task in re.finditer(r"(?<![.$\w])Task\b", text):
         cursor = task.end()
         while cursor < len(text) and text[cursor].isspace():
             cursor += 1
@@ -1181,8 +1181,121 @@ def _mask_shell_heredoc_expansions(
     return "".join(masked)
 
 
+@dataclass
+class _SwiftStringFrame:
+    hash_count: int
+    quote_length: int
+
+
+@dataclass
+class _SwiftInterpolationFrame:
+    depth: int = 1
+
+
+def _swift_string_start(
+    line: str,
+    index: int,
+) -> Optional[tuple[int, int]]:
+    cursor = index
+    while cursor < len(line) and line[cursor] == "#":
+        cursor += 1
+    hash_count = cursor - index
+    if hash_count == 0 and (cursor >= len(line) or line[cursor] != '"'):
+        return None
+    if hash_count > 0 and (cursor >= len(line) or line[cursor] != '"'):
+        return None
+    quote_length = 3 if line.startswith('"""', cursor) else 1
+    return hash_count, quote_length
+
+
+def _mask_swift_noncode(lines: list[str]) -> list[str]:
+    """Mask Swift comments/strings while exposing interpolation expressions."""
+    masked_lines: list[str] = []
+    contexts: list[object] = []
+    block_comment_depth = 0
+
+    for line in lines:
+        masked = [" "] * len(line)
+        index = 0
+        while index < len(line):
+            if block_comment_depth:
+                marker = _BLOCK_COMMENT_MARKER.search(line, index)
+                if marker is None:
+                    break
+                if marker.group() == "/*":
+                    block_comment_depth += 1
+                else:
+                    block_comment_depth -= 1
+                index = marker.end()
+                continue
+
+            context = contexts[-1] if contexts else None
+            if isinstance(context, _SwiftStringFrame):
+                hashes = "#" * context.hash_count
+                interpolation = "\\" + hashes + "("
+                if line.startswith(interpolation, index):
+                    contexts.append(_SwiftInterpolationFrame())
+                    index += len(interpolation)
+                    continue
+
+                escape = "\\" + hashes
+                if line.startswith(escape, index):
+                    escaped_index = index + len(escape)
+                    quotes = '"' * context.quote_length
+                    if line.startswith(quotes, escaped_index):
+                        index = escaped_index + context.quote_length
+                    else:
+                        index = min(len(line), escaped_index + 1)
+                    continue
+
+                delimiter = '"' * context.quote_length + hashes
+                if line.startswith(delimiter, index):
+                    contexts.pop()
+                    index += len(delimiter)
+                    continue
+                index += 1
+                continue
+
+            if line.startswith("//", index):
+                break
+            if line.startswith("/*", index):
+                block_comment_depth = 1
+                index += 2
+                continue
+
+            string_start = _swift_string_start(line, index)
+            if string_start is not None:
+                hash_count, quote_length = string_start
+                contexts.append(_SwiftStringFrame(hash_count, quote_length))
+                index += hash_count + quote_length
+                continue
+
+            interpolation = (
+                context
+                if isinstance(context, _SwiftInterpolationFrame)
+                else None
+            )
+            char = line[index]
+            masked[index] = char
+            if interpolation is not None:
+                if char == "(":
+                    interpolation.depth += 1
+                elif char == ")":
+                    interpolation.depth -= 1
+                    if interpolation.depth == 0:
+                        contexts.pop()
+            index += 1
+
+        masked_lines.append("".join(masked))
+
+    return masked_lines
+
+
 def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
     """Replace quoted strings and comments while preserving line positions."""
+    if path_suffix == ".swift":
+        return _mask_swift_noncode(lines)
+
     masked_lines: list[str] = []
     quote: Optional[str] = None
     block_comment_depth = 0
