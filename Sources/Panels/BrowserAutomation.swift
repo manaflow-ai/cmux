@@ -70,6 +70,7 @@ enum BrowserImportAutomationError: LocalizedError, CustomStringConvertible {
 enum BrowserProfileAutomationError: LocalizedError, CustomStringConvertible {
     case missingName
     case missingProfile
+    case invalidProfileSelector
     case profileNotFound(String)
     case ambiguousProfile(String, [BrowserProfileDefinition])
     case profileCreationFailed(String)
@@ -90,6 +91,11 @@ enum BrowserProfileAutomationError: LocalizedError, CustomStringConvertible {
             return String(
                 localized: "browser.profile.automation.error.missingProfile",
                 defaultValue: "Missing browser profile"
+            )
+        case .invalidProfileSelector:
+            return String(
+                localized: "browser.profile.automation.error.invalidProfileSelector",
+                defaultValue: "Browser profile must be a non-empty name or UUID"
             )
         case .profileNotFound(let query):
             return String.localizedStringWithFormat(

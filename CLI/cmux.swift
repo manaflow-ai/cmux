@@ -13398,6 +13398,19 @@ struct CMUXCLI {
             let (windowOpt, argsAfterWindow) = parseOption(argsAfterWorkspace, name: "--window")
             let (focusOpt, argsAfterFocus) = parseOption(argsAfterWindow, name: "--focus")
             let (profileOpt, urlArgs) = parseOption(argsAfterFocus, name: "--profile")
+            let profileSelector: String?
+            if let profileOpt {
+                let selector = profileOpt.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !selector.isEmpty else {
+                    throw CLIError(message: String(
+                        localized: "cli.browser.profile.error.emptySelector",
+                        defaultValue: "--profile requires a non-empty profile name or UUID"
+                    ))
+                }
+                profileSelector = selector
+            } else {
+                profileSelector = nil
+            }
             // Reject unrecognized flags instead of folding them into the URL, where they
             // would silently produce an unparseable URL (blank page) or a search query.
             if let strayFlag = urlArgs.first(where: { $0.hasPrefix("--") }) {
@@ -13418,6 +13431,12 @@ struct CMUXCLI {
 
             if surfaceRaw != nil, subcommand == "open" {
                 // Treat `browser <surface> open <url>` as navigate for agent-browser ergonomics.
+                guard profileSelector == nil else {
+                    throw CLIError(message: String(
+                        localized: "cli.browser.profile.error.navigateUnsupported",
+                        defaultValue: "--profile is only supported when browser open creates a new pane; omit the surface selector"
+                    ))
+                }
                 let sid = try requireSurface()
                 guard !url.isEmpty else {
                     throw CLIError(message: "browser <surface> open requires a URL")
@@ -13434,15 +13453,8 @@ struct CMUXCLI {
             if !url.isEmpty {
                 params["url"] = url
             }
-            if let profileOpt {
-                let selector = profileOpt.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !selector.isEmpty else {
-                    throw CLIError(message: String(
-                        localized: "cli.browser.profile.error.emptySelector",
-                        defaultValue: "--profile requires a non-empty profile name or UUID"
-                    ))
-                }
-                params["profile"] = selector
+            if let profileSelector {
+                params["profile"] = profileSelector
             }
             if let sourceSurface = try normalizeSurfaceHandle(surfaceRaw, client: client) {
                 params["surface_id"] = sourceSurface

@@ -29304,6 +29304,23 @@
         }
       }
     },
+    "browser.profile.automation.error.invalidProfileSelector": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser profile must be a non-empty name or UUID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザープロファイルには空でない名前または UUID を指定してください"
+          }
+        }
+      }
+    },
     "browser.profile.automation.error.missingName": {
       "extractionState": "manual",
       "localizations": {
@@ -32628,6 +32645,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "--profile には空でないプロファイル名または UUID が必要です"
+          }
+        }
+      }
+    },
+    "cli.browser.profile.error.navigateUnsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--profile is only supported when browser open creates a new pane; omit the surface selector"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--profile は browser open が新しいペインを作成する場合にのみ使用できます。サーフェスセレクターを省略してください"
           }
         }
       }

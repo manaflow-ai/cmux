@@ -168,7 +168,13 @@ extension TerminalController: ControlPaneContext {
         }
 
         let preferredBrowserProfileID: UUID?
-        if panelType == .browser, let selector = inputs.profileRaw {
+        if panelType == .browser, inputs.hasInvalidProfileParam {
+            return .invalidBrowserProfile(
+                selector: inputs.profileRaw ?? "",
+                message: BrowserProfileAutomationError.invalidProfileSelector.description,
+                candidates: []
+            )
+        } else if panelType == .browser, let selector = inputs.profileRaw {
             switch BrowserProfileStore.shared.resolveProfileSelection(selector) {
             case .matched(let profile):
                 preferredBrowserProfileID = profile.id

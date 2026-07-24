@@ -6514,6 +6514,17 @@ class TerminalController {
             return error
         }
 
+        let profileKeys = ["profile", "profile_id", "profile_name"]
+        if let invalidProfileKey = profileKeys.first(where: {
+            v2HasNonNullParam(params, $0) && v2String(params, $0) == nil
+        }) {
+            return .err(
+                code: "invalid_params",
+                message: BrowserProfileAutomationError.invalidProfileSelector.description,
+                data: ["profile_parameter": invalidProfileKey]
+            )
+        }
+
         let preferredProfileID: UUID?
         if let selector = v2String(params, "profile")
             ?? v2String(params, "profile_id")

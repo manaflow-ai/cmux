@@ -123,6 +123,36 @@ struct BrowserProfileSocketTests {
         #expect((unknownError["message"] as? String)?.contains(unknownSelector) == true)
         #expect((unknownError["data"] as? [String: Any])?["profile"] as? String == unknownSelector)
 
+        let malformedOpenResponse = try call(
+            method: "browser.open_split",
+            params: [
+                "workspace_id": fallbackWorkspace.id.uuidString,
+                "surface_id": fallbackSourceID.uuidString,
+                "profile": "   ",
+            ]
+        )
+        let malformedOpenError = try errorPayload(malformedOpenResponse)
+        #expect(malformedOpenError["code"] as? String == "invalid_params")
+        #expect((malformedOpenError["message"] as? String)?.contains("non-empty") == true)
+        #expect(
+            (malformedOpenError["data"] as? [String: Any])?["profile_parameter"] as? String
+                == "profile"
+        )
+
+        let malformedPaneResponse = try call(
+            method: "pane.create",
+            params: [
+                "workspace_id": fallbackWorkspace.id.uuidString,
+                "surface_id": fallbackSourceID.uuidString,
+                "direction": "right",
+                "type": "browser",
+                "profile_name": 123,
+            ]
+        )
+        let malformedPaneError = try errorPayload(malformedPaneResponse)
+        #expect(malformedPaneError["code"] as? String == "invalid_params")
+        #expect((malformedPaneError["message"] as? String)?.contains("non-empty") == true)
+
         let ambiguousResponse = try call(
             method: "pane.create",
             params: [

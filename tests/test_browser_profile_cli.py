@@ -98,6 +98,32 @@ def run_cli(cli: str, socket_path: str, arguments: list[str]) -> str:
     return result.stdout.strip()
 
 
+def assert_cli_fails(
+    cli: str,
+    socket_path: str,
+    arguments: list[str],
+    expected_message: str,
+) -> None:
+    environment = dict(os.environ)
+    for key in ["CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID"]:
+        environment.pop(key, None)
+    result = subprocess.run(
+        [cli, "--socket", socket_path, *arguments],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=environment,
+        timeout=5,
+    )
+    if result.returncode == 0:
+        raise AssertionError(f"CLI unexpectedly succeeded ({' '.join(arguments)})")
+    output = f"{result.stdout}\n{result.stderr}"
+    if expected_message not in output:
+        raise AssertionError(
+            f"expected failure containing {expected_message!r}, got {output!r}"
+        )
+
+
 def assert_last_call(
     state: FakeCmuxState,
     expected_method: str,
@@ -153,6 +179,23 @@ def main() -> int:
 
             run_cli(cli, socket_path, ["browser", "open", "https://example.com"])
             assert_last_call(state, "browser.open_split", None)
+
+            calls_before_rejected_open = len(state.calls)
+            assert_cli_fails(
+                cli,
+                socket_path,
+                [
+                    "browser",
+                    "surface:1",
+                    "open",
+                    "https://example.com",
+                    "--profile",
+                    "Work Profile",
+                ],
+                "--profile is only supported when browser open creates a new pane",
+            )
+            if len(state.calls) != calls_before_rejected_open:
+                raise AssertionError("surface-qualified browser open sent an ignored profile")
 
             profiles = run_cli(cli, socket_path, ["browser", "profiles"])
             if "Work Profile" not in profiles or PROFILE_ID not in profiles:
