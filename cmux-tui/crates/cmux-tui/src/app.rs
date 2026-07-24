@@ -2877,7 +2877,7 @@ enum Drag {
     /// Text selection inside a pane's content rect.
     Select { content: Rect, auto_scroll: Option<i8>, col: u16 },
     /// Browser mouse drag inside a pane's content rect.
-    Browser { surface: SurfaceId, content: Rect },
+    Browser { surface: SurfaceId, content: Rect, position: (u16, u16) },
     /// Mouse reporting owned by the PTY application in this pane.
     PtyMouse {
         surface: SurfaceId,
@@ -3004,6 +3004,12 @@ enum PointerRouteIdentity {
         column: u16,
         row: u16,
     },
+    Rail {
+        kind: RailKind,
+        rect: Rect,
+        column: u16,
+        row: u16,
+    },
     Hit {
         rect: Rect,
         hit: Hit,
@@ -3024,6 +3030,8 @@ struct RenderedPointerFrame {
     menu: Option<Vec<RenderedMenuLevel>>,
     omnibar: Option<(PaneId, SurfaceId)>,
     sidebar_plugin: Option<Rect>,
+    machine_rail: Option<Rect>,
+    workspace_rail: Option<Rect>,
     hits: Vec<(Rect, Hit)>,
     panes: Vec<RenderedPaneRoute>,
 }
@@ -3114,6 +3122,18 @@ impl RenderedPointerFrame {
                 column: x.saturating_sub(rect.x),
                 row: y.saturating_sub(rect.y),
             };
+        }
+        for (kind, rect) in
+            [(RailKind::Machine, self.machine_rail), (RailKind::Workspace, self.workspace_rail)]
+        {
+            if let Some(rect) = rect.filter(|rect| rect.contains(x, y)) {
+                return PointerRouteIdentity::Rail {
+                    kind,
+                    rect,
+                    column: x.saturating_sub(rect.x),
+                    row: y.saturating_sub(rect.y),
+                };
+            }
         }
         if let Some(pane) = self.panes.iter().find(|pane| pane.rect.contains(x, y)) {
             let region = if pane.content.contains(x, y) {
@@ -4375,7 +4395,7 @@ pub fn run_with_machine_updates(
 
     if let Err(error) = app.restart_machine_updates() {
         app.shutdown_background_workers();
-        app.cancel_pty_mouse_drag();
+        app.cancel_pointer_interaction();
         app.session.begin_shutdown();
         let _ = app.pty_input.shutdown(Duration::from_secs(3));
         if let Some(writer) = app.graphics_writer.as_mut() {
@@ -4388,7 +4408,7 @@ pub fn run_with_machine_updates(
 
     let result = app.event_loop(&mut terminal, rx);
     app.shutdown_background_workers();
-    app.cancel_pty_mouse_drag();
+    app.cancel_pointer_interaction();
     app.session.begin_shutdown();
     let _ = app.pty_input.shutdown(Duration::from_secs(3));
     if let Some(writer) = app.graphics_writer.as_mut() {
@@ -4570,6 +4590,10 @@ impl App {
                 }
                 Err(RecvTimeoutError::Disconnected) => break,
             };
+            // Timeout work can mutate hit-tested state without entering
+            // `handle`. Publish its pending render boundary before draining
+            // pointer input that arrived concurrently with the timeout.
+            self.mark_pointer_route_for_rebuild(action);
             #[cfg(test)]
             if first.is_none()
                 && let Some(hook) = self.timeout_drain_hook.take()
@@ -4579,12 +4603,14 @@ impl App {
             if let Some(event) = first {
                 action = action.merge(self.handle(event)?);
                 action = action.merge(self.process_machine_requests());
+                self.mark_pointer_route_for_rebuild(action);
             }
             for _ in 0..256 {
                 match rx.try_recv() {
                     Ok(event) => {
                         action = action.merge(self.handle(event)?);
                         action = action.merge(self.process_machine_requests());
+                        self.mark_pointer_route_for_rebuild(action);
                     }
                     Err(_) => break,
                 }
@@ -5112,6 +5138,8 @@ impl App {
         let omnibar = self.omnibar.as_ref().map(|state| (state.pane, state.surface));
         let sidebar_plugin = (self.config.sidebar.plugin.is_some() && self.sidebar_visible)
             .then(|| self.sidebar_plugin_rect());
+        let machine_rail = self.sidebar_layout.machine;
+        let workspace_rail = self.sidebar_layout.workspace;
         let panes = self
             .pane_areas
             .iter()
@@ -5133,9 +5161,16 @@ impl App {
             menu,
             omnibar,
             sidebar_plugin,
+            machine_rail,
+            workspace_rail,
             hits: self.hits.clone(),
             panes,
         };
+    }
+
+    fn pairing_identity_matches_rendered_frame(&self) -> bool {
+        self.pairing_dialog.as_ref().map(|dialog| dialog.challenge.id)
+            == self.rendered_pointer_frame.pairing.as_ref().map(|pairing| pairing.0)
     }
 
     fn replay_can_continue_immediately(&self, disposition: DeferredReplayDisposition) -> bool {
@@ -6075,6 +6110,14 @@ impl App {
             AppEvent::SessionScoped { .. } => return Ok(RenderAction::None),
             event => event,
         };
+        if matches!(&event, AppEvent::Input(Event::Key(_) | Event::Paste(_)))
+            && !self.pairing_identity_matches_rendered_frame()
+        {
+            // Pairing approval is a trusted action. Input captured before the
+            // current pairing identity was visible must never approve it or
+            // reach UI that is still covered by a resolved dialog.
+            return Ok(RenderAction::None);
+        }
         if let AppEvent::Input(Event::Paste(text)) = &event
             && deferred_paste_bytes(text) > MAX_DEFERRED_INPUT_BYTES
         {
@@ -6310,6 +6353,7 @@ impl App {
                     || self.pairing_queue.iter().any(|queued| queued.id == challenge.id);
                 if !duplicate {
                     if self.pairing_dialog.is_none() {
+                        self.cancel_pointer_interaction();
                         self.pairing_dialog = Some(PairingDialog::new(challenge));
                     } else {
                         self.pairing_queue.push_back(challenge);
@@ -6321,6 +6365,7 @@ impl App {
                 self.pairing_queue.retain(|challenge| challenge.id != request);
                 if self.pairing_dialog.as_ref().is_some_and(|dialog| dialog.challenge.id == request)
                 {
+                    self.cancel_pointer_interaction();
                     self.pairing_dialog = self.pairing_queue.pop_front().map(PairingDialog::new);
                 }
                 Ok(RenderAction::Draw)
@@ -6576,7 +6621,7 @@ impl App {
                 Ok(RenderAction::Draw)
             }
             AppEvent::Input(Event::FocusLost) => {
-                self.cancel_pty_mouse_drag();
+                self.cancel_pointer_interaction();
                 self.advance_pointer_focus_generation();
                 Ok(RenderAction::None)
             }
@@ -8061,6 +8106,7 @@ impl App {
     }
 
     fn resolve_pairing(&mut self, approve: bool) {
+        self.cancel_pointer_interaction();
         let Some(dialog) = self.pairing_dialog.take() else { return };
         if let Err(error) = self.session.respond_pairing(dialog.challenge.id, approve) {
             self.status_message = Some(error.to_string());
@@ -9059,6 +9105,28 @@ impl App {
         }) {
             self.pending_pointer_motion = None;
         }
+        if self.pairing_dialog.is_some() {
+            if mouse.kind == MouseEventKind::Moved {
+                let hover_region = |position: Option<(u16, u16)>| {
+                    position.and_then(|(x, y)| {
+                        self.pairing_dialog.as_ref().map(|dialog| {
+                            (dialog.approve.contains(x, y), dialog.deny.contains(x, y))
+                        })
+                    })
+                };
+                let before = hover_region(self.hover);
+                let after = hover_region(Some((mouse.column, mouse.row)));
+                self.sync_pointer_shape(mouse.column, mouse.row);
+                self.hover = Some((mouse.column, mouse.row));
+                return Ok(if before != after { RenderAction::Draw } else { RenderAction::None });
+            }
+            if !matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+                if let MouseEventKind::Up(button) = mouse.kind {
+                    self.active_pointer_buttons.remove(&button);
+                }
+                return Ok(RenderAction::None);
+            }
+        }
         // This TUI tracks one active pointer button. Ignore additional presses
         // until its release so a second button cannot orphan the inner app's
         // pressed state.
@@ -9470,6 +9538,32 @@ impl App {
             reservation_id,
         ));
         self.handle_pty_enqueue_result(result)
+    }
+
+    fn cancel_pointer_interaction(&mut self) {
+        if matches!(self.drag, Some(Drag::PtyMouse { .. })) {
+            self.cancel_pty_mouse_drag();
+        } else if let Some(Drag::Browser { surface, content, position }) = &self.drag {
+            let (surface, content, position) = (*surface, *content, *position);
+            self.drag = None;
+            let x = position.0.clamp(content.x, content.x + content.width.saturating_sub(1));
+            let y = position.1.clamp(content.y, content.y + content.height.saturating_sub(1));
+            self.send_browser_mouse(
+                surface,
+                content,
+                x,
+                y,
+                BrowserMouseDispatch::new("mouseReleased", Some("left"), Some(1)),
+            );
+        } else {
+            let settle_split = matches!(self.drag, Some(Drag::ResizeSplit { .. }));
+            self.drag = None;
+            if settle_split {
+                self.session.settle_split_ratio();
+            }
+        }
+        self.active_pointer_buttons.clear();
+        self.ignored_pty_mouse_buttons.clear();
     }
 
     fn cancel_pty_mouse_drag(&mut self) {
@@ -10290,8 +10384,11 @@ impl App {
                         y,
                         BrowserMouseDispatch::new("mousePressed", Some("left"), Some(1)),
                     );
-                    self.drag =
-                        Some(Drag::Browser { surface: area.surface, content: area.content });
+                    self.drag = Some(Drag::Browser {
+                        surface: area.surface,
+                        content: area.content,
+                        position: (x, y),
+                    });
                 } else if self.begin_pty_mouse_drag(x, y, MouseButton::Left, modifiers)
                     != PtyMousePressResult::NotOwned
                 {
@@ -10373,10 +10470,13 @@ impl App {
                 self.drag = Some(Drag::Select { content, auto_scroll, col: cx - content.x });
                 Ok(RenderAction::Draw)
             }
-            Some(Drag::Browser { surface, content }) => {
+            Some(Drag::Browser { surface, content, .. }) => {
                 let (surface, content) = (*surface, *content);
                 let cx = x.clamp(content.x, content.x + content.width.saturating_sub(1));
                 let cy = y.clamp(content.y, content.y + content.height.saturating_sub(1));
+                if let Some(Drag::Browser { position, .. }) = &mut self.drag {
+                    *position = (cx, cy);
+                }
                 self.send_browser_mouse(
                     surface,
                     content,
@@ -10471,7 +10571,7 @@ impl App {
             }
             return Ok(RenderAction::Draw);
         }
-        if let Some(Drag::Browser { surface, content }) = self.drag {
+        if let Some(Drag::Browser { surface, content, .. }) = self.drag {
             self.drag = None;
             let cx = x.clamp(content.x, content.x + content.width.saturating_sub(1));
             let cy = y.clamp(content.y, content.y + content.height.saturating_sub(1));
@@ -15416,6 +15516,40 @@ mod tests {
     }
 
     #[test]
+    fn deferred_wheel_cannot_retarget_a_new_blank_workspace_rail() {
+        let mux = Mux::new("blank-workspace-rail-pointer-route-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_visible = false;
+        app.sync_layout((100, 10));
+        app.commit_rendered_pointer_frame();
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
+
+        app.sidebar_view = SidebarView::Workspaces;
+        app.sidebar_visible = true;
+        app.sync_layout((100, 10));
+        let rail = app.sidebar_layout.workspace.expect("workspace rail should be pending");
+        app.pointer_route_phase = PointerRoutePhase::DrawPending;
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: rail.x + 1,
+            row: rail.y + rail.height.saturating_sub(2),
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+
+        assert_eq!(app.deferred_input.len(), 1);
+        app.commit_rendered_pointer_frame();
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
+        app.replay_deferred_input().unwrap();
+
+        assert_eq!(
+            app.workspace_rail_scroll, 0,
+            "a wheel event captured outside the old frame must not scroll a newly drawn rail"
+        );
+        assert_eq!(app.workspace_footer_scroll, 0);
+    }
+
+    #[test]
     fn timeout_draw_marks_pointer_route_stale_before_channel_drain() {
         let mux = Mux::new("timeout-pointer-route-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -15504,6 +15638,7 @@ mod tests {
         app.drag = Some(Drag::Browser {
             surface: surface.id,
             content: Rect { x: 2, y: 3, width: 20, height: 8 },
+            position: (5, 5),
         });
 
         app.handle(AppEvent::Input(Event::FocusLost)).unwrap();
@@ -15568,6 +15703,35 @@ mod tests {
             app.prompt.is_none(),
             "the old right-button capture must not activate its menu behind a trusted dialog"
         );
+        assert!(decision.try_recv().is_err());
+    }
+
+    #[test]
+    fn pairing_dialog_captures_live_non_left_pointer_input() {
+        let mux = Mux::new("pairing-live-pointer-capture-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 24))).unwrap();
+        let (challenge, decision) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
+        let (mut app, mutation_events) = test_app_with_events(Session::Local(mux));
+        app.sidebar_visible = false;
+        app.sync_layout((100, 20));
+        while app.session.has_pending_mutations() {
+            app.handle(mutation_events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        let action = app.handle(AppEvent::Mux(MuxEvent::PairingRequested(challenge))).unwrap();
+        app.render_action(&mut terminal, action).unwrap();
+        let content = app.pane_areas[0].content;
+
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Right),
+            column: content.x + 4,
+            row: content.y + 2,
+            modifiers: KeyModifiers::SHIFT,
+        })))
+        .unwrap();
+
+        assert!(app.menu.is_none(), "right-click must not reach panes behind a pairing dialog");
+        assert!(app.active_pointer_buttons.is_empty());
         assert!(decision.try_recv().is_err());
     }
 
@@ -15929,8 +16093,11 @@ mod tests {
             Ok(())
         });
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        app.drag =
-            Some(Drag::Browser { surface: 42, content: Rect { x: 2, y: 3, width: 20, height: 8 } });
+        app.drag = Some(Drag::Browser {
+            surface: 42,
+            content: Rect { x: 2, y: 3, width: 20, height: 8 },
+            position: (5, 5),
+        });
 
         app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
             kind: MouseEventKind::Up(MouseButton::Left),
