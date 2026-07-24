@@ -11239,6 +11239,16 @@ mod tests {
     }
 
     #[test]
+    fn browser_mapping_keeps_character_keys_and_codes_compact() {
+        let (key, code, vk, text) = super::browser_key_mapping(KeyCode::Char('j'), Some('j')).unwrap();
+
+        assert_eq!(key, crate::browser_input::BrowserKey::Character('j'));
+        assert_eq!(code, "KeyJ");
+        assert_eq!(vk, 74);
+        assert_eq!(text, None);
+    }
+
+    #[test]
     fn browser_preserves_meta_on_associated_key_events() {
         let mux = Mux::new("browser-meta-associated-text-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));

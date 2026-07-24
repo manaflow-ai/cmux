@@ -1954,6 +1954,14 @@ mod tests {
     }
 
     #[test]
+    fn ghostty_option_policy_is_explicit_and_fail_closed() {
+        assert_eq!(parse_ghostty_macos_option_as_alt("macos-option-as-alt = false"), Some(false));
+        assert_eq!(parse_ghostty_macos_option_as_alt("macos-option-as-alt = true"), Some(true));
+        assert_eq!(parse_ghostty_macos_option_as_alt("macos-option-as-alt = left"), None);
+        assert_eq!(parse_ghostty_macos_option_as_alt(""), None);
+    }
+
+    #[test]
     fn parses_ghostty_terminal_colors_and_palette_with_later_valid_entry_wins() {
         let defaults = parse_ghostty_defaults(
             "foreground = #010203\n\

@@ -555,6 +555,42 @@ mod tests {
     }
 
     #[test]
+    fn enhanced_text_reuses_the_parser_owned_buffer() {
+        let event = EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT),
+            shifted_key: None,
+            base_layout_key: Some('w'),
+            text: "\u{2211}".to_string(),
+        };
+        let text_ptr = event.text.as_ptr();
+
+        let input = KeyboardInput::from_enhanced(event, true).into_terminal_input().unwrap();
+
+        assert_eq!(input.utf8, "\u{2211}");
+        assert_eq!(input.utf8.as_ptr(), text_ptr);
+        assert!(input.mods.contains(Mods::ALT));
+        assert!(!input.consumed_mods.contains(Mods::ALT));
+    }
+
+    #[test]
+    fn explicit_option_policy_controls_alt_consumption() {
+        let input = |macos_option_as_alt| {
+            KeyboardInput::from_enhanced(
+                EnhancedKeyEvent {
+                    key_event: KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT),
+                    shifted_key: None,
+                    base_layout_key: Some('w'),
+                    text: "\u{2211}".to_string(),
+                },
+                macos_option_as_alt,
+            )
+        };
+
+        assert!(!input(true).has_consumed_alt());
+        assert!(input(false).has_consumed_alt());
+    }
+
+    #[test]
     fn option_generated_text_keeps_associated_text_in_kitty_mode() {
         let event = EnhancedKeyEvent {
             key_event: KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT),
