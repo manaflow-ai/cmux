@@ -1591,6 +1591,7 @@ struct ShortcutStroke: Equatable, Hashable {
 
     func matches(
         event: NSEvent,
+        allowPrintableOptionTextMatch: Bool = false,
         layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
     ) -> Bool {
         let shortcutKey = key.lowercased()
@@ -1603,7 +1604,8 @@ struct ShortcutStroke: Equatable, Hashable {
         }
 
         guard event.type == .keyDown else { return false }
-        if shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
+        if !allowPrintableOptionTextMatch,
+           shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
             return false
         }
 

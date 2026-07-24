@@ -15161,23 +15161,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
-    private func matchConfiguredShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
+    private func matchConfiguredShortcut(
+        event: NSEvent,
+        shortcut: StoredShortcut,
+        allowPrintableOptionTextMatch: Bool = false
+    ) -> Bool {
         guard !shortcut.isUnbound else { return false }
         if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
             guard let secondStroke = shortcut.secondStroke,
                   shortcut.firstStroke == prefix else {
                 return false
             }
-            return matchShortcutStroke(event: event, stroke: secondStroke)
+            return matchShortcutStroke(
+                event: event,
+                stroke: secondStroke,
+                allowPrintableOptionTextMatch: allowPrintableOptionTextMatch
+            )
         }
         guard !shortcut.hasChord else { return false }
-        return matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
+        return matchShortcutStroke(
+            event: event,
+            stroke: shortcut.firstStroke,
+            allowPrintableOptionTextMatch: allowPrintableOptionTextMatch
+        )
     }
 
     func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
         guard matchConfiguredShortcut(
             event: event,
-            shortcut: KeyboardShortcutSettings.shortcut(for: action)
+            shortcut: KeyboardShortcutSettings.shortcut(for: action),
+            allowPrintableOptionTextMatch: action.allowsPrintableOptionTextMatch
         ) else {
             return false
         }
@@ -15303,12 +15316,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> Bool {
         var seen = Set<StoredShortcut>()
         let configuredShortcuts = actions.map {
-            KeyboardShortcutSettings.shortcut(for: $0)
-        } + shortcuts
-        for shortcut in configuredShortcuts {
+            (
+                shortcut: KeyboardShortcutSettings.shortcut(for: $0),
+                allowPrintableOptionTextMatch: $0.allowsPrintableOptionTextMatch
+            )
+        } + shortcuts.map {
+            (shortcut: $0, allowPrintableOptionTextMatch: false)
+        }
+        for candidate in configuredShortcuts {
+            let shortcut = candidate.shortcut
             guard seen.insert(shortcut).inserted else { continue }
             guard shortcut.hasChord else { continue }
-            if matchShortcutStroke(event: event, stroke: shortcut.firstStroke) {
+            if matchShortcutStroke(
+                event: event,
+                stroke: shortcut.firstStroke,
+                allowPrintableOptionTextMatch: candidate.allowPrintableOptionTextMatch
+            ) {
                 pendingConfiguredShortcutChord = PendingConfiguredShortcutChord(
                     firstStroke: shortcut.firstStroke,
                     windowNumber: configuredShortcutChordWindowNumber(for: event)
@@ -15574,8 +15597,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// Match a shortcut stroke against an event, handling normal keys.
-    func matchShortcutStroke(event: NSEvent, stroke: ShortcutStroke) -> Bool {
-        stroke.matches(event: event, layoutCharacterProvider: shortcutLayoutCharacterProvider)
+    func matchShortcutStroke(
+        event: NSEvent,
+        stroke: ShortcutStroke,
+        allowPrintableOptionTextMatch: Bool = false
+    ) -> Bool {
+        stroke.matches(
+            event: event,
+            allowPrintableOptionTextMatch: allowPrintableOptionTextMatch,
+            layoutCharacterProvider: shortcutLayoutCharacterProvider
+        )
     }
 
     private func matchShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
