@@ -423,7 +423,7 @@ cmux_codex_resume_subcommand_index() {
             --)
                 return 1
                 ;;
-            -i|--image)
+            -i|--image|-i?*|--image=*)
                 return 1
                 ;;
         esac

@@ -372,14 +372,18 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
                 index += 2
                 continue
             }
+            // Image options consume one or more values. Even an attached first
+            // value may be followed by another value named `resume`.
+            if argument == "-i"
+                || argument == "--image"
+                || attachedShortOptionValue(argument, option: "i") != nil
+                || argument.hasPrefix("--image=")
+            {
+                return nil
+            }
             if flagOptions.contains(argument) || recognizedInlineOption(argument) {
                 index += 1
                 continue
-            }
-            // `--image` consumes one or more following values, so a later
-            // positional `resume` cannot be identified as a subcommand.
-            if argument == "-i" || argument == "--image" {
-                return nil
             }
             // Unknown options fail closed. Treating a future option as a flag
             // could mistake its value `resume` for the subcommand and inject a
