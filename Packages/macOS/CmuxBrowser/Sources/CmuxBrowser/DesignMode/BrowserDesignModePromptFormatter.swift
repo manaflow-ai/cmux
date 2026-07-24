@@ -24,13 +24,15 @@ public struct BrowserDesignModePromptFormatter: Sendable {
         contextJSONPath: String
     ) -> String {
         let selections = context.snapshot.selections
-        guard !selections.isEmpty, !contextJSONPath.isEmpty else { return "" }
+        let screenshotPaths = context.screenshotPaths.compactMap { $0 }
+        guard !selections.isEmpty,
+              !contextJSONPath.isEmpty,
+              let pageScreenshotPath = context.pageScreenshotPath,
+              !pageScreenshotPath.isEmpty,
+              screenshotPaths.count == selections.count,
+              screenshotPaths.allSatisfy({ !$0.isEmpty }) else { return "" }
 
         let requestedChange = context.requestedChange.trimmingCharacters(in: .whitespacesAndNewlines)
-        let unavailable = String(
-            localized: "browser.designMode.handoff.unavailable",
-            defaultValue: "unavailable"
-        )
         var lines = [
             requestedChange.isEmpty
                 ? String(
@@ -50,20 +52,17 @@ public struct BrowserDesignModePromptFormatter: Sendable {
             ),
             String(
                 localized: "browser.designMode.handoff.pageScreenshot",
-                defaultValue: "Full-page screenshot: \(context.pageScreenshotPath ?? unavailable)"
+                defaultValue: "Full-page screenshot: \(pageScreenshotPath)"
             ),
         ]
 
         for (index, selection) in selections.enumerated() {
-            let screenshotPath = context.screenshotPaths.indices.contains(index)
-                ? context.screenshotPaths[index] ?? unavailable
-                : unavailable
             let tagName = Self.quotedOneLine(selection.tagName)
             let selector = Self.quotedOneLine(selection.selector)
             lines.append(
                 String(
                     localized: "browser.designMode.handoff.selection",
-                    defaultValue: "Selection \(index + 1) (tag: \(tagName), selector: \(selector)): \(screenshotPath)"
+                    defaultValue: "Selection \(index + 1) (tag: \(tagName), selector: \(selector)): \(screenshotPaths[index])"
                 )
             )
         }

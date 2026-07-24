@@ -496,29 +496,23 @@ final class BrowserDesignModeController {
                     screenshotPaths.append(annotationPath)
                     continue
                 }
-                do {
-                    let crop = try BrowserScreenshotCrop.croppedImage(
-                        from: capture.image,
-                        selectionInView: BrowserDesignModeSupport.captureRect(
-                            selection: selection.bounds,
-                            viewport: selection.viewport,
-                            viewBounds: capture.viewBounds
-                        ),
+                let crop = try BrowserScreenshotCrop.croppedImage(
+                    from: capture.image,
+                    selectionInView: BrowserDesignModeSupport.captureRect(
+                        selection: selection.bounds,
+                        viewport: selection.viewport,
                         viewBounds: capture.viewBounds
-                    )
-                    let pngData = try BrowserScreenshotPasteboardWriter.pngData(for: crop)
-                    screenshotPaths.append(try await artifactStore.saveScreenshot(
-                        pngData, surfaceID: surfaceID
-                    ).path)
-                } catch BrowserScreenshotError.invalidSelection {
-                    screenshotPaths.append(nil)
-                }
+                    ),
+                    viewBounds: capture.viewBounds
+                )
+                let pngData = try BrowserScreenshotPasteboardWriter.pngData(for: crop)
+                screenshotPaths.append(try await artifactStore.saveScreenshot(
+                    pngData, surfaceID: surfaceID
+                ).path)
             }
             guard operation == operationRevision else { return }
-            var pageScreenshotPath: String?
-            if let pagePNG = try? BrowserScreenshotPasteboardWriter.pngData(for: capture.image) {
-                pageScreenshotPath = try? await artifactStore.saveScreenshot(pagePNG, surfaceID: surfaceID).path
-            }
+            let pagePNG = try BrowserScreenshotPasteboardWriter.pngData(for: capture.image)
+            let pageScreenshotPath = try await artifactStore.saveScreenshot(pagePNG, surfaceID: surfaceID).path
             guard operation == operationRevision else { return }
             let context = BrowserDesignModePromptContext(
                 pageURL: webView.url?.absoluteString ?? "about:blank",
@@ -531,6 +525,10 @@ final class BrowserDesignModeController {
             let contextJSON = try promptFormatter.contextJSON(for: context)
             let contextJSONPath = try await artifactStore.saveContextJSON(contextJSON, surfaceID: surfaceID).path
             guard operation == operationRevision else { return }
+            let artifactPaths = screenshotPaths.compactMap { $0 } + [pageScreenshotPath, contextJSONPath]
+            guard await artifactStore.artifactsExist(at: artifactPaths) else {
+                throw BrowserDesignModeError.invalidRuntimeResponse
+            }
             let prompt = promptFormatter.format(context, contextJSONPath: contextJSONPath)
             guard !prompt.isEmpty else { throw BrowserDesignModeError.invalidRuntimeResponse }
             guard operation == operationRevision else { return }

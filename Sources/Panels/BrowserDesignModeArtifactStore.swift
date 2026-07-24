@@ -59,7 +59,14 @@ actor BrowserDesignModeArtifactStore {
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         try data.write(to: url, options: .atomic)
         pruneKeepingNewest(limit: Self.fileLimit)
+        guard fileManager.fileExists(atPath: url.path) else {
+            throw CocoaError(.fileNoSuchFile)
+        }
         return url
+    }
+
+    func artifactsExist(at paths: [String]) -> Bool {
+        paths.allSatisfy(fileManager.fileExists(atPath:))
     }
 
     /// Deletes a capture that never became part of authoritative prompt context.
