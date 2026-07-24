@@ -1809,7 +1809,7 @@ impl OrderedSession {
 
     pub fn set_cell_pixel_size(&self, width: u16, height: u16) {
         let ownership = self.surface_resize_ownership.clone();
-        self.enqueue("set cell pixel size", move |session| {
+        self.enqueue_routing("set cell pixel size", move |session| {
             session.set_cell_pixel_size(
                 width,
                 height,
