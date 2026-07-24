@@ -36,7 +36,7 @@ final class ShortcutProbeDelegate: NSObject, NSApplicationDelegate {
 
         window.center()
         window.makeKeyAndOrderFront(nil)
-        _ = NSRunningApplication.current.activate(options: [.activateAllWindows])
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     @objc private func receiveShortcut() {
