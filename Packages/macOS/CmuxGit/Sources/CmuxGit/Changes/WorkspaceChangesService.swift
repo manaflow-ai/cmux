@@ -65,10 +65,17 @@ public struct WorkspaceChangesService: Sendable {
     nonisolated func offCooperativePool<T: Sendable>(
         _ work: @escaping @Sendable () throws -> T
     ) async throws -> T {
-        try await withCheckedThrowingContinuation { continuation in
-            blockingGitQueue.async {
-                continuation.resume(with: Result { try work() })
+        let signal = WorkspaceChangesCancellationSignal()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                blockingGitQueue.async {
+                    continuation.resume(with: Result {
+                        try signal.withCurrentBinding { try work() }
+                    })
+                }
             }
+        } onCancel: {
+            signal.cancel()
         }
     }
 

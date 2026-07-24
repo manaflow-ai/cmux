@@ -101,14 +101,14 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
             _ = process.finish()
             throw error
         }
-        if readResult.wasTruncated || Task.isCancelled {
+        if readResult.wasTruncated || WorkspaceChangesCancellationSignal.isCurrentCancelled {
             process.terminateForBoundedRead()
         }
         let exit = process.finish()
         return (
             exitCode: exit.exitCode,
             wasTruncated: readResult.wasTruncated
-                || Task.isCancelled
+                || WorkspaceChangesCancellationSignal.isCurrentCancelled
                 || exit.timedOut
                 || exit.wasSignaled
         )

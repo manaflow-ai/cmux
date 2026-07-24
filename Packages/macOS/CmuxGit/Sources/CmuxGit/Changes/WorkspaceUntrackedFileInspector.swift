@@ -44,7 +44,7 @@ struct WorkspaceUntrackedFileInspector: Sendable {
         files.reserveCapacity(paths.count)
 
         for path in paths {
-            guard !Task.isCancelled else {
+            guard !WorkspaceChangesCancellationSignal.isCurrentCancelled else {
                 files.append(zeroAdditionFile(
                     path: path,
                     isBinary: true,
@@ -124,7 +124,7 @@ struct WorkspaceUntrackedFileInspector: Sendable {
         var reachedEOF = false
 
         while readByteCount < maximumReadByteCount {
-            guard !Task.isCancelled else { break }
+            guard !WorkspaceChangesCancellationSignal.isCurrentCancelled else { break }
             let remaining = maximumReadByteCount - readByteCount
             let chunk: Data
             do {

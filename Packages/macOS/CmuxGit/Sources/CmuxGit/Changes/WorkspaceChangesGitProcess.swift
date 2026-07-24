@@ -171,7 +171,7 @@ final class WorkspaceChangesGitProcess {
         var buffer = [UInt8](repeating: 0, count: chunkByteCount)
         while true {
             updateProcessGroupLifecycle()
-            if Task.isCancelled {
+            if WorkspaceChangesCancellationSignal.isCurrentCancelled {
                 wasTruncated = true
                 beginTermination(isDeadline: false)
             }

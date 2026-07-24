@@ -250,9 +250,10 @@ extension MobileShellComposite {
         workspaceChangesSummaryDebounceTask?.cancel()
         let taskID = UUID()
         workspaceChangesSummaryDebounceTaskID = taskID
+        let debounceClock = workspaceChangesSchedulingClock
         workspaceChangesSummaryDebounceTask = Task { @MainActor [weak self] in
             // A bounded, cancellable delay is the intended event/list debounce.
-            try? await ContinuousClock().sleep(for: .milliseconds(250))
+            try? await debounceClock.sleep(for: .milliseconds(250))
             guard !Task.isCancelled,
                   let self,
                   self.workspaceChangesSummaryDebounceTaskID == taskID else { return }
@@ -395,7 +396,7 @@ extension MobileShellComposite {
                 ) * 1_000
             ))
             // A bounded, cancellable delay intentionally fires at the earliest cache expiry.
-            try? await ContinuousClock().sleep(
+            try? await self.workspaceChangesSchedulingClock.sleep(
                 for: .milliseconds(delayMilliseconds)
             )
             guard !Task.isCancelled,

@@ -809,6 +809,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// passes). Trailing refreshes only re-arm while events are recent, so an
     /// idle phone cannot hold the Mac in a perpetual 15-second git poll loop.
     @ObservationIgnored var workspaceChangesSummaryLastEventAt: Date?
+    /// Injected clock for the summary debounce and trailing-expiry sleeps so
+    /// tests can drive the 250 ms window and expiry firing deterministically.
+    @ObservationIgnored let workspaceChangesSchedulingClock: any Clock<Duration>
     /// Mobile state sync v2 (docs/mobile-state-sync-v2.md): full-record mirror
     /// of the foreground Mac's workspace/group collections plus its cursor.
     /// Never reset on reconnect; the epoch in every frame invalidates stale
@@ -1065,6 +1068,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         draftStore: (any TerminalDraftStoring)? = nil,
         groupCollapseStore: MobileWorkspaceGroupCollapseStore = MobileWorkspaceGroupCollapseStore(),
         workspaceChangesHintDismissalStore: MobileWorkspaceChangesHintDismissalStore = MobileWorkspaceChangesHintDismissalStore(),
+        workspaceChangesSchedulingClock: any Clock<Duration> = ContinuousClock(),
         taskTemplateStore: (any MobileTaskTemplateStoring)? = nil,
         storedMacReconnectRestoringDeadlineSeconds: Double = 15
     ) {
@@ -1072,6 +1076,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.draftStore = draftStore
         self.groupCollapseStore = groupCollapseStore
         self.workspaceChangesHintDismissalStore = workspaceChangesHintDismissalStore
+        self.workspaceChangesSchedulingClock = workspaceChangesSchedulingClock
         self.taskTemplateStore = taskTemplateStore
         self.storedMacReconnectRestoringDeadlineSeconds = storedMacReconnectRestoringDeadlineSeconds
         self.pairedMacStore = pairedMacStore

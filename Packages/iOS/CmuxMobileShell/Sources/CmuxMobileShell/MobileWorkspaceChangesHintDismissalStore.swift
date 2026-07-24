@@ -1,8 +1,13 @@
 public import Foundation
 
 /// Persists one-time workspace-changes hint dismissal in injected user defaults.
+///
+/// Seen workspace IDs live in one capped FIFO array key so ephemeral agent
+/// workspaces cannot grow the defaults domain without bound; evicting an old
+/// ID merely lets the one-time hint reappear for that workspace.
 public struct MobileWorkspaceChangesHintDismissalStore {
-    private static let keyPrefix = "cmux.mobile.workspaceChangesHint.seen."
+    private static let seenIDsKey = "cmux.mobile.workspaceChangesHint.seenIDs"
+    private static let maximumStoredIDCount = 256
     private let defaults: UserDefaults
 
     /// Creates a dismissal store backed by the supplied defaults domain.
@@ -17,17 +22,24 @@ public struct MobileWorkspaceChangesHintDismissalStore {
     /// - Parameter workspaceID: The Mac-local workspace identifier.
     /// - Returns: `true` after explicit dismissal or the first sheet opening.
     public func isDismissed(workspaceID: String) -> Bool {
-        defaults.bool(forKey: Self.key(for: workspaceID))
+        storedIDs().contains(workspaceID)
     }
 
-    /// Permanently marks the hint as seen for a workspace.
+    /// Marks the hint as seen for a workspace, evicting the oldest stored ID
+    /// beyond the cap.
     ///
     /// - Parameter workspaceID: The Mac-local workspace identifier.
     public func dismiss(workspaceID: String) {
-        defaults.set(true, forKey: Self.key(for: workspaceID))
+        var ids = storedIDs()
+        guard !ids.contains(workspaceID) else { return }
+        ids.append(workspaceID)
+        if ids.count > Self.maximumStoredIDCount {
+            ids.removeFirst(ids.count - Self.maximumStoredIDCount)
+        }
+        defaults.set(ids, forKey: Self.seenIDsKey)
     }
 
-    private static func key(for workspaceID: String) -> String {
-        keyPrefix + workspaceID
+    private func storedIDs() -> [String] {
+        defaults.stringArray(forKey: Self.seenIDsKey) ?? []
     }
 }
