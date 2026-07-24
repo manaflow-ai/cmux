@@ -40,7 +40,8 @@ func numberedAwareStrokesConflict(
     // keystroke can be stored with or without a resolved virtual key code (e.g.
     // recorded vs. hand-written cmux.json), so a full `ShortcutStroke` equality
     // would miss those collisions.
-    return lhs.key == rhs.key && sameModifiers(lhs, rhs)
+    return canonicalConflictKey(lhs.key) == canonicalConflictKey(rhs.key)
+        && sameModifiers(lhs, rhs)
 }
 
 /// Whether two complete shortcut bindings collide under the app runtime's
@@ -100,4 +101,17 @@ private func sameModifiers(_ lhs: ShortcutStroke, _ rhs: ShortcutStroke) -> Bool
         && lhs.shift == rhs.shift
         && lhs.option == rhs.option
         && lhs.control == rhs.control
+}
+
+/// AppKit reports arrow-key events through private-use function-key scalars,
+/// while parsed config and built-in shortcuts use visible arrow glyphs. Treat
+/// both representations as the same physical key during conflict detection.
+private func canonicalConflictKey(_ key: String) -> String {
+    switch key {
+    case "\u{F702}": "←"
+    case "\u{F703}": "→"
+    case "\u{F700}": "↑"
+    case "\u{F701}": "↓"
+    default: key
+    }
 }
