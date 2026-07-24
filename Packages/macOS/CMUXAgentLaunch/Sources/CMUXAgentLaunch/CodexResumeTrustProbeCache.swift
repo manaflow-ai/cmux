@@ -54,9 +54,13 @@ public struct CodexResumeTrustProbeCache: Sendable {
             isDirectory: false
         )
         let shard = Int(key.prefix(2), radix: 16) ?? 0
+        let shardText = String(shard)
+        let paddedShard = String(
+            repeating: "0",
+            count: max(0, 3 - shardText.count)
+        ) + shardText
         let lockURL = directory.appendingPathComponent(
-            "lock-\(Self.zeroPaddedDecimal(shard, width: 3))"
-                + "-of-\(Self.zeroPaddedDecimal(Self.lockShardCount, width: 3))",
+            "lock-\(paddedShard)-of-\(Self.lockShardCount)",
             isDirectory: false
         )
         let lockFD = Darwin.open(
@@ -130,17 +134,6 @@ public struct CodexResumeTrustProbeCache: Sendable {
             encoded.append(digits[Int(byte & 0x0f)])
         }
         return String(decoding: encoded, as: UTF8.self)
-    }
-
-    private static func zeroPaddedDecimal(
-        _ value: Int,
-        width: Int
-    ) -> String {
-        let valueText = String(value)
-        return String(
-            repeating: "0",
-            count: max(0, width - valueText.count)
-        ) + valueText
     }
 
     private func lookup(

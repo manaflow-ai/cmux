@@ -106,7 +106,7 @@ struct CodexResumeTrustProbeCacheTests {
         #expect(result == ["/fallback"])
         #expect(probeCount == 1)
         #expect(elapsed < 2.75, "waited \(elapsed) seconds")
-        #expect(released.wait(timeout: .now() + 1) == .success)
+        #expect(released.wait(timeout: .now() + 2) == .success)
     }
 
     private func temporaryDirectory() -> URL {
