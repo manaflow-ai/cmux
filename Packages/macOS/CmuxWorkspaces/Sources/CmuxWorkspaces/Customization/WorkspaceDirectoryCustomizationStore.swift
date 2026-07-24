@@ -56,18 +56,13 @@ public struct WorkspaceDirectoryCustomizationStore: Sendable {
     ///   - title: The label to persist; blank text clears the label.
     ///   - directory: The workspace root directory.
     public func setCustomTitle(_ title: String?, for directory: String?) {
-        guard let key = directoryKey(for: directory) else { return }
         let normalizedTitle = normalizedValue(title)
-        var customizations = loadCustomizations()
-        let current = customizations[key]
-        setCustomization(
+        updateCustomization(for: directory) { current in
             WorkspaceDirectoryCustomization(
                 customTitle: normalizedTitle,
                 customColor: current?.customColor
-            ),
-            forKey: key,
-            in: &customizations
-        )
+            )
+        }
     }
 
     /// Persists or clears the explicit color for a workspace root.
@@ -76,18 +71,70 @@ public struct WorkspaceDirectoryCustomizationStore: Sendable {
     ///   - color: The color to persist; blank text clears the color.
     ///   - directory: The workspace root directory.
     public func setCustomColor(_ color: String?, for directory: String?) {
-        guard let key = directoryKey(for: directory) else { return }
+        guard let directory else { return }
+        setCustomColor(color, forDirectories: [directory])
+    }
+
+    /// Persists or clears one explicit color across multiple workspace roots.
+    ///
+    /// The directory map is read and written once for the whole user action.
+    ///
+    /// - Parameters:
+    ///   - color: The color to persist; blank text clears the color.
+    ///   - directories: The workspace root directories to update.
+    public func setCustomColor(_ color: String?, forDirectories directories: [String]) {
+        let keys = Set(directories.compactMap { directoryKey(for: $0) })
+        guard !keys.isEmpty else { return }
         let normalizedColor = normalizedValue(color)
-        var customizations = loadCustomizations()
-        let current = customizations[key]
-        setCustomization(
+        updateCustomizations(forKeys: keys) { current in
             WorkspaceDirectoryCustomization(
                 customTitle: current?.customTitle,
                 customColor: normalizedColor
-            ),
-            forKey: key,
-            in: &customizations
-        )
+            )
+        }
+    }
+
+    /// Atomically updates both sticky identity fields for one workspace root.
+    ///
+    /// The transform receives the current value and its result becomes the
+    /// complete record. Returning an empty customization removes the record.
+    ///
+    /// - Parameters:
+    ///   - directory: The workspace root directory.
+    ///   - transform: A synchronous mutation of the current customization.
+    /// - Returns: The normalized stored value, or `nil` when the record was removed.
+    @discardableResult
+    public func updateCustomization(
+        for directory: String?,
+        _ transform: (WorkspaceDirectoryCustomization?) -> WorkspaceDirectoryCustomization
+    ) -> WorkspaceDirectoryCustomization? {
+        guard let key = directoryKey(for: directory) else { return nil }
+        var result: WorkspaceDirectoryCustomization?
+        updateCustomizations(forKeys: [key]) { current in
+            let customization = transform(current)
+            let normalized = WorkspaceDirectoryCustomization(
+                customTitle: normalizedValue(customization.customTitle),
+                customColor: normalizedValue(customization.customColor)
+            )
+            result = normalized.isEmpty ? nil : normalized
+            return normalized
+        }
+        return result
+    }
+
+    private func updateCustomizations(
+        forKeys keys: Set<String>,
+        transform: (WorkspaceDirectoryCustomization?) -> WorkspaceDirectoryCustomization
+    ) {
+        var customizations = loadCustomizations()
+        for key in keys {
+            setCustomization(
+                transform(customizations[key]),
+                forKey: key,
+                in: &customizations
+            )
+        }
+        persist(customizations)
     }
 
     private func normalizedValue(_ value: String?) -> String? {
@@ -105,7 +152,6 @@ public struct WorkspaceDirectoryCustomizationStore: Sendable {
         } else {
             customizations[key] = customization
         }
-        persist(customizations)
     }
 
     private func loadCustomizations() -> [String: WorkspaceDirectoryCustomization] {

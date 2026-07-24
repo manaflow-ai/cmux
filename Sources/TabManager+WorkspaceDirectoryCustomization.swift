@@ -38,25 +38,30 @@ extension TabManager {
             return
         }
         workspace.customizationDirectory = directoryKey
-        let stored = workspaceDirectoryCustomizationStore.customization(for: directoryKey)
 
         let snapshotTitleIsUserOwned = snapshot.customTitle != nil
             && (snapshot.customTitleSource ?? .user) == .user
-        if snapshotTitleIsUserOwned {
-            workspaceDirectoryCustomizationStore.setCustomTitle(
-                workspace.customTitle,
-                for: directoryKey
-            )
-        } else if let storedTitle = stored?.customTitle {
+        let snapshotOverridesStored = snapshotTitleIsUserOwned || snapshot.customColor != nil
+        let resolved = if snapshotOverridesStored {
+            workspaceDirectoryCustomizationStore.updateCustomization(for: directoryKey) { stored in
+                WorkspaceDirectoryCustomization(
+                    customTitle: snapshotTitleIsUserOwned
+                        ? workspace.customTitle
+                        : stored?.customTitle,
+                    customColor: snapshot.customColor != nil
+                        ? workspace.customColor
+                        : stored?.customColor
+                )
+            }
+        } else {
+            workspaceDirectoryCustomizationStore.customization(for: directoryKey)
+        }
+
+        if !snapshotTitleIsUserOwned, let storedTitle = resolved?.customTitle {
             workspace.setCustomTitle(storedTitle)
         }
 
-        if snapshot.customColor != nil {
-            workspaceDirectoryCustomizationStore.setCustomColor(
-                workspace.customColor,
-                for: directoryKey
-            )
-        } else if let storedColor = stored?.customColor {
+        if snapshot.customColor == nil, let storedColor = resolved?.customColor {
             workspace.setCustomColor(storedColor)
         }
     }
@@ -75,11 +80,15 @@ extension TabManager {
         )
     }
 
-    func recordWorkspaceCustomColor(_ workspace: Workspace) {
-        guard let directory = customizationDirectory(for: workspace) else { return }
+    func applyWorkspaceColor(_ color: String?, to workspaces: [Workspace]) {
+        guard !workspaces.isEmpty else { return }
+        for workspace in workspaces {
+            workspace.setCustomColor(color)
+        }
+        let directories = workspaces.compactMap { customizationDirectory(for: $0) }
         workspaceDirectoryCustomizationStore.setCustomColor(
-            workspace.customColor,
-            for: directory
+            workspaces.first?.customColor,
+            forDirectories: directories
         )
     }
 

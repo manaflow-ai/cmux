@@ -322,6 +322,36 @@ struct WorkspaceRecoveryTests {
     }
 
     @Test
+    func batchColorChangesPersistForEveryWorkspaceRoot() throws {
+        let fixture = try makeCustomizationStore()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let store = fixture.store
+        store.setCustomTitle("First", for: "/tmp/batch-first")
+        store.setCustomTitle("Second", for: "/tmp/batch-second")
+
+        let manager = TabManager(
+            initialWorkingDirectory: "/tmp/batch-first",
+            autoWelcomeIfNeeded: false,
+            workspaceDirectoryCustomizationStore: store
+        )
+        let first = try #require(manager.selectedWorkspace)
+        let second = manager.addWorkspace(
+            workingDirectory: "/tmp/batch-second",
+            select: false
+        )
+
+        manager.applyWorkspaceColor(
+            "#123456",
+            toWorkspaceIds: [first.id, second.id]
+        )
+
+        #expect(store.customization(for: "/tmp/batch-first")?.customTitle == "First")
+        #expect(store.customization(for: "/tmp/batch-first")?.customColor == "#123456")
+        #expect(store.customization(for: "/tmp/batch-second")?.customTitle == "Second")
+        #expect(store.customization(for: "/tmp/batch-second")?.customColor == "#123456")
+    }
+
+    @Test
     func sessionRestoreAppliesStickyCustomizationToTheWorkspaceRoot() throws {
         let directory = "/tmp/session-sticky-project"
         let sourceManager = TabManager(
