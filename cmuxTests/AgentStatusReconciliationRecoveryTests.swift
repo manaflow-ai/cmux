@@ -46,7 +46,17 @@ struct AgentStatusReconciliationRecoveryTests {
         let workspace = Workspace()
         let panelID = try #require(workspace.focusedPanelId)
         let firstPID = getpid()
-        let replacementPID = getppid()
+        let replacementProcess = Process()
+        replacementProcess.executableURL = URL(filePath: "/bin/sleep")
+        replacementProcess.arguments = ["30"]
+        try replacementProcess.run()
+        let replacementPID = replacementProcess.processIdentifier
+        defer {
+            if replacementProcess.isRunning {
+                replacementProcess.terminate()
+                replacementProcess.waitUntilExit()
+            }
+        }
         defer { workspace.clearAllAgentPIDs(refreshPorts: false) }
 
         workspace.recordAgentPID(
@@ -150,7 +160,7 @@ struct AgentStatusReconciliationRecoveryTests {
             hookEventName: .permissionRequest,
             source: "codex",
             ppid: Int(remotePID),
-            receivedAt: previousObservedAt.addingTimeInterval(1),
+            receivedAt: Date.now,
             extraFieldsJSON: #"{"_cmux_agent_status_signal":"needsInput","_cmux_agent_status_revision":1,"_cmux_agent_pid_namespace":"remote","_cmux_agent_pid_start_seconds":11,"_cmux_agent_pid_start_microseconds":30}"#
         )))
         workspace.noteAgentStatusHookSignal(replacementGeneration, panelId: panelID)
@@ -162,7 +172,7 @@ struct AgentStatusReconciliationRecoveryTests {
             hookEventName: .preToolUse,
             source: "codex",
             ppid: Int(remotePID),
-            receivedAt: previousObservedAt.addingTimeInterval(2),
+            receivedAt: Date.now,
             extraFieldsJSON: #"{"_cmux_agent_status_signal":"running","_cmux_agent_status_revision":9,"_cmux_agent_pid_namespace":"remote","_cmux_agent_pid_start_seconds":10,"_cmux_agent_pid_start_microseconds":20}"#
         )))
         workspace.noteAgentStatusHookSignal(delayedPreviousGeneration, panelId: panelID)
@@ -336,14 +346,14 @@ struct AgentStatusReconciliationRecoveryTests {
         let stalledSweep = try #require(coordinator.reconcile(
             tabManagers: [manager],
             at: cycleStart,
-            observedAt: now
+            observedAt: running.observedAt
         ))
         while await detector.callCount == 0 { await Task.yield() }
 
         let replacementSweep = coordinator.reconcile(
             tabManagers: [manager],
             at: cycleStart.advanced(by: .seconds(31)),
-            observedAt: now.addingTimeInterval(91)
+            observedAt: running.observedAt.addingTimeInterval(91)
         )
 
         #expect(replacementSweep == nil)
