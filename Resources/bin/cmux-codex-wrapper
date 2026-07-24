@@ -63,10 +63,22 @@ cmux_codex_candidate_is_real() {
     ! cmux_codex_wrapper_is_self_or_shim "$candidate"
 }
 
-# Resolve a candidate's directory and symlink chain without invoking anything
-# from the user's PATH. Returning the physical target also closes the gap where
-# a project-owned PATH entry is a symlink to an executable elsewhere and is
-# swapped between validation and exec.
+# Resolve a candidate's directory without following the final executable
+# symlink. Package-manager entrypoints commonly use a `codex` symlink to
+# `codex.js`; keeping the entrypoint basename lets persisted sessions route back
+# through this wrapper.
+cmux_codex_logical_candidate() {
+    local candidate="$1"
+    local physical_directory
+    physical_directory="$(
+        cd -P "$(dirname "$candidate")" 2>/dev/null && pwd -P
+    )" || return 1
+    printf '%s/%s' "${physical_directory%/}" "$(basename "$candidate")"
+}
+
+# Resolve a candidate's directory and final symlink chain without invoking
+# anything from the user's PATH. The physical target is checked alongside the
+# logical entrypoint so a repository-owned symlink cannot escape validation.
 cmux_codex_physical_candidate() {
     local candidate="$1"
     local target
@@ -130,13 +142,21 @@ cmux_codex_candidate_is_project_controlled() {
 cmux_codex_validated_session_candidate() {
     local candidate="$1"
     shift
+    local logical_candidate
     local physical_candidate
-    physical_candidate="$(cmux_codex_physical_candidate "$candidate")" || return 1
+    logical_candidate="$(cmux_codex_logical_candidate "$candidate")" || return 1
+    physical_candidate="$(
+        cmux_codex_physical_candidate "$logical_candidate"
+    )" || return 1
+    cmux_codex_candidate_is_real "$logical_candidate" || return 1
     cmux_codex_candidate_is_real "$physical_candidate" || return 1
+    cmux_codex_candidate_is_project_controlled \
+        "$logical_candidate" \
+        "$@" && return 1
     cmux_codex_candidate_is_project_controlled \
         "$physical_candidate" \
         "$@" && return 1
-    printf '%s' "$physical_candidate"
+    printf '%s' "$logical_candidate"
 }
 
 # Find the real Codex binary. An explicit absolute captured path is checked
