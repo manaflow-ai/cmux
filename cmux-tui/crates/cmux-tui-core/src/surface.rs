@@ -452,6 +452,8 @@ pub struct PtySurface {
     geometry_test_hook: Mutex<Option<Arc<dyn Fn(PtyGeometryTestStep) + Send + Sync>>>,
     #[cfg(test)]
     test_master_control: Option<Arc<TestMasterPtyControl>>,
+    #[cfg(test)]
+    vt_replay_builds: AtomicUsize,
     mux: Weak<Mux>,
     /// Live output subscribers (attach streams). Guarded by the terminal
     /// lock ordering: the reader thread broadcasts while holding the
@@ -583,6 +585,8 @@ impl Surface {
             geometry_test_hook: Mutex::new(None),
             #[cfg(test)]
             test_master_control: None,
+            #[cfg(test)]
+            vt_replay_builds: AtomicUsize::new(0),
             mux: mux.clone(),
             taps: Mutex::new(Vec::new()),
             attach_colors_pending: AtomicBool::new(false),
@@ -742,6 +746,7 @@ impl Surface {
             }),
             geometry_test_hook: Mutex::new(None),
             test_master_control: Some(test_master_control),
+            vt_replay_builds: AtomicUsize::new(0),
             mux,
             taps: Mutex::new(Vec::new()),
             attach_colors_pending: AtomicBool::new(false),
@@ -1196,6 +1201,8 @@ impl Surface {
         let queued_bytes = Arc::new(AtomicUsize::new(0));
         // Snapshot and tap registration under the same terminal lock:
         // the reader thread cannot apply bytes between the two.
+        #[cfg(test)]
+        pty.vt_replay_builds.fetch_add(1, Ordering::AcqRel);
         let replay = term.vt_replay_bounded(VT_REPLAY_MAX_BYTES)?;
         let (cols, rows) = (term.cols(), term.rows());
         let defaults = pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
@@ -1614,6 +1621,8 @@ impl PtySurface {
         } else {
             PtyGeometryTestStep::CellPixelCommitBoundary
         });
+        #[cfg(test)]
+        self.vt_replay_builds.fetch_add(1, Ordering::AcqRel);
         let replay = term.vt_replay_bounded(VT_REPLAY_MAX_BYTES).unwrap_or_default();
         let defaults = self.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
@@ -1897,6 +1906,85 @@ mod tests {
         drop(render);
         assert!(pty.dirty.load(Ordering::Acquire));
         assert!(matches!(events.try_recv(), Ok(MuxEvent::SurfaceOutput(1))));
+    }
+
+    #[test]
+    fn stalled_render_tap_retains_only_latest_frame_and_scroll_state_in_order() {
+        let mux = Mux::new_for_test("render-tap-latest", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let pty = surface.as_pty().unwrap();
+        let attach = surface.attach_render_stream().unwrap();
+
+        {
+            let mut term = pty.term.lock().unwrap();
+            term.vt_write(b"a");
+            pty.build_frame_locked(&mut term, 2, false).unwrap();
+            broadcast_render_scroll_locked(pty, (4, false));
+            term.vt_write(b"b");
+            pty.build_frame_locked(&mut term, 3, false).unwrap();
+            broadcast_render_scroll_locked(pty, (9, true));
+            term.vt_write(b"c");
+            pty.build_frame_locked(&mut term, 4, false).unwrap();
+        }
+
+        let mut pending = Vec::new();
+        while let Ok(frame) = attach.stream.try_recv() {
+            pending.push(frame);
+        }
+        assert_eq!(
+            pending.len(),
+            2,
+            "a stalled render consumer retained more than one frame plus final scroll state"
+        );
+        assert!(matches!(
+            pending[0],
+            RenderAttachFrame::ScrollChanged { offset: 9, at_bottom: true }
+        ));
+        let RenderAttachFrame::Frame(frame) = &pending[1] else {
+            panic!("final render frame must follow the final preceding scroll state");
+        };
+        let latest = pty.render.lock().unwrap().latest.clone().unwrap();
+        assert!(Arc::ptr_eq(frame, &latest));
+
+        {
+            let mut term = pty.term.lock().unwrap();
+            term.vt_write(b"d");
+            pty.build_frame_locked(&mut term, 5, false).unwrap();
+            broadcast_render_scroll_locked(pty, (11, false));
+        }
+        let first = attach.stream.try_recv().unwrap();
+        let second = attach.stream.try_recv().unwrap();
+        assert!(matches!(first, RenderAttachFrame::Frame(_)));
+        assert!(matches!(
+            second,
+            RenderAttachFrame::ScrollChanged { offset: 11, at_bottom: false }
+        ));
+        assert!(matches!(attach.stream.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn geometry_updates_skip_vt_replay_without_byte_attach_subscribers() {
+        let mux = Mux::new_for_test("resize-without-byte-attach", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let pty = surface.as_pty().unwrap();
+        let render = surface.attach_render_stream().unwrap();
+
+        surface.resize(100, 30).unwrap();
+        surface.set_cell_pixel_size(9, 18).unwrap();
+
+        assert_eq!(
+            pty.vt_replay_builds.load(Ordering::Acquire),
+            0,
+            "render-only geometry updates must not construct byte-attach replay"
+        );
+        assert!(matches!(render.stream.try_recv(), Ok(RenderAttachFrame::Frame(_))));
+
+        let _byte_attach = surface.attach_stream().unwrap();
+        pty.vt_replay_builds.store(0, Ordering::Release);
+        surface.resize(101, 31).unwrap();
+        assert_eq!(pty.vt_replay_builds.load(Ordering::Acquire), 1);
     }
 
     #[test]
