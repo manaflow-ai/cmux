@@ -1079,7 +1079,6 @@ impl OrderedSession {
         let exited_surfaces = self.exited_surfaces.clone();
         let attach_failures = self.surface_attach_failures.clone();
         let enqueue_failures = attach_failures.clone();
-        let remote = self.remote;
         #[cfg(test)]
         let attach_after_obsolete_check = self.surface_attach_after_obsolete_check.clone();
         let pending = self.pending_mutation();
@@ -1093,9 +1092,7 @@ impl OrderedSession {
             move || settlement.publish_deferred(),
             move || {
                 let _claim = claim;
-                if exited_surfaces.lock().unwrap().contains(&id)
-                    || (remote && session.remote_tree_is_stale())
-                {
+                if exited_surfaces.lock().unwrap().contains(&id) {
                     pending.defer(SessionMutationOutcome::Success { tree: None });
                     return Ok(());
                 }
