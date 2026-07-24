@@ -1,4 +1,5 @@
 import CmuxSimulator
+import Foundation
 
 extension SimulatorPaneCoordinator {
     /// Applies the pane's host visibility to every resource that should stop
@@ -9,6 +10,24 @@ extension SimulatorPaneCoordinator {
     }
 
     func setHostWindowVisibility(_ isVisible: Bool) {
+        setHostWindowVisibility(isVisible, for: legacyHostWindowVisibilityObserverID)
+    }
+
+    func setHostWindowVisibility(_ isVisible: Bool, for observerID: UUID) {
+        guard hostWindowVisibilityByObserverID[observerID] != isVisible else { return }
+        hostWindowVisibilityByObserverID[observerID] = isVisible
+        applyObservedHostWindowVisibility()
+    }
+
+    func removeHostWindowVisibilityObserver(_ observerID: UUID) {
+        guard hostWindowVisibilityByObserverID.removeValue(forKey: observerID) != nil else {
+            return
+        }
+        applyObservedHostWindowVisibility()
+    }
+
+    private func applyObservedHostWindowVisibility() {
+        let isVisible = hostWindowVisibilityByObserverID.values.contains(true)
         guard hostWindowIsVisible != isVisible else { return }
         hostWindowIsVisible = isVisible
         applyEffectivePaneVisibility()

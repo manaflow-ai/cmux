@@ -443,7 +443,7 @@ extension SimulatorPaneCoordinator {
 private func simulatorCoordinatorActionName(_ action: SimulatorControlAction) -> String? {
     switch action {
     case .interactive:
-        "interactive"
+        nil
     case .listApplications, .installApplication, .launchApplication,
          .terminateApplication, .cleanupCameraApplication:
         "applications"

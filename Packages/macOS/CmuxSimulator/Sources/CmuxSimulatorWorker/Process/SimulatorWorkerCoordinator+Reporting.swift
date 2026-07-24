@@ -4,13 +4,17 @@ import os
 
 extension SimulatorWorkerCoordinator {
     func reportUnavailable(action: String, detail: String) {
+        sendUnavailableFailure(action: action, detail: detail)
+        emitAction(action, summary: detail, succeeded: false)
+    }
+
+    func sendUnavailableFailure(action: String, detail: String) {
         let failure = SimulatorFailure(
             code: "\(action)_unavailable",
             message: detail,
             isRecoverable: true
         )
         send(.failure(failure))
-        emitAction(action, summary: detail, succeeded: false)
     }
 
     func report(_ error: Error) {

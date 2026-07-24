@@ -8,9 +8,28 @@ struct ShortcutEventFocusContext {
     let markdownPanel: MarkdownPanel?
     let filePreviewTextEditorFocused: Bool
     let simulatorFocused: Bool
+    let simulatorPanel: SimulatorPanel?
     let rightSidebarFocused: Bool
     /// The full context snapshot a ``ShortcutWhenClause`` evaluates against.
     let shortcutContext: ShortcutContext
+
+    init(
+        browserPanel: BrowserPanel?,
+        markdownPanel: MarkdownPanel?,
+        filePreviewTextEditorFocused: Bool,
+        simulatorFocused: Bool,
+        simulatorPanel: SimulatorPanel? = nil,
+        rightSidebarFocused: Bool,
+        shortcutContext: ShortcutContext
+    ) {
+        self.browserPanel = browserPanel
+        self.markdownPanel = markdownPanel
+        self.filePreviewTextEditorFocused = filePreviewTextEditorFocused
+        self.simulatorFocused = simulatorFocused
+        self.simulatorPanel = simulatorPanel
+        self.rightSidebarFocused = rightSidebarFocused
+        self.shortcutContext = shortcutContext
+    }
 
     /// Projects the runtime focus snapshot onto the atoms a
     /// ``ShortcutWhenClause`` evaluates against.
@@ -74,7 +93,8 @@ extension AppDelegate {
         }
 
         let shortcutWindow = shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
-        let simulatorFocused = shortcutFocusedSimulatorPanel(in: shortcutWindow) != nil
+        let simulatorPanel = shortcutFocusedSimulatorPanel(in: shortcutWindow)
+        let simulatorFocused = simulatorPanel != nil
         let browserPanel = simulatorFocused
             ? nil
             : shortcutEventFocusedBrowserPanel(event) ?? shortcutWebInspectorFocusedBrowserPanel(in: shortcutWindow)
@@ -98,6 +118,7 @@ extension AppDelegate {
             markdownPanel: markdownPanel,
             filePreviewTextEditorFocused: filePreviewTextEditorFocused,
             simulatorFocused: simulatorFocused,
+            simulatorPanel: simulatorPanel,
             rightSidebarFocused: rightSidebarFocused,
             shortcutContext: buildShortcutContext(focusState: focusState, window: shortcutWindow)
         )

@@ -57,6 +57,8 @@ final class CmuxFeatureFlags {
 
     private static let overrideKeyPrefix = "cmux.flags.override."
     private static let remoteCacheKeyPrefix = "cmux.flags.remote."
+    private static let releaseControlDistinctIDKey = "cmux.flags.releaseControlDistinctID"
+    private static let releaseControlDistinctIDPrefix = "cmux-desktop-release-control-"
 
     // Order is load-bearing for the typed accessors below. A keyed lookup would
     // repeat flag-key literals and violate the feature-flag lint's single
@@ -248,13 +250,22 @@ final class CmuxFeatureFlags {
     init(
         defaults: UserDefaults = .standard,
         remoteFlagValueProvider: @escaping (String) -> Any? = { PostHogSDK.shared.getFeatureFlag($0) },
-        remoteFlagLoader: @escaping @Sendable () async -> [String: Bool]? = {
-            await CmuxFeatureFlags.loadPostHogControlPlaneFlags()
-        }
+        remoteFlagLoader: (@Sendable () async -> [String: Bool]?)? = nil
     ) {
         self.defaults = defaults
         self.remoteFlagValueProvider = remoteFlagValueProvider
-        self.remoteFlagLoader = remoteFlagLoader
+        if let remoteFlagLoader {
+            self.remoteFlagLoader = remoteFlagLoader
+        } else {
+            let distinctID = Self.releaseControlDistinctID(defaults: defaults)
+            let personProperties = Self.releaseControlPersonProperties()
+            self.remoteFlagLoader = {
+                await CmuxFeatureFlags.loadPostHogControlPlaneFlags(
+                    distinctID: distinctID,
+                    personProperties: personProperties
+                )
+            }
+        }
         localOverridesByKey = Self.allFlags.reduce(into: [:]) { values, definition in
             if let value = Self.storedOverrideValue(for: definition.key, defaults: defaults) {
                 values[definition.key] = value
@@ -272,8 +283,8 @@ final class CmuxFeatureFlags {
     }
 
     /// Loads release-control values without initializing analytics. The request
-    /// uses one product-wide identifier, so it cannot correlate an installation
-    /// or reuse PostHog's analytics identity.
+    /// uses a separate anonymous installation identity so percentage rollouts
+    /// remain stable without reusing PostHog's analytics identity.
     func start() {
         guard refreshTimer == nil else { return }
         refreshRemoteFlags()
@@ -309,21 +320,80 @@ final class CmuxFeatureFlags {
         postChangeIfNeeded(previousResolutions: previousResolutions)
     }
 
-    nonisolated static func postHogControlPlaneRequest() -> URLRequest? {
+    static func postHogControlPlaneRequest() -> URLRequest? {
+        postHogControlPlaneRequest(
+            distinctID: releaseControlDistinctID(defaults: .standard),
+            personProperties: releaseControlPersonProperties()
+        )
+    }
+
+    private static func releaseControlDistinctID(defaults: UserDefaults) -> String {
+        if let existing = defaults.string(forKey: releaseControlDistinctIDKey),
+           existing.hasPrefix(releaseControlDistinctIDPrefix),
+           UUID(uuidString: String(existing.dropFirst(releaseControlDistinctIDPrefix.count))) != nil {
+            return existing
+        }
+        let distinctID = releaseControlDistinctIDPrefix + UUID().uuidString.lowercased()
+        defaults.set(distinctID, forKey: releaseControlDistinctIDKey)
+        return distinctID
+    }
+
+    private static func releaseControlPersonProperties(
+        bundle: Bundle = .main
+    ) -> [String: String] {
+        var properties = [
+            "$os": "macOS",
+            "cmux_architecture": releaseControlArchitecture,
+        ]
+        if let version = bundle.object(
+            forInfoDictionaryKey: "CFBundleShortVersionString"
+        ) as? String, !version.isEmpty {
+            properties["$app_version"] = version
+        }
+        if let build = bundle.object(
+            forInfoDictionaryKey: "CFBundleVersion"
+        ) as? String, !build.isEmpty {
+            properties["$app_build"] = build
+        }
+        return properties
+    }
+
+    private static var releaseControlArchitecture: String {
+        #if arch(arm64)
+        "arm64"
+        #elseif arch(x86_64)
+        "x86_64"
+        #else
+        "unknown"
+        #endif
+    }
+
+    nonisolated private static func postHogControlPlaneRequest(
+        distinctID: String,
+        personProperties: [String: String]
+    ) -> URLRequest? {
         guard let url = URL(string: "https://cmux.com/api/client-config") else { return nil }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = 10
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: [
-            "distinctId": "cmux-desktop-release-control",
-            "context": [:],
+            "distinctId": distinctID,
+            "context": [
+                "personProperties": personProperties,
+            ],
         ])
         return request
     }
 
-    nonisolated private static func loadPostHogControlPlaneFlags() async -> [String: Bool]? {
-        guard let request = postHogControlPlaneRequest() else { return nil }
+    nonisolated private static func loadPostHogControlPlaneFlags(
+        distinctID: String,
+        personProperties: [String: String]
+    ) async -> [String: Bool]? {
+        guard let request = postHogControlPlaneRequest(
+            distinctID: distinctID,
+            personProperties: personProperties
+        ) else { return nil }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 10
         configuration.timeoutIntervalForResource = 15

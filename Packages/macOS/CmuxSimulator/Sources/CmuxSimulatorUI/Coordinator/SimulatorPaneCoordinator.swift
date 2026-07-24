@@ -138,6 +138,8 @@ public final class SimulatorPaneCoordinator {
     @ObservationIgnored var capabilityHydrationWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
     @ObservationIgnored var paneIsVisible = false
     @ObservationIgnored var hostWindowIsVisible = true
+    @ObservationIgnored var hostWindowVisibilityByObserverID: [UUID: Bool] = [:]
+    @ObservationIgnored let legacyHostWindowVisibilityObserverID = UUID()
     @ObservationIgnored var frameIsVisible = false
     @ObservationIgnored var locationRouteDeviceID: String?
     @ObservationIgnored var locationRoute: SimulatorLocationRoute?

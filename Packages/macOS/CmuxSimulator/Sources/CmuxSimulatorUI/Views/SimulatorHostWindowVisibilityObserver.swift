@@ -2,23 +2,54 @@ import AppKit
 import SwiftUI
 
 struct SimulatorHostWindowVisibilityObserver: NSViewRepresentable {
-    let onVisibilityChanged: @MainActor (Bool) -> Void
+    let onVisibilityChanged: @MainActor (UUID, Bool) -> Void
+    let onRemoval: @MainActor (UUID) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
 
     func makeNSView(context: Context) -> SimulatorHostWindowVisibilityView {
         let view = SimulatorHostWindowVisibilityView()
-        view.setVisibilityHandler(onVisibilityChanged)
+        installHandlers(on: view, coordinator: context.coordinator)
         return view
     }
 
     func updateNSView(_ view: SimulatorHostWindowVisibilityView, context: Context) {
-        view.setVisibilityHandler(onVisibilityChanged)
+        installHandlers(on: view, coordinator: context.coordinator)
     }
 
     static func dismantleNSView(
         _ view: SimulatorHostWindowVisibilityView,
-        coordinator: Void
+        coordinator: Coordinator
     ) {
         view.teardown()
+        coordinator.remove()
+    }
+
+    private func installHandlers(
+        on view: SimulatorHostWindowVisibilityView,
+        coordinator: Coordinator
+    ) {
+        let observerID = coordinator.observerID
+        coordinator.onRemoval = onRemoval
+        view.setVisibilityHandler { isVisible in
+            onVisibilityChanged(observerID, isVisible)
+        }
+    }
+
+    @MainActor
+    final class Coordinator {
+        let observerID = UUID()
+        var onRemoval: ((UUID) -> Void)?
+        private var wasRemoved = false
+
+        func remove() {
+            guard !wasRemoved else { return }
+            wasRemoved = true
+            onRemoval?(observerID)
+            onRemoval = nil
+        }
     }
 }
 

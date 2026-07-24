@@ -32,7 +32,7 @@ extension SimulatorWorkerCoordinator {
             summary = "simulate"
         }
         if !succeeded {
-            reportUnavailable(action: name, detail: "The Simulator action is unavailable.")
+            sendUnavailableFailure(action: name, detail: "The Simulator action is unavailable.")
         }
         emitAction(name, summary: summary, succeeded: succeeded)
         return succeeded

@@ -57,9 +57,14 @@ public struct SimulatorPaneView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(backgroundColor)
         .background {
-            SimulatorHostWindowVisibilityObserver { [weak coordinator] isVisible in
-                coordinator?.setHostWindowVisibility(isVisible)
-            }
+            SimulatorHostWindowVisibilityObserver(
+                onVisibilityChanged: { [weak coordinator] observerID, isVisible in
+                    coordinator?.setHostWindowVisibility(isVisible, for: observerID)
+                },
+                onRemoval: { [weak coordinator] observerID in
+                    coordinator?.removeHostWindowVisibilityObserver(observerID)
+                }
+            )
             .allowsHitTesting(false)
         }
     }
