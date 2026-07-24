@@ -215,6 +215,16 @@ _JS_SUFFIXES = (".ts", ".tsx", ".js", ".mjs")
 _SLASH_NONCODE_MARKER = re.compile(r'//|/\*|"""|\'\'\'|["\'`]')
 _HASH_NONCODE_MARKER = re.compile(r'#|"""|\'\'\'|["\']')
 _BLOCK_COMMENT_MARKER = re.compile(r'/\*|\*/')
+_SHELL_HEREDOC_START = re.compile(
+    r"""(?x)
+    (?<!<) << (?P<strip>-)? (?!<) [ \t]*
+    (?:
+        '(?P<single>[^'\n]+)'
+      | "(?P<double>[^"\n]+)"
+      | \\?(?P<bare>[A-Za-z_][A-Za-z0-9_]*)
+    )
+    """
+)
 
 _ASSERTION_HINTS = ("assert", "expect", "require", "XCT", "raise", "must")
 _BIND_HINTS = ("bind", "connect", "connect_ex", "createServer")
@@ -477,6 +487,52 @@ def _sleep_call_pattern(path_suffix: str) -> Optional[re.Pattern[str]]:
     return None
 
 
+def _swift_real_sleep_positions(
+    masked_lines: list[str],
+) -> dict[int, set[int]]:
+    """Return line/column sites for trusted Swift sleeps, including multiline."""
+    text = "\n".join(masked_lines)
+    positions: dict[int, set[int]] = {}
+
+    def record(sleep_offset: int) -> None:
+        line = text.count("\n", 0, sleep_offset)
+        line_start = text.rfind("\n", 0, sleep_offset) + 1
+        positions.setdefault(line, set()).add(sleep_offset - line_start)
+
+    for match in _SWIFT_SLEEP_CALL.finditer(text):
+        sleep_offset = match.start() + match.group().rfind("sleep")
+        record(sleep_offset)
+
+    for task in re.finditer(r"(?<![.\w])Task\b", text):
+        cursor = task.end()
+        while cursor < len(text) and text[cursor].isspace():
+            cursor += 1
+        if cursor >= len(text) or text[cursor] != "<":
+            continue
+
+        depth = 0
+        generic_end: Optional[int] = None
+        for index in range(cursor, min(len(text), cursor + 4096)):
+            char = text[index]
+            if char == "<":
+                depth += 1
+            elif char == ">":
+                depth -= 1
+                if depth == 0:
+                    generic_end = index + 1
+                    break
+        if generic_end is None:
+            continue
+
+        cursor = generic_end
+        while cursor < len(text) and text[cursor].isspace():
+            cursor += 1
+        sleep = re.match(r"\.sleep\s*\(", text[cursor:])
+        if sleep is not None:
+            record(cursor + 1)
+    return positions
+
+
 _PYTHON_MODULE_BINDING = "module"
 _PYTHON_FUNCTION_BINDING = "function"
 _PYTHON_SHADOWED_BINDING = "shadowed"
@@ -494,7 +550,7 @@ class _PythonScope:
 class _PythonSleepVisitor(ast.NodeVisitor):
     """Find exact trusted ``sleep`` calls without guessing receiver types."""
 
-    def __init__(self) -> None:
+    def __init__(self, postponed_annotations: bool) -> None:
         self.module_scope = _PythonScope(
             kind="module",
             parent=None,
@@ -504,6 +560,7 @@ class _PythonSleepVisitor(ast.NodeVisitor):
             },
         )
         self.scope = self.module_scope
+        self.postponed_annotations = postponed_annotations
         self.sleep_lines: set[int] = set()
         self.sleep_positions: dict[int, set[int]] = {}
 
@@ -552,20 +609,23 @@ class _PythonSleepVisitor(ast.NodeVisitor):
     def _restore_scope_state(self, state: dict[str, str]) -> None:
         self.scope.bindings = state.copy()
 
-    def _merge_scope_states(self, states: list[dict[str, str]]) -> None:
-        def merge(mappings: list[dict[str, str]]) -> dict[str, str]:
-            result: dict[str, str] = {}
-            keys = set().union(*(mapping.keys() for mapping in mappings))
-            for key in keys:
-                values = {mapping.get(key) for mapping in mappings}
-                result[key] = (
-                    values.pop()
-                    if len(values) == 1 and None not in values
-                    else _PYTHON_SHADOWED_BINDING
-                )
-            return result
+    def _merged_scope_state(
+        self,
+        states: list[dict[str, str]],
+    ) -> dict[str, str]:
+        result: dict[str, str] = {}
+        keys = set().union(*(state.keys() for state in states))
+        for key in keys:
+            values = {state.get(key) for state in states}
+            result[key] = (
+                values.pop()
+                if len(values) == 1 and None not in values
+                else _PYTHON_SHADOWED_BINDING
+            )
+        return result
 
-        self.scope.bindings = merge(states)
+    def _merge_scope_states(self, states: list[dict[str, str]]) -> None:
+        self.scope.bindings = self._merged_scope_state(states)
 
     def _visit_branch_blocks(
         self,
@@ -595,9 +655,10 @@ class _PythonSleepVisitor(ast.NodeVisitor):
         for default in arguments.kw_defaults:
             if default is not None:
                 self.visit(default)
-        for argument in self._argument_nodes(arguments):
-            if argument.annotation is not None:
-                self.visit(argument.annotation)
+        if not self.postponed_annotations:
+            for argument in self._argument_nodes(arguments):
+                if argument.annotation is not None:
+                    self.visit(argument.annotation)
 
     def _visit_function(
         self,
@@ -606,10 +667,8 @@ class _PythonSleepVisitor(ast.NodeVisitor):
         for decorator in node.decorator_list:
             self.visit(decorator)
         self._visit_argument_expressions(node.args)
-        if node.returns is not None:
+        if node.returns is not None and not self.postponed_annotations:
             self.visit(node.returns)
-        for type_parameter in getattr(node, "type_params", ()):
-            self.visit(type_parameter)
 
         # The function name is available when its body eventually executes.
         self._bind(node.name)
@@ -645,8 +704,6 @@ class _PythonSleepVisitor(ast.NodeVisitor):
             self.visit(base)
         for keyword in node.keywords:
             self.visit(keyword.value)
-        for type_parameter in getattr(node, "type_params", ()):
-            self.visit(type_parameter)
 
         # Methods execute after the class object has replaced this outer name.
         self._bind(node.name)
@@ -706,9 +763,13 @@ class _PythonSleepVisitor(ast.NodeVisitor):
             self._bind_target(target)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
-        self.visit(node.annotation)
         if node.value is not None:
             self.visit(node.value)
+        if (
+            not self.postponed_annotations
+            and self.scope.kind in ("module", "class")
+        ):
+            self.visit(node.annotation)
         self._visit_target_expressions(node.target)
         self._bind_target(node.target)
 
@@ -802,17 +863,19 @@ class _PythonSleepVisitor(ast.NodeVisitor):
         finalbody: list[ast.stmt],
     ) -> None:
         base = self._scope_state()
-        states = [base]
+        prefix_states = [base]
 
         self._restore_scope_state(base)
         for statement in body:
             self.visit(statement)
+            prefix_states.append(self._scope_state())
         for statement in orelse:
             self.visit(statement)
-        states.append(self._scope_state())
+        states = [base, self._scope_state()]
 
+        handler_entry = self._merged_scope_state(prefix_states)
         for handler in handlers:
-            self._restore_scope_state(base)
+            self._restore_scope_state(handler_entry)
             self.visit(handler)
             states.append(self._scope_state())
 
@@ -940,7 +1003,13 @@ def _python_real_sleep_lines(
         tree = ast.parse(text)
     except SyntaxError:
         return set()
-    visitor = _PythonSleepVisitor()
+    postponed_annotations = any(
+        isinstance(statement, ast.ImportFrom)
+        and statement.module == "__future__"
+        and any(alias.name == "annotations" for alias in statement.names)
+        for statement in tree.body
+    )
+    visitor = _PythonSleepVisitor(postponed_annotations)
     visitor.visit(tree)
     if positions is not None:
         positions.update(visitor.sleep_positions)
@@ -962,6 +1031,40 @@ def _unescaped_token_index(line: str, token: str, start: int) -> int:
     return -1
 
 
+def _mask_shell_heredoc_expansions(line: str) -> str:
+    """Expose executable substitutions while masking unquoted heredoc data."""
+    masked = [" "] * len(line)
+    cursor = 0
+    while cursor < len(line):
+        dollar = _unescaped_token_index(line, "$(", cursor)
+        backtick = _unescaped_token_index(line, "`", cursor)
+        starts = [index for index in (dollar, backtick) if index >= 0]
+        if not starts:
+            break
+        start = min(starts)
+
+        if start == dollar:
+            code = _mask_noncode([line[start:]], ".sh")[0]
+            depth = 1
+            end = len(line)
+            for offset, char in enumerate(code[2:], start=2):
+                if char == "(":
+                    depth += 1
+                elif char == ")":
+                    depth -= 1
+                    if depth == 0:
+                        end = start + offset + 1
+                        break
+        else:
+            closing = _unescaped_token_index(line, "`", start + 1)
+            end = len(line) if closing < 0 else closing + 1
+
+        executable = _mask_noncode([line[start:end]], ".sh")[0]
+        masked[start:end] = executable
+        cursor = end
+    return "".join(masked)
+
+
 def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
     """Replace quoted strings and comments while preserving line positions."""
     masked_lines: list[str] = []
@@ -969,12 +1072,27 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
     block_comment_depth = 0
     template_interpolation_depths: list[int] = []
     shell_interpolations: list[tuple[str, int]] = []
+    shell_heredocs: list[tuple[str, bool, bool]] = []
     hash_comments = path_suffix in (".py", ".sh")
     marker_pattern = (
         _HASH_NONCODE_MARKER if hash_comments else _SLASH_NONCODE_MARKER
     )
 
     for line in lines:
+        if path_suffix == ".sh" and shell_heredocs:
+            delimiter, strip_tabs, allow_expansions = shell_heredocs[0]
+            candidate = line.lstrip("\t") if strip_tabs else line
+            if candidate == delimiter:
+                shell_heredocs.pop(0)
+                masked_lines.append(" " * len(line))
+            elif allow_expansions:
+                masked_lines.append(
+                    _mask_shell_heredoc_expansions(line)
+                )
+            else:
+                masked_lines.append(" " * len(line))
+            continue
+
         masked = list(line)
         i = 0
         while i < len(line):
@@ -1134,7 +1252,25 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
         # double quotes do not in the forms this conservative lexer supports.
         if quote in ('"', "'") and path_suffix != ".sh":
             quote = None
-        masked_lines.append("".join(masked))
+        masked_line = "".join(masked)
+        if path_suffix == ".sh":
+            for heredoc in _SHELL_HEREDOC_START.finditer(line):
+                if masked_line[heredoc.start() : heredoc.start() + 2] != "<<":
+                    continue
+                delimiter = (
+                    heredoc.group("single")
+                    or heredoc.group("double")
+                    or heredoc.group("bare")
+                )
+                shell_heredocs.append(
+                    (
+                        delimiter,
+                        heredoc.group("strip") is not None,
+                        heredoc.group("single") is None
+                        and heredoc.group("double") is None,
+                    )
+                )
+        masked_lines.append(masked_line)
 
     return masked_lines
 
@@ -1146,15 +1282,18 @@ def detect_sleep_then_assert(
     path_suffix: str,
     python_sleep_lines: Optional[set[int]] = None,
     python_sleep_positions: Optional[dict[int, set[int]]] = None,
+    swift_sleep_lines: Optional[set[int]] = None,
+    swift_sleep_positions: Optional[dict[int, set[int]]] = None,
 ) -> bool:
     """Sleep on lines[idx] followed by an assertion within 3 non-blank lines."""
     line = masked_lines[idx]
     sleep_pattern = _sleep_call_pattern(path_suffix)
-    is_sleep = (
-        idx in python_sleep_lines
-        if python_sleep_lines is not None
-        else bool(sleep_pattern and sleep_pattern.search(line))
-    )
+    if python_sleep_lines is not None:
+        is_sleep = idx in python_sleep_lines
+    elif swift_sleep_lines is not None:
+        is_sleep = idx in swift_sleep_lines
+    else:
+        is_sleep = bool(sleep_pattern and sleep_pattern.search(line))
     if path_suffix == ".sh":
         is_sleep = bool(_SHELL_BARE_SLEEP.search(line))
     if not is_sleep:
@@ -1164,6 +1303,8 @@ def detect_sleep_then_assert(
 
     if python_sleep_positions is not None:
         sleep_starts = python_sleep_positions.get(idx, set())
+    elif swift_sleep_positions is not None:
+        sleep_starts = swift_sleep_positions.get(idx, set())
     elif path_suffix == ".sh":
         sleep_starts = {
             match.start() for match in _SHELL_BARE_SLEEP.finditer(line)
@@ -1231,7 +1372,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
     sleep_pattern = _sleep_call_pattern(suffix)
     has_sleep_candidate = (
         "sleep" in text
-        if suffix == ".py"
+        if suffix in (".py", ".swift")
         else bool(sleep_pattern and sleep_pattern.search(text))
     )
     if not has_sleep_candidate and suffix == ".sh":
@@ -1249,8 +1390,20 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
         if suffix == ".py" and has_sleep_candidate
         else None
     )
+    swift_sleep_positions: Optional[dict[int, set[int]]] = (
+        _swift_real_sleep_positions(masked_lines)
+        if suffix == ".swift" and has_sleep_candidate
+        else None
+    )
+    swift_sleep_lines = (
+        set(swift_sleep_positions)
+        if swift_sleep_positions is not None
+        else None
+    )
     if suffix == ".py":
         has_sleep_candidate = bool(python_sleep_lines)
+    elif suffix == ".swift":
+        has_sleep_candidate = bool(swift_sleep_lines)
     findings: list[Finding] = []
 
     for i, code in enumerate(code_lines):
@@ -1281,6 +1434,8 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
                 suffix,
                 python_sleep_lines,
                 python_sleep_positions,
+                swift_sleep_lines,
+                swift_sleep_positions,
             )
         ):
             findings.append(Finding(rel_posix, line_no, RULE_SLEEP_THEN_ASSERT, snippet))
