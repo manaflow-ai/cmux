@@ -145,19 +145,20 @@ enum BrowserThemeSettings {
     }
 
     static func mode(defaults: UserDefaults = .standard) -> BrowserThemeMode {
-        let resolvedMode = mode(for: defaults.string(forKey: modeKey))
-        if defaults.string(forKey: modeKey) != nil {
-            return resolvedMode
-        }
+        mode(for: defaults.string(forKey: modeKey))
+    }
 
-        // Migrate the legacy bool toggle only when the new mode key is unset.
-        if defaults.object(forKey: legacyForcedDarkModeEnabledKey) != nil {
-            let migratedMode: BrowserThemeMode = defaults.bool(forKey: legacyForcedDarkModeEnabledKey) ? .dark : .system
-            defaults.set(migratedMode.rawValue, forKey: modeKey)
-            return migratedMode
-        }
+    static func migrateLegacyModeIfNeeded(
+        defaults: UserDefaults,
+        persistentDomain: [String: Any]
+    ) {
+        // Registration-domain fallbacks must not count as a persisted new setting.
+        guard persistentDomain[modeKey] == nil,
+              let legacyEnabled = persistentDomain[legacyForcedDarkModeEnabledKey] as? Bool
+        else { return }
 
-        return defaultMode
+        let migratedMode: BrowserThemeMode = legacyEnabled ? .dark : .system
+        defaults.set(migratedMode.rawValue, forKey: modeKey)
     }
 
     static func apply(_ mode: BrowserThemeMode, to webView: WKWebView) {
@@ -3979,11 +3980,23 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     /// Registers fallback defaults and writes back canonical values for any stored
-    /// browser setting whose raw value is legacy or out of range.
+    /// browser setting whose raw value is legacy or out of range. The persistent
+    /// domain name keeps migrations distinct from process-wide registered defaults.
     ///
     /// Pure with respect to the injected `defaults`, so it is unit-testable against
     /// a scratch `UserDefaults(suiteName:)` without touching `UserDefaults.standard`.
-    static func normalizeBrowserDefaults(defaults: UserDefaults) {
+    static func normalizeBrowserDefaults(
+        defaults: UserDefaults,
+        persistentDomainName: String? = Bundle.main.bundleIdentifier
+    ) {
+        let persistentDomain = persistentDomainName
+            .flatMap { defaults.persistentDomain(forName: $0) }
+            ?? [:]
+        BrowserThemeSettings.migrateLegacyModeIfNeeded(
+            defaults: defaults,
+            persistentDomain: persistentDomain
+        )
+
         defaults.register(defaults: [
             BrowserSearchSettingsStore.searchEngineKey: BrowserSearchSettingsStore.defaultSearchEngine.rawValue,
             BrowserSearchSettingsStore.customSearchEngineNameKey: BrowserSearchSettingsStore.defaultCustomSearchEngineName,
