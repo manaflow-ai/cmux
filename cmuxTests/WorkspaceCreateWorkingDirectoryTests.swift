@@ -230,7 +230,7 @@ import Testing
         ], tabManager: manager, idempotencyCache: cache)
 
         #expect(Set(manager.tabs.map(\.id)) == initialIDs)
-        #expect(restored.id != sourceWorkspace.id)
+        #expect(restored.id == sourceWorkspace.id)
         #expect(restored.taskCreateOperationID == operationID)
         #expect(restored.panels.values.compactMap { $0 as? TerminalPanel }
             .allSatisfy { $0.surface.debugInitialCommand() != "must-not-launch" })
