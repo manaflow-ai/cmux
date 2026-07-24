@@ -428,7 +428,7 @@ import CmuxSettings
         let storeBindings = await store.value(for: catalog.shortcuts.bindings)
         #expect(storeBindings[action.rawValue] == chord)
         // Happy path clears chord-mode arming and leaves no rejection state.
-        #expect(!model.chordModeActions.contains(action.rawValue))
+        #expect(model.chordModeOverrides[action.rawValue] == nil)
         #expect(!model.numberedDigitRejections.contains(action.rawValue))
         #expect(model.conflictRejections[action.rawValue] == nil)
     }

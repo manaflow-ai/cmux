@@ -52,6 +52,20 @@ struct ShortcutListRowView: View, Equatable {
                     .frame(width: 160)
                     .accessibilityIdentifier(snapshot.recorderAccessibilityIdentifier)
 
+                    if snapshot.showsChordModeButton {
+                        Button {
+                            actions.onToggleChordMode()
+                        } label: {
+                            Image(systemName: "keyboard")
+                                .imageScale(.medium)
+                                .foregroundStyle(snapshot.chordsEnabled ? Color.accentColor : Color.secondary)
+                        }
+                        .buttonStyle(.borderless)
+                        .help(String(localized: "settings.shortcuts.chords", defaultValue: "Shortcut Chords"))
+                        .accessibilityLabel(String(localized: "settings.shortcuts.chords", defaultValue: "Shortcut Chords"))
+                        .accessibilityIdentifier("ShortcutRecorderChordModeButton.\(snapshot.action.rawValue)")
+                    }
+
                     Button {
                         actions.onClearOrRestore()
                     } label: {
