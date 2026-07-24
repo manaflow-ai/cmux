@@ -12,7 +12,7 @@ Each pane has a border box. Click inside a pane to focus it. The top border is t
 
 The status bar lists screens for the active workspace. Click a screen segment to select it. Click the trailing `+` to create a screen.
 
-In scrolling layout, the open space in the status bar becomes a horizontal column track. Click or drag it to select a column. Horizontal wheel events over the pane region move one column and focus that column; tiled mode continues forwarding those events to the active surface.
+When a screen overflows horizontally, the open space in the status bar becomes a continuous viewport track. Click it to animate to that position, or drag it for direct movement. Horizontal wheel events over the pane region pan by one sixth of the viewport. Screens without horizontal overflow continue forwarding those events to the active surface.
 
 A workspace-row or tab-chip press arms the stable identity from the hit target
 that was actually rendered. Its matching release completes that same action
@@ -39,7 +39,7 @@ Wheel over a PTY pane focuses that pane first. When the inner app enables termin
 
 Drag pane borders to resize the matching split. Dragging a corner adjusts both intersecting split axes. The ratio is clamped from 0.05 to 0.95. Outer edges that do not correspond to a split do not change layout.
 
-Scrolling layout disables horizontal split resizing because each column occupies the viewport width. Vertical split resizing remains available, and stored horizontal ratios are preserved for tiled mode.
+The divider that appends a viewport-width pane is fixed. Splits inside the existing tiled layout and splits created inside an appended pane remain resizable.
 
 Drag a rail border to resize that rail for the current TUI session. The configured base widths come from `machine_sidebar.width` and `sidebar.width`, and each rail honors its own `max_width`. With both rails visible, resizing one preserves the other rail's width while leaving at least 40 columns for pane content.
 

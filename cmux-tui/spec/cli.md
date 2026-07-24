@@ -94,6 +94,7 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `new-workspace` | implemented | none | `--name <name>`, `--cols <n> --rows <n>` | surface id |
 | `new-screen` | implemented | none | `--workspace <id>`, `--cols <n> --rows <n>` | surface id |
 | `new-pane` | implemented | `--pane <id>` | `--cols <n> --rows <n>` | surface id |
+| `new-pane-right` | implemented; `viewport-splits-v1` | `--pane <id>` | `--width <fraction>`, `--cols <n> --rows <n>` | surface id |
 | `split` | implemented | `--pane <id> --dir right|down` | `--cols <n> --rows <n>` | surface id |
 | `set-ratio` | implemented | `--pane <id> --dir right|down --ratio <n>` | none | none |
 | `set-split-ratio` | implemented | `--split <id> --ratio <n>` | none | none |

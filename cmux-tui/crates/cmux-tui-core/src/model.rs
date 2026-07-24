@@ -2,7 +2,7 @@
 //! split tree of panes; each pane holds an ordered list of tabs
 //! (surfaces).
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use crate::{PaneId, ScreenId, SplitDir, SplitId, Surface, SurfaceId, WorkspaceId};
@@ -418,6 +418,15 @@ pub struct Screen {
     /// Stable pane creation order for Zellij's default auto-layout family.
     /// `None` means the screen owns a custom/damaged layout.
     pub zellij_auto_layout: Option<Vec<PaneId>>,
+    /// Horizontal splits created as viewport columns. The value is the
+    /// right-hand column width as a fraction of the frontend viewport.
+    pub viewport_splits: BTreeMap<SplitId, f32>,
+}
+
+impl Screen {
+    pub(crate) fn retain_viewport_splits(&mut self) {
+        self.viewport_splits.retain(|split, _| self.root.contains_split(*split));
+    }
 }
 
 #[derive(Debug)]

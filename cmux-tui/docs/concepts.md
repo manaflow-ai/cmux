@@ -36,6 +36,10 @@ The modeless `Alt-n` binding creates a new pane with smart split direction. The 
 
 Direction follows a zellij-style rule using the terminal cell ratio. Tall enough panes split down. Wide enough panes split right. Panes below the configured size thresholds do not split.
 
+## Viewport Panes
+
+`Ctrl-b g` wraps the current screen tree in a shared right split and creates a terminal whose width is two thirds of each frontend's viewport. Supporting frontends keep the existing tree at its current width, append the terminal, and expose the overflow through a horizontal scrollbar. Ordinary split and startup behavior remain tiled.
+
 ## Collapse Behavior
 
 Closing a tab removes one surface. If the pane still has tabs, the active tab index moves to a remaining tab.

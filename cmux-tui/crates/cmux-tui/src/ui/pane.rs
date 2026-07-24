@@ -15,7 +15,7 @@ use ratatui::style::{Color, Modifier, Style};
 
 use super::{thumb_geometry, truncate};
 use crate::app::{App, FocusTarget, Hit, PaneArea, PaneEdge, Selection};
-use crate::config::{PaneLayoutMode, Theme, tab_label};
+use crate::config::{Theme, tab_label};
 use crate::session::{ClientInfo, TabNotificationView};
 
 /// Border style for a pane box: active gets the accent color, idle
@@ -136,21 +136,29 @@ fn draw_box(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) {
     if x1 >= screen.width || y1 >= screen.height {
         return;
     }
-    for x in x0 + 1..x1 {
+    for x in x0..=x1 {
         buf[(x, y1)].set_symbol("─").set_style(style);
     }
     for y in y0 + 1..y1 {
-        buf[(x0, y)].set_symbol("│").set_style(style);
-        buf[(x1, y)].set_symbol("│").set_style(style);
+        if area.has_left_edge() {
+            buf[(x0, y)].set_symbol("│").set_style(style);
+        }
+        if area.has_right_edge() {
+            buf[(x1, y)].set_symbol("│").set_style(style);
+        }
     }
-    buf[(x0, y0)].set_symbol("┌").set_style(style);
-    buf[(x1, y0)].set_symbol("┐").set_style(style);
-    buf[(x0, y1)].set_symbol("└").set_style(style);
-    buf[(x1, y1)].set_symbol("┘").set_style(style);
+    if area.has_left_edge() {
+        buf[(x0, y0)].set_symbol("┌").set_style(style);
+        buf[(x0, y1)].set_symbol("└").set_style(style);
+    }
+    if area.has_right_edge() {
+        buf[(x1, y0)].set_symbol("┐").set_style(style);
+        buf[(x1, y1)].set_symbol("┘").set_style(style);
+    }
 
     if let Some(label) = app.client_border_labels.get(&area.surface) {
         let width = label.chars().count() as u16;
-        if width + 2 < rect.width {
+        if area.has_left_edge() && area.has_right_edge() && width + 2 < rect.width {
             let hit = Rect { x: x0 + 1, y: y1, width, height: 1 };
             buf.set_stringn(hit.x, hit.y, label, width as usize, style);
             app.hits.push((hit, Hit::Clients { surface: area.surface }));
@@ -232,10 +240,17 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     // Fill the whole top row with the border line first; tabs overlay it.
     let buf = frame.buffer_mut();
     let (x0, x1) = (bar.x, bar.x + bar.width - 1);
-    buf[(x0, bar.y)].set_symbol("┌").set_style(style);
-    buf[(x1, bar.y)].set_symbol("┐").set_style(style);
-    for x in x0 + 1..x1 {
+    for x in x0..=x1 {
         buf[(x, bar.y)].set_symbol("─").set_style(style);
+    }
+    if area.has_left_edge() {
+        buf[(x0, bar.y)].set_symbol("┌").set_style(style);
+    }
+    if area.has_right_edge() {
+        buf[(x1, bar.y)].set_symbol("┐").set_style(style);
+    }
+    if !area.has_left_edge() {
+        return;
     }
 
     // Layout the tab labels: " 1 zsh " ... " + ", scrolled so the range
@@ -365,7 +380,9 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     let Ok(render) = surface.render_frame(rs) else {
         return DrawCursors::default();
     };
-    let live = super::terminal_grid::rendered_viewport_rect(rect, frame.area(), &render);
+    let source_x = area.content_source_x();
+    let live =
+        super::terminal_grid::rendered_viewport_rect_cropped(rect, frame.area(), &render, source_x);
     app.rendered_terminal_bounds.insert(area.surface, live);
     app.rendered_terminal_sizes.insert(area.surface, render.frame.size);
     if focused && app.menu.is_none() && app.prompt.is_none() && app.pairing_dialog.is_none() {
@@ -377,9 +394,10 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         );
     }
 
-    let cursor = super::terminal_grid::draw_render_frame(
+    let cursor = super::terminal_grid::draw_render_frame_cropped(
         frame,
         rect,
+        source_x,
         &render,
         &theme,
         &app.chrome,
@@ -513,7 +531,6 @@ fn push_resize_hits(app: &mut App, area: &PaneArea) {
     let (x0, y0) = (rect.x, rect.y);
     let (x1, y1) = (rect.x + rect.width - 1, rect.y + rect.height - 1);
     let pane = area.pane;
-    let horizontal_resize = app.config.layout.mode != PaneLayoutMode::Scrolling;
     let cell = |x, y, horizontal, vertical| {
         (Rect { x, y, width: 1, height: 1 }, Hit::PaneResize { horizontal, vertical })
     };
@@ -521,33 +538,35 @@ fn push_resize_hits(app: &mut App, area: &PaneArea) {
         cell(
             x0,
             y0,
-            horizontal_resize.then_some((pane, PaneEdge::Left)),
+            area.has_left_edge().then_some((pane, PaneEdge::Left)),
             Some((pane, PaneEdge::Top)),
         ),
         cell(
             x1,
             y0,
-            horizontal_resize.then_some((pane, PaneEdge::Right)),
+            area.has_right_edge().then_some((pane, PaneEdge::Right)),
             Some((pane, PaneEdge::Top)),
         ),
         cell(
             x0,
             y1,
-            horizontal_resize.then_some((pane, PaneEdge::Left)),
+            area.has_left_edge().then_some((pane, PaneEdge::Left)),
             Some((pane, PaneEdge::Bottom)),
         ),
         cell(
             x1,
             y1,
-            horizontal_resize.then_some((pane, PaneEdge::Right)),
+            area.has_right_edge().then_some((pane, PaneEdge::Right)),
             Some((pane, PaneEdge::Bottom)),
         ),
     ];
-    if horizontal_resize && rect.height > 2 {
+    if area.has_left_edge() && rect.height > 2 {
         hits.push((
             Rect { x: x0, y: y0 + 1, width: 1, height: rect.height - 2 },
             Hit::PaneResize { horizontal: Some((pane, PaneEdge::Left)), vertical: None },
         ));
+    }
+    if area.has_right_edge() && rect.height > 2 {
         hits.push((
             Rect { x: x1, y: y0 + 1, width: 1, height: rect.height - 2 },
             Hit::PaneResize { horizontal: Some((pane, PaneEdge::Right)), vertical: None },

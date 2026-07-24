@@ -14,6 +14,8 @@ const PLACEMENT_ID: u32 = 1;
 pub struct GraphicPlacement {
     pub surface: SurfaceId,
     pub rect: Rect,
+    pub source_x_px: u32,
+    pub source_width_px: Option<u32>,
     pub seq: u64,
     pub data_b64: String,
 }
@@ -46,7 +48,12 @@ impl GraphicsState {
                 batch.extend(transmit_png(placement.surface, &placement.data_b64));
                 self.transmitted.insert(placement.surface, placement.seq);
             }
-            batch.extend(place_image(placement.surface, placement.rect));
+            batch.extend(place_image_cropped(
+                placement.surface,
+                placement.rect,
+                placement.source_x_px,
+                placement.source_width_px,
+            ));
             if !batch.is_empty() {
                 out.push(batch);
             }
@@ -79,10 +86,17 @@ pub fn transmit_png(surface: SurfaceId, data_b64: &str) -> Vec<u8> {
     out
 }
 
-pub fn place_image(surface: SurfaceId, rect: Rect) -> Vec<u8> {
+pub fn place_image_cropped(
+    surface: SurfaceId,
+    rect: Rect,
+    source_x_px: u32,
+    source_width_px: Option<u32>,
+) -> Vec<u8> {
     let id = image_id(surface);
+    let crop = source_width_px
+        .map_or_else(String::new, |width| format!(",x={source_x_px},w={}", width.max(1)));
     format!(
-        "{ESC}7{ESC}[{};{}H{ESC}_Ga=p,i={id},p={PLACEMENT_ID},c={},r={},q=2;{ESC}\\{ESC}8",
+        "{ESC}7{ESC}[{};{}H{ESC}_Ga=p,i={id},p={PLACEMENT_ID}{crop},c={},r={},q=2;{ESC}\\{ESC}8",
         rect.y + 1,
         rect.x + 1,
         rect.width.max(1),
@@ -258,8 +272,13 @@ mod tests {
 
     #[test]
     fn places_at_cursor_rect_with_save_restore() {
-        let bytes =
-            String::from_utf8(place_image(2, Rect { x: 4, y: 6, width: 80, height: 24 })).unwrap();
+        let bytes = String::from_utf8(place_image_cropped(
+            2,
+            Rect { x: 4, y: 6, width: 80, height: 24 },
+            0,
+            None,
+        ))
+        .unwrap();
         assert_eq!(bytes, "\x1b7\x1b[7;5H\x1b_Ga=p,i=3,p=1,c=80,r=24,q=2;\x1b\\\x1b8");
     }
 
@@ -270,10 +289,24 @@ mod tests {
     }
 
     #[test]
+    fn cropped_placement_selects_a_horizontal_source_slice() {
+        let bytes = String::from_utf8(place_image_cropped(
+            2,
+            Rect { x: 4, y: 6, width: 40, height: 24 },
+            80,
+            Some(320),
+        ))
+        .unwrap();
+        assert!(bytes.contains(",x=80,w=320,c=40,r=24,"));
+    }
+
+    #[test]
     fn zero_sized_placement_hides_a_previously_visible_image() {
         let visible = GraphicPlacement {
             surface: 7,
             rect: Rect { x: 4, y: 6, width: 80, height: 24 },
+            source_x_px: 0,
+            source_width_px: None,
             seq: 1,
             data_b64: "frame".to_string(),
         };

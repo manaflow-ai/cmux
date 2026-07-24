@@ -40,7 +40,7 @@ These defaults come from `Keys::default`.
 | `Ctrl-b s` | Show or hide the sidebar |
 | `Ctrl-b e` | Toggle the built-in sidebar between files and workspaces |
 | `Ctrl-b S` | Focus the built-in sidebar or configured sidebar plugin; a prefixed command returns focus to the pane |
-| `Ctrl-b g` | Toggle this client between tiled and horizontal scrolling layouts |
+| `Ctrl-b g` | Append a two-thirds-width terminal to the right |
 | `Ctrl-b h` or `Ctrl-b Left` | Focus left |
 | `Alt-h` or `Alt-Left` | Focus left |
 | `Ctrl-b l` or `Ctrl-b Right` | Focus right |
@@ -58,7 +58,7 @@ These defaults come from `Keys::default`.
 
 Directional focus follows Zellij's pane memory: when several panes share the requested edge, cmux-tui returns to the pane focused most recently.
 
-Scrolling layout keeps `h`/`l`, Left/Right, and their modeless Alt bindings as column navigation. Moving focus changes the visible column. Vertical focus stays inside the current column.
+When a screen is wider than the viewport, `h`/`l`, Left/Right, and their modeless Alt bindings reveal the focused pane. The viewport movement is animated unless `viewport.animation` is false.
 
 The screen bindings intentionally match tmux: `c` creates a screen, `n` and `p` switch screens, `&` closes a screen, `,` renames a screen, `z` zooms a pane, `o` cycles panes, `{` and `}` swap panes, and number keys select visible screens. Screens are numbered from 0, so `Ctrl-b 0` selects screen 0 and `Ctrl-b 1` selects screen 1.
 
@@ -157,7 +157,7 @@ new-workspace
 toggle-sidebar
 toggle-sidebar-view
 focus-sidebar
-toggle-scrolling-layout
+new-pane-right
 focus-left
 focus-right
 focus-up

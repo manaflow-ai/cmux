@@ -225,6 +225,12 @@ const VERBS: &[VerbSpec] = &[
         kind: socket(build_new_pane, print_surface, false),
     },
     VerbSpec {
+        name: "new-pane-right",
+        help: "Create a two-thirds-width viewport pane to the right.",
+        allowed: &["pane", "width", "cols", "rows"],
+        kind: socket(build_new_pane_right, print_surface, false),
+    },
+    VerbSpec {
         name: "split",
         help: "Split a pane.",
         allowed: &["pane", "dir", "cols", "rows"],
@@ -1057,6 +1063,14 @@ fn build_new_pane(flags: &FlagMap) -> Result<Value, UsageError> {
     Ok(value)
 }
 
+fn build_new_pane_right(flags: &FlagMap) -> Result<Value, UsageError> {
+    let mut value = build_new_pane(flags)?;
+    if flags.optional("width").is_some() {
+        value["width"] = json!(flags.required_f32("width")?);
+    }
+    Ok(value)
+}
+
 fn build_export_layout(flags: &FlagMap) -> Result<Value, UsageError> {
     let mut value = json!({});
     flags.insert_optional_u64(&mut value, "screen")?;
@@ -1720,6 +1734,23 @@ mod tests {
     #[test]
     fn registered_verbs_have_help_text() {
         assert!(VERBS.iter().all(|verb| !verb.help.is_empty()));
+    }
+
+    #[test]
+    fn viewport_pane_builder_accepts_an_optional_width() {
+        let flags = FlagMap {
+            values: BTreeMap::from([
+                ("pane".to_string(), "7".to_string()),
+                ("width".to_string(), "0.75".to_string()),
+                ("cols".to_string(), "60".to_string()),
+                ("rows".to_string(), "20".to_string()),
+            ]),
+            ..Default::default()
+        };
+        assert_eq!(
+            build_new_pane_right(&flags).unwrap(),
+            json!({"pane": 7, "width": 0.75, "cols": 60, "rows": 20})
+        );
     }
 
     #[test]

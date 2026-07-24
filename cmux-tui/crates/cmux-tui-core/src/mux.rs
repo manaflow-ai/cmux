@@ -16,7 +16,7 @@ use zeroize::Zeroize;
 
 use crate::browser::{self, BrowserBootstrap, BrowserRuntime};
 use crate::event_bus::{MuxEventBroadcaster, MuxEventReceiver};
-use crate::layout::{Rect, layout_screen};
+use crate::layout::{Rect, layout_screen, layout_screen_with_viewport};
 use crate::model::{Node, Pane, Screen, State, Workspace};
 use crate::pairing::PairingBroker;
 use crate::surface::{DefaultColors, Surface, SurfaceOptions};
@@ -1395,6 +1395,7 @@ impl Mux {
                 active_pane: pane_id,
                 zoomed_pane: None,
                 zellij_auto_layout: Some(vec![pane_id]),
+                viewport_splits: Default::default(),
             });
             workspace.active_screen = workspace.screens.len() - 1;
         }
@@ -4116,6 +4117,7 @@ impl Mux {
                         active_pane: pane_id,
                         zoomed_pane: None,
                         zellij_auto_layout: Some(vec![pane_id]),
+                        viewport_splits: Default::default(),
                     });
                     ws.active_screen = ws.screens.len() - 1;
                     let workspace = ws.id;
@@ -4521,6 +4523,7 @@ impl Mux {
                     active_pane: pane_id,
                     zoomed_pane: None,
                     zellij_auto_layout: Some(vec![pane_id]),
+                    viewport_splits: Default::default(),
                 });
                 state.workspaces[wi].active_screen = 0;
                 let entity = crate::server::tree_entity_json(
@@ -4649,6 +4652,7 @@ impl Mux {
                         active_pane: pane_id,
                         zoomed_pane: None,
                         zellij_auto_layout: Some(vec![pane_id]),
+                        viewport_splits: Default::default(),
                     });
                     state.workspaces[workspace_index].active_screen = 0;
                     let entity = crate::server::tree_entity_json(
@@ -4726,6 +4730,7 @@ impl Mux {
                         active_pane: pane_id,
                         zoomed_pane: None,
                         zellij_auto_layout: Some(vec![pane_id]),
+                        viewport_splits: Default::default(),
                     }],
                     active_screen: 0,
                 });
@@ -4874,6 +4879,7 @@ impl Mux {
                     active_pane: pane_id,
                     zoomed_pane: None,
                     zellij_auto_layout: Some(vec![pane_id]),
+                    viewport_splits: Default::default(),
                 });
                 state.workspaces[wi].active_screen = 0;
                 let entity = crate::server::tree_entity_json(
@@ -5012,6 +5018,33 @@ impl Mux {
         dir: SplitDir,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        self.split_with_viewport_width(target, dir, size, None)
+    }
+
+    /// Add a terminal as a viewport-width column after the current screen.
+    ///
+    /// Updated frontends render the new column at `width` times their own
+    /// viewport width. The ordinary split ratio remains valid fallback data
+    /// for older clients.
+    pub fn new_pane_right(
+        self: &Arc<Self>,
+        target: PaneId,
+        width: f32,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
+        if !(0.1..=1.0).contains(&width) {
+            anyhow::bail!("viewport pane width must be between 0.1 and 1.0");
+        }
+        self.split_with_viewport_width(target, SplitDir::Right, size, Some(width))
+    }
+
+    fn split_with_viewport_width(
+        self: &Arc<Self>,
+        target: PaneId,
+        dir: SplitDir,
+        size: Option<(u16, u16)>,
+        viewport_width: Option<f32>,
+    ) -> anyhow::Result<Arc<Surface>> {
         let cwd = self.pane_cwd(target);
         let workspace_key = self
             .workspace_key_for_pane(target)
@@ -5029,8 +5062,27 @@ impl Mux {
             let mut state = self.state.lock().unwrap();
             'outer: for ws in state.workspaces.iter_mut() {
                 for screen in ws.screens.iter_mut() {
-                    if screen.root.split_leaf(target, split_id, dir, pane_id) {
+                    let split = if let Some(width) = viewport_width {
+                        if !screen.root.contains(target) {
+                            false
+                        } else {
+                            let previous = std::mem::replace(&mut screen.root, Node::Leaf(pane_id));
+                            screen.root = Node::Split {
+                                id: split_id,
+                                dir: SplitDir::Right,
+                                ratio: 1.0 / (1.0 + width),
+                                a: Box::new(previous),
+                                b: Box::new(Node::Leaf(pane_id)),
+                            };
+                            screen.viewport_splits.insert(split_id, width);
+                            true
+                        }
+                    } else {
+                        screen.root.split_leaf(target, split_id, dir, pane_id)
+                    };
+                    if split {
                         screen.active_pane = pane_id;
+                        screen.zoomed_pane = None;
                         // A directional split damages the automatic layout.
                         // The next Alt-N can establish a fresh Zellij layout
                         // from stable pane ids, but close must preserve this
@@ -5144,6 +5196,7 @@ impl Mux {
                     screen.active_pane = pane_id;
                     screen.zoomed_pane = None;
                     screen.zellij_auto_layout = Some(panes);
+                    screen.viewport_splits.clear();
                     changed_screen = Some(screen.id);
                     changed_workspace = Some(ws.id);
                     break 'outer;
@@ -6148,11 +6201,17 @@ impl Mux {
             };
             let screen = &state.workspaces[wi].screens[si];
             let (dx, dy) = dir.delta();
-            let layout = layout_screen(
-                &screen.root,
-                Rect { x: 0, y: 0, width: 10_000, height: 10_000 },
-                Some(screen.active_pane),
-            );
+            let area = Rect { x: 0, y: 0, width: 10_000, height: 10_000 };
+            let layout = if screen.viewport_splits.is_empty() {
+                layout_screen(&screen.root, area, Some(screen.active_pane))
+            } else {
+                layout_screen_with_viewport(
+                    &screen.root,
+                    area,
+                    Some(screen.active_pane),
+                    &screen.viewport_splits,
+                )
+            };
             Ok(layout.neighbor(pane, dx, dy))
         })
     }
@@ -6164,11 +6223,17 @@ impl Mux {
             };
             let screen = &state.workspaces[wi].screens[si];
             let (dx, dy) = dir.delta();
-            let layout = layout_screen(
-                &screen.root,
-                Rect { x: 0, y: 0, width: 10_000, height: 10_000 },
-                Some(screen.active_pane),
-            );
+            let area = Rect { x: 0, y: 0, width: 10_000, height: 10_000 };
+            let layout = if screen.viewport_splits.is_empty() {
+                layout_screen(&screen.root, area, Some(screen.active_pane))
+            } else {
+                layout_screen_with_viewport(
+                    &screen.root,
+                    area,
+                    Some(screen.active_pane),
+                    &screen.viewport_splits,
+                )
+            };
             Ok(layout.neighbor_by_recency(pane, dx, dy, |candidate| {
                 state.panes.get(&candidate).map(|pane| pane.focused_at).unwrap_or_default()
             }))
@@ -6318,6 +6383,7 @@ impl Mux {
                 active_pane,
                 zoomed_pane: None,
                 zellij_auto_layout: None,
+                viewport_splits: Default::default(),
             };
             let ws = &mut state.workspaces[workspace_index];
             ws.screens.push(screen);
@@ -6662,6 +6728,7 @@ impl Mux {
                     active_pane: pane,
                     zoomed_pane: None,
                     zellij_auto_layout: Some(vec![pane]),
+                    viewport_splits: Default::default(),
                 });
                 state.workspaces[destination].active_screen = 0;
                 pane
@@ -7637,6 +7704,7 @@ fn remove_surface(mux: &Mux, state: &mut State, target: SurfaceId) -> (Option<Ar
             let screen = &mut state.workspaces[wi].screens[si];
             screen.root = root;
             screen.zellij_auto_layout = zellij_auto_layout;
+            screen.retain_viewport_splits();
             if let Some(next) = next_active {
                 screen.active_pane = next;
             }
@@ -7702,6 +7770,7 @@ fn collapse_empty_pane(mux: &Mux, state: &mut State, pane_id: PaneId) {
             let screen = &mut state.workspaces[wi].screens[si];
             screen.root = root;
             screen.zellij_auto_layout = zellij_auto_layout;
+            screen.retain_viewport_splits();
             if let Some(next) = next_active {
                 screen.active_pane = next;
             }
@@ -7781,6 +7850,8 @@ fn move_tab_in_state(
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    use crate::layout::DEFAULT_VIEWPORT_PANE_WIDTH;
 
     fn test_mux() -> Arc<Mux> {
         Mux::new_for_test("test", SurfaceOptions::default())
@@ -8524,6 +8595,7 @@ mod tests {
                     active_pane: p3,
                     zoomed_pane: None,
                     zellij_auto_layout: None,
+                    viewport_splits: Default::default(),
                 }],
                 active_screen: 0,
             }],
@@ -8978,6 +9050,62 @@ mod tests {
             assert!(s.workspaces[0].screens.is_empty());
             assert_eq!(s.workspace_revision, 1);
         });
+    }
+
+    #[test]
+    fn new_pane_right_wraps_the_screen_in_a_viewport_split() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.split(first_pane, SplitDir::Right, Some((38, 22))).unwrap();
+        let second_pane = mux.with_state(|state| state.pane_of(second.id).unwrap());
+
+        let appended =
+            mux.new_pane_right(second_pane, DEFAULT_VIEWPORT_PANE_WIDTH, Some((51, 22))).unwrap();
+        let appended_pane = mux.with_state(|state| state.pane_of(appended.id).unwrap());
+
+        mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            assert_eq!(screen.active_pane, appended_pane);
+            assert_eq!(screen.zoomed_pane, None);
+            assert_eq!(screen.viewport_splits.len(), 1);
+            let Node::Split { id, dir, ratio, a, b } = &screen.root else {
+                panic!("viewport pane must wrap the screen root");
+            };
+            assert_eq!(*dir, SplitDir::Right);
+            assert!((*ratio - 0.6).abs() < f32::EPSILON);
+            assert!(a.contains(first_pane));
+            assert!(a.contains(second_pane));
+            assert!(matches!(b.as_ref(), Node::Leaf(pane) if *pane == appended_pane));
+            assert_eq!(screen.viewport_splits[id], DEFAULT_VIEWPORT_PANE_WIDTH);
+
+            let layout = layout_screen_with_viewport(
+                &screen.root,
+                Rect { x: 0, y: 0, width: 80, height: 24 },
+                Some(screen.active_pane),
+                &screen.viewport_splits,
+            );
+            assert_eq!(layout.virtual_width, 133);
+            assert_eq!(layout.rect_of(first_pane).unwrap().width, 40);
+            assert_eq!(layout.rect_of(second_pane).unwrap().width, 40);
+            assert_eq!(
+                layout.rect_of(appended_pane).unwrap(),
+                Rect { x: 80, y: 0, width: 53, height: 24 }
+            );
+        });
+        assert_eq!(mux.pane_neighbor(second_pane, Direction::Right).unwrap(), Some(appended_pane));
+        assert_eq!(mux.pane_neighbor(appended_pane, Direction::Left).unwrap(), Some(second_pane));
+    }
+
+    #[test]
+    fn new_pane_right_rejects_invalid_width_before_spawning() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, None).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let surfaces = mux.with_state(|state| state.surfaces.len());
+
+        assert!(mux.new_pane_right(pane, 0.0, None).is_err());
+        assert_eq!(mux.with_state(|state| state.surfaces.len()), surfaces);
     }
 
     #[cfg(unix)]

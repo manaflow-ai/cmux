@@ -56,6 +56,7 @@ use crate::{
 
 const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
+pub const VIEWPORT_SPLITS_CAPABILITY: &str = "viewport-splits-v1";
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
     "provider-managed-workspace-authority-v2";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -422,6 +423,15 @@ enum Command {
     },
     NewPane {
         pane: PaneId,
+        #[serde(default)]
+        cols: Option<u16>,
+        #[serde(default)]
+        rows: Option<u16>,
+    },
+    NewPaneRight {
+        pane: PaneId,
+        #[serde(default)]
+        width: Option<f32>,
         #[serde(default)]
         cols: Option<u16>,
         #[serde(default)]
@@ -2106,6 +2116,9 @@ fn export_layout_json(state: &State, screen_id: Option<ScreenId>) -> anyhow::Res
     screen.root.pane_ids(&mut pane_ids);
     Ok(json!({
         "layout": node_json(&screen.root, screen.active_pane),
+        "viewport_splits": screen.viewport_splits.iter().map(|(split, width)| {
+            json!({"split": split, "width": width})
+        }).collect::<Vec<_>>(),
         "panes": pane_ids.iter().map(|pane_id| {
             let surfaces = state
                 .panes
@@ -2183,6 +2196,9 @@ fn screen_json(
         "active_pane": screen.active_pane,
         "zoomed_pane": screen.zoomed_pane,
         "layout": node_json(&screen.root, screen.active_pane),
+        "viewport_splits": screen.viewport_splits.iter().map(|(split, width)| {
+            json!({"split": split, "width": width})
+        }).collect::<Vec<_>>(),
         "panes": pane_ids.iter().map(|id| pane_json(state, *id, short_ids, notifications)).collect::<Vec<_>>(),
     })
 }
@@ -2935,6 +2951,7 @@ fn handle_command(
                 "capabilities": [
                     ATTACH_INITIAL_SIZE_CAPABILITY,
                     WORKSPACE_REGISTRY_CAPABILITY,
+                    VIEWPORT_SPLITS_CAPABILITY,
                     PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY
                 ],
                 "session": mux.session,
@@ -3649,6 +3666,14 @@ fn handle_command(
         }
         Command::NewPane { pane, cols, rows } => {
             let surface = mux.new_pane(pane, optional_surface_size(cols, rows))?;
+            Ok(json!({ "surface": surface.id }))
+        }
+        Command::NewPaneRight { pane, width, cols, rows } => {
+            let surface = mux.new_pane_right(
+                pane,
+                width.unwrap_or(crate::DEFAULT_VIEWPORT_PANE_WIDTH),
+                optional_surface_size(cols, rows),
+            )?;
             Ok(json!({ "surface": surface.id }))
         }
         Command::Split { pane, dir, cols, rows } => {
@@ -6439,6 +6464,7 @@ mod tests {
         for expected in [
             "attach-initial-size",
             "workspace-registry-v1",
+            VIEWPORT_SPLITS_CAPABILITY,
             PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
         ] {
             assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));

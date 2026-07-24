@@ -63,9 +63,12 @@ object{
   active_pane:Id,
   zoomed_pane:Id|null,
   layout:Layout,
+  viewport_splits?:array<object{split:Id,width:float32}>,
   panes:array<Pane>
 }
 ```
+
+Servers advertising `viewport-splits-v1` include `viewport_splits`. Each entry marks a right split whose second child is appended to a horizontal virtual canvas. `width` is the second child's width as a fraction of each frontend's viewport. Clients that do not implement the capability may ignore the field and render the split's fallback ratio.
 
 `Layout`:
 
@@ -182,7 +185,7 @@ object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:s
 
 `build_commit` and `ghostty_commit` are additive build-stamp fields. They are omitted or `null` when the binary was built without the corresponding stamp, so clients must preserve compatibility with older servers and unstamped local builds.
 
-`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits.
+`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits.
 
 Errors:
 
@@ -204,7 +207,7 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":9,"capabilities":["attach-initial-size","workspace-registry-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":9,"capabilities":["attach-initial-size","workspace-registry-v1","viewport-splits-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
 ```
 
 The current server reports protocol `9` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`, and protocol 9 before decoding stack layouts or sending `new-pane`.
@@ -553,7 +556,7 @@ Params:
 Result:
 
 ```text
-object{layout:Layout,panes:array<object{pane:Id,surfaces:array<Id>}>}
+object{layout:Layout,viewport_splits?:array<object{split:Id,width:float32}>,panes:array<object{pane:Id,surfaces:array<Id>}>}
 ```
 
 Errors: `unknown screen <id>`, `no active screen`, `bad request: ...`.
@@ -1103,7 +1106,7 @@ CLI mapping:
 | Item | Value |
 | --- | --- |
 | Verb | `new-pane` |
-| Flags | `--pane <id> [--cols <n> --rows <n>]` |
+| Flags | `--pane <id> [--width <fraction>] [--cols <n> --rows <n>]` |
 | Plain stdout | new surface id followed by newline |
 | JSON stdout | exact result object |
 | Exit codes | common |
@@ -1113,6 +1116,57 @@ Example:
 ```json
 {"id":10,"cmd":"new-pane","pane":2}
 {"id":10,"ok":true,"data":{"surface":14}}
+```
+
+### new-pane-right
+
+| Field | Value |
+| --- | --- |
+| name | `new-pane-right` |
+| status | implemented |
+| since | protocol 9 additive capability `viewport-splits-v1` |
+
+Creates and focuses one PTY pane to the right of the entire screen. Supporting frontends keep the existing split tree at one viewport width and append the new pane at `width` times the viewport width. The default is two thirds. The shared split tree stores the equivalent proportional fallback ratio for clients that ignore viewport metadata. The new surface inherits the active surface working directory of `pane` when available.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `pane` | `Id` | required | Pane whose screen receives the new pane |
+| `width` | `float32` | default `0.6666667` | From 0.1 through 1.0 |
+| `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
+| `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
+
+Result:
+
+```text
+object{surface:Id}
+```
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `pane <id> has no workspace` | Target pane is not in a screen |
+| `viewport pane width must be between 0.1 and 1.0` | `width` is outside the supported range |
+| spawn or PTY error string | PTY creation or child spawn fails |
+| `bad request: ...` | Missing fields or wrong JSON type |
+
+CLI mapping:
+
+| Item | Value |
+| --- | --- |
+| Verb | `new-pane-right` |
+| Flags | `--pane <id> [--cols <n> --rows <n>]` |
+| Plain stdout | new surface id followed by newline |
+| JSON stdout | exact result object |
+| Exit codes | common |
+
+Example:
+
+```json
+{"id":11,"cmd":"new-pane-right","pane":2}
+{"id":11,"ok":true,"data":{"surface":15}}
 ```
 
 ### split
@@ -3022,3 +3076,5 @@ The following v5 behaviors are awkward for generated bindings and should be norm
 | Unknown fields | Unknown request fields are ignored by serde | Reject unknown fields or define extension slots |
 
 Protocol v9 adds `new-pane`; its implemented result is `{surface}`. A future result expansion may add `{pane,screen,workspace}` only behind a newer protocol version.
+
+`viewport-splits-v1` is additive within protocol v9. Clients must require the capability before sending `new-pane-right` or interpreting `Screen.viewport_splits`.

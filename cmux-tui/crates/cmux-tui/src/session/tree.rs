@@ -1,10 +1,10 @@
 //! Read-only tree snapshots shared by the renderer and input handling,
 //! plus the JSON parser for the remote `list-workspaces` shape.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use cmux_tui_core::{
-    BrowserSource, Node, PaneId, ScreenId, SplitDir, State, SurfaceId, SurfaceKind,
+    BrowserSource, Node, PaneId, ScreenId, SplitDir, SplitId, State, SurfaceId, SurfaceKind,
     SurfaceNotification, WorkspaceId, assign_short_ids,
 };
 use serde_json::Value;
@@ -39,6 +39,7 @@ pub struct ScreenView {
     pub layout: Node,
     pub active_pane: PaneId,
     pub zoomed_pane: Option<PaneId>,
+    pub viewport_splits: BTreeMap<SplitId, f32>,
     pub panes: Vec<PaneView>,
 }
 
@@ -238,6 +239,7 @@ pub fn tree_from_state_with_notifications(
                             layout: screen.root.clone(),
                             active_pane: screen.active_pane,
                             zoomed_pane: screen.zoomed_pane,
+                            viewport_splits: screen.viewport_splits.clone(),
                             panes: pane_ids.iter().filter_map(pane_view).collect(),
                         }
                     })
@@ -347,6 +349,18 @@ fn parse_screen(value: &Value) -> Option<ScreenView> {
         layout: value.get("layout").and_then(parse_layout)?,
         active_pane: value.get("active_pane").and_then(|v| v.as_u64()).unwrap_or(0),
         zoomed_pane: value.get("zoomed_pane").and_then(|v| v.as_u64()),
+        viewport_splits: value
+            .get("viewport_splits")
+            .and_then(Value::as_array)
+            .map(|splits| {
+                splits
+                    .iter()
+                    .filter_map(|value| {
+                        Some((value.get("split")?.as_u64()?, value.get("width")?.as_f64()? as f32))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
         panes: value
             .get("panes")
             .and_then(|v| v.as_array())
@@ -409,6 +423,7 @@ mod tests {
             layout: Node::Leaf(1),
             active_pane: 1,
             zoomed_pane: None,
+            viewport_splits: BTreeMap::new(),
             panes: Vec::new(),
         };
 
@@ -435,6 +450,7 @@ mod tests {
                         "a": {"type": "leaf", "pane": 3},
                         "b": {"type": "leaf", "pane": 4}
                     },
+                    "viewport_splits": [{"split": 9, "width": 0.6666667}],
                     "panes": []
                 }]
             }]
@@ -444,6 +460,7 @@ mod tests {
             panic!("layout should be split");
         };
         assert_eq!(*id, 9);
+        assert_eq!(tree.workspaces[0].screens[0].viewport_splits.get(&9), Some(&(2.0 / 3.0)));
     }
 
     #[test]

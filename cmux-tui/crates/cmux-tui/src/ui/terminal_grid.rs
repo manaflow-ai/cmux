@@ -16,29 +16,70 @@ pub fn draw_render_frame(
     chrome: &ChromeTheme,
     selected: impl Fn(u16, u16) -> bool,
 ) -> Option<(u16, u16)> {
-    draw_render_frame_with_catalog(frame, rect, render, theme, chrome, catalog(), selected)
+    draw_render_frame_with_catalog(
+        frame,
+        HorizontalViewport { rect, source_x: 0 },
+        render,
+        theme,
+        chrome,
+        catalog(),
+        selected,
+    )
 }
 
-pub(crate) fn rendered_viewport_rect(
+pub fn draw_render_frame_cropped(
+    frame: &mut Frame,
+    rect: Rect,
+    source_x: u16,
+    render: &SurfaceRenderFrame,
+    theme: &Theme,
+    chrome: &ChromeTheme,
+    selected: impl Fn(u16, u16) -> bool,
+) -> Option<(u16, u16)> {
+    draw_render_frame_with_catalog(
+        frame,
+        HorizontalViewport { rect, source_x },
+        render,
+        theme,
+        chrome,
+        catalog(),
+        selected,
+    )
+}
+
+pub(crate) fn rendered_viewport_rect_cropped(
     rect: Rect,
     screen: RatatuiRect,
     render: &SurfaceRenderFrame,
+    source_x: u16,
 ) -> Rect {
     let max_cols = rect.width.min(screen.width.saturating_sub(rect.x));
     let max_rows = rect.height.min(screen.height.saturating_sub(rect.y));
     let (snap_cols, snap_rows) = render.frame.size;
-    Rect { x: rect.x, y: rect.y, width: snap_cols.min(max_cols), height: snap_rows.min(max_rows) }
+    Rect {
+        x: rect.x,
+        y: rect.y,
+        width: snap_cols.saturating_sub(source_x).min(max_cols),
+        height: snap_rows.min(max_rows),
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct HorizontalViewport {
+    rect: Rect,
+    source_x: u16,
 }
 
 fn draw_render_frame_with_catalog(
     frame: &mut Frame,
-    rect: Rect,
+    viewport: HorizontalViewport,
     render: &SurfaceRenderFrame,
     theme: &Theme,
     chrome: &ChromeTheme,
     catalog: &Catalog,
     selected: impl Fn(u16, u16) -> bool,
 ) -> Option<(u16, u16)> {
+    let HorizontalViewport { rect, source_x } = viewport;
     if rect.width == 0 || rect.height == 0 {
         return None;
     }
@@ -46,7 +87,7 @@ fn draw_render_frame_with_catalog(
     let max_cols = rect.width.min(screen.width.saturating_sub(rect.x)) as usize;
     let max_rows = rect.height.min(screen.height.saturating_sub(rect.y)) as usize;
     let (snap_cols, snap_rows) = render.frame.size;
-    let live = rendered_viewport_rect(rect, screen, render);
+    let live = rendered_viewport_rect_cropped(rect, screen, render, source_x);
     let live_cols = usize::from(live.width);
     let live_rows = usize::from(live.height);
     let colors = PaletteResolver::from_frame(render);
@@ -58,15 +99,16 @@ fn draw_render_frame_with_catalog(
             break;
         }
         let y = rect.y + row as u16;
-        for (col, cell) in cells.iter().enumerate() {
-            if col >= live_cols {
-                break;
-            }
+        let source_x = usize::from(source_x);
+        let available = cells.len().saturating_sub(source_x).min(live_cols);
+        for col in 0..available {
+            let source_col = source_x + col;
             let x = rect.x + col as u16;
-            let selected = selected(col as u16, row as u16);
+            let selected = selected(source_col as u16, row as u16);
+            let cell = &cells[source_col];
             apply_cell(&mut buf[(x, y)], cell, &colors, selected.then_some(theme));
         }
-        for col in cells.len()..live_cols {
+        for col in available..live_cols {
             let x = rect.x + col as u16;
             buf[(x, y)].set_symbol(" ").set_style(blank_style);
         }
@@ -82,8 +124,12 @@ fn draw_render_frame_with_catalog(
     render
         .frame
         .cursor
-        .filter(|cursor| (cursor.x as usize) < live_cols && (cursor.y as usize) < live_rows)
-        .map(|cursor| (rect.x + cursor.x, rect.y + cursor.y))
+        .filter(|cursor| {
+            cursor.x >= source_x
+                && usize::from(cursor.x - source_x) < live_cols
+                && (cursor.y as usize) < live_rows
+        })
+        .map(|cursor| (rect.x + cursor.x - source_x, rect.y + cursor.y))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -362,7 +408,7 @@ mod tests {
             .draw(|frame| {
                 draw_render_frame_with_catalog(
                     frame,
-                    rect,
+                    HorizontalViewport { rect, source_x: 0 },
                     render,
                     &Theme::default(),
                     &chrome,
@@ -372,6 +418,39 @@ mod tests {
             })
             .unwrap();
         terminal
+    }
+
+    #[test]
+    fn cropped_grid_starts_at_the_requested_source_column() {
+        let mut terminal = Terminal::new(8, 1, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"abcdefgh");
+        let mut state = RenderState::new().unwrap();
+        state.update(&mut terminal).unwrap();
+        let render = SurfaceRenderFrame {
+            frame: state.build_frame().unwrap(),
+            scrollback_rows: 0,
+            palette_colors: std::array::from_fn(|idx| state.palette_color(idx as u8)),
+            palette_overridden: std::array::from_fn(|idx| state.palette_overridden(idx as u8)),
+        };
+        let mut output = RatatuiTerminal::new(TestBackend::new(3, 1)).unwrap();
+        output
+            .draw(|frame| {
+                draw_render_frame_with_catalog(
+                    frame,
+                    HorizontalViewport {
+                        rect: Rect { x: 0, y: 0, width: 3, height: 1 },
+                        source_x: 3,
+                    },
+                    &render,
+                    &Theme::default(),
+                    &ChromeTheme::dark(),
+                    crate::localization::catalog_for_locale("en_US.UTF-8"),
+                    |_, _| false,
+                );
+            })
+            .unwrap();
+
+        assert_eq!(row_text(output.backend().buffer(), 0, 0, 3), "def");
     }
 
     fn row_text(buffer: &Buffer, y: u16, x: u16, width: u16) -> String {

@@ -13,7 +13,9 @@ pub(crate) mod tree;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use cmux_tui_core::server::PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY;
+use cmux_tui_core::server::{
+    PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY,
+};
 use cmux_tui_core::{
     BrowserFrame, BrowserStatus, DefaultColors, Mux, MuxEventReceiver, PaneId, ScreenId,
     SidebarPluginStatus, SplitDir, SplitId, Surface, SurfaceId, SurfaceKind, SurfaceRenderFrame,
@@ -724,6 +726,29 @@ impl Session {
             Session::Remote(remote) => {
                 let result =
                     remote.request(with_size(json!({"cmd": "new-pane", "pane": pane}), size))?;
+                response_surface(&result, "pane")
+            }
+        }
+    }
+
+    pub fn new_pane_right(
+        &self,
+        pane: PaneId,
+        width: f32,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<SurfaceId> {
+        match self {
+            Session::Local(mux) => mux.new_pane_right(pane, width, size).map(|surface| surface.id),
+            Session::Remote(remote) => {
+                if !remote.supports_capability(VIEWPORT_SPLITS_CAPABILITY) {
+                    anyhow::bail!(
+                        "remote cmux server does not support viewport panes; upgrade the server before using new-pane-right"
+                    );
+                }
+                let result = remote.request(with_size(
+                    json!({"cmd": "new-pane-right", "pane": pane, "width": width}),
+                    size,
+                ))?;
                 response_surface(&result, "pane")
             }
         }

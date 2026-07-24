@@ -1,9 +1,11 @@
 //! Pure layout math shared by frontends: a screen's split tree plus a
 //! rectangle produce pane rects that tile the area exactly.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use crate::{Node, PaneId, SplitDir, SplitId};
+
+pub const DEFAULT_VIEWPORT_PANE_WIDTH: f32 = 2.0 / 3.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Rect {
@@ -25,6 +27,8 @@ pub struct LayoutResult {
     /// Pane rows that represent collapsed Zellij stack headers rather than
     /// terminal content.
     pub stacked_headers: HashSet<PaneId>,
+    /// Horizontal extent occupied by the layout, including viewport columns.
+    pub virtual_width: u16,
 }
 
 impl LayoutResult {
@@ -222,25 +226,25 @@ pub struct ExactSplitResize {
 /// pane draws its own border box inside its rect, so no divider cells
 /// are reserved between siblings.
 pub fn layout_screen(root: &Node, area: Rect, active_pane: Option<PaneId>) -> LayoutResult {
-    let mut result = LayoutResult::default();
+    let mut result = LayoutResult { virtual_width: area.width, ..Default::default() };
     walk(root, area, active_pane, &mut result);
     result
 }
 
-/// Compute a client-local, horizontally scrolling presentation of a screen.
+/// Compute a screen layout with selected right splits extending the horizontal
+/// viewport instead of subdividing it.
 ///
-/// Every pane receives one full `area.width` column. Horizontal splits place
-/// their children in adjacent columns and deliberately ignore their stored
-/// ratio, while vertical splits retain their ratio inside each column. The
-/// mux-owned split tree is not mutated, so another frontend can keep using
-/// [`layout_screen`] at the same time.
-pub fn layout_screen_scrolling(
+/// Each marked split maps to the width of its right side as a fraction of the
+/// frontend viewport. Unmarked splits keep their ordinary tiled behavior.
+pub fn layout_screen_with_viewport(
     root: &Node,
     area: Rect,
     active_pane: Option<PaneId>,
+    viewport_splits: &BTreeMap<SplitId, f32>,
 ) -> LayoutResult {
     let mut result = LayoutResult::default();
-    let _ = walk_scrolling(root, area, active_pane, &mut result);
+    let end = walk_viewport(root, area, area.width, active_pane, viewport_splits, &mut result);
+    result.virtual_width = end.saturating_sub(area.x).max(area.width);
     result
 }
 
@@ -351,45 +355,62 @@ fn walk(node: &Node, area: Rect, active_pane: Option<PaneId>, out: &mut LayoutRe
     }
 }
 
-/// Lay out `node` and return the horizontal extent consumed by its columns.
-fn walk_scrolling(
+/// Lay out `node` and return the first unused absolute x coordinate.
+fn walk_viewport(
     node: &Node,
     area: Rect,
+    viewport_width: u16,
     active_pane: Option<PaneId>,
+    viewport_splits: &BTreeMap<SplitId, f32>,
     out: &mut LayoutResult,
 ) -> u16 {
     match node {
         Node::Leaf(id) => {
             out.panes.push((*id, area));
-            area.width
+            area.x.saturating_add(area.width)
         }
-        Node::Split { dir: SplitDir::Right, a, b, .. } => {
-            let a_width = walk_scrolling(a, area, active_pane, out);
-            let b_width = walk_scrolling(
+        Node::Split { id, dir: SplitDir::Right, a, b, .. } if viewport_splits.contains_key(id) => {
+            let a_end = walk_viewport(a, area, viewport_width, active_pane, viewport_splits, out);
+            let fraction = viewport_splits[id].clamp(0.1, 1.0);
+            let width = ((f32::from(viewport_width) * fraction).round() as u16)
+                .clamp(1, viewport_width.max(1));
+            walk_viewport(
                 b,
-                Rect { x: area.x.saturating_add(a_width), ..area },
+                Rect { x: a_end, width, ..area },
+                viewport_width,
                 active_pane,
+                viewport_splits,
                 out,
-            );
-            a_width.saturating_add(b_width)
+            )
         }
-        Node::Split { dir: SplitDir::Down, ratio, a, b, .. } => {
-            if area.height < 2 {
-                let a_width = walk_scrolling(a, area, active_pane, out);
-                let b_width =
-                    walk_scrolling(b, Rect { width: 0, height: 0, ..area }, active_pane, out);
-                return a_width.max(b_width);
+        Node::Split { dir, ratio, a, b, .. } => {
+            let too_small = match dir {
+                SplitDir::Right => area.width < 2,
+                SplitDir::Down => area.height < 2,
+            };
+            if too_small {
+                let a_end =
+                    walk_viewport(a, area, viewport_width, active_pane, viewport_splits, out);
+                let b_end = walk_viewport(
+                    b,
+                    Rect { width: 0, height: 0, ..area },
+                    viewport_width,
+                    active_pane,
+                    viewport_splits,
+                    out,
+                );
+                return a_end.max(b_end);
             }
-            let (a_rect, b_rect) = split_sides(area, SplitDir::Down, *ratio);
-            let a_width = walk_scrolling(a, a_rect, active_pane, out);
-            let b_width = walk_scrolling(b, b_rect, active_pane, out);
-            a_width.max(b_width)
+            let (a_rect, b_rect) = split_sides(area, *dir, *ratio);
+            let a_end = walk_viewport(a, a_rect, viewport_width, active_pane, viewport_splits, out);
+            let b_end = walk_viewport(b, b_rect, viewport_width, active_pane, viewport_splits, out);
+            a_end.max(b_end)
         }
         Node::Stack { panes, expanded } => {
             let panes = panes.as_slice();
             let expanded = active_pane.filter(|pane| panes.contains(pane)).unwrap_or(*expanded);
             walk_stack(panes, expanded, area, out);
-            area.width
+            area.x.saturating_add(area.width)
         }
     }
 }
@@ -463,6 +484,122 @@ pub fn exact_split_for_pane_edge(
     let mut best = None;
     exact_split_for_pane_edge_walk(root, area, pane, pane_rect, edge, &mut best);
     best
+}
+
+/// Find the exact split behind a pane edge in a horizontally extended
+/// viewport layout.
+pub fn exact_split_for_pane_edge_with_viewport(
+    root: &Node,
+    area: Rect,
+    active_pane: Option<PaneId>,
+    pane: PaneId,
+    edge: SplitEdge,
+    viewport_splits: &BTreeMap<SplitId, f32>,
+) -> Option<ExactSplitResize> {
+    let pane_rect =
+        layout_screen_with_viewport(root, area, active_pane, viewport_splits).rect_of(pane)?;
+    let mut best = None;
+    exact_split_for_pane_edge_viewport_walk(
+        root,
+        area,
+        area.width,
+        active_pane,
+        viewport_splits,
+        pane,
+        pane_rect,
+        edge,
+        &mut best,
+    );
+    best
+}
+
+#[allow(clippy::too_many_arguments)]
+fn exact_split_for_pane_edge_viewport_walk(
+    node: &Node,
+    area: Rect,
+    viewport_width: u16,
+    active_pane: Option<PaneId>,
+    viewport_splits: &BTreeMap<SplitId, f32>,
+    pane: PaneId,
+    pane_rect: Rect,
+    edge: SplitEdge,
+    best: &mut Option<ExactSplitResize>,
+) {
+    let Node::Split { id, dir, ratio, a, b } = node else {
+        return;
+    };
+    let (a_rect, b_rect, split_area) = if *dir == SplitDir::Right
+        && viewport_splits.contains_key(id)
+    {
+        let mut ignored = LayoutResult::default();
+        let a_end =
+            walk_viewport(a, area, viewport_width, active_pane, viewport_splits, &mut ignored);
+        let fraction = viewport_splits[id].clamp(0.1, 1.0);
+        let width =
+            ((f32::from(viewport_width) * fraction).round() as u16).clamp(1, viewport_width.max(1));
+        let b_rect = Rect { x: a_end, width, ..area };
+        (
+            area,
+            b_rect,
+            Rect { width: b_rect.x.saturating_add(b_rect.width).saturating_sub(area.x), ..area },
+        )
+    } else {
+        let too_small = match dir {
+            SplitDir::Right => area.width < 2,
+            SplitDir::Down => area.height < 2,
+        };
+        if too_small {
+            return;
+        }
+        let (a_rect, b_rect) = split_sides(area, *dir, *ratio);
+        (a_rect, b_rect, area)
+    };
+    let pane_in_a = a.contains(pane);
+    let pane_in_b = b.contains(pane);
+    if *dir == edge.dir() {
+        let boundary = match dir {
+            SplitDir::Right => b_rect.x,
+            SplitDir::Down => b_rect.y,
+        };
+        let matches_boundary = match edge {
+            SplitEdge::Right => {
+                pane_in_a && pane_rect.x.saturating_add(pane_rect.width) == boundary
+            }
+            SplitEdge::Left => pane_in_b && pane_rect.x == boundary,
+            SplitEdge::Bottom => {
+                pane_in_a && pane_rect.y.saturating_add(pane_rect.height) == boundary
+            }
+            SplitEdge::Top => pane_in_b && pane_rect.y == boundary,
+        };
+        if matches_boundary {
+            *best = Some(ExactSplitResize { area: split_area, split: *id });
+        }
+    }
+    if pane_in_a {
+        exact_split_for_pane_edge_viewport_walk(
+            a,
+            a_rect,
+            viewport_width,
+            active_pane,
+            viewport_splits,
+            pane,
+            pane_rect,
+            edge,
+            best,
+        );
+    } else if pane_in_b {
+        exact_split_for_pane_edge_viewport_walk(
+            b,
+            b_rect,
+            viewport_width,
+            active_pane,
+            viewport_splits,
+            pane,
+            pane_rect,
+            edge,
+            best,
+        );
+    }
 }
 
 fn exact_split_for_pane_edge_walk(
@@ -613,13 +750,14 @@ mod tests {
         assert_eq!(r1.width, 40);
         assert_eq!(r2.width, 40);
         assert_eq!(r2.x, 40);
+        assert_eq!(layout.virtual_width, 80);
         // Panes tile without gaps: every cell belongs to exactly one pane.
         assert_eq!(layout.pane_at(39, 0), Some(1));
         assert_eq!(layout.pane_at(40, 0), Some(2));
     }
 
     #[test]
-    fn scrolling_layout_gives_horizontal_splits_full_width_columns() {
+    fn viewport_split_appends_a_two_thirds_width_column() {
         let root = Node::Split {
             id: 10,
             dir: SplitDir::Right,
@@ -628,15 +766,52 @@ mod tests {
             b: Box::new(Node::Leaf(2)),
         };
 
-        let layout =
-            layout_screen_scrolling(&root, Rect { x: 7, y: 3, width: 80, height: 24 }, Some(1));
+        let viewport_splits = BTreeMap::from([(10, 2.0 / 3.0)]);
+        let layout = layout_screen_with_viewport(
+            &root,
+            Rect { x: 7, y: 3, width: 80, height: 24 },
+            Some(1),
+            &viewport_splits,
+        );
 
         assert_eq!(layout.rect_of(1), Some(Rect { x: 7, y: 3, width: 80, height: 24 }));
-        assert_eq!(layout.rect_of(2), Some(Rect { x: 87, y: 3, width: 80, height: 24 }));
+        assert_eq!(layout.rect_of(2), Some(Rect { x: 87, y: 3, width: 53, height: 24 }));
+        assert_eq!(layout.virtual_width, 133);
     }
 
     #[test]
-    fn scrolling_layout_keeps_vertical_splits_in_one_column() {
+    fn viewport_split_resize_finds_a_nested_appended_divider() {
+        let root = Node::Split {
+            id: 10,
+            dir: SplitDir::Right,
+            ratio: 0.5,
+            a: Box::new(Node::Leaf(1)),
+            b: Box::new(Node::Split {
+                id: 20,
+                dir: SplitDir::Right,
+                ratio: 0.5,
+                a: Box::new(Node::Leaf(2)),
+                b: Box::new(Node::Leaf(3)),
+            }),
+        };
+        let area = Rect { x: 0, y: 0, width: 80, height: 24 };
+        let viewport_splits = BTreeMap::from([(10, DEFAULT_VIEWPORT_PANE_WIDTH)]);
+
+        assert_eq!(
+            exact_split_for_pane_edge_with_viewport(
+                &root,
+                area,
+                Some(2),
+                2,
+                SplitEdge::Right,
+                &viewport_splits,
+            ),
+            Some(ExactSplitResize { area: Rect { x: 80, y: 0, width: 53, height: 24 }, split: 20 })
+        );
+    }
+
+    #[test]
+    fn viewport_split_preserves_the_existing_tiled_column() {
         let root = Node::Split {
             id: 10,
             dir: SplitDir::Right,
@@ -651,12 +826,18 @@ mod tests {
             b: Box::new(Node::Leaf(3)),
         };
 
-        let layout =
-            layout_screen_scrolling(&root, Rect { x: 0, y: 0, width: 100, height: 40 }, Some(2));
+        let viewport_splits = BTreeMap::from([(10, 2.0 / 3.0)]);
+        let layout = layout_screen_with_viewport(
+            &root,
+            Rect { x: 0, y: 0, width: 100, height: 40 },
+            Some(2),
+            &viewport_splits,
+        );
 
         assert_eq!(layout.rect_of(1), Some(Rect { x: 0, y: 0, width: 100, height: 10 }));
         assert_eq!(layout.rect_of(2), Some(Rect { x: 0, y: 10, width: 100, height: 30 }));
-        assert_eq!(layout.rect_of(3), Some(Rect { x: 100, y: 0, width: 100, height: 40 }));
+        assert_eq!(layout.rect_of(3), Some(Rect { x: 100, y: 0, width: 67, height: 40 }));
+        assert_eq!(layout.virtual_width, 167);
         assert_eq!(layout.neighbor(2, 1, 0), Some(3));
     }
 

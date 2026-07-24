@@ -616,6 +616,23 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     assert_eq!(zoom_json["zoomed"].as_bool(), Some(true));
     assert_eq!(zoom_json["zoomed_pane"].as_u64(), Some(pane1));
 
+    let viewport_pane = cli(
+        &server,
+        &["new-pane-right", "--pane", &pane1.to_string(), "--cols", "51", "--rows", "22"],
+    );
+    assert_success(&viewport_pane);
+    let viewport_surface =
+        String::from_utf8(viewport_pane.stdout).unwrap().trim().parse::<u64>().unwrap();
+    assert!(viewport_surface > 0);
+    let tree = cli(&server, &["--json", "list-workspaces"]);
+    assert_success(&tree);
+    let tree: serde_json::Value = serde_json::from_slice(&tree.stdout).unwrap();
+    let viewport_splits =
+        tree["workspaces"][0]["screens"][0]["viewport_splits"].as_array().unwrap();
+    assert_eq!(viewport_splits.len(), 1);
+    let width = viewport_splits[0]["width"].as_f64().unwrap();
+    assert!((width - 2.0 / 3.0).abs() < 0.0001);
+
     let marker = format!("cmux_cli_marker_{}", std::process::id());
     let send = cli(
         &server,
@@ -817,6 +834,7 @@ fn help_lists_plugin_verbs() {
     assert!(stdout.contains("--ws <addr>"));
     assert!(stdout.contains("--ws-token <token>"));
     assert!(stdout.contains("--ws-insecure-bind"));
+    assert!(stdout.contains("new-pane-right"));
 }
 
 #[cfg(unix)]

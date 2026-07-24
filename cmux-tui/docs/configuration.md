@@ -188,15 +188,13 @@ Chrome 136 and newer reject CDP remote debugging on the OS-default profile direc
 | --- | --- | --- | --- |
 | `scrollbar.position` | `"column"` or `"border"` | `"column"` | Dedicated scrollbar column or right-border overlay |
 
-## Layout
+## Viewport
 
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
-| `layout.mode` | `"tiled"` or `"scrolling"` | `"tiled"` | Tiled panes or viewport-width horizontal columns |
+| `viewport.animation` | boolean | `true` | Animate horizontal viewport movement |
 
-Scrolling mode turns each horizontal split into adjacent full-width columns. Vertical splits remain visible within their column. The active column is shown, and the status bar displays a horizontal track when another column exists. Horizontal split ratios remain stored in the shared screen tree and take effect again when this client returns to tiled mode.
-
-`Ctrl-b g` toggles modes for the current TUI process. Set `{"layout":{"mode":"scrolling"}}` to start that client in scrolling mode. Other attached clients keep their own presentation mode.
+`Ctrl-b g` appends a terminal to the right at two thirds of the current viewport width. Existing panes retain their tiled layout. The status bar gains a continuous horizontal track whenever the resulting screen is wider than the viewport. Focus movement and track clicks reveal offscreen panes. Set `{"viewport":{"animation":false}}` to make those viewport moves immediate.
 
 ## Server
 
@@ -237,7 +235,7 @@ WebSocket clients pair through a six-digit browser/TUI comparison by default. We
 | `keys.toggle-sidebar` | chord string or array or `"none"` | `"s"` | Toggle sidebar |
 | `keys.toggle-sidebar-view` | chord string or array or `"none"` | `"e"` | Toggle the built-in files/workspaces view; a plugin still takes precedence |
 | `keys.focus-sidebar` | chord string or array or `"none"` | `"S"` | Focus the built-in sidebar or sidebar plugin; a prefixed command returns focus to the pane |
-| `keys.toggle-scrolling-layout` | chord string or array or `"none"` | `"g"` | Toggle this client between tiled and horizontal scrolling layouts |
+| `keys.new-pane-right` | chord string or array or `"none"` | `"g"` | Append a two-thirds-width terminal to the right |
 | `keys.focus-next-pane` | chord string or array or `"none"` | `"o"` | Cycle to the next pane in the current screen |
 | `keys.focus-left` | chord string or array or `"none"` | `["h","left","alt+h","alt+left"]` | Focus left |
 | `keys.focus-right` | chord string or array or `"none"` | `["l","right","alt+l","alt+right"]` | Focus right |
@@ -323,6 +321,9 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
   },
   "scrollbar": {
     "position": "column"
+  },
+  "viewport": {
+    "animation": true
   },
   "server": {
     "ws": "127.0.0.1:7681",

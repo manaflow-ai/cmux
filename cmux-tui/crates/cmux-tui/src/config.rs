@@ -63,8 +63,8 @@
 //!   "scrollbar": {
 //!     "position": "column"
 //!   },
-//!   "layout": {
-//!     "mode": "tiled"
+//!   "viewport": {
+//!     "animation": true
 //!   },
 //!   "server": {
 //!     "ws": "127.0.0.1:7681",
@@ -98,7 +98,7 @@
 //! `rename-workspace`, `close-screen`, `prev-screen`, `next-screen`,
 //! `select-screen-0` through `select-screen-9`, `new-screen`,
 //! `next-workspace`, `new-workspace`, `toggle-sidebar`, `toggle-sidebar-view`, `focus-sidebar`,
-//! `toggle-scrolling-layout`,
+//! `new-pane-right`,
 //! `focus-left`, `focus-right`, `focus-up`, `focus-down`, `focus-next-pane`,
 //! `swap-pane-prev`, `swap-pane-next`, `zoom-pane`, `resize-grow`,
 //! `resize-shrink`, `scroll-up`, `scroll-down`, `browser-back`,
@@ -161,7 +161,7 @@ struct RawConfig {
     #[serde(default)]
     scrollbar: RawScrollbar,
     #[serde(default)]
-    layout: RawLayout,
+    viewport: RawViewport,
     #[serde(default)]
     server: RawServer,
     /// Key bindings: `"prefix"` plus one entry per action. Values may be
@@ -572,8 +572,8 @@ struct RawScrollbar {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RawLayout {
-    mode: Option<PaneLayoutMode>,
+struct RawViewport {
+    animation: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -594,27 +594,15 @@ impl Default for Scrollbar {
     }
 }
 
-/// Client-local pane presentation. This never changes the mux-owned split tree.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
-#[serde(rename_all = "kebab-case")]
-pub enum PaneLayoutMode {
-    #[default]
-    Tiled,
-    Scrolling,
+#[derive(Debug, Clone, Copy)]
+pub struct Viewport {
+    pub animation: bool,
 }
 
-impl PaneLayoutMode {
-    pub fn toggled(self) -> Self {
-        match self {
-            Self::Tiled => Self::Scrolling,
-            Self::Scrolling => Self::Tiled,
-        }
+impl Default for Viewport {
+    fn default() -> Self {
+        Self { animation: true }
     }
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct PaneLayout {
-    pub mode: PaneLayoutMode,
 }
 
 /// A color in the config file: "#rrggbb", "#rgb", or an xterm-256 index.
@@ -860,7 +848,7 @@ pub enum Action {
     ToggleSidebar,
     ToggleSidebarView,
     FocusSidebar,
-    ToggleScrollingLayout,
+    NewPaneRight,
     FocusLeft,
     FocusRight,
     FocusUp,
@@ -906,7 +894,7 @@ impl Action {
             Action::ToggleSidebar => "toggle-sidebar".to_string(),
             Action::ToggleSidebarView => "toggle-sidebar-view".to_string(),
             Action::FocusSidebar => "focus-sidebar".to_string(),
-            Action::ToggleScrollingLayout => "toggle-scrolling-layout".to_string(),
+            Action::NewPaneRight => "new-pane-right".to_string(),
             Action::FocusLeft => "focus-left".to_string(),
             Action::FocusRight => "focus-right".to_string(),
             Action::FocusUp => "focus-up".to_string(),
@@ -1013,7 +1001,7 @@ impl Default for Keys {
                 bind(KeyCode::Char('s'), Action::ToggleSidebar),
                 bind(KeyCode::Char('e'), Action::ToggleSidebarView),
                 bind(KeyCode::Char('S'), Action::FocusSidebar),
-                bind(KeyCode::Char('g'), Action::ToggleScrollingLayout),
+                bind(KeyCode::Char('g'), Action::NewPaneRight),
                 bind(KeyCode::Char('o'), Action::FocusNextPane),
                 bind(KeyCode::Char('h'), Action::FocusLeft),
                 bind(KeyCode::Left, Action::FocusLeft),
@@ -1172,7 +1160,7 @@ fn all_actions() -> &'static [Action] {
         Action::ToggleSidebar,
         Action::ToggleSidebarView,
         Action::FocusSidebar,
-        Action::ToggleScrollingLayout,
+        Action::NewPaneRight,
         Action::FocusLeft,
         Action::FocusRight,
         Action::FocusUp,
@@ -1251,7 +1239,7 @@ pub struct Config {
     pub machines: Vec<MachineConfig>,
     pub browser: Browser,
     pub scrollbar: Scrollbar,
-    pub layout: PaneLayout,
+    pub viewport: Viewport,
     pub server: Server,
     pub keys: Keys,
 }
@@ -1513,8 +1501,8 @@ pub fn load() -> Config {
     if let Some(position) = raw.scrollbar.position {
         config.scrollbar.position = position;
     }
-    if let Some(mode) = raw.layout.mode {
-        config.layout.mode = mode;
+    if let Some(animation) = raw.viewport.animation {
+        config.viewport.animation = animation;
     }
     config.server.ws = raw.server.ws.filter(|value| !value.trim().is_empty());
     config.server.ws_token = raw.server.ws_token.filter(|value| !value.trim().is_empty());
@@ -2496,7 +2484,7 @@ mod tests {
                     }
                 ],
                 "scrollbar": {"position": "border"},
-                "layout": {"mode": "scrolling"},
+                "viewport": {"animation": false},
                 "keys": {
                     "alt_shortcuts": false,
                     "rename-pane": "r",
@@ -2553,7 +2541,7 @@ mod tests {
         assert_eq!(plugin.command, vec!["/tmp/sidebar-plugin", "--mode", "test"]);
         assert_eq!(plugin.cwd.as_deref(), Some("/tmp"));
         assert_eq!(config.scrollbar.position, ScrollbarPosition::Border);
-        assert_eq!(config.layout.mode, PaneLayoutMode::Scrolling);
+        assert!(!config.viewport.animation);
         assert_eq!(
             config.keys.action_for(&KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)),
             Some(Action::RenameTab)
@@ -2600,18 +2588,18 @@ mod tests {
     }
 
     #[test]
-    fn pane_layout_defaults_tiled_and_parses_scrolling() {
+    fn viewport_animation_defaults_on_and_can_be_disabled() {
         let raw: RawConfig = serde_json::from_str(r#"{}"#).unwrap();
-        assert!(raw.layout.mode.is_none());
-        assert_eq!(Config::default().layout.mode, PaneLayoutMode::Tiled);
+        assert!(raw.viewport.animation.is_none());
+        assert!(Config::default().viewport.animation);
 
-        let raw: RawConfig = serde_json::from_str(r#"{"layout":{"mode":"scrolling"}}"#).unwrap();
-        assert_eq!(raw.layout.mode, Some(PaneLayoutMode::Scrolling));
+        let raw: RawConfig = serde_json::from_str(r#"{"viewport":{"animation":false}}"#).unwrap();
+        assert_eq!(raw.viewport.animation, Some(false));
 
-        let error = serde_json::from_str::<RawConfig>(r#"{"layout":{"mode":"floating"}}"#)
+        let error = serde_json::from_str::<RawConfig>(r#"{"viewport":{"animation":"slow"}}"#)
             .unwrap_err()
             .to_string();
-        assert!(error.contains("unknown variant `floating`"), "{error}");
+        assert!(error.contains("invalid type"), "{error}");
     }
 
     #[test]
@@ -2722,7 +2710,7 @@ mod tests {
             ("swap-pane-next", Action::SwapPaneNext),
             ("scroll-up", Action::ScrollUp),
             ("toggle-sidebar-view", Action::ToggleSidebarView),
-            ("toggle-scrolling-layout", Action::ToggleScrollingLayout),
+            ("new-pane-right", Action::NewPaneRight),
         ];
         for (name, action) in cases {
             let mut keys = Keys::default();
