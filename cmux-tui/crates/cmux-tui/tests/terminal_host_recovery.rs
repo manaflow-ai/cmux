@@ -439,11 +439,11 @@ fn explicit_terminate_escalates_past_a_sighup_ignoring_child() {
     host.terminate().unwrap();
     host.disconnect();
     wait_for_no_host_records(&harness.host_root());
+    wait_for_process_and_group_absent(shell_pid);
     assert_eq!(
         terminal_host_record_liveness(&record_path, &record).unwrap(),
         TerminalHostLiveness::Dead,
     );
-    wait_for_process_and_group_absent(shell_pid);
 }
 
 #[test]
@@ -498,12 +498,12 @@ fn explicit_terminate_reaps_descendants_in_the_pty_group() {
     host.terminate().unwrap();
     host.disconnect();
     wait_for_no_host_records(&harness.host_root());
+    wait_for_process_and_group_absent(direct_pid);
+    wait_for_process_and_group_absent(descendant_pid);
     assert_eq!(
         terminal_host_record_liveness(&record_path, &record).unwrap(),
         TerminalHostLiveness::Dead,
     );
-    wait_for_process_and_group_absent(direct_pid);
-    wait_for_process_and_group_absent(descendant_pid);
 }
 
 #[test]
