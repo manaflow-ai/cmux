@@ -184,13 +184,14 @@ final class GlobalSearchShortcutPriorityTests {
         )
         appDelegate.debugResetShortcutRoutingStateForTesting(clearFocusedWindowOverride: false)
 
+        let panelId = harness.panel.id
         var observedDeltas: [Int] = []
         let token = NotificationCenter.default.addObserver(
             forName: .browserMoveOmnibarSelection,
             object: nil,
             queue: nil
         ) { notification in
-            guard notification.object as? UUID == harness.panel.id,
+            guard notification.object as? UUID == panelId,
                   let delta = notification.userInfo?["delta"] as? Int else {
                 return
             }
@@ -311,12 +312,6 @@ final class GlobalSearchShortcutPriorityTests {
         appDelegate.debugCloseMainWindowConfirmationHandler = { _ in true }
         defer { appDelegate.debugCloseMainWindowConfirmationHandler = originalConfirmationHandler }
 #endif
-        if let panelId = (window.firstResponder as? OmnibarNativeTextField)?.panelId {
-            BrowserOmnibarNativeFieldRegistry.shared.unregister(
-                window.firstResponder as? OmnibarNativeTextField,
-                panelId: panelId
-            )
-        }
         window.contentView?.subviews
             .compactMap { $0 as? OmnibarNativeTextField }
             .forEach { field in
