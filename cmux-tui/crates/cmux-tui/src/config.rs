@@ -1413,6 +1413,8 @@ impl Keys {
                 None => eprintln!("cmux-tui: ignoring unknown key action {name:?}"),
             }
         }
+        let prefix = self.prefix;
+        self.bindings.retain(|(chord, action)| *action == Action::SendPrefix || *chord != prefix);
     }
 }
 
@@ -3088,6 +3090,17 @@ mod tests {
                 .all(|(definition, shortcuts)| definition.action != Action::ToggleSidebar
                     && !shortcuts.is_empty())
         );
+
+        let mut collision = Keys::default();
+        let mut raw = HashMap::new();
+        raw.insert("prefix".to_string(), Value::String("alt+n".to_string()));
+        collision.apply(&raw);
+        assert_eq!(
+            collision.shortcut_labels(Action::NewPaneSmart),
+            ["Alt-n n"],
+            "the prefix chord must not remain advertised as a modeless action"
+        );
+        assert_eq!(collision.shortcut_label(Action::SendPrefix).as_deref(), Some("Alt-n Alt-n"));
     }
 
     #[test]

@@ -5363,6 +5363,7 @@ impl App {
     fn browser_graphic_occluded(&self, rect: Rect) -> bool {
         self.menu.as_ref().is_some_and(|menu| menu.intersects(rect))
             || self.prompt.as_ref().is_some_and(|prompt| rects_intersect(rect, prompt.rect))
+            || self.shortcut_help.as_ref().is_some_and(|help| rects_intersect(rect, help.rect))
     }
 
     fn refresh_cell_pixels(&mut self, query_fallback: bool) {
@@ -7790,6 +7791,9 @@ impl App {
             return Ok(RenderAction::Draw); // unknown prefix command: swallow, redraw indicator
         };
         let was_sidebar_focused = self.workspace_sidebar_focused();
+        if was_sidebar_focused && action == Action::SendPrefix {
+            return self.run_action(action);
+        }
         self.focus = FocusTarget::Pane;
         if was_sidebar_focused && action == Action::FocusSidebar {
             return Ok(RenderAction::Draw);
@@ -11247,6 +11251,50 @@ mod tests {
         for surface in surfaces {
             mux.close_surface(surface);
         }
+    }
+
+    #[test]
+    fn doubled_prefix_keeps_the_focused_sidebar_plugin_target() {
+        let (mux, sidebar_surface) = test_mux("sidebar-send-prefix-test", None);
+        mux.new_workspace(Some("pane".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.config.sidebar.plugin = Some(cmux_tui_core::SidebarPluginOptions {
+            command: vec!["unused".to_string()],
+            cwd: None,
+        });
+        app.sidebar_plugin_surface = Some(sidebar_surface.id);
+        app.focus = FocusTarget::WorkspaceRail;
+        let prefix = KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL);
+
+        app.handle_key(prefix).unwrap();
+        app.handle_key(prefix).unwrap();
+
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+        assert_eq!(app.sidebar_plugin_surface, Some(sidebar_surface.id));
+        assert_eq!(app.encode_buf, b"\x02");
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface);
+        }
+    }
+
+    #[test]
+    fn shortcut_help_occludes_overlapping_browser_graphics() {
+        let mux = Mux::new("shortcut-help-graphics-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let browser_rect = Rect { x: 10, y: 5, width: 40, height: 20 };
+
+        assert!(!app.browser_graphic_occluded(browser_rect));
+        app.shortcut_help = Some(ShortcutHelp {
+            rect: Rect { x: 20, y: 10, width: 30, height: 10 },
+            ..ShortcutHelp::default()
+        });
+        assert!(app.browser_graphic_occluded(browser_rect));
+
+        app.shortcut_help.as_mut().unwrap().rect = Rect { x: 60, y: 10, width: 10, height: 10 };
+        assert!(!app.browser_graphic_occluded(browser_rect));
     }
 
     #[test]
