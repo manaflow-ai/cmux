@@ -218,7 +218,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var scrollMechanicsIsRecentering = false
     private var lastScrollMechanicsOffsetY: CGFloat?
     private var lastScrollMechanicsTouchPoint: CGPoint = .zero
-    private lazy var scrollMechanicsView: UIScrollView = {
+    // Internal (not private) so the DEBUG scripted-flick harness in
+    // Debug/GhosttySurfaceView+ScrollFlickDebug.swift can drive it.
+    lazy var scrollMechanicsView: UIScrollView = {
         let view = UIScrollView()
         view.backgroundColor = .clear
         view.isOpaque = false
@@ -290,6 +292,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     var debugLastScrollbar: (total: Int, offset: Int, len: Int)?
     var debugBottomScrollStressPhase = "idle"
+    #if DEBUG
+    /// Remaining velocity of a scripted debug flick in points per second;
+    /// positive moves toward older content (finger dragging down). Consumed
+    /// per display-link frame by `advanceDebugScrollFlickIfNeeded(now:)`, which
+    /// mutates the transparent scroll-mechanics view so the flick exercises
+    /// the exact production scroll pipeline below the gesture recognizer.
+    var debugScrollFlickVelocity: CGFloat = 0
+    var debugScrollFlickLastTime: CFTimeInterval = 0
+    #endif
     var debugBottomViewportMismatchObserved = false
 
     /// The live `key=value;…` description of the bottom dock, read by
@@ -660,6 +671,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         #if DEBUG
         addSubview(debugAccessibilityProxy)
         addSubview(composerDockProbe)
+        Self.installDebugScrollFlickTriggerIfNeeded()
         #endif
         installPersistentToolbar()
         installComposerContainer()
@@ -2727,6 +2739,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
         }
 
+        #if DEBUG
+        advanceDebugScrollFlickIfNeeded(now: now)
+        #endif
         // Flush coalesced scroll to the Mac at most once per frame.
         flushPendingScrollIfNeeded()
 

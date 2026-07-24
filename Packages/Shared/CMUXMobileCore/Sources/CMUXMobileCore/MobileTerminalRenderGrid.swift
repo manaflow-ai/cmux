@@ -66,12 +66,37 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     /// Monotonic producer order for full-frame theme metadata.
     public var terminalThemeRevision: UInt64?
     /// Count of scrollback lines carried in ``scrollbackSpans`` (rows above the
-    /// visible viewport, oldest first). Only meaningful on a full primary-screen
-    /// snapshot; the alternate screen has no scrollback.
+    /// visible viewport, oldest first). Carried on full primary-screen
+    /// snapshots and on screen-anchored burst deltas (``scrolledRows`` larger
+    /// than the grid), where they are the history rows that scrolled through
+    /// between producer captures; the alternate screen has no scrollback.
     public var scrollbackRows: Int
     /// Styled spans for the scrollback lines, row index `0..<scrollbackRows`
     /// (oldest first). Reuses ``styles`` by `styleID`.
     public var scrollbackSpans: [RowSpan]
+    /// Which grid the frame's rows are anchored to. ``Anchor/viewport`` is the
+    /// v1 mirror contract: rows follow the producer's live scroll position.
+    /// ``Anchor/screen`` anchors rows to the active area so a consumer keeps
+    /// its own local viewport and scrollback, independent of the producer's
+    /// scroll position.
+    public var anchor: Anchor
+    /// Rows the producer pushed into scrollback history since the previously
+    /// emitted frame (screen-anchored deltas only). The replay scrolls the
+    /// consumer's grid by this amount before repainting changed rows, so local
+    /// scrollback accumulates exactly like the producer's.
+    public var scrolledRows: Int
+    /// Total retained history rows above the producer's active area at capture
+    /// time. Producers diff consecutive values to compute ``scrolledRows``.
+    public var historyRows: UInt64?
+    /// ``historyRows`` of the producer's previously emitted frame — the base
+    /// this delta was diffed against. A consumer whose last delivered frame
+    /// has a different history count missed a frame; its grid and scrollback
+    /// alignment can no longer be patched, so it must request a full replay.
+    public var deltaBaseHistoryRows: UInt64?
+    /// Monotonic identity of the producer's absolute row space. It changes when
+    /// retained rows can move to different offsets (scrollback eviction,
+    /// reflow, erase), invalidating history-growth arithmetic for that step.
+    public var rowSpaceRevision: UInt64?
 
     public init(
         format: String = Self.currentFormat,
@@ -95,7 +120,12 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         terminalConfigTheme: TerminalTheme? = nil,
         terminalThemeRevision: UInt64? = nil,
         scrollbackRows: Int = 0,
-        scrollbackSpans: [RowSpan] = []
+        scrollbackSpans: [RowSpan] = [],
+        anchor: Anchor = .viewport,
+        scrolledRows: Int = 0,
+        historyRows: UInt64? = nil,
+        rowSpaceRevision: UInt64? = nil,
+        deltaBaseHistoryRows: UInt64? = nil
     ) throws {
         guard format == Self.currentFormat else {
             throw MobileTerminalRenderGridError.invalidFormat(format)
@@ -175,8 +205,19 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         self.terminalTheme = full ? terminalTheme?.validatedOrDefault() : nil
         self.terminalConfigTheme = full ? terminalConfigTheme?.validatedOrDefault() : nil
         self.terminalThemeRevision = full ? terminalThemeRevision : nil
-        self.scrollbackRows = full ? resolvedScrollbackRows : 0
-        self.scrollbackSpans = full ? scrollbackSpans : []
+        // Full frames never scroll (the replay resets the terminal), and only
+        // screen-anchored deltas may scroll. A burst delta (more rows scrolled
+        // than the producer captured between frames) additionally carries the
+        // missed history rows as scrollback spans.
+        let resolvedScrolledRows = (full || anchor != .screen) ? 0 : max(0, scrolledRows)
+        self.scrolledRows = resolvedScrolledRows
+        let carriesScrollback = full || resolvedScrolledRows > 0
+        self.scrollbackRows = carriesScrollback ? resolvedScrollbackRows : 0
+        self.scrollbackSpans = carriesScrollback ? scrollbackSpans : []
+        self.anchor = anchor
+        self.historyRows = historyRows
+        self.rowSpaceRevision = rowSpaceRevision
+        self.deltaBaseHistoryRows = full ? nil : deltaBaseHistoryRows
     }
 
     public init(from decoder: Decoder) throws {
@@ -203,6 +244,11 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         let terminalThemeRevision = try container.decodeIfPresent(UInt64.self, forKey: .terminalThemeRevision)
         let scrollbackRows = try container.decodeIfPresent(Int.self, forKey: .scrollbackRows) ?? 0
         let scrollbackSpans = try container.decodeIfPresent([RowSpan].self, forKey: .scrollbackSpans) ?? []
+        let anchor = try container.decodeIfPresent(Anchor.self, forKey: .anchor) ?? .viewport
+        let scrolledRows = try container.decodeIfPresent(Int.self, forKey: .scrolledRows) ?? 0
+        let historyRows = try container.decodeIfPresent(UInt64.self, forKey: .historyRows)
+        let rowSpaceRevision = try container.decodeIfPresent(UInt64.self, forKey: .rowSpaceRevision)
+        let deltaBaseHistoryRows = try container.decodeIfPresent(UInt64.self, forKey: .deltaBaseHistoryRows)
         try self.init(
             format: format,
             surfaceID: surfaceID,
@@ -225,7 +271,12 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             terminalConfigTheme: terminalConfigTheme,
             terminalThemeRevision: terminalThemeRevision,
             scrollbackRows: scrollbackRows,
-            scrollbackSpans: scrollbackSpans
+            scrollbackSpans: scrollbackSpans,
+            anchor: anchor,
+            scrolledRows: scrolledRows,
+            historyRows: historyRows,
+            rowSpaceRevision: rowSpaceRevision,
+            deltaBaseHistoryRows: deltaBaseHistoryRows
         )
     }
 
@@ -333,8 +384,18 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             "\(style.background ?? "-"):\(backgroundSource):\(style.backgroundPaletteIndex ?? -1)/\(flags)"
     }
 
-    public func filteredRows(_ includedRows: Set<Int>, full: Bool) throws -> MobileTerminalRenderGridFrame {
-        try MobileTerminalRenderGridFrame(
+    public func filteredRows(
+        _ includedRows: Set<Int>,
+        full: Bool,
+        scrolledRows: Int = 0,
+        carryScrollbackSpans: Bool = false,
+        deltaBaseHistoryRows: UInt64? = nil
+    ) throws -> MobileTerminalRenderGridFrame {
+        // A screen-anchored burst delta keeps the frame's scrollback spans:
+        // they are the history rows that scrolled through between producer
+        // captures, replayed ahead of the visible-grid repaint.
+        let carriesScrollback = full || (carryScrollbackSpans && scrolledRows > 0)
+        return try MobileTerminalRenderGridFrame(
             surfaceID: surfaceID,
             stateSeq: stateSeq,
             renderEpoch: renderEpoch,
@@ -356,8 +417,13 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             terminalTheme: full ? terminalTheme : nil,
             terminalConfigTheme: full ? terminalConfigTheme : nil,
             terminalThemeRevision: full ? terminalThemeRevision : nil,
-            scrollbackRows: full ? scrollbackRows : 0,
-            scrollbackSpans: full ? scrollbackSpans : []
+            scrollbackRows: carriesScrollback ? scrollbackRows : 0,
+            scrollbackSpans: carriesScrollback ? scrollbackSpans : [],
+            anchor: anchor,
+            scrolledRows: full ? 0 : scrolledRows,
+            historyRows: historyRows,
+            rowSpaceRevision: rowSpaceRevision,
+            deltaBaseHistoryRows: deltaBaseHistoryRows
         )
     }
 
@@ -452,6 +518,15 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         case primary
         /// The alternate screen used by full-screen TUIs (entered with `?1049h`).
         case alternate
+    }
+
+    /// Which producer grid the frame's row indexes address.
+    public enum Anchor: String, Codable, Equatable, Sendable {
+        /// Rows follow the producer's live viewport (v1 mirror semantics).
+        case viewport
+        /// Rows address the active area regardless of the producer's scroll
+        /// position; the consumer owns its local viewport and scrollback.
+        case screen
     }
 
     /// One DEC private or ANSI mode to restore on a full snapshot.

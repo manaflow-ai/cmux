@@ -12,9 +12,26 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is
-`c55514dd52d806e9aa661ee20381aa19c91c1c09`, the current
-`manaflow-ai/ghostty` `main`. The cumulative integration landed through
+The submodule pinned by this branch is `d2fc392de` on
+`manaflow-ai/ghostty` branch `render-grid-screen-anchor` (two commits atop
+`c55514dd52d806e9aa661ee20381aa19c91c1c09`, the prior pinned `main`).
+
+`4cc0933cf` adds the screen-anchored render-grid export for the iOS
+local-scrollback scroll work: `buildRenderGridJson` gains an active-area
+anchor mode, every export carries `history_rows` + `row_space_revision`
+(scrollbar semantics; revision bumps on trim/eviction/reflow/erase), and the
+new C export `ghostty_surface_render_grid_json_v2` takes the anchor flag.
+Existing exports keep viewport anchoring byte-for-byte unchanged. Files:
+`src/apprt/embedded.zig`, `include/ghostty.h`.
+
+`d2fc392de` rotates swap-chain slot selection (`src/renderer/frame_lease.zig`).
+iOS `render_now` is fully serial, so the first-free scan handed every frame
+the same IOSurface and Core Animation deduped the same-object `contents`
+assignment - presented pixels froze while the GPU kept drawing (the iOS
+scroll/repaint-lag root cause). Round-robin start makes consecutive frames
+present distinct surfaces, like a pipelined producer.
+
+The prior pinned main: The cumulative integration landed through
 https://github.com/manaflow-ai/ghostty/pull/128; the earlier stacked PRs
 https://github.com/manaflow-ai/ghostty/pull/127,
 https://github.com/manaflow-ai/ghostty/pull/123, and

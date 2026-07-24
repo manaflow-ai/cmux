@@ -1157,6 +1157,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F5A700000000000000000002 /* MobileTaskFilesystemJobQuota.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5A700000000000000000012 /* MobileTaskFilesystemJobQuota.swift */; };
 		F5A700000000000000000001 /* MobileTaskFilesystemJobQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5A700000000000000000011 /* MobileTaskFilesystemJobQuotaTests.swift */; };
 		AB57F0C27BECE8EDFC6B2B97 /* MobileTerminalByteTee.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F05EBBC2FE0D5CB2F662B8A /* MobileTerminalByteTee.swift */; };
+		580DAA428E6092CBBC496E6E /* MobileTerminalRenderGridAnchorRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8DABF0FECE726AD90156499 /* MobileTerminalRenderGridAnchorRegistry.swift */; };
 		C9CFB398DF94D6DDEAF42D67 /* MobileTerminalRenderObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = F51B54FAD18160281FC1C2B6 /* MobileTerminalRenderObserver.swift */; };
 		F7A110000000000000000003 /* MobileTerminalThemeEmissionDecision.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A110000000000000000004 /* MobileTerminalThemeEmissionDecision.swift */; };
 		F7A110000000000000000001 /* MobileTerminalThemeInvalidationScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A110000000000000000002 /* MobileTerminalThemeInvalidationScheduler.swift */; };
@@ -3381,6 +3382,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F5A700000000000000000012 /* MobileTaskFilesystemJobQuota.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTaskFilesystemJobQuota.swift; sourceTree = "<group>"; };
 		F5A700000000000000000011 /* MobileTaskFilesystemJobQuotaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTaskFilesystemJobQuotaTests.swift; sourceTree = "<group>"; };
 		4F05EBBC2FE0D5CB2F662B8A /* MobileTerminalByteTee.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalByteTee.swift; sourceTree = "<group>"; };
+		E8DABF0FECE726AD90156499 /* MobileTerminalRenderGridAnchorRegistry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalRenderGridAnchorRegistry.swift; sourceTree = "<group>"; };
 		F51B54FAD18160281FC1C2B6 /* MobileTerminalRenderObserver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalRenderObserver.swift; sourceTree = "<group>"; };
 		F7A110000000000000000004 /* MobileTerminalThemeEmissionDecision.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalThemeEmissionDecision.swift; sourceTree = "<group>"; };
 		F7A110000000000000000002 /* MobileTerminalThemeInvalidationScheduler.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalThemeInvalidationScheduler.swift; sourceTree = "<group>"; };
@@ -4708,6 +4710,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C9F14137954A34DFFA05C88C /* MobileWorkspaceListObserver.swift */,
 				D75280030000000000000002 /* MobileWorkspaceObserverSignposts.swift */,
 				F51B54FAD18160281FC1C2B6 /* MobileTerminalRenderObserver.swift */,
+				E8DABF0FECE726AD90156499 /* MobileTerminalRenderGridAnchorRegistry.swift */,
 				F7A110000000000000000002 /* MobileTerminalThemeInvalidationScheduler.swift */,
 				F7A110000000000000000004 /* MobileTerminalThemeEmissionDecision.swift */,
 				4F05EBBC2FE0D5CB2F662B8A /* MobileTerminalByteTee.swift */,
@@ -7914,6 +7917,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D1A700000000000000000001 /* MobileTaskDirectorySearchService.swift in Sources */,
 				F5A700000000000000000002 /* MobileTaskFilesystemJobQuota.swift in Sources */,
 				AB57F0C27BECE8EDFC6B2B97 /* MobileTerminalByteTee.swift in Sources */,
+				580DAA428E6092CBBC496E6E /* MobileTerminalRenderGridAnchorRegistry.swift in Sources */,
 				C9CFB398DF94D6DDEAF42D67 /* MobileTerminalRenderObserver.swift in Sources */,
 				F7A110000000000000000003 /* MobileTerminalThemeEmissionDecision.swift in Sources */,
 				F7A110000000000000000001 /* MobileTerminalThemeInvalidationScheduler.swift in Sources */,
