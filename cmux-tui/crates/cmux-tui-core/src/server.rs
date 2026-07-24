@@ -3078,6 +3078,7 @@ fn handle_command(
             if exclusive && target.is_none() {
                 anyhow::bail!("exclusive client sizing requires a client");
             }
+            get_surface(mux, surface)?;
             if let Some(target) = target {
                 if exclusive {
                     mux.use_only_client_size(surface, target).ok_or_else(|| {
