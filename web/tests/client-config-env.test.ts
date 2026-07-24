@@ -20,7 +20,6 @@ const requiredIrohProductionEnv = {
   CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON: "{}",
   CMUX_IROH_MINT_URL: "https://iroh-minter.example.com/api/relay-token",
   CMUX_IROH_MINT_HMAC_SECRET_B64: Buffer.alloc(32, 0x33).toString("base64"),
-  CMUX_IROH_RATE_LIMIT_ID: "iroh-rule",
 };
 
 const requiredRelayProductionEnv = {
@@ -47,14 +46,13 @@ describe("client config env validation", () => {
   test("allows explicit Vercel production deployments with all rate-limit ids unset", () => {
     // Rate limiting is opt-in: production deploys must survive every
     // rate-limit id being deleted from the environment.
-    const { CMUX_IROH_RATE_LIMIT_ID: _iroh, ...irohEnv } = requiredIrohProductionEnv;
     const { CMUX_RELAY_TOKEN_RATE_LIMIT_ID: _relay, ...relayEnv } = requiredRelayProductionEnv;
     const { CMUX_FEEDBACK_RATE_LIMIT_ID: _feedback, ...baseEnv } = requiredEnv;
     const result = importEnv({
       ...baseEnv,
       VERCEL: "1",
       VERCEL_ENV: "production",
-      ...irohEnv,
+      ...requiredIrohProductionEnv,
       ...relayEnv,
     });
 
@@ -127,27 +125,25 @@ describe("client config env validation", () => {
       CMUX_IROH_GRANT_SIGNING_KID: requiredIrohProductionEnv.CMUX_IROH_GRANT_SIGNING_KID,
       CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON:
         requiredIrohProductionEnv.CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON,
-      CMUX_IROH_RATE_LIMIT_ID: requiredIrohProductionEnv.CMUX_IROH_RATE_LIMIT_ID,
       ...requiredRelayProductionEnv,
     });
 
     expect(result.exitCode).toBe(0);
   });
 
-  test("allows explicit Vercel production deployments without the Iroh limiter id", () => {
-    const { CMUX_IROH_RATE_LIMIT_ID: _iroh, ...irohEnv } = requiredIrohProductionEnv;
+  test("allows explicit Vercel production without the optional Iroh limiter id", () => {
     const result = importEnv({
       ...requiredEnv,
+      ...requiredIrohProductionEnv,
+      ...requiredRelayProductionEnv,
       VERCEL: "1",
       VERCEL_ENV: "production",
       CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
       CMUX_ANALYTICS_RATE_LIMIT_ID: "analytics-rule",
-      ...irohEnv,
-      ...requiredRelayProductionEnv,
     });
 
     expect(result.exitCode).toBe(0);
-    expect(result.stderr).not.toContain("CMUX_IROH_RATE_LIMIT_ID");
+    expect(result.stderr).not.toContain("CMUX_IROH_RATE_LIMIT_ID is required");
   });
 
   test("requires the complete Iroh trust-broker configuration in production", () => {

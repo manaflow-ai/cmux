@@ -36,9 +36,6 @@ import {
 } from "../../components/pricing-shared";
 import { CheckoutButton } from "../../components/checkout-navigation";
 
-// The Pro CTA destination is decided at runtime by the proCheckout PostHog
-// flag inside <ProCtaLink> (see app/lib/feature-flags.ts); the download
-// link is the safe fallback.
 const ENTERPRISE_CTA_URL = "/enterprise";
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 
@@ -152,7 +149,7 @@ export default async function PricingPage({
                 </SecondaryLink>
               </div>
             ) : (
-              <ProCtaLink checkoutHref={PRO_CHECKOUT_URL} fallbackHref={DOWNLOAD_CONFIRMATION_HREF}>
+              <ProCtaLink checkoutHref={PRO_CHECKOUT_URL}>
                 {t("pro.cta")}
               </ProCtaLink>
             )}
@@ -216,7 +213,6 @@ export default async function PricingPage({
                 ) : (
                   <ProCtaLink
                     checkoutHref={PRO_CHECKOUT_URL}
-                    fallbackHref={DOWNLOAD_CONFIRMATION_HREF}
                     size="compact"
                     location="pricing_compare_header"
                   >
