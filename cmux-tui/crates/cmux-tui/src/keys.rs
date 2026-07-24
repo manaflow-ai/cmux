@@ -555,11 +555,11 @@ mod tests {
         assert_eq!(input.utf8, "\u{2211}");
         assert_eq!(input.utf8.as_ptr(), text_ptr);
         assert!(input.mods.contains(Mods::ALT));
-        assert!(!input.consumed_mods.contains(Mods::ALT));
+        assert!(input.consumed_mods.contains(Mods::ALT));
     }
 
     #[test]
-    fn explicit_option_policy_controls_alt_consumption() {
+    fn option_generated_text_consumes_alt_regardless_of_host_policy() {
         let input = |macos_option_as_alt| {
             KeyboardInput::from_enhanced(
                 EnhancedKeyEvent {
@@ -572,7 +572,7 @@ mod tests {
             )
         };
 
-        assert!(!input(true).has_consumed_alt());
+        assert!(input(true).has_consumed_alt());
         assert!(input(false).has_consumed_alt());
     }
 

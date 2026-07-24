@@ -11228,7 +11228,7 @@ mod tests {
     }
 
     #[test]
-    fn unverified_host_keyboard_metadata_is_not_routed() {
+    fn unverified_host_keyboard_metadata_is_preserved() {
         let input = TerminalInput::from_event(
             Event::EnhancedKey(EnhancedKeyEvent {
                 key_event: KeyEvent::new(KeyCode::Char('л'), KeyModifiers::SUPER),
@@ -11245,8 +11245,8 @@ mod tests {
 
         let (logical, physical) = input.shortcut_keys();
         assert_eq!(logical.code, KeyCode::Char('л'));
-        assert!(physical.is_none());
-        assert_eq!(input.associated_text_bytes(), 0);
+        assert_eq!(physical.unwrap().code, KeyCode::Char('k'));
+        assert_eq!(input.associated_text_bytes(), "generated".len());
     }
 
     #[test]
@@ -11336,7 +11336,7 @@ mod tests {
     }
 
     #[test]
-    fn explicit_option_text_does_not_match_alt_modeless_bindings() {
+    fn option_generated_text_does_not_match_alt_modeless_bindings_for_any_host_policy() {
         let input = crate::keys::KeyboardInput::from_enhanced(
             EnhancedKeyEvent {
                 key_event: KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT),
@@ -11344,7 +11344,7 @@ mod tests {
                 base_layout_key: Some('j'),
                 text: "\u{2206}".to_string(),
             },
-            false,
+            true,
         );
         let (key, fallback) = input.shortcut_keys();
 
