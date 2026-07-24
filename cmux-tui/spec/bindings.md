@@ -1,8 +1,8 @@
-# Binding Generation Contract
+# Binding Contract
 
-Generated bindings live under `cmux-tui/bindings/<lang>/` in a future round. They are generated from this spec and validated by the conformance suite in this file.
+Bindings live under `cmux-tui/bindings/<lang>/`. The checked-in TypeScript, Python, Rust, Go, and Java clients predate a deterministic generator and have unequal typed coverage. [`inventory.json`](inventory.json) and the normative protocol files are authoritative when a binding disagrees.
 
-All bindings must expose the implemented protocol v9 commands, events, transports, stable split ids, stack layouts, and `set-split-ratio` API. APIs newer than the connected server must be guarded by explicit version checks or feature gates.
+Every supported binding must expose every implemented command and event allowed by its selected profile. A public raw-request method is required for forward compatibility, but it does not satisfy typed coverage. APIs newer than the connected server must be guarded by explicit version checks or feature gates.
 
 ## Shared Requirements
 
@@ -14,12 +14,32 @@ Bindings must:
 | --- | --- |
 | Version check | Call `identify` or require the caller to supply protocol compatibility before using newer features; require `attach-initial-size` for initial attach sizing and `workspace-registry-v1` for registry APIs |
 | Error handling | Preserve the server error string and expose a typed transport vs command distinction |
-| Events | Route response lines and event lines correctly on full-duplex connections |
-| Attach | Preserve attach ordering for the selected mode: v5 `vt-state`, then `output`, then `detached`; v6 byte mode `vt-state`, then `(resized | output | colors-changed | scroll-changed)*`, then `detached`; v7 render mode `render-state`, then `(render-delta | scroll-changed)*`, then `detached` |
+| Profiles | Expose `control`, `frontend`, `local-admin`, and `provider-authority` explicitly; refuse profiles whose transport cannot meet the trust boundary |
+| Events | Route response lines and event lines correctly on full-duplex connections; preserve an `Unknown` event |
+| Attach | Preserve byte, render, and browser attach ordering, including attach-scoped notification, scroll, overflow, and detached events |
 | Title changes | Decode `title-changed` as a typed event with `surface` and an optional `title`; protocol v7 guarantees the authoritative title, while v5-v6 omit it |
-| JSON mode | Provide a way to send raw command JSON for forward compatibility |
-| Timeouts | Let callers configure request timeout without changing wire schema |
-| Ids | Use numeric ids for v5 and `IdRef` where supported by the negotiated protocol |
+| JSON mode | Provide a public raw command entry point for forward compatibility |
+| Timeouts | Let callers configure request timeout without changing wire schema; document that timeout does not cancel server execution |
+| Ids | Use numeric ids for protocol v9; gate any future `IdRef` string support on explicit negotiation |
+| Limits | Bound message, pending-response, pre-authentication, and unread-event buffers |
+| Concurrency | Document thread safety and use either one response-routing reader or explicit request serialization |
+| Close | Closing a client must unblock pending reads and stop owned transports |
+
+## Current support matrix
+
+| Binding | Unix | WebSocket | Public raw request | Typed v9 inventory |
+| --- | --- | --- | --- | --- |
+| TypeScript | yes | yes | yes | incomplete |
+| Python | yes | no | yes | incomplete |
+| Rust | yes | no | yes | incomplete |
+| Go | yes | no | yes | incomplete |
+| Java | yes | no | yes | incomplete |
+
+The conformance runner currently uses private Python request access for some commands. That behavior records wire compatibility only and must not be reported as public SDK coverage.
+
+## Language rollout
+
+The first complete release set is TypeScript, Python, Rust, C++, Zig, Go, and Java. The next set is C# and Swift. C++ uses a native wire client with value types and RAII rather than a Rust ABI wrapper. Zig owns its allocator and exposes error unions. C# provides synchronous and `Task` APIs with `CancellationToken`. Swift uses `Codable`, structured concurrency, and `AsyncSequence`. Shell users use the generated CLI and JSON mode instead of a separate stateful SDK.
 
 ## Protocol v7 SDK Expectations
 
@@ -94,6 +114,34 @@ CmuxClient.builder().session("main").build()
 Command request objects with more than one optional parameter should use builders. Simple commands may be direct methods. Results should be immutable value objects.
 
 Errors should use checked or clearly documented runtime exceptions with separate types for command errors, transport errors, decode errors, and protocol mismatch. Event streams should use an iterator, callback interface, or Java Flow publisher, with the simplest synchronous option generated first.
+
+## C++
+
+C++ bindings use a native Unix/WebSocket wire implementation, RAII connection and stream objects, `std::variant` event unions, fixed-width integer types, and `std::optional` for nullable fields. Public methods accept typed request values and return a result type that distinguishes transport, timeout, decode, protocol, and command errors. No public header may depend on a Rust ABI.
+
+## Zig
+
+Zig bindings accept an explicit allocator for every client and owned result. Wire structs preserve exact integer widths and optionality. Commands return error unions, streams have explicit `deinit`, and unknown events retain their decoded JSON value. Generated code must support the repository's pinned Zig version.
+
+## C#
+
+C# bindings provide immutable records, `IDisposable` and `IAsyncDisposable` clients, synchronous methods, `Task` variants, and `IAsyncEnumerable` streams. Cancellation stops local waiting and closes a dedicated stream transport; it must not claim to cancel a v9 server command.
+
+## Swift
+
+Swift bindings use `Codable` value types, a `Sendable` client, `async throws` command methods, and `AsyncSequence` streams. Error enums preserve the server string and separate transport, timeout, decode, protocol, and command failures. Apple-platform WebSocket support must use an injected transport so the shared model layer remains portable.
+
+## Deterministic generation
+
+The target generator consumes reviewed machine-readable protocol IR and emits only declared owned files. It must:
+
+1. Run without a language model, network lookup, timestamps, random ordering, or machine-specific paths.
+2. Generate into a temporary directory, validate the complete file manifest, format, compile, and run binding tests before replacing output.
+3. Emit the inventory revision and protocol-domain versions into each package.
+4. Regenerate twice in CI and compare byte-for-byte output.
+5. Fail when an implemented inventory entry lacks a typed method, result, event, profile decision, and conformance fixture.
+
+`bindings/generate.sh` is an experimental prompt harness until it meets this contract. Release automation must not treat its output as reproducible generated code.
 
 ## Conformance Suite
 
