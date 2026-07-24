@@ -65,6 +65,57 @@ import Testing
         #expect(normalizer.invocationCount == 1)
         #expect(normalizer.didRunOnMainThread == false)
     }
+
+    @Test func deletingOneDuplicateAttachmentStillRefreshesTheRemainingThumbnail() async throws {
+        let fixture = try AttachmentFixture()
+        defer { fixture.cleanup() }
+        let textView = fixture.makeTextView(
+            attachments: [fixture.firstAttachment, fixture.firstAttachment]
+        )
+        let inlineAttachments = fixture.inlineAttachments(in: textView)
+        let first = try #require(inlineAttachments.first)
+        let remaining = try #require(inlineAttachments.last)
+        let firstLocation = try #require(fixture.location(of: first, in: textView))
+
+        textView.deleteAttachment(at: firstLocation)
+
+        let placeholder = try fixture.renderedImage(for: remaining)
+        #expect(
+            await fixture.waitForRenderedImageChange(
+                from: placeholder,
+                for: remaining
+            ),
+            "Deleting one occurrence must not cancel thumbnail rendering for another occurrence."
+        )
+    }
+
+    @Test func undoRequeuesAThumbnailRequestCancelledByDeletion() async throws {
+        let fixture = try AttachmentFixture()
+        defer { fixture.cleanup() }
+        let textView = fixture.makeTextView(
+            attachments: [fixture.firstAttachment],
+            allowsUndo: true
+        )
+        let inlineAttachment = try #require(fixture.inlineAttachments(in: textView).first)
+        let location = try #require(fixture.location(of: inlineAttachment, in: textView))
+
+        textView.deleteAttachment(at: location)
+        textView.undoManager?.undo()
+        textView.refreshInlineAttachmentCells(
+            font: try #require(textView.font),
+            foregroundColor: try #require(textView.textColor)
+        )
+
+        let restoredAttachment = try #require(fixture.inlineAttachments(in: textView).first)
+        let placeholder = try fixture.renderedImage(for: restoredAttachment)
+        #expect(
+            await fixture.waitForRenderedImageChange(
+                from: placeholder,
+                for: restoredAttachment
+            ),
+            "Undo must retry a request whose previous in-flight task was cancelled."
+        )
+    }
 }
 
 // The source actor serializes writes, and the test reads only after awaiting both calls.
@@ -94,6 +145,7 @@ private final class AttachmentFixture {
     let directoryURL: URL
     let firstAttachment: TextBoxAttachment
     let secondAttachment: TextBoxAttachment
+    private var window: NSWindow?
 
     init() throws {
         directoryURL = FileManager.default.temporaryDirectory
@@ -114,15 +166,36 @@ private final class AttachmentFixture {
     }
 
     func cleanup() {
+        window?.close()
         try? FileManager.default.removeItem(at: directoryURL)
     }
 
-    func makeTextView(attachments: [TextBoxAttachment]) -> TextBoxInputTextView {
+    func makeTextView(
+        attachments: [TextBoxAttachment],
+        allowsUndo: Bool = false
+    ) -> TextBoxInputTextView {
         let textView = TextBoxInputTextView(
             frame: NSRect(x: 0, y: 0, width: 420, height: 30)
         )
         textView.font = NSFont.systemFont(ofSize: 14)
         textView.textColor = .labelColor
+        textView.allowsUndo = allowsUndo
+        if allowsUndo {
+            let scrollView = NSScrollView(
+                frame: NSRect(x: 0, y: 0, width: 420, height: 30)
+            )
+            scrollView.documentView = textView
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 420, height: 30),
+                styleMask: [.borderless],
+                backing: .buffered,
+                defer: false
+            )
+            window.isReleasedWhenClosed = false
+            window.contentView = scrollView
+            window.makeFirstResponder(textView)
+            self.window = window
+        }
         textView.insertAttachments(attachments)
         return textView
     }
@@ -145,6 +218,23 @@ private final class AttachmentFixture {
     func renderedImage(for attachment: NSTextAttachment) throws -> NSImage {
         let cell = try #require(attachment.attachmentCell as? NSTextAttachmentCell)
         return try #require(cell.image)
+    }
+
+    func waitForRenderedImageChange(
+        from initialImage: NSImage,
+        for attachment: NSTextAttachment
+    ) async -> Bool {
+        for _ in 0..<10_000 {
+            await Task.yield()
+            guard let cell = attachment.attachmentCell as? NSTextAttachmentCell,
+                  let image = cell.image else {
+                continue
+            }
+            if image !== initialImage {
+                return true
+            }
+        }
+        return false
     }
 
     func location(
