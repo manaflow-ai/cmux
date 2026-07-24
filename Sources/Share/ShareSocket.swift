@@ -101,6 +101,8 @@ actor ShareSocket {
         (@Sendable () async -> Void)?
     private var recordedCriticalBackpressureCancellationIDs:
         Set<ObjectIdentifier> = []
+    private var blockedSendContinuationForTesting:
+        CheckedContinuation<Void, Never>?
 #endif
 
     init(
@@ -481,6 +483,36 @@ actor ShareSocket {
 
     func isStoppedForTesting() -> Bool {
         isStopped
+    }
+
+    func installBlockedSendTaskForTesting() async {
+        guard sendTask == nil else { return }
+        sendTask = Task { [weak self] in
+            guard let self else { return }
+            await self.waitForBlockedSendReleaseForTesting()
+            await self.finishBlockedSendTaskForTesting()
+        }
+        while blockedSendContinuationForTesting == nil {
+            await Task.yield()
+        }
+    }
+
+    func releaseBlockedSendTaskForTesting() {
+        blockedSendContinuationForTesting?.resume()
+        blockedSendContinuationForTesting = nil
+    }
+
+    private func waitForBlockedSendReleaseForTesting() async {
+        await withCheckedContinuation { continuation in
+            blockedSendContinuationForTesting = continuation
+        }
+    }
+
+    private func finishBlockedSendTaskForTesting() {
+        sendTask = nil
+        guard let claim = outboundMailbox.claimNext() else { return }
+        outboundMailbox.complete(claim)?
+            .payload.completion?.resume(returning: true)
     }
 
     func setBeforeCriticalBackpressureLifecycleStateForTesting(

@@ -616,6 +616,42 @@ struct WorkspaceShareSocketRequestTests {
         #expect(await socket.isStoppedForTesting())
     }
 
+    @Test("Manual stop is bounded when the current send stalls")
+    func manualStopDoesNotWaitForeverForCurrentSend() async throws {
+        let socket = ShareSocket(
+            endpoint: ShareSocket.Endpoint(
+                wsUrl: "ws://127.0.0.1:1/connect",
+                token: "valid-token"
+            ),
+            refresh: {
+                ShareSocket.Endpoint(
+                    wsUrl: "ws://127.0.0.1:1/connect",
+                    token: "valid-token"
+                )
+            }
+        )
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let task = session.webSocketTask(
+            with: try #require(URL(string: "ws://127.0.0.1:1/current"))
+        )
+
+        await socket.installWebSocketTaskForTesting(
+            task,
+            connection: 1
+        )
+        await socket.installBlockedSendTaskForTesting()
+
+        let stopTask = Task {
+            await socket.sendAndStop(.end)
+        }
+        try await Task.sleep(for: .milliseconds(400))
+
+        #expect(await socket.isStoppedForTesting())
+        await socket.releaseBlockedSendTaskForTesting()
+        #expect(await stopTask.value)
+    }
+
     private func waitForReconnect(
         _ lifecycle: WorkspaceShareSessionLifecycle
     ) async -> Bool {
