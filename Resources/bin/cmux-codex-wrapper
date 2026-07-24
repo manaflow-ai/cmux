@@ -298,11 +298,78 @@ cmux_socket_available() {
     [[ -n "$socket" && -S "$socket" ]] || return 1
 
     local cmux_bin
-    cmux_bin="$(resolve_hook_cmux_bin)"
+    cmux_bin="$(resolve_hook_cmux_bin "$@")"
     [[ -n "$cmux_bin" ]] || return 1
 
     CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.75 \
         "$cmux_bin" --socket "$socket" ping >/dev/null 2>&1
+}
+
+cmux_codex_trusted_cmux_candidate() {
+    local candidate="$1"
+    shift
+    [[ "$candidate" == /* && -f "$candidate" && -x "$candidate" ]] || return 1
+
+    local logical_candidate physical_candidate
+    logical_candidate="$(cmux_codex_logical_candidate "$candidate")" || return 1
+    physical_candidate="$(
+        cmux_codex_physical_candidate "$logical_candidate"
+    )" || return 1
+    [[ -f "$logical_candidate" && -x "$logical_candidate" ]] || return 1
+    [[ -f "$physical_candidate" && -x "$physical_candidate" ]] || return 1
+
+    local project_roots=()
+    local project_root
+    project_root="$(cmux_codex_untrusted_project_root ".")" || return 1
+    project_roots+=("$project_root")
+
+    local args=("$@")
+    local index=0 argument directory
+    while (( index < ${#args[@]} )); do
+        argument="${args[$index]}"
+        case "$argument" in
+            --)
+                break
+                ;;
+            -C|--cd)
+                if (( index + 1 < ${#args[@]} )); then
+                    directory="${args[$(( index + 1 ))]}"
+                    if project_root="$(
+                        cmux_codex_untrusted_project_root "$directory"
+                    )"; then
+                        project_roots+=("$project_root")
+                    fi
+                    (( index += 2 ))
+                    continue
+                fi
+                ;;
+            -C?*)
+                directory="${argument#-C}"
+                if project_root="$(
+                    cmux_codex_untrusted_project_root "$directory"
+                )"; then
+                    project_roots+=("$project_root")
+                fi
+                ;;
+            --cd=*)
+                directory="${argument#--cd=}"
+                if project_root="$(
+                    cmux_codex_untrusted_project_root "$directory"
+                )"; then
+                    project_roots+=("$project_root")
+                fi
+                ;;
+        esac
+        (( index += 1 ))
+    done
+
+    cmux_codex_candidate_is_project_controlled \
+        "$logical_candidate" \
+        "${project_roots[@]}" && return 1
+    cmux_codex_candidate_is_project_controlled \
+        "$physical_candidate" \
+        "${project_roots[@]}" && return 1
+    printf '%s' "$logical_candidate"
 }
 
 resolve_hook_cmux_bin() {
@@ -320,9 +387,10 @@ resolve_hook_cmux_bin() {
         return 0
     fi
 
-    bundled_cli="$(command -v cmux 2>/dev/null || true)"
-    if [[ -n "$bundled_cli" ]]; then
-        printf '%s' "$bundled_cli"
+    bundled_cli="$(
+        PATH="$cmux_codex_lookup_path" command -v cmux 2>/dev/null || true
+    )"
+    if cmux_codex_trusted_cmux_candidate "$bundled_cli" "$@"; then
         return 0
     fi
 
@@ -578,7 +646,7 @@ cmux_codex_inject_hooks=0
 if [[ "$IN_CMUX" == "1"
       && "${CMUX_CODEX_HOOKS_DISABLED:-}" != "1" ]] \
     && should_inject_codex_hooks "$@" \
-    && cmux_socket_available; then
+    && cmux_socket_available "$@"; then
     cmux_codex_inject_hooks=1
 fi
 
@@ -621,7 +689,7 @@ cmux_codex_process_lease_id="$(/usr/bin/uuidgen 2>/dev/null || true)"
 if [[ -n "$cmux_codex_process_lease_id" ]]; then
     export CMUX_CODEX_PROCESS_LEASE_ID="$cmux_codex_process_lease_id"
 fi
-export CMUX_CODEX_HOOK_CMUX_BIN="$(resolve_hook_cmux_bin)"
+export CMUX_CODEX_HOOK_CMUX_BIN="$(resolve_hook_cmux_bin "$@")"
 export CMUX_AGENT_LAUNCH_KIND="codex"
 export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CODEX"
 export CMUX_AGENT_LAUNCH_CWD="$PWD"

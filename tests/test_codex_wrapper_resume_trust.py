@@ -148,6 +148,8 @@ esac
             )
             if not cmux_only_on_user_path:
                 env["CMUX_BUNDLED_CLI_PATH"] = str(fake_cmux)
+            else:
+                env.pop("CMUX_BUNDLED_CLI_PATH", None)
             if (
                 not trusted_codex_from_home
                 and not trusted_codex_from_custom_path
@@ -262,6 +264,7 @@ printf '%s\\0' "$@" > "$FAKE_CODEX_ARGS_LOG"
                 "-c",
                 TRUST_OVERRIDE,
             ],
+            result.stderr,
         )
         self.assertIn("hooks codex inject-args", logged_cmux_calls)
         self.assertIn("hooks codex inject-resume-args", logged_cmux_calls)
