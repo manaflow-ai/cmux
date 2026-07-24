@@ -32,7 +32,7 @@ extension TabManager {
         }
     }
 
-    /// Merges a restored snapshot with sticky identity, preferring explicit user data in the snapshot.
+    /// Applies authoritative sticky identity, seeding it from a snapshot only for a new directory.
     func reconcileWorkspaceDirectoryCustomization(
         afterRestoring snapshot: SessionWorkspaceSnapshot,
         to workspace: Workspace
@@ -44,30 +44,22 @@ extension TabManager {
         }
         workspace.customizationDirectory = directoryKey
 
+        if let stored = workspaceDirectoryCustomizationStore.customization(for: directoryKey) {
+            workspace.setCustomTitle(stored.customTitle)
+            workspace.setCustomColor(stored.customColor)
+            return
+        }
+
         let snapshotTitleIsUserOwned = snapshot.customTitle != nil
             && (snapshot.customTitleSource ?? .user) == .user
-        let snapshotOverridesStored = snapshotTitleIsUserOwned || snapshot.customColor != nil
-        let resolved = if snapshotOverridesStored {
-            workspaceDirectoryCustomizationStore.updateCustomization(for: directoryKey) { stored in
-                WorkspaceDirectoryCustomization(
-                    customTitle: snapshotTitleIsUserOwned
-                        ? workspace.customTitle
-                        : stored?.customTitle,
-                    customColor: snapshot.customColor != nil
-                        ? workspace.customColor
-                        : stored?.customColor
-                )
-            }
-        } else {
-            workspaceDirectoryCustomizationStore.customization(for: directoryKey)
+        guard snapshotTitleIsUserOwned || snapshot.customColor != nil else {
+            return
         }
-
-        if !snapshotTitleIsUserOwned, let storedTitle = resolved?.customTitle {
-            workspace.setCustomTitle(storedTitle)
-        }
-
-        if snapshot.customColor == nil, let storedColor = resolved?.customColor {
-            workspace.setCustomColor(storedColor)
+        workspaceDirectoryCustomizationStore.updateCustomization(for: directoryKey) { _ in
+            WorkspaceDirectoryCustomization(
+                customTitle: snapshotTitleIsUserOwned ? workspace.customTitle : nil,
+                customColor: snapshot.customColor != nil ? workspace.customColor : nil
+            )
         }
     }
 

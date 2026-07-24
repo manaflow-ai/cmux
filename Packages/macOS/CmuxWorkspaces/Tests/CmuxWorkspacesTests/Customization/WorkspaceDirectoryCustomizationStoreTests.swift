@@ -32,7 +32,7 @@ struct WorkspaceDirectoryCustomizationStoreTests {
         )
     }
 
-    @Test("field updates preserve siblings and clearing both removes the record")
+    @Test("field updates preserve siblings and clearing both keeps an explicit tombstone")
     func updatesAndClears() throws {
         let suiteName = "WorkspaceDirectoryCustomizationStore.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -57,8 +57,11 @@ struct WorkspaceDirectoryCustomizationStoreTests {
 
         store.setCustomTitle(nil, for: "/tmp/project")
         store.setCustomColor(nil, for: "/tmp/project")
-        #expect(store.customization(for: "/tmp/project") == nil)
-        #expect(defaults.data(forKey: "test.customizations") == nil)
+        #expect(
+            store.customization(for: "/tmp/project") ==
+                WorkspaceDirectoryCustomization(customTitle: nil, customColor: nil)
+        )
+        #expect(defaults.data(forKey: "test.customizations") != nil)
     }
 
     @Test("batch color updates preserve each directory label")

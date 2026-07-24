@@ -411,10 +411,10 @@ struct WorkspaceRecoveryTests {
     @Test
     func sessionRestoreAppliesStickyCustomizationToTheWorkspaceRoot() throws {
         let directory = "/tmp/session-sticky-project"
-        let sourceManager = TabManager(
-            initialWorkingDirectory: directory,
-            autoWelcomeIfNeeded: false
-        )
+        let sourceManager = TabManager(initialWorkingDirectory: directory, autoWelcomeIfNeeded: false)
+        let sourceWorkspace = try #require(sourceManager.selectedWorkspace)
+        #expect(sourceManager.setCustomTitle(tabId: sourceWorkspace.id, title: "Stale Snapshot Label"))
+        sourceManager.setTabColor(tabId: sourceWorkspace.id, color: "#111111")
         let snapshot = sourceManager.sessionSnapshot(includeScrollback: false)
         #expect(snapshot.workspaces.first?.customizationDirectory == directory)
 

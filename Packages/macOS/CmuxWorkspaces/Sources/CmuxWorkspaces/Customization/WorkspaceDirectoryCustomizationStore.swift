@@ -97,12 +97,13 @@ public struct WorkspaceDirectoryCustomizationStore {
     /// Atomically updates both sticky identity fields for one workspace root.
     ///
     /// The transform receives the current value and its result becomes the
-    /// complete record. Returning an empty customization removes the record.
+    /// complete record. An empty customization remains as an explicit-clear
+    /// tombstone so stale session/history snapshots cannot resurrect it.
     ///
     /// - Parameters:
     ///   - directory: The workspace root directory.
     ///   - transform: A synchronous mutation of the current customization.
-    /// - Returns: The normalized stored value, or `nil` when the record was removed.
+    /// - Returns: The normalized stored value, or `nil` when the directory is invalid.
     @discardableResult
     public func updateCustomization(
         for directory: String?,
@@ -116,7 +117,7 @@ public struct WorkspaceDirectoryCustomizationStore {
                 customTitle: normalizedValue(customization.customTitle),
                 customColor: normalizedValue(customization.customColor)
             )
-            result = normalized.isEmpty ? nil : normalized
+            result = normalized
             return normalized
         }
         return result
@@ -147,11 +148,7 @@ public struct WorkspaceDirectoryCustomizationStore {
         forKey key: String,
         in customizations: inout [String: WorkspaceDirectoryCustomization]
     ) {
-        if customization.isEmpty {
-            customizations.removeValue(forKey: key)
-        } else {
-            customizations[key] = customization
-        }
+        customizations[key] = customization
     }
 
     private func loadCustomizations() -> [String: WorkspaceDirectoryCustomization] {
