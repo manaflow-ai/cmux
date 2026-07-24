@@ -19,7 +19,18 @@ extension WorkspaceListTableCoordinator {
             action.accessibilityIdentifier = "MobileWorkspacePinButton-\(workspace.id.rawValue)"
             actions.append(action)
         }
-        if capabilities.supportsWorkspaceActions, let renameRequest = configuration.renameRequest {
+        if capabilities.supportsWorkspaceActions,
+           capabilities.supportsWorkspaceMetadata,
+           let customizeRequest = configuration.customizeRequest {
+            let action = UIAction(
+                title: L10n.string("mobile.workspace.customize.action", defaultValue: "Customize"),
+                image: UIImage(systemName: "slider.horizontal.3")
+            ) { _ in
+                customizeRequest(workspace.id)
+            }
+            action.accessibilityIdentifier = "MobileWorkspaceCustomizeButton-\(workspace.id.rawValue)"
+            actions.append(action)
+        } else if capabilities.supportsWorkspaceActions, let renameRequest = configuration.renameRequest {
             let action = UIAction(
                 title: L10n.string("mobile.workspace.rename.action", defaultValue: "Rename"),
                 image: UIImage(systemName: "pencil")

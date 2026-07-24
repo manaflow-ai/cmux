@@ -3234,7 +3234,7 @@ struct TextBoxInputView: NSViewRepresentable {
         guard let textView = scrollView.documentView as? TextBoxInputTextView else { return }
         coordinator.parent.onTextViewDismantled(textView)
         textView.onMoveToWindow = { _ in }
-        textView.onLayoutCompleted = { _ in }
+        textView.onLayoutCompleted = { _, _ in }
         textView.invalidatePendingAttachmentUploads()
         textView.discardUndoHistoryAndCleanupPendingAttachmentFiles()
     }
@@ -3290,8 +3290,8 @@ struct TextBoxInputView: NSViewRepresentable {
         textView.layer?.backgroundColor = NSColor.clear.cgColor
         textView.layer?.borderWidth = 0
         textView.delegate = context.coordinator
-        textView.onLayoutCompleted = { [weak coordinator] textView in
-            coordinator?.recalculateHeight(textView)
+        textView.onLayoutCompleted = { [weak coordinator] textView, lineFragmentCount in
+            coordinator?.recalculateHeight(textView, lineFragmentCount: lineFragmentCount)
         }
     }
 
@@ -3374,21 +3374,24 @@ struct TextBoxInputView: NSViewRepresentable {
             }
         }
 
-        func recalculateHeight(_ textView: NSTextView) {
+        func recalculateHeight(_ textView: NSTextView, lineFragmentCount measuredLineFragmentCount: Int? = nil) {
             guard let layoutManager = textView.layoutManager,
                   let textContainer = textView.textContainer else { return }
-            if let textBoxView = textView as? TextBoxInputTextView {
-                textBoxView.recenterSingleLineTextContainer()
-                applyPendingAttachmentUploadStateSyncIfNeeded()
-                applyPendingMarkedTextStateSyncIfNeeded()
-            }
             layoutManager.ensureLayout(for: textContainer)
-            let lineFragmentCount = (textView as? TextBoxInputTextView)?.visualLineFragmentCount()
+            let lineFragmentCount = measuredLineFragmentCount
+                ?? (textView as? TextBoxInputTextView)?.visualLineFragmentCount()
                 ?? TextBoxInputTextView.visualLineFragmentCount(
                     textView: textView,
                     layoutManager: layoutManager,
                     textContainer: textContainer
                 )
+            if let textBoxView = textView as? TextBoxInputTextView {
+                if measuredLineFragmentCount == nil {
+                    textBoxView.recenterSingleLineTextContainer(lineFragmentCount: lineFragmentCount)
+                }
+                applyPendingAttachmentUploadStateSyncIfNeeded()
+                applyPendingMarkedTextStateSyncIfNeeded()
+            }
             let preferredHeight: CGFloat
 
             if lineFragmentCount <= TextBoxLayout.minLines {
@@ -3464,7 +3467,7 @@ final class TextBoxInputTextView: NSTextView {
     var onInsertFileURLs: ([URL], TextBoxInputTextView) -> Bool = { _, _ in false }
     var onChooseFiles: () -> Void = {}
     var onMoveToWindow: (TextBoxInputTextView) -> Void = { _ in }
-    var onLayoutCompleted: (TextBoxInputTextView) -> Void = { _ in }
+    var onLayoutCompleted: (TextBoxInputTextView, Int) -> Void = { _, _ in }
     var onMarkedTextStateChanged: (Bool) -> Void = { _ in }
     private var isReportingLayoutCompletion = false
 
@@ -3607,6 +3610,10 @@ final class TextBoxInputTextView: NSTextView {
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
         onMarkedTextStateChanged(hasMarkedText())
+        // Marked text bypasses textDidChange. Schedule the TextBox measurement boundary so
+        // AppKit coalesces rapid preedit updates before laying out TextKit storage.
+        needsLayout = true
+        needsDisplay = true
     }
 
     override func unmarkText() {
@@ -3950,6 +3957,11 @@ final class TextBoxInputTextView: NSTextView {
 
         layoutManager.ensureLayout(for: textContainer)
         let lineFragmentCount = visualLineFragmentCount()
+        recenterSingleLineTextContainer(lineFragmentCount: lineFragmentCount)
+    }
+
+    fileprivate func recenterSingleLineTextContainer(lineFragmentCount: Int) {
+        guard textContainer != nil else { return }
 
         let targetHeight = bounds.height > 0 ? bounds.height : TextBoxLayout.minimumTextHeight
         var targetVerticalInset: CGFloat
@@ -4006,11 +4018,15 @@ final class TextBoxInputTextView: NSTextView {
 
     override func layout() {
         super.layout()
-        recenterSingleLineTextContainer()
         guard !isReportingLayoutCompletion else { return }
         isReportingLayoutCompletion = true
-        onLayoutCompleted(self)
-        isReportingLayoutCompletion = false
+        defer { isReportingLayoutCompletion = false }
+        guard let layoutManager,
+              let textContainer else { return }
+        layoutManager.ensureLayout(for: textContainer)
+        let lineFragmentCount = visualLineFragmentCount()
+        recenterSingleLineTextContainer(lineFragmentCount: lineFragmentCount)
+        onLayoutCompleted(self, lineFragmentCount)
     }
 
     override func mouseDown(with event: NSEvent) {
