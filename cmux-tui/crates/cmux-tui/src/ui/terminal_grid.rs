@@ -284,7 +284,7 @@ fn apply_cell(
     selected: Option<&Theme>,
 ) {
     target.reset();
-    if cell.text.is_empty() {
+    if cell.text.is_empty() || cell.text.chars().any(char::is_control) {
         target.set_symbol(" ");
     } else {
         target.set_symbol(&cell.text);
@@ -482,6 +482,20 @@ mod tests {
 
         assert_eq!(resolver.resolve_fg(explicit), Color::Rgb(7, 8, 9));
         assert_eq!(resolver.resolve_bg(explicit), Color::Rgb(7, 8, 9));
+    }
+
+    #[test]
+    fn terminal_control_cells_render_as_blanks() {
+        let colors = [Rgb::default(); 256];
+        let overridden = [false; 256];
+        let resolver = resolver(&colors, &overridden);
+
+        for text in ["\0", "\t", "\r"] {
+            let cell = VtCell { text: text.to_string(), ..VtCell::default() };
+            let mut target = ratatui::buffer::Cell::default();
+            apply_cell(&mut target, &cell, &resolver, None);
+            assert_eq!(target.symbol(), " ");
+        }
     }
 
     #[test]

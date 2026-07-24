@@ -4077,7 +4077,10 @@ pub fn run_with_machine_updates(
     let default_hook = std::panic::take_hook();
     let restore_lock = stdout_lock.clone();
     std::panic::set_hook(Box::new(move |info| {
-        let _ = restore_terminal(Some(&restore_lock));
+        // A render panic can occur while this thread owns stdout_lock. Panic
+        // cleanup must never try to acquire that same non-reentrant mutex.
+        let _guard = restore_lock.try_lock().ok();
+        let _ = restore_terminal_unlocked();
         default_hook(info);
     }));
 
@@ -4227,6 +4230,10 @@ pub fn run_with_machine_updates(
 
 fn restore_terminal(stdout_lock: Option<&Arc<Mutex<()>>>) -> anyhow::Result<()> {
     let _guard = stdout_lock.map(|lock| lock.lock().unwrap());
+    restore_terminal_unlocked()
+}
+
+fn restore_terminal_unlocked() -> anyhow::Result<()> {
     let mut stdout = std::io::stdout();
     // Reset the mouse pointer shape in case we left it as a hand.
     let _ = write!(stdout, "\x1b]22;default\x07");
