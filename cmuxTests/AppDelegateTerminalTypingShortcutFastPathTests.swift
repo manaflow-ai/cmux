@@ -12,7 +12,7 @@ import Testing
 struct AppDelegateTerminalTypingShortcutFastPathTests {
 #if DEBUG
     @Test
-    func plainTerminalTextDoesNotResolveAppShortcuts() throws {
+    func plainTerminalTextDoesNotResolveAppShortcutContext() throws {
         let appDelegate = try #require(AppDelegate.shared)
         appDelegate.debugResetShortcutRoutingStateForTesting()
         NotificationsPopoverVisibilityState.shared.resetForTesting()
@@ -20,6 +20,7 @@ struct AppDelegateTerminalTypingShortcutFastPathTests {
         let windowId = appDelegate.createMainWindow()
         defer {
             KeyboardShortcutSettings.shortcutLookupObserver = nil
+            AppDelegate.shortcutEventFocusContextResolutionObserverForTesting = nil
             closeWindow(withId: windowId)
             appDelegate.debugResetShortcutRoutingStateForTesting()
         }
@@ -46,6 +47,10 @@ struct AppDelegateTerminalTypingShortcutFastPathTests {
         KeyboardShortcutSettings.shortcutLookupObserver = { action in
             resolvedActions.append(action)
         }
+        var focusContextResolutionCount = 0
+        AppDelegate.shortcutEventFocusContextResolutionObserverForTesting = {
+            focusContextResolutionCount += 1
+        }
 
         let event = try #require(
             NSEvent.keyEvent(
@@ -69,6 +74,10 @@ struct AppDelegateTerminalTypingShortcutFastPathTests {
             "The regression must match the nil-window event shape from the local monitor"
         )
         #expect(!appDelegate.debugHandleCustomShortcut(event: event))
+        #expect(
+            focusContextResolutionCount == 0,
+            "Plain terminal text must bypass browser, palette, and workspace focus-context resolution"
+        )
         #expect(
             resolvedActions.isEmpty,
             "Plain terminal text must bypass app-wide shortcut resolution"
