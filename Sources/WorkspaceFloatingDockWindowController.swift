@@ -5,6 +5,8 @@ import Observation
 import QuartzCore
 import SwiftUI
 
+let cmuxWorkspaceFloatingDockWindowIdentifierPrefix = "cmux.workspace.float."
+
 /// One window-root appearance for every floating Dock surface. Bonsplit,
 /// terminals, browsers, and note editors stay clear above this substrate.
 struct WorkspaceFloatingDockBackdropAppearance {
@@ -100,7 +102,9 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
         Self.configureStandardWindowButtons(in: panel)
-        panel.identifier = NSUserInterfaceItemIdentifier("cmux.workspace.float.\(dock.id.uuidString)")
+        panel.identifier = NSUserInterfaceItemIdentifier(
+            cmuxWorkspaceFloatingDockWindowIdentifierPrefix + dock.id.uuidString
+        )
         panel.isReleasedWhenClosed = false
         panel.isFloatingPanel = false
         panel.hidesOnDeactivate = false
@@ -975,7 +979,7 @@ private final class WorkspaceFloatingDockStashOverlayView: NSView {
 
 extension NSWindow {
     var usesWorkspaceFloatingDockGlassBackdrop: Bool {
-        identifier?.rawValue.hasPrefix("cmux.workspace.float.") == true
+        identifier?.rawValue.hasPrefix(cmuxWorkspaceFloatingDockWindowIdentifierPrefix) == true
     }
 }
 

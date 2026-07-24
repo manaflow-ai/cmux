@@ -1479,6 +1479,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.titlebarLayoutDebug",
     "cmux.devWindowDisplay",
     "cmux.mobilePairingWindow",
+    "cmux.workspaceFloatingDockTextureDebug",
 ]
 
 /// Returns whether the given window should handle the standard close shortcut
@@ -1487,7 +1488,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
 func cmuxWindowShouldOwnCloseShortcut(_ window: NSWindow?) -> Bool {
     guard let identifier = window?.identifier?.rawValue else { return false }
     return cmuxAuxiliaryWindowIdentifiers.contains(identifier)
-        || identifier.hasPrefix("cmux.workspace.float.")
+        || identifier.hasPrefix(cmuxWorkspaceFloatingDockWindowIdentifierPrefix)
 }
 
 private enum DebugWindowConfigSnapshot {
