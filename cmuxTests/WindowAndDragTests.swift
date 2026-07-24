@@ -3327,7 +3327,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         )
     }
 
-    func testWorkspaceFloatingDockStashKeepsHalfActualWindowVisibleAndRevealsOnHover() {
+    func testWorkspaceFloatingDockStashKeepsQuarterActualWindowVisibleAndRevealsOnHover() {
         let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
         let window = CGRect(x: 240, y: 180, width: 620, height: 420)
         let resting = WorkspaceFloatingDockStashLayout.stashedWindowFrame(
@@ -3342,6 +3342,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         )
 
         XCTAssertEqual(resting.size, window.size)
+        XCTAssertEqual(WorkspaceFloatingDockStashLayout.restingVisibleFraction, 0.25)
         XCTAssertEqual(
             screen.intersection(resting).width,
             window.width * WorkspaceFloatingDockStashLayout.restingVisibleFraction
@@ -3414,6 +3415,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
             parent.childWindows?.first { $0.identifier == identifier }
         )
         let originalContent = try XCTUnwrap(originalWindow.contentView)
+        let restoreFrame = originalWindow.frame
 
         dock.setStashed(true)
         presenter.refresh()
@@ -3421,12 +3423,35 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertTrue(presenter.owns(window: originalWindow))
         XCTAssertTrue(originalWindow.isVisible)
         XCTAssertTrue(originalWindow.contentView === originalContent)
+        XCTAssertNil(
+            originalWindow.parent,
+            "A screen-anchored parked window must not inherit main-window geometry"
+        )
+        let parkedFrame = originalWindow.frame
+
+        parent.setFrame(
+            CGRect(x: 260, y: 190, width: 1100, height: 760),
+            display: false
+        )
+        presenter.refresh()
+
+        XCTAssertEqual(
+            originalWindow.frame,
+            parkedFrame,
+            "Moving or resizing the main window must not shift a parked window"
+        )
 
         dock.setStashed(false)
         presenter.refresh()
 
         XCTAssertTrue(presenter.owns(window: originalWindow))
         XCTAssertTrue(originalWindow.contentView === originalContent)
+        XCTAssertTrue(originalWindow.parent === parent)
+        XCTAssertEqual(
+            originalWindow.frame,
+            restoreFrame,
+            "Restoring must return to the absolute frame captured before parking"
+        )
     }
 
     func testWorkspaceFloatingDockTitlebarDoubleClickDoesNotInvokeNativeWindowActions() throws {
