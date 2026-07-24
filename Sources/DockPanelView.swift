@@ -144,8 +144,12 @@ private struct DockSplitContentView: View {
                     store.noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
                     store.focusPanel(panel.id)
                 },
-                onResumeAgentHibernation: {},
-                onAutoResumeAgentHibernation: {},
+                onResumeAgentHibernation: {
+                    _ = store.resumeAgentHibernation(panelId: panel.id, focus: true)
+                },
+                onAutoResumeAgentHibernation: {
+                    _ = store.resumeAgentHibernation(panelId: panel.id, focus: false)
+                },
                 onTriggerFlash: {}
             )
             .onTapGesture { store.bonsplitController.focusPane(paneId) }
