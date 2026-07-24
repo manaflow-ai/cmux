@@ -201,6 +201,40 @@ import Testing
         }
     }
 
+    @Test func footerOnlyRefreshSkipsSessionsAndKeepsPreviousOnes() async {
+        let client = FakeSubrouterClient()
+        await client.setUsageResult(.success([Self.usageRow()]))
+        let session = SubrouterSessionAssignment(
+            agentType: "codex",
+            sessionID: "s1",
+            accountID: "a",
+            userEmail: nil,
+            createdAt: Date(timeIntervalSince1970: 6_000_000),
+            updatedAt: Date(timeIntervalSince1970: 6_000_000)
+        )
+        await client.setSessionsResult(.success([session]))
+        let clock = ManualSubrouterPollClock()
+        let store = makeStore(client: client, clock: clock)
+
+        // A full panel refresh fetches sessions once.
+        store.setSurfaceVisible(.agentsPanel, true)
+        await clock.waitForSleeper()
+        #expect(await client.sessionsCallCount == 1)
+
+        // Footer-only refreshes must not pay the sessions transfer (the
+        // footer never renders them and the endpoint returns the daemon's
+        // whole routing history), and the previous sessions stay put.
+        store.setSurfaceVisible(.agentsPanel, false)
+        store.setSurfaceVisible(.footerSwitcher, true)
+        store.refresh(reason: "test")
+        await store.performFreshRefresh(reason: "flush")
+        #expect(await client.usageCallCount >= 2)
+        #expect(store.snapshot.sessions.map(\.sessionID) == ["s1"])
+        // performFreshRefresh is the full path (socket verbs need live
+        // sessions); only the plain footer refresh skipped the fetch.
+        #expect(await client.sessionsCallCount == 2)
+    }
+
     @Test func sessionsFailureKeepsFreshUsage() async {
         let client = FakeSubrouterClient()
         await client.setUsageResult(.success([Self.usageRow()]))

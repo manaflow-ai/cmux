@@ -32,16 +32,21 @@ fi
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/local/go/bin:${HOME}/go/bin:${PATH}"
 
 if ! command -v go >/dev/null 2>&1; then
-  if [[ "${CI:-}" == "true" ]]; then
-    # CI test builds don't exercise the bundled binary; reload-build.yml
-    # installs Go explicitly for the builds that ship it.
-    echo "warning: no Go toolchain on this CI runner; skipping the subrouter bundle" >&2
-    rm -f "$OUT_PATH"
-    exit 0
+  if [[ "${CMUX_REQUIRE_SUBROUTER_BUNDLE:-0}" == "1" ]]; then
+    echo "error: CMUX_REQUIRE_SUBROUTER_BUNDLE=1 but no Go toolchain is available (brew install go)" >&2
+    exit 1
   fi
-  echo "error: the Go toolchain is required to bundle subrouter (brew install go)," >&2
-  echo "       or set CMUX_SKIP_SUBROUTER_BUNDLE=1 to build without it" >&2
-  exit 1
+  # Xcode script phases do not receive the caller's ambient environment
+  # (a job-level CI=true never reaches this script — proven by red app-host
+  # CI shards), so "CI vs dev" cannot be detected here. Bundling is
+  # best-effort: skip loudly and build an app that falls back to `sr` from
+  # PATH (the pre-bundling behavior). Workflows that ship the app install
+  # Go (reload-build.yml); to make the bundle mandatory, pass
+  # CMUX_REQUIRE_SUBROUTER_BUNDLE=1 as an xcodebuild build-setting argument
+  # (build settings, unlike ambient env, do reach script phases).
+  echo "warning: no Go toolchain found; skipping the subrouter bundle (brew install go to bundle sr)" >&2
+  rm -f "$OUT_PATH"
+  exit 0
 fi
 
 requested_archs="${CMUX_SUBROUTER_ARCHS:-${ARCHS:-}}"

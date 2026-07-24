@@ -59,7 +59,7 @@ extension CMUXCLI {
             try runSubrouterWelcome(client: client)
 
         case "status":
-            let response = try client.sendV2(method: "subrouter.status")
+            let response = try client.sendV2(method: "subrouter.status", responseTimeout: 45)
             if jsonOutput {
                 print(jsonString(response))
                 return
@@ -67,7 +67,7 @@ extension CMUXCLI {
             printSubrouterStatus(response)
 
         case "accounts":
-            let response = try client.sendV2(method: "subrouter.accounts")
+            let response = try client.sendV2(method: "subrouter.accounts", responseTimeout: 45)
             if jsonOutput {
                 print(jsonString(response))
                 return
@@ -75,7 +75,7 @@ extension CMUXCLI {
             printSubrouterAccounts(response, includeWindows: false)
 
         case "usage":
-            let response = try client.sendV2(method: "subrouter.usage")
+            let response = try client.sendV2(method: "subrouter.usage", responseTimeout: 45)
             if jsonOutput {
                 print(jsonString(response))
                 return
@@ -92,9 +92,13 @@ extension CMUXCLI {
                       cmux subrouter switch claude work
                     """)
             }
+            // The app-side switch deadline is 90s (sr subprocess + daemon
+            // reload + refresh); the client must outlive it or a slow
+            // switch mutates credentials after the CLI reported a timeout.
             let response = try client.sendV2(
                 method: "subrouter.switch",
-                params: ["provider": positionals[0].lowercased(), "account": positionals[1]]
+                params: ["provider": positionals[0].lowercased(), "account": positionals[1]],
+                responseTimeout: 120
             )
             if jsonOutput {
                 print(jsonString(response))
@@ -106,7 +110,7 @@ extension CMUXCLI {
             }
 
         case "sessions":
-            let response = try client.sendV2(method: "subrouter.sessions")
+            let response = try client.sendV2(method: "subrouter.sessions", responseTimeout: 45)
             if jsonOutput {
                 print(jsonString(response))
                 return
@@ -125,7 +129,7 @@ extension CMUXCLI {
             }
 
         case "reload":
-            let response = try client.sendV2(method: "subrouter.reload")
+            let response = try client.sendV2(method: "subrouter.reload", responseTimeout: 45)
             if jsonOutput {
                 print(jsonString(response))
                 return
@@ -178,7 +182,7 @@ extension CMUXCLI {
         }
 
         // 2. The daemon, through the app (which follows sr's server selection).
-        var statusResponse = try? client.sendV2(method: "subrouter.status")
+        var statusResponse = try? client.sendV2(method: "subrouter.status", responseTimeout: 45)
         if statusResponse == nil {
             print("✗ The cmux subrouter integration is disabled.")
             print("  Enable it in Settings → Agent Accounts, or set {\"subrouter\": {\"enabled\": true}} in ~/.config/cmux/cmux.json.")
@@ -192,7 +196,7 @@ extension CMUXCLI {
                 // as the daemon reports healthy, give up after ~5s.
                 for _ in 0..<10 {
                     Thread.sleep(forTimeInterval: 0.5)
-                    statusResponse = try? client.sendV2(method: "subrouter.status")
+                    statusResponse = try? client.sendV2(method: "subrouter.status", responseTimeout: 45)
                     if let daemon = statusResponse?["daemon"] as? [String: Any],
                        (daemon["state"] as? String) == "healthy" {
                         break

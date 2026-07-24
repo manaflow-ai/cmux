@@ -49,7 +49,13 @@ public struct SubrouterDaemonStatusView: View {
     public var body: some View {
         switch state {
         case .healthy:
-            EmptyView()
+            // The daemon answers its health probe but the last data fetch
+            // failed (provider fan-out timeout, transient 5xx): what is on
+            // screen may be stale, so say so quietly instead of presenting
+            // old quotas as live.
+            if let lastErrorDescription, !lastErrorDescription.isEmpty {
+                staleDataLine(description: lastErrorDescription)
+            }
         case .unknown:
             HStack(spacing: 6) {
                 ProgressView()
@@ -69,6 +75,29 @@ public struct SubrouterDaemonStatusView: View {
                 unreachableCard
             }
         }
+    }
+
+    /// The healthy-daemon warning: the daemon is up but data refreshes are
+    /// failing, so the rendered accounts/quotas may be stale. One dim line
+    /// with an inline retry; the failure detail lives in the tooltip.
+    private func staleDataLine(description: String) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.system(size: 8))
+            Text(String(
+                localized: "subrouter.daemon.refreshFailed",
+                defaultValue: "Refresh failing — data may be stale"
+            ))
+            .font(.system(size: 9))
+            Button(action: onRetry) {
+                Text(String(localized: "subrouter.daemon.retry", defaultValue: "Retry"))
+                    .font(.system(size: 9))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.tint)
+        }
+        .foregroundStyle(.secondary)
+        .help(description)
     }
 
     /// The quiet variant: data is on screen, so a refresh hiccup is one

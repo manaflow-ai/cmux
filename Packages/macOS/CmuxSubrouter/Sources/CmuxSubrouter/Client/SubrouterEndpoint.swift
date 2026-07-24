@@ -3,8 +3,12 @@ public import Foundation
 /// The base address of a subrouter daemon.
 ///
 /// Defaults to the daemon's standard loopback bind, `http://127.0.0.1:31415`.
-/// Loopback requests are trusted by the daemon (no token needed), which is
-/// the only deployment cmux drives.
+/// Loopback requests are trusted by the daemon (no token needed). A remote
+/// server from the `sr server` registry may require its `adminToken` for
+/// the non-loopback `/_subrouter/*` endpoints; the token rides here so the
+/// HTTP client can attach it, and is deliberately kept out of `baseURL` —
+/// every user-visible rendering of an endpoint (panel header, socket
+/// `endpoint` payload, CLI status) reads `baseURL` only.
 public struct SubrouterEndpoint: Sendable, Hashable {
     /// The standard daemon address, `http://127.0.0.1:31415`.
     public static let standard = SubrouterEndpoint(
@@ -14,10 +18,18 @@ public struct SubrouterEndpoint: Sendable, Hashable {
     /// The base URL requests are resolved against.
     public let baseURL: URL
 
+    /// The admin token for non-loopback `/_subrouter/*` endpoints, sent as
+    /// `X-Subrouter-Admin-Token`, or `nil` when the daemon needs none.
+    /// Never surfaced in snapshots, status payloads, or logs.
+    public let adminToken: String?
+
     /// Creates an endpoint from a base URL.
-    /// - Parameter baseURL: The daemon base URL (scheme + host + port).
-    public init(baseURL: URL) {
+    /// - Parameters:
+    ///   - baseURL: The daemon base URL (scheme + host + port).
+    ///   - adminToken: The server's admin token, when it has one.
+    public init(baseURL: URL, adminToken: String? = nil) {
         self.baseURL = baseURL
+        self.adminToken = adminToken
     }
 
     /// Parses a user-configured endpoint string.
@@ -43,6 +55,7 @@ public struct SubrouterEndpoint: Sendable, Hashable {
             return nil
         }
         self.baseURL = url
+        self.adminToken = nil
     }
 
     /// Resolves a daemon path (e.g. `"/_subrouter/health"`) against the base.

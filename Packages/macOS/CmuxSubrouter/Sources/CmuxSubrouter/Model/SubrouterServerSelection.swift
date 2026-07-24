@@ -44,6 +44,9 @@ public struct SubrouterServerSelection: Sendable, Equatable {
             struct Entry: Decodable {
                 let name: String
                 let url: String
+                // `sr server add --admin-token`: required by non-loopback
+                // `/_subrouter/*` endpoints when the server configures one.
+                let adminToken: String?
             }
 
             let servers: [Entry]?
@@ -61,10 +64,15 @@ public struct SubrouterServerSelection: Sendable, Equatable {
         }
         guard
             let entry = payload.servers?.first(where: { $0.name == defaultName }),
-            let endpoint = SubrouterEndpoint(configurationString: entry.url)
+            let parsed = SubrouterEndpoint(configurationString: entry.url)
         else {
             return nil
         }
+        let token = entry.adminToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let endpoint = SubrouterEndpoint(
+            baseURL: parsed.baseURL,
+            adminToken: (token?.isEmpty ?? true) ? nil : token
+        )
         self.init(defaultServer: Server(name: defaultName, endpoint: endpoint))
     }
 }

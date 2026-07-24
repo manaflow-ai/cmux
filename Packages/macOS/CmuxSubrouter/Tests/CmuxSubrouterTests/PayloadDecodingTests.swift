@@ -187,6 +187,29 @@ import Testing
         let server = try #require(selection.defaultServer)
         #expect(server.name == "cmux-mac-mini")
         #expect(server.endpoint.baseURL.absoluteString == "http://cmux-mac-mini:31415")
+        #expect(server.endpoint.adminToken == nil)
+    }
+
+    @Test func preservesAdminTokenForSecuredRemoteServer() throws {
+        // Non-loopback /_subrouter/* endpoints 401 without the registry's
+        // adminToken; dropping it here would break every remote request.
+        let json = Data("""
+        {"servers": [{"name": "team", "url": "http://subrouter-team:31415",
+                      "adminToken": "secret-token"}],
+         "default": "team"}
+        """.utf8)
+        let selection = try #require(SubrouterServerSelection(serversJSON: json))
+        let server = try #require(selection.defaultServer)
+        #expect(server.endpoint.adminToken == "secret-token")
+        // The token never rides in the URL user-facing surfaces render.
+        #expect(server.endpoint.baseURL.absoluteString == "http://subrouter-team:31415")
+
+        let blank = Data("""
+        {"servers": [{"name": "team", "url": "http://subrouter-team:31415", "adminToken": "  "}],
+         "default": "team"}
+        """.utf8)
+        let blankSelection = try #require(SubrouterServerSelection(serversJSON: blank))
+        #expect(blankSelection.defaultServer?.endpoint.adminToken == nil)
     }
 
     @Test func missingDefaultMeansLocalDaemon() throws {

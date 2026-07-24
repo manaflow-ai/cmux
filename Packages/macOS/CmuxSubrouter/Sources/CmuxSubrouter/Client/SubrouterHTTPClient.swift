@@ -47,18 +47,28 @@ public struct SubrouterHTTPClient: SubrouterClienting {
     }
 
     public func reloadAccounts(endpoint: SubrouterEndpoint) async throws -> SubrouterReloadResult {
-        var request = URLRequest(url: endpoint.url(forPath: "/_subrouter/reload-accounts"))
+        var request = Self.request(endpoint: endpoint, path: "/_subrouter/reload-accounts")
         request.httpMethod = "POST"
         return try await perform(request)
     }
 
     // MARK: - Transport
 
+    /// Builds a request for a daemon path, attaching the endpoint's admin
+    /// token (required by secured non-loopback servers) when present.
+    private static func request(endpoint: SubrouterEndpoint, path: String) -> URLRequest {
+        var request = URLRequest(url: endpoint.url(forPath: path))
+        if let token = endpoint.adminToken, !token.isEmpty {
+            request.setValue(token, forHTTPHeaderField: "X-Subrouter-Admin-Token")
+        }
+        return request
+    }
+
     private func get<Payload: Decodable>(
         endpoint: SubrouterEndpoint,
         path: String
     ) async throws -> Payload {
-        try await perform(URLRequest(url: endpoint.url(forPath: path)))
+        try await perform(Self.request(endpoint: endpoint, path: path))
     }
 
     private func perform<Payload: Decodable>(_ request: URLRequest) async throws -> Payload {

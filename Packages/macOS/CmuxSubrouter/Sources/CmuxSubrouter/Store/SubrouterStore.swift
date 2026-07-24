@@ -225,8 +225,21 @@ public final class SubrouterStore {
     /// master setting: callers (timer, visibility, switch, socket verbs) are
     /// themselves the gate against background work.
     ///
+    /// Sessions are fetched only while the Agents panel is visible: the
+    /// footer switcher never renders sessions, and `/_subrouter/sessions`
+    /// returns the daemon's entire routing history, so a footer-cadence
+    /// poll must not pay that transfer. ``performFreshRefresh(reason:)``
+    /// (switches, socket verbs) always fetches the full set.
+    ///
     /// - Parameter reason: A short diagnostic tag.
     public func refresh(reason: String) {
+        startRefresh(
+            reason: reason,
+            includeSessions: visibleSurfaces.contains(.agentsPanel)
+        )
+    }
+
+    private func startRefresh(reason: String, includeSessions: Bool) {
         guard configurationStorage.isEnabled else { return }
         guard refreshTask == nil else { return }
         pollTask?.cancel()
@@ -235,16 +248,21 @@ public final class SubrouterStore {
         let client = client
         refreshTask = Task { @MainActor [weak self] in
             async let usageFetch = client.usageStatuses(endpoint: endpoint)
-            async let sessionsFetch = Self.fetchBoundedSessions(client: client, endpoint: endpoint)
+            var sessionsResult: Result<[SubrouterSessionAssignment], any Error>?
+            if includeSessions {
+                async let sessionsFetch = Self.fetchBoundedSessions(client: client, endpoint: endpoint)
+                do { sessionsResult = .success(try await sessionsFetch) } catch { sessionsResult = .failure(error) }
+            }
             let usageResult: Result<[SubrouterAccountUsageStatus], any Error>
             do { usageResult = .success(try await usageFetch) } catch { usageResult = .failure(error) }
-            let sessionsResult: Result<[SubrouterSessionAssignment], any Error>
-            do { sessionsResult = .success(try await sessionsFetch) } catch { sessionsResult = .failure(error) }
 
             let outcome: RefreshOutcome
             switch (usageResult, sessionsResult) {
             case (.success(let usage), .success(let sessions)):
                 outcome = .success(usage: usage, sessions: sessions)
+            case (.success(let usage), nil):
+                // A sessions-less refresh keeps the previous sessions.
+                outcome = .success(usage: usage, sessions: nil)
             case (.success(let usage), .failure(let error)):
                 // Sessions are ancillary: a sessions timeout or bad row
                 // must not discard freshly fetched account usage. The
@@ -276,7 +294,7 @@ public final class SubrouterStore {
         while let inFlight = refreshTask {
             await inFlight.value
         }
-        refresh(reason: reason)
+        startRefresh(reason: reason, includeSessions: true)
         if let started = refreshTask {
             await started.value
         }
@@ -284,7 +302,9 @@ public final class SubrouterStore {
     }
 
     private enum RefreshOutcome {
-        case success(usage: [SubrouterAccountUsageStatus], sessions: [SubrouterSessionAssignment])
+        /// `sessions` is `nil` for a sessions-less refresh (footer-only
+        /// visibility): the previous sessions stay in the snapshot.
+        case success(usage: [SubrouterAccountUsageStatus], sessions: [SubrouterSessionAssignment]?)
         case partial(usage: [SubrouterAccountUsageStatus], sessionsErrorDescription: String)
         case failure(description: String, daemonReachable: Bool)
     }
@@ -320,7 +340,7 @@ public final class SubrouterStore {
             snapshot = SubrouterSnapshot(
                 daemonState: .healthy,
                 usageStatuses: usage,
-                sessions: sessions,
+                sessions: sessions ?? snapshot.sessions,
                 lastUpdatedAt: now(),
                 lastErrorDescription: nil
             )
