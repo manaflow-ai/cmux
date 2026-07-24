@@ -14863,6 +14863,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         preferredWindow: NSWindow? = nil
     ) -> Bool {
         let targetWindow = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        if performFocusedDockShortcut(
+            .resizeSplit(direction, amount: splitResizeShortcutStepPixels),
+            preferredWindow: targetWindow
+        ) {
+            return true
+        }
         let terminalContext = focusedTerminalShortcutContext(preferredWindow: targetWindow)
         let routedManager = synchronizeActiveMainWindowContext(preferredWindow: targetWindow)
 

@@ -642,7 +642,11 @@ enum KeyboardShortcutSettings {
         }
 
         var allowsChordShortcut: Bool {
-            self != .fileExplorerOpenSelection && self != .fileExplorerOpenSelectionFinderAlias && self != .cycleTextBoxSubmitAction
+            self != .fileExplorerOpenSelection
+                && self != .fileExplorerOpenSelectionFinderAlias
+                && self != .cycleTextBoxSubmitAction
+                && self != .showHideAllWindows
+                && self != .globalSearch
         }
 
         func displayedShortcutString(for shortcut: StoredShortcut) -> String {

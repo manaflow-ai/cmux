@@ -275,6 +275,8 @@ extension ShortcutAction {
         self != .fileExplorerOpenSelection
             && self != .fileExplorerOpenSelectionFinderAlias
             && self != .cycleTextBoxSubmitAction
+            && self != .showHideAllWindows
+            && self != .globalSearch
     }
 
     /// The action's built-in focus context expressed as a ``ShortcutWhenClause``,

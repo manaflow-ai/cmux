@@ -43,6 +43,58 @@ func numberedAwareStrokesConflict(
     return lhs.key == rhs.key && sameModifiers(lhs, rhs)
 }
 
+/// Whether two complete shortcut bindings collide under the app runtime's
+/// chord-prefix semantics.
+func shortcutSequencesConflict(
+    _ lhs: StoredShortcut,
+    numbered lhsNumbered: Bool,
+    _ rhs: StoredShortcut,
+    numbered rhsNumbered: Bool
+) -> Bool {
+    guard !lhs.isUnbound, !rhs.isUnbound else { return false }
+
+    switch (lhs.hasChord, rhs.hasChord) {
+    case (false, false):
+        return numberedAwareStrokesConflict(
+            lhs.first,
+            numbered: lhsNumbered,
+            rhs.first,
+            numbered: rhsNumbered
+        )
+    case (true, true):
+        guard numberedAwareStrokesConflict(
+            lhs.first,
+            numbered: false,
+            rhs.first,
+            numbered: false
+        ),
+        let lhsSecond = lhs.second,
+        let rhsSecond = rhs.second else {
+            return false
+        }
+        return numberedAwareStrokesConflict(
+            lhsSecond,
+            numbered: lhsNumbered,
+            rhsSecond,
+            numbered: rhsNumbered
+        )
+    case (true, false):
+        return numberedAwareStrokesConflict(
+            lhs.first,
+            numbered: false,
+            rhs.first,
+            numbered: rhsNumbered
+        )
+    case (false, true):
+        return numberedAwareStrokesConflict(
+            lhs.first,
+            numbered: lhsNumbered,
+            rhs.first,
+            numbered: false
+        )
+    }
+}
+
 private func sameModifiers(_ lhs: ShortcutStroke, _ rhs: ShortcutStroke) -> Bool {
     lhs.command == rhs.command
         && lhs.shift == rhs.shift

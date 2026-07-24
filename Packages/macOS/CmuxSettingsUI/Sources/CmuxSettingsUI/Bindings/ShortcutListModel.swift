@@ -234,10 +234,10 @@ final class ShortcutListModel {
             ) else { continue }
             let effective = effective(for: other)
             guard let effective, !effective.isUnbound else { continue }
-            if numberedAwareStrokesConflict(
-                stroke.first,
+            if shortcutSequencesConflict(
+                stroke,
                 numbered: action.usesNumberedDigitMatching,
-                effective.first,
+                effective,
                 numbered: other.usesNumberedDigitMatching
             ) {
                 return other
