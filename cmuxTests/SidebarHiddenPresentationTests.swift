@@ -105,6 +105,7 @@ struct SidebarHiddenPresentationTests {
         }
         let sidebarState = SidebarState()
         let notificationStore = TerminalNotificationStore.shared
+        var revealRowInputProjections = 0
         let root = ContentView(
             updateViewModel: UpdateStateModel(),
             windowId: UUID(),
@@ -117,6 +118,12 @@ struct SidebarHiddenPresentationTests {
             .environmentObject(SidebarSelectionState())
             .environmentObject(FileExplorerState())
             .environmentObject(CmuxConfigStore())
+            .environment(
+                \.sidebarLazyContractProbe,
+                SidebarLazyContractProbe(
+                    workspaceRowInputProjection: { revealRowInputProjections += 1 }
+                )
+            )
             .defaultAppStorage(defaults)
 
         let window = NSWindow(
@@ -169,6 +176,7 @@ struct SidebarHiddenPresentationTests {
             "The retained native table must not apply workspace updates while hidden."
         )
 
+        revealRowInputProjections = 0
         sidebarState.toggle()
         await drainMainRunLoop(for: window)
         let reopenedContainers = descendants(
@@ -183,6 +191,10 @@ struct SidebarHiddenPresentationTests {
         #expect(
             initialContainer.tableView.numberOfRows > initialRowCount,
             "Reopening must reconcile the retained table from the current workspace model."
+        )
+        #expect(
+            revealRowInputProjections == tabManager.tabs.count,
+            "Reopening must project each current workspace row exactly once."
         )
 
         let foreignField = NSTextField(frame: NSRect(x: 500, y: 400, width: 120, height: 24))

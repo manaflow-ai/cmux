@@ -100,6 +100,55 @@ struct SidebarWorkspaceTableSuspensionTests {
     }
 
     @Test
+    func hidingRetiresNativeReorderSession() async {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let workspaceIds = (0..<6).map { _ in UUID() }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+        var indicatorClears = 0
+        let actions = makeTableActions(
+            updateWorkspaceDrag: { _, _, _ in
+                SidebarWorkspaceTableReorderDropUpdate(
+                    indicator: SidebarDropIndicator(tabId: workspaceIds[4], edge: .top),
+                    scope: .raw,
+                    draggedWorkspaceId: workspaceIds[1],
+                    indicatorRowIds: workspaceIds,
+                    plan: nil
+                )
+            },
+            clearWorkspaceDropIndicator: { indicatorClears += 1 }
+        )
+        controller.apply(
+            rows: workspaceIds.map { makeRowConfiguration(workspaceId: $0) },
+            actions: actions,
+            workspaceIds: workspaceIds,
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+
+        #expect(controller.updateReorderDrag(windowPoint: NSPoint(x: 40, y: 120)))
+        #expect(controller.isReorderDropSessionActive)
+
+        controller.setPresentationActive(false, workspaceIds: workspaceIds)
+
+        #expect(!controller.isReorderDropSessionActive)
+        #expect(indicatorClears == 1)
+    }
+
+    @Test
     func mutationSchedulerCancelsHiddenWorkAndFlushesRevealOnce() async {
         var appliedInputs = 0
         var viewportFlushes = 0
@@ -163,7 +212,14 @@ struct SidebarWorkspaceTableSuspensionTests {
         }
     }
 
-    private func makeTableActions() -> SidebarWorkspaceTableActions {
+    private func makeTableActions(
+        updateWorkspaceDrag: @escaping (
+            CGPoint,
+            [SidebarWorkspaceReorderDropOverlay.Target],
+            UUID?
+        ) -> SidebarWorkspaceTableReorderDropUpdate? = { _, _, _ in nil },
+        clearWorkspaceDropIndicator: @escaping () -> Void = {}
+    ) -> SidebarWorkspaceTableActions {
         SidebarWorkspaceTableActions(
             attachScrollView: { _ in },
             closeWorkspace: { _ in },
@@ -172,10 +228,10 @@ struct SidebarWorkspaceTableSuspensionTests {
             beginWorkspaceDrag: { _ in },
             endWorkspaceDrag: {},
             isValidWorkspaceDrag: { true },
-            updateWorkspaceDrag: { _, _, _ in nil },
+            updateWorkspaceDrag: updateWorkspaceDrag,
             performWorkspaceDrop: { _, _, _ in false },
             commitWorkspaceDropPlan: { _ in false },
-            clearWorkspaceDropIndicator: {},
+            clearWorkspaceDropIndicator: clearWorkspaceDropIndicator,
             currentDropIndicator: { nil },
             currentDropIndicatorScope: { .raw },
             canPerformBonsplitAction: { _, _ in false },
