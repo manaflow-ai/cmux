@@ -79,4 +79,74 @@ struct WorkspaceIsStaleAgentHookBindingTests {
         #expect(snapshot.panels.first?.terminal?.resumeBinding == nil)
         #expect(workspace.surfaceResumeBinding(panelId: panelId) == nil)
     }
+
+    @Test
+    func localAgentHookBindingLivenessRequiresSameSurfaceAndCheckpoint() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelId = try #require(workspace.focusedPanelId)
+        let binding = Self.agentHookBinding(autoResume: true)
+
+        let matchingIndex = try Self.indexWithDetectedSession(
+            workspaceId: workspace.id,
+            panelId: panelId,
+            sessionId: "session-1"
+        )
+        #expect(workspace.isStaleAgentHookBinding(
+            binding,
+            panelId: panelId,
+            restorableAgentIndex: matchingIndex
+        ) == false)
+
+        let neighborIndex = try Self.indexWithDetectedSession(
+            workspaceId: workspace.id,
+            panelId: UUID(),
+            sessionId: "session-1"
+        )
+        #expect(workspace.isStaleAgentHookBinding(
+            binding,
+            panelId: panelId,
+            restorableAgentIndex: neighborIndex
+        ) == true)
+
+        let mismatchedCheckpointIndex = try Self.indexWithDetectedSession(
+            workspaceId: workspace.id,
+            panelId: panelId,
+            sessionId: "session-2"
+        )
+        #expect(workspace.isStaleAgentHookBinding(
+            binding,
+            panelId: panelId,
+            restorableAgentIndex: mismatchedCheckpointIndex
+        ) == true)
+    }
+
+    private static func indexWithDetectedSession(
+        workspaceId: UUID,
+        panelId: UUID,
+        sessionId: String
+    ) throws -> RestorableAgentSessionIndex {
+        let fileManager = FileManager.default
+        let home = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-agent-hook-liveness-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: home) }
+
+        return RestorableAgentSessionIndex.load(
+            homeDirectory: home.path,
+            fileManager: fileManager,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [
+                RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId): (
+                    snapshot: SessionRestorableAgentSnapshot(kind: .claude, sessionId: sessionId),
+                    updatedAt: 1_777_777_777,
+                    processIDs: [424_242],
+                    agentProcessIDs: [424_242],
+                    sessionIDSource: .explicit
+                ),
+            ],
+            processArgumentsProvider: { _ in nil },
+            processIdentityProvider: { _ in nil }
+        )
+    }
 }

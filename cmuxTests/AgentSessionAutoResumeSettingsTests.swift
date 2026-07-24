@@ -345,7 +345,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 
     @MainActor
-    func testAgentHookBindingExitedBeforeSnapshotDoesNotAutoResumeEvenWhenTrusted() throws {
+    func testTrustedAgentHookBindingAutoResumesEvenWhenSnapshotRecordedExitedAgent() throws {
         try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
             let defaults = UserDefaults.standard
             defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) // autoResumeAgentSessions = true (default)
@@ -386,14 +386,70 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
 
             XCTAssertFalse(input.hasInitialInput)
             XCTAssertEqual(input.byteCount, 0)
-            XCTAssertNil(restoredPanel.surface.debugInitialCommand())
+            try assertAgentAutoResumeUsesStartupCommand(
+                restoredPanel,
+                scriptContains: ["codex resume codex-exited-binding-session"]
+            )
             XCTAssertEqual(
-                restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent?.sessionId,
-                "codex-exited-binding-session"
+                restored.restoredAgentResumeStatesByPanelId[restoredPanelId],
+                .autoResumeCommandRunning
             )
             XCTAssertEqual(
                 restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding?.source,
                 "agent-hook"
+            )
+        }
+    }
+
+    @MainActor
+    func testTrustedAgentHookBindingAutoResumesWhenSnapshotRunningStateIsUnknown() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) // autoResumeAgentSessions = true (default)
+
+            let source = Workspace()
+            let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            let sourceIndex = try makeRestorableAgentIndex(
+                workspaceId: source.id,
+                panelId: sourcePanelId,
+                sessionId: "6c88315a-888e-438a-821e-5a9ff58a23e6"
+            )
+            let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+                SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                    name: "Claude",
+                    kind: "claude",
+                    command: "claude --resume 6c88315a-888e-438a-821e-5a9ff58a23e6",
+                    cwd: "/tmp/repo",
+                    checkpointId: "6c88315a-888e-438a-821e-5a9ff58a23e6",
+                    source: "agent-hook",
+                    autoResume: true,
+                    updatedAt: 1_777_777_777
+                ),
+            ])
+            source.updatePanelShellActivityState(panelId: sourcePanelId, state: .unknown)
+            let snapshot = source.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: sourceIndex,
+                surfaceResumeBindingIndex: bindingIndex
+            )
+
+            XCTAssertNil(snapshot.panels.first?.terminal?.wasAgentRunning)
+
+            let restored = Workspace()
+            restored.restoreSessionSnapshot(snapshot)
+            let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+            let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+            let input = restoredPanel.surface.debugInitialInputMetadata()
+
+            XCTAssertFalse(input.hasInitialInput)
+            XCTAssertEqual(input.byteCount, 0)
+            try assertAgentAutoResumeUsesStartupCommand(
+                restoredPanel,
+                scriptContains: ["claude --resume 6c88315a-888e-438a-821e-5a9ff58a23e6"]
+            )
+            XCTAssertEqual(
+                restored.restoredAgentResumeStatesByPanelId[restoredPanelId],
+                .autoResumeCommandRunning
             )
         }
     }
