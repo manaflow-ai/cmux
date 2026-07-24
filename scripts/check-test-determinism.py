@@ -253,7 +253,10 @@ _BIND_HINTS = ("bind", "connect", "connect_ex", "createServer")
 # the bare form to sit at statement start (optionally after `;`, `&&`, `||`, or a
 # pipe) keeps it from firing on `"... sleep 5 ..."` substrings.
 _SHELL_BARE_SLEEP = re.compile(
-    r"""(?x) (?:^|[;&|]|\$\(|(?<!\\)`) \s* sleep \s+ [\d.]"""
+    r"""(?x)
+    (?:^|[;&|]|(?<!\\)\$\(|(?<!\\)`)
+    \s* sleep \s+ \S
+    """
 )
 
 # Loop-body markers: if the sleep line itself is a loop header or sits in an
@@ -651,6 +654,17 @@ def _python_lambda_shadowed_names(
     }
 
 
+def _python_bracket_depth(line: str, initial: int = 0) -> int:
+    """Return Python delimiter depth after one already-masked physical line."""
+    depth = initial
+    for char in line:
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth = max(0, depth - 1)
+    return depth
+
+
 def _python_real_sleep_lines(masked_lines: list[str]) -> set[int]:
     """Locate direct Python sleep APIs while aliases remain unshadowed."""
     active_modules = set(_PYTHON_SLEEP_MODULES)
@@ -660,9 +674,26 @@ def _python_real_sleep_lines(masked_lines: list[str]) -> set[int]:
     pending_parameter_depth = 0
     pending_import: Optional[str] = None
     pending_import_depth = 0
-    scope_stack: list[tuple[int, set[str], set[str], bool]] = []
+    scope_stack: list[tuple[int, set[str], set[str], bool, str]] = []
+    lambda_scopes: list[tuple[int, set[str]]] = []
+    bracket_depth = 0
+    previous_line_continues = False
 
     for idx, line in enumerate(masked_lines):
+        if idx:
+            lambda_scopes = [
+                (depth, names)
+                for depth, names in lambda_scopes
+                if (
+                    bracket_depth >= depth
+                    if depth > 0
+                    else bracket_depth > 0 or previous_line_continues
+                )
+            ]
+        line_start_depth = bracket_depth
+        bracket_depth = _python_bracket_depth(line, line_start_depth)
+        previous_line_continues = line.rstrip().endswith("\\")
+
         line_indent = len(line) - len(line.lstrip())
         if line.strip() and pending_parameters is None:
             while scope_stack:
@@ -671,6 +702,7 @@ def _python_real_sleep_lines(masked_lines: list[str]) -> set[int]:
                     restore_modules,
                     restore_functions,
                     body_started,
+                    scope_kind,
                 ) = scope_stack[-1]
                 if not body_started and line_indent > header_indent:
                     scope_stack[-1] = (
@@ -678,6 +710,7 @@ def _python_real_sleep_lines(masked_lines: list[str]) -> set[int]:
                         restore_modules,
                         restore_functions,
                         True,
+                        scope_kind,
                     )
                     break
                 if body_started and line_indent > header_indent:
@@ -733,6 +766,8 @@ def _python_real_sleep_lines(masked_lines: list[str]) -> set[int]:
         class_definition = _PYTHON_CLASS.search(line)
         in_function_header = function is not None or pending_parameters is not None
         if function or class_definition:
+            lexical_modules = active_modules.copy()
+            lexical_functions = active_functions.copy()
             defined_name = (
                 function.group("name")
                 if function is not None
@@ -740,14 +775,28 @@ def _python_real_sleep_lines(masked_lines: list[str]) -> set[int]:
             )
             active_modules.discard(defined_name)
             active_functions.discard(defined_name)
+            restore_modules = active_modules.copy()
+            restore_functions = active_functions.copy()
+            if scope_stack and scope_stack[-1][4] == "class":
+                child_modules = scope_stack[-1][1].copy()
+                child_functions = scope_stack[-1][2].copy()
+            elif class_definition is not None:
+                child_modules = lexical_modules
+                child_functions = lexical_functions
+            else:
+                child_modules = restore_modules.copy()
+                child_functions = restore_functions.copy()
             scope_stack.append(
                 (
                     line_indent,
-                    active_modules.copy(),
-                    active_functions.copy(),
+                    restore_modules,
+                    restore_functions,
                     False,
+                    "function" if function is not None else "class",
                 )
             )
+            active_modules = child_modules
+            active_functions = child_functions
         if function:
             pending_parameters = function.group("parameters")
             pending_parameter_depth = (
@@ -780,7 +829,24 @@ def _python_real_sleep_lines(masked_lines: list[str]) -> set[int]:
         if in_function_header or in_import_header or class_definition:
             continue
 
-        lambda_shadowed = _python_lambda_shadowed_names(line, candidates)
+        new_lambda_shadowed = _python_lambda_shadowed_names(line, candidates)
+        for lambda_parameters in _PYTHON_LAMBDA_PARAMETERS.finditer(line):
+            names = {
+                match.group("name")
+                for match in _PYTHON_PARAMETER.finditer(
+                    lambda_parameters.group("parameters")
+                )
+                if match.group("name") in candidates
+            }
+            if names:
+                lambda_depth = _python_bracket_depth(
+                    line[:lambda_parameters.start()],
+                    line_start_depth,
+                )
+                lambda_scopes.append((lambda_depth, names))
+        lambda_shadowed = new_lambda_shadowed | set().union(
+            *(names for _, names in lambda_scopes)
+        )
         line_modules = active_modules - lambda_shadowed
         line_functions = active_functions - lambda_shadowed
         qualified_sleep = any(
@@ -1004,8 +1070,8 @@ def detect_sleep_then_assert(
         if python_sleep_lines is not None
         else bool(sleep_pattern and sleep_pattern.search(line))
     )
-    if not is_sleep and path_suffix == ".sh":
-        is_sleep = bool(_SHELL_BARE_SLEEP.search(line))
+    if path_suffix == ".sh":
+        is_sleep = bool(_SHELL_BARE_SLEEP.search(lines[idx]))
     if not is_sleep:
         return False
     if _sleep_in_loop(lines, idx):
@@ -1059,7 +1125,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
     )
     if not has_sleep_candidate and suffix == ".sh":
         has_sleep_candidate = any(
-            _SHELL_BARE_SLEEP.search(line) for line in raw_lines
+            _SHELL_BARE_SLEEP.search(line) for line in code_lines
         )
     masked_lines = (
         _mask_noncode(raw_lines, suffix) if has_sleep_candidate else code_lines
