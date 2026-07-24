@@ -123,10 +123,16 @@ extension CMUXCLI {
         ) else {
             return []
         }
+        let repository = codexCommonRepositoryRoot(
+            currentDirectory: effectiveDirectory
+        )
+        guard repository.resolved else {
+            return []
+        }
         return policy.undecidedProjectOverride(
             arguments: arguments,
             currentDirectory: currentDirectory,
-            repositoryRoot: codexCommonRepositoryRoot(currentDirectory: effectiveDirectory),
+            repositoryRoot: repository.root,
             effectiveProjectDecisionPaths: projectDecisions
         )
     }
@@ -259,11 +265,17 @@ extension CMUXCLI {
     }
 
     /// Mirrors Codex's trust lookup for linked worktrees: project decisions may
-    /// be keyed by the main repository root rather than the checkout root.
-    private func codexCommonRepositoryRoot(currentDirectory: String) -> String? {
+    /// be keyed by the main repository root rather than the checkout root. A
+    /// failed probe is distinct from a confirmed non-repository so an
+    /// invocation-only override cannot hide an authoritative root decision.
+    private func codexCommonRepositoryRoot(
+        currentDirectory: String
+    ) -> (resolved: Bool, root: String?) {
         let result = CLIProcessRunner.runProcess(
-            executablePath: "/usr/bin/git",
+            executablePath: "/usr/bin/env",
             arguments: [
+                "LC_ALL=C",
+                "/usr/bin/git",
                 "-C",
                 currentDirectory,
                 "rev-parse",
@@ -272,13 +284,70 @@ extension CMUXCLI {
             ],
             timeout: 1
         )
-        guard result.status == 0,
-              let commonDirectory = normalizedHookValue(result.stdout) else {
-            return nil
+        if result.status == 0, !result.timedOut {
+            guard let commonDirectory = normalizedHookValue(result.stdout) else {
+                return (false, nil)
+            }
+            let commonURL = URL(
+                fileURLWithPath: commonDirectory,
+                isDirectory: true
+            )
+            guard commonURL.lastPathComponent == ".git" else {
+                return (false, nil)
+            }
+            return (
+                true,
+                commonURL.deletingLastPathComponent().standardizedFileURL.path
+            )
         }
-        let commonURL = URL(fileURLWithPath: commonDirectory, isDirectory: true)
-        guard commonURL.lastPathComponent == ".git" else { return nil }
-        return commonURL.deletingLastPathComponent().standardizedFileURL.path
+
+        guard !result.timedOut,
+              result.status == 128,
+              result.stderr.contains("not a git repository"),
+              !codexRepositoryEnvironmentIsConfigured(),
+              !codexRepositoryMarkerExists(currentDirectory: currentDirectory) else {
+            return (false, nil)
+        }
+        return (true, nil)
+    }
+
+    private func codexRepositoryEnvironmentIsConfigured() -> Bool {
+        let environment = ProcessInfo.processInfo.environment
+        return normalizedHookValue(environment["GIT_DIR"]) != nil
+            || normalizedHookValue(environment["GIT_WORK_TREE"]) != nil
+    }
+
+    private func codexRepositoryMarkerExists(
+        currentDirectory: String
+    ) -> Bool {
+        let logicalURL = URL(
+            fileURLWithPath: currentDirectory,
+            isDirectory: true
+        ).standardizedFileURL
+        let canonicalURL = logicalURL.resolvingSymlinksInPath()
+        var startingURLs = [logicalURL]
+        if canonicalURL.path != logicalURL.path {
+            startingURLs.append(canonicalURL)
+        }
+
+        for startingURL in startingURLs {
+            var directory = startingURL
+            while true {
+                if FileManager.default.fileExists(
+                    atPath: directory
+                        .appendingPathComponent(".git", isDirectory: false)
+                        .path
+                ) {
+                    return true
+                }
+                let parent = directory.deletingLastPathComponent()
+                guard parent.path != directory.path else {
+                    break
+                }
+                directory = parent
+            }
+        }
+        return false
     }
 
     /// The cmux-owned directory holding the generated codex hook scripts.
