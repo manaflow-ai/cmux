@@ -897,334 +897,307 @@ macro_rules! action_definition {
     };
 }
 
+macro_rules! define_named_action_definitions {
+    ($( $name:ident => ($action:expr, $config_key:literal, $label_en:literal, $label_ja:literal); )+) => {
+        $(
+            static $name: ActionDefinition =
+                action_definition!($action, $config_key, $label_en, $label_ja);
+        )+
+    };
+}
+
+define_named_action_definitions! {
+    SEND_PREFIX_DEFINITION => (Action::SendPrefix, "send-prefix", "Send prefix", "プレフィックスを送信");
+    NEW_TAB_DEFINITION => (Action::NewTab, "new-tab", "New tab", "新しいタブ");
+    NEW_BROWSER_TAB_DEFINITION => (Action::NewBrowserTab, "new-browser-tab", "New browser tab", "新しいブラウザタブ");
+    NEW_PANE_SMART_DEFINITION => (Action::NewPaneSmart, "new-pane-smart", "New pane", "新しいペイン");
+    NEXT_TAB_DEFINITION => (Action::NextTab, "next-tab", "Next tab", "次のタブ");
+    PREV_TAB_DEFINITION => (Action::PrevTab, "prev-tab", "Previous tab", "前のタブ");
+    SPLIT_RIGHT_DEFINITION => (Action::SplitRight, "split-right", "Split right", "右に分割");
+    SPLIT_DOWN_DEFINITION => (Action::SplitDown, "split-down", "Split down", "下に分割");
+    CLOSE_TAB_DEFINITION => (Action::CloseTab, "close-tab", "Close tab", "タブを閉じる");
+    CLOSE_PANE_DEFINITION => (Action::ClosePane, "close-pane", "Close pane", "ペインを閉じる");
+    RENAME_TAB_DEFINITION => (Action::RenameTab, "rename-tab", "Rename tab", "タブ名を変更");
+    RENAME_SCREEN_DEFINITION => (Action::RenameScreen, "rename-screen", "Rename screen", "スクリーン名を変更");
+    RENAME_WORKSPACE_DEFINITION => (Action::RenameWorkspace, "rename-workspace", "Rename workspace", "ワークスペース名を変更");
+    CLOSE_SCREEN_DEFINITION => (Action::CloseScreen, "close-screen", "Close screen", "スクリーンを閉じる");
+    PREV_SCREEN_DEFINITION => (Action::PrevScreen, "prev-screen", "Previous screen", "前のスクリーン");
+    NEXT_SCREEN_DEFINITION => (Action::NextScreen, "next-screen", "Next screen", "次のスクリーン");
+    NEW_SCREEN_DEFINITION => (Action::NewScreen, "new-screen", "New screen", "新しいスクリーン");
+    PREV_WORKSPACE_DEFINITION => (Action::PrevWorkspace, "prev-workspace", "Previous workspace", "前のワークスペース");
+    NEXT_WORKSPACE_DEFINITION => (Action::NextWorkspace, "next-workspace", "Next workspace", "次のワークスペース");
+    NEW_WORKSPACE_DEFINITION => (Action::NewWorkspace, "new-workspace", "New workspace", "新しいワークスペース");
+    CLOSE_WORKSPACE_DEFINITION => (Action::CloseWorkspace, "close-workspace", "Close workspace", "ワークスペースを閉じる");
+    TOGGLE_SIDEBAR_DEFINITION => (Action::ToggleSidebar, "toggle-sidebar", "Show or hide sidebar", "サイドバーの表示を切り替え");
+    TOGGLE_SIDEBAR_COMPACT_DEFINITION => (Action::ToggleSidebarCompact, "toggle-sidebar-compact", "Compact or expand sidebar", "サイドバーの幅を切り替え");
+    TOGGLE_SIDEBAR_VIEW_DEFINITION => (Action::ToggleSidebarView, "toggle-sidebar-view", "Switch sidebar view", "サイドバー表示を切り替え");
+    FOCUS_SIDEBAR_DEFINITION => (Action::FocusSidebar, "focus-sidebar", "Focus sidebar", "サイドバーにフォーカス");
+    FOCUS_LEFT_DEFINITION => (Action::FocusLeft, "focus-left", "Focus left", "左へフォーカス");
+    FOCUS_RIGHT_DEFINITION => (Action::FocusRight, "focus-right", "Focus right", "右へフォーカス");
+    FOCUS_UP_DEFINITION => (Action::FocusUp, "focus-up", "Focus up", "上へフォーカス");
+    FOCUS_DOWN_DEFINITION => (Action::FocusDown, "focus-down", "Focus down", "下へフォーカス");
+    FOCUS_NEXT_PANE_DEFINITION => (Action::FocusNextPane, "focus-next-pane", "Focus next pane", "次のペインにフォーカス");
+    SWAP_PANE_PREV_DEFINITION => (Action::SwapPanePrev, "swap-pane-prev", "Move pane backward", "ペインを前へ移動");
+    SWAP_PANE_NEXT_DEFINITION => (Action::SwapPaneNext, "swap-pane-next", "Move pane forward", "ペインを後ろへ移動");
+    ZOOM_PANE_DEFINITION => (Action::ZoomPane, "zoom-pane", "Maximize or restore pane", "ペインを最大化または復元");
+    RESIZE_GROW_DEFINITION => (Action::ResizeGrow, "resize-grow", "Grow pane", "ペインを拡大");
+    RESIZE_SHRINK_DEFINITION => (Action::ResizeShrink, "resize-shrink", "Shrink pane", "ペインを縮小");
+    SCROLL_UP_DEFINITION => (Action::ScrollUp, "scroll-up", "Scroll up", "上にスクロール");
+    SCROLL_DOWN_DEFINITION => (Action::ScrollDown, "scroll-down", "Scroll down", "下にスクロール");
+    BROWSER_BACK_DEFINITION => (Action::BrowserBack, "browser-back", "Browser back", "ブラウザで戻る");
+    BROWSER_FORWARD_DEFINITION => (Action::BrowserForward, "browser-forward", "Browser forward", "ブラウザで進む");
+    BROWSER_RELOAD_DEFINITION => (Action::BrowserReload, "browser-reload", "Reload browser", "ブラウザを再読み込み");
+    BROWSER_EDIT_URL_DEFINITION => (Action::BrowserEditUrl, "browser-edit-url", "Edit browser URL", "ブラウザ URL を編集");
+    SHOW_SHORTCUTS_DEFINITION => (Action::ShowShortcuts, "show-shortcuts", "Keyboard shortcuts", "キーボードショートカット");
+    DETACH_DEFINITION => (Action::Detach, "detach", "Detach", "デタッチ");
+}
+
+static SELECT_TAB_DEFINITIONS: [ActionDefinition; 10] = [
+    action_definition!(
+        Action::select_tab(0).unwrap(),
+        "select-tab-0",
+        "Select tab 0",
+        "タブ 0 を選択"
+    ),
+    action_definition!(
+        Action::select_tab(1).unwrap(),
+        "select-tab-1",
+        "Select tab 1",
+        "タブ 1 を選択"
+    ),
+    action_definition!(
+        Action::select_tab(2).unwrap(),
+        "select-tab-2",
+        "Select tab 2",
+        "タブ 2 を選択"
+    ),
+    action_definition!(
+        Action::select_tab(3).unwrap(),
+        "select-tab-3",
+        "Select tab 3",
+        "タブ 3 を選択"
+    ),
+    action_definition!(
+        Action::select_tab(4).unwrap(),
+        "select-tab-4",
+        "Select tab 4",
+        "タブ 4 を選択"
+    ),
+    action_definition!(
+        Action::select_tab(5).unwrap(),
+        "select-tab-5",
+        "Select tab 5",
+        "タブ 5 を選択"
+    ),
+    action_definition!(
+        Action::select_tab(6).unwrap(),
+        "select-tab-6",
+        "Select tab 6",
+        "タブ 6 を選択"
+    ),
+    action_definition!(
+        Action::select_tab(7).unwrap(),
+        "select-tab-7",
+        "Select tab 7",
+        "タブ 7 を選択"
+    ),
+    action_definition!(
+        Action::select_tab(8).unwrap(),
+        "select-tab-8",
+        "Select tab 8",
+        "タブ 8 を選択"
+    ),
+    action_definition!(
+        Action::select_tab(9).unwrap(),
+        "select-tab-9",
+        "Select tab 9",
+        "タブ 9 を選択"
+    ),
+];
+
+static SELECT_SCREEN_DEFINITIONS: [ActionDefinition; 10] = [
+    action_definition!(
+        Action::select_screen(0).unwrap(),
+        "select-screen-0",
+        "Select screen 0",
+        "スクリーン 0 を選択"
+    ),
+    action_definition!(
+        Action::select_screen(1).unwrap(),
+        "select-screen-1",
+        "Select screen 1",
+        "スクリーン 1 を選択"
+    ),
+    action_definition!(
+        Action::select_screen(2).unwrap(),
+        "select-screen-2",
+        "Select screen 2",
+        "スクリーン 2 を選択"
+    ),
+    action_definition!(
+        Action::select_screen(3).unwrap(),
+        "select-screen-3",
+        "Select screen 3",
+        "スクリーン 3 を選択"
+    ),
+    action_definition!(
+        Action::select_screen(4).unwrap(),
+        "select-screen-4",
+        "Select screen 4",
+        "スクリーン 4 を選択"
+    ),
+    action_definition!(
+        Action::select_screen(5).unwrap(),
+        "select-screen-5",
+        "Select screen 5",
+        "スクリーン 5 を選択"
+    ),
+    action_definition!(
+        Action::select_screen(6).unwrap(),
+        "select-screen-6",
+        "Select screen 6",
+        "スクリーン 6 を選択"
+    ),
+    action_definition!(
+        Action::select_screen(7).unwrap(),
+        "select-screen-7",
+        "Select screen 7",
+        "スクリーン 7 を選択"
+    ),
+    action_definition!(
+        Action::select_screen(8).unwrap(),
+        "select-screen-8",
+        "Select screen 8",
+        "スクリーン 8 を選択"
+    ),
+    action_definition!(
+        Action::select_screen(9).unwrap(),
+        "select-screen-9",
+        "Select screen 9",
+        "スクリーン 9 を選択"
+    ),
+];
+
 /// The canonical action catalog. Presentation surfaces derive their labels
-/// and ordering from this list instead of maintaining parallel registries.
-pub fn action_definitions() -> &'static [ActionDefinition] {
-    static DEFINITIONS: [ActionDefinition; 63] = [
-        action_definition!(
-            Action::SendPrefix,
-            "send-prefix",
-            "Send prefix",
-            "プレフィックスを送信"
-        ),
-        action_definition!(Action::NewTab, "new-tab", "New tab", "新しいタブ"),
-        action_definition!(
-            Action::NewBrowserTab,
-            "new-browser-tab",
-            "New browser tab",
-            "新しいブラウザタブ"
-        ),
-        action_definition!(Action::NewPaneSmart, "new-pane-smart", "New pane", "新しいペイン"),
-        action_definition!(Action::NextTab, "next-tab", "Next tab", "次のタブ"),
-        action_definition!(Action::PrevTab, "prev-tab", "Previous tab", "前のタブ"),
-        action_definition!(
-            Action::select_tab(0).unwrap(),
-            "select-tab-0",
-            "Select tab 0",
-            "タブ 0 を選択"
-        ),
-        action_definition!(
-            Action::select_tab(1).unwrap(),
-            "select-tab-1",
-            "Select tab 1",
-            "タブ 1 を選択"
-        ),
-        action_definition!(
-            Action::select_tab(2).unwrap(),
-            "select-tab-2",
-            "Select tab 2",
-            "タブ 2 を選択"
-        ),
-        action_definition!(
-            Action::select_tab(3).unwrap(),
-            "select-tab-3",
-            "Select tab 3",
-            "タブ 3 を選択"
-        ),
-        action_definition!(
-            Action::select_tab(4).unwrap(),
-            "select-tab-4",
-            "Select tab 4",
-            "タブ 4 を選択"
-        ),
-        action_definition!(
-            Action::select_tab(5).unwrap(),
-            "select-tab-5",
-            "Select tab 5",
-            "タブ 5 を選択"
-        ),
-        action_definition!(
-            Action::select_tab(6).unwrap(),
-            "select-tab-6",
-            "Select tab 6",
-            "タブ 6 を選択"
-        ),
-        action_definition!(
-            Action::select_tab(7).unwrap(),
-            "select-tab-7",
-            "Select tab 7",
-            "タブ 7 を選択"
-        ),
-        action_definition!(
-            Action::select_tab(8).unwrap(),
-            "select-tab-8",
-            "Select tab 8",
-            "タブ 8 を選択"
-        ),
-        action_definition!(
-            Action::select_tab(9).unwrap(),
-            "select-tab-9",
-            "Select tab 9",
-            "タブ 9 を選択"
-        ),
-        action_definition!(Action::SplitRight, "split-right", "Split right", "右に分割"),
-        action_definition!(Action::SplitDown, "split-down", "Split down", "下に分割"),
-        action_definition!(Action::CloseTab, "close-tab", "Close tab", "タブを閉じる"),
-        action_definition!(Action::ClosePane, "close-pane", "Close pane", "ペインを閉じる"),
-        action_definition!(Action::RenameTab, "rename-tab", "Rename tab", "タブ名を変更"),
-        action_definition!(
-            Action::RenameScreen,
-            "rename-screen",
-            "Rename screen",
-            "スクリーン名を変更"
-        ),
-        action_definition!(
-            Action::RenameWorkspace,
-            "rename-workspace",
-            "Rename workspace",
-            "ワークスペース名を変更"
-        ),
-        action_definition!(
-            Action::CloseScreen,
-            "close-screen",
-            "Close screen",
-            "スクリーンを閉じる"
-        ),
-        action_definition!(Action::PrevScreen, "prev-screen", "Previous screen", "前のスクリーン"),
-        action_definition!(Action::NextScreen, "next-screen", "Next screen", "次のスクリーン"),
-        action_definition!(
-            Action::select_screen(0).unwrap(),
-            "select-screen-0",
-            "Select screen 0",
-            "スクリーン 0 を選択"
-        ),
-        action_definition!(
-            Action::select_screen(1).unwrap(),
-            "select-screen-1",
-            "Select screen 1",
-            "スクリーン 1 を選択"
-        ),
-        action_definition!(
-            Action::select_screen(2).unwrap(),
-            "select-screen-2",
-            "Select screen 2",
-            "スクリーン 2 を選択"
-        ),
-        action_definition!(
-            Action::select_screen(3).unwrap(),
-            "select-screen-3",
-            "Select screen 3",
-            "スクリーン 3 を選択"
-        ),
-        action_definition!(
-            Action::select_screen(4).unwrap(),
-            "select-screen-4",
-            "Select screen 4",
-            "スクリーン 4 を選択"
-        ),
-        action_definition!(
-            Action::select_screen(5).unwrap(),
-            "select-screen-5",
-            "Select screen 5",
-            "スクリーン 5 を選択"
-        ),
-        action_definition!(
-            Action::select_screen(6).unwrap(),
-            "select-screen-6",
-            "Select screen 6",
-            "スクリーン 6 を選択"
-        ),
-        action_definition!(
-            Action::select_screen(7).unwrap(),
-            "select-screen-7",
-            "Select screen 7",
-            "スクリーン 7 を選択"
-        ),
-        action_definition!(
-            Action::select_screen(8).unwrap(),
-            "select-screen-8",
-            "Select screen 8",
-            "スクリーン 8 を選択"
-        ),
-        action_definition!(
-            Action::select_screen(9).unwrap(),
-            "select-screen-9",
-            "Select screen 9",
-            "スクリーン 9 を選択"
-        ),
-        action_definition!(Action::NewScreen, "new-screen", "New screen", "新しいスクリーン"),
-        action_definition!(
-            Action::PrevWorkspace,
-            "prev-workspace",
-            "Previous workspace",
-            "前のワークスペース"
-        ),
-        action_definition!(
-            Action::NextWorkspace,
-            "next-workspace",
-            "Next workspace",
-            "次のワークスペース"
-        ),
-        action_definition!(
-            Action::NewWorkspace,
-            "new-workspace",
-            "New workspace",
-            "新しいワークスペース"
-        ),
-        action_definition!(
-            Action::CloseWorkspace,
-            "close-workspace",
-            "Close workspace",
-            "ワークスペースを閉じる"
-        ),
-        action_definition!(
-            Action::ToggleSidebar,
-            "toggle-sidebar",
-            "Show or hide sidebar",
-            "サイドバーの表示を切り替え"
-        ),
-        action_definition!(
-            Action::ToggleSidebarCompact,
-            "toggle-sidebar-compact",
-            "Compact or expand sidebar",
-            "サイドバーの幅を切り替え"
-        ),
-        action_definition!(
-            Action::ToggleSidebarView,
-            "toggle-sidebar-view",
-            "Switch sidebar view",
-            "サイドバー表示を切り替え"
-        ),
-        action_definition!(
-            Action::FocusSidebar,
-            "focus-sidebar",
-            "Focus sidebar",
-            "サイドバーにフォーカス"
-        ),
-        action_definition!(Action::FocusLeft, "focus-left", "Focus left", "左へフォーカス"),
-        action_definition!(Action::FocusRight, "focus-right", "Focus right", "右へフォーカス"),
-        action_definition!(Action::FocusUp, "focus-up", "Focus up", "上へフォーカス"),
-        action_definition!(Action::FocusDown, "focus-down", "Focus down", "下へフォーカス"),
-        action_definition!(
-            Action::FocusNextPane,
-            "focus-next-pane",
-            "Focus next pane",
-            "次のペインにフォーカス"
-        ),
-        action_definition!(
-            Action::SwapPanePrev,
-            "swap-pane-prev",
-            "Move pane backward",
-            "ペインを前へ移動"
-        ),
-        action_definition!(
-            Action::SwapPaneNext,
-            "swap-pane-next",
-            "Move pane forward",
-            "ペインを後ろへ移動"
-        ),
-        action_definition!(
-            Action::ZoomPane,
-            "zoom-pane",
-            "Maximize or restore pane",
-            "ペインを最大化または復元"
-        ),
-        action_definition!(Action::ResizeGrow, "resize-grow", "Grow pane", "ペインを拡大"),
-        action_definition!(Action::ResizeShrink, "resize-shrink", "Shrink pane", "ペインを縮小"),
-        action_definition!(Action::ScrollUp, "scroll-up", "Scroll up", "上にスクロール"),
-        action_definition!(Action::ScrollDown, "scroll-down", "Scroll down", "下にスクロール"),
-        action_definition!(Action::BrowserBack, "browser-back", "Browser back", "ブラウザで戻る"),
-        action_definition!(
-            Action::BrowserForward,
-            "browser-forward",
-            "Browser forward",
-            "ブラウザで進む"
-        ),
-        action_definition!(
-            Action::BrowserReload,
-            "browser-reload",
-            "Reload browser",
-            "ブラウザを再読み込み"
-        ),
-        action_definition!(
-            Action::BrowserEditUrl,
-            "browser-edit-url",
-            "Edit browser URL",
-            "ブラウザ URL を編集"
-        ),
-        action_definition!(
-            Action::ShowShortcuts,
-            "show-shortcuts",
-            "Keyboard shortcuts",
-            "キーボードショートカット"
-        ),
-        action_definition!(Action::Detach, "detach", "Detach", "デタッチ"),
+/// and ordering from these named definitions instead of positional offsets.
+pub fn action_definitions() -> &'static [&'static ActionDefinition] {
+    static DEFINITIONS: [&ActionDefinition; 63] = [
+        &SEND_PREFIX_DEFINITION,
+        &NEW_TAB_DEFINITION,
+        &NEW_BROWSER_TAB_DEFINITION,
+        &NEW_PANE_SMART_DEFINITION,
+        &NEXT_TAB_DEFINITION,
+        &PREV_TAB_DEFINITION,
+        &SELECT_TAB_DEFINITIONS[0],
+        &SELECT_TAB_DEFINITIONS[1],
+        &SELECT_TAB_DEFINITIONS[2],
+        &SELECT_TAB_DEFINITIONS[3],
+        &SELECT_TAB_DEFINITIONS[4],
+        &SELECT_TAB_DEFINITIONS[5],
+        &SELECT_TAB_DEFINITIONS[6],
+        &SELECT_TAB_DEFINITIONS[7],
+        &SELECT_TAB_DEFINITIONS[8],
+        &SELECT_TAB_DEFINITIONS[9],
+        &SPLIT_RIGHT_DEFINITION,
+        &SPLIT_DOWN_DEFINITION,
+        &CLOSE_TAB_DEFINITION,
+        &CLOSE_PANE_DEFINITION,
+        &RENAME_TAB_DEFINITION,
+        &RENAME_SCREEN_DEFINITION,
+        &RENAME_WORKSPACE_DEFINITION,
+        &CLOSE_SCREEN_DEFINITION,
+        &PREV_SCREEN_DEFINITION,
+        &NEXT_SCREEN_DEFINITION,
+        &SELECT_SCREEN_DEFINITIONS[0],
+        &SELECT_SCREEN_DEFINITIONS[1],
+        &SELECT_SCREEN_DEFINITIONS[2],
+        &SELECT_SCREEN_DEFINITIONS[3],
+        &SELECT_SCREEN_DEFINITIONS[4],
+        &SELECT_SCREEN_DEFINITIONS[5],
+        &SELECT_SCREEN_DEFINITIONS[6],
+        &SELECT_SCREEN_DEFINITIONS[7],
+        &SELECT_SCREEN_DEFINITIONS[8],
+        &SELECT_SCREEN_DEFINITIONS[9],
+        &NEW_SCREEN_DEFINITION,
+        &PREV_WORKSPACE_DEFINITION,
+        &NEXT_WORKSPACE_DEFINITION,
+        &NEW_WORKSPACE_DEFINITION,
+        &CLOSE_WORKSPACE_DEFINITION,
+        &TOGGLE_SIDEBAR_DEFINITION,
+        &TOGGLE_SIDEBAR_COMPACT_DEFINITION,
+        &TOGGLE_SIDEBAR_VIEW_DEFINITION,
+        &FOCUS_SIDEBAR_DEFINITION,
+        &FOCUS_LEFT_DEFINITION,
+        &FOCUS_RIGHT_DEFINITION,
+        &FOCUS_UP_DEFINITION,
+        &FOCUS_DOWN_DEFINITION,
+        &FOCUS_NEXT_PANE_DEFINITION,
+        &SWAP_PANE_PREV_DEFINITION,
+        &SWAP_PANE_NEXT_DEFINITION,
+        &ZOOM_PANE_DEFINITION,
+        &RESIZE_GROW_DEFINITION,
+        &RESIZE_SHRINK_DEFINITION,
+        &SCROLL_UP_DEFINITION,
+        &SCROLL_DOWN_DEFINITION,
+        &BROWSER_BACK_DEFINITION,
+        &BROWSER_FORWARD_DEFINITION,
+        &BROWSER_RELOAD_DEFINITION,
+        &BROWSER_EDIT_URL_DEFINITION,
+        &SHOW_SHORTCUTS_DEFINITION,
+        &DETACH_DEFINITION,
     ];
     &DEFINITIONS
 }
 
 impl Action {
     pub fn definition(self) -> &'static ActionDefinition {
-        let index = match self {
-            Action::SendPrefix => 0,
-            Action::NewTab => 1,
-            Action::NewBrowserTab => 2,
-            Action::NewPaneSmart => 3,
-            Action::NextTab => 4,
-            Action::PrevTab => 5,
-            Action::SelectTab(index) => 6 + index.get() as usize,
-            Action::SplitRight => 16,
-            Action::SplitDown => 17,
-            Action::CloseTab => 18,
-            Action::ClosePane => 19,
-            Action::RenameTab => 20,
-            Action::RenameScreen => 21,
-            Action::RenameWorkspace => 22,
-            Action::CloseScreen => 23,
-            Action::PrevScreen => 24,
-            Action::NextScreen => 25,
-            Action::SelectScreen(index) => 26 + index.get() as usize,
-            Action::NewScreen => 36,
-            Action::PrevWorkspace => 37,
-            Action::NextWorkspace => 38,
-            Action::NewWorkspace => 39,
-            Action::CloseWorkspace => 40,
-            Action::ToggleSidebar => 41,
-            Action::ToggleSidebarCompact => 42,
-            Action::ToggleSidebarView => 43,
-            Action::FocusSidebar => 44,
-            Action::FocusLeft => 45,
-            Action::FocusRight => 46,
-            Action::FocusUp => 47,
-            Action::FocusDown => 48,
-            Action::FocusNextPane => 49,
-            Action::SwapPanePrev => 50,
-            Action::SwapPaneNext => 51,
-            Action::ZoomPane => 52,
-            Action::ResizeGrow => 53,
-            Action::ResizeShrink => 54,
-            Action::ScrollUp => 55,
-            Action::ScrollDown => 56,
-            Action::BrowserBack => 57,
-            Action::BrowserForward => 58,
-            Action::BrowserReload => 59,
-            Action::BrowserEditUrl => 60,
-            Action::ShowShortcuts => 61,
-            Action::Detach => 62,
-        };
-        let definition = &action_definitions()[index];
-        debug_assert_eq!(definition.action, self);
-        definition
+        match self {
+            Action::SendPrefix => &SEND_PREFIX_DEFINITION,
+            Action::NewTab => &NEW_TAB_DEFINITION,
+            Action::NewBrowserTab => &NEW_BROWSER_TAB_DEFINITION,
+            Action::NewPaneSmart => &NEW_PANE_SMART_DEFINITION,
+            Action::NextTab => &NEXT_TAB_DEFINITION,
+            Action::PrevTab => &PREV_TAB_DEFINITION,
+            Action::SelectTab(index) => &SELECT_TAB_DEFINITIONS[index.get() as usize],
+            Action::SplitRight => &SPLIT_RIGHT_DEFINITION,
+            Action::SplitDown => &SPLIT_DOWN_DEFINITION,
+            Action::CloseTab => &CLOSE_TAB_DEFINITION,
+            Action::ClosePane => &CLOSE_PANE_DEFINITION,
+            Action::RenameTab => &RENAME_TAB_DEFINITION,
+            Action::RenameScreen => &RENAME_SCREEN_DEFINITION,
+            Action::RenameWorkspace => &RENAME_WORKSPACE_DEFINITION,
+            Action::CloseScreen => &CLOSE_SCREEN_DEFINITION,
+            Action::PrevScreen => &PREV_SCREEN_DEFINITION,
+            Action::NextScreen => &NEXT_SCREEN_DEFINITION,
+            Action::SelectScreen(index) => &SELECT_SCREEN_DEFINITIONS[index.get() as usize],
+            Action::NewScreen => &NEW_SCREEN_DEFINITION,
+            Action::PrevWorkspace => &PREV_WORKSPACE_DEFINITION,
+            Action::NextWorkspace => &NEXT_WORKSPACE_DEFINITION,
+            Action::NewWorkspace => &NEW_WORKSPACE_DEFINITION,
+            Action::CloseWorkspace => &CLOSE_WORKSPACE_DEFINITION,
+            Action::ToggleSidebar => &TOGGLE_SIDEBAR_DEFINITION,
+            Action::ToggleSidebarCompact => &TOGGLE_SIDEBAR_COMPACT_DEFINITION,
+            Action::ToggleSidebarView => &TOGGLE_SIDEBAR_VIEW_DEFINITION,
+            Action::FocusSidebar => &FOCUS_SIDEBAR_DEFINITION,
+            Action::FocusLeft => &FOCUS_LEFT_DEFINITION,
+            Action::FocusRight => &FOCUS_RIGHT_DEFINITION,
+            Action::FocusUp => &FOCUS_UP_DEFINITION,
+            Action::FocusDown => &FOCUS_DOWN_DEFINITION,
+            Action::FocusNextPane => &FOCUS_NEXT_PANE_DEFINITION,
+            Action::SwapPanePrev => &SWAP_PANE_PREV_DEFINITION,
+            Action::SwapPaneNext => &SWAP_PANE_NEXT_DEFINITION,
+            Action::ZoomPane => &ZOOM_PANE_DEFINITION,
+            Action::ResizeGrow => &RESIZE_GROW_DEFINITION,
+            Action::ResizeShrink => &RESIZE_SHRINK_DEFINITION,
+            Action::ScrollUp => &SCROLL_UP_DEFINITION,
+            Action::ScrollDown => &SCROLL_DOWN_DEFINITION,
+            Action::BrowserBack => &BROWSER_BACK_DEFINITION,
+            Action::BrowserForward => &BROWSER_FORWARD_DEFINITION,
+            Action::BrowserReload => &BROWSER_RELOAD_DEFINITION,
+            Action::BrowserEditUrl => &BROWSER_EDIT_URL_DEFINITION,
+            Action::ShowShortcuts => &SHOW_SHORTCUTS_DEFINITION,
+            Action::Detach => &DETACH_DEFINITION,
+        }
     }
 
     pub const fn select_screen(number: u8) -> Option<Self> {
@@ -1469,6 +1442,7 @@ impl Keys {
     pub fn resolved_shortcuts(&self) -> Vec<(&'static ActionDefinition, Vec<String>)> {
         action_definitions()
             .iter()
+            .copied()
             .filter_map(|definition| {
                 let shortcuts = self.shortcut_labels(definition.action);
                 (!shortcuts.is_empty()).then_some((definition, shortcuts))
@@ -3242,7 +3216,7 @@ mod tests {
     fn action_catalog_has_unique_actions_keys_and_complete_localized_labels() {
         let mut actions = HashSet::new();
         let mut keys = HashSet::new();
-        for definition in action_definitions() {
+        for &definition in action_definitions() {
             assert!(actions.insert(definition.action), "duplicate action: {:?}", definition.action);
             assert!(keys.insert(definition.config_key), "duplicate key: {}", definition.config_key);
             assert!(!definition.label_en.is_empty());
@@ -3258,7 +3232,7 @@ mod tests {
 
     #[test]
     fn every_catalog_action_can_be_rebound() {
-        for definition in action_definitions() {
+        for &definition in action_definitions() {
             let mut keys = Keys::default();
             let mut raw = HashMap::new();
             raw.insert(definition.config_key.to_string(), Value::String("f".to_string()));

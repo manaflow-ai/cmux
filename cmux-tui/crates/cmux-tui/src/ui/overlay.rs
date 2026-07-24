@@ -295,24 +295,18 @@ pub fn draw_shortcut_help(app: &mut App, frame: &mut Frame) {
         return;
     }
     let catalog = catalog();
-    let rows = app
-        .config
-        .keys
-        .resolved_shortcuts()
-        .into_iter()
-        .map(|(definition, shortcuts)| {
-            (catalog.action_label(definition.action), shortcuts.join(", "))
-        })
-        .collect::<Vec<_>>();
+    let Some(help) = app.shortcut_help.as_ref() else { return };
+    let total_rows = help.rows.len();
     let close_text = format!("[{}]", catalog.shortcuts.close_button);
-    let desired_width = rows
+    let desired_width = help
+        .rows
         .iter()
-        .map(|(label, shortcuts)| label.width() + shortcuts.width() + 9)
+        .map(|(action, shortcuts)| catalog.action_label(*action).width() + shortcuts.width() + 9)
         .max()
         .unwrap_or(44)
         .max(catalog.shortcuts.title.width() + close_text.width() + 8);
     let width = (desired_width as u16).min(76).min(screen.width.saturating_sub(2)).max(24);
-    let height = (rows.len() as u16 + 4).min(screen.height.saturating_sub(2)).max(7);
+    let height = (total_rows as u16 + 4).min(screen.height.saturating_sub(2)).max(7);
     let x = (screen.width - width) / 2;
     let y = (screen.height - height) / 2;
     let visible_rows = height.saturating_sub(4) as usize;
@@ -332,13 +326,13 @@ pub fn draw_shortcut_help(app: &mut App, frame: &mut Frame) {
         width: close_width,
         height: 1,
     };
-    help.scroll_offset = help.scroll_offset.min(rows.len().saturating_sub(visible_rows));
-    help.scrollbar_track = if visible_rows > 0 && rows.len() > visible_rows {
+    help.scroll_offset = help.scroll_offset.min(total_rows.saturating_sub(visible_rows));
+    help.scrollbar_track = if visible_rows > 0 && total_rows > visible_rows {
         Rect { x: x + width - 2, y: y + 2, width: 1, height: visible_rows as u16 }
     } else {
         Rect::default()
     };
-    let (thumb_y, thumb_height) = help.scrollbar_geometry(rows.len());
+    let (thumb_y, thumb_height) = help.scrollbar_geometry(total_rows);
     help.scrollbar_thumb = if help.scrollbar_track.height > 0 {
         Rect {
             x: help.scrollbar_track.x,
@@ -352,6 +346,7 @@ pub fn draw_shortcut_help(app: &mut App, frame: &mut Frame) {
     let scroll_offset = help.scroll_offset;
     let scrollbar_track = help.scrollbar_track;
     let close_button = help.close_button;
+    let scrollbar_dragging = help.scrollbar_dragging();
 
     let buf = frame.buffer_mut();
     for dy in 0..height {
@@ -371,9 +366,12 @@ pub fn draw_shortcut_help(app: &mut App, frame: &mut Frame) {
     );
 
     let inner_width = width.saturating_sub(5);
-    for (line, (label, shortcuts)) in rows.iter().skip(scroll_offset).take(visible_rows).enumerate()
+    let Some(help) = app.shortcut_help.as_ref() else { return };
+    for (line, (action, shortcuts)) in
+        help.rows.iter().skip(scroll_offset).take(visible_rows).enumerate()
     {
         let row_y = y + 2 + line as u16;
+        let label = catalog.action_label(*action);
         let shortcuts = format!(" {shortcuts} ");
         let shortcut_width = (shortcuts.width() as u16).min(inner_width / 2);
         let shortcut_x = x + width.saturating_sub(shortcut_width + 2);
@@ -391,17 +389,13 @@ pub fn draw_shortcut_help(app: &mut App, frame: &mut Frame) {
         scrollbar_track,
         (thumb_y, thumb_height),
         base,
-        if help.scrollbar_dragging() {
-            ScrollbarState::Expanded
-        } else {
-            ScrollbarState::Highlighted
-        },
+        if scrollbar_dragging { ScrollbarState::Expanded } else { ScrollbarState::Highlighted },
     );
 
-    let footer = if rows.len() > visible_rows {
-        let start = scroll_offset.saturating_add(1).min(rows.len());
-        let end = (scroll_offset + visible_rows).min(rows.len());
-        format!("{}  {start}-{end}/{}", catalog.shortcuts.footer, rows.len())
+    let footer = if total_rows > visible_rows {
+        let start = scroll_offset.saturating_add(1).min(total_rows);
+        let end = (scroll_offset + visible_rows).min(total_rows);
+        format!("{}  {start}-{end}/{total_rows}", catalog.shortcuts.footer)
     } else {
         catalog.shortcuts.footer.to_string()
     };

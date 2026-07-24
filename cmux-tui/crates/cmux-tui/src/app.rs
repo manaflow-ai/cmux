@@ -2817,6 +2817,7 @@ impl PairingDialog {
 
 #[derive(Debug, Default)]
 pub struct ShortcutHelp {
+    pub rows: Vec<(Action, String)>,
     pub rect: Rect,
     pub scroll_offset: usize,
     pub visible_rows: usize,
@@ -2827,6 +2828,19 @@ pub struct ShortcutHelp {
 }
 
 impl ShortcutHelp {
+    fn resolved_rows(config: &Config) -> Vec<(Action, String)> {
+        config
+            .keys
+            .resolved_shortcuts()
+            .into_iter()
+            .map(|(definition, shortcuts)| (definition.action, shortcuts.join(", ")))
+            .collect()
+    }
+
+    fn from_config(config: &Config) -> Self {
+        Self { rows: Self::resolved_rows(config), ..Self::default() }
+    }
+
     fn max_scroll(&self, total_rows: usize) -> usize {
         total_rows.saturating_sub(self.visible_rows)
     }
@@ -5439,12 +5453,18 @@ impl App {
     fn reload_config(&mut self) {
         let mut config = crate::config::load();
         config.apply_chrome_defaults(self.chrome);
+        let shortcut_rows =
+            self.shortcut_help.as_ref().map(|_| ShortcutHelp::resolved_rows(&config));
         self.sidebar_plugin_error = None;
         self.sidebar_plugin_retry_after_ms = None;
         self.sidebar_plugin_retry_at = None;
         self.session.apply_config(config.clone());
         self.sidebar_view = config.sidebar.view;
         self.config = config;
+        if let (Some(help), Some(rows)) = (self.shortcut_help.as_mut(), shortcut_rows) {
+            help.rows = rows;
+            help.scroll_offset = help.scroll_offset.min(help.max_scroll(help.rows.len()));
+        }
         self.sidebar_followed_surface = None;
     }
 
@@ -7667,17 +7687,19 @@ impl App {
     }
 
     fn handle_shortcut_help_key(&mut self, key: KeyEvent) -> RenderAction {
-        let total_rows = self.config.keys.resolved_shortcuts().len();
         let Some(help) = self.shortcut_help.as_mut() else { return RenderAction::None };
+        let total_rows = help.rows.len();
         let page = help.visible_rows.max(1) as isize;
+        let previous_offset = help.scroll_offset;
+        let mut close = false;
         match key.code {
-            KeyCode::Esc => self.shortcut_help = None,
+            KeyCode::Esc => close = true,
             KeyCode::Char('?')
                 if !key.modifiers.intersects(
                     KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER,
                 ) =>
             {
-                self.shortcut_help = None;
+                close = true;
             }
             KeyCode::Up | KeyCode::Char('k') => help.scroll_by(-1, total_rows),
             KeyCode::Down | KeyCode::Char('j') => help.scroll_by(1, total_rows),
@@ -7687,39 +7709,65 @@ impl App {
             KeyCode::End => help.scroll_offset = help.max_scroll(total_rows),
             _ => {}
         }
-        RenderAction::Draw
+        if close {
+            self.shortcut_help = None;
+            RenderAction::Paint
+        } else if help.scroll_offset != previous_offset {
+            RenderAction::Paint
+        } else {
+            RenderAction::None
+        }
     }
 
     fn handle_shortcut_help_mouse(&mut self, mouse: MouseEvent) -> RenderAction {
-        let total_rows = self.config.keys.resolved_shortcuts().len();
         let Some(help) = self.shortcut_help.as_mut() else { return RenderAction::None };
+        let total_rows = help.rows.len();
+        let mut changed = false;
+        let mut close = false;
         match mouse.kind {
-            MouseEventKind::ScrollUp => help.scroll_by(-1, total_rows),
-            MouseEventKind::ScrollDown => help.scroll_by(1, total_rows),
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
+                let previous_offset = help.scroll_offset;
+                let delta = if mouse.kind == MouseEventKind::ScrollUp { -1 } else { 1 };
+                help.scroll_by(delta, total_rows);
+                changed = help.scroll_offset != previous_offset;
+            }
             MouseEventKind::Down(MouseButton::Left)
                 if help.close_button.contains(mouse.column, mouse.row) =>
             {
-                self.shortcut_help = None;
+                close = true;
             }
             MouseEventKind::Down(MouseButton::Left)
                 if help.scrollbar_track.contains(mouse.column, mouse.row) =>
             {
+                let previous_offset = help.scroll_offset;
+                let was_dragging = help.scrollbar_dragging();
                 help.start_scrollbar_drag(mouse.row, total_rows);
+                changed = help.scroll_offset != previous_offset || !was_dragging;
             }
             MouseEventKind::Drag(MouseButton::Left) => {
+                let previous_offset = help.scroll_offset;
                 help.drag_scrollbar(mouse.row, total_rows);
+                changed = help.scroll_offset != previous_offset;
             }
             MouseEventKind::Up(MouseButton::Left) => {
+                changed = help.scrollbar_dragging();
                 help.scrollbar_drag = None;
             }
             MouseEventKind::Down(MouseButton::Left | MouseButton::Right)
                 if !help.rect.contains(mouse.column, mouse.row) =>
             {
-                self.shortcut_help = None;
+                close = true;
             }
             _ => {}
         }
-        RenderAction::Draw
+        if close {
+            self.shortcut_help = None;
+            RenderAction::Paint
+        } else if changed {
+            RenderAction::Paint
+        } else {
+            RenderAction::None
+        }
     }
 
     fn handle_pairing_click(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
@@ -7997,8 +8045,12 @@ impl App {
                 return Ok(RenderAction::Draw);
             }
             Action::ShowShortcuts => {
-                self.shortcut_help =
-                    if self.shortcut_help.is_some() { None } else { Some(ShortcutHelp::default()) };
+                self.shortcut_help = if self.shortcut_help.is_some() {
+                    None
+                } else {
+                    self.cancel_pty_mouse_drag();
+                    Some(ShortcutHelp::from_config(&self.config))
+                };
                 self.menu = None;
                 self.prompt = None;
                 self.omnibar = None;
@@ -8233,7 +8285,9 @@ impl App {
                 return Ok(());
             }
             MenuAction::FocusSidebar => {
-                self.run_action(Action::FocusSidebar)?;
+                if !self.workspace_sidebar_focused() && self.prepare_pty_input_before_mutation() {
+                    self.focus_sidebar();
+                }
                 return Ok(());
             }
             MenuAction::ShowShortcuts => {
@@ -8467,6 +8521,13 @@ impl App {
         }
         if self.sidebar_focus_pending {
             self.sidebar_focus_pending = false;
+            return;
+        }
+        self.focus_sidebar();
+    }
+
+    fn focus_sidebar(&mut self) {
+        if self.workspace_sidebar_focused() || self.sidebar_focus_pending {
             return;
         }
         self.sidebar_visible = true;
