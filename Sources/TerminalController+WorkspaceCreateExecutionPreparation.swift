@@ -43,7 +43,9 @@ extension TerminalController {
     ) -> WorkspaceCreateExecutionPreparationOutcome {
         let requestedInitialCommand = v2RawString(params, "initial_command")
         let initialCommand = requestedInitialCommand.flatMap {
-            $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0
+            $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? nil
+                : WorkspaceInitialCommandLoginShell.wrap($0)
         }
         let initialEnvironment = sanitizedInitialEnvironment(v2StringMap(params, "initial_env") ?? [:])
         let workspaceEnvironment = Workspace.sanitizedWorkspaceEnvironment(
