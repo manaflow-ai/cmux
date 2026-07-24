@@ -688,6 +688,46 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             result.stdout,
         )
 
+    def test_python_annotated_assignment_binding_order(self) -> None:
+        positive = self.run_checker(
+            {
+                "annotation-only.py": (
+                    "from time import sleep\n"
+                    "sleep: Callable\n"
+                    "sleep(0.01); assert finished\n"
+                ),
+            }
+        )
+
+        self.assertEqual(
+            positive.returncode,
+            1,
+            positive.stdout + positive.stderr,
+        )
+        self.assertIn(
+            "fixtures/annotation-only.py:3: sleep-then-assert:",
+            positive.stdout,
+        )
+
+        negative = self.run_checker(
+            {
+                "valued-annotation.py": (
+                    "time: time.sleep(0.01) = fake_clock\n"
+                    "assert finished\n"
+                ),
+            }
+        )
+
+        self.assertEqual(
+            negative.returncode,
+            0,
+            negative.stdout + negative.stderr,
+        )
+        self.assertIn(
+            "test-determinism: 0 active finding(s)",
+            negative.stdout,
+        )
+
     def test_shell_heredoc_bodies_remain_silent(self) -> None:
         result = self.run_checker(
             {
@@ -701,6 +741,12 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "cat <<-EOF\n"
                     "\tsleep 1\n"
                     "\tEOF\n"
+                    'assert "$actual" "$expected"\n'
+                ),
+                "backslash-heredoc.sh": (
+                    "cat <<\\EOF\n"
+                    "$(sleep 1)\n"
+                    "EOF\n"
                     'assert "$actual" "$expected"\n'
                 ),
             }
@@ -737,6 +783,29 @@ class DeterminismCheckerCLITests(unittest.TestCase):
         ):
             self.assertIn(
                 f"fixtures/{relative_path}:2: sleep-then-assert:",
+            result.stdout,
+        )
+
+    def test_multiline_javascript_sleep_calls_are_reported(self) -> None:
+        result = self.run_checker(
+            {
+                "multiline-bun.ts": (
+                    "await Bun.sleep\n"
+                    "(1)\n"
+                    "expect(finished).toBe(true)\n"
+                ),
+                "multiline-timeout.ts": (
+                    "setTimeout\n"
+                    "(resolve, 1)\n"
+                    "expect(finished).toBe(true)\n"
+                ),
+            }
+        )
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        for relative_path in ("multiline-bun.ts", "multiline-timeout.ts"):
+            self.assertIn(
+                f"fixtures/{relative_path}:1: sleep-then-assert:",
                 result.stdout,
             )
 
