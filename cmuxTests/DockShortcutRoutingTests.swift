@@ -125,8 +125,10 @@ struct DockShortcutRoutingTests {
 
                 let resize = Self.customShortcut(key: "y")
                 KeyboardShortcutSettings.setShortcut(resize, for: .resizeSplitRight)
+                harness.dock.dockPortalReconcileState.scheduledRequestCount = 0
 
                 #expect(Self.dispatch(resize, in: harness))
+                #expect(harness.dock.dockPortalReconcileState.scheduledRequestCount > 0)
 
                 let resizedDockSplit = try #require(
                     Self.firstSplit(in: harness.dock.bonsplitController.treeSnapshot())
