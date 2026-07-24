@@ -12942,10 +12942,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         pendingConfiguredShortcutChord = nil
         defer { activeConfiguredShortcutChordPrefixForCurrentEvent = nil; clearShortcutEventFocusContextCache(for: event) }
 
-        if shouldBypassTerminalTextShortcutRoutingBeforeContextResolution(
+        if let textBoxShortcutTabManager = terminalTextShortcutBypassTabManagerBeforeContextResolution(
             event: event,
             normalizedFlags: flags.subtracting([.numericPad, .function, .capsLock])
         ) {
+            textBoxShortcutTabManager.clearFocusedTerminalTextBoxHideEscapeArm()
             return false
         }
 

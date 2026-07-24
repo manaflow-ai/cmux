@@ -76,14 +76,12 @@ extension AppDelegate {
         ProcessInfo.processInfo.environment["CMUX_SHORTCUT_MONITOR_TRACE"] == "1"
 #endif
 
-    /// Plain terminal text cannot trigger an app-wide shortcut unless it is an
-    /// explicitly configured bare start (currently Space and named special
-    /// keys). Reject that common case before resolving browser, palette, or
-    /// workspace focus context.
-    func shouldBypassTerminalTextShortcutRoutingBeforeContextResolution(
+    /// Returns the already-resolved tab manager when plain terminal text can
+    /// bypass browser, palette, and workspace shortcut-context resolution.
+    func terminalTextShortcutBypassTabManagerBeforeContextResolution(
         event: NSEvent,
         normalizedFlags: NSEvent.ModifierFlags
-    ) -> Bool {
+    ) -> TabManager? {
         guard normalizedFlags.isEmpty,
               activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
               event.cmuxIsPrintableTextInput,
@@ -92,16 +90,20 @@ extension AppDelegate {
               NSApp.modalWindow == nil,
               window.attachedSheet == nil,
               let windowId = mainWindowId(from: window),
+              let tabManager = tabManagerFor(windowId: windowId),
               !commandPaletteWindowStore.isVisible(windowId),
               !commandPaletteWindowStore.isPendingOpenRaw(windowId),
               !NotificationsPopoverVisibilityState.shared.isShown(in: window.windowNumber) else {
-            return false
+            return nil
         }
 
-        return shouldBypassPlainKeyShortcutRouting(
+        guard shouldBypassPlainKeyShortcutRouting(
             event: event,
             normalizedFlags: normalizedFlags
-        )
+        ) else {
+            return nil
+        }
+        return tabManager
     }
 
     func shouldBypassPlainKeyShortcutRouting(
