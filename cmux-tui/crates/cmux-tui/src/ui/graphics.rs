@@ -401,6 +401,8 @@ struct GraphicsOperationCounts {
 pub struct GraphicsState {
     next_image_id: u32,
     next_placement_id: u32,
+    used_image_ids: HashSet<u32>,
+    used_placement_ids: HashSet<u32>,
     image_ids: HashMap<GraphicImageKey, u32>,
     placement_ids: HashMap<GraphicPlacementKey, u32>,
     placement_fingerprints: HashMap<GraphicPlacementKey, PlacementFingerprint>,
@@ -415,6 +417,8 @@ impl Default for GraphicsState {
         Self {
             next_image_id: 1,
             next_placement_id: 1,
+            used_image_ids: HashSet::new(),
+            used_placement_ids: HashSet::new(),
             image_ids: HashMap::new(),
             placement_ids: HashMap::new(),
             placement_fingerprints: HashMap::new(),
@@ -440,8 +444,16 @@ impl GraphicsState {
             .iter()
             .filter(|placement| placement.rect.width > 0 && placement.rect.height > 0)
             .collect::<Vec<_>>();
+        // Ghostty resolves equal-z Kitty placements by image ID. Allocate the
+        // outer IDs in that order so forwarding does not change compositing.
         placements.sort_by_key(|placement| {
-            (placement.z, placement.rect.y, placement.rect.x, placement.key)
+            (
+                placement.z,
+                placement.key.image.image_id,
+                placement.key,
+                placement.rect.y,
+                placement.rect.x,
+            )
         });
         let now_visible = placements.iter().map(|placement| placement.key).collect::<HashSet<_>>();
         let now_images =
@@ -457,7 +469,10 @@ impl GraphicsState {
             {
                 batches.push(delete_placement(image_id, placement_id));
             }
-            self.placement_ids.remove(&key);
+            if let Some(placement_id) = self.placement_ids.remove(&key) {
+                let removed = self.used_placement_ids.remove(&placement_id);
+                debug_assert!(removed, "placement ID set must track every placement mapping");
+            }
             self.placement_fingerprints.remove(&key);
         }
 
@@ -468,25 +483,37 @@ impl GraphicsState {
             .copied()
             .collect::<Vec<_>>();
         stale_images.sort_unstable();
+        let had_stale_images = !stale_images.is_empty();
         for key in stale_images {
             if let Some(image_id) = self.image_ids.remove(&key) {
+                let removed = self.used_image_ids.remove(&image_id);
+                debug_assert!(removed, "image ID set must track every image mapping");
                 batches.push(delete_image(image_id));
             }
             self.transmitted.remove(&key);
+        }
+        if had_stale_images {
             #[cfg(test)]
             {
                 self.operation_counts.stale_image_retain_passes += 1;
                 self.operation_counts.stale_image_retain_visits += self.placement_ids.len();
             }
-            self.placement_ids.retain(|placement, _| placement.image != key);
-            #[cfg(test)]
-            {
-                self.operation_counts.stale_image_retain_passes += 1;
-                self.operation_counts.stale_image_retain_visits +=
-                    self.placement_fingerprints.len();
-            }
-            self.placement_fingerprints.retain(|placement, _| placement.image != key);
+            let used_placement_ids = &mut self.used_placement_ids;
+            let placement_fingerprints = &mut self.placement_fingerprints;
+            self.placement_ids.retain(|placement, placement_id| {
+                let keep = now_images.contains(&placement.image);
+                if !keep {
+                    let removed = used_placement_ids.remove(placement_id);
+                    debug_assert!(removed, "placement ID set must track every placement mapping");
+                    placement_fingerprints.remove(placement);
+                }
+                keep
+            });
         }
+
+        let mut ordered_images = now_images.iter().copied().collect::<Vec<_>>();
+        ordered_images.sort_unstable_by_key(|key| (key.image_id, *key));
+        self.prepare_image_ids(&ordered_images, &mut batches);
 
         let mut retransmitted_images = HashSet::new();
         for placement in placements {
@@ -527,15 +554,62 @@ impl GraphicsState {
         batches
     }
 
+    fn prepare_image_ids(
+        &mut self,
+        ordered_images: &[GraphicImageKey],
+        batches: &mut Vec<Vec<u8>>,
+    ) {
+        let mut previous_id = None;
+        let mut saw_missing = false;
+        let requires_remap = ordered_images.iter().any(|key| match self.image_ids.get(key) {
+            Some(&id) => {
+                let out_of_order =
+                    saw_missing || previous_id.is_some_and(|previous| previous >= id);
+                previous_id = Some(id);
+                out_of_order
+            }
+            None => {
+                saw_missing = true;
+                false
+            }
+        });
+
+        if requires_remap {
+            let ordered_set = ordered_images.iter().copied().collect::<HashSet<_>>();
+            let mut old_host_ids = Vec::new();
+            for key in ordered_images {
+                let was_transmitted = self.transmitted.remove(key).is_some();
+                if let Some(image_id) = self.image_ids.remove(key) {
+                    let removed = self.used_image_ids.remove(&image_id);
+                    debug_assert!(removed, "image ID set must track every image mapping");
+                    if was_transmitted {
+                        old_host_ids.push(image_id);
+                    }
+                }
+            }
+            old_host_ids.sort_unstable();
+            for image_id in old_host_ids {
+                batches.push(delete_image(image_id));
+            }
+            self.placement_fingerprints
+                .retain(|placement, _| !ordered_set.contains(&placement.image));
+        }
+
+        for key in ordered_images {
+            self.image_id(*key);
+        }
+    }
+
     fn image_id(&mut self, key: GraphicImageKey) -> u32 {
         if let Some(id) = self.image_ids.get(&key) {
             return *id;
         }
+        let (id, _allocation_checks) =
+            allocate_id(&mut self.next_image_id, &mut self.used_image_ids);
         #[cfg(test)]
         {
-            self.operation_counts.image_id_allocation_checks += self.image_ids.len();
+            self.operation_counts.image_id_allocation_checks += _allocation_checks;
         }
-        let id = allocate_id(&mut self.next_image_id, self.image_ids.values().copied());
         self.image_ids.insert(key, id);
         id
     }
@@ -544,11 +618,12 @@ impl GraphicsState {
         if let Some(id) = self.placement_ids.get(&key) {
             return *id;
         }
+        let (id, _allocation_checks) =
+            allocate_id(&mut self.next_placement_id, &mut self.used_placement_ids);
         #[cfg(test)]
         {
-            self.operation_counts.placement_id_allocation_checks += self.placement_ids.len();
+            self.operation_counts.placement_id_allocation_checks += _allocation_checks;
         }
-        let id = allocate_id(&mut self.next_placement_id, self.placement_ids.values().copied());
         self.placement_ids.insert(key, id);
         id
     }
@@ -559,13 +634,16 @@ impl GraphicsState {
     }
 }
 
-fn allocate_id(next: &mut u32, used: impl Iterator<Item = u32>) -> u32 {
-    let used = used.collect::<HashSet<_>>();
+fn allocate_id(next: &mut u32, used: &mut HashSet<u32>) -> (u32, usize) {
+    let mut checks = 0;
     loop {
+        // Monotonic allocation preserves stable IDs while the maintained set
+        // makes wraparound collision checks constant-time.
         let candidate = (*next).max(1);
         *next = candidate.wrapping_add(1).max(1);
-        if !used.contains(&candidate) {
-            return candidate;
+        checks += 1;
+        if used.insert(candidate) {
+            return (candidate, checks);
         }
     }
 }
@@ -929,14 +1007,14 @@ mod tests {
 
         state.frame_batches(&placements);
 
-        assert!(
-            state.operation_counts.image_id_allocation_checks <= IMAGE_COUNT as usize,
-            "image allocation work was not linear: {:?}",
+        assert_eq!(
+            state.operation_counts.image_id_allocation_checks, IMAGE_COUNT as usize,
+            "image allocation must perform one used-ID check per image: {:?}",
             state.operation_counts
         );
-        assert!(
-            state.operation_counts.placement_id_allocation_checks <= IMAGE_COUNT as usize,
-            "placement allocation work was not linear: {:?}",
+        assert_eq!(
+            state.operation_counts.placement_id_allocation_checks, IMAGE_COUNT as usize,
+            "placement allocation must perform one used-ID check per placement: {:?}",
             state.operation_counts
         );
     }
@@ -971,9 +1049,9 @@ mod tests {
             "stale-image cleanup repeated a retain pass: {:?}",
             state.operation_counts
         );
-        assert!(
-            state.operation_counts.stale_image_retain_visits <= SURVIVOR_COUNT as usize,
-            "stale-image cleanup rescanned survivors: {:?}",
+        assert_eq!(
+            state.operation_counts.stale_image_retain_visits, SURVIVOR_COUNT as usize,
+            "stale-image cleanup must visit each survivor once: {:?}",
             state.operation_counts
         );
     }
