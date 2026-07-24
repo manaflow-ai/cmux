@@ -233,6 +233,29 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 'DELAY=1 sleep "$DELAY"\n'
                 'assert "$actual" "$expected"\n'
             ),
+            "deferred-global-write.py": (
+                "def poison():\n"
+                "    global time\n"
+                "    time = fake_time\n"
+                "time.sleep(0.1)\n"
+                "assert done\n"
+            ),
+            "deferred-nonlocal-write.py": (
+                "def outer():\n"
+                "    import time\n"
+                "    def poison():\n"
+                "        nonlocal time\n"
+                "        time = fake_time\n"
+                "    time.sleep(0.1)\n"
+                "    assert done\n"
+            ),
+            "mixed-quoted-heredoc-then-sleep.sh": (
+                'cat <<E"OF"\n'
+                "sleep 99\n"
+                "EOF\n"
+                "sleep 1\n"
+                'assert "$actual" "$expected"\n'
+            ),
         }
 
         result = self.run_checker(fixtures)
@@ -240,9 +263,16 @@ class DeterminismCheckerCLITests(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         for relative_path in fixtures:
             line = (
+                6
+                if relative_path == "deferred-nonlocal-write.py"
+                else
                 4
                 if relative_path
-                == "shell-multiline-arithmetic-before-sleep.sh"
+                in (
+                    "shell-multiline-arithmetic-before-sleep.sh",
+                    "deferred-global-write.py",
+                    "mixed-quoted-heredoc-then-sleep.sh",
+                )
                 else
                 3
                 if relative_path
@@ -1030,6 +1060,17 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     ")\n"
                     "expect(finished).toBe(true)\n"
                 ),
+                "control-regex-in-timeout.ts": (
+                    "setTimeout(\n"
+                    "    () => {\n"
+                    "        if (ready) /[)]/.test(value)\n"
+                    "        doWork()\n"
+                    "        finish()\n"
+                    "    },\n"
+                    "    1\n"
+                    ")\n"
+                    "expect(finished).toBe(true)\n"
+                ),
             }
         )
 
@@ -1039,6 +1080,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             "multiline-timeout.ts",
             "continued-timeout.ts",
             "regex-in-timeout.ts",
+            "control-regex-in-timeout.ts",
         ):
             self.assertIn(
                 f"fixtures/{relative_path}:1: sleep-then-assert:",
