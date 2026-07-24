@@ -115,6 +115,27 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// rejected and quarantined.
     public var hasLiveSurface: Bool { surface != nil && portalLifecycleState == .live }
 
+    /// The runtime surface pointer, but only while the registry still owns it.
+    ///
+    /// A non-nil `surface` is not proof the native surface is alive. Teardown unregisters the
+    /// runtime surface and only then frees it, so a wrapper still holding the pointer after an
+    /// out-of-band free hands its caller freed memory. Reading through such a pointer is not a
+    /// recoverable error: `ghostty_surface_inherited_config` locks an `os_unfair_lock` inside the
+    /// freed allocation, the kernel detects lock corruption, and the process is `SIGKILL`ed — which
+    /// in a test host takes every unrelated suite sharing it down too.
+    ///
+    /// The registry owns exactly the pointers that have not been freed, so it is the liveness
+    /// oracle a nil-check cannot be. A pointer it no longer owns is cleared here, so every caller
+    /// that goes through this property sees nil rather than freed memory. Clearing also advances
+    /// ``runtimeSurfaceGeneration``, invalidating pointer-backed caches for the same reason they
+    /// are invalidated on a normal teardown.
+    public var liveRuntimeSurface: ghostty_surface_t? {
+        guard let current = surface else { return nil }
+        guard registry.runtimeSurfaceOwnerId(current) == nil else { return current }
+        surface = nil
+        return nil
+    }
+
     /// Whether the terminal surface view is currently attached to a window.
     ///
     /// Use the hosted view rather than the inner surface view, since the surface can be
