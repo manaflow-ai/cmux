@@ -262,6 +262,10 @@ import Testing
             commandBody: command,
             root: sandbox.appendingPathComponent("clock-lock-order", isDirectory: true)
         )
+        try verifyAgentHookClockSurvivesBackwardWallClock(
+            commandBody: command,
+            root: sandbox.appendingPathComponent("clock-wall-rollback", isDirectory: true)
+        )
 
         for (tool, target) in [
             ("chmod", "/bin/chmod"),
@@ -365,9 +369,10 @@ import Testing
             .split(whereSeparator: \.isNewline)
             .map(String.init)
         #expect(
-            capturedTimes.count == 4,
-            "An untrusted clock must omit ordering metadata instead of emitting a tied fallback timestamp"
+            capturedTimes.count == 5,
+            "An untrusted primary clock must fall back to a separate private clock instead of dropping ordering metadata"
         )
+        #expect(try #require(Double(capturedTimes[4])) > 0)
         #expect(try String(contentsOf: attackerClockState, encoding: .utf8) == "\(seededMicros)\n")
     }
 

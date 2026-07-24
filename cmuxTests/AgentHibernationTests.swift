@@ -367,6 +367,44 @@ struct AgentHibernationTests {
         expectNil(destination.statusEntries["codex"])
     }
 
+    @MainActor
+    @Test
+    func testMovingPanelTransfersPIDLessPanelOwnedStatus() throws {
+        let source = Workspace()
+        let movingPanelId = try #require(source.focusedPanelId)
+        let eventTime: TimeInterval = 1_893_456_400
+        source.setAgentLifecycle(
+            key: "codex",
+            panelId: movingPanelId,
+            lifecycle: .running,
+            agentEventTime: eventTime
+        )
+        source.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex",
+            value: "Running",
+            icon: "bolt.fill",
+            color: "#4C8DFF",
+            agentEventTime: eventTime,
+            agentOwnerPanelID: movingPanelId
+        )
+
+        let detached = try #require(source.detachSurface(panelId: movingPanelId))
+        let destination = Workspace()
+        let destinationPaneId = try #require(destination.bonsplitController.focusedPaneId)
+        expectEqual(
+            destination.attachDetachedSurface(detached, inPane: destinationPaneId, focus: false),
+            movingPanelId
+        )
+
+        expectNil(source.statusEntries["codex"])
+        expectEqual(destination.statusEntries["codex"]?.value, "Running")
+        expectEqual(destination.statusEntries["codex"]?.agentOwnerPanelID, movingPanelId)
+        expectEqual(
+            destination.agentLifecycleEventTimesByPanelId[movingPanelId]?["codex"],
+            eventTime
+        )
+    }
+
     @Test
     func testSessionIndexLoadsAgentLifecycleFromHookStore() throws {
         let home = FileManager.default.temporaryDirectory

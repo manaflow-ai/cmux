@@ -290,7 +290,8 @@ func waitForCondition(timeout: TimeInterval, pollInterval: TimeInterval = 0.02, 
 
 func verifyAgentHookClockSamplesOnlyAfterLockAcquisition(
     commandBody: String,
-    root: URL
+    root: URL,
+    lockHoldDuration: TimeInterval = 1.1
 ) throws {
     let clockShell = try agentHookCaptureClockShell(in: commandBody)
     let fileManager = FileManager.default
@@ -339,7 +340,7 @@ func verifyAgentHookClockSamplesOnlyAfterLockAcquisition(
         processTreeContainsExecutable(rootPID: process.processIdentifier, named: "lockf")
     }
     try #require(clockReachedLock, "Agent hook clock never reached its shared lock")
-    Thread.sleep(forTimeInterval: 0.05)
+    Thread.sleep(forTimeInterval: lockHoldDuration)
     let unlockBoundary = Date().timeIntervalSince1970
 
     guard cmuxTestFlock(lockFD, LOCK_UN) == 0 else {
@@ -357,6 +358,59 @@ func verifyAgentHookClockSamplesOnlyAfterLockAcquisition(
     #expect(
         capturedTime >= unlockBoundary,
         "Agent hook clock captured its timestamp before acquiring its shared lock"
+    )
+}
+
+func verifyAgentHookClockSurvivesBackwardWallClock(
+    commandBody: String,
+    root: URL
+) throws {
+    let clockShell = try agentHookCaptureClockShell(in: commandBody)
+    let fileManager = FileManager.default
+    let clockDirectory = root.appendingPathComponent("cmux-agent-hook-clock-v2", isDirectory: true)
+    let stateURL = clockDirectory.appendingPathComponent("state", isDirectory: false)
+    let outputURL = root.appendingPathComponent("rollback-captured-at.txt", isDirectory: false)
+    try fileManager.createDirectory(at: clockDirectory, withIntermediateDirectories: true)
+    try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: clockDirectory.path)
+
+    let logicalDate = Date().addingTimeInterval(10 * 60)
+    let seededMicros = Int64(logicalDate.timeIntervalSince1970 * 1_000_000)
+    try "\(seededMicros)\n".write(to: stateURL, atomically: true, encoding: .utf8)
+    try fileManager.setAttributes([.modificationDate: logicalDate], ofItemAtPath: stateURL.path)
+
+    for _ in 0..<2 {
+        let run = runCodexHookProcess(
+            executablePath: "/bin/sh",
+            arguments: [
+                "-c",
+                "{ ( \(clockShell) ); printf '\\n'; } >> \(shellQuoteForAgentHookClockTest(outputURL.path))",
+            ],
+            environment: [
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "TMPDIR": root.path,
+            ],
+            timeout: 3
+        )
+        #expect(!run.timedOut, Comment(rawValue: run.stderr))
+        #expect(run.status == 0, Comment(rawValue: run.stderr))
+    }
+
+    let rawValues = try String(contentsOf: outputURL, encoding: .utf8)
+        .split(whereSeparator: \.isNewline)
+        .map(String.init)
+    try #require(rawValues.count == 2)
+    let firstRawValue = try #require(rawValues.first)
+    let secondRawValue = try #require(rawValues.dropFirst().first)
+    let firstValue = try #require(TimeInterval(firstRawValue))
+    let secondValue = try #require(TimeInterval(secondRawValue))
+    let seededTime = TimeInterval(seededMicros) / 1_000_000
+    #expect(
+        firstValue > seededTime,
+        "A trusted pre-rollback watermark must remain authoritative after wall time moves backward"
+    )
+    #expect(
+        secondValue > firstValue,
+        "The shared clock must remain strictly increasing throughout the rollback interval"
     )
 }
 

@@ -178,6 +178,10 @@ struct CLICodexHookTimeoutRegressionTests {
             commandBody: promptHook.body,
             root: root.appendingPathComponent("clock-lock-order", isDirectory: true)
         )
+        try verifyAgentHookClockSurvivesBackwardWallClock(
+            commandBody: promptHook.body,
+            root: root.appendingPathComponent("clock-wall-rollback", isDirectory: true)
+        )
         let sharedClockDirectory = root.appendingPathComponent("cmux-agent-hook-clock-v2", isDirectory: true)
         try FileManager.default.createDirectory(
             at: sharedClockDirectory,
@@ -839,9 +843,10 @@ struct CLICodexHookTimeoutRegressionTests {
             .split(whereSeparator: \.isNewline)
             .map(String.init)
         #expect(
-            capturedTimes.count == 1,
-            "An untrusted clock must omit ordering metadata instead of emitting a tied fallback timestamp"
+            capturedTimes.count == 2,
+            "An untrusted primary clock must fall back to a separate private clock instead of dropping ordering metadata"
         )
+        #expect(try #require(Double(capturedTimes[1])) > seededTime)
         #expect(try String(contentsOf: attackerClockState, encoding: .utf8) == "\(seededMicros)\n")
     }
 

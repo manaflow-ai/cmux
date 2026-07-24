@@ -736,6 +736,56 @@ extension AgentNotificationRegressionTests {
         #expect(fixture.store.notifications.isEmpty)
     }
 
+    @Test("Coalesced agent clears retain the greatest event time and latest notification boundary")
+    func coalescedAgentClearsRetainOrderingAndBoundary() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        defer {
+            bus.setDrainsSuspendedForTesting(false)
+            bus.discardPendingNotifications()
+        }
+
+        bus.enqueueAgentNotificationClear(
+            forTabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            statusKey: "claude_code",
+            agentEventTime: 300
+        )
+        bus.enqueueNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "Stale between coalesced clears",
+            agentStatusKey: "claude_code",
+            agentEventTime: 250,
+            coalesces: false
+        )
+        bus.enqueueAgentNotificationClear(
+            forTabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            statusKey: "claude_code",
+            agentEventTime: 100
+        )
+        bus.enqueueNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "Current after coalesced clears",
+            agentStatusKey: "claude_code",
+            agentEventTime: 350,
+            coalesces: false
+        )
+        bus.setDrainsSuspendedForTesting(false)
+        bus.drainForTesting()
+
+        #expect(fixture.store.notifications.map(\.body) == ["Current after coalesced clears"])
+    }
+
     @Test("An authorized-workspace clear cancels a confined in-flight relay delivery")
     func authorizedWorkspaceClearCancelsConfinedInFlightRelayDelivery() async throws {
         let fixture = try makeFixture(policyHookCommand: "cat")
