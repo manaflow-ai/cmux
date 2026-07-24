@@ -613,6 +613,7 @@ struct DockPortalReconcileTests {
     ) -> Workspace.DetachedSurfaceTransfer {
         Workspace.DetachedSurfaceTransfer(
             sourceWorkspaceId: sourceWorkspaceId,
+            sessionRestoreSourceWorkspaceId: nil,
             panelId: panel.id,
             panel: panel,
             title: panel.displayTitle,
