@@ -162,6 +162,129 @@ final class GlobalSearchInputOwnershipTests {
 #endif
     }
 
+    @Test func terminalEOFOwnsRemappedGlobalSearchShortcut() throws {
+#if DEBUG
+        let appDelegate = try #require(AppDelegate.shared)
+        let windowId = appDelegate.createMainWindow()
+        let window = try #require(findWindow(withId: windowId))
+        defer {
+            GlobalSearchCoordinator.shared.dismissPalette()
+            closeWindow(window, appDelegate: appDelegate)
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        #expect(window.firstResponder.cmuxStrictOwningGhosttyView() != nil)
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(
+                key: "d",
+                command: false,
+                shift: false,
+                option: false,
+                control: true
+            ),
+            for: .globalSearch
+        )
+        let event = try makeKeyDownEvent(
+            key: "d",
+            characters: "\u{04}",
+            modifiers: [.control],
+            keyCode: 2,
+            windowNumber: window.windowNumber
+        )
+
+        #expect(
+            !appDelegate.debugHandleCustomShortcut(event: event),
+            "A Ctrl-D Global Search binding must yield to terminal EOF input"
+        )
+        #expect(!GlobalSearchCoordinator.shared.isPaletteVisible())
+#else
+        Issue.record("Global Search input-ownership routing requires a DEBUG build")
+#endif
+    }
+
+    @Test func browserEditingOwnsRemappedGlobalSearchShortcut() throws {
+#if DEBUG
+        let appDelegate = try #require(AppDelegate.shared)
+        let harness = try makeBrowserHarness(appDelegate: appDelegate)
+        defer {
+            GlobalSearchCoordinator.shared.dismissPalette()
+            closeWindow(harness.window, appDelegate: appDelegate)
+        }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(
+                key: "c",
+                command: true,
+                shift: false,
+                option: false,
+                control: false
+            ),
+            for: .globalSearch
+        )
+        let event = try makeKeyDownEvent(
+            key: "c",
+            modifiers: [.command],
+            keyCode: 8,
+            windowNumber: harness.window.windowNumber
+        )
+
+        #expect(
+            !appDelegate.debugHandleCustomShortcut(event: event),
+            "A Cmd-C Global Search binding must yield to focused browser editing"
+        )
+        #expect(!GlobalSearchCoordinator.shared.isPaletteVisible())
+#else
+        Issue.record("Global Search input-ownership routing requires a DEBUG build")
+#endif
+    }
+
+    @Test func browserEditingShortcutCompletesActiveGlobalSearchChord() throws {
+#if DEBUG
+        let appDelegate = try #require(AppDelegate.shared)
+        let harness = try makeBrowserHarness(appDelegate: appDelegate)
+        defer {
+            GlobalSearchCoordinator.shared.dismissPalette()
+            appDelegate.debugResetShortcutRoutingStateForTesting()
+            closeWindow(harness.window, appDelegate: appDelegate)
+        }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(
+                key: "k",
+                command: true,
+                shift: false,
+                option: true,
+                control: false,
+                chordKey: "c",
+                chordCommand: true
+            ),
+            for: .globalSearch
+        )
+        let prefixEvent = try makeKeyDownEvent(
+            key: "k",
+            modifiers: [.command, .option],
+            keyCode: 40,
+            windowNumber: harness.window.windowNumber
+        )
+        let suffixEvent = try makeKeyDownEvent(
+            key: "c",
+            modifiers: [.command],
+            keyCode: 8,
+            windowNumber: harness.window.windowNumber
+        )
+
+        #expect(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
+        #expect(!GlobalSearchCoordinator.shared.isPaletteVisible())
+        #expect(
+            appDelegate.debugHandleCustomShortcut(event: suffixEvent),
+            "Cmd-C must complete an already-active Global Search chord"
+        )
+        #expect(GlobalSearchCoordinator.shared.isPaletteVisible())
+#else
+        Issue.record("Global Search input-ownership routing requires a DEBUG build")
+#endif
+    }
+
     @Test func globalSearchRoutesWhileCommandPaletteIsEffective() throws {
 #if DEBUG
         let appDelegate = try #require(AppDelegate.shared)
