@@ -28,20 +28,19 @@ struct PostHogAnalyticsPropertiesTests {
     @MainActor
     @Test("feature flag control plane uses a stable anonymous rollout identity and targeting context")
     func featureFlagControlPlaneRespectsTelemetryConsent() throws {
-        let defaults = UserDefaults.standard
+        let suiteName = "cmux.feature.flags.identity.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
         let identityKey = "cmux.flags.releaseControlDistinctID"
-        let previousIdentity = defaults.object(forKey: identityKey)
-        defaults.removeObject(forKey: identityKey)
-        defer {
-            if let previousIdentity {
-                defaults.set(previousIdentity, forKey: identityKey)
-            } else {
-                defaults.removeObject(forKey: identityKey)
-            }
-        }
 
-        let firstRequest = try #require(CmuxFeatureFlags.postHogControlPlaneRequest())
-        let secondRequest = try #require(CmuxFeatureFlags.postHogControlPlaneRequest())
+        let firstRequest = try #require(CmuxFeatureFlags.postHogControlPlaneRequest(
+            telemetryEnabled: true,
+            defaults: defaults
+        ))
+        let secondRequest = try #require(CmuxFeatureFlags.postHogControlPlaneRequest(
+            telemetryEnabled: true,
+            defaults: defaults
+        ))
         let firstBody = try #require(firstRequest.httpBody)
         let secondBody = try #require(secondRequest.httpBody)
         let firstPayload = try #require(
@@ -63,6 +62,27 @@ struct PostHogAnalyticsPropertiesTests {
         #expect((personProperties["cmux_architecture"] as? String)?.isEmpty == false)
         #expect(firstPayload["$anon_distinct_id"] == nil)
         #expect(firstPayload["person_properties"] == nil)
+    }
+
+    @MainActor
+    @Test("feature flag control plane sends no persistent identity after telemetry opt-out")
+    func featureFlagControlPlaneHonorsTelemetryOptOut() throws {
+        let suiteName = "cmux.feature.flags.optout.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let request = try #require(CmuxFeatureFlags.postHogControlPlaneRequest(
+            telemetryEnabled: false,
+            defaults: defaults
+        ))
+        let body = try #require(request.httpBody)
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+
+        #expect(payload["distinctId"] as? String == "cmux-desktop-release-control")
+        #expect((payload["context"] as? [String: Any])?.isEmpty == true)
+        #expect(defaults.object(forKey: "cmux.flags.releaseControlDistinctID") == nil)
     }
 
     @Test("feature flag bool coercion accepts PostHog bool-like values")

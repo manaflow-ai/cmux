@@ -177,6 +177,20 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(params["surface_id"] as? String, surfaceID)
     }
 
+    func testNumericSimulatorSurfaceIsScopedToCallerWorkspace() throws {
+        try assertNumericSimulatorSelectorScopesCallerWorkspace(
+            arguments: ["simulator", "tap", "0.5", "0.5", "--surface", "5"],
+            expectedMethod: "simulator.tap"
+        )
+    }
+
+    func testNumericIOSSurfaceIsScopedToCallerWorkspace() throws {
+        try assertNumericSimulatorSelectorScopesCallerWorkspace(
+            arguments: ["ios", "context", "--surface", "5"],
+            expectedMethod: "simulator.context"
+        )
+    }
+
     func testIOSListUsesExplicitWindowInsteadOfAmbientWorkspace() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("ioswin")
@@ -232,6 +246,77 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(listParams["window_id"] as? String, windowID)
         XCTAssertEqual(listParams["workspace_id"] as? String, selectedWorkspaceID)
         XCTAssertNotEqual(listParams["workspace_id"] as? String, ambientWorkspaceID)
+    }
+
+    private func assertNumericSimulatorSelectorScopesCallerWorkspace(
+        arguments: [String],
+        expectedMethod: String
+    ) throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("simindex")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceID = UUID().uuidString.lowercased()
+        let surfaceID = UUID().uuidString.lowercased()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            switch method {
+            case "surface.list":
+                return Self.v2Response(id: id, ok: true, result: [
+                    "surfaces": [[
+                        "id": surfaceID,
+                        "ref": "surface:5",
+                        "index": 5,
+                        "type": "simulator",
+                    ]],
+                ])
+            case "simulator.tap":
+                return Self.v2Response(id: id, ok: true, result: ["completed": true])
+            case "simulator.context":
+                return Self.v2Response(id: id, ok: true, result: [
+                    "surface_ref": "surface:5",
+                    "simulator_id": "SIMULATOR",
+                    "device_name": "iPhone",
+                    "state": "Booted",
+                ])
+            default:
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": method]
+                )
+            }
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: arguments,
+            environmentOverrides: ["CMUX_WORKSPACE_ID": workspaceID]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let payloads = state.commands.compactMap { Self.v2Payload(from: $0) }
+        let listParams = try XCTUnwrap(payloads.first(where: {
+            $0["method"] as? String == "surface.list"
+        })?["params"] as? [String: Any])
+        XCTAssertEqual(listParams["workspace_id"] as? String, workspaceID)
+        let commandParams = try XCTUnwrap(payloads.first(where: {
+            $0["method"] as? String == expectedMethod
+        })?["params"] as? [String: Any])
+        XCTAssertEqual(commandParams["workspace_id"] as? String, workspaceID)
+        XCTAssertEqual(commandParams["surface_id"] as? String, surfaceID)
     }
 
     func testOpenCommandHonorsTerminatorForDashPrefixedPath() throws {
