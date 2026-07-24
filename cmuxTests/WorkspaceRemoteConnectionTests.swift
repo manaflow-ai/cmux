@@ -3615,6 +3615,14 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 }
 
 final class CLINotifyProcessIntegrationTests: XCTestCase {
+    override func tearDown() {
+        // The mock servers park an accept loop on the test's listener FD, and
+        // closing that FD does not wake a thread already blocked in poll/accept.
+        // Reap the loops here so none of them outlives the test that started it.
+        CLIMockAcceptLoopRegistry.shared.stopAll()
+        super.tearDown()
+    }
+
     private struct ProcessRunResult {
         let status: Int32
         let stdout: String
@@ -4337,7 +4345,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             unlink(socketPath)
         }
 
-        startMockServerAccepting(listenerFD: listenerFD, state: state, connectionLimit: 6) { line in
+        startMockServerAccepting(listenerFD: listenerFD, state: state) { line in
             guard let data = line.data(using: .utf8),
                   let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                   let id = payload["id"] as? String else {
@@ -6186,121 +6194,53 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         return handled
     }
 
+    /// Serves the mock socket for the rest of the test with no expectation to wait
+    /// on. The registry's single accept loop answers every connection and is reaped
+    /// at teardown.
     private func startMockServerAccepting(
         listenerFD: Int32,
         state: MockSocketServerState,
-        connectionLimit: Int,
         handler: @escaping @Sendable (String) -> String
     ) {
-        DispatchQueue.global(qos: .userInitiated).async {
-            var accepted = 0
-            while accepted < connectionLimit {
-                var clientAddr = sockaddr_un()
-                var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
-                let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
-                    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                        Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
-                    }
-                }
-                if clientFD < 0 {
-                    if errno == EINTR { continue }
-                    return
-                }
-                accepted += 1
-
-                DispatchQueue.global(qos: .userInitiated).async {
-                    defer { Darwin.close(clientFD) }
-                    var pending = Data()
-                    var buffer = [UInt8](repeating: 0, count: 4096)
-
-                    while true {
-                        let count = Darwin.read(clientFD, &buffer, buffer.count)
-                        if count < 0 {
-                            if errno == EINTR { continue }
-                            return
-                        }
-                        if count == 0 { return }
-                        pending.append(buffer, count: count)
-
-                        while let newlineRange = pending.firstRange(of: Data([0x0A])) {
-                            let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
-                            pending.removeSubrange(0...newlineRange.lowerBound)
-                            guard let line = String(data: lineData, encoding: .utf8) else { continue }
-                            state.append(line)
-                            guard self.writeAll(handler(line) + "\n", to: clientFD) else { return }
-                        }
-                    }
-                }
+        CLIMockAcceptLoopRegistry.shared.start(listenerFD: listenerFD, onConnection: { clientFD in
+            defer { Darwin.close(clientFD) }
+            cliMockServeLineFramedConnection(clientFD: clientFD) { line in
+                state.append(line)
+                return handler(line)
             }
-        }
+        }, onListenerClosed: {})
     }
 
+    /// Serves the mock control socket, calling `onHandled` once — after the first
+    /// connection finishes, or if the listener goes away before anything connected.
+    ///
+    /// The registry's accept loop answers every connection the CLI opens. Headless
+    /// that is required, not just generous: with piped stdio and no controlling TTY
+    /// the CLI always falls back to a `system.top` lookup on a second, short-lived
+    /// connection, and a mock that answers only one starves it.
     private func runMockServer(
         listenerFD: Int32,
         state: MockSocketServerState,
         onHandled: @escaping @Sendable () -> Void,
         handler: @escaping @Sendable (String) -> String
     ) {
-        DispatchQueue.global(qos: .userInitiated).async {
-            var clientAddr = sockaddr_un()
-            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
-            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
-                }
-            }
-            guard clientFD >= 0 else {
-                onHandled()
-                return
-            }
+        let handledOnce = CLIMockOnceFlag()
+        CLIMockAcceptLoopRegistry.shared.start(listenerFD: listenerFD, onConnection: { clientFD in
             defer {
                 Darwin.close(clientFD)
-                onHandled()
+                if handledOnce.claim() { onHandled() }
             }
-
-            var pending = Data()
-            var buffer = [UInt8](repeating: 0, count: 4096)
-
-            while true {
-                let count = Darwin.read(clientFD, &buffer, buffer.count)
-                if count < 0 {
-                    if errno == EINTR { continue }
-                    return
-                }
-                if count == 0 { return }
-                pending.append(buffer, count: count)
-
-                while let newlineRange = pending.firstRange(of: Data([0x0A])) {
-                    let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
-                    pending.removeSubrange(0...newlineRange.lowerBound)
-                    guard let line = String(data: lineData, encoding: .utf8) else { continue }
-                    state.append(line)
-                    guard self.writeAll(handler(line) + "\n", to: clientFD) else { return }
-                }
+            cliMockServeLineFramedConnection(clientFD: clientFD) { line in
+                state.append(line)
+                return handler(line)
             }
-        }
+        }, onListenerClosed: {
+            if handledOnce.claim() { onHandled() }
+        })
     }
 
     private func writeAll(_ string: String, to fd: Int32) -> Bool {
-        let bytes = Array(string.utf8)
-        var offset = 0
-        while offset < bytes.count {
-            let written = bytes.withUnsafeBytes { buffer in
-                Darwin.write(fd, buffer.baseAddress!.advanced(by: offset), bytes.count - offset)
-            }
-            if written > 0 {
-                offset += written
-                continue
-            }
-            if written == 0 {
-                return false
-            }
-            if errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK {
-                continue
-            }
-            return false
-        }
-        return true
+        cliMockWriteAll(string, to: fd)
     }
 
     private func v2Response(

@@ -7,6 +7,14 @@ import Darwin
 #endif
 
 final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
+    override func tearDown() {
+        // The mock servers park an accept loop on the test's listener FD, and
+        // closing that FD does not wake a thread already blocked in poll/accept.
+        // Reap the loops here so none of them outlives the test that started it.
+        CLIMockAcceptLoopRegistry.shared.stopAll()
+        super.tearDown()
+    }
+
     func testClaudeClearSessionStartMarksWorkspaceRunning() throws {
         let context = try makeClaudeHookContext(name: "claude-clear-running")
         defer { context.cleanup() }
@@ -309,7 +317,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     func testCodexStopReadsOversizedFinalTranscriptLine() throws {
         let context = try makeClaudeHookContext(name: "codex-oversized-final-transcript")
         defer { context.cleanup() }
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+        startAgentHookMockServerAccepting(context: context)
 
         let turnId = "oversized-final-turn"
         let transcriptURL = context.root.appendingPathComponent("oversized-final-codex-session.jsonl")
@@ -374,7 +382,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         _ = try runGit(["commit", "-m", "initial"])
         let initialCommit = try runGit(["rev-parse", "HEAD"])
 
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+        startAgentHookMockServerAccepting(context: context)
         let sessionId = "codex-last-turn-session"
         let sessionStart = runCodexHook(
             context: context,
@@ -790,7 +798,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         standardInput: String,
         extraEnvironment: [String: String] = [:]
     ) -> ProcessRunResult {
-        let serverHandled = startMockServer(listenerFD: context.listenerFD, state: context.state, connectionCount: 4) { line in
+        let serverHandled = startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
             guard let payload = self.jsonObject(line) else {
                 return "OK"
             }
@@ -1700,7 +1708,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let sessionId = "same-process-session"
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+        startAgentHookMockServerAccepting(context: context)
 
         let parentPrompt = runCodexHook(
             context: context,
@@ -1787,7 +1795,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let sessionId = "notification-lifecycle-session"
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+        startAgentHookMockServerAccepting(context: context)
 
         let prompt = runCodexHook(
             context: context,
@@ -1846,7 +1854,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let newSessionId = "stale-idle-stop-new"
         let oldEnvironment = codexLaunchEnvironment(context: context, sessionId: oldSessionId)
         let newEnvironment = codexLaunchEnvironment(context: context, sessionId: newSessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+        startAgentHookMockServerAccepting(context: context)
 
         let oldPrompt = runCodexHook(
             context: context,
@@ -1906,7 +1914,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let newSessionId = "stale-idle-notification-new"
         let oldEnvironment = codexLaunchEnvironment(context: context, sessionId: oldSessionId)
         let newEnvironment = codexLaunchEnvironment(context: context, sessionId: newSessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+        startAgentHookMockServerAccepting(context: context)
 
         let oldPrompt = runCodexHook(
             context: context,
@@ -1964,7 +1972,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let sessionId = "legacy-stop-turn-stack-session"
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+        startAgentHookMockServerAccepting(context: context)
 
         let parentPrompt = runCodexHook(
             context: context,
@@ -2025,7 +2033,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let sessionId = "generic-turn-stack-session"
         let launchEnvironment = agentLaunchEnvironment(context: context, kind: "gemini", executable: "/usr/local/bin/gemini")
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+        startAgentHookMockServerAccepting(context: context)
 
         let parentPrompt = runAgentHook(
             context: context,
@@ -2100,7 +2108,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let sessionId = "mixed-anonymous-depth-session"
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+        startAgentHookMockServerAccepting(context: context)
 
         let parentPrompt = runCodexHook(
             context: context,
@@ -2205,7 +2213,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let sessionId = "anonymous-depth-turn-stop-session"
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+        startAgentHookMockServerAccepting(context: context)
 
         let parentPrompt = runCodexHook(
             context: context,
@@ -2272,7 +2280,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             eventType: "turn_aborted"
         )
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+        startAgentHookMockServerAccepting(context: context)
 
         let interruptedPrompt = runCodexHook(
             context: context,
@@ -2324,7 +2332,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"old-turn"}}"#,
         ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+        startAgentHookMockServerAccepting(context: context)
 
         let oldPrompt = runCodexHook(
             context: context,
@@ -2391,7 +2399,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             eventType: "turn_complete"
         )
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+        startAgentHookMockServerAccepting(context: context)
 
         let parentPrompt = runCodexHook(
             context: context,
@@ -2489,7 +2497,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             #"{"type":"event_msg","payload":{"type":"turn_aborted","turn_id":"child-turn"}}"#,
         ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+        startAgentHookMockServerAccepting(context: context)
 
         let parentPrompt = runCodexHook(
             context: context,
@@ -2566,7 +2574,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             .write(to: stateURL, options: .atomic)
 
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+        startAgentHookMockServerAccepting(context: context)
 
         let childPromptStart = context.state.commands.count
         let childPrompt = runCodexHook(
@@ -2637,7 +2645,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             .write(to: stateURL, options: .atomic)
 
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+        startAgentHookMockServerAccepting(context: context)
 
         let childPromptStart = context.state.commands.count
         let childPrompt = runCodexHook(
@@ -2707,7 +2715,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             .write(to: stateURL, options: .atomic)
 
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+        startAgentHookMockServerAccepting(context: context)
 
         let childPromptStart = context.state.commands.count
         let childPrompt = runCodexHook(
@@ -2770,7 +2778,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             .write(to: stateURL, options: .atomic)
 
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+        startAgentHookMockServerAccepting(context: context)
 
         let childPrompt = runCodexHook(
             context: context,
@@ -2849,7 +2857,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             .write(to: stateURL, options: .atomic)
 
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+        startAgentHookMockServerAccepting(context: context)
 
         let childStopStart = context.state.commands.count
         let childStop = runCodexHook(
@@ -2937,7 +2945,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             .write(to: stateURL, options: .atomic)
 
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+        startAgentHookMockServerAccepting(context: context)
 
         let childPromptStart = context.state.commands.count
         let childPrompt = runCodexHook(
@@ -2986,7 +2994,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             eventType: "turn_aborted"
         )
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+        startAgentHookMockServerAccepting(context: context)
 
         let oldPrompt = runCodexHook(
             context: context,
@@ -3051,7 +3059,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             eventType: "turn_aborted"
         )
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+        startAgentHookMockServerAccepting(context: context)
 
         let oldPrompt = runCodexHook(
             context: context,
@@ -3115,7 +3123,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             eventType: "turn_aborted"
         )
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+        startAgentHookMockServerAccepting(context: context)
 
         let oldPrompt = runCodexHook(
             context: context,
@@ -3187,7 +3195,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             .write(to: stateURL, options: .atomic)
 
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+        startAgentHookMockServerAccepting(context: context)
 
         let currentStopStart = context.state.commands.count
         let currentStop = runCodexHook(
@@ -3216,7 +3224,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let sessionId = "unseen-turn-stop-session"
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+        startAgentHookMockServerAccepting(context: context)
 
         let oldPrompt = runCodexHook(
             context: context,
@@ -3262,7 +3270,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         defer { context.cleanup() }
 
         let sessionId = "managed-child-session"
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+        startAgentHookMockServerAccepting(context: context)
         let result = runCodexHook(
             context: context,
             subcommand: "stop",
@@ -3304,7 +3312,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             #"{"type":"response_item","payload":{"type":"message","role":"user","content":"<subagent_notification>old child finished</subagent_notification>"}}"#,
         ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
 
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 24)
+        startAgentHookMockServerAccepting(context: context)
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
 
         let prompt = runCodexHook(
@@ -3357,7 +3365,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
             .write(to: stateURL, options: .atomic)
 
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+        startAgentHookMockServerAccepting(context: context)
         let result = runCodexHook(
             context: context,
             subcommand: "session-end",
@@ -8715,52 +8723,21 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
-    private func startAgentHookMockServerAccepting(
-        context: ClaudeHookContext,
-        connectionLimit: Int
-    ) {
-        DispatchQueue.global(qos: .userInitiated).async {
-            var accepted = 0
-            while accepted < connectionLimit {
-                var clientAddr = sockaddr_un()
-                var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
-                let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
-                    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                        Darwin.accept(context.listenerFD, sockaddrPtr, &clientAddrLen)
-                    }
-                }
-                if clientFD < 0 {
-                    if errno == EINTR { continue }
-                    return
-                }
-                accepted += 1
-
-                DispatchQueue.global(qos: .userInitiated).async {
-                    defer { Darwin.close(clientFD) }
-                    var pending = Data()
-                    var buffer = [UInt8](repeating: 0, count: 4096)
-                    while true {
-                        let count = Darwin.read(clientFD, &buffer, buffer.count)
-                        if count < 0 {
-                            if errno == EINTR { continue }
-                            return
-                        }
-                        if count == 0 { return }
-                        pending.append(buffer, count: count)
-                        while let newlineRange = pending.firstRange(of: Data([0x0A])) {
-                            let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
-                            pending.removeSubrange(0...newlineRange.lowerBound)
-                            guard let line = String(data: lineData, encoding: .utf8) else { continue }
-                            context.state.append(line)
-                            let response = self.agentHookMockResponse(line: line, context: context) + "\n"
-                            _ = response.withCString { ptr in
-                                Darwin.write(clientFD, ptr, strlen(ptr))
-                            }
-                        }
-                    }
-                }
-            }
+    /// Serves this context's agent-hook mock socket for the rest of the test. One
+    /// accept loop answers every connection, including the CLI's extra `system.top`
+    /// lookup connection, and the registry reaps the loop at teardown.
+    private func startAgentHookMockServerAccepting(context: ClaudeHookContext) {
+        let state = context.state
+        let mockResponse: @Sendable (String) -> String = { line in
+            self.agentHookMockResponse(line: line, context: context)
         }
+        CLIMockAcceptLoopRegistry.shared.start(listenerFD: context.listenerFD, onConnection: { clientFD in
+            defer { Darwin.close(clientFD) }
+            cliMockServeLineFramedConnection(clientFD: clientFD) { line in
+                state.append(line)
+                return mockResponse(line)
+            }
+        }, onListenerClosed: {})
     }
 
     private func agentHookMockResponse(line: String, context: ClaudeHookContext) -> String {
@@ -8806,7 +8783,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         standardInput: String,
         extraEnvironment: [String: String] = [:]
     ) -> ProcessRunResult {
-        let serverHandled = startMockServer(listenerFD: context.listenerFD, state: context.state, connectionCount: 4) { line in
+        let serverHandled = startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
             guard let payload = self.jsonObject(line) else {
                 return "OK"
             }
@@ -9432,7 +9409,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .appendingPathComponent("cmux-spawn-id-e2e-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmpDir) }
-        let socketPath = tmpDir.appendingPathComponent("sock").path
+        // Bind the control socket under a short /tmp path. The AF_UNIX sun_path
+        // limit is 104 bytes, and this machine's temporary directory alone is long
+        // enough that a socket nested under `tmpDir` overflows it; keep HOME pointed
+        // at tmpDir but give the socket a short, dedicated path.
+        let socketPath = makeSocketPath("tmuxenv")
         let listenerFD = try bindUnixSocket(at: socketPath)
         defer { Darwin.close(listenerFD); unlink(socketPath) }
         let state = MockSocketServerState()
