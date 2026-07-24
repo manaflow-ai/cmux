@@ -228,13 +228,22 @@ extension TextBoxInputTextView {
         replacing range: NSRange,
         insertedLength: Int
     ) {
-        setSelectedRange(
-            adjustedSelectionRange(
+        let selectionAfterInsertion: NSRange
+        if selection.length == 0,
+           range.length == 0,
+           selection.location == range.location {
+            selectionAfterInsertion = NSRange(
+                location: range.location + insertedLength,
+                length: 0
+            )
+        } else {
+            selectionAfterInsertion = adjustedSelectionRange(
                 selection,
                 replacing: range,
                 insertedLength: insertedLength
             )
-        )
+        }
+        setSelectedRange(selectionAfterInsertion)
     }
 
     @MainActor

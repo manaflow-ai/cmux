@@ -14,6 +14,13 @@ struct HTMLPlainTextParser: Sendable {
         "template",
     ]
 
+    private static let preformattedTags: Set<String> = [
+        "listing",
+        "pre",
+        "textarea",
+        "xmp",
+    ]
+
     private static let blockBoundaryTags: Set<String> = [
         "address",
         "article",
@@ -65,20 +72,31 @@ struct HTMLPlainTextParser: Sendable {
 
         var output = ""
         output.reserveCapacity(min(html.count, 16_384))
-        appendVisibleText(from: root, to: &output)
+        appendVisibleText(
+            from: root,
+            preservingWhitespace: false,
+            to: &output
+        )
 
-        let normalized = normalize(output)
-        return normalized.isEmpty ? nil : normalized
+        while output.last == "\n" {
+            output.removeLast()
+        }
+        return output.isEmpty ? nil : output
     }
 
     private func appendVisibleText(
         from node: XMLNode,
+        preservingWhitespace: Bool,
         to output: inout String
     ) {
         switch node.kind {
         case .text:
             guard let text = node.stringValue else { return }
-            appendText(text, to: &output)
+            appendText(
+                text,
+                preservingWhitespace: preservingWhitespace,
+                to: &output
+            )
         case .element:
             let name = node.name?.lowercased() ?? ""
             guard !Self.hiddenBlockTags.contains(name) else { return }
@@ -92,11 +110,20 @@ struct HTMLPlainTextParser: Sendable {
             if isBlock {
                 appendBlockBoundary(to: &output)
             }
+            let childPreservesWhitespace =
+                preservingWhitespace || Self.preformattedTags.contains(name)
             for child in node.children ?? [] {
-                appendVisibleText(from: child, to: &output)
+                appendVisibleText(
+                    from: child,
+                    preservingWhitespace: childPreservesWhitespace,
+                    to: &output
+                )
             }
             if isBlock {
-                appendBlockBoundary(to: &output)
+                appendBlockBoundary(
+                    to: &output,
+                    trimmingTrailingSpaces: !childPreservesWhitespace
+                )
             }
         default:
             return
@@ -105,53 +132,39 @@ struct HTMLPlainTextParser: Sendable {
 
     private func appendText(
         _ text: String,
+        preservingWhitespace: Bool,
         to output: inout String
     ) {
+        if preservingWhitespace {
+            output.append(contentsOf: text)
+            return
+        }
+
         for character in text {
-            output.append(character.isWhitespace ? " " : character)
+            if character.isWhitespace {
+                if !output.isEmpty,
+                   output.last != " ",
+                   output.last != "\n" {
+                    output.append(" ")
+                }
+            } else {
+                output.append(character)
+            }
         }
     }
 
-    private func appendBlockBoundary(to output: inout String) {
+    private func appendBlockBoundary(
+        to output: inout String,
+        trimmingTrailingSpaces: Bool = true
+    ) {
         guard !output.isEmpty, output.last != "\n" else { return }
-        while output.last == " " {
-            output.removeLast()
+        if trimmingTrailingSpaces {
+            while output.last == " " {
+                output.removeLast()
+            }
         }
         if !output.isEmpty {
             output.append("\n")
         }
-    }
-
-    private func normalize(_ text: String) -> String {
-        var characters: [Character] = []
-        characters.reserveCapacity(text.count)
-        var pendingSpace = false
-
-        for character in text {
-            if character == "\n" {
-                pendingSpace = false
-                while characters.last == " " {
-                    characters.removeLast()
-                }
-                if !characters.isEmpty, characters.last != "\n" {
-                    characters.append("\n")
-                }
-            } else if character.isWhitespace {
-                pendingSpace = true
-            } else {
-                if pendingSpace,
-                   !characters.isEmpty,
-                   characters.last != "\n" {
-                    characters.append(" ")
-                }
-                pendingSpace = false
-                characters.append(character)
-            }
-        }
-
-        while characters.last?.isWhitespace == true {
-            characters.removeLast()
-        }
-        return String(characters)
     }
 }
