@@ -81,8 +81,11 @@ extension AppDelegate {
     /// focus. Callers invoke this from the command's existing dispatcher
     /// position so configured and compatibility shortcuts keep the same
     /// conflict precedence as the main area.
-    func performFocusedDockShortcut(_ command: DockShortcutCommand, event: NSEvent) -> Bool {
-        guard let store = focusedDockStoreForShortcut(preferredWindow: event.window) else {
+    func performFocusedDockShortcut(
+        _ command: DockShortcutCommand,
+        preferredWindow: NSWindow?
+    ) -> Bool {
+        guard let store = focusedDockStoreForShortcut(preferredWindow: preferredWindow) else {
             return false
         }
         if command.isFocusHistoryNavigation, !store.focusHistoryIncludesPanesAndTabs {
@@ -90,6 +93,10 @@ extension AppDelegate {
         }
         if !store.performShortcutCommand(command) { NSSound.beep() }
         return true
+    }
+
+    func performFocusedDockShortcut(_ command: DockShortcutCommand, event: NSEvent) -> Bool {
+        performFocusedDockShortcut(command, preferredWindow: event.window)
     }
 
     func matchesLegacyNextSurfaceShortcut(event: NSEvent) -> Bool {

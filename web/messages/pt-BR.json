@@ -1114,6 +1114,7 @@
     "keyboardShortcuts": {
       "title": "Atalhos de Teclado",
       "description": "Todos os atalhos de teclado disponíveis no cmux, agrupados por categoria.",
+      "sequenceSeparator": "depois",
       "metaDescription": "Todos os atalhos de teclado do cmux para workspaces, superfícies, painéis divididos, navegador, notificações, busca e gerenciamento de janelas no macOS.",
       "searchPlaceholder": "Buscar atalhos...",
       "searchLabel": "Buscar atalhos de teclado",

@@ -1114,6 +1114,7 @@
     "keyboardShortcuts": {
       "title": "Klavye Kısayolları",
       "description": "cmux'ta mevcut tüm klavye kısayolları, kategoriye göre gruplandırılmış.",
+      "sequenceSeparator": "sonra",
       "metaDescription": "macOS'ta çalışma alanları, yüzeyler, bölünmüş paneller, tarayıcı, bildirimler, bulma ve pencere yönetimi için tüm cmux klavye kısayolları.",
       "searchPlaceholder": "Kısayol ara...",
       "searchLabel": "Klavye kısayollarını ara",

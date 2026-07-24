@@ -81,6 +81,129 @@ struct DockShortcutRoutingTests {
         }
     }
 
+    @Test("Customized resize shortcut moves only the focused Dock split")
+    @MainActor
+    func customizedResizeTargetsFocusedDock() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try Self.withHarness { harness in
+                let leftPanel = try #require(
+                    harness.dock.newSurface(kind: .terminal, inPane: harness.rootPane, focus: true)
+                )
+                _ = try #require(
+                    harness.dock.newSplit(
+                        kind: .terminal,
+                        orientation: .horizontal,
+                        insertFirst: false,
+                        sourcePanelId: leftPanel,
+                        focus: true
+                    )
+                )
+                let leftPane = try #require(harness.dock.paneId(forPanelId: leftPanel))
+                harness.dock.focusPanel(leftPanel)
+
+                let dockSplit = try #require(Self.firstSplit(in: harness.dock.bonsplitController.treeSnapshot()))
+                let dockSplitId = try #require(UUID(uuidString: dockSplit.id))
+                #expect(harness.dock.bonsplitController.setDividerPosition(0.5, forSplit: dockSplitId))
+
+                let mainPanel = try #require(harness.mainWorkspace.focusedPanelId)
+                _ = try #require(
+                    harness.mainWorkspace.newTerminalSplit(
+                        from: mainPanel,
+                        orientation: .horizontal
+                    )
+                )
+                let mainSplit = try #require(
+                    Self.firstSplit(in: harness.mainWorkspace.bonsplitController.treeSnapshot())
+                )
+                let mainSplitId = try #require(UUID(uuidString: mainSplit.id))
+                #expect(
+                    harness.mainWorkspace.bonsplitController.setDividerPosition(
+                        0.35,
+                        forSplit: mainSplitId
+                    )
+                )
+
+                let resize = Self.customShortcut(key: "y")
+                KeyboardShortcutSettings.setShortcut(resize, for: .resizeSplitRight)
+                harness.dock.dockPortalReconcileState.scheduledRequestCount = 0
+
+                #expect(Self.dispatch(resize, in: harness))
+                #expect(harness.dock.dockPortalReconcileState.scheduledRequestCount > 0)
+
+                let resizedDockSplit = try #require(
+                    Self.firstSplit(in: harness.dock.bonsplitController.treeSnapshot())
+                )
+                let unchangedMainSplit = try #require(
+                    Self.firstSplit(in: harness.mainWorkspace.bonsplitController.treeSnapshot())
+                )
+                #expect(resizedDockSplit.dividerPosition > 0.5)
+                #expect(abs(unchangedMainSplit.dividerPosition - 0.35) < 0.0001)
+                #expect(harness.dock.focusedPanelId == leftPanel)
+                #expect(harness.dock.bonsplitController.focusedPaneId == leftPane)
+            }
+        }
+    }
+
+    @Test("Resize at a missing Dock border is consumed without falling through")
+    @MainActor
+    func resizeAtMissingDockBorderDoesNotResizeMainSplit() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try Self.withHarness { harness in
+                let leftDockPanel = try #require(
+                    harness.dock.newSurface(kind: .terminal, inPane: harness.rootPane, focus: true)
+                )
+                _ = try #require(
+                    harness.dock.newSplit(
+                        kind: .terminal,
+                        orientation: .horizontal,
+                        insertFirst: false,
+                        sourcePanelId: leftDockPanel,
+                        focus: true
+                    )
+                )
+                harness.dock.focusPanel(leftDockPanel)
+                let dockSplit = try #require(
+                    Self.firstSplit(in: harness.dock.bonsplitController.treeSnapshot())
+                )
+                let dockSplitId = try #require(UUID(uuidString: dockSplit.id))
+                #expect(harness.dock.bonsplitController.setDividerPosition(0.4, forSplit: dockSplitId))
+
+                let leftMainPanel = try #require(harness.mainWorkspace.focusedPanelId)
+                let rightMainPanel = try #require(
+                    harness.mainWorkspace.newTerminalSplit(
+                        from: leftMainPanel,
+                        orientation: .horizontal
+                    )
+                )
+                #expect(harness.mainWorkspace.focusedPanelId == rightMainPanel.id)
+                let mainSplit = try #require(
+                    Self.firstSplit(in: harness.mainWorkspace.bonsplitController.treeSnapshot())
+                )
+                let mainSplitId = try #require(UUID(uuidString: mainSplit.id))
+                #expect(
+                    harness.mainWorkspace.bonsplitController.setDividerPosition(
+                        0.6,
+                        forSplit: mainSplitId
+                    )
+                )
+
+                let resizeLeft = Self.customShortcut(key: "y")
+                KeyboardShortcutSettings.setShortcut(resizeLeft, for: .resizeSplitLeft)
+
+                #expect(Self.dispatch(resizeLeft, in: harness))
+
+                let unchangedDockSplit = try #require(
+                    Self.firstSplit(in: harness.dock.bonsplitController.treeSnapshot())
+                )
+                let unchangedMainSplit = try #require(
+                    Self.firstSplit(in: harness.mainWorkspace.bonsplitController.treeSnapshot())
+                )
+                #expect(abs(unchangedDockSplit.dividerPosition - 0.4) < 0.0001)
+                #expect(abs(unchangedMainSplit.dividerPosition - 0.6) < 0.0001)
+            }
+        }
+    }
+
     @Test("Legacy tab shortcuts target the focused Dock")
     @MainActor
     func legacyTabShortcutsTargetFocusedDock() async throws {
@@ -424,6 +547,15 @@ private extension DockShortcutRoutingTests {
             option: true,
             control: true
         )
+    }
+
+    static func firstSplit(in node: ExternalTreeNode) -> ExternalSplitNode? {
+        switch node {
+        case .pane:
+            return nil
+        case .split(let split):
+            return split
+        }
     }
 }
 

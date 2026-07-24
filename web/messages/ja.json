@@ -1837,6 +1837,7 @@
     "keyboardShortcuts": {
       "title": "キーボードショートカット",
       "description": "cmuxのデフォルトショートカット一覧です。cmux管理のショートカットはすべて設定画面または ~/.config/cmux/cmux.json で変更でき、2段階のコードにも対応しています。",
+      "sequenceSeparator": "次に",
       "chordsTitle": "ショートカットコード",
       "chordsIntro": "cmux は <settingsFile>~/.config/cmux/cmux.json</settingsFile> で2段階のショートカットコードを定義できます。設定ファイル全体の仕様は <configurationLink>設定ドキュメント</configurationLink> を参照してください。",
       "chordsCallout": "ショートカットは設定画面でも編集できますが、tmux 風のプレフィックスを正確に書きたい場合、dotfiles で管理したい場合、または null、空文字列、\"none\"、\"clear\"、\"unbound\"、\"disabled\" でアクションを未割り当てにしたい場合は cmux.json が分かりやすい方法です。",

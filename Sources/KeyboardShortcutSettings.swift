@@ -131,6 +131,10 @@ enum KeyboardShortcutSettings {
         case focusRight
         case focusUp
         case focusDown
+        case resizeSplitLeft
+        case resizeSplitRight
+        case resizeSplitUp
+        case resizeSplitDown
         case splitRight
         case splitDown, toggleSplitZoom
         case equalizeSplits
@@ -265,6 +269,10 @@ enum KeyboardShortcutSettings {
             case .focusRight: return String(localized: "shortcut.focusPaneRight.label", defaultValue: "Focus Pane Right")
             case .focusUp: return String(localized: "shortcut.focusPaneUp.label", defaultValue: "Focus Pane Up")
             case .focusDown: return String(localized: "shortcut.focusPaneDown.label", defaultValue: "Focus Pane Down")
+            case .resizeSplitLeft: return String(localized: "shortcut.resizeSplitLeft.label", defaultValue: "Resize Split Left")
+            case .resizeSplitRight: return String(localized: "shortcut.resizeSplitRight.label", defaultValue: "Resize Split Right")
+            case .resizeSplitUp: return String(localized: "shortcut.resizeSplitUp.label", defaultValue: "Resize Split Up")
+            case .resizeSplitDown: return String(localized: "shortcut.resizeSplitDown.label", defaultValue: "Resize Split Down")
             case .splitRight: return String(localized: "shortcut.splitRight.label", defaultValue: "Split Right")
             case .splitDown: return String(localized: "shortcut.splitDown.label", defaultValue: "Split Down")
             case .toggleSplitZoom: return String(localized: "shortcut.togglePaneZoom.label", defaultValue: "Toggle Pane Zoom")
@@ -449,6 +457,11 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "↑", command: true, shift: false, option: true, control: false)
             case .focusDown:
                 return StoredShortcut(key: "↓", command: true, shift: false, option: true, control: false)
+            case .resizeSplitLeft, .resizeSplitRight, .resizeSplitUp, .resizeSplitDown:
+                // Unbound by default: a tmux-style Ctrl+B prefix would consume
+                // Ctrl+B before the focused terminal, shell, or nested tmux sees it.
+                // Users can still opt into chorded resize bindings via Settings or cmux.json.
+                return .unbound
             case .splitRight:
                 return StoredShortcut(key: "d", command: true, shift: false, option: false, control: false)
             case .splitDown: return StoredShortcut(key: "d", command: true, shift: true, option: false, control: false)
@@ -629,7 +642,11 @@ enum KeyboardShortcutSettings {
         }
 
         var allowsChordShortcut: Bool {
-            self != .fileExplorerOpenSelection && self != .fileExplorerOpenSelectionFinderAlias && self != .cycleTextBoxSubmitAction
+            self != .fileExplorerOpenSelection
+                && self != .fileExplorerOpenSelectionFinderAlias
+                && self != .cycleTextBoxSubmitAction
+                && self != .showHideAllWindows
+                && self != .globalSearch
         }
 
         func displayedShortcutString(for shortcut: StoredShortcut) -> String {

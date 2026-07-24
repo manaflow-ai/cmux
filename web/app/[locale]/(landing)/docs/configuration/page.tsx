@@ -5,7 +5,11 @@ import { DocsLink as Link } from "@/app/[locale]/components/docs-link";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { Callout } from "@/app/[locale]/components/callout";
 import settingsSchema from "@/data/cmux.schema.json";
-import { localizedShortcutText, shortcutCategories } from "@/data/cmux-shortcuts";
+import {
+  localizedShortcutText,
+  shortcutCategories,
+  type ShortcutSequence,
+} from "@/data/cmux-shortcuts";
 import { DocsHeading } from "@/app/[locale]/components/docs-heading";
 
 type SchemaProperty = {
@@ -142,6 +146,7 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //     "toggleSidebar": "cmd+b",
   //     "toggleFileExplorer": "cmd+opt+b",
   //     "newTab": ["ctrl+b", "c"],
+  //     "resizeSplitRight": ["ctrl+b", "alt+right"],
   //     "commandPalettePrevious": null
   //   }
   // },
@@ -157,9 +162,13 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   });
 }
 
-function shortcutToConfig(shortcut: { combos: string[][]; configValue?: string }) {
+function shortcutToConfig(shortcut: {
+  combos: string[][];
+  chordCombos?: ShortcutSequence[];
+  configValue?: string;
+}) {
   if (shortcut.configValue) return shortcut.configValue;
-  return shortcutComboToConfig(shortcut.combos[0] ?? []);
+  return shortcutSequenceToConfig(shortcut.chordCombos?.[0] ?? [shortcut.combos[0] ?? []]);
 }
 
 function shortcutComboToConfig(combo: string[]) {
@@ -181,6 +190,14 @@ function shortcutComboToConfig(combo: string[]) {
   return combo
     .map((part) => modifierMap[part] ?? keyMap[part] ?? part.toLowerCase())
     .join("+");
+}
+
+function shortcutSequenceToConfig(sequence: ShortcutSequence) {
+  const strokes = sequence.map(shortcutComboToConfig).filter(Boolean);
+  if (strokes.length <= 1) {
+    return strokes[0] ?? "";
+  }
+  return JSON.stringify(strokes);
 }
 
 function formatSchemaType(property: SchemaProperty): string {

@@ -75,8 +75,11 @@ struct ShortcutActionNumberedDigitTests {
         }
     }
 
-    @Test func fileExplorerOpenSelectionShortcutsAreSingleStrokeOnly() {
+    @Test func unsupportedChordActionsAreSingleStrokeOnly() {
         #expect(!ShortcutAction.fileExplorerOpenSelection.allowsChordShortcut)
         #expect(!ShortcutAction.fileExplorerOpenSelectionFinderAlias.allowsChordShortcut)
+        #expect(!ShortcutAction.cycleTextBoxSubmitAction.allowsChordShortcut)
+        #expect(!ShortcutAction.showHideAllWindows.allowsChordShortcut)
+        #expect(!ShortcutAction.globalSearch.allowsChordShortcut)
     }
 }

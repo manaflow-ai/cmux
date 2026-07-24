@@ -88,6 +88,8 @@ extension ShortcutAction {
         case .focusRight: return ShortcutStroke(key: "→", command: true, option: true)
         case .focusUp: return ShortcutStroke(key: "↑", command: true, option: true)
         case .focusDown: return ShortcutStroke(key: "↓", command: true, option: true)
+        case .resizeSplitLeft, .resizeSplitRight, .resizeSplitUp, .resizeSplitDown:
+            return nil
         case .splitRight: return ShortcutStroke(key: "d", command: true)
         case .splitDown: return ShortcutStroke(key: "d", command: true, shift: true)
         case .toggleSplitZoom: return ShortcutStroke(key: "\r", command: true, shift: true)

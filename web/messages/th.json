@@ -1116,6 +1116,7 @@
     "keyboardShortcuts": {
       "title": "คีย์ลัด",
       "description": "คีย์ลัดทั้งหมดใน cmux จัดกลุ่มตามหมวดหมู่",
+      "sequenceSeparator": "แล้ว",
       "metaDescription": "คีย์ลัด cmux ทั้งหมดสำหรับ workspace, surface, แยกหน้าจอ, เบราว์เซอร์, แจ้งเตือน, ค้นหา และจัดการหน้าต่างบน macOS",
       "searchPlaceholder": "ค้นหาทางลัด...",
       "searchLabel": "ค้นหาทางลัดแป้นพิมพ์",

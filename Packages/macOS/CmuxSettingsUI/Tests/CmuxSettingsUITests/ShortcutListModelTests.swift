@@ -365,6 +365,153 @@ import CmuxSettings
         #expect(model.bareKeyRejections.contains(action.rawValue))
     }
 
+    @Test func chordModeToggleEnablesRecorderForChordCapableAction() {
+        // WHY: the Settings row needs an explicit way to switch its recorder
+        // from one stroke to a two-stroke chord. The post-refactor model kept
+        // chord assignment but lost the user-triggered insertion path.
+        let (store, catalog, errorLog) = makeStore()
+        let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
+        let chordAction = ShortcutAction.resizeSplitRight
+        let singleStrokeOnlyAction = ShortcutAction.fileExplorerOpenSelection
+
+        #expect(!model.chordsEnabled(for: chordAction))
+        model.toggleChordMode(for: chordAction)
+        #expect(model.chordsEnabled(for: chordAction))
+        model.toggleChordMode(for: chordAction)
+        #expect(!model.chordsEnabled(for: chordAction))
+
+        model.toggleChordMode(for: singleStrokeOnlyAction)
+        #expect(!model.chordsEnabled(for: singleStrokeOnlyAction))
+    }
+
+    @Test func existingChordKeepsRecorderInChordMode() async throws {
+        // WHY: reopening Settings for an existing chord must keep the recorder
+        // in chord mode so replacing it records both strokes instead of silently
+        // downgrading the binding to a single stroke.
+        let (store, catalog, errorLog) = makeStore()
+        let action = ShortcutAction.resizeSplitRight
+        let chord = StoredShortcut(
+            first: ShortcutStroke(key: "b", control: true),
+            second: ShortcutStroke(key: "→", option: true)
+        )
+        try await store.set([action.rawValue: chord], for: catalog.shortcuts.bindings)
+
+        let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
+        model.startObserving()
+        await spin(until: { model.bindings[action.rawValue] == chord })
+
+        #expect(model.chordsEnabled(for: action))
+    }
+
+    @Test func chordBindingsCanSharePrefixWhenSecondStrokesDiffer() async throws {
+        // WHY: tmux-style shortcut families intentionally share one prefix.
+        // Conflict detection must compare the complete sequence, not reject the
+        // second action merely because both chords begin with Ctrl+B.
+        let (store, catalog, errorLog) = makeStore()
+        let rightAction = ShortcutAction.resizeSplitRight
+        let leftAction = ShortcutAction.resizeSplitLeft
+        let rightChord = StoredShortcut(
+            first: ShortcutStroke(key: "b", control: true),
+            second: ShortcutStroke(key: "→", option: true)
+        )
+        let leftChord = StoredShortcut(
+            first: ShortcutStroke(key: "b", control: true),
+            second: ShortcutStroke(key: "←", option: true)
+        )
+        try await store.set([rightAction.rawValue: rightChord], for: catalog.shortcuts.bindings)
+
+        let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
+        model.startObserving()
+        await spin(until: { model.bindings[rightAction.rawValue] == rightChord })
+
+        await model.assignChord(leftChord, to: leftAction)
+        await spin(until: { model.bindings[leftAction.rawValue] == leftChord })
+
+        let storeBindings = await store.value(for: catalog.shortcuts.bindings)
+        #expect(storeBindings[rightAction.rawValue] == rightChord)
+        #expect(storeBindings[leftAction.rawValue] == leftChord)
+        #expect(model.conflictRejections[leftAction.rawValue] == nil)
+    }
+
+    @Test func identicalChordBindingIsRejected() async throws {
+        let (store, catalog, errorLog) = makeStore()
+        let conflictAction = ShortcutAction.resizeSplitRight
+        let targetAction = ShortcutAction.resizeSplitLeft
+        let chord = StoredShortcut(
+            first: ShortcutStroke(key: "b", control: true),
+            second: ShortcutStroke(key: "→", option: true)
+        )
+        try await store.set([conflictAction.rawValue: chord], for: catalog.shortcuts.bindings)
+
+        let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
+        model.startObserving()
+        await spin(until: { model.bindings[conflictAction.rawValue] == chord })
+
+        await model.assignChord(chord, to: targetAction)
+
+        let storeBindings = await store.value(for: catalog.shortcuts.bindings)
+        #expect(storeBindings[targetAction.rawValue] == nil)
+        #expect(model.conflictRejections[targetAction.rawValue] == conflictAction)
+    }
+
+    @Test func recordedPrivateUseArrowChordConflictsWithGlyphChord() async throws {
+        // NSEvent.charactersIgnoringModifiers reports arrow keys as AppKit
+        // private-use scalars, while cmux.json and defaults use arrow glyphs.
+        // The recorder must not persist a physically identical chord that the
+        // runtime will route to the already-bound action.
+        let (store, catalog, errorLog) = makeStore()
+        let conflictAction = ShortcutAction.resizeSplitRight
+        let targetAction = ShortcutAction.resizeSplitLeft
+        let configuredChord = StoredShortcut(
+            first: ShortcutStroke(key: "b", control: true),
+            second: ShortcutStroke(key: "→", option: true)
+        )
+        let recordedChord = StoredShortcut(
+            first: ShortcutStroke(key: "b", control: true, keyCode: 11),
+            second: ShortcutStroke(key: "\u{F703}", option: true, keyCode: 124)
+        )
+        try await store.set(
+            [conflictAction.rawValue: configuredChord],
+            for: catalog.shortcuts.bindings
+        )
+
+        let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
+        model.startObserving()
+        await spin(until: { model.bindings[conflictAction.rawValue] == configuredChord })
+
+        await model.assignChord(recordedChord, to: targetAction)
+
+        let storeBindings = await store.value(for: catalog.shortcuts.bindings)
+        #expect(storeBindings[targetAction.rawValue] == nil)
+        #expect(model.conflictRejections[targetAction.rawValue] == conflictAction)
+    }
+
+    @Test(arguments: [
+        ("\u{F702}", "←", UInt16(123)),
+        ("\u{F703}", "→", UInt16(124)),
+        ("\u{F700}", "↑", UInt16(126)),
+        ("\u{F701}", "↓", UInt16(125)),
+    ])
+    func privateUseArrowKeysConflictWithCanonicalGlyphs(
+        privateUseKey: String,
+        canonicalKey: String,
+        keyCode: UInt16
+    ) {
+        let recorded = ShortcutStroke(
+            key: privateUseKey,
+            option: true,
+            keyCode: keyCode
+        )
+        let configured = ShortcutStroke(key: canonicalKey, option: true)
+
+        #expect(numberedAwareStrokesConflict(
+            recorded,
+            numbered: false,
+            configured,
+            numbered: false
+        ))
+    }
+
     @Test func assignChordWritesValidTwoStrokeChord() async throws {
         // WHY: assignChord is the recorder's onChord path for chord-capable
         // actions (wired from ShortcutListRowView). Only its rejection branches
@@ -390,7 +537,7 @@ import CmuxSettings
         let storeBindings = await store.value(for: catalog.shortcuts.bindings)
         #expect(storeBindings[action.rawValue] == chord)
         // Happy path clears chord-mode arming and leaves no rejection state.
-        #expect(!model.chordModeActions.contains(action.rawValue))
+        #expect(model.chordModeOverrides[action.rawValue] == nil)
         #expect(!model.numberedDigitRejections.contains(action.rawValue))
         #expect(model.conflictRejections[action.rawValue] == nil)
     }

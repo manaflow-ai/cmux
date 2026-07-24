@@ -7,6 +7,7 @@ struct ShortcutListRowSnapshot: Equatable {
     let title: String
     let subtitle: String?
     let placeholder: String
+    let showsChordModeButton: Bool
     let chordsEnabled: Bool
     let hasPendingRejection: Bool
     let firstStrokeRequiresModifier: Bool

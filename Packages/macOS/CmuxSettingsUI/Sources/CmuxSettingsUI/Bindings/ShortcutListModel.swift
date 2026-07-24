@@ -14,7 +14,7 @@ final class ShortcutListModel {
     private(set) var legacyBindings: [String: StoredShortcut]
     private(set) var whenOverrideClauses: [String: ShortcutWhenClause] = [:]
     private(set) var whenOverrideRawStrings: [String: String] = [:]
-    private(set) var chordModeActions: Set<String> = []
+    private(set) var chordModeOverrides: [String: Bool] = [:]
     private(set) var restoreShortcuts: [String: StoredShortcut] = [:]
     private(set) var bareKeyRejections: Set<String> = []
     /// Per-action set marking a numbered action rejected for a non-`1…9` key.
@@ -111,12 +111,8 @@ final class ShortcutListModel {
         latestBindings[action.rawValue] ?? legacyBindings[action.rawValue] ?? action.defaultShortcut
     }
 
-    /// Whether `action` is currently unbound but has a cached stroke available to
-    /// restore (drives the X → restore button swap).
-    func canRestore(for action: ShortcutAction) -> Bool {
-        let eff = effective(for: action)
-        let isUnbound = eff?.isUnbound ?? true
-        return isUnbound && restoreShortcuts[action.rawValue] != nil
+    func setChordModeOverride(_ enabled: Bool?, for action: ShortcutAction) {
+        chordModeOverrides[action.rawValue] = enabled
     }
 
     /// The red validation-banner text for `action` (bare-key, numbered-digit, or
@@ -238,10 +234,10 @@ final class ShortcutListModel {
             ) else { continue }
             let effective = effective(for: other)
             guard let effective, !effective.isUnbound else { continue }
-            if numberedAwareStrokesConflict(
-                stroke.first,
+            if shortcutSequencesConflict(
+                stroke,
                 numbered: action.usesNumberedDigitMatching,
-                effective.first,
+                effective,
                 numbered: other.usesNumberedDigitMatching
             ) {
                 return other
@@ -322,10 +318,12 @@ final class ShortcutListModel {
             rejectedConflictShortcuts[action.rawValue] = proposed
             bareKeyRejections.remove(action.rawValue)
             numberedDigitRejections.remove(action.rawValue)
+            chordModeOverrides.removeValue(forKey: action.rawValue)
             return
         }
         var updated = latestBindings
         updated[action.rawValue] = proposed
+        chordModeOverrides.removeValue(forKey: action.rawValue)
         restoreShortcuts.removeValue(forKey: action.rawValue)
         bareKeyRejections.remove(action.rawValue)
         numberedDigitRejections.remove(action.rawValue)
@@ -339,17 +337,17 @@ final class ShortcutListModel {
     /// conflicts with another binding.
     func assignChord(_ chord: StoredShortcut, to action: ShortcutAction) async {
         guard action.allowsChordShortcut else {
-            chordModeActions.remove(action.rawValue)
+            chordModeOverrides.removeValue(forKey: action.rawValue)
             return
         }
         guard action.allowsBareFirstStroke || chord.first.hasAnyModifier else {
             markBareKeyRejected(action)
-            chordModeActions.remove(action.rawValue)
+            chordModeOverrides.removeValue(forKey: action.rawValue)
             return
         }
         guard let proposed = normalizedNumberedShortcutIfNeeded(chord, for: action) else {
             numberedDigitRejections.insert(action.rawValue)
-            chordModeActions.remove(action.rawValue)
+            chordModeOverrides.removeValue(forKey: action.rawValue)
             bareKeyRejections.remove(action.rawValue)
             conflictRejections.removeValue(forKey: action.rawValue)
             rejectedConflictShortcuts.removeValue(forKey: action.rawValue)
@@ -358,14 +356,14 @@ final class ShortcutListModel {
         if let conflict = detectConflict(for: action, stroke: proposed) {
             conflictRejections[action.rawValue] = conflict
             rejectedConflictShortcuts[action.rawValue] = proposed
-            chordModeActions.remove(action.rawValue)
+            chordModeOverrides.removeValue(forKey: action.rawValue)
             bareKeyRejections.remove(action.rawValue)
             numberedDigitRejections.remove(action.rawValue)
             return
         }
         var updated = latestBindings
         updated[action.rawValue] = proposed
-        chordModeActions.remove(action.rawValue)
+        chordModeOverrides.removeValue(forKey: action.rawValue)
         restoreShortcuts.removeValue(forKey: action.rawValue)
         bareKeyRejections.remove(action.rawValue)
         numberedDigitRejections.remove(action.rawValue)
@@ -378,6 +376,7 @@ final class ShortcutListModel {
     func clearBinding(for action: ShortcutAction) async {
         var updated = latestBindings
         updated[action.rawValue] = StoredShortcut.unbound
+        chordModeOverrides.removeValue(forKey: action.rawValue)
         await write(updated, clearingLegacyFor: action)
     }
 
@@ -385,6 +384,7 @@ final class ShortcutListModel {
     func restoreBinding(_ shortcut: StoredShortcut, for action: ShortcutAction) async {
         var updated = latestBindings
         updated[action.rawValue] = shortcut
+        chordModeOverrides.removeValue(forKey: action.rawValue)
         restoreShortcuts.removeValue(forKey: action.rawValue)
         bareKeyRejections.remove(action.rawValue)
         numberedDigitRejections.remove(action.rawValue)
@@ -396,6 +396,7 @@ final class ShortcutListModel {
     /// Clears every override and all in-memory rejection/restore state — the
     /// "Reset Defaults" action.
     func resetAll() async {
+        chordModeOverrides.removeAll()
         restoreShortcuts.removeAll()
         bareKeyRejections.removeAll()
         numberedDigitRejections.removeAll()

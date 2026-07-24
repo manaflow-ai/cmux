@@ -1115,6 +1115,7 @@
     "keyboardShortcuts": {
       "title": "Skróty klawiszowe",
       "description": "Wszystkie skróty klawiszowe dostępne w cmux, pogrupowane według kategorii.",
+      "sequenceSeparator": "potem",
       "metaDescription": "Wszystkie skróty klawiszowe cmux dla workspace'ów, surface'ów, dzielonych paneli, przeglądarki, powiadomień, wyszukiwania i zarządzania oknami na macOS.",
       "searchPlaceholder": "Szukaj skrótów...",
       "searchLabel": "Szukaj skrótów klawiszowych",

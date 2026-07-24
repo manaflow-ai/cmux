@@ -5,13 +5,132 @@ export type LocalizedText = {
   ja: string;
 } & Partial<Record<Exclude<Locale, "en" | "ja">, string>>;
 
+type ResizeSplitDirection = "left" | "right" | "up" | "down";
+
+const resizeSplitDescriptions = {
+  left: {
+    en: "Resize split left",
+    ja: "分割を左にリサイズ",
+    "zh-CN": "向左调整分割大小",
+    "zh-TW": "向左調整分割大小",
+    ko: "분할 크기를 왼쪽으로 조정",
+    de: "Teilung nach links anpassen",
+    es: "Redimensionar la división hacia la izquierda",
+    fr: "Redimensionner la division vers la gauche",
+    it: "Ridimensiona la divisione verso sinistra",
+    da: "Tilpas opdelingen mod venstre",
+    pl: "Zmień rozmiar podziału w lewo",
+    ru: "Изменить размер разделения влево",
+    bs: "Promijeni veličinu podjele ulijevo",
+    ar: "تغيير حجم الجزء نحو اليسار",
+    no: "Endre størrelsen på delingen mot venstre",
+    "pt-BR": "Redimensionar a divisão para a esquerda",
+    th: "ปรับขนาดช่องแบ่งไปทางซ้าย",
+    tr: "Bölmeyi sola doğru yeniden boyutlandır",
+    km: "ប្ដូរទំហំផ្នែកបែងចែកទៅឆ្វេង",
+    uk: "Змінити розмір поділу вліво",
+  },
+  right: {
+    en: "Resize split right",
+    ja: "分割を右にリサイズ",
+    "zh-CN": "向右调整分割大小",
+    "zh-TW": "向右調整分割大小",
+    ko: "분할 크기를 오른쪽으로 조정",
+    de: "Teilung nach rechts anpassen",
+    es: "Redimensionar la división hacia la derecha",
+    fr: "Redimensionner la division vers la droite",
+    it: "Ridimensiona la divisione verso destra",
+    da: "Tilpas opdelingen mod højre",
+    pl: "Zmień rozmiar podziału w prawo",
+    ru: "Изменить размер разделения вправо",
+    bs: "Promijeni veličinu podjele udesno",
+    ar: "تغيير حجم الجزء نحو اليمين",
+    no: "Endre størrelsen på delingen mot høyre",
+    "pt-BR": "Redimensionar a divisão para a direita",
+    th: "ปรับขนาดช่องแบ่งไปทางขวา",
+    tr: "Bölmeyi sağa doğru yeniden boyutlandır",
+    km: "ប្ដូរទំហំផ្នែកបែងចែកទៅស្ដាំ",
+    uk: "Змінити розмір поділу вправо",
+  },
+  up: {
+    en: "Resize split up",
+    ja: "分割を上にリサイズ",
+    "zh-CN": "向上调整分割大小",
+    "zh-TW": "向上調整分割大小",
+    ko: "분할 크기를 위쪽으로 조정",
+    de: "Teilung nach oben anpassen",
+    es: "Redimensionar la división hacia arriba",
+    fr: "Redimensionner la division vers le haut",
+    it: "Ridimensiona la divisione verso l'alto",
+    da: "Tilpas opdelingen opad",
+    pl: "Zmień rozmiar podziału w górę",
+    ru: "Изменить размер разделения вверх",
+    bs: "Promijeni veličinu podjele prema gore",
+    ar: "تغيير حجم الجزء نحو الأعلى",
+    no: "Endre størrelsen på delingen oppover",
+    "pt-BR": "Redimensionar a divisão para cima",
+    th: "ปรับขนาดช่องแบ่งขึ้น",
+    tr: "Bölmeyi yukarı doğru yeniden boyutlandır",
+    km: "ប្ដូរទំហំផ្នែកបែងចែកឡើងលើ",
+    uk: "Змінити розмір поділу вгору",
+  },
+  down: {
+    en: "Resize split down",
+    ja: "分割を下にリサイズ",
+    "zh-CN": "向下调整分割大小",
+    "zh-TW": "向下調整分割大小",
+    ko: "분할 크기를 아래쪽으로 조정",
+    de: "Teilung nach unten anpassen",
+    es: "Redimensionar la división hacia abajo",
+    fr: "Redimensionner la division vers le bas",
+    it: "Ridimensiona la divisione verso il basso",
+    da: "Tilpas opdelingen nedad",
+    pl: "Zmień rozmiar podziału w dół",
+    ru: "Изменить размер разделения вниз",
+    bs: "Promijeni veličinu podjele prema dolje",
+    ar: "تغيير حجم الجزء نحو الأسفل",
+    no: "Endre størrelsen på delingen nedover",
+    "pt-BR": "Redimensionar a divisão para baixo",
+    th: "ปรับขนาดช่องแบ่งลง",
+    tr: "Bölmeyi aşağı doğru yeniden boyutlandır",
+    km: "ប្ដូរទំហំផ្នែកបែងចែកចុះក្រោម",
+    uk: "Змінити розмір поділу вниз",
+  },
+} satisfies Record<ResizeSplitDirection, Record<Locale, string>>;
+
+const resizeSplitUnboundNote = {
+  en: "unbound by default",
+  ja: "デフォルトでは未割り当て",
+  "zh-CN": "默认未绑定",
+  "zh-TW": "預設未綁定",
+  ko: "기본적으로 할당되지 않음",
+  de: "standardmäßig nicht belegt",
+  es: "sin asignar de forma predeterminada",
+  fr: "non attribué par défaut",
+  it: "non assegnato per impostazione predefinita",
+  da: "ikke tildelt som standard",
+  pl: "domyślnie nieprzypisany",
+  ru: "по умолчанию не назначено",
+  bs: "podrazumijevano nije dodijeljeno",
+  ar: "غير معيّن افتراضيًا",
+  no: "ikke tilordnet som standard",
+  "pt-BR": "não atribuído por padrão",
+  th: "ไม่ได้กำหนดไว้โดยค่าเริ่มต้น",
+  tr: "varsayılan olarak atanmamış",
+  km: "មិនបានកំណត់តាមលំនាំដើម",
+  uk: "типово не призначено",
+} satisfies Record<Locale, string>;
+
 export function localizedShortcutText(text: LocalizedText, locale: string) {
   return text[locale as keyof LocalizedText] ?? (locale.startsWith("ja") ? text.ja : text.en);
 }
 
+export type ShortcutSequence = string[][];
+
 export type Shortcut = {
   id: string;
   combos: string[][];
+  chordCombos?: ShortcutSequence[];
   description: LocalizedText;
   note?: LocalizedText;
   configValue?: string;
@@ -23,6 +142,10 @@ export type ShortcutCategory = {
   blurbKey?: string;
   shortcuts: Shortcut[];
 };
+
+export function shortcutSequences(shortcut: Shortcut): ShortcutSequence[] {
+  return shortcut.chordCombos ?? shortcut.combos.map((combo) => [combo]);
+}
 
 export const shortcutCategories: ShortcutCategory[] = [
   {
@@ -296,6 +419,30 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "focusRight", combos: [["⌥", "⌘", "→"]], description: { en: "Focus pane right", ja: "右のペインにフォーカス" } },
       { id: "focusUp", combos: [["⌥", "⌘", "↑"]], description: { en: "Focus pane up", ja: "上のペインにフォーカス" } },
       { id: "focusDown", combos: [["⌥", "⌘", "↓"]], description: { en: "Focus pane down", ja: "下のペインにフォーカス" } },
+      {
+        id: "resizeSplitLeft",
+        combos: [],
+        description: resizeSplitDescriptions.left,
+        note: resizeSplitUnboundNote,
+      },
+      {
+        id: "resizeSplitRight",
+        combos: [],
+        description: resizeSplitDescriptions.right,
+        note: resizeSplitUnboundNote,
+      },
+      {
+        id: "resizeSplitUp",
+        combos: [],
+        description: resizeSplitDescriptions.up,
+        note: resizeSplitUnboundNote,
+      },
+      {
+        id: "resizeSplitDown",
+        combos: [],
+        description: resizeSplitDescriptions.down,
+        note: resizeSplitUnboundNote,
+      },
       { id: "splitRight", combos: [["⌘", "D"]], description: { en: "Split right", ja: "右に分割" } },
       { id: "splitDown", combos: [["⌘", "⇧", "D"]], description: { en: "Split down", ja: "下に分割" } },
       { id: "splitBrowserRight", combos: [["⌥", "⌘", "D"]], description: { en: "Split browser right", ja: "右にブラウザ分割" } },
@@ -479,7 +626,8 @@ export const shortcutCategories: ShortcutCategory[] = [
       },
       {
         id: "diffViewerScrollToTop",
-        combos: [["G", "G"]],
+        combos: [],
+        chordCombos: [[["G"], ["G"]]],
         description: { en: "Scroll diff to top", ja: "差分の先頭へスクロール" },
         note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
         configValue: '["g", "g"]',
@@ -492,14 +640,16 @@ export const shortcutCategories: ShortcutCategory[] = [
       },
       {
         id: "diffViewerNextFile",
-        combos: [["]", "F"]],
+        combos: [],
+        chordCombos: [[["]"], ["F"]]],
         description: { en: "Jump to next diff file", ja: "次の差分ファイルへ移動" },
         note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
         configValue: '["]", "f"]',
       },
       {
         id: "diffViewerPreviousFile",
-        combos: [["[", "F"]],
+        combos: [],
+        chordCombos: [[["["], ["F"]]],
         description: { en: "Jump to previous diff file", ja: "前の差分ファイルへ移動" },
         note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
         configValue: '["[", "f"]]',

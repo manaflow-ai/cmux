@@ -1114,6 +1114,7 @@
     "keyboardShortcuts": {
       "title": "快捷键",
       "description": "cmux 中所有可用的快捷键，按类别分组。",
+      "sequenceSeparator": "然后",
       "metaDescription": "cmux 的所有 macOS 快捷键，涵盖工作区、surface、分屏面板、浏览器、通知、查找和窗口管理。",
       "metaDescriptionShort": "cmux 的所有 macOS 快捷键，涵盖工作区、surface、分屏面板、浏览器、通知、查找、可配置的键盘操作、搜索流程与窗口导航。",
       "searchPlaceholder": "搜索快捷键...",

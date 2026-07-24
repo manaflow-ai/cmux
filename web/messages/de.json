@@ -1114,6 +1114,7 @@
     "keyboardShortcuts": {
       "title": "Tastaturkürzel",
       "description": "Alle in cmux verfügbaren Tastaturkürzel, nach Kategorie gruppiert.",
+      "sequenceSeparator": "dann",
       "metaDescription": "Alle cmux-Tastaturkürzel für Workspaces, Oberflächen, geteilte Bereiche, Browser, Benachrichtigungen, Suche und Fensterverwaltung unter macOS.",
       "searchPlaceholder": "Kürzel suchen...",
       "searchLabel": "Tastaturkürzel durchsuchen",

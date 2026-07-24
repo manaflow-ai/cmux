@@ -34,4 +34,24 @@ public struct ShortcutStroke: Sendable, Equatable, Hashable, Codable {
 
     /// True when at least one of `cmd`, `shift`, `opt`, or `ctrl` is set.
     public var hasAnyModifier: Bool { command || shift || option || control }
+
+    /// Canonical key token used when comparing stored shortcut strokes.
+    ///
+    /// AppKit reports arrow-key events as private-use function-key scalars,
+    /// while parsed config and built-in shortcuts use visible arrow glyphs.
+    /// Both representations identify the same physical key.
+    public var canonicalKeyToken: String {
+        Self.canonicalKeyToken(for: key)
+    }
+
+    /// Returns the canonical token for a key string from either storage model.
+    public static func canonicalKeyToken(for key: String) -> String {
+        switch key {
+        case "\u{F702}": "←"
+        case "\u{F703}": "→"
+        case "\u{F700}": "↑"
+        case "\u{F701}": "↓"
+        default: key
+        }
+    }
 }
