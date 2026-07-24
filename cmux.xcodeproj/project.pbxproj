@@ -8734,7 +8734,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			files = (
 				D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */,
 				A76110010000000000000001 /* AgentHookNotificationPolicy.swift in Sources */,
-				E8628A010000000000000001 /* AgentStatusCloseoutRegressionTests.swift in Sources */,
 				A8628B0E000000000000000E /* AgentStatusPIDNamespace.swift in Sources */,
 				805500000000000000000004 /* BrowserValueTextFormatter.swift in Sources */,
 				D8628D060000000000000006 /* ClaudeHookSessionStore+CodexPermission.swift in Sources */,
@@ -8931,6 +8930,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D3610B020000000000000001 /* AgentSessionAutoResumeSwiftTests.swift in Sources */,
 				A9E030000000000000000002 /* AgentSessionSocketSurfaceTests.swift in Sources */,
 				A9E050000000000000000002 /* AgentSessionWebRendererTests.swift in Sources */,
+				E8628A010000000000000001 /* AgentStatusCloseoutRegressionTests.swift in Sources */,
 				A8628B0F000000000000000F /* AgentStatusPIDNamespace.swift in Sources */,
 				A8628A010000000000000001 /* AgentStatusReconcilerTests.swift in Sources */,
 				A8628E010000000000000001 /* AgentStatusReconciliationRecoveryTests.swift in Sources */,
