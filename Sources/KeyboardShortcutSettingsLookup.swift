@@ -57,6 +57,14 @@ extension KeyboardShortcutSettings {
         settingsFileStore.isManagedByFile(action)
     }
 
+    /// Whether the user persisted a binding for `action`, either in cmux.json
+    /// or the legacy UserDefaults store. Used to preserve the precedence of an
+    /// existing binding when a newly introduced default reuses its keystroke.
+    static func hasExplicitShortcutOverride(for action: Action) -> Bool {
+        settingsFileStore.override(for: action) != nil
+            || UserDefaults.standard.object(forKey: action.defaultsKey) != nil
+    }
+
     /// The effective focus predicate gating `action`: the `shortcuts.when`
     /// override from cmux.json if present, otherwise the action's built-in
     /// ``KeyboardShortcutSettings/Action/shortcutContext`` expressed as a

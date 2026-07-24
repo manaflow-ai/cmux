@@ -13838,17 +13838,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return true
         }
-        if matchConfiguredShortcut(event: event, action: .increaseWorkspaceTerminalFontSize) {
-            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            routedManager?.selectedWorkspace?.adjustTerminalFontSizes(byRuntimePoints: 1)
+        let increaseWorkspaceTerminalFontSizeMatches = matchConfiguredShortcut(
+            event: event,
+            action: .increaseWorkspaceTerminalFontSize
+        )
+        let decreaseWorkspaceTerminalFontSizeMatches = matchConfiguredShortcut(
+            event: event,
+            action: .decreaseWorkspaceTerminalFontSize
+        )
+        let equalizeSplitsMatches = matchConfiguredShortcut(event: event, action: .equalizeSplits)
+        let explicitFontSizeActionMatches =
+            (
+                increaseWorkspaceTerminalFontSizeMatches
+                && KeyboardShortcutSettings.hasExplicitShortcutOverride(
+                    for: .increaseWorkspaceTerminalFontSize
+                )
+            )
+            || (
+                decreaseWorkspaceTerminalFontSizeMatches
+                && KeyboardShortcutSettings.hasExplicitShortcutOverride(
+                    for: .decreaseWorkspaceTerminalFontSize
+                )
+            )
+        if equalizeSplitsMatches,
+           KeyboardShortcutSettings.hasExplicitShortcutOverride(for: .equalizeSplits),
+           !explicitFontSizeActionMatches {
+            performEqualizeSplitsShortcut()
             return true
         }
-        if matchConfiguredShortcut(event: event, action: .decreaseWorkspaceTerminalFontSize) {
-            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            routedManager?.selectedWorkspace?.adjustTerminalFontSizes(byRuntimePoints: -1)
+        if increaseWorkspaceTerminalFontSizeMatches || decreaseWorkspaceTerminalFontSizeMatches {
+            let routedContext = preferredMainWindowContextForShortcutRouting(event: event)
+            let routedManager = routedContext?.tabManager ?? tabManager
+            let routedWindowDock = routedContext?.existingWindowDock()
+                ?? routedManager.flatMap { existingWindowDock(for: $0) }
+            let additionalTerminalPanels = routedWindowDock?.panels.values.compactMap {
+                $0 as? TerminalPanel
+            } ?? []
+            let delta: Float32 = increaseWorkspaceTerminalFontSizeMatches ? 1 : -1
+            routedManager?.selectedWorkspace?.adjustTerminalFontSizes(
+                byRuntimePoints: delta,
+                additionalTerminalPanels: additionalTerminalPanels
+            )
             return true
         }
-        if matchConfiguredShortcut(event: event, action: .equalizeSplits) { performEqualizeSplitsShortcut(); return true }
+        if equalizeSplitsMatches { performEqualizeSplitsShortcut(); return true }
         // Canvas layout actions share one executor with the palette, View
         // menu, and the canvas.* socket verbs.
         for action in KeyboardShortcutSettings.Action.canvasActions {
@@ -15564,6 +15597,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         action != .showHideAllWindows
             && action != .globalSearch
             && action != .clearScreenKeepScrollback
+            && action != .increaseWorkspaceTerminalFontSize
+            && action != .decreaseWorkspaceTerminalFontSize
             && action != .fileExplorerOpenSelection
             && action != .fileExplorerOpenSelectionFinderAlias
     }

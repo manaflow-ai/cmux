@@ -6837,6 +6837,18 @@ final class Workspace: Identifiable, ObservableObject {
         return nil
     }
 
+    /// Remote tmux display surfaces need the workspace's durable font lineage
+    /// without inheriting a local terminal's command, environment, or other
+    /// process configuration.
+    private func inheritedTerminalFontSizeConfig() -> CmuxSurfaceConfigTemplate? {
+        guard let fontSizeLineage = inheritedTerminalConfig()?.fontSizeLineage else {
+            return nil
+        }
+        var config = CmuxSurfaceConfigTemplate()
+        config.fontSizeLineage = fontSizeLineage
+        return config
+    }
+
     /// Create a new split with a terminal panel
     @discardableResult
     func newTerminalSplit(
@@ -7388,7 +7400,7 @@ final class Workspace: Identifiable, ObservableObject {
         let surface = TerminalSurface(
             tabId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
+            configTemplate: inheritedTerminalFontSizeConfig(),
             manualIO: true,
             manualInputHandler: onInput
         )
@@ -7425,7 +7437,7 @@ final class Workspace: Identifiable, ObservableObject {
             let surface = TerminalSurface(
                 tabId: id,
                 context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-                configTemplate: nil,
+                configTemplate: inheritedTerminalFontSizeConfig(),
                 manualIO: true,
                 manualInputHandler: onInput
             )

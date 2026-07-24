@@ -307,8 +307,12 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                         return
                     }
                     XCTAssertEqual(updatedSplit.dividerPosition, 0.5, accuracy: 0.000_1)
-                    XCTAssertNil(firstPanel.surface.fontSizeLineageSnapshot())
-                    XCTAssertNil(secondPanel.surface.fontSizeLineageSnapshot())
+                    XCTAssertFalse(
+                        firstPanel.surface.fontSizeLineageSnapshot()?.isExplicitOverride ?? false
+                    )
+                    XCTAssertFalse(
+                        secondPanel.surface.fontSizeLineageSnapshot()?.isExplicitOverride ?? false
+                    )
                 }
             }
         }

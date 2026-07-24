@@ -61,18 +61,27 @@ func cmuxInheritedSurfaceConfig(
 }
 
 extension Workspace {
-    /// Adjusts every terminal owned by this workspace, including its Dock.
+    /// Adjusts every terminal owned by this workspace, including nested remote
+    /// tmux mirrors, its legacy per-workspace Dock, and any window-owned panels
+    /// supplied by the shortcut router.
     ///
     /// Each surface retains its relative size. Deferred and hibernated surfaces
     /// receive the same point delta through their durable font-size lineage.
     @discardableResult
-    func adjustTerminalFontSizes(byRuntimePoints deltaRuntimePoints: Float32) -> Int {
+    func adjustTerminalFontSizes(
+        byRuntimePoints deltaRuntimePoints: Float32,
+        additionalTerminalPanels: [TerminalPanel] = []
+    ) -> Int {
         guard deltaRuntimePoints.isFinite, deltaRuntimePoints != 0 else { return 0 }
 
         var terminalPanels = panels.values.compactMap { $0 as? TerminalPanel }
         if let dock = _dockSplit {
             terminalPanels.append(contentsOf: dock.panels.values.compactMap { $0 as? TerminalPanel })
         }
+        for mirror in remoteTmuxWindowMirrors.values {
+            terminalPanels.append(contentsOf: mirror.panelsByPaneId.values)
+        }
+        terminalPanels.append(contentsOf: additionalTerminalPanels)
 
         var seenPanelIds: Set<UUID> = []
         terminalPanels = terminalPanels
