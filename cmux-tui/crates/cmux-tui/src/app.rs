@@ -35,7 +35,7 @@ use ghostty_vt::{
     Screen,
 };
 use ratatui::Terminal as RatatuiTerminal;
-use ratatui::backend::CrosstermBackend;
+use ratatui::backend::{Backend, CrosstermBackend};
 
 use crate::browser_input::{
     BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind, BrowserResizeFailure,
@@ -4052,11 +4052,14 @@ impl App {
         }
     }
 
-    fn event_loop(
+    fn event_loop<B: Backend>(
         &mut self,
-        terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::Stdout>>,
+        terminal: &mut RatatuiTerminal<B>,
         rx: Receiver<AppEvent>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<()>
+    where
+        B::Error: Send + Sync + 'static,
+    {
         // Initial layout + draw.
         let size = terminal.size()?;
         self.sync_layout((size.width, size.height));
@@ -4573,11 +4576,14 @@ impl App {
         true
     }
 
-    fn render_action(
+    fn render_action<B: Backend>(
         &mut self,
-        terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::Stdout>>,
+        terminal: &mut RatatuiTerminal<B>,
         action: RenderAction,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<()>
+    where
+        B::Error: Send + Sync + 'static,
+    {
         match action {
             RenderAction::Draw => {
                 let size = terminal.size()?;
@@ -5039,10 +5045,10 @@ impl App {
         }
     }
 
-    fn draw_terminal(
-        &mut self,
-        terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::Stdout>>,
-    ) -> anyhow::Result<()> {
+    fn draw_terminal<B: Backend>(&mut self, terminal: &mut RatatuiTerminal<B>) -> anyhow::Result<()>
+    where
+        B::Error: Send + Sync + 'static,
+    {
         let lock = self.stdout_lock.clone();
         let _guard = lock.lock().unwrap();
         terminal.draw(|f| crate::ui::draw(self, f))?;
