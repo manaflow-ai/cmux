@@ -121,11 +121,20 @@ final class WorkspaceFloatingDockStashController {
         items: [WorkspaceFloatingDockStashItem],
         onRestore: @escaping (UUID) -> Void
     ) {
-        self.items = items.sorted {
+        let sortedItems = items.sorted {
             if $0.stashedAt == $1.stashedAt { return $0.id.uuidString < $1.id.uuidString }
             return $0.stashedAt > $1.stashedAt
         }
         self.onRestore = onRestore
+        guard sortedItems != self.items else {
+            if sortedItems.isEmpty {
+                hide()
+            } else {
+                reposition()
+            }
+            return
+        }
+        self.items = sortedItems
 
         guard !self.items.isEmpty else {
             hide()

@@ -278,11 +278,11 @@ extension AppDelegate {
         let context = mainWindowContexts.values.first { $0.tabManager === tabManager }
         if isSelectedWorkspace {
             context?.installWorkspaceFloatingDockPresenterIfNeeded()
+            context?.workspaceFloatingDockPresenter?.prepareRestoreAnimations(
+                for: stashedDocks.map(\.id)
+            )
         }
         stashedDocks.forEach {
-            if isSelectedWorkspace {
-                context?.workspaceFloatingDockPresenter?.prepareRestoreAnimation(for: $0.id)
-            }
             $0.setStashed(false)
         }
         refreshWorkspaceFloatingDocks(

@@ -23,15 +23,15 @@ final class WorkspaceFloatingDockPresenter {
     ) {
         guard let parentWindow, let tabManager else { return }
         let selectedWorkspace = tabManager.selectedWorkspace
-        let activeDocks = selectedWorkspace?.floatingDocks.filter { !$0.isStashed } ?? []
-        let liveIds = Set(activeDocks.map(\.id))
+        let workspaceDocks = selectedWorkspace?.floatingDocks ?? []
+        let liveIds = Set(workspaceDocks.map(\.id))
         let staleIds = controllers.keys.filter { !liveIds.contains($0) }
         for id in staleIds {
             controllers.removeValue(forKey: id)?.teardown()
         }
 
         if let workspace = selectedWorkspace {
-            for dock in activeDocks {
+            for dock in workspaceDocks {
                 let wasCreated = controllers[dock.id] == nil
                 let controller = controllers[dock.id] ?? {
                     let created = WorkspaceFloatingDockWindowController(
@@ -76,6 +76,12 @@ final class WorkspaceFloatingDockPresenter {
                         controller.cascade(relativeTo: sourceWindow)
                     }
                 }
+                guard !dock.isStashed else {
+                    // Keep the native window, SwiftUI host, and Bonsplit tree
+                    // alive. The stash rail is only a restore handle.
+                    controller.hide()
+                    continue
+                }
                 controller.show(
                     focus: focusDockId == dock.id,
                     animatedFrom: pendingRestoreAnimationFrames.removeValue(forKey: dock.id),
@@ -115,9 +121,15 @@ final class WorkspaceFloatingDockPresenter {
     }
 
     func prepareRestoreAnimation(for dockId: UUID) {
+        prepareRestoreAnimations(for: [dockId])
+    }
+
+    func prepareRestoreAnimations(for dockIds: [UUID]) {
         updateStashRail(for: tabManager?.selectedWorkspace)
-        guard let sourceFrame = stashController.animationTargetFrame(for: dockId) else { return }
-        pendingRestoreAnimationFrames[dockId] = sourceFrame
+        for dockId in dockIds {
+            guard let sourceFrame = stashController.animationTargetFrame(for: dockId) else { continue }
+            pendingRestoreAnimationFrames[dockId] = sourceFrame
+        }
     }
 
     func beginScreenConfigurationChange() {
