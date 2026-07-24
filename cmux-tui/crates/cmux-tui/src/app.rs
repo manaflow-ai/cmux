@@ -5188,6 +5188,12 @@ impl App {
         let lock = self.stdout_lock.clone();
         let _guard = lock.lock().unwrap();
         terminal.draw(|f| crate::ui::draw(self, f))?;
+        if self.graphics_host_scene_reset_pending {
+            if let Some(writer) = &self.graphics_writer {
+                writer.invalidate_host_scene();
+            }
+            self.graphics_host_scene_reset_pending = false;
+        }
         if let Some(sequence) =
             outer_cursor_escape_if_changed(self.applied_outer_cursor, self.desired_outer_cursor)
         {
@@ -5245,10 +5251,6 @@ impl App {
         let placements = self.graphic_placements();
         self.mark_graphics_clean(&placements);
         if let Some(writer) = &self.graphics_writer {
-            if self.graphics_host_scene_reset_pending {
-                writer.invalidate_host_scene();
-                self.graphics_host_scene_reset_pending = false;
-            }
             writer.submit(placements);
         }
         Ok(())

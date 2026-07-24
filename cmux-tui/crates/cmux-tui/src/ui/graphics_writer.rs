@@ -257,7 +257,14 @@ fn writer_loop<W>(
                 continue;
             };
             for batch in graphics.frame_batches(&placements) {
-                if !write_batch(&mut output, &stdout_lock, &control, &batch) {
+                if !write_batch(
+                    &mut output,
+                    &stdout_lock,
+                    &slot,
+                    update.host_scene_epoch,
+                    &control,
+                    &batch,
+                ) {
                     break 'writer;
                 }
             }
@@ -271,7 +278,14 @@ fn writer_loop<W>(
     }
     if !control.is_cancelled() {
         for batch in graphics.frame_batches(&[]) {
-            if !write_batch(&mut output, &stdout_lock, &control, &batch) {
+            if !write_batch(
+                &mut output,
+                &stdout_lock,
+                &slot,
+                applied_host_scene_epoch,
+                &control,
+                &batch,
+            ) {
                 break;
             }
         }
@@ -281,6 +295,8 @@ fn writer_loop<W>(
 fn write_batch<W: Write>(
     output: &mut W,
     stdout_lock: &Arc<Mutex<()>>,
+    slot: &Arc<Mutex<PendingGraphics>>,
+    host_scene_epoch: u64,
     control: &WriterControl,
     batch: &[u8],
 ) -> bool {
@@ -292,6 +308,9 @@ fn write_batch<W: Write>(
     let _guard = stdout_lock.lock().unwrap();
     if control.is_cancelled() {
         return false;
+    }
+    if slot.lock().unwrap().host_scene_epoch != host_scene_epoch {
+        return true;
     }
     output.write_all(batch).and_then(|_| output.flush()).is_ok()
 }
