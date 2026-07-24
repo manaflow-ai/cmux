@@ -40,6 +40,14 @@ struct HideComputersVerifierView: View {
                             defaultValue: "allHidden="
                         ) + "\(result.allHidden)")
                         Text(String(
+                            localized: "mobile.hideComputersVerifier.allHiddenKnownPairedMac",
+                            defaultValue: "allHiddenKnownPairedMac="
+                        ) + "\(result.allHiddenKnownPairedMac)")
+                        Text(String(
+                            localized: "mobile.hideComputersVerifier.allHiddenNormalEmpty",
+                            defaultValue: "allHiddenNormalEmpty="
+                        ) + "\(result.allHiddenNormalEmpty)")
+                        Text(String(
                             localized: "mobile.hideComputersVerifier.refreshPreservedEmptyList",
                             defaultValue: "refreshPreservedEmptyList="
                         ) + "\(result.refreshPreservedEmptyList)")

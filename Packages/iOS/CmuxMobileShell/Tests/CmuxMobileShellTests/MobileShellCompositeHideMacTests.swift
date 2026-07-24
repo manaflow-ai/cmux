@@ -8,7 +8,28 @@ import Testing
 
 @MainActor
 @Suite struct MobileShellCompositeHideMacTests {
-    @Test func hidingLastVisibleMacClearsSavedMacHint() async throws {
+    #if DEBUG
+    @Test func hideVerifierProvesAllHiddenNormalShellContract() async throws {
+        let result = await MobileHideComputersVerifier(
+            evidenceFileName: "hide-computers-verifier-test-\(UUID().uuidString).json"
+        ).runAndPersist()
+        defer {
+            if let evidencePath = result.evidencePath {
+                try? FileManager.default.removeItem(atPath: evidencePath)
+            }
+        }
+
+        #expect(result.passed)
+        #expect(result.allHiddenKnownPairedMac)
+        #expect(result.allHiddenNormalEmpty)
+        let afterAllHide = try #require(result.checkpoints.first { $0.name == "after-all-hide" })
+        #expect(afterAllHide.hasKnownPairedMac)
+        #expect(afterAllHide.workspaceCount == 0)
+        #expect(afterAllHide.workspaceListStatus == "connected")
+    }
+    #endif
+
+    @Test func hidingLastVisibleMacKeepsSavedMacHintForHiddenComputer() async throws {
         let defaultsSuiteName = "hide-last-mac-hint-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: defaultsSuiteName))
         defaults.set(true, forKey: "cmux.mobile.hasKnownPairedMac")
@@ -32,7 +53,8 @@ import Testing
             pairedMacStore: pairedStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-a" },
-            pairingHintDefaults: defaults
+            pairingHintDefaults: defaults,
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
         )
         await store.loadPairedMacs()
         #expect(store.hasKnownPairedMac)
@@ -41,7 +63,155 @@ import Testing
 
         #expect(store.pairedMacs.isEmpty)
         #expect(store.displayPairedMacs.isEmpty)
+        #expect(store.hasHiddenComputers)
+        #expect(store.hiddenComputers.map(\.macDeviceID) == ["mac-a"])
+        #expect(store.hasKnownPairedMac)
+        #expect(store.workspaceListConnectionStatus == .connected)
+    }
+
+    @Test func rawDeviceIDMarkerMatchingExistingRowSurvivesMigration() async throws {
+        let defaultsSuiteName = "hidden-marker-hint-migration-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsSuiteName))
+        defaults.set(false, forKey: "cmux.mobile.hasKnownPairedMac")
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+        let hiddenStore = InMemoryPairedMacHiddenStore()
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "mac-a",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: true,
+                        instanceTag: "nightly"
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            pairingHintDefaults: defaults,
+            hiddenMacStore: hiddenStore
+        )
+        let scope = try #require(await store.currentScopeSnapshot())
+        await store.rememberHiddenMacDeviceID("mac-a", scope: scope)
         #expect(!store.hasKnownPairedMac)
+
+        await store.loadPairedMacs()
+
+        #expect(store.pairedMacs.isEmpty)
+        #expect(store.hasHiddenComputers)
+        #expect(store.hiddenComputers.map(\.instanceTag) == ["nightly"])
+        #expect(store.hasKnownPairedMac)
+        #expect(defaults.bool(forKey: "cmux.mobile.hasKnownPairedMac"))
+        #expect(await hiddenStore.load(scope: store.pairedMacScopeKey(scope)) == ["mac-a"])
+    }
+
+    @Test func pairingIDMarkerMatchingExistingRowSurvivesMigration() async throws {
+        let hiddenStore = InMemoryPairedMacHiddenStore()
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "mac-a",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: true,
+                        instanceTag: "nightly"
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            hiddenMacStore: hiddenStore
+        )
+        let scope = try #require(await store.currentScopeSnapshot())
+        let pairingID = MobilePairedMac.pairingID(
+            macDeviceID: "mac-a",
+            instanceTag: "nightly"
+        )
+        await store.rememberHiddenMacDeviceID(pairingID, scope: scope)
+
+        await store.loadPairedMacs()
+
+        let hidden = try #require(store.hiddenComputers.first)
+        #expect(store.pairedMacs.isEmpty)
+        #expect(hidden.id == pairingID)
+        #expect(hidden.macDeviceID == "mac-a")
+        #expect(hidden.instanceTag == "nightly")
+        #expect(await hiddenStore.load(scope: store.pairedMacScopeKey(scope)) == [pairingID])
+    }
+
+    @Test func rescanAndHideActiveMacDoesNotClearSavedMacHint() async throws {
+        let defaultsSuiteName = "rescan-hide-active-hint-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsSuiteName))
+        defaults.set(true, forKey: "cmux.mobile.hasKnownPairedMac")
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "mac-a",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: true
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            pairingHintDefaults: defaults,
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await store.loadPairedMacs()
+
+        store.disconnectAndHideActiveMac()
+
+        #expect(store.connectionState == .disconnected)
+        #expect(store.hasKnownPairedMac)
+        await store.hideMac(macDeviceID: "mac-a")
+        #expect(store.hasHiddenComputers)
+        #expect(store.hasKnownPairedMac)
+    }
+
+    @Test func signOutThenNeverPairedReconnectClearsSavedMacHint() async throws {
+        let defaultsSuiteName = "never-paired-hint-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsSuiteName))
+        defaults.set(true, forKey: "cmux.mobile.hasKnownPairedMac")
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: DelayedTeamPairedMacStore(recordsByTeam: [:], blockedTeams: []),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            pairingHintDefaults: defaults,
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+
+        store.signOut()
+        store.signIn()
+        #expect(!(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")))
+
+        #expect(!store.hasKnownPairedMac)
+        #expect(!store.hasHiddenComputers)
     }
 
     @Test func hideStoredMacFiltersOnlyExactAliasAndUnhideRestoresCustomization() async throws {
@@ -162,6 +332,40 @@ import Testing
         #expect(hideOps.isEmpty)
         #expect(store.pairedMacs.isEmpty)
         #expect(store.hiddenComputers.map(\.macDeviceID) == ["mac-a"])
+    }
+
+    @Test
+    func rowlessLegacyMarkerIsClearedOnLoad() async throws {
+        let hiddenStore = InMemoryPairedMacHiddenStore()
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: DelayedTeamPairedMacStore(
+                recordsByTeam: ["team-a": []],
+                blockedTeams: []
+            ),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            hiddenMacStore: hiddenStore
+        )
+        let scope = try #require(await store.currentScopeSnapshot())
+        let rowlessID = MobilePairedMac.pairingID(
+            macDeviceID: "mac-a",
+            instanceTag: "nightly"
+        )
+        await store.rememberHiddenMacDeviceID(
+            rowlessID,
+            scope: scope,
+            includeUserWideScope: true
+        )
+
+        await store.loadPairedMacs()
+
+        #expect(store.hiddenComputers.isEmpty)
+        #expect(!store.hasHiddenComputers)
+        let scopedKey = store.pairedMacScopeKey(scope)
+        let userWideKey = store.pairedMacScopeKey(store.userWideScope(from: scope))
+        #expect(await hiddenStore.load(scope: scopedKey).isEmpty)
+        #expect(await hiddenStore.load(scope: userWideKey).isEmpty)
     }
 
     @Test func hidingMacClearsAnonymousWorkspaceSnapshotOwnedByThatMac() async throws {
@@ -521,7 +725,8 @@ import Testing
         customColor: String? = nil,
         customIcon: String? = nil,
         routes: [CmxAttachRoute]? = nil,
-        teamID: String? = "team-a"
+        teamID: String? = "team-a",
+        instanceTag: String? = nil
     ) throws -> MobilePairedMac {
         MobilePairedMac(
             macDeviceID: id,
@@ -534,7 +739,8 @@ import Testing
             teamID: teamID,
             customName: customName,
             customColor: customColor,
-            customIcon: customIcon
+            customIcon: customIcon,
+            instanceTag: instanceTag
         )
     }
 

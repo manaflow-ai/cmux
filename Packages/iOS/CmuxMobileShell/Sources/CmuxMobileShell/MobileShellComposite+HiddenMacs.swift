@@ -1,6 +1,12 @@
 import CmuxMobilePairedMac
 import CmuxMobileShellModel
 import Foundation
+internal import OSLog
+
+private let hiddenMacsLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
+    category: "mobile-shell"
+)
 
 @MainActor
 extension MobileShellComposite {
@@ -29,9 +35,44 @@ extension MobileShellComposite {
         scope: MobileShellScopeSnapshot
     ) async -> [MobilePairedMac] {
         let hiddenIDs = await hiddenMacDeviceIDs(scope: scope)
+        return visibleStoredPairedMacs(from: loadedMacs, hiddenIDs: hiddenIDs)
+    }
+
+    func visibleStoredPairedMacs(
+        from loadedMacs: [MobilePairedMac],
+        hiddenIDs: Set<String>
+    ) -> [MobilePairedMac] {
         return loadedMacs.filter {
             !hiddenIDs.contains($0.id) && !hiddenIDs.contains($0.macDeviceID)
         }
+    }
+
+    /// Clears rowless markers written by the legacy delete flow.
+    ///
+    /// Both pairing ids and raw device ids were historically stored as markers,
+    /// so either form keeps the marker when it matches a local row.
+    func migrateLegacyHiddenMacMarkers(
+        loadedMacs: [MobilePairedMac],
+        hiddenIDs: Set<String>,
+        scope: MobileShellScopeSnapshot
+    ) async -> Set<String> {
+        let rowBackedIDs = Set(loadedMacs.flatMap { [$0.id, $0.macDeviceID] })
+        let rowlessIDs = hiddenIDs.subtracting(rowBackedIDs)
+        guard !rowlessIDs.isEmpty else { return hiddenIDs }
+
+        var scopeKeys = Set([pairedMacScopeKey(scope)])
+        if scope.teamID != nil {
+            scopeKeys.insert(pairedMacScopeKey(userWideScope(from: scope)))
+        }
+        for scopeKey in scopeKeys {
+            for rowlessID in rowlessIDs {
+                await clearHiddenMacDeviceID(rowlessID, scopeKey: scopeKey)
+            }
+        }
+        hiddenMacsLog.info(
+            "legacy hidden-marker migration cleared=\(rowlessIDs.count) kept=\(hiddenIDs.count - rowlessIDs.count) rows=\(loadedMacs.count)"
+        )
+        return hiddenIDs.subtracting(rowlessIDs)
     }
 
     func isHiddenMacDeviceID(
@@ -226,7 +267,7 @@ extension MobileShellComposite {
 
         guard await isScopeCurrent(scope) else { return }
         await loadPairedMacs()
-        clearSavedMacHintAfterHidingLastVisibleMacIfNeeded()
+        clearSavedMacHintWhenNoStoredMacsRemainIfNeeded()
     }
 
     /// Removes every workspace snapshot owned by a hidden stored Mac.
@@ -252,47 +293,22 @@ extension MobileShellComposite {
         loadedMacs: [MobilePairedMac],
         hiddenIDs: Set<String>
     ) {
-        var matchedIDs: Set<String> = []
-        var entries = loadedMacs.compactMap { mac -> MobileHiddenComputer? in
+        let entries = loadedMacs.compactMap { mac -> MobileHiddenComputer? in
             guard hiddenIDs.contains(mac.id) || hiddenIDs.contains(mac.macDeviceID) else {
                 return nil
             }
-            matchedIDs.insert(mac.id)
-            matchedIDs.insert(mac.macDeviceID)
             return MobileHiddenComputer(
                 id: mac.id,
                 macDeviceID: mac.macDeviceID,
                 instanceTag: mac.instanceTag,
                 displayName: mac.resolvedName,
                 customColor: mac.customColor,
-                customIcon: mac.customIcon,
-                requiresLegacyRecovery: false
+                customIcon: mac.customIcon
             )
         }
-        for hiddenID in hiddenIDs where !matchedIDs.contains(hiddenID) {
-            let identity = MobilePairedMac.pairingIdentity(from: hiddenID)
-            let registryName = hiddenRegistryDisplayNamesByDeviceID[identity.macDeviceID]
-            entries.append(MobileHiddenComputer(
-                id: hiddenID,
-                macDeviceID: identity.macDeviceID,
-                instanceTag: identity.instanceTag,
-                displayName: registryName ?? Self.shortenedHiddenMacID(identity.macDeviceID),
-                customColor: nil,
-                customIcon: nil,
-                requiresLegacyRecovery: true
-            ))
-        }
         hiddenComputers = entries.sorted {
-            if $0.requiresLegacyRecovery != $1.requiresLegacyRecovery {
-                return !$0.requiresLegacyRecovery
-            }
             return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
         }
         hasHiddenComputers = !hiddenComputers.isEmpty
-    }
-
-    private static func shortenedHiddenMacID(_ id: String) -> String {
-        guard id.count > 16 else { return id }
-        return "\(id.prefix(8))…\(id.suffix(4))"
     }
 }
