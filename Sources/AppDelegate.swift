@@ -596,6 +596,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         /// The first Dock store consumes it so its first terminal inherits the
         /// selected workspace's current zoom without eagerly creating the Dock.
         var pendingWindowDockTerminalFontSizeLineage: TerminalFontSizeLineage?
+        /// Active request provenance paired with the pending lineage so a Dock
+        /// created mid-drain does not apply the same request twice.
+        var pendingWindowDockTerminalFontSizeChangeInheritanceContext:
+            TerminalFontSizeChangeInheritanceContext?
 
         init(
             windowId: UUID,
@@ -870,6 +874,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     private struct ActiveWorkspaceTerminalFontSizeRequest {
         let request: PendingWorkspaceTerminalFontSizeRequest
+        let token: UUID
+        let inheritanceWindowDock: DockSplitStore?
         var terminalPanels: [TerminalPanel]
         var seenPanelIds: Set<UUID>
         var nextPanelIndex = 0
@@ -878,10 +884,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         init(
             request: PendingWorkspaceTerminalFontSizeRequest,
+            token: UUID,
+            inheritanceWindowDock: DockSplitStore?,
             terminalPanels: [TerminalPanel],
             configuredRuntimePoints: Float32
         ) {
             self.request = request
+            self.token = token
+            self.inheritanceWindowDock = inheritanceWindowDock
             self.terminalPanels = terminalPanels
             self.seenPanelIds = Set(terminalPanels.map(\.id))
             self.configuredRuntimePoints = configuredRuntimePoints
@@ -889,6 +899,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     private var pendingWorkspaceTerminalFontSizeRequests:
         [PendingWorkspaceTerminalFontSizeRequest] = []
+    private var pendingWorkspaceTerminalFontSizeRequestHead = 0
     private var activeWorkspaceTerminalFontSizeRequest:
         ActiveWorkspaceTerminalFontSizeRequest?
     private var workspaceTerminalFontSizeDrainGeneration: UInt64 = 0
@@ -14275,7 +14286,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if !deferFlush,
            activeWorkspaceTerminalFontSizeRequest == nil,
-           pendingWorkspaceTerminalFontSizeRequests.isEmpty {
+           !hasPendingWorkspaceTerminalFontSizeRequests {
             performOrStageWorkspaceTerminalFontSizeRequest(request)
             return
         }
@@ -14284,13 +14295,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         scheduleWorkspaceTerminalFontSizeDrain()
     }
 
+    private var hasPendingWorkspaceTerminalFontSizeRequests: Bool {
+        pendingWorkspaceTerminalFontSizeRequestHead
+            < pendingWorkspaceTerminalFontSizeRequests.count
+    }
+
+    private var pendingWorkspaceTerminalFontSizeRequestCount: Int {
+        pendingWorkspaceTerminalFontSizeRequests.count
+            - pendingWorkspaceTerminalFontSizeRequestHead
+    }
+
+    private func popPendingWorkspaceTerminalFontSizeRequest()
+        -> PendingWorkspaceTerminalFontSizeRequest? {
+        guard hasPendingWorkspaceTerminalFontSizeRequests else {
+            return nil
+        }
+        let request =
+            pendingWorkspaceTerminalFontSizeRequests[
+                pendingWorkspaceTerminalFontSizeRequestHead
+            ]
+        pendingWorkspaceTerminalFontSizeRequestHead += 1
+        if pendingWorkspaceTerminalFontSizeRequestHead
+            == pendingWorkspaceTerminalFontSizeRequests.count {
+            pendingWorkspaceTerminalFontSizeRequests.removeAll(
+                keepingCapacity: true
+            )
+            pendingWorkspaceTerminalFontSizeRequestHead = 0
+        } else if pendingWorkspaceTerminalFontSizeRequestHead >= 64,
+                  pendingWorkspaceTerminalFontSizeRequestHead * 2
+                    >= pendingWorkspaceTerminalFontSizeRequests.count {
+            pendingWorkspaceTerminalFontSizeRequests.removeFirst(
+                pendingWorkspaceTerminalFontSizeRequestHead
+            )
+            pendingWorkspaceTerminalFontSizeRequestHead = 0
+        }
+        return request
+    }
+
     /// Coalesce only adjacent requests for one workspace. Requests separated
     /// by another workspace remain distinct because a window Dock is shared by
     /// every workspace in that window and must observe the global event order.
     private func appendPendingWorkspaceTerminalFontSizeRequest(
         _ request: PendingWorkspaceTerminalFontSizeRequest
     ) {
-        guard let lastIndex = pendingWorkspaceTerminalFontSizeRequests.indices.last,
+        guard hasPendingWorkspaceTerminalFontSizeRequests,
+              let lastIndex = pendingWorkspaceTerminalFontSizeRequests.indices.last,
               pendingWorkspaceTerminalFontSizeRequests[lastIndex].workspace
                 === request.workspace else {
             pendingWorkspaceTerminalFontSizeRequests.append(request)
@@ -14336,6 +14385,79 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    private func activateWorkspaceTerminalFontSizeRequest(
+        _ request: PendingWorkspaceTerminalFontSizeRequest
+    ) {
+        let routing = workspaceTerminalFontSizeRouting(for: request)
+        let additionalTerminalPanels = routing.dock?.panels.values.compactMap {
+            $0 as? TerminalPanel
+        } ?? []
+        let requestTerminalPanels =
+            request.workspace.terminalPanelsForFontSizeChange(
+                additionalTerminalPanels: additionalTerminalPanels
+            )
+        activateWorkspaceTerminalFontSizeRequest(
+            request,
+            terminalPanels: requestTerminalPanels,
+            configuredRuntimePoints:
+                request.workspace.configuredTerminalRuntimeFontSize(),
+            routing: routing
+        )
+    }
+
+    private func activateWorkspaceTerminalFontSizeRequest(
+        _ request: PendingWorkspaceTerminalFontSizeRequest,
+        terminalPanels: [TerminalPanel],
+        configuredRuntimePoints: Float32,
+        routing: (context: MainWindowContext?, dock: DockSplitStore?)
+    ) {
+        let token = UUID()
+        let workspaceInheritanceContext =
+            request.workspace.beginTerminalFontSizeChangeInheritance(
+                token: token,
+                change: request.change,
+                configuredRuntimePoints: configuredRuntimePoints
+            )
+        if let dock = routing.dock {
+            dock.beginTerminalFontSizeChangeInheritance(
+                token: token,
+                change: request.change,
+                configuredRuntimePoints: configuredRuntimePoints,
+                fallbackLineage:
+                    workspaceInheritanceContext.fallbackLineage,
+                fallbackLineageAlreadyIncludesChange: true
+            )
+        } else if let context = routing.context {
+            let previousWindowDockLineage =
+                context.pendingWindowDockTerminalFontSizeLineage
+            let pendingWindowDockContext =
+                TerminalFontSizeChangeInheritanceContext(
+                    token: token,
+                    change: request.change,
+                    configuredRuntimePoints: configuredRuntimePoints,
+                    preferredSourcePanel: nil,
+                    fallbackLineage:
+                        previousWindowDockLineage
+                        ?? workspaceInheritanceContext.fallbackLineage,
+                    fallbackLineageAlreadyIncludesChange:
+                        previousWindowDockLineage == nil
+                )
+            context.pendingWindowDockTerminalFontSizeLineage =
+                pendingWindowDockContext.fallbackLineage
+            context
+                .pendingWindowDockTerminalFontSizeChangeInheritanceContext =
+                    pendingWindowDockContext
+        }
+        activeWorkspaceTerminalFontSizeRequest =
+            ActiveWorkspaceTerminalFontSizeRequest(
+                request: request,
+                token: token,
+                inheritanceWindowDock: routing.dock,
+                terminalPanels: terminalPanels,
+                configuredRuntimePoints: configuredRuntimePoints
+            )
+    }
+
     private func performOrStageWorkspaceTerminalFontSizeRequest(
         _ request: PendingWorkspaceTerminalFontSizeRequest
     ) {
@@ -14360,14 +14482,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     nativeActionUpperBound:
                         request.change.nativeActionUpperBoundPerLiveSurface
                 )
-            }
+        }
         guard fitsOneDrain else {
-            activeWorkspaceTerminalFontSizeRequest =
-                ActiveWorkspaceTerminalFontSizeRequest(
-                    request: request,
-                    terminalPanels: requestTerminalPanels,
-                    configuredRuntimePoints: configuredRuntimePoints
-                )
+            activateWorkspaceTerminalFontSizeRequest(
+                request,
+                terminalPanels: requestTerminalPanels,
+                configuredRuntimePoints: configuredRuntimePoints,
+                routing: routing
+            )
             scheduleWorkspaceTerminalFontSizeDrain()
             return
         }
@@ -14388,13 +14510,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         rememberWorkspaceTerminalFontSizeLineage(
             for: request,
-            routing: routing
+            routing: routing,
+            configuredRuntimePoints: configuredRuntimePoints
         )
     }
 
     private func rememberWorkspaceTerminalFontSizeLineage(
         for request: PendingWorkspaceTerminalFontSizeRequest,
-        routing: (context: MainWindowContext?, dock: DockSplitStore?)
+        routing: (context: MainWindowContext?, dock: DockSplitStore?),
+        configuredRuntimePoints: Float32,
+        pendingWindowDockAlreadyIncludesChange: Bool = false
     ) {
         let fallback = request.workspace
             .lastRememberedTerminalFontSizeLineageForConfigInheritance()
@@ -14402,8 +14527,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             dock.rememberTerminalFontSizeLineageForNewTerminals(
                 fallback: fallback
             )
-        } else {
-            routing.context?.pendingWindowDockTerminalFontSizeLineage = fallback
+        } else if let context = routing.context {
+            if pendingWindowDockAlreadyIncludesChange,
+               context.pendingWindowDockTerminalFontSizeLineage != nil {
+                return
+            }
+            if let pendingLineage =
+                    context.pendingWindowDockTerminalFontSizeLineage {
+                context.pendingWindowDockTerminalFontSizeLineage =
+                    request.change.resultingInheritanceLineage(
+                        from: pendingLineage,
+                        configuredRuntimePoints: configuredRuntimePoints,
+                        magnificationPercent:
+                            GlobalFontMagnification.storedPercent
+                    )
+            } else {
+                context.pendingWindowDockTerminalFontSizeLineage = fallback
+            }
         }
     }
 
@@ -14413,7 +14553,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func scheduleWorkspaceTerminalFontSizeDrain() {
         guard scheduledWorkspaceTerminalFontSizeDrainGeneration == nil,
               activeWorkspaceTerminalFontSizeRequest != nil
-                || !pendingWorkspaceTerminalFontSizeRequests.isEmpty else {
+                || hasPendingWorkspaceTerminalFontSizeRequests else {
             return
         }
         workspaceTerminalFontSizeDrainGeneration &+= 1
@@ -14446,21 +14586,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         drainLoop: while true {
             if activeWorkspaceTerminalFontSizeRequest == nil {
-                while !pendingWorkspaceTerminalFontSizeRequests.isEmpty {
+                while hasPendingWorkspaceTerminalFontSizeRequests {
                     guard budget.reserveRequestVisit() else {
                         break drainLoop
                     }
-                    let request =
-                        pendingWorkspaceTerminalFontSizeRequests.removeFirst()
+                    guard let request =
+                            popPendingWorkspaceTerminalFontSizeRequest() else {
+                        break
+                    }
                     guard !request.change.isNoOp else { continue }
-                    let requestTerminalPanels = terminalPanels(for: request)
-                    activeWorkspaceTerminalFontSizeRequest =
-                        ActiveWorkspaceTerminalFontSizeRequest(
-                            request: request,
-                            terminalPanels: requestTerminalPanels,
-                            configuredRuntimePoints:
-                                request.workspace.configuredTerminalRuntimeFontSize()
-                        )
+                    activateWorkspaceTerminalFontSizeRequest(request)
                     activeRequestHasBudgetReservation = true
                     break
                 }
@@ -14495,30 +14630,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let panelHasLiveSurface =
                 terminalPanel.surface.hasLiveSurface
                 && terminalPanel.surface.surface != nil
+            let alreadyIncludesChange =
+                terminalPanel.surface.hasAppliedFontSizeChange(
+                    token: activeRequest.token
+                )
             guard budget.reserve(
                 panelHasLiveSurface: panelHasLiveSurface,
                 nativeActionUpperBound:
-                    activeRequest.request.change
-                        .nativeActionUpperBoundPerLiveSurface
+                    alreadyIncludesChange
+                        ? 0
+                        : activeRequest.request.change
+                            .nativeActionUpperBoundPerLiveSurface
             ) else {
                 activeWorkspaceTerminalFontSizeRequest = activeRequest
                 break drainLoop
             }
 
             activeRequest.nextPanelIndex += 1
-            if activeRequest.request.workspace.applyTerminalFontSizeChange(
-                activeRequest.request.change,
-                to: terminalPanel,
-                configuredRuntimePoints: activeRequest.configuredRuntimePoints
-            ) {
-                activeRequest.changedTerminalPanels.append(terminalPanel)
+            if !alreadyIncludesChange {
+                if activeRequest.request.workspace.applyTerminalFontSizeChange(
+                    activeRequest.request.change,
+                    to: terminalPanel,
+                    configuredRuntimePoints:
+                        activeRequest.configuredRuntimePoints
+                ) {
+                    activeRequest.changedTerminalPanels.append(terminalPanel)
+                }
+                terminalPanel.surface.markFontSizeChangeApplied(
+                    token: activeRequest.token
+                )
             }
             activeWorkspaceTerminalFontSizeRequest = activeRequest
         }
 
         if scheduleContinuation,
            activeWorkspaceTerminalFontSizeRequest != nil
-                || !pendingWorkspaceTerminalFontSizeRequests.isEmpty {
+                || hasPendingWorkspaceTerminalFontSizeRequests {
             scheduleWorkspaceTerminalFontSizeDrain()
         }
     }
@@ -14526,16 +14673,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func completeWorkspaceTerminalFontSizeRequest(
         _ activeRequest: ActiveWorkspaceTerminalFontSizeRequest
     ) {
+        let completionRouting = workspaceTerminalFontSizeRouting(
+            for: activeRequest.request
+        )
         activeRequest.request.workspace.completeTerminalFontSizeChange(
             activeRequest.request.change,
             changedTerminalPanels: activeRequest.changedTerminalPanels,
             configuredRuntimePoints: activeRequest.configuredRuntimePoints
         )
+        activeRequest.request.workspace.endTerminalFontSizeChangeInheritance(
+            token: activeRequest.token
+        )
+        activeRequest.inheritanceWindowDock?
+            .endTerminalFontSizeChangeInheritance(token: activeRequest.token)
+        completionRouting.dock?
+            .endTerminalFontSizeChangeInheritance(token: activeRequest.token)
+        if completionRouting.context?
+            .pendingWindowDockTerminalFontSizeChangeInheritanceContext?
+            .token == activeRequest.token {
+            completionRouting.context?
+                .pendingWindowDockTerminalFontSizeChangeInheritanceContext = nil
+        }
         rememberWorkspaceTerminalFontSizeLineage(
             for: activeRequest.request,
-            routing: workspaceTerminalFontSizeRouting(
-                for: activeRequest.request
-            )
+            routing: completionRouting,
+            configuredRuntimePoints: activeRequest.configuredRuntimePoints,
+            pendingWindowDockAlreadyIncludesChange:
+                activeRequest.inheritanceWindowDock == nil
         )
     }
 
@@ -15357,7 +15521,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func debugDrainAllPendingWorkspaceTerminalFontSizeChanges() {
         invalidateScheduledWorkspaceTerminalFontSizeDrain()
         while activeWorkspaceTerminalFontSizeRequest != nil
-            || !pendingWorkspaceTerminalFontSizeRequests.isEmpty {
+            || hasPendingWorkspaceTerminalFontSizeRequests {
             drainPendingWorkspaceTerminalFontSizeChanges(
                 scheduleContinuation: false
             )
@@ -15365,7 +15529,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     var debugPendingWorkspaceTerminalFontSizeChangeCount: Int {
-        pendingWorkspaceTerminalFontSizeRequests.count
+        pendingWorkspaceTerminalFontSizeRequestCount
             + (activeWorkspaceTerminalFontSizeRequest == nil ? 0 : 1)
     }
 

@@ -8,10 +8,23 @@ extension AppDelegate.MainWindowContext {
     func windowDockStore() -> DockSplitStore {
         if let existing = windowDock { return existing }
         let store = tabManager.makeWindowDockStore(windowId: windowId)
-        store.rememberTerminalFontSizeLineageForNewTerminals(
-            fallback: pendingWindowDockTerminalFontSizeLineage
-        )
+        if let inheritanceContext =
+                pendingWindowDockTerminalFontSizeChangeInheritanceContext {
+            store.beginTerminalFontSizeChangeInheritance(
+                token: inheritanceContext.token,
+                change: inheritanceContext.change,
+                configuredRuntimePoints:
+                    inheritanceContext.configuredRuntimePoints,
+                fallbackLineage: inheritanceContext.fallbackLineage,
+                fallbackLineageAlreadyIncludesChange: true
+            )
+        } else {
+            store.rememberTerminalFontSizeLineageForNewTerminals(
+                fallback: pendingWindowDockTerminalFontSizeLineage
+            )
+        }
         pendingWindowDockTerminalFontSizeLineage = nil
+        pendingWindowDockTerminalFontSizeChangeInheritanceContext = nil
         windowDock = store
         return store
     }
@@ -24,6 +37,7 @@ extension AppDelegate.MainWindowContext {
     /// their portals, so no Dock panel outlives its window.
     func teardownWindowDock() {
         pendingWindowDockTerminalFontSizeLineage = nil
+        pendingWindowDockTerminalFontSizeChangeInheritanceContext = nil
         guard let dock = windowDock else { return }
         windowDock = nil
         dock.closeAllPanels()

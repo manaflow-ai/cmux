@@ -151,6 +151,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let surfaceContext: ghostty_surface_context_e
     let configTemplate: CmuxSurfaceConfigTemplate?
     var lastKnownFontSizeLineage: TerminalFontSizeLineage?
+    var lastAppliedFontSizeChangeToken: UUID?
     /// Whether runtime creation should ignore inherited lineage and follow current config.
     var followsConfiguredFontSize: Bool
     let workingDirectory: String?
@@ -478,6 +479,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.surfaceContext = context
         self.configTemplate = configTemplate
         self.lastKnownFontSizeLineage = configTemplate?.fontSizeLineage
+        self.lastAppliedFontSizeChangeToken =
+            configTemplate?.fontSizeChangeToken
         self.followsConfiguredFontSize = configTemplate?.fontSizeLineage == nil
         self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.portOrdinal = portOrdinal

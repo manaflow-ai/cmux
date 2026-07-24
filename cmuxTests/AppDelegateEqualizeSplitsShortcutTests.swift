@@ -541,6 +541,17 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             return
 #endif
 
+            if let lineageProbeCount =
+                    windowDock
+                        .debugActiveTerminalFontSizeChangeInitialLineageProbeCount {
+                XCTAssertLessThanOrEqual(
+                    lineageProbeCount,
+                    1,
+                    "Drain activation must not snapshot every terminal lineage"
+                )
+            } else {
+                XCTFail("Expected an active Dock font-size inheritance context")
+            }
             XCTAssertEqual(
                 adjustedSource.surface.fontSizeLineageSnapshot()?.basePoints,
                 19

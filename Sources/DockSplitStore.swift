@@ -38,6 +38,8 @@ final class DockSplitStore: BonsplitDelegate {
     var panels: [UUID: any Panel] = [:]
     var surfaceIdToPanelId: [TabID: UUID] = [:]
     private var lastTerminalFontSizeLineage: TerminalFontSizeLineage?
+    @ObservationIgnored private var activeTerminalFontSizeChangeInheritanceContext:
+        TerminalFontSizeChangeInheritanceContext?
     var panelCancellables: [UUID: AnyCancellable] = [:]
     @ObservationIgnored var detachedSurfaceTransfersByPanelId: [UUID: Workspace.DetachedSurfaceTransfer] = [:]
     private var hasLoadedConfiguration = false
@@ -410,6 +412,45 @@ final class DockSplitStore: BonsplitDelegate {
     }
 #endif
 
+    func beginTerminalFontSizeChangeInheritance(
+        token: UUID,
+        change: WorkspaceTerminalFontSizeChange,
+        configuredRuntimePoints: Float32,
+        fallbackLineage: TerminalFontSizeLineage?,
+        fallbackLineageAlreadyIncludesChange: Bool
+    ) {
+        let preferredSourcePanel = focusedPanelId.flatMap {
+            panels[$0] as? TerminalPanel
+        }
+        let dockFallbackLineage = lastTerminalFontSizeLineage
+        let context = TerminalFontSizeChangeInheritanceContext(
+            token: token,
+            change: change,
+            configuredRuntimePoints: configuredRuntimePoints,
+            preferredSourcePanel: preferredSourcePanel,
+            fallbackLineage: dockFallbackLineage ?? fallbackLineage,
+            fallbackLineageAlreadyIncludesChange:
+                dockFallbackLineage == nil
+                && fallbackLineageAlreadyIncludesChange
+        )
+        activeTerminalFontSizeChangeInheritanceContext = context
+        lastTerminalFontSizeLineage = context.fallbackLineage
+    }
+
+    func endTerminalFontSizeChangeInheritance(token: UUID) {
+        guard activeTerminalFontSizeChangeInheritanceContext?.token == token else {
+            return
+        }
+        activeTerminalFontSizeChangeInheritanceContext = nil
+    }
+
+#if DEBUG
+    var debugActiveTerminalFontSizeChangeInitialLineageProbeCount: Int? {
+        activeTerminalFontSizeChangeInheritanceContext?
+            .initialLineageProbeCount
+    }
+#endif
+
     func rememberTerminalFontSizeLineageForNewTerminals(
         fallback: TerminalFontSizeLineage?
     ) {
@@ -435,12 +476,19 @@ final class DockSplitStore: BonsplitDelegate {
             panels[$0] as? TerminalPanel
         }
         let sourceLineage = sourceTerminalPanel?.surface.fontSizeLineageSnapshot()
-        guard let lineage = sourceLineage ?? lastTerminalFontSizeLineage else {
+        let inheritanceContext =
+            activeTerminalFontSizeChangeInheritanceContext
+        guard let lineage =
+                inheritanceContext?
+                    .inheritedLineage(from: sourceTerminalPanel)
+                ?? sourceLineage
+                ?? lastTerminalFontSizeLineage else {
             return nil
         }
         lastTerminalFontSizeLineage = lineage
         var config = CmuxSurfaceConfigTemplate()
         config.fontSizeLineage = lineage
+        config.fontSizeChangeToken = inheritanceContext?.token
         return config
     }
 

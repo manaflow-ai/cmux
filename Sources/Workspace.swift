@@ -2213,9 +2213,22 @@ final class Workspace: Identifiable, ObservableObject {
             },
             settings: settings
         )
-        store.rememberTerminalFontSizeLineageForNewTerminals(
-            fallback: lastRememberedTerminalFontSizeLineageForConfigInheritance()
-        )
+        if let inheritanceContext =
+                activeTerminalFontSizeChangeInheritanceContext {
+            store.beginTerminalFontSizeChangeInheritance(
+                token: inheritanceContext.token,
+                change: inheritanceContext.change,
+                configuredRuntimePoints:
+                    inheritanceContext.configuredRuntimePoints,
+                fallbackLineage: inheritanceContext.fallbackLineage,
+                fallbackLineageAlreadyIncludesChange: true
+            )
+        } else {
+            store.rememberTerminalFontSizeLineageForNewTerminals(
+                fallback:
+                    lastRememberedTerminalFontSizeLineageForConfigInheritance()
+            )
+        }
         _dockSplit = store
         return store
     }
@@ -2319,6 +2332,10 @@ final class Workspace: Identifiable, ObservableObject {
     /// surface owns live lineage; this fallback only survives removal of the
     /// last source panel.
     private var lastTerminalConfigInheritanceFontSizeLineage: TerminalFontSizeLineage?
+    /// Predicts per-source post-change lineage while a bounded workspace font
+    /// request spans multiple event-loop turns.
+    var activeTerminalFontSizeChangeInheritanceContext:
+        TerminalFontSizeChangeInheritanceContext?
 
     /// Callback used by TabManager to capture recently closed browser panels for Cmd+Shift+T restore.
     var onClosedBrowserPanel: ((ClosedBrowserPanelRestoreSnapshot) -> Void)?
@@ -6804,12 +6821,20 @@ final class Workspace: Identifiable, ObservableObject {
             // is still reading through the pointer.
             let surface = terminalPanel.surface
             let sourceFontSizeLineage = surface.fontSizeLineageSnapshot()
+            let inheritanceContext =
+                activeTerminalFontSizeChangeInheritanceContext
+            let inheritedFontSizeLineage =
+                inheritanceContext?
+                    .inheritedLineage(from: terminalPanel)
+                ?? sourceFontSizeLineage
             guard let sourceSurface = surface.surface else {
-                if let sourceFontSizeLineage {
+                if let inheritedFontSizeLineage {
                     var config = CmuxSurfaceConfigTemplate()
-                    config.fontSizeLineage = sourceFontSizeLineage
+                    config.fontSizeLineage = inheritedFontSizeLineage
+                    config.fontSizeChangeToken = inheritanceContext?.token
                     lastTerminalConfigInheritancePanelId = terminalPanel.id
-                    lastTerminalConfigInheritanceFontSizeLineage = sourceFontSizeLineage
+                    lastTerminalConfigInheritanceFontSizeLineage =
+                        inheritedFontSizeLineage
                     return config
                 }
                 continue
@@ -6818,9 +6843,10 @@ final class Workspace: Identifiable, ObservableObject {
                 sourceSurface: sourceSurface,
                 context: GHOSTTY_SURFACE_CONTEXT_SPLIT
             )
-            if let sourceFontSizeLineage {
-                config.fontSizeLineage = sourceFontSizeLineage
+            if let inheritedFontSizeLineage {
+                config.fontSizeLineage = inheritedFontSizeLineage
             }
+            config.fontSizeChangeToken = inheritanceContext?.token
             // Prevent ARC from releasing panel/surface before the C calls above complete.
             withExtendedLifetime((terminalPanel, surface)) {}
             rememberTerminalConfigInheritanceSource(terminalPanel)
@@ -6830,9 +6856,13 @@ final class Workspace: Identifiable, ObservableObject {
             return config
         }
 
-        if let fallbackFontSizeLineage = lastTerminalConfigInheritanceFontSizeLineage {
+        if let fallbackFontSizeLineage =
+                activeTerminalFontSizeChangeInheritanceContext?.fallbackLineage
+                ?? lastTerminalConfigInheritanceFontSizeLineage {
             var config = CmuxSurfaceConfigTemplate()
             config.fontSizeLineage = fallbackFontSizeLineage
+            config.fontSizeChangeToken =
+                activeTerminalFontSizeChangeInheritanceContext?.token
 #if DEBUG
             cmuxDebugLog(
                 "zoom.inherit fallback=lastKnownFont context=split font=\(String(format: "%.2f", fallbackFontSizeLineage.basePoints))"
@@ -6848,11 +6878,13 @@ final class Workspace: Identifiable, ObservableObject {
     /// without inheriting a local terminal's command, environment, or other
     /// process configuration.
     private func inheritedTerminalFontSizeConfig() -> CmuxSurfaceConfigTemplate? {
-        guard let fontSizeLineage = inheritedTerminalConfig()?.fontSizeLineage else {
+        guard let inheritedConfig = inheritedTerminalConfig(),
+              let fontSizeLineage = inheritedConfig.fontSizeLineage else {
             return nil
         }
         var config = CmuxSurfaceConfigTemplate()
         config.fontSizeLineage = fontSizeLineage
+        config.fontSizeChangeToken = inheritedConfig.fontSizeChangeToken
         return config
     }
 

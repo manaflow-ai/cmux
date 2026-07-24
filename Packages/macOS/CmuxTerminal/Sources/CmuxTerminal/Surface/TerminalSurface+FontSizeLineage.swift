@@ -1,7 +1,22 @@
 public import CmuxTerminalCore
+public import Foundation
 internal import GhosttyKit
 
 extension TerminalSurface {
+    /// Marks that a higher-level batched font-size request already contributed
+    /// to this surface's lineage. New descendants can carry the same request
+    /// provenance without inferring ownership from a colliding point value.
+    @MainActor
+    public func markFontSizeChangeApplied(token: UUID) {
+        lastAppliedFontSizeChangeToken = token
+    }
+
+    /// Returns whether this surface's lineage already includes `token`.
+    @MainActor
+    public func hasAppliedFontSizeChange(token: UUID) -> Bool {
+        lastAppliedFontSizeChangeToken == token
+    }
+
     /// Adjusts this terminal's runtime font size and records an explicit override.
     ///
     /// Live surfaces delegate to Ghostty's native font-size action. Suspended or
@@ -251,6 +266,7 @@ extension TerminalSurface {
     @MainActor
     func runtimeCreationConfigTemplate() -> CmuxSurfaceConfigTemplate {
         var template = configTemplate ?? CmuxSurfaceConfigTemplate()
+        template.fontSizeChangeToken = lastAppliedFontSizeChangeToken
         if followsConfiguredFontSize
             || (
                 lastKnownFontSizeLineage?.isExplicitOverride == false
