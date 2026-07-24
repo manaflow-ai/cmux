@@ -5903,6 +5903,61 @@ mod tests {
     }
 
     #[test]
+    fn final_stream_detach_of_excluded_unsized_client_preserves_newer_geometry() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let reporter_writer = test_writer();
+        let reporter = mux.control_clients.register(ClientTransport::Unix, reporter_writer.clone());
+        let reporter_stream = reporter_writer.start_stream(&json!({"event": "test"})).unwrap();
+        mux.control_clients.attach_surface(reporter, surface.id, reporter_stream).unwrap();
+        handle_command(
+            &mux,
+            reporter,
+            Command::ResizeSurface { surface: surface.id, cols: 70, rows: 20 },
+            &reporter_writer,
+        )
+        .unwrap();
+        handle_command(
+            &mux,
+            reporter,
+            Command::SetClientSizing {
+                surface: surface.id,
+                client: Some(reporter),
+                enabled: false,
+                exclusive: false,
+            },
+            &reporter_writer,
+        )
+        .unwrap();
+
+        let blocker_writer = test_writer();
+        let blocker = mux.control_clients.register(ClientTransport::Unix, blocker_writer.clone());
+        let blocker_stream = blocker_writer.start_stream(&json!({"event": "test"})).unwrap();
+        let blocker_stream_id = blocker_stream.id;
+        mux.control_clients.attach_surface(blocker, surface.id, blocker_stream).unwrap();
+        handle_command(
+            &mux,
+            blocker,
+            Command::SetClientSizing {
+                surface: surface.id,
+                client: Some(blocker),
+                enabled: false,
+                exclusive: false,
+            },
+            &blocker_writer,
+        )
+        .unwrap();
+        mux.resize_surface(surface.id, 100, 40).unwrap();
+
+        assert!(
+            mux.control_clients.detach_surface(blocker, surface.id, blocker_stream_id).final_stream
+        );
+        mux.remove_surface_size_client(surface.id, blocker);
+
+        assert_eq!(surface.size(), (100, 40));
+    }
+
+    #[test]
     fn final_stream_detach_does_not_recalculate_other_surface() {
         let mux = test_mux();
         let blocker_surface = mux.new_workspace(None, Some((100, 40))).unwrap();

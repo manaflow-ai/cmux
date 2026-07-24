@@ -534,6 +534,64 @@ describe("TerminalPane shared minimum size", () => {
     expect(props.onUseAllClientSizing).toHaveBeenCalledWith(7);
   });
 
+  it("keeps an open sizing menu bound to the surface that opened it", () => {
+    const props = terminalPaneProps(vi.fn(async () => true));
+    props.clients = [
+      {
+        client: 1,
+        transport: "ws",
+        name: "browser",
+        kind: "web",
+        connected_seconds: 10,
+        attached: [7, 8],
+        sizes: [
+          { surface: 7, cols: 120, rows: 30, size_participating: true },
+          { surface: 8, cols: 110, rows: 35, size_participating: true },
+        ],
+        self: true,
+      },
+      {
+        client: 2,
+        transport: "unix",
+        name: "small tui",
+        kind: "tui",
+        connected_seconds: 20,
+        attached: [7, 8],
+        sizes: [
+          { surface: 7, cols: 80, rows: 40, size_participating: true },
+          { surface: 8, cols: 90, rows: 25, size_participating: true },
+        ],
+        self: false,
+      },
+    ];
+    const firstScreen = terminalScreenView();
+    const firstPane = firstScreen.panes[0]!;
+    const secondScreen: ScreenView = {
+      ...firstScreen,
+      panes: [{
+        ...firstPane,
+        active_tab: 1,
+        tabs: [
+          ...firstPane.tabs,
+          {
+            ...firstPane.tabs[0]!,
+            surface: 8,
+            title: "other shell",
+          },
+        ],
+      }],
+    };
+
+    const { getAllByRole, getByRole, rerender } = render(
+      <TerminalPane {...props} screen={firstScreen} />,
+    );
+    fireEvent.click(getByRole("button", { name: "2 clients · 80×30 min" }));
+    rerender(<TerminalPane {...props} screen={secondScreen} />);
+    fireEvent.click(getAllByRole("menuitem", { name: "Use only this client size" })[0]);
+
+    expect(props.onUseOnlyClientSizing).toHaveBeenCalledWith(7, 1);
+  });
+
   it("uses the tmux fallback minimum when every attached viewer is excluded", () => {
     const props = terminalPaneProps(vi.fn(async () => true));
     props.clients = [
