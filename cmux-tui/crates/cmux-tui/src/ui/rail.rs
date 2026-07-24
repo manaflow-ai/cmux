@@ -231,33 +231,6 @@ pub fn action(
     frame.buffer_mut().set_stringn(area.x, y, format!(" + {label}"), content_width as usize, style);
 }
 
-pub fn button(
-    frame: &mut Frame,
-    area: Rect,
-    y: u16,
-    label: &str,
-    highlighted: bool,
-    palette: RailPalette,
-) {
-    if y >= area.y + area.height || area.width < 2 {
-        return;
-    }
-    let content_width = area.width.saturating_sub(1);
-    let style = if highlighted { palette.active } else { palette.dim };
-    if highlighted {
-        for x in area.x..area.x + content_width {
-            frame.buffer_mut()[(x, y)].set_symbol(" ").set_style(style);
-        }
-    }
-    frame.buffer_mut().set_stringn(
-        area.x + 1,
-        y,
-        truncate(label, content_width.saturating_sub(1) as usize),
-        content_width.saturating_sub(1) as usize,
-        style,
-    );
-}
-
 pub fn row(area: Rect, y: u16) -> Rect {
     Rect { x: area.x, y, width: area.width.saturating_sub(1), height: 1 }
 }

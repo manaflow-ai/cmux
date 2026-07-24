@@ -1960,8 +1960,7 @@ enum MachineRailCommand {
     Delete(MachineKey),
     Restore(MachineKey),
     Purge(MachineKey),
-    OpenScopes,
-    OpenActions,
+    OpenSettings,
     Create,
     Connect,
 }
@@ -2045,8 +2044,7 @@ pub enum Hit {
     },
     NewVm,
     ConnectMachine,
-    ProviderScope,
-    ProviderActions,
+    ProviderSettings,
     /// Sidebar workspace entry.
     Workspace {
         index: usize,
@@ -2366,12 +2364,18 @@ impl MenuLevel {
     }
 }
 
-/// Right-click context menu overlay. The rect includes the border chrome;
-/// action rows get a one-cell padding column on each side inside that border,
-/// groups are divided by separator rows, and the hover/selection highlight
-/// spans the full inner row including those padding cells.
+enum MenuPresentation {
+    Context,
+    Modal { title: &'static str },
+}
+
+/// Shared context-menu and centered-modal overlay. The rect includes the
+/// border chrome; action rows get a one-cell padding column on each side,
+/// groups are divided by separator rows, and hover/selection spans the full
+/// inner row including those padding cells.
 pub struct ContextMenu {
     pub levels: Vec<MenuLevel>,
+    presentation: MenuPresentation,
     right_press: (u16, u16),
     right_drag_moved: bool,
 }
@@ -2392,6 +2396,23 @@ impl ContextMenu {
     }
 
     fn with_groups(x: u16, y: u16, groups: Vec<Vec<MenuItem>>) -> Self {
+        Self::from_groups(x, y, groups, MenuPresentation::Context)
+    }
+
+    fn modal(title: &'static str, groups: Vec<Vec<MenuItem>>) -> Self {
+        let mut menu = Self::from_groups(0, 0, groups, MenuPresentation::Modal { title });
+        if let Some(level) = menu.levels.first_mut() {
+            level.rect.width = level.rect.width.max(40).max(title.chars().count() as u16 + 4);
+        }
+        menu
+    }
+
+    fn from_groups(
+        x: u16,
+        y: u16,
+        groups: Vec<Vec<MenuItem>>,
+        presentation: MenuPresentation,
+    ) -> Self {
         let mut items = Vec::new();
         for group in groups.into_iter().filter(|group| !group.is_empty()) {
             if !items.is_empty() {
@@ -2401,8 +2422,16 @@ impl ContextMenu {
         }
         ContextMenu {
             levels: vec![MenuLevel::new(x.saturating_sub(1), y.saturating_sub(1), items)],
+            presentation,
             right_press: (x, y),
             right_drag_moved: false,
+        }
+    }
+
+    pub(crate) fn modal_title(&self) -> Option<&'static str> {
+        match self.presentation {
+            MenuPresentation::Context => None,
+            MenuPresentation::Modal { title } => Some(title),
         }
     }
 
@@ -7010,10 +7039,9 @@ impl App {
                 }
             } else if key.code == KeyCode::Enter {
                 match targets.get(current).copied() {
-                    Some(MachineRailTarget::Scope) => Some(MachineRailCommand::OpenScopes),
-                    Some(MachineRailTarget::Actions) => Some(MachineRailCommand::OpenActions),
                     Some(MachineRailTarget::NewVm) => Some(MachineRailCommand::Create),
                     Some(MachineRailTarget::ConnectMachine) => Some(MachineRailCommand::Connect),
+                    Some(MachineRailTarget::Settings) => Some(MachineRailCommand::OpenSettings),
                     Some(MachineRailTarget::Machine(_)) | None => None,
                 }
             } else {
@@ -7038,8 +7066,7 @@ impl App {
             Some(MachineRailCommand::Purge(machine)) => {
                 self.open_purge_managed_machine_prompt(machine);
             }
-            Some(MachineRailCommand::OpenScopes) => self.open_provider_scope_menu(1, 2),
-            Some(MachineRailCommand::OpenActions) => self.open_provider_actions_menu(1, 3),
+            Some(MachineRailCommand::OpenSettings) => self.open_provider_settings(),
             Some(MachineRailCommand::Create) => {
                 if let Some(ui) = self.machine_ui.as_mut() {
                     ui.request = Some(MachineRequest::Create);
@@ -7057,7 +7084,7 @@ impl App {
         RenderAction::Draw
     }
 
-    fn open_provider_scope_menu(&mut self, x: u16, y: u16) {
+    fn open_provider_settings(&mut self) {
         let messages = &localization::catalog().sidebar;
         let Some(provider) = self.machine_ui.as_ref().and_then(|ui| ui.provider.as_ref()) else {
             return;
@@ -7075,27 +7102,18 @@ impl App {
                     crate::machine::ProviderScopeKind::Team => messages.team_scope,
                 };
                 let marker = if selected { "✓ " } else { "  " };
+                let label = if scope.name.trim().eq_ignore_ascii_case(kind) {
+                    scope.name.clone()
+                } else {
+                    format!("{} ({kind})", scope.name)
+                };
                 MenuItem::LabeledAction {
-                    label: format!("{marker}{} ({kind})", scope.name),
+                    label: format!("{marker}{label}"),
                     action: MenuAction::SelectProviderScope(index),
                 }
             })
             .collect::<Vec<_>>();
-        if !items.is_empty() {
-            let mut menu = ContextMenu::with_groups(x, y, vec![items]);
-            if let (Some(level), Some(selected)) = (menu.levels.first_mut(), selected_index) {
-                level.selected = selected;
-                level.ensure_selection_visible();
-            }
-            self.menu = Some(menu);
-        }
-    }
-
-    fn open_provider_actions_menu(&mut self, x: u16, y: u16) {
-        let Some(provider) = self.machine_ui.as_ref().and_then(|ui| ui.provider.as_ref()) else {
-            return;
-        };
-        let items = provider
+        let actions = provider
             .actions
             .iter()
             .enumerate()
@@ -7108,8 +7126,13 @@ impl App {
                 action: MenuAction::InvokeProviderAction(index),
             })
             .collect::<Vec<_>>();
-        if !items.is_empty() {
-            self.menu = Some(ContextMenu::with_groups(x, y, vec![items]));
+        if !items.is_empty() || !actions.is_empty() {
+            let mut menu = ContextMenu::modal(messages.settings, vec![items, actions]);
+            if let (Some(level), Some(selected)) = (menu.levels.first_mut(), selected_index) {
+                level.selected = selected;
+                level.ensure_selection_visible();
+            }
+            self.menu = Some(menu);
         }
     }
 
@@ -9544,21 +9567,13 @@ impl App {
                         PromptTarget::ConnectMachine,
                     ));
                 }
-                Hit::ProviderScope => {
+                Hit::ProviderSettings => {
                     self.focus = FocusTarget::MachineRail;
                     self.machine_rail_follow_selection = true;
                     if let Some(machine) = self.machine_ui.as_mut() {
-                        machine.rail_selection = MachineRailSelection::Scope;
+                        machine.rail_selection = MachineRailSelection::Settings;
                     }
-                    self.open_provider_scope_menu(x, y);
-                }
-                Hit::ProviderActions => {
-                    self.focus = FocusTarget::MachineRail;
-                    self.machine_rail_follow_selection = true;
-                    if let Some(machine) = self.machine_ui.as_mut() {
-                        machine.rail_selection = MachineRailSelection::Actions;
-                    }
-                    self.open_provider_actions_menu(x, y);
+                    self.open_provider_settings();
                 }
                 Hit::Workspace { index, id } => {
                     self.focus = FocusTarget::WorkspaceRail;
@@ -10650,6 +10665,7 @@ mod tests {
     };
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
+    use ratatui::style::Modifier;
 
     use crate::browser_input::{BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind};
     use crate::config::{Action, ChromeTheme, Config, ScrollbarPosition, SidebarView};
@@ -15764,19 +15780,39 @@ mod tests {
     }
 
     #[test]
-    fn provider_scope_row_switches_team_with_keyboard_menu() {
+    fn provider_settings_replaces_inline_scope_and_action_rows() {
+        let mux = Mux::new("provider-settings-layout-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_controls_ui());
+        app.sync_layout((100, 16));
+        let mut terminal = Terminal::new(TestBackend::new(100, 16)).unwrap();
+
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(!text.contains("team · Acme"), "{text}");
+        assert!(!text.contains("actions ▾"), "{text}");
+        assert!(text.contains("settings"), "{text}");
+    }
+
+    #[test]
+    fn provider_settings_switches_scope_with_keyboard() {
         let mux = Mux::new("provider-scope-keyboard-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.machine_ui = Some(provider_controls_ui());
         app.focus = FocusTarget::MachineRail;
         app.sync_layout((100, 16));
 
-        app.handle_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE)).unwrap();
+        app.handle_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE)).unwrap();
         assert_eq!(
             app.machine_ui.as_ref().map(|ui| ui.rail_selection),
-            Some(MachineRailSelection::Scope)
+            Some(MachineRailSelection::Settings)
         );
         app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        assert_eq!(
+            app.menu.as_ref().and_then(ContextMenu::modal_title),
+            Some(localization::catalog().sidebar.settings)
+        );
         assert_eq!(
             app.menu.as_ref().and_then(ContextMenu::selected_action),
             Some(MenuAction::SelectProviderScope(1))
@@ -15792,7 +15828,7 @@ mod tests {
     }
 
     #[test]
-    fn provider_rows_and_action_prompt_are_mouse_accessible() {
+    fn provider_settings_modal_and_action_prompt_are_mouse_accessible() {
         let mux = Mux::new("provider-actions-mouse-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.machine_ui = Some(provider_controls_ui());
@@ -15801,26 +15837,49 @@ mod tests {
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
 
         let text = buffer_text(terminal.backend().buffer());
-        assert!(text.contains("team · Acme"), "{text}");
-        assert!(text.contains("actions"), "{text}");
-        assert!(app.hits.iter().any(|(_, hit)| matches!(hit, super::Hit::ProviderScope)));
-        let actions = app
+        assert!(text.contains("settings"), "{text}");
+        assert!(!text.contains("team · Acme"), "{text}");
+        let settings = app
             .hits
             .iter()
-            .find_map(|(rect, hit)| matches!(hit, super::Hit::ProviderActions).then_some(*rect))
-            .expect("provider actions hit");
+            .find_map(|(rect, hit)| matches!(hit, super::Hit::ProviderSettings).then_some(*rect))
+            .expect("provider settings hit");
 
-        app.handle_left_down(actions.x, actions.y, KeyModifiers::NONE).unwrap();
-        let menu = app.menu.as_ref().expect("action menu opened by mouse");
-        assert_eq!(
-            menu.levels[0].items[0],
-            MenuItem::LabeledAction {
-                label: "Invite member".into(),
-                action: MenuAction::InvokeProviderAction(0),
-            }
-        );
-        let item_x = menu.levels[0].rect.x + 2;
-        let item_y = menu.levels[0].rect.y + 1;
+        app.handle_left_down(settings.x, settings.y, KeyModifiers::NONE).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let (modal, item_x, item_y) = {
+            let menu = app.menu.as_ref().expect("settings modal opened by mouse");
+            assert_eq!(menu.modal_title(), Some(localization::catalog().sidebar.settings));
+            let level = &menu.levels[0];
+            let item = level
+                .items
+                .iter()
+                .position(|item| {
+                    matches!(
+                        item,
+                        MenuItem::LabeledAction {
+                            label,
+                            action: MenuAction::InvokeProviderAction(0),
+                        } if label == "Invite member"
+                    )
+                })
+                .expect("invite action");
+            (
+                level.rect,
+                level.rect.x + 2,
+                level.rect.y + 1 + item.saturating_sub(level.scroll_offset) as u16,
+            )
+        };
+        assert_eq!(modal.x, (100 - modal.width) / 2);
+        assert_eq!(modal.y, (16 - modal.height) / 2);
+        let buffer = terminal.backend().buffer();
+        let machine_area = app.sidebar_layout.machine.expect("machine rail");
+        let workspace_area = app.sidebar_layout.workspace.expect("workspace rail");
+        assert!(buffer[(machine_area.x, 0)].modifier.contains(Modifier::DIM));
+        assert!(buffer[(workspace_area.x, 0)].modifier.contains(Modifier::DIM));
+        assert!(buffer[(99, 0)].modifier.contains(Modifier::DIM));
+        assert!(!buffer[(modal.x + 2, modal.y)].modifier.contains(Modifier::DIM));
+
         app.handle_left_down(item_x, item_y, KeyModifiers::NONE).unwrap();
         assert_eq!(app.prompt.as_ref().map(|prompt| prompt.label.as_str()), Some("Member email"));
 
@@ -15850,7 +15909,7 @@ mod tests {
     }
 
     #[test]
-    fn personal_scope_row_does_not_repeat_the_same_label() {
+    fn personal_scope_in_settings_does_not_repeat_the_same_label() {
         let mux = Mux::new("provider-personal-scope-style-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         let mut ui = provider_controls_ui();
@@ -15860,11 +15919,12 @@ mod tests {
         app.machine_ui = Some(ui);
         app.sync_layout((100, 16));
         let mut terminal = Terminal::new(TestBackend::new(100, 16)).unwrap();
+        app.open_provider_settings();
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
 
         let text = buffer_text(terminal.backend().buffer());
-        assert!(text.contains(" Personal ▾"), "{text}");
-        assert!(!text.contains("personal · Personal"), "{text}");
+        assert!(text.contains("✓ Personal"), "{text}");
+        assert!(!text.contains("Personal (personal)"), "{text}");
     }
 
     #[test]
@@ -15872,7 +15932,7 @@ mod tests {
         let mux = Mux::new("provider-overlay-invalidation-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.machine_ui = Some(provider_controls_ui());
-        app.open_provider_actions_menu(1, 3);
+        app.open_provider_settings();
         assert!(app.menu.as_ref().is_some_and(ContextMenu::targets_provider_state));
 
         let mut update = provider_controls_ui();
@@ -16113,7 +16173,7 @@ mod tests {
     }
 
     #[test]
-    fn keyboard_traverses_machine_controls_catalog_and_pinned_actions() {
+    fn keyboard_traverses_machine_catalog_and_pinned_actions() {
         let mux = Mux::new("machine-rail-keyboard-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.machine_ui = Some(provider_controls_ui());
@@ -16123,14 +16183,9 @@ mod tests {
         app.handle_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE)).unwrap();
         assert_eq!(
             app.machine_ui.as_ref().and_then(MachineUiState::rail_target),
-            Some(crate::machine::MachineRailTarget::Scope)
+            Some(crate::machine::MachineRailTarget::Machine(MachineKey(41)))
         );
         app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).unwrap();
-        assert_eq!(
-            app.machine_ui.as_ref().and_then(MachineUiState::rail_target),
-            Some(crate::machine::MachineRailTarget::Actions)
-        );
-        app.handle_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE)).unwrap();
         assert_eq!(
             app.machine_ui.as_ref().and_then(MachineUiState::rail_target),
             Some(crate::machine::MachineRailTarget::NewVm)
@@ -16146,9 +16201,12 @@ mod tests {
         app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
         assert_eq!(
             app.machine_ui.as_ref().and_then(MachineUiState::rail_target),
-            Some(crate::machine::MachineRailTarget::ConnectMachine)
+            Some(crate::machine::MachineRailTarget::Settings)
         );
-        assert!(app.prompt.is_some());
+        assert_eq!(
+            app.menu.as_ref().and_then(ContextMenu::modal_title),
+            Some(localization::catalog().sidebar.settings)
+        );
     }
 
     #[test]
