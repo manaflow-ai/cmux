@@ -81,7 +81,13 @@ extension SubrouterStore {
         } catch {
             reloadWarning = "unexpected error (\(type(of: error)))"
         }
-        await performFreshRefresh(reason: "switch")
+        // Sessions stay out of the post-switch refresh: nothing that runs
+        // after a switch reads them (the switch payload and UI are
+        // usage-driven), and `/_subrouter/sessions` returns the daemon's
+        // whole routing history — the pending state must not wait on that
+        // transfer. Only the socket verbs that read sessions (`status`,
+        // `sessions`) fetch them.
+        await performFreshRefresh(reason: "switch", includingSessions: false)
         if let reloadWarning, snapshot.lastErrorDescription == nil {
             recordWarning(reloadWarning)
         }
@@ -95,7 +101,9 @@ extension SubrouterStore {
     @discardableResult
     public func reloadDaemonAccounts() async throws -> SubrouterReloadResult {
         let result = try await client.reloadAccounts(endpoint: configuration.endpoint)
-        await performFreshRefresh(reason: "reload")
+        // The reload verb's payload never reads sessions; skip the
+        // whole-history transfer here too.
+        await performFreshRefresh(reason: "reload", includingSessions: false)
         return result
     }
 

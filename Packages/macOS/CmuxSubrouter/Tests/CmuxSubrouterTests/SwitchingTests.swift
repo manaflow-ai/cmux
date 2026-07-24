@@ -44,6 +44,10 @@ import Testing
         ])
         #expect(await client.reloadCallCount == 1)
         #expect(await client.usageCallCount == 1)
+        // The post-switch refresh never pays the whole-history sessions
+        // transfer: nothing after a switch reads sessions, and pending
+        // state must not wait on that download.
+        #expect(await client.sessionsCallCount == 0)
         #expect(store.snapshot.activeAccount(for: .codex)?.id == "other@example.com")
         #expect(store.pendingSwitch == nil)
         #expect(store.lastSwitchError == nil)
@@ -223,6 +227,8 @@ import Testing
         let result = try await store.reloadDaemonAccounts()
         #expect(result.accounts == 3)
         #expect(await client.usageCallCount == 1)
+        // The reload verb's payload never reads sessions either.
+        #expect(await client.sessionsCallCount == 0)
         #expect(store.snapshot.daemonState == .healthy)
     }
 }
