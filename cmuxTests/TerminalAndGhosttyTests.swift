@@ -2561,69 +2561,119 @@ struct TerminalKeyboardCopyModeCursorSwiftTests {
 }
 
 
+/// Blends `foreground` over `base` the way src-over compositing does.
+///
+/// cmux composites terminal background colors over the window background, so a
+/// configured opacity ends up in the RGB blend and the resulting color is
+/// opaque. The arithmetic is written out here on purpose: calling the app's own
+/// resolver to build the expectation would make these assertions agree with the
+/// product by construction and they could never catch a compositing regression.
+private func expectedCompositeOverWindowBackground(
+    foreground: NSColor,
+    opacity: CGFloat,
+    base: NSColor = .windowBackgroundColor
+) throws -> (red: CGFloat, green: CGFloat, blue: CGFloat) {
+    let foregroundSRGB = try XCTUnwrap(foreground.usingColorSpace(.sRGB))
+    let baseSRGB = try XCTUnwrap(base.usingColorSpace(.sRGB))
+    let alpha = max(0.0, min(opacity, 1.0))
+    return (
+        red: foregroundSRGB.redComponent * alpha + baseSRGB.redComponent * (1 - alpha),
+        green: foregroundSRGB.greenComponent * alpha + baseSRGB.greenComponent * (1 - alpha),
+        blue: foregroundSRGB.blueComponent * alpha + baseSRGB.blueComponent * (1 - alpha)
+    )
+}
+
+private func assertOpaqueColor(
+    _ actual: NSColor,
+    equals expected: (red: CGFloat, green: CGFloat, blue: CGFloat),
+    file: StaticString = #filePath,
+    line: UInt = #line
+) throws {
+    let srgb = try XCTUnwrap(
+        actual.usingColorSpace(.sRGB),
+        "Expected sRGB-convertible color",
+        file: file,
+        line: line
+    )
+    XCTAssertEqual(srgb.redComponent, expected.red, accuracy: 0.005, file: file, line: line)
+    XCTAssertEqual(srgb.greenComponent, expected.green, accuracy: 0.005, file: file, line: line)
+    XCTAssertEqual(srgb.blueComponent, expected.blue, accuracy: 0.005, file: file, line: line)
+    XCTAssertEqual(srgb.alphaComponent, 1.0, accuracy: 0.005, file: file, line: line)
+}
+
 final class GhosttyBackgroundThemeTests: XCTestCase {
-    func testColorClampsOpacity() {
+    func testColorClampsOpacity() throws {
         let base = NSColor(srgbRed: 0.10, green: 0.20, blue: 0.30, alpha: 1.0)
 
+        // An opacity below zero clamps to 0, so none of `base` survives the
+        // blend and the result is the window background it composites onto.
+        // Without the clamp the negative weight would push the channels out of
+        // range instead.
         let lowerClamped = GhosttyBackgroundTheme.color(backgroundColor: base, opacity: -2.0)
-        XCTAssertEqual(lowerClamped.alphaComponent, 0.0, accuracy: 0.0001)
+        try assertOpaqueColor(
+            lowerClamped,
+            equals: try expectedCompositeOverWindowBackground(foreground: base, opacity: 0.0)
+        )
 
+        // An opacity above one clamps to 1, so `base` covers the window
+        // background completely.
         let upperClamped = GhosttyBackgroundTheme.color(backgroundColor: base, opacity: 5.0)
-        XCTAssertEqual(upperClamped.alphaComponent, 1.0, accuracy: 0.0001)
+        try assertOpaqueColor(
+            upperClamped,
+            equals: try expectedCompositeOverWindowBackground(foreground: base, opacity: 1.0)
+        )
     }
 
-    func testColorFromNotificationUsesBackgroundAndOpacity() {
-        let fallbackColor = NSColor.black
-        let fallbackOpacity = 1.0
+    func testColorFromNotificationUsesBackgroundAndOpacity() throws {
+        let notificationColor = NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0)
         let notification = Notification(
             name: .ghosttyDefaultBackgroundDidChange,
             object: nil,
             userInfo: [
-                GhosttyNotificationKey.backgroundColor: NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0),
+                GhosttyNotificationKey.backgroundColor: notificationColor,
                 GhosttyNotificationKey.backgroundOpacity: NSNumber(value: 0.57),
             ]
         )
 
+        // The fallbacks differ from the payload, so a color built from them
+        // instead would fail these assertions.
         let actual = GhosttyBackgroundTheme.color(
             from: notification,
-            fallbackColor: fallbackColor,
-            fallbackOpacity: fallbackOpacity
+            fallbackColor: .black,
+            fallbackOpacity: 1.0
         )
-        guard let srgb = actual.usingColorSpace(.sRGB) else {
-            XCTFail("Expected sRGB-convertible color")
-            return
-        }
 
-        XCTAssertEqual(srgb.redComponent, 0.18, accuracy: 0.005)
-        XCTAssertEqual(srgb.greenComponent, 0.29, accuracy: 0.005)
-        XCTAssertEqual(srgb.blueComponent, 0.44, accuracy: 0.005)
-        XCTAssertEqual(srgb.alphaComponent, 0.57, accuracy: 0.005)
+        try assertOpaqueColor(
+            actual,
+            equals: try expectedCompositeOverWindowBackground(
+                foreground: notificationColor,
+                opacity: 0.57
+            )
+        )
     }
 
-    func testColorFromNotificationFallsBackWhenPayloadMissing() {
+    func testColorFromNotificationFallsBackWhenPayloadMissing() throws {
         let fallbackColor = NSColor(srgbRed: 0.12, green: 0.34, blue: 0.56, alpha: 1.0)
-        let fallbackOpacity = 0.42
         let notification = Notification(name: .ghosttyDefaultBackgroundDidChange)
 
         let actual = GhosttyBackgroundTheme.color(
             from: notification,
             fallbackColor: fallbackColor,
-            fallbackOpacity: fallbackOpacity
+            fallbackOpacity: 0.42
         )
-        guard let srgb = actual.usingColorSpace(.sRGB) else {
-            XCTFail("Expected sRGB-convertible color")
-            return
-        }
 
-        XCTAssertEqual(srgb.redComponent, 0.12, accuracy: 0.005)
-        XCTAssertEqual(srgb.greenComponent, 0.34, accuracy: 0.005)
-        XCTAssertEqual(srgb.blueComponent, 0.56, accuracy: 0.005)
-        XCTAssertEqual(srgb.alphaComponent, 0.42, accuracy: 0.005)
+        try assertOpaqueColor(
+            actual,
+            equals: try expectedCompositeOverWindowBackground(
+                foreground: fallbackColor,
+                opacity: 0.42
+            )
+        )
     }
 }
 
 final class PanelAppearanceBackgroundTests: XCTestCase {
-    func testTransparentGhosttyOpacityUsesClearContentBackground() {
+    func testTransparentGhosttyOpacityUsesClearContentBackground() throws {
         var config = GhosttyConfig()
         config.backgroundColor = NSColor(srgbRed: 0.10, green: 0.20, blue: 0.30, alpha: 1.0)
         config.backgroundOpacity = 0.42
@@ -2633,7 +2683,17 @@ final class PanelAppearanceBackgroundTests: XCTestCase {
 
         XCTAssertTrue(appearance.usesClearContentBackground)
         XCTAssertFalse(appearance.drawsContentBackground)
-        XCTAssertEqual(appearance.backgroundColor.alphaComponent, 0.42, accuracy: 0.0001)
+        // The panel fill is the configured color composited over the window
+        // background, so the 0.42 opacity shows up in the blend and the fill
+        // itself is opaque. The transparency the test is named for comes from
+        // the clear content background below.
+        try assertOpaqueColor(
+            appearance.backgroundColor,
+            equals: try expectedCompositeOverWindowBackground(
+                foreground: config.backgroundColor,
+                opacity: 0.42
+            )
+        )
         XCTAssertEqual(appearance.contentBackgroundColor.alphaComponent, 0.0, accuracy: 0.0001)
     }
 
