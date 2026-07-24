@@ -394,6 +394,7 @@ fn anonymous_or_reused_placement_ids_have_distinct_snapshot_keys() {
 
     let snapshot = terminal.kitty_graphics_snapshot().unwrap();
     assert_eq!(snapshot.placements.len(), 2);
+    assert!(snapshot.placements.iter().all(|placement| placement.is_internal));
     assert_ne!(snapshot.placements[0].placement_id, snapshot.placements[1].placement_id);
     assert_ne!(snapshot.placements[0].key, snapshot.placements[1].key);
 }

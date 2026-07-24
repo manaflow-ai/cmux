@@ -280,6 +280,9 @@ pub struct KittyPlacement {
     pub key: KittyPlacementKey,
     pub image_id: u32,
     pub placement_id: u32,
+    /// Whether `placement_id` is a libghostty storage identity for protocol
+    /// `p=0` rather than an ID supplied by the terminal application.
+    pub is_internal: bool,
     pub x_offset: u32,
     pub y_offset: u32,
     pub source_x: u32,
@@ -338,6 +341,7 @@ impl Drop for PlacementIterator {
 struct PlacementSortKey {
     image_id: u32,
     placement_id: u32,
+    is_internal: bool,
     z: i32,
     viewport_row: i32,
     viewport_col: i32,
@@ -358,6 +362,7 @@ impl From<&KittyPlacement> for PlacementSortKey {
         Self {
             image_id: value.image_id,
             placement_id: value.placement_id,
+            is_internal: value.is_internal,
             z: value.z,
             viewport_row: value.viewport_row,
             viewport_col: value.viewport_col,
@@ -482,6 +487,10 @@ pub(crate) fn snapshot(
             key: KittyPlacementKey { image_id, placement_id, ordinal: 0 },
             image_id,
             placement_id,
+            is_internal: placement_value(
+                iterator.0,
+                sys::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IS_INTERNAL,
+            )?,
             x_offset: placement_value(
                 iterator.0,
                 sys::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_X_OFFSET,

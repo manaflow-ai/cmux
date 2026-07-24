@@ -1832,9 +1832,10 @@ fn kitty_replay_placement(
     let row = u32::try_from(visible_top).ok()?.checked_div(cell_height)?.saturating_add(1);
     let x_offset = u32::try_from(visible_left).ok()? % cell_width;
     let y_offset = u32::try_from(visible_top).ok()? % cell_height;
+    let placement_id = if placement.is_internal { 0 } else { placement.placement_id };
     let mut command = format!(
         "\x1b7\x1b[{row};{col}H\x1b_Ga=p,i={},p={},x={source_x},y={source_y},w={source_width},h={source_height},X={x_offset},Y={y_offset}",
-        placement.image_id, placement.placement_id
+        placement.image_id, placement_id
     );
     if let Some(columns) = columns {
         command.push_str(&format!(",c={columns}"));
@@ -1937,6 +1938,7 @@ mod tests {
             key: KittyPlacementKey { image_id: 1, placement_id: 2, ordinal: 0 },
             image_id: 1,
             placement_id: 2,
+            is_internal: false,
             x_offset: offset.0,
             y_offset: offset.1,
             source_x: 0,
