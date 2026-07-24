@@ -272,7 +272,8 @@ func (c *Client) ListWorkspaces(ctx context.Context) (Tree, error) {
 
 func (c *Client) ListClients(ctx context.Context) ([]ClientInfo, error) {
 	var result []ClientInfo
-	return result, c.request(ctx, "list-clients", nil, &result)
+	err := c.request(ctx, "list-clients", nil, &result)
+	return result, err
 }
 
 func (c *Client) SetClientSizing(
