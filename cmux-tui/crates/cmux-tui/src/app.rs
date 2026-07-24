@@ -88,27 +88,15 @@ enum TerminalInput {
 
 impl From<Event> for TerminalInput {
     fn from(event: Event) -> Self {
-        Self::from_event(event, None, false)
+        Self::from_event(event)
     }
 }
 
 impl TerminalInput {
-    fn from_event(
-        event: Event,
-        macos_option_as_alt: Option<bool>,
-        enhanced_keyboard_input: bool,
-    ) -> Self {
+    fn from_event(event: Event) -> Self {
         match event {
             Event::Key(key) => Self::Keyboard(key.into()),
-            Event::EnhancedKey(key) if enhanced_keyboard_input => {
-                Self::Keyboard(keys::KeyboardInput::from_enhanced(
-                    key,
-                    // Unset and side-specific policies are ambiguous because Kitty
-                    // omits modifier-side and consumption metadata. Preserve Alt.
-                    macos_option_as_alt.unwrap_or(true),
-                ))
-            }
-            Event::EnhancedKey(key) => Self::Keyboard(key.key_event.into()),
+            Event::EnhancedKey(key) => Self::Keyboard(key.into()),
             Event::Mouse(mouse) => Self::Mouse(mouse),
             Event::Paste(text) => Self::Paste(text),
             Event::FocusGained => Self::FocusGained,
@@ -3003,7 +2991,6 @@ pub struct App {
     machine_update_pump: Option<MachineUpdatePump>,
     machine_update_generation: u64,
     pub config: Config,
-    enhanced_keyboard_input: bool,
     pub chrome: ChromeTheme,
     default_colors: cmux_tui_core::DefaultColors,
     pub tree: TreeView,
@@ -4029,7 +4016,6 @@ pub fn run_with_machine_updates(
         machine_update_pump: None,
         machine_update_generation: 0,
         config,
-        enhanced_keyboard_input: host_keyboard_protocol.enhanced_input,
         chrome,
         default_colors,
         tree: TreeView::default(),
@@ -4151,18 +4137,17 @@ struct HostKeyboardProtocolOwnership {
     // Panic and normal cleanup share this claim. The stdout lock serializes
     // restore attempts, and the first successful pop consumes ownership.
     pushed: Arc<AtomicBool>,
-    enhanced_input: bool,
 }
 
 impl Default for HostKeyboardProtocolOwnership {
     fn default() -> Self {
-        Self { pushed: Arc::new(AtomicBool::new(false)), enhanced_input: false }
+        Self { pushed: Arc::new(AtomicBool::new(false)) }
     }
 }
 
 impl PartialEq for HostKeyboardProtocolOwnership {
     fn eq(&self, other: &Self) -> bool {
-        self.is_pushed() == other.is_pushed() && self.enhanced_input == other.enhanced_input
+        self.is_pushed() == other.is_pushed()
     }
 }
 
@@ -4170,7 +4155,7 @@ impl Eq for HostKeyboardProtocolOwnership {}
 
 impl HostKeyboardProtocolOwnership {
     fn pushed() -> Self {
-        Self { pushed: Arc::new(AtomicBool::new(true)), enhanced_input: false }
+        Self { pushed: Arc::new(AtomicBool::new(true)) }
     }
 
     fn is_pushed(&self) -> bool {
@@ -4222,7 +4207,6 @@ fn negotiate_host_keyboard_protocol_with(
     }
 
     if keyboard_protocol_accepts(HOST_KEYBOARD_FLAGS, query().ok().flatten()) {
-        ownership.enhanced_input = true;
         return Ok(());
     }
 
@@ -5792,11 +5776,7 @@ impl App {
             event => event,
         };
         if let AppEvent::Input(input) = event {
-            return self.handle_terminal_input(TerminalInput::from_event(
-                input,
-                self.config.macos_option_as_alt,
-                self.enhanced_keyboard_input,
-            ));
+            return self.handle_terminal_input(TerminalInput::from_event(input));
         }
         match &event {
             AppEvent::Mux(MuxEvent::SurfaceExited(_) | MuxEvent::LayoutChanged(_)) => {
@@ -11114,7 +11094,6 @@ mod tests {
         negotiate_host_keyboard_protocol_with(&mut output, &mut ownership, || Ok(Some(accepted)))
             .unwrap();
         assert!(ownership.is_pushed());
-        assert!(ownership.enhanced_input);
         disable_host_keyboard_protocol(&mut output, &ownership).unwrap();
 
         assert_eq!(output, b"\x1b[>29u\x1b[<1u");
@@ -11224,21 +11203,16 @@ mod tests {
 
         assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe);
         assert!(ownership.is_pushed());
-        assert!(!ownership.enhanced_input);
     }
 
     #[test]
     fn unverified_host_keyboard_metadata_is_preserved() {
-        let input = TerminalInput::from_event(
-            Event::EnhancedKey(EnhancedKeyEvent {
-                key_event: KeyEvent::new(KeyCode::Char('л'), KeyModifiers::SUPER),
-                shifted_key: None,
-                base_layout_key: Some('k'),
-                text: "generated".to_string(),
-            }),
-            Some(false),
-            false,
-        );
+        let input = TerminalInput::from_event(Event::EnhancedKey(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('л'), KeyModifiers::SUPER),
+            shifted_key: None,
+            base_layout_key: Some('k'),
+            text: "generated".to_string(),
+        }));
         let TerminalInput::Keyboard(input) = input else {
             panic!("enhanced key did not become keyboard input");
         };
@@ -11253,7 +11227,6 @@ mod tests {
     fn enhanced_text_inserts_atomically_in_prompt_and_omnibar() {
         let mux = Mux::new("enhanced-overlay-text-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
-        app.config.macos_option_as_alt = Some(false);
         let text = "\u{2211}\u{6f22}";
         let enhanced = || {
             Event::EnhancedKey(EnhancedKeyEvent {
@@ -11336,16 +11309,13 @@ mod tests {
     }
 
     #[test]
-    fn option_generated_text_does_not_match_alt_modeless_bindings_for_any_host_policy() {
-        let input = crate::keys::KeyboardInput::from_enhanced(
-            EnhancedKeyEvent {
-                key_event: KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT),
-                shifted_key: None,
-                base_layout_key: Some('j'),
-                text: "\u{2206}".to_string(),
-            },
-            true,
-        );
+    fn option_generated_text_does_not_match_alt_modeless_bindings() {
+        let input = crate::keys::KeyboardInput::from_enhanced(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT),
+            shifted_key: None,
+            base_layout_key: Some('j'),
+            text: "\u{2206}".to_string(),
+        });
         let (key, fallback) = input.shortcut_keys();
 
         assert_eq!(
@@ -11421,7 +11391,6 @@ mod tests {
         let temp = test_temp_dir("files-filter-associated-text");
         let mux = Mux::new("files-filter-associated-text-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
-        app.config.macos_option_as_alt = Some(false);
         app.sidebar_files = FileBrowser::new(temp.clone());
         app.sidebar_view = SidebarView::Files;
         app.focus = FocusTarget::WorkspaceRail;
@@ -11467,15 +11436,12 @@ mod tests {
         let mut app = test_app(Session::Local(mux));
         let (dispatcher, blocked) = BrowserInputDispatcher::blocked(1);
         app.browser_input = dispatcher;
-        let input = crate::keys::KeyboardInput::from_enhanced(
-            EnhancedKeyEvent {
-                key_event: KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT),
-                shifted_key: None,
-                base_layout_key: Some('w'),
-                text: "\u{2211}\u{6f22}".to_string(),
-            },
-            false,
-        );
+        let input = crate::keys::KeyboardInput::from_enhanced(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT),
+            shifted_key: None,
+            base_layout_key: Some('w'),
+            text: "\u{2211}\u{6f22}".to_string(),
+        });
 
         app.forward_browser_key_to(7, SurfaceHandle::RemoteBrowserUnsupported, input);
 
@@ -18133,7 +18099,6 @@ mod tests {
             machine_update_pump: None,
             machine_update_generation: 0,
             config: Config::default(),
-            enhanced_keyboard_input: true,
             chrome: ChromeTheme::dark(),
             default_colors: cmux_tui_core::DefaultColors::default(),
             tree: TreeView::default(),

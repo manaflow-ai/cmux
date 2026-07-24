@@ -41,19 +41,29 @@ impl From<KeyEvent> for KeyboardInput {
 
 impl From<EnhancedKeyEvent> for KeyboardInput {
     fn from(event: EnhancedKeyEvent) -> Self {
-        Self::from_enhanced(event, true)
+        Self::from_enhanced(event)
     }
 }
 
 impl KeyboardInput {
-    pub fn from_enhanced(event: EnhancedKeyEvent, macos_option_as_alt: bool) -> Self {
-        // Kitty reports pressed modifiers and generated text, but no
-        // consumed-modifier mask. Only the host's explicit Option policy can
-        // tell us that printable text consumed Alt. Ambiguous or side-specific
-        // policies fail closed to preserving Alt shortcuts.
-        let consumed_alt = !macos_option_as_alt
-            && event.key_event.modifiers.contains(KeyModifiers::ALT)
-            && !event.text.is_empty();
+    pub fn from_enhanced(event: EnhancedKeyEvent) -> Self {
+        // Kitty reports generated text per event, but no consumed-modifier
+        // mask. Text that differs from the active-layout character means Alt
+        // participated in text generation. Matching text keeps genuine Alt
+        // shortcuts active.
+        let active_layout_character = if event.key_event.modifiers.contains(KeyModifiers::SHIFT) {
+            event.shifted_key
+        } else if let KeyCode::Char(character) = event.key_event.code {
+            Some(character)
+        } else {
+            None
+        };
+        let consumed_alt = event.key_event.modifiers.contains(KeyModifiers::ALT)
+            && !event.text.is_empty()
+            && active_layout_character.is_none_or(|character| {
+                let mut text = event.text.chars();
+                text.next() != Some(character) || text.next().is_some()
+            });
         Self {
             key_event: event.key_event,
             shifted_key: event.shifted_key,
@@ -362,7 +372,7 @@ fn key_input_from_event(event: &KeyEvent, include_character_text: bool) -> Optio
 /// guessing the keyboard layout from US punctuation pairs.
 #[cfg(test)]
 pub fn key_input_from_enhanced(event: &EnhancedKeyEvent) -> Option<KeyInput> {
-    KeyboardInput::from_enhanced(event.clone(), true).into_terminal_input()
+    KeyboardInput::from_enhanced(event.clone()).into_terminal_input()
 }
 
 fn key_input_from_parts(
@@ -496,6 +506,7 @@ mod tests {
         assert_eq!(input.utf8, "1");
         assert!(input.mods.contains(Mods::ALT | Mods::SHIFT));
         assert!(input.consumed_mods.contains(Mods::SHIFT));
+        assert!(!input.consumed_mods.contains(Mods::ALT));
     }
 
     #[test]
@@ -550,7 +561,7 @@ mod tests {
         };
         let text_ptr = event.text.as_ptr();
 
-        let input = KeyboardInput::from_enhanced(event, true).into_terminal_input().unwrap();
+        let input = KeyboardInput::from_enhanced(event).into_terminal_input().unwrap();
 
         assert_eq!(input.utf8, "\u{2211}");
         assert_eq!(input.utf8.as_ptr(), text_ptr);
@@ -559,21 +570,15 @@ mod tests {
     }
 
     #[test]
-    fn option_generated_text_consumes_alt_regardless_of_host_policy() {
-        let input = |macos_option_as_alt| {
-            KeyboardInput::from_enhanced(
-                EnhancedKeyEvent {
-                    key_event: KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT),
-                    shifted_key: None,
-                    base_layout_key: Some('w'),
-                    text: "\u{2211}".to_string(),
-                },
-                macos_option_as_alt,
-            )
-        };
+    fn option_generated_text_consumes_alt_from_event_metadata() {
+        let input = KeyboardInput::from_enhanced(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT),
+            shifted_key: None,
+            base_layout_key: Some('w'),
+            text: "\u{2211}".to_string(),
+        });
 
-        assert!(input(true).has_consumed_alt());
-        assert!(input(false).has_consumed_alt());
+        assert!(input.has_consumed_alt());
     }
 
     #[test]
@@ -584,7 +589,7 @@ mod tests {
             base_layout_key: Some('w'),
             text: "\u{2211}".to_string(),
         };
-        let input = KeyboardInput::from_enhanced(event, false).into_terminal_input().unwrap();
+        let input = KeyboardInput::from_enhanced(event).into_terminal_input().unwrap();
         let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
         terminal.vt_write(b"\x1b[>29u");
         let mut encoder = KeyEncoder::new().unwrap();
@@ -651,7 +656,7 @@ mod tests {
             base_layout_key: Some('2'),
             text: "\u{20ac}".to_string(),
         };
-        let input = KeyboardInput::from_enhanced(event, false).into_terminal_input().unwrap();
+        let input = KeyboardInput::from_enhanced(event).into_terminal_input().unwrap();
         let terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
         let mut encoder = KeyEncoder::new().unwrap();
         encoder.sync_from_terminal(&terminal);
