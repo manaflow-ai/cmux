@@ -4,6 +4,55 @@ import Testing
 @testable import CmuxSimulator
 
 extension SimulatorWorkerClientTests {
+    @Test("Worker factories share camera cleanup only through an injected app scope")
+    func workerFactoryCameraCleanupScopeIsInjected() async {
+        let appScope = SimulatorCameraCleanupOwnershipScope()
+        let first = SimulatorWorkerClientFactory(
+            executableURL: URL(fileURLWithPath: "/fake/cmux"),
+            cameraCleanupOwnershipScope: appScope
+        ).makeClient(simulatorControl: TestSimulatorControl())
+        let second = SimulatorWorkerClientFactory(
+            executableURL: URL(fileURLWithPath: "/fake/cmux"),
+            cameraCleanupOwnershipScope: appScope
+        ).makeClient(simulatorControl: TestSimulatorControl())
+        let independent = SimulatorWorkerClientFactory(
+            executableURL: URL(fileURLWithPath: "/fake/cmux")
+        ).makeClient(simulatorControl: TestSimulatorControl())
+        let firstCoordinator = await first.cameraCleanupCoordinator
+        let secondCoordinator = await second.cameraCleanupCoordinator
+        let independentCoordinator = await independent.cameraCleanupCoordinator
+
+        #expect(firstCoordinator === secondCoordinator)
+        #expect(firstCoordinator !== independentCoordinator)
+    }
+
+    @Test("Completed camera cleanup prunes per-target ownership state")
+    func completedCameraCleanupPrunesTargetState() async throws {
+        let scope = SimulatorCameraCleanupOwnershipScope()
+        let coordinator = scope.coordinator
+        let deviceIdentifier = "DEVICE-\(UUID().uuidString)"
+        let bundleIdentifier = "com.example.camera"
+        _ = try await coordinator.claim(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        )
+        #expect(await coordinator.trackedTargetCount == 1)
+
+        let cleanup = await coordinator.enqueue(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifiers: [bundleIdentifier]
+        ) {
+            .completed
+        }
+        #expect(await cleanup.value == .completed)
+
+        for _ in 0..<1_000 {
+            if await coordinator.trackedTargetCount == 0 { break }
+            await Task.yield()
+        }
+        #expect(await coordinator.trackedTargetCount == 0)
+    }
+
     @Test("Camera cleanup for one Simulator does not block another Simulator")
     func unrelatedCameraCleanupRunsConcurrently() async throws {
         let coordinator = SimulatorCameraCleanupCoordinator()

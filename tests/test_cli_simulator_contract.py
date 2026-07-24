@@ -64,7 +64,7 @@ class FakeCmuxHandler(socketserver.StreamRequestHandler):
                         "bundle_path": "/Applications/Settings.app",
                     }
                 }
-            elif method == "simulator.context":
+            elif method in {"simulator.context", "simulator.prepare_screenshot"}:
                 result = {
                     "simulator_id": "SIMULATOR-1",
                     "device_name": "iPhone Fixture",
@@ -375,7 +375,7 @@ def check_ios_error_identity(
             f"iOS screenshot misidentified a missing surface reference: {proc.stderr!r}"
         )
     requests = state.requests_since(start)
-    if len(requests) != 1 or requests[0].get("method") != "simulator.context":
+    if len(requests) != 1 or requests[0].get("method") != "simulator.prepare_screenshot":
         raise AssertionError(f"unexpected iOS screenshot requests: {requests!r}")
 
 
