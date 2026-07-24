@@ -1,7 +1,8 @@
 use std::io::Write;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
-use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::thread::{JoinHandle, ThreadId};
 use std::time::Duration;
 
 use super::graphics::{GraphicPlacement, GraphicsState};
@@ -17,26 +18,132 @@ struct PendingUpdate {
     host_scene_epoch: u64,
 }
 
+#[derive(Default)]
+struct WriterControlState {
+    done: bool,
+}
+
+#[derive(Default)]
+struct WriterControl {
+    stop_requested: AtomicBool,
+    cancelled: AtomicBool,
+    worker_thread: OnceLock<ThreadId>,
+    state: Mutex<WriterControlState>,
+    changed: Condvar,
+}
+
+impl WriterControl {
+    fn request_stop(&self, notify: &SyncSender<()>) {
+        self.stop_requested.store(true, Ordering::Release);
+        notify_writer(notify);
+    }
+
+    fn request_cancel(&self, notify: &SyncSender<()>) {
+        self.cancelled.store(true, Ordering::Release);
+        self.changed.notify_all();
+        notify_writer(notify);
+    }
+
+    fn is_stopping(&self) -> bool {
+        self.stop_requested.load(Ordering::Acquire) || self.is_cancelled()
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Acquire)
+    }
+
+    fn mark_done(&self) {
+        self.state.lock().unwrap().done = true;
+        self.changed.notify_all();
+    }
+
+    fn wait_done(&self) {
+        let state = self.state.lock().unwrap();
+        drop(self.changed.wait_while(state, |state| !state.done).unwrap());
+    }
+
+    fn wait_done_timeout(&self, timeout: Duration) -> bool {
+        let state = self.state.lock().unwrap();
+        if state.done {
+            return true;
+        }
+        let (state, _) =
+            self.changed.wait_timeout_while(state, timeout, |state| !state.done).unwrap();
+        state.done
+    }
+
+    #[cfg(test)]
+    fn wait_until_cancelled(&self) {
+        let state = self.state.lock().unwrap();
+        drop(self.changed.wait_while(state, |_| !self.cancelled.load(Ordering::Acquire)).unwrap());
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct GraphicsWriterShutdown {
+    control: Arc<WriterControl>,
+    notify: SyncSender<()>,
+}
+
+impl GraphicsWriterShutdown {
+    /// Stop the writer and wait until no future host-terminal writes are
+    /// possible. This is safe to call from the process panic hook.
+    pub(crate) fn cancel_and_wait(&self) {
+        self.control.request_cancel(&self.notify);
+        if self
+            .control
+            .worker_thread
+            .get()
+            .is_none_or(|worker| *worker != std::thread::current().id())
+        {
+            self.control.wait_done();
+        }
+    }
+
+    #[cfg(test)]
+    fn wait_until_cancelled(&self) {
+        self.control.wait_until_cancelled();
+    }
+}
+
 pub struct GraphicsWriter {
     slot: Arc<Mutex<PendingGraphics>>,
     notify: Option<SyncSender<()>>,
-    done: Option<Receiver<()>>,
+    control: Arc<WriterControl>,
     handle: Option<JoinHandle<()>>,
 }
 
 impl GraphicsWriter {
     pub fn spawn(stdout_lock: Arc<Mutex<()>>) -> std::io::Result<Self> {
+        Self::spawn_with_output(stdout_lock, std::io::stdout())
+    }
+
+    fn spawn_with_output<W>(stdout_lock: Arc<Mutex<()>>, output: W) -> std::io::Result<Self>
+    where
+        W: Write + Send + 'static,
+    {
         let (tx, rx) = sync_channel(1);
-        let (done_tx, done_rx) = sync_channel(1);
         let slot = Arc::new(Mutex::new(PendingGraphics::default()));
+        let control = Arc::new(WriterControl::default());
         let handle = std::thread::Builder::new().name("mux-graphics-writer".into()).spawn({
             let slot = slot.clone();
-            move || writer_loop(slot, rx, stdout_lock, done_tx)
+            let control = control.clone();
+            move || writer_loop(slot, rx, stdout_lock, output, control)
         })?;
-        Ok(Self { slot, notify: Some(tx), done: Some(done_rx), handle: Some(handle) })
+        Ok(Self { slot, notify: Some(tx), control, handle: Some(handle) })
+    }
+
+    pub(crate) fn shutdown_control(&self) -> GraphicsWriterShutdown {
+        GraphicsWriterShutdown {
+            control: self.control.clone(),
+            notify: self.notify.as_ref().expect("active graphics writer").clone(),
+        }
     }
 
     pub fn submit(&self, placements: Vec<GraphicPlacement>) {
+        if self.control.is_stopping() {
+            return;
+        }
         let Some(tx) = &self.notify else { return };
         submit_snapshot(&self.slot, tx, placements);
     }
@@ -46,6 +153,9 @@ impl GraphicsWriter {
     /// The epoch remains in the latest-wins slot until the writer observes
     /// it, so later snapshot replacement cannot discard the invalidation.
     pub fn invalidate_host_scene(&self) {
+        if self.control.is_stopping() {
+            return;
+        }
         let Some(tx) = &self.notify else { return };
         let mut pending = self.slot.lock().unwrap();
         pending.host_scene_epoch = pending.host_scene_epoch.wrapping_add(1);
@@ -57,21 +167,17 @@ impl GraphicsWriter {
     }
 
     pub fn shutdown(&mut self, timeout: Duration) {
-        self.notify.take();
         let Some(handle) = self.handle.take() else { return };
-        let Some(done) = self.done.take() else {
+        let Some(notify) = self.notify.as_ref() else {
             let _ = handle.join();
             return;
         };
-        match done.recv_timeout(timeout) {
-            Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                let _ = handle.join();
-            }
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                self.done = Some(done);
-                self.handle = Some(handle);
-            }
+        self.control.request_stop(notify);
+        if !self.control.wait_done_timeout(timeout) {
+            self.control.request_cancel(notify);
         }
+        let _ = handle.join();
+        self.notify.take();
     }
 }
 
@@ -111,20 +217,24 @@ fn take_pending_update(
     })
 }
 
-fn writer_loop(
+fn writer_loop<W>(
     slot: Arc<Mutex<PendingGraphics>>,
     rx: Receiver<()>,
     stdout_lock: Arc<Mutex<()>>,
-    done: SyncSender<()>,
-) {
-    let _done = DoneOnDrop(done);
+    mut output: W,
+    control: Arc<WriterControl>,
+) where
+    W: Write,
+{
+    let _ = control.worker_thread.set(std::thread::current().id());
+    let _done = DoneOnDrop(control.clone());
     let mut graphics = GraphicsState::default();
     let mut applied_host_scene_epoch = 0;
-    while rx.recv().is_ok() {
-        loop {
-            let Some(update) = take_pending_update(&slot, applied_host_scene_epoch) else {
-                break;
-            };
+    'writer: loop {
+        if control.is_cancelled() {
+            break;
+        }
+        while let Some(update) = take_pending_update(&slot, applied_host_scene_epoch) {
             if update.host_scene_epoch != applied_host_scene_epoch {
                 graphics.invalidate_host_scene();
                 applied_host_scene_epoch = update.host_scene_epoch;
@@ -133,28 +243,48 @@ fn writer_loop(
                 continue;
             };
             for batch in graphics.frame_batches(&placements) {
-                let _guard = stdout_lock.lock().unwrap();
-                let mut stdout = std::io::stdout();
-                if stdout.write_all(&batch).and_then(|_| stdout.flush()).is_err() {
-                    return;
+                if !write_batch(&mut output, &stdout_lock, &control, &batch) {
+                    break 'writer;
                 }
             }
         }
+        if control.stop_requested.load(Ordering::Acquire) {
+            break;
+        }
+        if rx.recv().is_err() {
+            break;
+        }
     }
-    for batch in graphics.frame_batches(&[]) {
-        let _guard = stdout_lock.lock().unwrap();
-        let mut stdout = std::io::stdout();
-        if stdout.write_all(&batch).and_then(|_| stdout.flush()).is_err() {
-            return;
+    if !control.is_cancelled() {
+        for batch in graphics.frame_batches(&[]) {
+            if !write_batch(&mut output, &stdout_lock, &control, &batch) {
+                break;
+            }
         }
     }
 }
 
-struct DoneOnDrop(SyncSender<()>);
+fn write_batch<W: Write>(
+    output: &mut W,
+    stdout_lock: &Arc<Mutex<()>>,
+    control: &WriterControl,
+    batch: &[u8],
+) -> bool {
+    if control.is_cancelled() {
+        return false;
+    }
+    let _guard = stdout_lock.lock().unwrap();
+    if control.is_cancelled() {
+        return false;
+    }
+    output.write_all(batch).and_then(|_| output.flush()).is_ok()
+}
+
+struct DoneOnDrop(Arc<WriterControl>);
 
 impl Drop for DoneOnDrop {
     fn drop(&mut self) {
-        let _ = self.0.try_send(());
+        self.0.mark_done();
     }
 }
 
@@ -234,8 +364,12 @@ mod tests {
     fn host_scene_invalidation_survives_latest_wins_coalescing() {
         let (tx, rx) = sync_channel(1);
         let slot = Arc::new(Mutex::new(PendingGraphics::default()));
-        let writer =
-            GraphicsWriter { slot: slot.clone(), notify: Some(tx), done: None, handle: None };
+        let writer = GraphicsWriter {
+            slot: slot.clone(),
+            notify: Some(tx),
+            control: Arc::new(WriterControl::default()),
+            handle: None,
+        };
 
         writer.invalidate_host_scene();
         writer.submit(vec![GraphicPlacement::browser(
@@ -309,6 +443,51 @@ mod tests {
         assert!(
             writes_after_restore.lock().unwrap().iter().all(|after_restore| !after_restore),
             "graphics bytes were written after terminal restoration"
+        );
+    }
+
+    #[test]
+    fn panic_shutdown_control_quiesces_before_terminal_restore() {
+        let (entered_tx, entered_rx) = sync_channel(1);
+        let (release_tx, release_rx) = sync_channel(1);
+        let restored = Arc::new(AtomicBool::new(false));
+        let writes_after_restore = Arc::new(Mutex::new(Vec::new()));
+        let output = BlockingOutput {
+            entered: entered_tx,
+            release: release_rx,
+            restored: restored.clone(),
+            writes_after_restore: writes_after_restore.clone(),
+        };
+        let writer = GraphicsWriter::spawn_with_output(Arc::new(Mutex::new(())), output).unwrap();
+        let shutdown = writer.shutdown_control();
+        writer.submit(vec![GraphicPlacement::browser(
+            0,
+            1,
+            Rect { x: 0, y: 0, width: 10, height: 5 },
+            1,
+            10,
+            5,
+            "AAAA".to_string(),
+        )]);
+        entered_rx.recv().unwrap();
+
+        let (panic_hook_done_tx, panic_hook_done_rx) = sync_channel(1);
+        let panic_shutdown = shutdown.clone();
+        let restored_for_hook = restored.clone();
+        std::thread::spawn(move || {
+            panic_shutdown.cancel_and_wait();
+            restored_for_hook.store(true, Ordering::Release);
+            panic_hook_done_tx.send(()).unwrap();
+        });
+
+        shutdown.wait_until_cancelled();
+        release_tx.send(()).unwrap();
+        panic_hook_done_rx.recv().unwrap();
+
+        assert!(restored.load(Ordering::Acquire));
+        assert!(
+            writes_after_restore.lock().unwrap().iter().all(|after_restore| !after_restore),
+            "panic restoration raced a graphics write"
         );
     }
 }

@@ -61,7 +61,7 @@ use crate::session::{
 };
 use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
 use crate::ui::graphics::{GraphicPlacement, kitty_graphic_image, kitty_graphic_placement};
-use crate::ui::graphics_writer::GraphicsWriter;
+use crate::ui::graphics_writer::{GraphicsWriter, GraphicsWriterShutdown};
 use crate::ui::input::{InputEvent, TextInput};
 use crate::ui::thumb_geometry;
 
@@ -3680,6 +3680,49 @@ pub fn run_with_machine_updates(
     machine_ui: Option<MachineUiState>,
     machine_controller: Option<Box<dyn MachineController>>,
 ) -> anyhow::Result<RunOutcome> {
+    type PanicHook = dyn for<'a> Fn(&std::panic::PanicHookInfo<'a>) + Send + Sync + 'static;
+    let previous_panic_hook: Arc<PanicHook> = Arc::from(std::panic::take_hook());
+    let previous_panic_hook_for_threads = previous_panic_hook.clone();
+    let run_thread = std::thread::current().id();
+    let panic_diagnostic = Arc::new(Mutex::new(None));
+    let panic_diagnostic_hook = panic_diagnostic.clone();
+    std::panic::set_hook(Box::new(move |info| {
+        if std::thread::current().id() == run_thread {
+            *panic_diagnostic_hook.lock().unwrap() = Some(format_panic_diagnostic(info));
+        } else {
+            previous_panic_hook_for_threads(info);
+        }
+    }));
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        run_with_machine_updates_inner(
+            session,
+            session_label,
+            default_colors,
+            machine_ui,
+            machine_controller,
+        )
+    }));
+    let _ = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| previous_panic_hook(info)));
+
+    let result = report_after_unwind(result, || {
+        if let Some(diagnostic) = panic_diagnostic.lock().unwrap().take() {
+            eprint!("{diagnostic}");
+        }
+    });
+    match result {
+        Ok(result) => result,
+        Err(payload) => std::panic::resume_unwind(payload),
+    }
+}
+
+fn run_with_machine_updates_inner(
+    session: Session,
+    session_label: String,
+    default_colors: cmux_tui_core::DefaultColors,
+    machine_ui: Option<MachineUiState>,
+    machine_controller: Option<Box<dyn MachineController>>,
+) -> anyhow::Result<RunOutcome> {
     let mut config = crate::config::load();
     let chrome = ChromeTheme::for_defaults(config.chrome, default_colors);
     config.apply_chrome_defaults(chrome);
@@ -3745,6 +3788,9 @@ pub fn run_with_machine_updates(
         let _ = restore_terminal(Some(&stdout_lock));
         return Err(e);
     }
+    // This guard runs during unwinding after inner stdout guards and the App
+    // have dropped, so graphics are quiescent before terminal restoration.
+    let mut terminal_restore = TerminalRestoreGuard::new(stdout_lock.clone());
 
     let cell_pixels = crate::ui::graphics::detect_cell_pixels(true);
     if session_available {
@@ -3764,24 +3810,13 @@ pub fn run_with_machine_updates(
             }
         }
     })?;
-    // Restore the host terminal even if we panic mid-frame.
-    let default_hook = std::panic::take_hook();
-    let restore_lock = stdout_lock.clone();
-    std::panic::set_hook(Box::new(move |info| {
-        let _ = restore_terminal(Some(&restore_lock));
-        default_hook(info);
-    }));
 
     let backend = CrosstermBackend::new(std::io::stdout());
-    let mut terminal = match RatatuiTerminal::new(backend) {
-        Ok(terminal) => terminal,
-        Err(e) => {
-            let _ = restore_terminal(Some(&stdout_lock));
-            return Err(e.into());
-        }
-    };
+    let mut terminal = RatatuiTerminal::new(backend)?;
     let graphics_writer =
         if graphics_supported { Some(GraphicsWriter::spawn(stdout_lock.clone())?) } else { None };
+    terminal_restore
+        .set_graphics_shutdown(graphics_writer.as_ref().map(GraphicsWriter::shutdown_control));
 
     let sidebar_view = config.sidebar.view;
     let fallback_cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -3888,8 +3923,7 @@ pub fn run_with_machine_updates(
         if let Some(writer) = app.graphics_writer.as_mut() {
             writer.shutdown(Duration::from_millis(200));
         }
-        let _ = std::panic::take_hook();
-        let _ = restore_terminal(Some(&stdout_lock));
+        let _ = terminal_restore.restore();
         return Err(error);
     }
 
@@ -3901,8 +3935,7 @@ pub fn run_with_machine_updates(
     if let Some(writer) = app.graphics_writer.as_mut() {
         writer.shutdown(Duration::from_millis(200));
     }
-    let _ = std::panic::take_hook();
-    restore_terminal(Some(&stdout_lock))?;
+    terminal_restore.restore()?;
     result?;
     let outcome = app
         .machine_ui
@@ -3910,6 +3943,71 @@ pub fn run_with_machine_updates(
         .map(RunOutcome::Machine)
         .unwrap_or(RunOutcome::Quit);
     Ok(outcome)
+}
+
+fn format_panic_diagnostic(info: &std::panic::PanicHookInfo<'_>) -> String {
+    let payload = info
+        .payload()
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| info.payload().downcast_ref::<String>().map(String::as_str))
+        .unwrap_or("Box<dyn Any>");
+    let thread = std::thread::current();
+    let thread_name = thread.name().unwrap_or("<unnamed>");
+    let location = info
+        .location()
+        .map(|location| location.to_string())
+        .unwrap_or_else(|| "<unknown>".to_string());
+    let mut diagnostic = format!("thread '{thread_name}' panicked at {location}:\n{payload}\n");
+    let backtrace = std::backtrace::Backtrace::capture();
+    if backtrace.status() == std::backtrace::BacktraceStatus::Captured {
+        diagnostic.push_str(&format!("{backtrace}\n"));
+    }
+    diagnostic
+}
+
+fn report_after_unwind<T>(
+    result: std::thread::Result<T>,
+    report: impl FnOnce(),
+) -> std::thread::Result<T> {
+    if result.is_err() {
+        report();
+    }
+    result
+}
+
+struct TerminalRestoreGuard {
+    stdout_lock: Arc<Mutex<()>>,
+    graphics_shutdown: Option<GraphicsWriterShutdown>,
+    armed: bool,
+}
+
+impl TerminalRestoreGuard {
+    fn new(stdout_lock: Arc<Mutex<()>>) -> Self {
+        Self { stdout_lock, graphics_shutdown: None, armed: true }
+    }
+
+    fn set_graphics_shutdown(&mut self, graphics_shutdown: Option<GraphicsWriterShutdown>) {
+        self.graphics_shutdown = graphics_shutdown;
+    }
+
+    fn restore(&mut self) -> anyhow::Result<()> {
+        if !self.armed {
+            return Ok(());
+        }
+        if let Some(graphics_shutdown) = &self.graphics_shutdown {
+            graphics_shutdown.cancel_and_wait();
+        }
+        let result = restore_terminal(Some(&self.stdout_lock));
+        self.armed = false;
+        result
+    }
+}
+
+impl Drop for TerminalRestoreGuard {
+    fn drop(&mut self) {
+        let _ = self.restore();
+    }
 }
 
 fn restore_terminal(stdout_lock: Option<&Arc<Mutex<()>>>) -> anyhow::Result<()> {
@@ -10380,8 +10478,8 @@ mod tests {
         browser_content_size_for_rect, browser_hover_forward_allowed, client_menu_item,
         forward_mux_event, forward_mux_events, pane_context_menu_groups, pane_parts_for_rect,
         prepare_ordered_session, preserve_client_view, rail_drag_width,
-        record_surface_resize_dispatch_result, sidebar_plugin_status_settles_passive_claim,
-        start_ordered_session,
+        record_surface_resize_dispatch_result, report_after_unwind,
+        sidebar_plugin_status_settles_passive_claim, start_ordered_session,
     };
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -12535,6 +12633,19 @@ mod tests {
         .unwrap();
 
         assert!(!app.session.client_refresh_queued.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn panic_report_is_emitted_after_terminal_restore() {
+        let events = Mutex::new(Vec::new());
+        let result: std::thread::Result<()> = {
+            events.lock().unwrap().push("restore");
+            Err(Box::new(()))
+        };
+        let result = report_after_unwind(result, || events.lock().unwrap().push("panic"));
+
+        assert!(result.is_err());
+        assert_eq!(*events.lock().unwrap(), vec!["restore", "panic"]);
     }
 
     #[test]
