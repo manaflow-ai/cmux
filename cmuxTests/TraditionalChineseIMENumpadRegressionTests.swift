@@ -20,16 +20,15 @@ struct TraditionalChineseIMENumpadRegressionTests {
     @Test func deferredKeypadCommitAfterTextInterpretationSendsOneKey() throws {
         let hostedTerminal = try makeHostedTerminalWindow()
         let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
-        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
+        let previousTextInputHandler = GhosttyNSView.debugTextInputEventHandler
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
-            cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputHandler
             hostedTerminal.window.orderOut(nil)
             withExtendedLifetime(hostedTerminal.surface) {}
         }
 
-        installCJKIMEInterpretKeyEventsSwizzle()
-        cjkIMEInterpretKeyEventsHook = { candidateView, _ in
+        GhosttyNSView.debugTextInputEventHandler = { candidateView, _ in
             guard candidateView === hostedTerminal.surfaceView else { return false }
             DispatchQueue.main.async {
                 candidateView.insertText(
