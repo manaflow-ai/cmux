@@ -257,6 +257,63 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
     }
 
+    func testWorkspaceTerminalFontSizeShortcutSeedsDockCreatedAfterShortcut() {
+        withTemporaryShortcut(action: .decreaseWorkspaceTerminalFontSize) {
+            guard let appDelegate = AppDelegate.shared else {
+                XCTFail("Expected AppDelegate.shared")
+                return
+            }
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            guard let window = window(withId: windowId),
+                  let manager = appDelegate.tabManagerFor(windowId: windowId),
+                  let workspace = manager.selectedWorkspace,
+                  let event = makeKeyDownEvent(
+                    key: "-",
+                    modifiers: [.command, .control],
+                    keyCode: 27,
+                    windowNumber: window.windowNumber
+                  ) else {
+                XCTFail("Expected a workspace and Cmd+Ctrl+- event")
+                return
+            }
+
+            XCTAssertNil(appDelegate.existingWindowDock(forWindowId: windowId))
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            return
+#endif
+
+            XCTAssertNil(
+                appDelegate.existingWindowDock(forWindowId: windowId),
+                "Font zoom should not eagerly create a hidden Dock"
+            )
+            guard let expectedLineage =
+                    workspace.lastRememberedTerminalFontSizeLineageForConfigInheritance(),
+                  let dockPane = appDelegate.windowDock(forWindowId: windowId)
+                    .bonsplitController.allPaneIds.first,
+                  let inheritedDockPanelId = appDelegate.windowDock(forWindowId: windowId)
+                    .newSurface(kind: .terminal, inPane: dockPane, focus: false),
+                  let inheritedDockPanel = appDelegate.windowDock(forWindowId: windowId)
+                    .panels[inheritedDockPanelId] as? TerminalPanel else {
+                XCTFail("Expected a new Dock terminal after workspace font-size adjustment")
+                return
+            }
+
+            XCTAssertEqual(
+                inheritedDockPanel.surface.fontSizeLineageSnapshot(),
+                expectedLineage
+            )
+        }
+    }
+
     func testExplicitWorkspaceFontSizeBindingWinsOverAnotherImplicitFontSizeDefault() {
         withIsolatedShortcutFileStore {
             withDefaultShortcutFallback(action: .increaseWorkspaceTerminalFontSize) {

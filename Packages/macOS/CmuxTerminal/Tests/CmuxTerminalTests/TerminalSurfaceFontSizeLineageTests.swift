@@ -80,6 +80,30 @@ private func surfaceWasUpdated(_ surface: ghostty_surface_t) -> Bool
         #expect(lineage.isExplicitOverride)
     }
 
+    @Test func dormantSurfaceSkipsAdjustmentsAtNativeBounds() throws {
+        var minimumTemplate = CmuxSurfaceConfigTemplate()
+        minimumTemplate.setFontSize(
+            TerminalFontSizePolicy.minimumRuntimePoints,
+            isExplicitOverride: true
+        )
+        let minimumSurface = makeSurface(configTemplate: minimumTemplate)
+        let minimumLineage = try #require(minimumSurface.fontSizeLineageSnapshot())
+
+        #expect(!minimumSurface.adjustFontSize(byRuntimePoints: -1))
+        #expect(minimumSurface.fontSizeLineageSnapshot() == minimumLineage)
+
+        var maximumTemplate = CmuxSurfaceConfigTemplate()
+        maximumTemplate.setFontSize(
+            TerminalFontSizePolicy.maximumRuntimePoints,
+            isExplicitOverride: true
+        )
+        let maximumSurface = makeSurface(configTemplate: maximumTemplate)
+        let maximumLineage = try #require(maximumSurface.fontSizeLineageSnapshot())
+
+        #expect(!maximumSurface.adjustFontSize(byRuntimePoints: 1))
+        #expect(maximumSurface.fontSizeLineageSnapshot() == maximumLineage)
+    }
+
     @Test func deferredSurfaceResetClearsOverrideAndFollowsConfiguredSize() throws {
         var template = CmuxSurfaceConfigTemplate()
         template.setFontSize(6, isExplicitOverride: true)
