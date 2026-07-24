@@ -325,6 +325,11 @@ impl PtyInputSender {
         *self.queue.after_operation_before_cleanup.lock().unwrap() = hook;
     }
 
+    #[cfg(test)]
+    pub fn queued_bytes_for_test(&self) -> usize {
+        self.queue.state.lock().unwrap().queued_bytes
+    }
+
     pub fn enqueue(&self, event: PtyInputEvent) -> PtyInputEnqueueResult {
         self.enqueue_with_reservation(event).0
     }

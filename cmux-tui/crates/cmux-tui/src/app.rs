@@ -11049,8 +11049,8 @@ mod tests {
         MouseButton, MouseEvent, MouseEventKind,
     };
     use ghostty_vt::{
-        CursorShape, KeyEncoder, Mods, MouseAction, MouseButton as GhosttyMouseButton, MouseInput,
-        RenderState, Rgb,
+        CursorShape, KeyEncoder, KeyInput, Mods, MouseAction, MouseButton as GhosttyMouseButton,
+        MouseInput, RenderState, Rgb,
     };
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
@@ -11862,6 +11862,29 @@ mod tests {
             assert!(!viewport.contains("history-"));
             assert!(compact.contains("prompt>visible-content"));
         });
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn clear_history_fallback_payload_counts_toward_the_queue_budget() {
+        let (mux, surface) = test_mux("clear-history-fallback-budget-test", None);
+        let (mut app, _events) = test_app_with_events(Session::Local(mux.clone()));
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (unblock_tx, unblock_rx) = std::sync::mpsc::channel();
+        app.session.operations.enqueue_session_mutation("block input lane", false, move || {
+            started_tx.send(()).unwrap();
+            let _ = unblock_rx.recv();
+            Ok(())
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let fallback_key = KeyInput { utf8: "x".repeat(1024), ..Default::default() };
+        let retained_bytes = fallback_key.utf8.capacity();
+        app.session.clear_history_or_send_key(surface.id, fallback_key);
+
+        assert_eq!(app.session.operations.queued_bytes_for_test(), retained_bytes);
+        unblock_tx.send(()).unwrap();
+        assert!(app.pty_input.shutdown(Duration::from_secs(1)));
         mux.close_surface(surface.id).unwrap();
     }
 
