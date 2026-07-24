@@ -80,10 +80,13 @@ Perceive, act in logical groups, then verify:
    screenshot. Ground on both. Prefer element addressing.
 2. Act by element: `click` with `element_token` (or `element_index` + pid +
    window_id) is the robust path. Pixel addressing (`x`,`y`) is the fallback.
-3. For a stable, already-snapshotted control set, issue the deterministic
-   actions as one logical group without inserting a fresh snapshot after every
-   individual click. Re-snapshot immediately after navigation, layout changes,
-   modal presentation, or any action that can invalidate the target controls.
+3. For a stable, already-snapshotted control set, call `perform_actions` once
+   with the ordered `click` / `type_text` / `press_key` / other input steps.
+   This reuses the existing element-token cache and visible cursor inside the
+   persistent proxy instead of paying one model/MCP round trip and AX scan per
+   click. Do not put navigation, modal-opening, or layout-changing actions
+   before later control references in the same group; re-snapshot immediately
+   after any action that can invalidate those controls.
 4. Verify the completed group by re-snapshotting and reading the element
    `value` / screenshot — do not assume actions landed (clicks are never
    driver-verified). Prefer one direct `type_text` / keyboard sequence for
