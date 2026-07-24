@@ -27,7 +27,7 @@ use zeroize::Zeroize;
 
 use super::tree::{TreeView, parse_tree};
 
-const SUPPORTED_PROTOCOL_VERSION: u64 = 9;
+const SUPPORTED_PROTOCOL_VERSION: u64 = 10;
 const SURFACE_OVERFLOW_RETRY_DELAYS: [Duration; 3] =
     [Duration::from_millis(250), Duration::from_millis(500), Duration::from_secs(1)];
 const SURFACE_OVERFLOW_STABLE: Duration = Duration::from_secs(5);
@@ -1573,24 +1573,13 @@ fn parse_browser_frame(value: &Value) -> Option<RemoteBrowserFrame> {
 }
 
 #[cfg(test)]
-fn test_session_with_provider_context(
+fn test_session_with_writer(
+    writer: Box<dyn RemoteMessageWriter>,
     provider_workspace_authority: Option<BearerToken>,
     capabilities: HashSet<String>,
 ) -> Arc<RemoteSession> {
-    struct NoopWriter;
-
-    impl RemoteMessageWriter for NoopWriter {
-        fn send(&mut self, _message: &str) -> io::Result<()> {
-            Ok(())
-        }
-
-        fn close(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
     Arc::new(RemoteSession {
-        writer: Mutex::new(Box::new(NoopWriter)),
+        writer: Mutex::new(writer),
         pending: Mutex::new(HashMap::new()),
         next_id: AtomicU64::new(1),
         shutdown: AtomicBool::new(false),
@@ -1607,6 +1596,26 @@ fn test_session_with_provider_context(
         provider_workspace_authority,
         provider_workspaces_guarded: AtomicBool::new(false),
     })
+}
+
+#[cfg(test)]
+fn test_session_with_provider_context(
+    provider_workspace_authority: Option<BearerToken>,
+    capabilities: HashSet<String>,
+) -> Arc<RemoteSession> {
+    struct NoopWriter;
+
+    impl RemoteMessageWriter for NoopWriter {
+        fn send(&mut self, _message: &str) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    test_session_with_writer(Box::new(NoopWriter), provider_workspace_authority, capabilities)
 }
 
 #[cfg(test)]
@@ -1628,6 +1637,43 @@ pub(super) fn test_session_with_provider_authority_without_guard() -> Arc<Remote
 }
 
 #[cfg(test)]
+pub(super) fn test_session_with_blocked_attach_transport_failure(
+    reached: Arc<std::sync::Barrier>,
+    release: Arc<std::sync::Barrier>,
+) -> Arc<RemoteSession> {
+    struct BlockedAttachFailureWriter {
+        reached: Arc<std::sync::Barrier>,
+        release: Arc<std::sync::Barrier>,
+    }
+
+    impl RemoteMessageWriter for BlockedAttachFailureWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            let command = serde_json::from_str::<Value>(message)
+                .ok()
+                .and_then(|value| value.get("cmd")?.as_str().map(str::to_owned));
+            if command.as_deref() == Some("attach-surface") {
+                self.reached.wait();
+                self.release.wait();
+                return Err(io::Error::new(io::ErrorKind::BrokenPipe, "socket closed"));
+            }
+            Ok(())
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    test_session_with_writer(
+        Box::new(BlockedAttachFailureWriter { reached, release }),
+        None,
+        HashSet::from([
+            cmux_tui_core::server::PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY.to_string()
+        ]),
+    )
+}
+
+#[cfg(test)]
 mod tests {
     #[cfg(unix)]
     use std::io::{BufRead, Read, Write};
@@ -1643,23 +1689,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn stack_layouts_require_protocol_9() {
-        assert_eq!(SUPPORTED_PROTOCOL_VERSION, 9);
+    fn per_surface_client_sizing_requires_protocol_10() {
+        assert_eq!(SUPPORTED_PROTOCOL_VERSION, 10);
     }
 
     #[test]
-    fn protocol_8_identity_is_rejected_before_workspace_loading() {
+    fn protocol_9_identity_is_rejected_before_workspace_loading() {
         let error =
-            validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 8})).unwrap_err();
+            validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 9})).unwrap_err();
         assert_eq!(
             error.to_string(),
-            "unsupported cmux-tui protocol 8; this client requires protocol 9; restart the cmux-tui server"
+            "unsupported cmux-tui protocol 9; this client requires protocol 10; restart the cmux-tui server"
         );
     }
 
     #[test]
-    fn protocol_9_identity_is_accepted() {
-        validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 9})).unwrap();
+    fn protocol_10_identity_is_accepted() {
+        validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 10})).unwrap();
     }
 
     #[test]

@@ -47,28 +47,35 @@ fn notification_color(theme: &Theme, notification: TabNotificationView) -> Color
 }
 
 pub(crate) fn client_border_labels(clients: &[ClientInfo]) -> HashMap<u64, String> {
-    let use_excluded =
-        !clients.iter().any(|client| client.size_participating && !client.attached.is_empty());
-    let mut visible = HashMap::<u64, Vec<(&ClientInfo, (u16, u16))>>::new();
+    let mut visible = HashMap::<u64, Vec<(&ClientInfo, (u16, u16), bool)>>::new();
+    let mut participating_attachments = HashSet::<u64>::new();
     for client in clients {
         for size in &client.sizes {
+            if size.size_participating {
+                participating_attachments.insert(size.surface);
+            }
             if let Some(grid) = size.cols.zip(size.rows) {
-                visible.entry(size.surface).or_default().push((client, grid));
+                visible.entry(size.surface).or_default().push((
+                    client,
+                    grid,
+                    size.size_participating,
+                ));
             }
         }
     }
     visible
         .into_iter()
         .filter_map(|(surface, viewers)| {
-            if !viewers.iter().any(|(client, _)| client.is_self)
-                || !viewers.iter().any(|(client, _)| !client.is_self)
+            if !viewers.iter().any(|(client, _, _)| client.is_self)
+                || !viewers.iter().any(|(client, _, _)| !client.is_self)
             {
                 return None;
             }
+            let use_excluded = !participating_attachments.contains(&surface);
             let minimum = viewers
                 .iter()
-                .filter(|(client, _)| use_excluded || client.size_participating)
-                .map(|(_, size)| *size)
+                .filter(|(_, _, participating)| use_excluded || *participating)
+                .map(|(_, size, _)| *size)
                 .reduce(|smallest, size| (smallest.0.min(size.0), smallest.1.min(size.1)))?;
             Some((
                 surface,
@@ -562,9 +569,9 @@ mod tests {
                 surface,
                 cols: size.map(|size| size.0),
                 rows: size.map(|size| size.1),
+                size_participating: true,
             }],
             is_self: id == 1,
-            size_participating: true,
         }
     }
 
@@ -587,13 +594,23 @@ mod tests {
     fn client_button_shows_fallback_minimum_when_every_viewer_is_excluded() {
         let mut clients = vec![client(1, 9, Some((120, 30))), client(2, 9, Some((80, 40)))];
         for client in &mut clients {
-            client.size_participating = false;
+            client.sizes[0].size_participating = false;
         }
 
         assert_eq!(
             client_border_labels(&clients).get(&9).map(String::as_str),
             Some(" 2 clients · 80×30 min ")
         );
+    }
+
+    #[test]
+    fn unsized_participant_suppresses_excluded_report_fallback() {
+        let mut clients =
+            vec![client(1, 9, Some((120, 30))), client(2, 9, Some((80, 40))), client(3, 9, None)];
+        clients[0].sizes[0].size_participating = false;
+        clients[1].sizes[0].size_participating = false;
+
+        assert_eq!(client_border_labels(&clients).get(&9), None);
     }
 
     #[test]

@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 const REQUEST_ID: u64 = 1;
 const CAPABILITY_REQUEST_ID: u64 = 0;
 const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
+const CLIENT_SIZING_PROTOCOL: u64 = 10;
 
 type BuildFn = fn(&FlagMap) -> Result<Value, UsageError>;
 type PrintFn = fn(&Value, &mut dyn Write) -> io::Result<()>;
@@ -82,8 +83,8 @@ const VERBS: &[VerbSpec] = &[
     },
     VerbSpec {
         name: "set-client-sizing",
-        help: "Include or exclude a client from shared terminal sizing.",
-        allowed: &["client", "enabled"],
+        help: "Include or exclude a client from one terminal's shared sizing.",
+        allowed: &["surface", "client", "enabled"],
         kind: socket(build_set_client_sizing, print_empty, false),
     },
     VerbSpec {
@@ -596,6 +597,21 @@ fn run_command(args: CliArgs) -> i32 {
             }
         }
     }
+    if request.get("cmd").and_then(Value::as_str) == Some("set-client-sizing") {
+        match server_protocol(&mut reader) {
+            Ok(protocol) if protocol >= CLIENT_SIZING_PROTOCOL => {}
+            Ok(protocol) => {
+                eprintln!(
+                    "set-client-sizing requires protocol {CLIENT_SIZING_PROTOCOL}, server uses protocol {protocol}"
+                );
+                return 1;
+            }
+            Err(err) => {
+                eprintln!("{err}");
+                return 3;
+            }
+        }
+    }
     if let Err(err) = write_json_line(reader.get_mut(), &request) {
         eprintln!("transport error: {err}");
         return 3;
@@ -616,6 +632,21 @@ fn server_supports_capability(
     reader: &mut BufReader<Box<dyn transport::Stream>>,
     capability: &str,
 ) -> Result<bool, String> {
+    let identity = server_identity(reader)?;
+    Ok(identity
+        .get("capabilities")
+        .and_then(Value::as_array)
+        .is_some_and(|values| values.iter().any(|value| value.as_str() == Some(capability))))
+}
+
+fn server_protocol(reader: &mut BufReader<Box<dyn transport::Stream>>) -> Result<u64, String> {
+    server_identity(reader)?
+        .get("protocol")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| "identify response omitted protocol".to_string())
+}
+
+fn server_identity(reader: &mut BufReader<Box<dyn transport::Stream>>) -> Result<Value, String> {
     write_json_line(reader.get_mut(), &json!({"id": CAPABILITY_REQUEST_ID, "cmd": "identify"}))
         .map_err(|err| format!("transport error: {err}"))?;
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -653,10 +684,10 @@ fn server_supports_capability(
                 .unwrap_or("identify failed")
                 .to_string());
         }
-        return Ok(value
-            .pointer("/data/capabilities")
-            .and_then(Value::as_array)
-            .is_some_and(|values| values.iter().any(|value| value.as_str() == Some(capability))));
+        return value
+            .get("data")
+            .cloned()
+            .ok_or_else(|| "identify response omitted data".to_string());
     }
 }
 
@@ -833,7 +864,15 @@ fn build_set_client_sizing(flags: &FlagMap) -> Result<Value, UsageError> {
         "false" => false,
         _ => return Err(UsageError("--enabled must be true or false".to_string())),
     };
-    Ok(json!({ "client": flags.required_u64("client")?, "enabled": enabled }))
+    let mut value = json!({
+        "surface": flags.required_u64("surface")?,
+        "enabled": enabled,
+    });
+    flags.insert_optional_u64(&mut value, "client")?;
+    if !enabled && value.get("client").is_none() {
+        return Err(UsageError("--client is required when disabling sizing".to_string()));
+    }
+    Ok(value)
 }
 
 fn build_surface(flags: &FlagMap) -> Result<Value, UsageError> {
@@ -1353,6 +1392,8 @@ fn print_ping(data: &Value, out: &mut dyn Write) -> io::Result<()> {
 fn print_clients(data: &Value, out: &mut dyn Write) -> io::Result<()> {
     let Some(clients) = data.as_array() else { return Ok(()) };
     for client in clients {
+        let client_participating =
+            client.get("size_participating").and_then(Value::as_bool).unwrap_or(true);
         let attached = client
             .get("attached")
             .and_then(Value::as_array)
@@ -1374,12 +1415,18 @@ fn print_clients(data: &Value, out: &mut dyn Write) -> io::Result<()> {
                     .iter()
                     .map(|size| {
                         let surface = size.get("surface").and_then(Value::as_u64).unwrap_or(0);
+                        let participating = size
+                            .get("size_participating")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(client_participating);
                         match (
                             size.get("cols").and_then(Value::as_u64),
                             size.get("rows").and_then(Value::as_u64),
                         ) {
-                            (Some(cols), Some(rows)) => format!("{surface}:{cols}x{rows}"),
-                            _ => format!("{surface}:null"),
+                            (Some(cols), Some(rows)) => {
+                                format!("{surface}:{cols}x{rows}:sizing={participating}")
+                            }
+                            _ => format!("{surface}:null:sizing={participating}"),
                         }
                     })
                     .collect::<Vec<_>>()
@@ -1389,7 +1436,7 @@ fn print_clients(data: &Value, out: &mut dyn Write) -> io::Result<()> {
             .unwrap_or_else(|| "-".to_string());
         writeln!(
             out,
-            "{} {} {} {} connected={}s attached={} sizes={} self={} sizing={}",
+            "{} {} {} {} connected={}s attached={} sizes={} self={}",
             client.get("client").and_then(Value::as_u64).unwrap_or(0),
             client.get("transport").and_then(Value::as_str).unwrap_or(""),
             client.get("name").and_then(Value::as_str).unwrap_or("-"),
@@ -1398,7 +1445,6 @@ fn print_clients(data: &Value, out: &mut dyn Write) -> io::Result<()> {
             attached,
             sizes,
             client.get("self").and_then(Value::as_bool).unwrap_or(false),
-            client.get("size_participating").and_then(Value::as_bool).unwrap_or(true),
         )?;
     }
     Ok(())
@@ -1745,6 +1791,57 @@ mod tests {
             positionals: vec!["/bin/zsh".to_string()],
         };
         assert_eq!(build_run(&flags).unwrap_err().0, "--key requires --new-workspace");
+    }
+
+    #[test]
+    fn client_sizing_restore_all_omits_client() {
+        let flags = FlagMap {
+            values: BTreeMap::from([
+                ("surface".to_string(), "9".to_string()),
+                ("enabled".to_string(), "true".to_string()),
+            ]),
+            ..Default::default()
+        };
+        assert_eq!(
+            build_set_client_sizing(&flags).unwrap(),
+            json!({"surface": 9, "enabled": true})
+        );
+
+        let flags = FlagMap {
+            values: BTreeMap::from([
+                ("surface".to_string(), "9".to_string()),
+                ("enabled".to_string(), "false".to_string()),
+            ]),
+            ..Default::default()
+        };
+        assert_eq!(
+            build_set_client_sizing(&flags).unwrap_err().0,
+            "--client is required when disabling sizing"
+        );
+    }
+
+    #[test]
+    fn protocol_9_client_listing_uses_client_wide_sizing_participation() {
+        let clients = json!([{
+            "client": 7,
+            "transport": "unix",
+            "name": null,
+            "kind": null,
+            "connected_seconds": 1,
+            "attached": [9],
+            "sizes": [{
+                "surface": 9,
+                "cols": 80,
+                "rows": 24
+            }],
+            "size_participating": false,
+            "self": false
+        }]);
+        let mut output = Vec::new();
+
+        print_clients(&clients, &mut output).unwrap();
+
+        assert!(String::from_utf8(output).unwrap().contains("9:80x24:sizing=false"));
     }
 
     #[test]

@@ -64,6 +64,26 @@ class IdentifyResult:
 
 
 @dataclass(frozen=True)
+class ClientSurfaceSize:
+    surface: int
+    cols: Optional[int]
+    rows: Optional[int]
+    size_participating: Optional[bool]
+
+
+@dataclass(frozen=True)
+class ClientInfo:
+    client: int
+    transport: str
+    name: Optional[str]
+    kind: Optional[str]
+    connected_seconds: int
+    attached: List[int]
+    sizes: List[ClientSurfaceSize]
+    is_self: bool
+
+
+@dataclass(frozen=True)
 class PingResult:
     ok: bool
     version: str
@@ -398,6 +418,62 @@ class CmuxClient:
 
     def list_workspaces(self) -> Tree:
         return _parse_tree(self._request("list-workspaces"))
+
+    def list_clients(self) -> List[ClientInfo]:
+        clients = self._request("list-clients")
+        return [
+            ClientInfo(
+                client=int(item["client"]),
+                transport=str(item["transport"]),
+                name=str(item["name"]) if item.get("name") is not None else None,
+                kind=str(item["kind"]) if item.get("kind") is not None else None,
+                connected_seconds=int(item["connected_seconds"]),
+                attached=[int(surface) for surface in item.get("attached", [])],
+                sizes=[
+                    ClientSurfaceSize(
+                        surface=int(size["surface"]),
+                        cols=int(size["cols"]) if size.get("cols") is not None else None,
+                        rows=int(size["rows"]) if size.get("rows") is not None else None,
+                        size_participating=(
+                            bool(size["size_participating"])
+                            if "size_participating" in size
+                            else item.get("size_participating", True) is not False
+                        ),
+                    )
+                    for size in item.get("sizes", [])
+                ],
+                is_self=bool(item["self"]),
+            )
+            for item in clients
+        ]
+
+    def set_client_sizing(
+        self, surface: int, client: int, enabled: bool
+    ) -> EmptyResult:
+        self._require_protocol(10, "set-client-sizing")
+        self._request(
+            "set-client-sizing",
+            surface=surface,
+            client=client,
+            enabled=enabled,
+        )
+        return EmptyResult()
+
+    def use_only_client_size(self, surface: int, client: int) -> EmptyResult:
+        self._require_protocol(10, "set-client-sizing")
+        self._request(
+            "set-client-sizing",
+            surface=surface,
+            client=client,
+            enabled=True,
+            exclusive=True,
+        )
+        return EmptyResult()
+
+    def use_all_client_sizes(self, surface: int) -> EmptyResult:
+        self._require_protocol(10, "set-client-sizing")
+        self._request("set-client-sizing", surface=surface, enabled=True)
+        return EmptyResult()
 
     def export_layout(self, screen: Optional[int] = None) -> Dict[str, Any]:
         return self._request("export-layout", screen=screen)

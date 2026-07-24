@@ -13,7 +13,7 @@ fn main() -> Result<()> {
 
     let identify = client.identify()?;
     assert!(identify.app == "cmux-tui", "unexpected app {}", identify.app);
-    assert!((5..=9).contains(&identify.protocol), "unsupported protocol {}", identify.protocol);
+    assert!((5..=10).contains(&identify.protocol), "unsupported protocol {}", identify.protocol);
 
     let created = client.new_workspace(Some(&marker), Some(80), Some(24))?;
     client.send(created.surface, Some(&format!("printf '{marker}\\n'\r")), None)?;
@@ -41,6 +41,14 @@ fn main() -> Result<()> {
     )?;
     let first = attach.recv()?;
     assert!(matches!(first, Event::VtState(_)), "first attach event was {first:?}");
+    if identify.protocol >= 10 {
+        let (sizing_client, size) = find_client_surface_size(&mut client, created.surface)?;
+        assert_eq!(size.size_participating, Some(true));
+        client.set_client_sizing(created.surface, sizing_client, false)?;
+        let (_, size) = find_client_surface_size(&mut client, created.surface)?;
+        assert_eq!(size.size_participating, Some(false));
+        client.set_client_sizing(created.surface, sizing_client, true)?;
+    }
     client.send(created.surface, Some(&format!("printf '{later}\\n'\r")), None)?;
     next_attach_output(&mut attach, Duration::from_secs(3))?;
 
@@ -115,6 +123,20 @@ fn find_workspace_for_surface(tree: &Tree, surface: u64) -> Option<u64> {
         }
     }
     None
+}
+
+fn find_client_surface_size(
+    client: &mut CmuxClient,
+    surface: u64,
+) -> Result<(u64, cmux_client::ClientSurfaceSize)> {
+    for info in client.list_clients()? {
+        for size in info.sizes {
+            if size.surface == surface {
+                return Ok((info.client, size));
+            }
+        }
+    }
+    panic!("client size for surface {surface} not found");
 }
 
 fn now_ms() -> u128 {

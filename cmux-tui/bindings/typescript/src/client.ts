@@ -98,6 +98,21 @@ function workspaceMutationResult(result: EmptyResult | WorkspaceMutation): Works
   throw new CmuxProtocolError("server returned an invalid workspace registry mutation");
 }
 
+function normalizeClientSizing(clients: ListClientsResult): ListClientsResult {
+  return clients.map((client) => {
+    const fallback = client.size_participating ?? true;
+    if (client.sizes.every((size) => size.size_participating !== undefined)) return client;
+    return {
+      ...client,
+      sizes: client.sizes.map((size) => (
+        size.size_participating === undefined
+          ? { ...size, size_participating: fallback }
+          : size
+      )),
+    };
+  });
+}
+
 export type NewTabOptions = CmuxRequestParams<"new-tab">;
 export type NewBrowserTabOptions = Omit<CmuxRequestParams<"new-browser-tab">, "url">;
 export type NewWorkspaceOptions = CmuxRequestParams<"new-workspace">;
@@ -442,16 +457,21 @@ export class CmuxClient {
   setClientInfo(name?: string, kind?: string): Promise<EmptyResult> {
     return this.request("set-client-info", { name, kind });
   }
-  listClients(): Promise<ListClientsResult> { return this.request("list-clients"); }
+  async listClients(): Promise<ListClientsResult> {
+    return normalizeClientSizing(await this.request("list-clients"));
+  }
   detachClient(client: Id): Promise<EmptyResult> { return this.request("detach-client", { client }); }
-  setClientSizing(client: Id, enabled: boolean): Promise<EmptyResult> {
-    return this.request("set-client-sizing", { client, enabled });
+  async setClientSizing(surface: Id, client: Id, enabled: boolean): Promise<EmptyResult> {
+    await this.requireProtocol(10, "set-client-sizing");
+    return this.request("set-client-sizing", { surface, client, enabled });
   }
-  useOnlyClientSizing(client: Id): Promise<EmptyResult> {
-    return this.request("set-client-sizing", { client, enabled: true, exclusive: true });
+  async useOnlyClientSizing(surface: Id, client: Id): Promise<EmptyResult> {
+    await this.requireProtocol(10, "set-client-sizing");
+    return this.request("set-client-sizing", { surface, client, enabled: true, exclusive: true });
   }
-  useAllClientSizing(): Promise<EmptyResult> {
-    return this.request("set-client-sizing", { enabled: true });
+  async useAllClientSizing(surface: Id): Promise<EmptyResult> {
+    await this.requireProtocol(10, "set-client-sizing");
+    return this.request("set-client-sizing", { surface, enabled: true });
   }
   reloadConfig(): Promise<ReloadConfigResult> { return this.request("reload-config"); }
   setWindowTitle(title: string): Promise<EmptyResult> { return this.request("set-window-title", { title }); }

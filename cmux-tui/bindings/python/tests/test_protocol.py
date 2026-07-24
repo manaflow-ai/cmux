@@ -68,6 +68,35 @@ class ProtocolTests(unittest.TestCase):
 
         self.assertEqual(client.resize_surface(7, 80, 24).reservation_id, 41)
 
+    def test_list_clients_normalizes_protocol_nine_sizing_participation(self) -> None:
+        client = CmuxClient.__new__(CmuxClient)
+        client._request = lambda _command, **_params: [{
+            "client": 7,
+            "transport": "ws",
+            "name": None,
+            "kind": "web",
+            "connected_seconds": 12,
+            "attached": [31, 32],
+            "sizes": [
+                {"surface": 31, "cols": 126, "rows": 38},
+                {
+                    "surface": 32,
+                    "cols": 100,
+                    "rows": 30,
+                    "size_participating": True,
+                },
+            ],
+            "size_participating": False,
+            "self": True,
+        }]
+
+        [listed] = client.list_clients()
+
+        self.assertEqual(
+            [size.size_participating for size in listed.sizes],
+            [False, True],
+        )
+
     def test_attach_accepts_newer_additive_protocols_with_opt_in(self) -> None:
         client = CmuxClient.__new__(CmuxClient)
         client._protocol = 10

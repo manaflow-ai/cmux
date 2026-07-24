@@ -6,6 +6,8 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::os::fd::FromRawFd;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+#[cfg(unix)]
+use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::mpsc;
@@ -477,6 +479,72 @@ fn configured_websocket_server_does_not_attach_to_existing_session() {
     panic!("configured WebSocket server attached instead of preserving server mode");
 }
 
+#[cfg(unix)]
+#[test]
+fn client_sizing_rejects_protocol_9_without_forwarding_mutation() {
+    let dir = unique_temp_dir("protocol-9-client-sizing");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let (commands_tx, commands_rx) = mpsc::channel();
+    let server = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        let mut writer = stream.try_clone().unwrap();
+        let mut reader = BufReader::new(stream);
+        let mut commands = Vec::new();
+        loop {
+            let mut line = String::new();
+            match reader.read_line(&mut line) {
+                Ok(0) => break,
+                Ok(_) => {}
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    break;
+                }
+                Err(error) => panic!("protocol 9 test server read failed: {error}"),
+            }
+            let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+            let command = request["cmd"].as_str().unwrap().to_string();
+            commands.push(command.clone());
+            let id = request["id"].as_u64().unwrap();
+            let response = if command == "identify" {
+                serde_json::json!({
+                    "id": id,
+                    "ok": true,
+                    "data": {
+                        "protocol": 9,
+                        "capabilities": []
+                    }
+                })
+            } else {
+                serde_json::json!({"id": id, "ok": true, "data": {}})
+            };
+            writeln!(writer, "{response}").unwrap();
+        }
+        commands_tx.send(commands).unwrap();
+    });
+
+    let output = Command::new(bin())
+        .args(["--socket"])
+        .arg(&socket)
+        .args(["set-client-sizing", "--surface", "9", "--client", "7", "--enabled", "false"])
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    let commands = commands_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+    server.join().unwrap();
+    fs::remove_dir_all(dir).unwrap();
+
+    assert!(!output.status.success(), "protocol 9 sizing mutation unexpectedly succeeded");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("requires protocol 10"));
+    assert_eq!(commands, vec!["identify"]);
+}
+
 #[test]
 fn cli_verbs_cover_command_output_errors_and_streams() {
     let server = HeadlessServer::start("matrix");
@@ -495,7 +563,7 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     assert_success(&ping_json);
     let ping: serde_json::Value = serde_json::from_slice(&ping_json.stdout).unwrap();
     assert_eq!(ping.get("ok").and_then(|v| v.as_bool()), Some(true));
-    assert_eq!(ping.get("protocol").and_then(|v| v.as_u64()), Some(9));
+    assert_eq!(ping.get("protocol").and_then(|v| v.as_u64()), Some(10));
 
     let client_info =
         cli(&server, &["set-client-info", "--name", "one-shot", "--kind", "cli-test"]);
@@ -513,6 +581,36 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     target_reader.read_line(&mut target_response).unwrap();
     assert_eq!(serde_json::from_str::<serde_json::Value>(&target_response).unwrap()["ok"], true);
 
+    let sizing_workspace = cli(&server, &["new-workspace", "--name", "cli-test"]);
+    assert_success(&sizing_workspace);
+    let sizing_surface =
+        String::from_utf8(sizing_workspace.stdout).unwrap().trim().parse::<u64>().unwrap();
+    writeln!(target_writer, r#"{{"id":2,"cmd":"attach-surface","surface":{sizing_surface}}}"#)
+        .unwrap();
+    loop {
+        target_response.clear();
+        target_reader.read_line(&mut target_response).unwrap();
+        let response = serde_json::from_str::<serde_json::Value>(&target_response).unwrap();
+        if response["id"] == 2 {
+            assert_eq!(response["ok"], true);
+            break;
+        }
+    }
+    writeln!(
+        target_writer,
+        r#"{{"id":3,"cmd":"resize-surface","surface":{sizing_surface},"cols":80,"rows":24}}"#
+    )
+    .unwrap();
+    loop {
+        target_response.clear();
+        target_reader.read_line(&mut target_response).unwrap();
+        let response = serde_json::from_str::<serde_json::Value>(&target_response).unwrap();
+        if response["id"] == 3 {
+            assert_eq!(response["ok"], true);
+            break;
+        }
+    }
+
     let clients = cli(&server, &["--json", "list-clients"]);
     assert_success(&clients);
     let clients_json: serde_json::Value = serde_json::from_slice(&clients.stdout).unwrap();
@@ -527,9 +625,18 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     let clients_human = cli(&server, &["list-clients"]);
     assert_success(&clients_human);
     assert!(String::from_utf8_lossy(&clients_human.stdout).contains("connected="));
+    assert!(String::from_utf8_lossy(&clients_human.stdout).contains(":sizing=true"));
     let excluded = cli(
         &server,
-        &["set-client-sizing", "--client", &target_id.to_string(), "--enabled", "false"],
+        &[
+            "set-client-sizing",
+            "--surface",
+            &sizing_surface.to_string(),
+            "--client",
+            &target_id.to_string(),
+            "--enabled",
+            "false",
+        ],
     );
     assert_success(&excluded);
     let clients = cli(&server, &["--json", "list-clients"]);
@@ -541,21 +648,28 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
             .unwrap()
             .iter()
             .find(|client| client["client"] == target_id)
+            .unwrap()["sizes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|size| size["surface"] == sizing_surface)
             .unwrap()["size_participating"],
         false
     );
     let detached = cli(&server, &["detach-client", "--client", &target_id.to_string()]);
     assert_success(&detached);
-    target_response.clear();
-    assert_eq!(target_reader.read_line(&mut target_response).unwrap(), 0);
+    loop {
+        target_response.clear();
+        if target_reader.read_line(&mut target_response).unwrap() == 0 {
+            break;
+        }
+    }
 
     let title = cli(&server, &["set-window-title", "--title", "hello"]);
     assert_success(&title);
     assert!(title.stdout.is_empty(), "set-window-title should be quiet on success");
 
-    let workspace = cli(&server, &["new-workspace", "--name", "cli-test"]);
-    assert_success(&workspace);
-    let surface = String::from_utf8(workspace.stdout).unwrap().trim().parse::<u64>().unwrap();
+    let surface = sizing_surface;
     assert!(surface > 0, "new-workspace should print the new surface id");
     let tree = cli(&server, &["--json", "list-workspaces"]);
     assert_success(&tree);
