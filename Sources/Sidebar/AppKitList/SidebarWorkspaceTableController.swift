@@ -558,7 +558,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     func tableView(_ tableView: NSTableView, didRemove rowView: NSTableRowView, forRow row: Int) {
-        guard let cell = rowView.view(atColumn: 0) else { return }
+        guard let cell = rowView.view(atColumn: 0) as? NSView else { return }
         // Row retirement is the authoritative cleanup signal. A temporary
         // whole-table window reparent leaves its row views installed, while
         // an actual deletion/reload removes them through this callback.
