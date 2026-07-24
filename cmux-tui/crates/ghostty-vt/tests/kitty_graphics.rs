@@ -213,17 +213,33 @@ fn replay_keeps_a_number_only_image_for_a_post_attach_number_placement() {
     let mut source = terminal();
     source.vt_write(&kitty("a=t,t=d,f=24,I=77,s=1,v=1,q=2", "/wAA"));
 
+    source.vt_write(&kitty("a=p,I=77,p=99,c=1,r=1,q=2", ""));
+    let assigned_id = source.kitty_graphics_snapshot().unwrap().placements[0].image_id;
+    source.vt_write(&kitty(&format!("a=d,d=i,i={assigned_id},p=99,q=2"), ""));
+    assert!(source.kitty_graphics_snapshot().unwrap().placements.is_empty());
+
     let replay = source.vt_replay().unwrap();
     let mut mirror = terminal();
     mirror.vt_write(&replay);
 
-    let place = kitty("a=p,I=77,p=8,c=1,r=1,q=2", "");
-    source.vt_write(&place);
-    mirror.vt_write(&place);
-    assert_eq!(source.kitty_graphics_snapshot().unwrap().placements.len(), 1);
+    let place_by_number = kitty("a=p,I=77,p=8,c=1,r=1,q=2", "");
+    let place_by_id = kitty(&format!("a=p,i={assigned_id},p=9,c=1,r=1,q=2"), "");
+    for place in [&place_by_number, &place_by_id] {
+        source.vt_write(place);
+        mirror.vt_write(place);
+    }
+    assert_eq!(source.kitty_graphics_snapshot().unwrap().placements.len(), 2);
     let mirrored = mirror.kitty_graphics_snapshot().unwrap();
-    assert_eq!(mirrored.placements.len(), 1);
-    assert_eq!(mirrored.placements[0].placement_id, 8);
+    assert_eq!(mirrored.placements.len(), 2);
+    assert!(mirrored.placements.iter().all(|placement| placement.image_id == assigned_id));
+    assert_eq!(
+        mirrored
+            .placements
+            .iter()
+            .map(|placement| placement.placement_id)
+            .collect::<Vec<_>>(),
+        vec![8, 9]
+    );
 }
 
 #[test]
