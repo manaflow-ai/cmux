@@ -54,7 +54,11 @@ extension TerminalController: ControlSystemContext {
                     let workspaceNode = controlSystemTreeWorkspaceNode(
                         workspace: workspace,
                         index: workspaceIndex,
-                        selected: workspace.id == manager.selectedTabId
+                        selected: workspace.id == manager.selectedTabId,
+                        dockStores: controlTopologyDocks(
+                            workspace: workspace,
+                            tabManager: manager
+                        )
                     )
                     windows = [
                         ControlSystemTreeWindowNode(
@@ -72,10 +76,16 @@ extension TerminalController: ControlSystemContext {
                 }
 
                 let workspaceNodesForWindow = manager.tabs.enumerated().map { workspaceIndex, workspace in
-                    controlSystemTreeWorkspaceNode(
+                    let selected = workspace.id == manager.selectedTabId
+                    return controlSystemTreeWorkspaceNode(
                         workspace: workspace,
                         index: workspaceIndex,
-                        selected: workspace.id == manager.selectedTabId
+                        selected: selected,
+                        dockStores: controlTopologyDocks(
+                            workspace: workspace,
+                            tabManager: manager,
+                            includeGlobalDock: selected
+                        )
                     )
                 }
 
@@ -111,11 +121,15 @@ extension TerminalController: ControlSystemContext {
     func controlSystemTreeWorkspaceNode(
         workspace: Workspace,
         index: Int,
-        selected: Bool
+        selected: Bool,
+        dockStores: [DockSplitStore] = []
     ) -> ControlSystemTreeWorkspaceNode {
         var surfacesByPane: [UUID: [ControlSystemTreeSurfaceNode]] = [:]
-        for (surfaceIndex, surface) in controlSurfaceSummaries(workspace: workspace).enumerated() {
-            let panel = workspace.controlSurfaceTarget(for: surface.surfaceID)?.panel
+        let surfaceSummaries = controlSurfaceSummaries(workspace: workspace) +
+            dockStores.flatMap { controlDockSurfaceSummaries(dock: $0) }
+        for (surfaceIndex, surface) in surfaceSummaries.enumerated() {
+            let panel = workspace.controlSurfaceTarget(for: surface.surfaceID)?.panel ??
+                dockStores.lazy.compactMap { $0.panels[surface.surfaceID] }.first
             let browserPanel = panel as? BrowserPanel
             let node = ControlSystemTreeSurfaceNode(
                 surfaceID: surface.surfaceID,
@@ -129,7 +143,8 @@ extension TerminalController: ControlSystemContext {
                 indexInPane: surface.indexInPane,
                 tty: workspace.surfaceTTYNames[surface.surfaceID],
                 isBrowser: browserPanel != nil,
-                url: browserPanel?.currentURL?.absoluteString
+                url: browserPanel?.currentURL?.absoluteString,
+                dockScopeRawValue: surface.dockScopeRawValue
             )
             if let paneUUID = surface.paneID {
                 surfacesByPane[paneUUID, default: []].append(node)
@@ -145,7 +160,7 @@ extension TerminalController: ControlSystemContext {
         let paneSummaries = controlPaneSummaries(
             workspace: workspace,
             snapshot: workspace.bonsplitController.layoutSnapshot()
-        )
+        ) + dockStores.flatMap { controlDockPaneSummaries(dock: $0) }
         let panes: [ControlSystemTreePaneNode] = paneSummaries.enumerated().map { paneIndex, pane in
             ControlSystemTreePaneNode(
                 paneID: pane.paneID,
@@ -153,7 +168,8 @@ extension TerminalController: ControlSystemContext {
                 isFocused: pane.isFocused,
                 surfaceIDs: pane.surfaceIDs,
                 selectedSurfaceID: pane.selectedSurfaceID,
-                surfaces: surfacesByPane[pane.paneID] ?? []
+                surfaces: surfacesByPane[pane.paneID] ?? [],
+                dockScopeRawValue: pane.dockScopeRawValue
             )
         }
 

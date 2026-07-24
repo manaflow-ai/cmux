@@ -101,12 +101,12 @@ struct DockRuntimeParityTests {
         params: [String: Any] = [:]
     ) throws -> [String: Any] {
         let envelope = try socketEnvelope(method: method, params: params)
-        #expect(envelope["ok"] as? Bool == true, "\(envelope)")
+        try #require(envelope["ok"] as? Bool == true, "\(envelope)")
         return try #require(envelope["result"] as? [String: Any])
     }
 
     private func withAppContext(
-        _ body: (AppDelegate, TabManager, Workspace, UUID) async throws -> Void
+        _ body: @MainActor (AppDelegate, TabManager, Workspace, UUID) async throws -> Void
     ) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let previousAppDelegate = AppDelegate.shared
@@ -242,7 +242,7 @@ struct DockRuntimeParityTests {
                 hasWindowIDParam: false,
                 windowID: nil,
                 groupID: nil,
-                workspaceID: workspace.id,
+                workspaceID: nil,
                 surfaceID: workspaceTerminal.id,
                 paneID: nil
             )
@@ -265,14 +265,12 @@ struct DockRuntimeParityTests {
             let readEnvelope = try await socketEnvelopeOnWorker(
                 method: "surface.read_text",
                 params: [
-                    "workspace_id": workspace.id.uuidString,
                     "surface_id": workspaceTerminal.id.uuidString,
                 ]
             )
-            if readEnvelope["ok"] as? Bool != true {
-                let error = try #require(readEnvelope["error"] as? [String: Any])
-                #expect(error["message"] as? String != "Surface is not a terminal")
-            }
+            try #require(readEnvelope["ok"] as? Bool == true, "\(readEnvelope)")
+            let readResult = try #require(readEnvelope["result"] as? [String: Any])
+            #expect(readResult["surface_id"] as? String == workspaceTerminal.id.uuidString)
         }
     }
 }

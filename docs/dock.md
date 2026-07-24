@@ -32,7 +32,19 @@ cmux new-surface --type browser --placement dock --url https://example.com   # a
 
 `--placement` accepts `workspace` (default) or `dock`. The Dock hosts terminal and browser panes only.
 
-Dock-created handles are returned as Dock-scoped response fields: `dock_surface_id` and `dock_pane_id`. The ordinary workspace fields `surface_id` and `pane_id` are `null` for Dock placement, because existing workspace surface and pane RPCs route through the main content split tree.
+Dock-created handles are returned as Dock-scoped response fields: `dock_surface_id` and `dock_pane_id`. The ordinary workspace fields `surface_id` and `pane_id` remain `null` in creation responses for backwards compatibility.
+
+Dock panes and surfaces also appear in the ordinary discovery commands:
+
+```sh
+cmux tree
+cmux list-panes
+cmux list-pane-surfaces --pane <dock-pane-id>
+```
+
+Text output marks them as `[dock:workspace]` or `[dock:global]`. JSON and socket rows carry the additive `dock_scope` field with the stable value `workspace` or `global`; existing non-Dock rows are unchanged. Pane and surface IDs remain stable for the lifetime of their Dock items.
+
+Existing surface and pane verbs accept these Dock IDs directly. In particular, `send`, `send-key`, `read-screen`, `capture-pane`, `focus`, and `close` can target a Dock terminal by its bare surface ID in either Dock scope. No Dock-specific addressing syntax is required.
 
 ## Configuration
 
