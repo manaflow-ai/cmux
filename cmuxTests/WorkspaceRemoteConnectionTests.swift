@@ -2222,8 +2222,8 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
-    func testPersistentReverseRelayCancelsStaleControlMasterForwardBeforeReusingRelayPort() throws {
-        let forwardInvoked = DispatchSemaphore(value: 0)
+    func testPersistentReverseRelayCancelsStaleControlMasterForwardBeforeReusingRelayPort() async throws {
+        let forwardInvoked = expectation(description: "control master forward invoked")
         let lock = NSLock()
         var controlOperations: [(command: String, spec: String)] = []
 
@@ -2240,7 +2240,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 controlOperations.append((command: operation, spec: spec))
                 lock.unlock()
                 if operation == "forward" {
-                    forwardInvoked.signal()
+                    forwardInvoked.fulfill()
                 }
                 return (status: 0, stdout: "", stderr: "")
             }
@@ -2294,24 +2294,27 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.configureRemoteConnection(config, autoConnect: true)
 
-        XCTAssertEqual(forwardInvoked.wait(timeout: .now() + 2), .success)
+        await workspace.remoteSessionTransitionTask?.value
+        await fulfillment(of: [forwardInvoked], timeout: 15)
         lock.lock()
         let operations = controlOperations
         lock.unlock()
 
         XCTAssertGreaterThanOrEqual(operations.count, 2)
-        XCTAssertEqual(operations[0].command, "cancel")
-        XCTAssertEqual(operations[0].spec, "127.0.0.1:64044")
-        XCTAssertEqual(operations[1].command, "forward")
+        let cancelOperation = try XCTUnwrap(operations.first)
+        let forwardOperation = try XCTUnwrap(operations.dropFirst().first)
+        XCTAssertEqual(cancelOperation.command, "cancel")
+        XCTAssertEqual(cancelOperation.spec, "127.0.0.1:64044")
+        XCTAssertEqual(forwardOperation.command, "forward")
         XCTAssertTrue(
-            operations[1].spec.hasPrefix("127.0.0.1:64044:127.0.0.1:"),
-            "expected forward to reuse relay port after stale cancel, got \(operations[1].spec)"
+            forwardOperation.spec.hasPrefix("127.0.0.1:64044:127.0.0.1:"),
+            "expected forward to reuse relay port after stale cancel, got \(forwardOperation.spec)"
         )
     }
 
     @MainActor
-    func testPersistentReverseRelayCleansStaleRemoteListenerAndRetriesControlMasterForward() throws {
-        let retryForwardInvoked = DispatchSemaphore(value: 0)
+    func testPersistentReverseRelayCleansStaleRemoteListenerAndRetriesControlMasterForward() async throws {
+        let retryForwardInvoked = expectation(description: "control master forward retried")
         let lock = NSLock()
         var controlOperations: [(command: String, spec: String)] = []
         var forwardAttempts = 0
@@ -2340,7 +2343,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                             stderr: "remote port forwarding failed for listen port 64045"
                         )
                     }
-                    retryForwardInvoked.signal()
+                    retryForwardInvoked.fulfill()
                     return (status: 0, stdout: "", stderr: "")
                 }
                 lock.unlock()
@@ -2407,7 +2410,8 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.configureRemoteConnection(config, autoConnect: true)
 
-        XCTAssertEqual(retryForwardInvoked.wait(timeout: .now() + 2), .success)
+        await workspace.remoteSessionTransitionTask?.value
+        await fulfillment(of: [retryForwardInvoked], timeout: 15)
         lock.lock()
         let operations = controlOperations
         let cleanupWasInvoked = cleanupInvoked
@@ -2421,12 +2425,15 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(capturedCleanupArguments.contains("none"))
         XCTAssertFalse(capturedCleanupArguments.contains(where: { $0.hasPrefix("ControlPath=") }))
         XCTAssertGreaterThanOrEqual(operations.count, 3)
-        XCTAssertEqual(operations[0].command, "cancel")
-        XCTAssertEqual(operations[0].spec, "127.0.0.1:64045")
-        XCTAssertEqual(operations[1].command, "forward")
-        XCTAssertEqual(operations[2].command, "forward")
-        XCTAssertEqual(operations[1].spec, operations[2].spec)
-        XCTAssertTrue(operations[2].spec.hasPrefix("127.0.0.1:64045:127.0.0.1:"))
+        let cancelOperation = try XCTUnwrap(operations.first)
+        let firstForwardOperation = try XCTUnwrap(operations.dropFirst().first)
+        let retryForwardOperation = try XCTUnwrap(operations.dropFirst(2).first)
+        XCTAssertEqual(cancelOperation.command, "cancel")
+        XCTAssertEqual(cancelOperation.spec, "127.0.0.1:64045")
+        XCTAssertEqual(firstForwardOperation.command, "forward")
+        XCTAssertEqual(retryForwardOperation.command, "forward")
+        XCTAssertEqual(firstForwardOperation.spec, retryForwardOperation.spec)
+        XCTAssertTrue(retryForwardOperation.spec.hasPrefix("127.0.0.1:64045:127.0.0.1:"))
     }
 
     @MainActor

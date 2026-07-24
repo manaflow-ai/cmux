@@ -406,7 +406,7 @@ struct RemoteResumeBindingTests {
 
         let workspace = try #require(manager.selectedWorkspace)
         let surfaceID = try #require(workspace.focusedPanelId)
-        let initialEventTime: TimeInterval = 1_893_456_200
+        let initialEventTime = Date().timeIntervalSince1970 - 300
         let setResult = try v2Result(request: [
             "id": "ordered-resume-set",
             "method": "surface.resume.set",
