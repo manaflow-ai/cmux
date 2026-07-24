@@ -1,3 +1,4 @@
+import AppKit
 import Bonsplit
 import Combine
 import CmuxControlSocket
@@ -108,9 +109,11 @@ struct DockRuntimeParityTests {
 
     private func waitForLiveSurface(_ surface: TerminalSurface) async {
         guard !surface.hasLiveSurface else { return }
-        defer { surface.onRuntimeReady = nil }
+        let previousOnRuntimeReady = surface.onRuntimeReady
+        defer { surface.onRuntimeReady = previousOnRuntimeReady }
         let readiness = AsyncStream<Void> { continuation in
             surface.onRuntimeReady = {
+                previousOnRuntimeReady?()
                 continuation.yield()
                 continuation.finish()
             }
@@ -129,11 +132,28 @@ struct DockRuntimeParityTests {
             AppDelegate.shared = appDelegate
             appDelegate.tabManager = manager
             TerminalController.shared.setActiveTabManager(manager)
-            let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            let windowID = UUID()
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            window.isReleasedWhenClosed = false
+            window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowID.uuidString)")
+            appDelegate.registerMainWindow(
+                window,
+                windowId: windowID,
+                tabManager: manager,
+                sidebarState: SidebarState(),
+                sidebarSelectionState: SidebarSelectionState()
+            )
             defer {
                 TerminalController.shared.setActiveTabManager(previousManager)
                 appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
                 manager.tabs.forEach { $0.teardownAllPanels() }
+                window.orderOut(nil)
+                window.close()
                 AppDelegate.shared = previousAppDelegate
             }
 
@@ -266,6 +286,15 @@ struct DockRuntimeParityTests {
             })
             #expect(treePanes.contains {
                 $0["id"] as? String == globalPane.id.uuidString &&
+                    $0["dock_scope"] as? String == "global"
+            })
+            let treeSurfaces = treePanes.flatMap { $0["surfaces"] as? [[String: Any]] ?? [] }
+            #expect(treeSurfaces.contains {
+                $0["id"] as? String == workspaceTerminal.id.uuidString &&
+                    $0["dock_scope"] as? String == "workspace"
+            })
+            #expect(treeSurfaces.contains {
+                $0["id"] as? String == globalPanel.id.uuidString &&
                     $0["dock_scope"] as? String == "global"
             })
 
