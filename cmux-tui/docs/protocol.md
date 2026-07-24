@@ -16,7 +16,7 @@ $TMPDIR/cmux-tui-<uid>/<session>.sock
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":9,"capabilities":["attach-initial-size","workspace-registry-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":9,"capabilities":["attach-initial-size","workspace-registry-v1","provider-managed-workspace-authority-v2","server-shutdown-v1"],"session":"main","pid":12345}}
 ```
 
 Responses have this shape:
@@ -120,7 +120,11 @@ When the stream ends, it sends:
 
 ## Client Compatibility
 
-The remote TUI requires protocol v9. It rejects protocol-v8 servers before loading their workspace tree because v8 does not define stack layout nodes or `new-pane`.
+Direct local clients require the server's distribution version, source build, terminal-engine build, and protocol to match exactly. Ordinary source builds derive both build identities automatically, including a deterministic fingerprint when the source tree is dirty. `identify`, `cmux-tui server status`, and `cmux-tui server stop` bypass that check so an upgraded client can inspect and stop an older server. All other local CLI commands and TUI attach paths reject a mismatch before loading or mutating session state.
+
+Current servers fence new surface creation, wait for in-flight creation, tombstone hosted terminals in one registry transaction, clear topology in one state mutation, and terminate pane runtimes before acknowledging shutdown. When an older local server lacks orderly shutdown, the replacement client starts a detached cleanup helper. The helper reconnects, verifies from the Unix socket that the same reported server PID is still the connected peer, closes every surface, and then signals only that verified process. Detaching lets cleanup finish when closing the caller's pane exits the original client.
+
+Remote transports require protocol v9 but do not require the same release build. They reject protocol-v8 servers before loading their workspace tree because v8 does not define stack layout nodes or `new-pane`.
 
 Existing `set-ratio` clients remain source-compatible and the server keeps the pane-and-direction command unchanged. Protocol-v8 and newer frontends should read `layout.split` and send `set-split-ratio` so nested same-direction dividers are addressed exactly. Protocol v9 adds stack layout nodes and `new-pane`; clients must not send `new-pane` to a protocol-v8 server.
 

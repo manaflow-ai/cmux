@@ -8,9 +8,16 @@ TUI distribution versions are independent of the SDK version. The SDK package
 relocation to `cmux-sdk` is tracked separately and is not part of this release
 path.
 
-The TUI does not store its version in a checked-in manifest. The packaging
-scripts receive `--version`, so cutting a stable TUI release is just creating a
-`cmux-tui-vX.Y.Z` tag on `main`.
+The TUI does not store its distribution version in a checked-in manifest. The
+packaging workflow stamps its `version` input into every binary so local
+clients can distinguish releases even though the Cargo crate version remains
+fixed. Cutting a stable TUI release is just creating a `cmux-tui-vX.Y.Z` tag on
+`main`.
+
+The workflow also stamps the repository and terminal-engine commits. Ordinary
+source builds derive those identities automatically and add a deterministic
+content fingerprint for dirty trees. Explicit workflow stamps remain the
+canonical distribution identity.
 
 ## Packages
 

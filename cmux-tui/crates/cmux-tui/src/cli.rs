@@ -1,13 +1,14 @@
 use std::collections::BTreeMap;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use cmux_tui_core::platform::transport;
+use cmux_tui_core::release::ReleaseIdentity;
+use cmux_tui_core::server::PROTOCOL_VERSION;
 use serde_json::{Value, json};
 
 const REQUEST_ID: u64 = 1;
-const CAPABILITY_REQUEST_ID: u64 = 0;
 const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 
 type BuildFn = fn(&FlagMap) -> Result<Value, UsageError>;
@@ -398,6 +399,12 @@ const VERBS: &[VerbSpec] = &[
         allowed: &["name", "force", "builtin"],
         kind: VerbKind::Local(run_plugin),
     },
+    VerbSpec {
+        name: "server",
+        help: "Inspect or stop the local server.",
+        allowed: &[],
+        kind: VerbKind::Local(run_server_lifecycle),
+    },
 ];
 
 const fn socket(build: BuildFn, print: PrintFn, stream: bool) -> VerbKind {
@@ -427,7 +434,12 @@ pub fn print_help(usage: &str) {
     println!();
     println!("VERB HELP");
     for verb in VERBS {
-        println!("  {:<18} {}", verb.name, verb.help);
+        let help = if verb.name == "server" {
+            crate::localization::catalog().server.help
+        } else {
+            verb.help
+        };
+        println!("  {:<18} {help}", verb.name);
     }
 }
 
@@ -581,20 +593,30 @@ fn run_command(args: CliArgs) -> i32 {
         let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
     }
     let mut reader = BufReader::new(stream);
-    if request.get("cmd").and_then(Value::as_str) == Some("attach-surface")
-        && request.get("cols").is_some()
-    {
-        match server_supports_capability(&mut reader, ATTACH_INITIAL_SIZE_CAPABILITY) {
-            Ok(true) => {}
-            Ok(false) => {
-                eprintln!("initial attach sizing is not supported by this server");
-                return 1;
-            }
-            Err(err) => {
-                eprintln!("{err}");
+    let probe = if args.verb.name == "identify" {
+        None
+    } else {
+        let probe = match crate::server_lifecycle::ServerProbe::inspect(&mut reader) {
+            Ok(probe) => probe,
+            Err(error) => {
+                eprintln!("{error}");
                 return 3;
             }
+        };
+        if let Err(error) = probe.require_compatible(&socket_path) {
+            eprintln!("{error}");
+            return 1;
         }
+        Some(probe)
+    };
+    if request.get("cmd").and_then(Value::as_str) == Some("attach-surface")
+        && request.get("cols").is_some()
+        && !probe
+            .as_ref()
+            .is_some_and(|probe| probe.identity.supports(ATTACH_INITIAL_SIZE_CAPABILITY))
+    {
+        eprintln!("initial attach sizing is not supported by this server");
+        return 1;
     }
     if let Err(err) = write_json_line(reader.get_mut(), &request) {
         eprintln!("transport error: {err}");
@@ -612,52 +634,14 @@ fn write_json_line(writer: &mut dyn Write, value: &Value) -> io::Result<()> {
     writer.write_all(b"\n")
 }
 
+#[cfg(test)]
 fn server_supports_capability(
     reader: &mut BufReader<Box<dyn transport::Stream>>,
     capability: &str,
 ) -> Result<bool, String> {
-    write_json_line(reader.get_mut(), &json!({"id": CAPABILITY_REQUEST_ID, "cmd": "identify"}))
-        .map_err(|err| format!("transport error: {err}"))?;
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let mut line = String::new();
-
-    loop {
-        match reader.read_line(&mut line) {
-            Ok(0) => return Err("transport closed before identify response".to_string()),
-            Ok(_) => {}
-            Err(err)
-                if matches!(err.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut)
-                    && Instant::now() < deadline =>
-            {
-                continue;
-            }
-            Err(err)
-                if matches!(err.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) =>
-            {
-                return Err("timed out waiting for identify response".to_string());
-            }
-            Err(err) => return Err(format!("transport error: {err}")),
-        }
-        let value: Value =
-            serde_json::from_str(&line).map_err(|err| format!("bad identify response: {err}"))?;
-        if value.get("event").is_some()
-            || value.get("id").and_then(Value::as_u64) != Some(CAPABILITY_REQUEST_ID)
-        {
-            line.clear();
-            continue;
-        }
-        if value.get("ok").and_then(Value::as_bool) != Some(true) {
-            return Err(value
-                .get("error")
-                .and_then(Value::as_str)
-                .unwrap_or("identify failed")
-                .to_string());
-        }
-        return Ok(value
-            .pointer("/data/capabilities")
-            .and_then(Value::as_array)
-            .is_some_and(|values| values.iter().any(|value| value.as_str() == Some(capability))));
-    }
+    crate::server_lifecycle::ServerProbe::inspect(reader)
+        .map(|probe| probe.identity.supports(capability))
+        .map_err(|error| error.to_string())
 }
 
 fn is_boolean_flag(spec: &VerbSpec, name: &str) -> bool {
@@ -678,6 +662,118 @@ fn run_plugin(global: &GlobalArgs, flags: &FlagMap) -> i32 {
             builtin: flags.optional("builtin").is_some(),
         },
     )
+}
+
+fn run_server_lifecycle(global: &GlobalArgs, flags: &FlagMap) -> i32 {
+    let messages = &crate::localization::catalog().server;
+    let action = match flags.positionals.as_slice() {
+        [action] => action.as_str(),
+        [] => {
+            eprintln!("cmux-tui: {}", messages.missing_action);
+            return 2;
+        }
+        _ => {
+            eprintln!("cmux-tui: {} {:?}", messages.unknown_action, flags.positionals);
+            return 2;
+        }
+    };
+    if !flags.values.is_empty() {
+        eprintln!("cmux-tui: {} {:?}", messages.unknown_action, flags.values);
+        return 2;
+    }
+    if !matches!(action, "status" | "stop") {
+        eprintln!("cmux-tui: {} {action:?}", messages.unknown_action);
+        return 2;
+    }
+    let socket_path = resolve_socket(global);
+    let lifecycle = match crate::server_lifecycle::ServerLifecycle::connect(socket_path) {
+        Ok(lifecycle) => lifecycle,
+        Err(error) => {
+            eprintln!("{error}");
+            return 3;
+        }
+    };
+
+    match action {
+        "status" => print_server_status(global.json, lifecycle.probe()),
+        "stop" => match lifecycle.stop() {
+            Ok(()) => {
+                if global.json {
+                    println!("{}", json!({"stopped": true}));
+                } else {
+                    println!("{}", messages.stopped);
+                }
+                0
+            }
+            Err(error) => {
+                eprintln!("{error}");
+                1
+            }
+        },
+        _ => unreachable!("server action was validated before connecting"),
+    }
+}
+
+fn print_server_status(json_output: bool, probe: &crate::server_lifecycle::ServerProbe) -> i32 {
+    let messages = &crate::localization::catalog().server;
+    let server = &probe.identity;
+    let client = ReleaseIdentity::current(PROTOCOL_VERSION);
+    let mismatches = probe.mismatches();
+    let compatible = mismatches.is_empty();
+    if json_output {
+        let mismatch_reasons =
+            mismatches.iter().map(|mismatch| mismatch.code()).collect::<Vec<_>>();
+        let value = json!({
+            "running": true,
+            "compatible": compatible,
+            "mismatch_reasons": mismatch_reasons,
+            "server": {
+                "version": server.release.version,
+                "protocol": server.release.protocol,
+            },
+            "client": {
+                "version": client.version,
+                "protocol": client.protocol,
+            },
+        });
+        let mut stdout = io::stdout();
+        match serde_json::to_writer(&mut stdout, &value)
+            .map_err(io::Error::other)
+            .and_then(|_| stdout.write_all(b"\n"))
+        {
+            Ok(()) => 0,
+            Err(error) => {
+                eprintln!("stdout error: {error}");
+                3
+            }
+        }
+    } else {
+        println!(
+            "{}: v{} {} {}",
+            messages.server_label,
+            server.release.version,
+            messages.protocol_label,
+            server.release.protocol,
+        );
+        println!(
+            "{}: v{} {} {}",
+            messages.client_label, client.version, messages.protocol_label, client.protocol,
+        );
+        println!(
+            "{}: {}",
+            messages.status_label,
+            if compatible { messages.compatible } else { messages.incompatible },
+        );
+        if !mismatches.is_empty() {
+            let reasons = mismatches
+                .into_iter()
+                .map(|mismatch| mismatch.message(messages))
+                .collect::<Vec<_>>()
+                .join(messages.reason_separator);
+            println!("{}: {}", messages.reason_label, reasons);
+        }
+        0
+    }
 }
 
 fn resolve_socket(global: &GlobalArgs) -> PathBuf {
@@ -1334,10 +1430,11 @@ fn print_empty(_: &Value, _: &mut dyn Write) -> io::Result<()> {
 fn print_identify(data: &Value, out: &mut dyn Write) -> io::Result<()> {
     writeln!(
         out,
-        "cmux-tui session={} protocol={} pid={}",
+        "cmux-tui session={} protocol={} pid={} version={}",
         data.get("session").and_then(Value::as_str).unwrap_or(""),
         data.get("protocol").and_then(Value::as_u64).unwrap_or(0),
-        data.get("pid").and_then(Value::as_u64).unwrap_or(0)
+        data.get("pid").and_then(Value::as_u64).unwrap_or(0),
+        data.get("version").and_then(Value::as_str).unwrap_or(""),
     )
 }
 
@@ -1674,7 +1771,7 @@ mod tests {
             reads: VecDeque::from([
                 Err(io::ErrorKind::WouldBlock),
                 Err(io::ErrorKind::TimedOut),
-                Ok(b"{\"id\":0,\"ok\":true,\"data\":{\"capabilities\":[\"attach-initial-size\"]}}\n"
+                Ok(b"{\"id\":0,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"capabilities\":[\"attach-initial-size\"]}}\n"
                     .to_vec()),
             ]),
             current: io::Cursor::new(Vec::new()),
@@ -1692,9 +1789,9 @@ mod tests {
     fn capability_probe_preserves_partial_line_across_timeout() {
         let stream = ScriptedStream {
             reads: VecDeque::from([
-                Ok(b"{\"id\":0,\"ok\":true,\"data\":".to_vec()),
+                Ok(b"{\"id\":0,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",".to_vec()),
                 Err(io::ErrorKind::TimedOut),
-                Ok(b"{\"capabilities\":[\"attach-initial-size\"]}}\n".to_vec()),
+                Ok(b"\"capabilities\":[\"attach-initial-size\"]}}\n".to_vec()),
             ]),
             current: io::Cursor::new(Vec::new()),
             writes: Vec::new(),

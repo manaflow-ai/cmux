@@ -13,6 +13,9 @@ pub mod transport {
         fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()>;
         fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()>;
         fn shutdown(&self, how: Shutdown) -> io::Result<()>;
+        fn peer_process_id(&self) -> io::Result<Option<u32>> {
+            Ok(None)
+        }
     }
 
     pub struct Listener {
@@ -77,6 +80,69 @@ pub mod transport {
             fn shutdown(&self, how: std::net::Shutdown) -> io::Result<()> {
                 UnixStream::shutdown(self, how)
             }
+
+            fn peer_process_id(&self) -> io::Result<Option<u32>> {
+                peer_process_id(self)
+            }
+        }
+
+        #[cfg(target_os = "macos")]
+        fn peer_process_id(stream: &UnixStream) -> io::Result<Option<u32>> {
+            use std::mem::size_of;
+            use std::os::fd::AsRawFd;
+
+            let mut pid: libc::pid_t = 0;
+            let mut length = size_of::<libc::pid_t>() as libc::socklen_t;
+            let result = unsafe {
+                libc::getsockopt(
+                    stream.as_raw_fd(),
+                    libc::SOL_LOCAL,
+                    libc::LOCAL_PEERPID,
+                    (&raw mut pid).cast(),
+                    &raw mut length,
+                )
+            };
+            if result != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            if length as usize != size_of::<libc::pid_t>() {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid peer process id"));
+            }
+            u32::try_from(pid)
+                .map(Some)
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid peer process id"))
+        }
+
+        #[cfg(target_os = "linux")]
+        fn peer_process_id(stream: &UnixStream) -> io::Result<Option<u32>> {
+            use std::mem::{size_of, zeroed};
+            use std::os::fd::AsRawFd;
+
+            let mut credentials = unsafe { zeroed::<libc::ucred>() };
+            let mut length = size_of::<libc::ucred>() as libc::socklen_t;
+            let result = unsafe {
+                libc::getsockopt(
+                    stream.as_raw_fd(),
+                    libc::SOL_SOCKET,
+                    libc::SO_PEERCRED,
+                    (&raw mut credentials).cast(),
+                    &raw mut length,
+                )
+            };
+            if result != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            if length as usize != size_of::<libc::ucred>() {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid peer credentials"));
+            }
+            u32::try_from(credentials.pid)
+                .map(Some)
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid peer process id"))
+        }
+
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        fn peer_process_id(_stream: &UnixStream) -> io::Result<Option<u32>> {
+            Ok(None)
         }
     }
 
@@ -723,6 +789,19 @@ fn restrict_permissions(_path: &Path, _mode: u32) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn unix_transport_reports_the_kernel_peer_process() {
+        use std::os::unix::net::UnixStream;
+
+        use transport::Stream as _;
+
+        let (client, server) = UnixStream::pair().unwrap();
+
+        assert_eq!(client.peer_process_id().unwrap(), Some(std::process::id()));
+        assert_eq!(server.peer_process_id().unwrap(), Some(std::process::id()));
+    }
 
     fn position(candidates: &[GhosttyInstallation], expected: impl AsRef<Path>) -> usize {
         let expected = expected.as_ref();

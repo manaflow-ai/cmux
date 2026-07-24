@@ -180,9 +180,9 @@ Result:
 object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:string|null,protocol:uint32,capabilities:array<string>,session:string,pid:uint32,registry_id:string,generation:string,workspace_revision:uint64}
 ```
 
-`build_commit` and `ghostty_commit` are additive build-stamp fields. They are omitted or `null` when the binary was built without the corresponding stamp, so clients must preserve compatibility with older servers and unstamped local builds.
+`build_commit` and `ghostty_commit` are additive build-stamp fields. Current source builds derive them from the repository and terminal-engine checkout. A dirty source build appends a deterministic content fingerprint. Distribution builds may override both stamps explicitly. Older binaries can omit the fields or return `null`, so clients must preserve compatibility with those identities.
 
-`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits.
+`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits. `server-shutdown-v1` advertises atomic destructive shutdown; clients may use the compatibility cleanup path only when this capability is absent.
 
 Errors:
 
@@ -196,7 +196,7 @@ CLI mapping:
 | --- | --- |
 | Verb | `identify` |
 | Flags | none |
-| Plain stdout | `cmux-tui session=<session> protocol=<protocol> pid=<pid>` |
+| Plain stdout | `cmux-tui session=<session> protocol=<protocol> pid=<pid> version=<version>` |
 | JSON stdout | exact result object |
 | Exit codes | common |
 
@@ -204,7 +204,7 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":9,"capabilities":["attach-initial-size","workspace-registry-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":9,"capabilities":["attach-initial-size","workspace-registry-v1","provider-managed-workspace-authority-v2","server-shutdown-v1"],"session":"main","pid":12345}}
 ```
 
 The current server reports protocol `9` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`, and protocol 9 before decoding stack layouts or sending `new-pane`.
@@ -238,6 +238,50 @@ Example:
 ```json
 {"id":2,"cmd":"ping"}
 {"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":9}}
+```
+
+### shutdown
+
+| Field | Value |
+| --- | --- |
+| name | `shutdown` |
+| status | implemented |
+| since | protocol 9 additive extension |
+
+Requests an orderly server exit after the success response is queued. The command is accepted only on the local Unix-domain socket. Stopping the mux exits every pane process. Shutdown first fences new surface creation and waits for in-flight creation. It then tombstones all hosted terminals in one registry transaction, clears the complete topology in one state mutation, and terminates pane runtimes before returning success.
+
+Params: none.
+
+Result: `object{}`.
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `shutdown is only available over the local session socket` | Request arrived over WebSocket |
+| `bad request: ...` | Malformed request envelope |
+
+CLI mapping: `cmux-tui server stop`; `cmux-tui server status` uses `identify` and does not issue this command. When an older Unix server does not implement `shutdown`, a newer client verifies that the PID reported by `identify` owns the connected Unix socket, then starts a detached helper. The helper reconnects, verifies the same PID again, closes every surface reported by `list-workspaces`, and signals that verified process. Cleanup survives the caller's pane exit. If either socket-owner check or orderly pane cleanup fails, the helper leaves the server running and reports the failure.
+
+`cmux-tui server status` compares the local server's distribution version, source build, terminal-engine build, and protocol with the client. Plain output reports both versions and protocols plus localized mismatch reasons. JSON output is:
+
+```text
+object{
+  running:true,
+  compatible:boolean,
+  mismatch_reasons:array<"distribution-version"|"source-build"|"terminal-engine"|"protocol">,
+  server:object{version:string,protocol:uint32},
+  client:object{version:string,protocol:uint32}
+}
+```
+
+`cmux-tui server stop` prints a localized confirmation. With `--json`, it prints `object{stopped:true}`.
+
+Example:
+
+```json
+{"id":3,"cmd":"shutdown"}
+{"id":3,"ok":true,"data":{}}
 ```
 
 ### set-client-info

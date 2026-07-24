@@ -3006,9 +3006,15 @@ mod tests {
                 let request: Value = serde_json::from_str(&line).unwrap();
                 assert_eq!(request["cmd"], expected_command);
                 let data = if expected_command == "identify" {
+                    let release = cmux_tui_core::release::ReleaseIdentity::current(
+                        cmux_tui_core::server::PROTOCOL_VERSION,
+                    );
                     json!({
                         "app": "cmux-tui",
-                        "protocol": cmux_tui_core::server::PROTOCOL_VERSION,
+                        "version": release.version,
+                        "build_commit": release.build_commit,
+                        "ghostty_commit": release.ghostty_commit,
+                        "protocol": release.protocol,
                     })
                 } else {
                     Value::Null

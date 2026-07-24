@@ -45,6 +45,7 @@ use zeroize::Zeroize;
 use crate::model::{Screen, State, Workspace};
 use crate::mux::clamp_terminal_size;
 use crate::platform::{self, transport};
+use crate::release::ReleaseIdentity;
 use crate::surface::AttachLifecycle;
 use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, DefaultColors, Direction, LayoutLeafSpec,
@@ -56,6 +57,7 @@ use crate::{
 
 const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
+pub const SERVER_SHUTDOWN_CAPABILITY: &str = "server-shutdown-v1";
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
     "provider-managed-workspace-authority-v2";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -108,6 +110,7 @@ enum Command {
         generation: String,
     },
     Ping,
+    Shutdown,
     SetClientInfo {
         #[serde(default)]
         name: Option<String>,
@@ -1897,12 +1900,14 @@ pub fn detach_control_client(mux: &Mux, client: u64) -> bool {
 
 fn handle_message(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWriter) -> bool {
     let mut detach_self = false;
+    let mut shutdown = false;
     let mut shutdown_daemon = false;
     let response = match serde_json::from_str::<Request>(message) {
         Ok(req) => {
             let id = req.id.clone();
             detach_self =
                 matches!(&req.cmd, Command::DetachClient { client: target } if *target == client);
+            shutdown = matches!(&req.cmd, Command::Shutdown);
             shutdown_daemon = matches!(&req.cmd, Command::ShutdownDaemon { .. });
             match handle_command(mux, client, req.cmd, writer) {
                 Ok(data) => Response { id, ok: true, data: Some(data), error: None },
@@ -1929,6 +1934,10 @@ fn handle_message(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWr
     if detach_self && response_ok && sent {
         disconnect_client(mux, client, true);
         return false;
+    }
+    if shutdown && response_ok && sent {
+        mux.request_shutdown();
+        return true;
     }
     sent
 }
@@ -2925,17 +2934,19 @@ fn handle_command(
 ) -> anyhow::Result<Value> {
     match cmd {
         Command::Identify => {
+            let release = ReleaseIdentity::current(PROTOCOL_VERSION);
             let (registry_id, generation) = mux.registry_identity();
             Ok(json!({
                 "app": "cmux-tui",
-                "version": env!("CARGO_PKG_VERSION"),
-                "build_commit": stamped_build_commit(),
-                "ghostty_commit": stamped_ghostty_commit(),
-                "protocol": PROTOCOL_VERSION,
+                "version": release.version,
+                "build_commit": release.build_commit,
+                "ghostty_commit": release.ghostty_commit,
+                "protocol": release.protocol,
                 "capabilities": [
                     ATTACH_INITIAL_SIZE_CAPABILITY,
                     WORKSPACE_REGISTRY_CAPABILITY,
-                    PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY
+                    PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
+                    SERVER_SHUTDOWN_CAPABILITY
                 ],
                 "session": mux.session,
                 "pid": std::process::id(),
@@ -2945,6 +2956,23 @@ fn handle_command(
                 "terminal_revision": mux.terminal_registry_snapshot()?.revision,
                 "daemon_handoff": 1,
             }))
+        }
+        Command::Ping => {
+            let release = ReleaseIdentity::current(PROTOCOL_VERSION);
+            Ok(json!({
+                "ok": true,
+                "version": release.version,
+                "build_commit": release.build_commit,
+                "ghostty_commit": release.ghostty_commit,
+                "protocol": release.protocol,
+            }))
+        }
+        Command::Shutdown => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("shutdown is only available over the local session socket");
+            }
+            mux.close_all_surfaces_for_shutdown()?;
+            Ok(json!({}))
         }
         Command::ShutdownDaemon { pid, generation } => {
             let actual_pid = std::process::id();
@@ -2962,13 +2990,6 @@ fn handle_command(
                 "generation": actual_generation,
             }))
         }
-        Command::Ping => Ok(json!({
-            "ok": true,
-            "version": env!("CARGO_PKG_VERSION"),
-            "build_commit": stamped_build_commit(),
-            "ghostty_commit": stamped_ghostty_commit(),
-            "protocol": PROTOCOL_VERSION,
-        })),
         Command::SetClientInfo { name, kind } => {
             let (name, kind) =
                 mux.control_clients.set_info(client, name, kind, &mux.daemon_handoff_pending)?;
@@ -4493,16 +4514,6 @@ fn handle_command(
     }
 }
 
-fn stamped_build_commit() -> Option<&'static str> {
-    option_env!("CMUX_TUI_BUILD_COMMIT")
-        .or(option_env!("CMUX_MUX_BUILD_COMMIT"))
-        .filter(|commit| !commit.is_empty())
-}
-
-fn stamped_ghostty_commit() -> Option<&'static str> {
-    option_env!("CMUX_TUI_GHOSTTY_COMMIT").filter(|commit| !commit.is_empty())
-}
-
 fn subscribed_event_json(event: &MuxEvent) -> Value {
     match event {
         MuxEvent::SurfaceOutput(id) => json!({"event": "surface-output", "surface": id}),
@@ -5052,23 +5063,51 @@ mod tests {
     #[test]
     fn identify_and_ping_return_build_metadata() {
         let mux = test_mux();
+        let release = ReleaseIdentity::current(PROTOCOL_VERSION);
         let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
         assert_eq!(identity["app"].as_str(), Some("cmux-tui"));
-        assert_eq!(identity["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
+        assert_eq!(identity["version"].as_str(), Some(release.version.as_str()));
         assert_eq!(identity["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
-        assert_eq!(identity["build_commit"].as_str(), stamped_build_commit());
-        assert_eq!(identity["ghostty_commit"].as_str(), stamped_ghostty_commit());
+        assert_eq!(identity["build_commit"].as_str(), release.build_commit.as_deref());
+        assert_eq!(identity["ghostty_commit"].as_str(), release.ghostty_commit.as_deref());
 
         let data = handle_command(&mux, 0, Command::Ping, &test_writer()).unwrap();
         assert_eq!(data["ok"].as_bool(), Some(true));
-        assert_eq!(data["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
-        assert_eq!(data["build_commit"].as_str(), stamped_build_commit());
-        assert_eq!(data["ghostty_commit"].as_str(), stamped_ghostty_commit());
+        assert_eq!(data["version"].as_str(), Some(release.version.as_str()));
+        assert_eq!(data["build_commit"].as_str(), release.build_commit.as_deref());
+        assert_eq!(data["ghostty_commit"].as_str(), release.ghostty_commit.as_deref());
         assert_eq!(data["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
         assert_eq!(identity["daemon_handoff"].as_u64(), Some(1));
         assert_eq!(STABLE_SPLIT_IDS_PROTOCOL_VERSION, 8);
         assert_eq!(STACK_LAYOUT_PROTOCOL_VERSION, 9);
         assert_eq!(PROTOCOL_VERSION, 9);
+    }
+
+    #[test]
+    fn local_shutdown_responds_before_requesting_mux_exit() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+
+        assert!(handle_message(&mux, client, r#"{"id":7,"cmd":"shutdown"}"#, &writer));
+        assert!(mux.shutdown_requested());
+        assert!(mux.surface(surface.id).is_none());
+        let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(response, json!({"id": 7, "ok": true, "data": {}}));
+    }
+
+    #[test]
+    fn websocket_clients_cannot_shutdown_the_server() {
+        let mux = test_mux();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
+
+        let error = handle_command(&mux, client, Command::Shutdown, &writer).unwrap_err();
+
+        assert!(error.to_string().contains("local session socket"));
+        assert!(!mux.shutdown_requested());
     }
 
     #[test]
@@ -6440,6 +6479,7 @@ mod tests {
             "attach-initial-size",
             "workspace-registry-v1",
             PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
+            SERVER_SHUTDOWN_CAPABILITY,
         ] {
             assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
         }

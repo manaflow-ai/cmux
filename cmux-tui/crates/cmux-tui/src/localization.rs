@@ -20,6 +20,54 @@ pub(crate) struct ForeignViewportMessages {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub(crate) struct ServerMessages {
+    pub help: &'static str,
+    pub incompatible_local_server: &'static str,
+    pub server_label: &'static str,
+    pub client_label: &'static str,
+    pub protocol_label: &'static str,
+    pub status_label: &'static str,
+    pub reason_label: &'static str,
+    pub reason_separator: &'static str,
+    pub compatible: &'static str,
+    pub incompatible: &'static str,
+    pub reason_version: &'static str,
+    pub reason_source: &'static str,
+    pub reason_terminal_engine: &'static str,
+    pub reason_protocol: &'static str,
+    pub stop_to_use: &'static str,
+    pub stopping_exits_panes: &'static str,
+    pub restart_before_command: &'static str,
+    pub restart_after_command: &'static str,
+    pub stopped: &'static str,
+    pub missing_action: &'static str,
+    pub unknown_action: &'static str,
+    pub connect_failed: &'static str,
+    pub endpoint_invalid: &'static str,
+    pub identity_failed: &'static str,
+    pub transport_failed: &'static str,
+    pub response_closed: &'static str,
+    pub response_invalid: &'static str,
+    #[cfg(unix)]
+    pub legacy_cleanup_failed: &'static str,
+    #[cfg(unix)]
+    pub legacy_list_failed: &'static str,
+    #[cfg(unix)]
+    pub legacy_close_failed: &'static str,
+    #[cfg(unix)]
+    pub legacy_too_many_surfaces: &'static str,
+    #[cfg(unix)]
+    pub legacy_peer_unavailable: &'static str,
+    #[cfg(unix)]
+    pub legacy_peer_mismatch: &'static str,
+    #[cfg(unix)]
+    pub legacy_signal_failed: &'static str,
+    pub shutdown_failed: &'static str,
+    pub shutdown_unsupported: &'static str,
+    pub shutdown_timed_out: &'static str,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct SidebarMessages {
     pub machines: &'static str,
     pub workspaces: &'static str,
@@ -132,6 +180,7 @@ const fn decimal_width(mut value: u16) -> usize {
 pub(crate) struct Catalog {
     pub pairing: PairingMessages,
     pub foreign_viewport: ForeignViewportMessages,
+    pub server: ServerMessages,
     pub sidebar: SidebarMessages,
 }
 
@@ -144,6 +193,52 @@ static ENGLISH: Catalog = Catalog {
         approve: "[ Approve enter ]",
     },
     foreign_viewport: ForeignViewportMessages { terminal_grid: "terminal grid" },
+    server: ServerMessages {
+        help: "Inspect or stop the local server.",
+        incompatible_local_server: "This session is running a different cmux-tui release.",
+        server_label: "server",
+        client_label: "client",
+        protocol_label: "protocol",
+        status_label: "status",
+        reason_label: "reason",
+        reason_separator: ", ",
+        compatible: "compatible",
+        incompatible: "incompatible",
+        reason_version: "distribution version differs",
+        reason_source: "source build differs",
+        reason_terminal_engine: "terminal engine build differs",
+        reason_protocol: "protocol differs",
+        stop_to_use: "Stop the old server to use this cmux-tui version.",
+        stopping_exits_panes: "Stopping exits pane processes.",
+        restart_before_command: "Run `",
+        restart_after_command: "`, then run `cmux-tui` again.",
+        stopped: "Stopped the cmux-tui server.",
+        missing_action: "server needs an action: status or stop",
+        unknown_action: "unknown server action",
+        connect_failed: "Could not connect to the cmux-tui server.",
+        endpoint_invalid: "The socket is not a cmux-tui server.",
+        identity_failed: "The cmux-tui server did not return its identity.",
+        transport_failed: "Communication with the cmux-tui server failed.",
+        response_closed: "The cmux-tui server closed the connection before responding.",
+        response_invalid: "The cmux-tui server returned an invalid response.",
+        #[cfg(unix)]
+        legacy_cleanup_failed: "could not close pane processes before stopping the older server",
+        #[cfg(unix)]
+        legacy_list_failed: "The older server could not list its pane processes.",
+        #[cfg(unix)]
+        legacy_close_failed: "The older server could not close a pane process.",
+        #[cfg(unix)]
+        legacy_too_many_surfaces: "The older server reported too many pane processes.",
+        #[cfg(unix)]
+        legacy_peer_unavailable: "The older server process could not be verified.",
+        #[cfg(unix)]
+        legacy_peer_mismatch: "The older server's reported process does not own its socket.",
+        #[cfg(unix)]
+        legacy_signal_failed: "The verified older server process could not be stopped.",
+        shutdown_failed: "the server could not stop cleanly",
+        shutdown_unsupported: "this server cannot be stopped by this client",
+        shutdown_timed_out: "the server did not stop within 10 seconds",
+    },
     sidebar: SidebarMessages {
         machines: "machines",
         workspaces: "workspaces",
@@ -224,6 +319,52 @@ static JAPANESE: Catalog = Catalog {
         approve: "[ 承認 enter ]",
     },
     foreign_viewport: ForeignViewportMessages { terminal_grid: "端末グリッド" },
+    server: ServerMessages {
+        help: "ローカルサーバーの確認または停止。",
+        incompatible_local_server: "このセッションは別の cmux-tui リリースで実行されています。",
+        server_label: "サーバー",
+        client_label: "クライアント",
+        protocol_label: "プロトコル",
+        status_label: "状態",
+        reason_label: "理由",
+        reason_separator: "、",
+        compatible: "互換",
+        incompatible: "非互換",
+        reason_version: "配布バージョンが異なります",
+        reason_source: "ソースビルドが異なります",
+        reason_terminal_engine: "ターミナルエンジンのビルドが異なります",
+        reason_protocol: "プロトコルが異なります",
+        stop_to_use: "この cmux-tui バージョンを使うには、古いサーバーを停止してください。",
+        stopping_exits_panes: "停止するとペインのプロセスが終了します。",
+        restart_before_command: "`",
+        restart_after_command: "` を実行してから、`cmux-tui` をもう一度実行してください。",
+        stopped: "cmux-tui サーバーを停止しました。",
+        missing_action: "server には status または stop の操作が必要です",
+        unknown_action: "不明な server 操作",
+        connect_failed: "cmux-tui サーバーに接続できませんでした。",
+        endpoint_invalid: "このソケットは cmux-tui サーバーではありません。",
+        identity_failed: "cmux-tui サーバーから識別情報を取得できませんでした。",
+        transport_failed: "cmux-tui サーバーとの通信に失敗しました。",
+        response_closed: "cmux-tui サーバーが応答前に接続を終了しました。",
+        response_invalid: "cmux-tui サーバーから無効な応答が返されました。",
+        #[cfg(unix)]
+        legacy_cleanup_failed: "古いサーバーを停止する前にペインのプロセスを終了できませんでした",
+        #[cfg(unix)]
+        legacy_list_failed: "古いサーバーからペインのプロセス一覧を取得できませんでした。",
+        #[cfg(unix)]
+        legacy_close_failed: "古いサーバーでペインのプロセスを終了できませんでした。",
+        #[cfg(unix)]
+        legacy_too_many_surfaces: "古いサーバーから報告されたペインのプロセスが多すぎます。",
+        #[cfg(unix)]
+        legacy_peer_unavailable: "古いサーバーのプロセスを検証できませんでした。",
+        #[cfg(unix)]
+        legacy_peer_mismatch: "古いサーバーが報告したプロセスはソケットを所有していません。",
+        #[cfg(unix)]
+        legacy_signal_failed: "検証済みの古いサーバープロセスを停止できませんでした。",
+        shutdown_failed: "サーバーを正常に停止できませんでした",
+        shutdown_unsupported: "このクライアントからこのサーバーを停止できません",
+        shutdown_timed_out: "10 秒以内にサーバーが停止しませんでした",
+    },
     sidebar: SidebarMessages {
         machines: "マシン",
         workspaces: "ワークスペース",

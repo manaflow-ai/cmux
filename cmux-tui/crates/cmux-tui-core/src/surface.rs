@@ -2061,12 +2061,17 @@ impl Surface {
     }
 
     pub fn kill(&self) {
+        let _ = self.terminate_runtime();
+    }
+
+    fn terminate_runtime(&self) -> bool {
         match self {
             Surface::Pty(pty) => {
                 let mut runtime = pty.runtime.lock().unwrap();
                 match &mut *runtime {
                     PtyRuntime::Local { killer, .. } => {
                         let _ = killer.kill();
+                        true
                     }
                     #[cfg(unix)]
                     PtyRuntime::Hosted(host) => {
@@ -2074,13 +2079,43 @@ impl Surface {
                         // after the PTY process has actually exited. Unlinking
                         // here would make a failed Terminate write turn a live
                         // shell into an undiscoverable orphan.
-                        let _ = host.terminate();
+                        host.terminate().is_ok()
                     }
                     #[cfg(unix)]
+                    PtyRuntime::ExitedHosted => true,
+                }
+            }
+            Surface::Browser(browser) => {
+                browser.kill();
+                true
+            }
+        }
+    }
+
+    /// Start runtime termination. Durable terminal-host death is confirmed
+    /// separately through the process-bound discovery record.
+    pub(crate) fn terminate_for_server_shutdown(&self, timeout: Duration) {
+        match self {
+            #[cfg(unix)]
+            Surface::Pty(pty) => {
+                let mut runtime = pty.runtime.lock().unwrap();
+                match &mut *runtime {
+                    PtyRuntime::Hosted(host) => {
+                        let _ = host.terminate_with_timeout(timeout);
+                    }
+                    PtyRuntime::Local { killer, .. } => {
+                        let _ = killer.kill();
+                    }
                     PtyRuntime::ExitedHosted => {}
                 }
             }
-            Surface::Browser(browser) => browser.kill(),
+            #[cfg(not(unix))]
+            Surface::Pty(_) => {
+                let _ = self.terminate_runtime();
+            }
+            Surface::Browser(browser) => {
+                browser.kill();
+            }
         }
     }
 

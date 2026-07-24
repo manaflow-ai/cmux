@@ -103,6 +103,8 @@ jobs:
         if: matrix.cross == false
         working-directory: cmux-tui
         shell: bash
+        env:
+          CMUX_TUI_DISTRIBUTION_VERSION: ${{ inputs.version }}
         run: |
           # Package artifacts must build and stamp the checked-out submodule,
           # independent of any self-hosted runner source override.
@@ -116,6 +118,8 @@ jobs:
         if: matrix.cross == true
         working-directory: cmux-tui
         shell: bash
+        env:
+          CMUX_TUI_DISTRIBUTION_VERSION: ${{ inputs.version }}
         run: |
           # Package artifacts must build and stamp the checked-out submodule,
           # independent of any self-hosted runner source override.
@@ -177,6 +181,8 @@ jobs:
 
       - name: Build libghostty-vt + cmux-tui (Windows GNU)
         shell: bash
+        env:
+          CMUX_TUI_DISTRIBUTION_VERSION: ${{ inputs.version }}
         run: |
           # Keep the manual Zig build and Cargo's build script on the same
           # checked-out Ghostty source whose revision is stamped below.

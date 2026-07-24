@@ -636,6 +636,17 @@ mod unix {
             self.send(MessageKind::Terminate, &[])
         }
 
+        pub(crate) fn terminate_with_timeout(&self, timeout: Duration) -> std::io::Result<()> {
+            let mut writer = self.writer.lock().unwrap();
+            writer.set_write_timeout(Some(timeout))?;
+            let frame = Frame::new(MessageKind::Terminate, Vec::new());
+            let result = write_frame(&mut *writer, &frame).map_err(protocol_io_error);
+            if result.is_err() {
+                let _ = writer.shutdown(std::net::Shutdown::Both);
+            }
+            result
+        }
+
         pub fn disconnect(&self) {
             let _ = self.writer.lock().unwrap().shutdown(std::net::Shutdown::Both);
         }
@@ -929,6 +940,15 @@ mod unix {
     ) -> anyhow::Result<HostAttachment> {
         validate_terminal_host_record(&record_path, &record)?;
         connect_record(record, record_path)
+    }
+
+    pub(crate) fn adopt_terminal_host_with_timeout(
+        record: TerminalHostRecord,
+        record_path: PathBuf,
+        timeout: Duration,
+    ) -> anyhow::Result<HostAttachment> {
+        validate_terminal_host_record(&record_path, &record)?;
+        connect_record_with_timeout(record, record_path, timeout)
     }
 
     /// Validate a discovery record without trusting paths or alternate
@@ -3378,6 +3398,8 @@ mod unix {
     }
 }
 
+#[cfg(unix)]
+pub(crate) use unix::adopt_terminal_host_with_timeout;
 #[cfg(unix)]
 pub use unix::{
     HostAttachment, adopt_terminal_host, isolate_terminal_host_process_fds, launch_terminal_host,
