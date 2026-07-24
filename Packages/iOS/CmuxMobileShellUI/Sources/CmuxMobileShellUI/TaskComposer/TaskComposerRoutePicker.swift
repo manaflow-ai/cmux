@@ -5,10 +5,11 @@ import SwiftUI
 
 struct TaskComposerRoutePicker: View {
     let machines: [MobilePairedMac]
-    let selectedMacDeviceID: String
+    let selectedMacPairingID: String
+    let buildLabelsByID: [String: String]
     let directory: String
     let isDisabled: Bool
-    let selectMachine: (String) -> Void
+    let selectMachine: (String, String?) -> Void
     let selectDirectory: () -> Void
 
     var body: some View {
@@ -57,7 +58,8 @@ struct TaskComposerRoutePicker: View {
             TaskComposerMachineMenu(
                 value: TaskComposerMachineMenuValue(
                     machines: machines,
-                    selectedMacDeviceID: selectedMacDeviceID,
+                    selectedMacPairingID: selectedMacPairingID,
+                    buildLabelsByID: buildLabelsByID,
                     isDisabled: isDisabled
                 ),
                 actions: TaskComposerMachineMenuActions(
