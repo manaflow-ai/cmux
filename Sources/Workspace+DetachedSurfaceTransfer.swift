@@ -42,6 +42,9 @@ extension Workspace {
 
     struct DetachedSurfaceTransfer {
         let sourceWorkspaceId: UUID
+        /// Workspace whose restore context must rebuild this panel after relaunch.
+        /// Unlike `sourceWorkspaceId`, this survives moves between Dock containers.
+        let sessionRestoreSourceWorkspaceId: UUID?
         let panelId: UUID
         let panel: any Panel
         let title: String
@@ -71,9 +74,14 @@ extension Workspace {
         let remotePTYSessionID: String?
         let remoteCleanupConfiguration: WorkspaceRemoteConfiguration?
 
+        var sessionRestoreWorkspaceId: UUID {
+            sessionRestoreSourceWorkspaceId ?? sourceWorkspaceId
+        }
+
         func withRemoteCleanupConfiguration(_ configuration: WorkspaceRemoteConfiguration?) -> Self {
             Self(
                 sourceWorkspaceId: sourceWorkspaceId,
+                sessionRestoreSourceWorkspaceId: sessionRestoreSourceWorkspaceId,
                 panelId: panelId,
                 panel: panel,
                 title: title,
