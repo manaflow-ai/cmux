@@ -97,15 +97,12 @@ Internal testers (the `cmux beta` group) get every uploaded build instantly with
 no review. An `--external` build is different: the FIRST external build of a new
 `MARKETING_VERSION` must pass a one-time Apple Beta App Review (~24h) before any
 external tester can install it. Subsequent external builds of the same version
-ship without re-review. The scheduled `main` sync lane now uploads
-external-eligible builds too, so founders track `main` once the current beta
-version has cleared that review gate. That lane reuses
+ship without re-review. External cuts reuse
 `CMUX_IOS_BETA_MARKETING_VERSION` from `ios/Config/Shared.xcconfig`; bump it
 only when you want a fresh Beta App Review cycle. The upload path assigns the
-processed build to the app's external beta group automatically, auto-selecting
-the single external
-group or using `IOS_TESTFLIGHT_EXTERNAL_GROUP_ID` / `IOS_TESTFLIGHT_EXTERNAL_GROUP_NAME`
-repo variables when the app has multiple external groups. When Apple reports the
+processed build to both the Founder's Edition and Pro external beta groups. It
+uses `IOS_TESTFLIGHT_EXTERNAL_GROUP_ID` / `IOS_TESTFLIGHT_EXTERNAL_GROUP_NAME`
+for the primary group and `IOS_TESTFLIGHT_PRO_GROUP_ID` for Pro. When Apple reports the
 build as `READY_FOR_BETA_SUBMISSION`, the same lane also creates the beta app
 review submission automatically so a new `MARKETING_VERSION` is not left stuck
 at "Ready to Submit".

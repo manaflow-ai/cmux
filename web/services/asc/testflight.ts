@@ -6,9 +6,9 @@ import { env } from "../../app/env";
 
 export const TESTFLIGHT_APP_ID =
   env.CMUX_TESTFLIGHT_APP_ID || "6757092429";
-export const TESTFLIGHT_GROUP_ID =
-  env.CMUX_TESTFLIGHT_GROUP_ID ||
-  "3ee84bfa-10ad-4f23-a45c-f9a3b037373e";
+export const PRO_TESTFLIGHT_GROUP_ID =
+  env.CMUX_PRO_TESTFLIGHT_GROUP_ID ||
+  "34fbede5-3880-4560-b1bb-a45787249780";
 
 type JsonApiResource = {
   readonly id: string;
@@ -18,6 +18,10 @@ type JsonApiResource = {
 
 type JsonApiList = {
   readonly data?: readonly JsonApiResource[];
+};
+
+type JsonApiDocument = {
+  readonly data?: JsonApiResource;
 };
 
 export type TestFlightGroupStatus = {
@@ -45,7 +49,7 @@ export async function testerGroupStatus(
     `/v1/betaTesters/${encodeURIComponent(tester.id)}/betaGroups?limit=200`,
   );
   const enrolled = Boolean(
-    response.data?.some((group) => group.id === TESTFLIGHT_GROUP_ID),
+    response.data?.some((group) => group.id === PRO_TESTFLIGHT_GROUP_ID),
   );
   return {
     enrolled,
@@ -60,7 +64,7 @@ export async function enrollTester(
 ): Promise<void> {
   const normalizedEmail = normalizeEmail(email);
   try {
-    await ascFetch("/v1/betaTesters", {
+    const response = await ascFetch<JsonApiDocument>("/v1/betaTesters", {
       method: "POST",
       body: JSON.stringify({
         data: {
@@ -72,12 +76,17 @@ export async function enrollTester(
           },
           relationships: {
             betaGroups: {
-              data: [{ type: "betaGroups", id: TESTFLIGHT_GROUP_ID }],
+              data: [{ type: "betaGroups", id: PRO_TESTFLIGHT_GROUP_ID }],
             },
           },
         },
       }),
     });
+    const testerId = response.data?.id;
+    if (!testerId) {
+      throw new AscApiError("Created beta tester response did not include an id", 502);
+    }
+    await sendTesterInvitation(testerId);
     return;
   } catch (error) {
     if (!isAlreadyExistsError(error)) throw error;
@@ -85,14 +94,15 @@ export async function enrollTester(
 
   const tester = await findBetaTesterByEmail(normalizedEmail);
   if (!tester) throw new AscApiError("Existing beta tester could not be found", 409);
-  await addTesterToGroup(tester.id);
+  const added = await addTesterToGroup(tester.id);
+  if (added) await sendTesterInvitation(tester.id);
 }
 
 export async function removeTester(email: string): Promise<void> {
   const tester = await findBetaTesterByEmail(email);
   if (!tester) return;
   try {
-    await ascFetch(`/v1/betaGroups/${encodeURIComponent(TESTFLIGHT_GROUP_ID)}/relationships/betaTesters`, {
+    await ascFetch(`/v1/betaGroups/${encodeURIComponent(PRO_TESTFLIGHT_GROUP_ID)}/relationships/betaTesters`, {
       method: "DELETE",
       body: JSON.stringify({
         data: [{ type: "betaTesters", id: tester.id }],
@@ -104,15 +114,43 @@ export async function removeTester(email: string): Promise<void> {
   }
 }
 
-async function addTesterToGroup(testerId: string): Promise<void> {
+async function addTesterToGroup(testerId: string): Promise<boolean> {
   try {
-    await ascFetch(`/v1/betaGroups/${encodeURIComponent(TESTFLIGHT_GROUP_ID)}/relationships/betaTesters`, {
+    await ascFetch(`/v1/betaGroups/${encodeURIComponent(PRO_TESTFLIGHT_GROUP_ID)}/relationships/betaTesters`, {
       method: "POST",
       body: JSON.stringify({
         data: [{ type: "betaTesters", id: testerId }],
       }),
     });
+    return true;
   } catch (error) {
+    if (isAlreadyExistsError(error)) return false;
+    throw error;
+  }
+}
+
+async function sendTesterInvitation(testerId: string): Promise<void> {
+  try {
+    await ascFetch("/v1/betaTesterInvitations", {
+      method: "POST",
+      body: JSON.stringify({
+        data: {
+          type: "betaTesterInvitations",
+          relationships: {
+            app: {
+              data: { type: "apps", id: TESTFLIGHT_APP_ID },
+            },
+            betaTester: {
+              data: { type: "betaTesters", id: testerId },
+            },
+          },
+        },
+      }),
+    });
+  } catch (error) {
+    // A concurrent request or Stripe retry may have sent this exact invite.
+    // Group membership is the durable access boundary, so an existing invite
+    // is idempotent success.
     if (isAlreadyExistsError(error)) return;
     throw error;
   }

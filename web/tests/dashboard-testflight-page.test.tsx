@@ -35,7 +35,7 @@ const ascFetch = mock(async (path: unknown) => {
         ? [
             {
               type: "betaGroups",
-              id: "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
+              id: "34fbede5-3880-4560-b1bb-a45787249780",
             },
           ]
         : [],

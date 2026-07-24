@@ -13,6 +13,7 @@ import {
   isCmuxCheckoutSession,
   recordCheckoutCompletion as recordCheckoutCompletionDefault,
 } from "../../../../services/billing/purchase";
+import { fulfillProCheckout as fulfillProCheckoutDefault } from "../../../../services/billing/proFulfillment";
 import { isStripeBillingConfigured, stripe } from "../../../../services/billing/stripe";
 import {
   recordSpanError,
@@ -30,6 +31,7 @@ type StripeWebhookDependencies = {
   db: typeof cloudDb;
   recordCheckoutCompletion: typeof recordCheckoutCompletionDefault;
   applySubscriptionUpdate: typeof applySubscriptionUpdateDefault;
+  fulfillProCheckout: typeof fulfillProCheckoutDefault;
 };
 
 const defaultDependencies: StripeWebhookDependencies = {
@@ -39,6 +41,7 @@ const defaultDependencies: StripeWebhookDependencies = {
   db: cloudDb,
   recordCheckoutCompletion: recordCheckoutCompletionDefault,
   applySubscriptionUpdate: applySubscriptionUpdateDefault,
+  fulfillProCheckout: fulfillProCheckoutDefault,
 };
 
 export const POST = makeStripeWebhookHandler();
@@ -138,6 +141,12 @@ async function processStripeEvent(
         customer: expandedCustomer(expanded),
       });
       if (result && "skipped" in result) return { skipped: result.skipped };
+      if (result.scope === "user" && isPersonalProCheckout(expanded)) {
+        await dependencies.fulfillProCheckout({
+          session: expanded,
+          stackUserId: result.stackUserId,
+        });
+      }
       return { processed: "checkout.session.completed" };
     }
     case "customer.subscription.created":
@@ -161,6 +170,10 @@ async function processStripeEvent(
     default:
       return { skipped: "event_type" };
   }
+}
+
+function isPersonalProCheckout(session: Stripe.Checkout.Session): boolean {
+  return session.metadata?.app === "cmux" && session.metadata?.plan === "pro";
 }
 
 function expandedSubscription(session: Stripe.Checkout.Session): Stripe.Subscription | null {
