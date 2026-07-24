@@ -82,6 +82,43 @@ final class GlobalSearchShortcutSettingsTests {
         #expect(appDelegate.matchConfiguredShortcut(event: event, action: .globalSearch))
     }
 
+    @Test func ordinaryTypingDoesNotResolveGlobalSearchBinding() throws {
+#if DEBUG
+        let appDelegate = try #require(AppDelegate.shared)
+        let event = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: 0,
+                context: nil,
+                characters: "a",
+                charactersIgnoringModifiers: "a",
+                isARepeat: false,
+                keyCode: 0
+            )
+        )
+        appDelegate.debugResetShortcutRoutingStateForTesting()
+        _ = KeyboardShortcutBareStartCache.hasConfiguredBareShortcutStart(key: "a")
+        var globalSearchLookupCount = 0
+        KeyboardShortcutSettings.shortcutLookupObserver = { action in
+            if action == .globalSearch {
+                globalSearchLookupCount += 1
+            }
+        }
+        defer {
+            KeyboardShortcutSettings.shortcutLookupObserver = nil
+            appDelegate.debugResetShortcutRoutingStateForTesting()
+        }
+
+        #expect(!appDelegate.debugHandleCustomShortcut(event: event))
+        #expect(globalSearchLookupCount == 0)
+#else
+        Issue.record("Shortcut lookup instrumentation requires a DEBUG build")
+#endif
+    }
+
     @Test func optionOnlyGlobalSearchChordPrefixRoutesBeforePrintableOptionTextBypass() throws {
 #if DEBUG
         let shortcut = StoredShortcut(
