@@ -564,7 +564,11 @@ mod tests {
     fn pending_mux_blocks_direct_lifecycle_mutation_before_install() {
         let mux = mux();
         let workspace = mux
-            .create_empty_workspace(Some("managed".into()), Some("managed-key".into()), None)
+            .create_empty_workspace(
+                Some("managed".into()),
+                Some("018f6e21-7b70-7e70-8000-00000000aa01".into()),
+                None,
+            )
             .unwrap();
         let error = mux
             .rename_workspace_at_revision(workspace.workspace, "escaped".into(), None)
