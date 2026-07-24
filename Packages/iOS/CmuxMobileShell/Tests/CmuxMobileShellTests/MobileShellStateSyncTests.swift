@@ -320,4 +320,70 @@ struct MobileShellStateSyncTests {
         }
         #expect(refetched, "a legacy Mac must keep the workspace.updated refetch loop")
     }
+
+    @Test func foregroundMutationRefreshRunsTrailingFetchForMutationDuringInFlightRefresh() async throws {
+        let workspaceID = "live-workspace"
+        let router = LivenessHostRouter()
+        await router.scriptSyncFetchResult(
+            jsonData: try syncSnapshotResultData(
+                epoch: "epoch-1",
+                rev: 3,
+                records: [workspaceRecord(id: workspaceID, title: "synced-alpha", sortIndex: 0)]
+            )
+        )
+        await router.scriptSyncFetchResult(
+            jsonData: try syncSnapshotResultData(
+                epoch: "epoch-1",
+                rev: 4,
+                records: [workspaceRecord(id: workspaceID, title: "synced-beta", sortIndex: 0)]
+            )
+        )
+        await router.scriptSyncFetchResult(
+            jsonData: try syncSnapshotResultData(
+                epoch: "epoch-1",
+                rev: 5,
+                records: [workspaceRecord(id: workspaceID, title: "synced-gamma", sortIndex: 0)]
+            )
+        )
+        let box = TransportBox()
+        let clock = TestClock()
+        let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+        let negotiated = try await pollUntil {
+            store.stateSyncActive
+                && store.workspaces.contains { $0.rpcWorkspaceID.rawValue == workspaceID }
+        }
+        #expect(negotiated, "state sync must settle before the mutation refresh check")
+        let foregroundTarget = WorkspaceMutationTarget(
+            client: store.remoteClient,
+            isForeground: true,
+            macDeviceID: store.foregroundMacDeviceID
+        )
+        let fetchesBefore = await router.count(of: "mobile.sync.fetch")
+        #expect(fetchesBefore >= 1)
+        await router.holdSyncFetchRequest(number: fetchesBefore + 1)
+
+        let firstRefresh = Task { @MainActor in
+            await store.refreshAfterWorkspaceMutation(foregroundTarget)
+        }
+        let firstRequestStarted = await router.waitForCount(
+            of: "mobile.sync.fetch",
+            atLeast: fetchesBefore + 1
+        )
+        #expect(firstRequestStarted, "first foreground mutation refresh must start a state-sync fetch")
+
+        let secondRefresh = Task { @MainActor in
+            await store.refreshAfterWorkspaceMutation(foregroundTarget)
+        }
+        for _ in 0..<10 {
+            await Task.yield()
+        }
+        await router.releaseAllHeld()
+        await firstRefresh.value
+        await secondRefresh.value
+
+        let trailingReloaded = try await pollUntil {
+            await router.count(of: "mobile.sync.fetch") >= fetchesBefore + 2
+        }
+        #expect(trailingReloaded, "a mutation arriving during an in-flight refresh must trigger one trailing fetch")
+    }
 }

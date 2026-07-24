@@ -249,7 +249,6 @@ final class MobileWorkspaceListObserver {
                 workspace.$customDescription
                     .handleEvents(receiveOutput: { [weak self, workspaceID = workspace.id] _ in
                         self?.descriptionProjectionCache.removeValue(forKey: workspaceID)
-                        MobileStateSyncHost.shared.invalidateDescriptionProjection(workspaceID: workspaceID)
                     })
                     .map { _ in () }
                     .eraseToAnyPublisher(),

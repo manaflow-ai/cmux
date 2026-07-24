@@ -30,17 +30,6 @@ final class MobileStateSyncHost {
 
     private var previewCache: [UUID: PreviewCacheEntry] = [:]
 
-    private struct DescriptionProjectionCacheEntry {
-        let sourceDescription: String?
-        let projection: MobileWorkspaceDescriptionProjection
-    }
-
-    private var descriptionProjectionCache: [UUID: DescriptionProjectionCacheEntry] = [:]
-
-    func invalidateDescriptionProjection(workspaceID: UUID) {
-        descriptionProjectionCache.removeValue(forKey: workspaceID)
-    }
-
     /// Observer tick entry point: cheap no-op unless some phone subscribed to
     /// the delta topic (the store then also stays cold until the first
     /// `mobile.sync.fetch` populates it).
@@ -150,7 +139,6 @@ final class MobileStateSyncHost {
             }
         }
         previewCache = previewCache.filter { liveWorkspaceIDs.contains($0.key) }
-        descriptionProjectionCache = descriptionProjectionCache.filter { liveWorkspaceIDs.contains($0.key) }
         return (workspaceRows, groupRows)
     }
 
@@ -178,7 +166,7 @@ final class MobileStateSyncHost {
         }
         let latestNotification = notificationStore?.latestNotification(forTabId: workspace.id)
         let preview = cachedPreview(workspaceID: workspace.id, latestNotification: latestNotification)
-        let description = cachedDescriptionProjection(for: workspace)
+        let description = mobileDescriptionProjection(for: workspace)
         return WorkspaceSyncRecord(
             id: workspace.id.uuidString,
             windowID: windowID.uuidString,
@@ -227,17 +215,8 @@ final class MobileStateSyncHost {
         return (text, notification.createdAt.timeIntervalSince1970)
     }
 
-    private func cachedDescriptionProjection(for workspace: Workspace) -> MobileWorkspaceDescriptionProjection {
-        if let cached = descriptionProjectionCache[workspace.id],
-           cached.sourceDescription == workspace.customDescription {
-            return cached.projection
-        }
-        let projection = MobileWorkspaceMetadataLimits.projectedCustomDescription(workspace.customDescription)
-        descriptionProjectionCache[workspace.id] = DescriptionProjectionCacheEntry(
-            sourceDescription: workspace.customDescription,
-            projection: projection
-        )
-        return projection
+    private func mobileDescriptionProjection(for workspace: Workspace) -> MobileWorkspaceDescriptionProjection {
+        MobileWorkspaceMetadataLimits.projectedCustomDescription(workspace.customDescription)
     }
 }
 
