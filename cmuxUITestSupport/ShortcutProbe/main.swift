@@ -12,6 +12,7 @@ final class ShortcutProbeDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         let contentView = NSView(frame: window.contentLayoutRect)
         statusLabel.setAccessibilityIdentifier("ShortcutProbeStatus")
+        statusLabel.setAccessibilityLabel("Waiting for Cmd-Option-F")
         statusLabel.alignment = .center
         statusLabel.font = .systemFont(ofSize: 24, weight: .medium)
         statusLabel.frame = NSRect(x: 30, y: 80, width: 460, height: 40)
