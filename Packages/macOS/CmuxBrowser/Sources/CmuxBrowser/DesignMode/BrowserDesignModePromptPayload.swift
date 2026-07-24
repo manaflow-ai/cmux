@@ -45,6 +45,11 @@ struct BrowserDesignModePromptPayload: Encodable {
         runs: [BrowserDesignModePromptRun],
         selections: [BrowserDesignModeSelection]
     ) -> [BrowserDesignModePromptPayloadSegment] {
+        var selectionIndices: [String: Int] = [:]
+        for (index, selection) in selections.enumerated()
+        where selectionIndices[selection.selector] == nil {
+            selectionIndices[selection.selector] = index
+        }
         var segments: [BrowserDesignModePromptPayloadSegment] = []
         var resolvedToken = false
         for run in runs {
@@ -56,7 +61,7 @@ struct BrowserDesignModePromptPayload: Encodable {
                     segments.append(.text(value))
                 }
             case .token(let identity):
-                guard let index = selections.firstIndex(where: { $0.selector == identity }) else {
+                guard let index = selectionIndices[identity] else {
                     continue
                 }
                 segments.append(.selection(index))

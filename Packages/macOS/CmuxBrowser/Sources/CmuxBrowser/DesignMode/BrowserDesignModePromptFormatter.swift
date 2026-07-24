@@ -24,13 +24,16 @@ public struct BrowserDesignModePromptFormatter: Sendable {
         contextJSONPath: String
     ) -> String {
         let selections = context.snapshot.selections
-        let screenshotPaths = context.screenshotPaths.compactMap { $0 }
         guard !selections.isEmpty,
               !contextJSONPath.isEmpty,
               let pageScreenshotPath = context.pageScreenshotPath,
               !pageScreenshotPath.isEmpty,
-              screenshotPaths.count == selections.count,
-              screenshotPaths.allSatisfy({ !$0.isEmpty }) else { return "" }
+              context.screenshotPaths.count == selections.count,
+              context.screenshotPaths.allSatisfy({ path in
+                  guard let path else { return false }
+                  return !path.isEmpty
+              }) else { return "" }
+        let screenshotPaths = context.screenshotPaths.compactMap { $0 }
 
         let requestedChange = context.requestedChange.trimmingCharacters(in: .whitespacesAndNewlines)
         var lines = [

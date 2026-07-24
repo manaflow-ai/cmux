@@ -1,3 +1,4 @@
+import CmuxBrowser
 import Foundation
 import Testing
 
@@ -9,6 +10,64 @@ import Testing
 
 @Suite(.serialized)
 struct BrowserDesignModeArtifactStoreTests {
+    @Test @MainActor func clipboardHandoffLeaseSurvivesUntilSuccessfulReplacement() async throws {
+        let directory = URL.temporaryDirectory.appendingPathComponent(
+            "cmux-design-mode-clipboard-lease-test-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = BrowserDesignModeArtifactStore(directory: directory)
+        var clipboardWriteSucceeds = true
+        let controller = BrowserDesignModeController(
+            surfaceID: UUID(),
+            script: BrowserDesignModeScript(),
+            promptFormatter: BrowserDesignModePromptFormatter(),
+            artifactStore: store,
+            javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator(),
+            screenshotEvaluator: BrowserDesignModeScreenshotEvaluator(),
+            canEnable: { true },
+            clipboardWriter: { _ in clipboardWriteSucceeds },
+            onActivityChanged: {}
+        )
+        let first = try await store.saveContextJSON(Data("first".utf8), surfaceID: UUID())
+
+        #expect(try await controller.deliverHandoff(
+            prompt: "first",
+            artifactPaths: [first.path],
+            operation: 0
+        ))
+        #expect(try handoffMarkerNames(in: directory).count == 1)
+        #expect(try handoffMarkerNames(in: directory)[0].hasSuffix(first.lastPathComponent))
+
+        let failedCandidate = try await store.saveContextJSON(
+            Data("failed".utf8),
+            surfaceID: UUID()
+        )
+        clipboardWriteSucceeds = false
+        await #expect(throws: BrowserScreenshotError.self) {
+            _ = try await controller.deliverHandoff(
+                prompt: "failed",
+                artifactPaths: [failedCandidate.path],
+                operation: 0
+            )
+        }
+        #expect(try handoffMarkerNames(in: directory).count == 1)
+        #expect(try handoffMarkerNames(in: directory)[0].hasSuffix(first.lastPathComponent))
+
+        let replacement = try await store.saveContextJSON(
+            Data("replacement".utf8),
+            surfaceID: UUID()
+        )
+        clipboardWriteSucceeds = true
+        #expect(try await controller.deliverHandoff(
+            prompt: "replacement",
+            artifactPaths: [replacement.path],
+            operation: 0
+        ))
+        #expect(try handoffMarkerNames(in: directory).count == 1)
+        #expect(try handoffMarkerNames(in: directory)[0].hasSuffix(replacement.lastPathComponent))
+    }
+
     @Test func pruningPinsOnlyLiveAnnotationContext() async throws {
         let directory = URL.temporaryDirectory
             .appendingPathComponent("cmux-design-mode-pinning-test-\(UUID().uuidString)", isDirectory: true)
@@ -170,10 +229,15 @@ struct BrowserDesignModeArtifactStoreTests {
             )
         }
 
-        #expect(await validatingStore.artifactsExist(at: [artifact.path]))
+        #expect(await validatingStore.retainHandoffArtifacts(at: [artifact.path]))
         _ = try await competingStore.saveScreenshot(Data([255]), surfaceID: UUID())
 
         #expect(FileManager.default.fileExists(atPath: artifact.path))
+
+        await validatingStore.releaseHandoff([artifact.path])
+        _ = try await competingStore.saveScreenshot(Data([254]), surfaceID: UUID())
+
+        #expect(!FileManager.default.fileExists(atPath: artifact.path))
     }
 
     @Test func liveContextFromAnEarlierAppSessionBecomesPrunable() async throws {
@@ -203,5 +267,39 @@ struct BrowserDesignModeArtifactStoreTests {
         }
 
         #expect(!FileManager.default.fileExists(atPath: staleURL.path))
+    }
+
+    @Test func handoffLeaseFromAnEarlierAppSessionBecomesPrunable() async throws {
+        let directory = URL.temporaryDirectory
+            .appendingPathComponent("cmux-design-mode-handoff-session-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let oldStore = BrowserDesignModeArtifactStore(
+            directory: directory,
+            liveContextSessionID: "old"
+        )
+        let staleURL = try await oldStore.saveContextJSON(
+            Data("{}".utf8),
+            surfaceID: UUID()
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 0)],
+            ofItemAtPath: staleURL.path
+        )
+        #expect(await oldStore.retainHandoffArtifacts(at: [staleURL.path]))
+        let currentStore = BrowserDesignModeArtifactStore(
+            directory: directory,
+            liveContextSessionID: "current"
+        )
+
+        for value in 0...100 {
+            _ = try await currentStore.saveScreenshot(Data([UInt8(value)]), surfaceID: UUID())
+        }
+
+        #expect(!FileManager.default.fileExists(atPath: staleURL.path))
+    }
+
+    private func handoffMarkerNames(in directory: URL) throws -> [String] {
+        try FileManager.default.contentsOfDirectory(atPath: directory.path)
+            .filter { $0.hasPrefix(".handoff-") }
     }
 }

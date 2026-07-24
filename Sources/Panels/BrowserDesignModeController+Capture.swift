@@ -218,7 +218,7 @@ extension BrowserDesignModeController {
             let prepared = try await evaluate("return globalThis.__cmuxDesignMode?.prepareCapture();", in: webView)
             let before = try BrowserDesignModeSupport.decodeSnapshot(prepared)
             let beforeViewBounds = webView.bounds
-            let image = try await screenshotEvaluator.captureVisibleViewport(from: webView)
+            let image = try await screenshotEvaluator.captureFullPage(from: webView)
             let after = try BrowserDesignModeSupport.decodeSnapshot(
                 try await evaluate("return globalThis.__cmuxDesignMode?.snapshot();", in: webView)
             )

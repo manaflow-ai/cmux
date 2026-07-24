@@ -26,7 +26,9 @@ enum BrowserScreenshotWebViewSnapshotter {
         from webView: WKWebView,
         afterScreenUpdates: Bool = true
     ) async throws -> NSImage {
+        try Task.checkCancellation()
         let metrics = try await webContentMetrics(for: webView)
+        try Task.checkCancellation()
         try BrowserScreenshotCaptureBounds.validateFullPageSize(metrics.contentSize)
         if let snapshotRect = metrics.untransformedFullContentSnapshotRect(in: webView.bounds) {
             do {
@@ -35,9 +37,12 @@ enum BrowserScreenshotWebViewSnapshotter {
                     snapshotRect: snapshotRect,
                     afterScreenUpdates: afterScreenUpdates
                 )
+                try Task.checkCancellation()
                 if isAcceptableFullContentSnapshot(image, metrics: metrics) {
                     return image
                 }
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
                 #if DEBUG
                 cmuxDebugLog("browser.screenshot.fullPage.singleSnapshot.failed error=\(error.localizedDescription)")
@@ -127,15 +132,18 @@ enum BrowserScreenshotWebViewSnapshotter {
         do {
             for row in 0..<tilePlan.rowCount {
                 for column in 0..<tilePlan.columnCount {
+                    try Task.checkCancellation()
                     guard let origin = tilePlan.origin(column: column, row: row) else {
                         throw BrowserScreenshotError.webContentMetricsUnavailable
                     }
                     try await scroll(webView, to: origin)
+                    try Task.checkCancellation()
                     let tile = try await captureVisibleViewport(
                         from: webView,
                         afterScreenUpdates: afterScreenUpdates,
                         renderer: tileRenderer
                     )
+                    try Task.checkCancellation()
                     drawTile(
                         tile,
                         at: origin,
@@ -150,10 +158,17 @@ enum BrowserScreenshotWebViewSnapshotter {
             captureError = error
         }
 
-        try? await scroll(webView, to: metrics.scrollOffset)
+        // Restore the page in a fresh task because a cancelled capture task
+        // must not leave the user's page scrolled to an intermediate tile.
+        let restoration = Task { @MainActor [weak webView] in
+            guard let webView else { return }
+            try? await scroll(webView, to: metrics.scrollOffset)
+        }
+        await restoration.value
         if let captureError {
             throw captureError
         }
+        try Task.checkCancellation()
 
         guard didCaptureTile else {
             throw BrowserScreenshotError.emptySnapshot

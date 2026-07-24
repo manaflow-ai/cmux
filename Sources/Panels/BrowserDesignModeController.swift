@@ -53,7 +53,7 @@ final class BrowserDesignModeController {
     @ObservationIgnored private let javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator
     @ObservationIgnored let screenshotEvaluator: BrowserDesignModeScreenshotEvaluator
     @ObservationIgnored private let canEnable: @MainActor @Sendable () -> Bool
-    @ObservationIgnored private let clipboardWriter: ClipboardWriter
+    @ObservationIgnored let clipboardWriter: ClipboardWriter
     @ObservationIgnored private let onActivityChanged: @MainActor @Sendable () -> Void
     @ObservationIgnored weak var webView: WKWebView?
     @ObservationIgnored private var messageHandler: BrowserDesignModeMessageHandler?
@@ -498,12 +498,8 @@ final class BrowserDesignModeController {
                 }
                 let crop = try BrowserScreenshotCrop.croppedImage(
                     from: capture.image,
-                    selectionInView: BrowserDesignModeSupport.captureRect(
-                        selection: selection.bounds,
-                        viewport: selection.viewport,
-                        viewBounds: capture.viewBounds
-                    ),
-                    viewBounds: capture.viewBounds
+                    selectionInView: selection.fullPageCaptureRect(imageSize: capture.image.size),
+                    viewBounds: NSRect(origin: .zero, size: capture.image.size)
                 )
                 let pngData = try BrowserScreenshotPasteboardWriter.pngData(for: crop)
                 screenshotPaths.append(try await artifactStore.saveScreenshot(
@@ -526,13 +522,13 @@ final class BrowserDesignModeController {
             let contextJSONPath = try await artifactStore.saveContextJSON(contextJSON, surfaceID: surfaceID).path
             guard operation == operationRevision else { return }
             let artifactPaths = screenshotPaths.compactMap { $0 } + [pageScreenshotPath, contextJSONPath]
-            guard await artifactStore.artifactsExist(at: artifactPaths) else {
-                throw BrowserDesignModeError.invalidRuntimeResponse
-            }
             let prompt = promptFormatter.format(context, contextJSONPath: contextJSONPath)
             guard !prompt.isEmpty else { throw BrowserDesignModeError.invalidRuntimeResponse }
-            guard operation == operationRevision else { return }
-            guard clipboardWriter(prompt) else { throw BrowserScreenshotError.pasteboardWriteFailed }
+            guard try await deliverHandoff(
+                prompt: prompt,
+                artifactPaths: artifactPaths,
+                operation: operation
+            ) else { return }
             didCopy = true
         } catch let copyError {
             guard operation == operationRevision else { return }

@@ -4,19 +4,28 @@ import Foundation
 import Testing
 import WebKit
 
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
 @Suite(.serialized)
 @MainActor
 struct BrowserDesignModeOffscreenSelectionHandoffTests {
     @Test func copyCapturesEveryStackedSelectionAcrossTheFullPage() async throws {
         let visibleImage = solidImage(size: NSSize(width: 640, height: 480))
-        let fullPageImage = solidImage(size: NSSize(width: 640, height: 1_800))
+        let fullPageImage = fullPageImageWithDocumentBands(
+            size: NSSize(width: 640, height: 1_800)
+        )
         let directory = URL.temporaryDirectory.appendingPathComponent(
             "cmux-design-mode-offscreen-test-\(UUID().uuidString)",
             isDirectory: true
         )
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        var captureCount = 0
+        var visibleCaptureCount = 0
+        var fullPageCaptureCount = 0
         var copiedPrompt: String?
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
         let controller = BrowserDesignModeController(
@@ -25,10 +34,17 @@ struct BrowserDesignModeOffscreenSelectionHandoffTests {
             promptFormatter: BrowserDesignModePromptFormatter(),
             artifactStore: BrowserDesignModeArtifactStore(directory: directory),
             javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator(),
-            screenshotEvaluator: BrowserDesignModeScreenshotEvaluator(timeout: 1) { _, completion in
-                captureCount += 1
-                completion(.success(captureCount == 2 ? fullPageImage : visibleImage))
-            },
+            screenshotEvaluator: BrowserDesignModeScreenshotEvaluator(
+                timeout: 1,
+                visibleViewportCapture: { _, completion in
+                    visibleCaptureCount += 1
+                    completion(.success(visibleImage))
+                },
+                fullPageCapture: { _ in
+                    fullPageCaptureCount += 1
+                    return fullPageImage
+                }
+            ),
             canEnable: { true },
             clipboardWriter: { prompt in
                 copiedPrompt = prompt
@@ -106,8 +122,14 @@ struct BrowserDesignModeOffscreenSelectionHandoffTests {
         #expect(selections.allSatisfy {
             (($0["viewport"] as? [String: Any])?["scroll_y"] as? Double) != nil
         })
+        let selectionScreenshots = try selections.map { selection in
+            let path = try #require(selection["screenshot_path"] as? String)
+            return try #require(NSImage(contentsOfFile: path))
+        }
+        #expect(selectionScreenshots.map(averageColor(of:)) == [.systemRed, .systemBlue])
         #expect(NSImage(contentsOf: pageScreenshotURL)?.size.height == fullPageImage.size.height)
-        #expect(captureCount == 3)
+        #expect(visibleCaptureCount == 2)
+        #expect(fullPageCaptureCount == 1)
         _ = navigationDelegate
     }
 
@@ -118,6 +140,29 @@ struct BrowserDesignModeOffscreenSelectionHandoffTests {
         NSRect(origin: .zero, size: size).fill()
         image.unlockFocus()
         return image
+    }
+
+    private func fullPageImageWithDocumentBands(size: NSSize) -> NSImage {
+        let image = solidImage(size: size)
+        image.lockFocus()
+        NSColor.systemRed.setFill()
+        NSRect(x: 0, y: 1_500, width: size.width, height: 300).fill()
+        NSColor.systemBlue.setFill()
+        NSRect(x: 0, y: 100, width: size.width, height: 400).fill()
+        image.unlockFocus()
+        return image
+    }
+
+    private func averageColor(of image: NSImage) -> NSColor {
+        guard let data = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: data),
+              let color = bitmap.colorAt(
+                  x: bitmap.pixelsWide / 2,
+                  y: bitmap.pixelsHigh / 2
+              )?.usingColorSpace(.deviceRGB) else { return .clear }
+        let red = color.redComponent
+        let blue = color.blueComponent
+        return red > blue ? .systemRed : .systemBlue
     }
 
     private func artifactURL(in prompt: String, marker: String) throws -> URL {
