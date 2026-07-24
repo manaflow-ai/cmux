@@ -1714,7 +1714,10 @@ struct ContentView: View {
         }
         .modifier(SidebarWidthFrameModifier(layout: sidebarLayout))
         .frame(maxHeight: .infinity, alignment: .topLeading)
-        .background(SidebarPointerEventHost { sidebarFocusBoundary.attach($0) })
+        .background(SidebarPointerEventHost(
+            { sidebarFocusBoundary.attach($0) },
+            onDismantle: { sidebarFocusBoundary.detach($0) }
+        ))
     }
 
     /// Native titlebar inset reported by AppKit. Standard mode follows cmux's visual chrome;

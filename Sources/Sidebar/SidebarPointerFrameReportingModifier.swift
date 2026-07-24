@@ -18,7 +18,10 @@ struct SidebarPointerFrameReportingModifier: ViewModifier {
 
 extension View {
     func sidebarPointerEventHost(_ monitor: SidebarPointerInteractionMonitor) -> some View {
-        background(SidebarPointerEventHost { monitor.attach(to: $0) })
+        background(SidebarPointerEventHost(
+            { monitor.attach(to: $0) },
+            onDismantle: { monitor.detach(from: $0) }
+        ))
     }
 
     func sidebarPointerFrameReporting(

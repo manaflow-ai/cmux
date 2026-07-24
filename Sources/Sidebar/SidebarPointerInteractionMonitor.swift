@@ -9,27 +9,40 @@ import SwiftUI
 @MainActor
 struct SidebarPointerEventHost: NSViewRepresentable {
     let onResolve: @MainActor (NSView) -> Void
+    let onDismantle: @MainActor (NSView) -> Void
+
+    init(
+        _ onResolve: @escaping @MainActor (NSView) -> Void,
+        onDismantle: @escaping @MainActor (NSView) -> Void
+    ) {
+        self.onResolve = onResolve
+        self.onDismantle = onDismantle
+    }
 
     func makeNSView(context: Context) -> SidebarPointerEventHostView {
         let view = SidebarPointerEventHostView()
         view.onResolve = onResolve
+        view.onDismantle = onDismantle
         return view
     }
 
     func updateNSView(_ nsView: SidebarPointerEventHostView, context: Context) {
         nsView.onResolve = onResolve
+        nsView.onDismantle = onDismantle
         nsView.resolve()
     }
 
     static func dismantleNSView(_ nsView: SidebarPointerEventHostView, coordinator: ()) {
-        nsView.onResolve?(nsView)
+        nsView.onDismantle?(nsView)
         nsView.onResolve = nil
+        nsView.onDismantle = nil
     }
 }
 
 @MainActor
 final class SidebarPointerEventHostView: NSView {
     var onResolve: (@MainActor (NSView) -> Void)?
+    var onDismantle: (@MainActor (NSView) -> Void)?
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
@@ -127,9 +140,12 @@ final class SidebarPointerInteractionMonitor {
     func attach(to candidate: NSView) {
         if candidate.window != nil {
             resolvedHostView = candidate
-        } else if resolvedHostView === candidate {
-            // Ignore teardown from an older host after SwiftUI has already
-            // mounted and resolved its replacement.
+        }
+        activateResolvedHost()
+    }
+
+    func detach(from candidate: NSView) {
+        if resolvedHostView === candidate {
             resolvedHostView = nil
         }
         activateResolvedHost()

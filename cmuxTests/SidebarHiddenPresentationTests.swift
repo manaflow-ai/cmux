@@ -55,7 +55,7 @@ struct SidebarHiddenPresentationTests {
         let replacementHost = FocusProbeView(frame: root.bounds)
         root.addSubview(replacementHost)
         reference.attach(replacementHost)
-        reference.attach(firstHost)
+        reference.detach(firstHost)
         firstHost.removeFromSuperview()
 
         #expect(window.makeFirstResponder(replacementHost))
