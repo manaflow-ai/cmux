@@ -16,7 +16,6 @@ describe("Pro pricing CTA", () => {
     const html = renderToStaticMarkup(
       <ProCtaLink
         checkoutHref="/api/billing/checkout?plan=pro"
-        fallbackHref="/download/confirmation?dl=1"
       >
         Get Pro
       </ProCtaLink>,
