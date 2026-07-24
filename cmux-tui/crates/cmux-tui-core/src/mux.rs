@@ -5413,11 +5413,17 @@ mod tests {
         assert_eq!(surface.size(), (120, 40));
         mux.resize_surface_for_client(other.id, 2, 60, 20).unwrap();
         assert_eq!(other.size(), (60, 20));
+        let events = mux.subscribe();
         mux.remove_size_client(1);
 
         assert_eq!(surface.size(), (80, 30));
         assert_eq!(other.size(), (60, 20));
         assert!(mux.client_size_participates(surface.id, 2));
+        assert!(
+            events
+                .try_iter()
+                .any(|event| matches!(event, MuxEvent::ClientChanged { client: 2, .. }))
+        );
         assert_eq!(mux.use_only_client_size(surface.id, 99), None);
     }
 
