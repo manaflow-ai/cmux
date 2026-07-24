@@ -199,6 +199,34 @@ extension CMUXCLIErrorOutputRegressionTests {
     }
 }
 
+@Suite("Stored shortcut physical-key matching")
+struct StoredShortcutPhysicalKeyMatchingTests {
+    @Test("recorded Option shortcut matches its physical key across layouts")
+    func recordedOptionShortcutMatchesPhysicalKeyAcrossLayouts() {
+        let shortcut = StoredShortcut(
+            key: "1",
+            command: false,
+            shift: false,
+            option: true,
+            control: false,
+            keyCode: 18
+        )
+
+        #expect(shortcut.matches(
+            keyCode: 18,
+            modifierFlags: [.option],
+            eventCharacter: "&",
+            layoutCharacterProvider: { _, _ in "&" }
+        ))
+        #expect(!shortcut.matches(
+            keyCode: 19,
+            modifierFlags: [.option],
+            eventCharacter: "1",
+            layoutCharacterProvider: { _, _ in "1" }
+        ))
+    }
+}
+
 private final class ZoomRouteRecordingTabManager: TabManager {
     private let browserResult: Bool?
     private let textPreviewResult: Bool?

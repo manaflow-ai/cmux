@@ -131225,6 +131225,176 @@
         }
       }
     },
+    "mobile.workspaceChanges.error.invalidContentRequest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The workspace, path, or revision is missing or invalid"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース、パス、またはリビジョンの指定が無効です"
+          }
+        }
+      }
+    },
+    "mobile.workspaceChanges.error.invalidPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスが指定されていないか、無効です"
+          }
+        }
+      }
+    },
+    "mobile.workspaceChanges.error.invalidWorkspaceID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The workspace identifier is missing or invalid"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの識別子が指定されていないか無効です"
+          }
+        }
+      }
+    },
+    "mobile.workspaceChanges.error.invalidWorkspaceIDs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A selected workspace identifier is invalid"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したワークスペースの識別子が無効です"
+          }
+        }
+      }
+    },
+    "mobile.workspaceChanges.error.notRepository": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace directory is not a Git repository"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのディレクトリはGitリポジトリではありません"
+          }
+        }
+      }
+    },
+    "mobile.workspaceChanges.error.pathNotChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Path is not in the workspace changes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスはワークスペースの変更に含まれていません"
+          }
+        }
+      }
+    },
+    "mobile.workspaceChanges.error.pathOutsideRepository": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Path must stay inside the repository"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスはリポジトリ内に収まっている必要があります"
+          }
+        }
+      }
+    },
+    "mobile.workspaceChanges.error.readFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to read workspace diff"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの差分を読み込めませんでした"
+          }
+        }
+      }
+    },
+    "mobile.workspaceChanges.error.workspaceIDsCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Between 1 and 64 workspaces can be requested at once"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一度にリクエストできるワークスペースは1〜64件です"
+          }
+        }
+      }
+    },
+    "mobile.workspaceChanges.error.workspaceUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace or effective directory not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースまたは有効なディレクトリが見つかりません"
+          }
+        }
+      }
+    },
     "mobile.pairing.checking": {
       "extractionState": "manual",
       "localizations": {
@@ -224421,7 +224591,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Missing or invalid workspace_id"
+            "value": "The workspace identifier is missing or invalid"
           }
         },
         "ja": {
@@ -224574,7 +224744,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Missing or invalid workspace_id"
+            "value": "The workspace identifier is missing or invalid"
           }
         },
         "ja": {
