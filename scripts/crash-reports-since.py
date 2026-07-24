@@ -36,6 +36,7 @@ import io
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 
@@ -51,12 +52,24 @@ def header_of(path: str) -> dict:
             return {}
 
 
+def names_a_cmux_process(header: dict) -> bool:
+    """Whether a report header identifies a cmux process.
+
+    Both fields are checked independently. `app_name or procName` only reads procName when
+    app_name is empty, so a report whose app_name is some host process and whose procName is cmux
+    would be skipped.
+    """
+    return any(
+        "cmux" in str(header.get(field, "")).lower()
+        for field in ("app_name", "procName")
+    )
+
+
 def crashes_since(since: str, directory: str = REPORT_DIR) -> list[str]:
     hits = []
     for path in sorted(glob.glob(os.path.join(os.path.expanduser(directory), "*.ips"))):
         header = header_of(path)
-        name = str(header.get("app_name") or header.get("procName") or "")
-        if "cmux" not in name.lower():
+        if not names_a_cmux_process(header):
             continue
         # Header timestamps look like "2026-07-23 17:44:22.00 -0700"; compare the
         # second-resolution prefix, which sorts correctly as text in local time.
@@ -69,9 +82,7 @@ def cmux_reports(directory: str = REPORT_DIR) -> list[str]:
     """Every cmux-named report currently in the directory."""
     hits = []
     for path in sorted(glob.glob(os.path.join(os.path.expanduser(directory), "*.ips"))):
-        header = header_of(path)
-        name = str(header.get("app_name") or header.get("procName") or "")
-        if "cmux" in name.lower():
+        if names_a_cmux_process(header_of(path)):
             hits.append(os.path.basename(path))
     return hits
 
@@ -124,6 +135,12 @@ def self_test() -> int:
             with io.open(os.path.join(directory, name), "w", encoding="utf-8") as handle:
                 handle.write(json.dumps({"app_name": app, "timestamp": stamp}) + "\n")
                 handle.write(json.dumps(body))
+        # A report whose app_name is a host process but whose procName is cmux still belongs to us.
+        with io.open(os.path.join(directory, "helper-2026-07-22-120000.ips"), "w") as handle:
+            handle.write(json.dumps({"app_name": "SomeHost", "procName": "cmux DEV Helper",
+                                     "timestamp": "2026-07-22 12:00:00.00 -0700"}) + "\n")
+            handle.write("{}")
+
         # A junk file must not crash the scan.
         with io.open(os.path.join(directory, "truncated.ips"), "w", encoding="utf-8") as handle:
             handle.write("not json at all\n")
@@ -144,6 +161,12 @@ def self_test() -> int:
             print(f"  {'ok  ' if ok else 'FAIL'} since {since} -> {got}")
             if not ok:
                 print(f"       expected {expected}")
+        if "helper-2026-07-22-120000.ips" in cmux_reports(directory):
+            print("  ok   a report named by procName rather than app_name is found")
+        else:
+            print("  FAIL a procName-only cmux report was skipped")
+            failures += 1
+
         # Safari must never appear, at any window.
         if any("Safari" in name for name in crashes_since("2026-01-01 00:00:00", directory)):
             print("  FAIL a non-cmux crash was counted")
@@ -186,6 +209,20 @@ def self_test() -> int:
                 print("  FAIL a missing snapshot did not fail loudly enough")
                 failures += 1
 
+    # The CLI must refuse a missing snapshot rather than report an empty, successful scan.
+    absent = os.path.join(tempfile.gettempdir(), "crash-reports-since-absent-snapshot.txt")
+    if os.path.exists(absent):
+        os.remove(absent)
+    probe = subprocess.run(
+        [sys.executable, os.path.abspath(__file__), "--new-since", absent],
+        capture_output=True,
+    )
+    if probe.returncode != 0:
+        print("  ok   a missing snapshot fails the command instead of reading as clean")
+    else:
+        print(f"  FAIL a missing snapshot exited {probe.returncode}")
+        failures += 1
+
     print("self-test passed" if not failures else f"self-test FAILED ({failures})")
     return 1 if failures else 0
 
@@ -210,6 +247,16 @@ def main() -> int:
 
     new_since = arg_after("--new-since")
     if new_since:
+        # A missing snapshot is a broken scan, not a clean run. The caller writes it before the
+        # tests, so its absence means that write failed — and if the directory also happens to hold
+        # no reports, an empty list plus exit 0 would read as "nothing crashed".
+        if not os.path.exists(new_since):
+            print(
+                f"crash-reports-since: no snapshot at {new_since};"
+                " it is written before the run, so this means the scan is broken",
+                file=sys.stderr,
+            )
+            return 1
         for name in new_since_snapshot(new_since, copy_to=arg_after("--copy-to")):
             print(name)
         return 0
