@@ -421,7 +421,8 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
             onConnectionStateChanged: { [weak self] state in
                 guard let self else { return }
                 for o in self.observers.values { o.onConnectionStateChanged?(state) }
-            }
+            },
+            onAuthRequired: nil
         )
     }
 }

@@ -29,18 +29,26 @@ struct RemoteTmuxSessionObservers {
     /// subscribed suppresses the caller's retry fallback and strands the host.
     var onAuthRequired: ((_ sshArgv: [String]) -> Bool)?
 
+    /// Every member is required at the call site on purpose.
+    ///
+    /// With defaults, a member added here silently became `nil` at every existing construction and
+    /// went nowhere — which is exactly how `onPaneSeed` reached no one and `onReconnectReady` was
+    /// declared and forwarded by nobody. Requiring each one turns "someone added an event" into a
+    /// compile error at the places that have to decide about it. Whether the channel then forwards,
+    /// scopes, or deliberately drops it is checked by the disposition table in
+    /// `RemoteTmuxMultiplexFuzzTests`.
     init(
-        onPaneOutput: ((_ paneId: Int, _ data: Data) -> Void)? = nil,
-        onPaneSeed: ((_ paneId: Int, _ seed: RemoteTmuxPaneSeed) -> Void)? = nil,
-        onPaneCwd: ((_ paneId: Int, _ path: String) -> Void)? = nil,
-        onPaneReflow: ((_ paneId: Int, _ noReflow: Bool) -> Void)? = nil,
-        onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)? = nil,
-        onSessionChanged: ((_ oldName: String, _ newName: String) -> Void)? = nil,
-        onTopologyChanged: (() -> Void)? = nil,
-        onReconnectReady: (() -> Void)? = nil,
-        onExit: (() -> Void)? = nil,
-        onConnectionStateChanged: ((RemoteTmuxConnectionState) -> Void)? = nil,
-        onAuthRequired: ((_ sshArgv: [String]) -> Bool)? = nil
+        onPaneOutput: ((_ paneId: Int, _ data: Data) -> Void)?,
+        onPaneSeed: ((_ paneId: Int, _ seed: RemoteTmuxPaneSeed) -> Void)?,
+        onPaneCwd: ((_ paneId: Int, _ path: String) -> Void)?,
+        onPaneReflow: ((_ paneId: Int, _ noReflow: Bool) -> Void)?,
+        onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)?,
+        onSessionChanged: ((_ oldName: String, _ newName: String) -> Void)?,
+        onTopologyChanged: (() -> Void)?,
+        onReconnectReady: (() -> Void)?,
+        onExit: (() -> Void)?,
+        onConnectionStateChanged: ((RemoteTmuxConnectionState) -> Void)?,
+        onAuthRequired: ((_ sshArgv: [String]) -> Bool)?
     ) {
         self.onPaneOutput = onPaneOutput
         self.onPaneSeed = onPaneSeed
