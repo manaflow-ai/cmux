@@ -18,6 +18,10 @@ const DEFAULT_KITTY_IMAGE_COUNT_LIMIT: u64 = 4_096;
 const DEFAULT_KITTY_PLACEMENT_COUNT_LIMIT: u64 = 16_384;
 const KITTY_REPLAY_CHUNK: usize = 4096;
 
+#[cfg(test)]
+static KITTY_REPLAY_GROUP_PLACEMENT_VISITS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
 /// Terminal state replay plus Kitty aliases that cannot share one APC command.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct VtReplay {
@@ -1721,7 +1725,11 @@ fn kitty_replay_bounded(
         let placements = snapshot
             .placements
             .iter()
-            .filter(|placement| placement.image_id == image.id && placement.viewport_visible)
+            .filter(|placement| {
+                #[cfg(test)]
+                KITTY_REPLAY_GROUP_PLACEMENT_VISITS.fetch_add(1, Ordering::Relaxed);
+                placement.image_id == image.id && placement.viewport_visible
+            })
             .collect::<Vec<_>>();
         let mut bundle = Vec::new();
         let payload = base64::engine::general_purpose::STANDARD.encode(&image.data);
@@ -1956,11 +1964,13 @@ impl Drop for Terminal {
 
 #[cfg(test)]
 mod tests {
-    use crate::kitty::{KittyPlacement, KittyPlacementKey};
+    use crate::kitty::{
+        KittyGraphicsSnapshot, KittyImage, KittyImageFormat, KittyPlacement, KittyPlacementKey,
+    };
 
     use super::{
-        Callbacks, MouseModeScan, PaletteOsc, Terminal, kitty_replay_placement,
-        vt_replay_row_window,
+        Callbacks, KITTY_REPLAY_GROUP_PLACEMENT_VISITS, MouseModeScan, Ordering, PaletteOsc,
+        Terminal, kitty_replay_bounded, kitty_replay_placement, vt_replay_row_window,
     };
 
     fn replay_placement_fixture(
@@ -2063,6 +2073,40 @@ mod tests {
         let rows = vt_replay_row_window(1_000_000, 24, 80, 8 * 1024 * 1024);
 
         assert_eq!(rows, 3_276);
+    }
+
+    #[test]
+    fn kitty_replay_groups_each_placement_once() {
+        let image_count = 64_u32;
+        let images = (1..=image_count)
+            .map(|id| KittyImage {
+                id,
+                number: 0,
+                generation: u64::from(id),
+                width: 1,
+                height: 1,
+                format: KittyImageFormat::Rgb,
+                data: std::sync::Arc::from([0_u8, 0, 0]),
+            })
+            .collect::<Vec<_>>();
+        let placements = (1..=image_count)
+            .map(|id| {
+                let mut placement =
+                    replay_placement_fixture((1, 1), (1, 1), (1, 1), (1, 1), (0, 0), (0, 0));
+                placement.key.image_id = id;
+                placement.image_id = id;
+                placement
+            })
+            .collect::<Vec<_>>();
+        let snapshot = KittyGraphicsSnapshot { generation: 1, images, placements };
+
+        KITTY_REPLAY_GROUP_PLACEMENT_VISITS.store(0, Ordering::Relaxed);
+        let _ = kitty_replay_bounded(&snapshot, usize::MAX, (1, 1));
+
+        assert_eq!(
+            KITTY_REPLAY_GROUP_PLACEMENT_VISITS.load(Ordering::Relaxed),
+            snapshot.placements.len()
+        );
     }
 
     #[test]
