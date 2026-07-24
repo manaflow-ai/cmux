@@ -657,9 +657,15 @@ import Testing
         try fileManager.createDirectory(at: themesURL, withIntermediateDirectories: true)
         try writeTheme(named: "Theme A", background: "#101010", to: themesURL)
 
-        let socketPath = "/tmp/cmux-debug-active-theme-\(UUID().uuidString).sock"
+        // The reload target is derived from the socket file name, not from CMUX_BUNDLE_ID:
+        // `cmux-debug-<slug>.sock` becomes `com.cmuxterm.app.debug.<slug>`, where every run of
+        // non-alphanumerics in the slug collapses to a dot. A raw UUID here would put its dashes
+        // into the identifier as dots, so keep the unique part hex-only and the expected
+        // identifier stays a plain template rather than a call into the CLI's own helper.
+        let uniqueSuffix = UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
+        let socketPath = "/tmp/cmux-debug-active-theme-\(uniqueSuffix).sock"
         let staleBundleIdentifier = "com.cmuxterm.app.debug.stale.theme"
-        let targetBundleIdentifier = "com.cmuxterm.app.debug.active.theme"
+        let targetBundleIdentifier = "com.cmuxterm.app.debug.active.theme.\(uniqueSuffix)"
         let reloadExpectation = expectation(description: "cmux themes set targets the resolved socket bundle")
         let notificationQueue = OperationQueue()
         notificationQueue.maxConcurrentOperationCount = 1
