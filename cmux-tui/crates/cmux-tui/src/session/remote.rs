@@ -1642,6 +1642,14 @@ mod tests {
 
     use super::*;
 
+    trait SurfaceEventScopeTestExt {
+        fn scope_events_to_surface(&self, surface: SurfaceId);
+    }
+
+    impl SurfaceEventScopeTestExt for Arc<RemoteSession> {
+        fn scope_events_to_surface(&self, _surface: SurfaceId) {}
+    }
+
     #[test]
     fn stack_layouts_require_protocol_9() {
         assert_eq!(SUPPORTED_PROTOCOL_VERSION, 9);
@@ -2240,6 +2248,71 @@ mod tests {
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)),
             Ok(MuxEvent::ClientDetached(7))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn surface_event_scope_filters_before_remote_cache_invalidation() {
+        let (client, _server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        session.tree.lock().unwrap().replace(
+            parse_tree(&json!({
+                "workspaces": [{
+                    "id": 1,
+                    "active": true,
+                    "screens": [{
+                        "id": 2,
+                        "active": true,
+                        "layout": {"type": "leaf", "pane": 3},
+                        "panes": [{
+                            "id": 3,
+                            "tabs": [
+                                {"surface": 7, "title": "target"},
+                                {"surface": 8, "title": "unrelated"}
+                            ]
+                        }]
+                    }]
+                }]
+            })),
+            0,
+        );
+        session.scope_events_to_surface(7);
+        session.tree_stale.store(false, Ordering::Release);
+        let events = session.subscribe();
+
+        for event in [
+            json!({"event": "tree-changed"}),
+            json!({"event": "layout-changed", "screen": 2}),
+            json!({"event": "title-changed", "surface": 8, "title": "changed"}),
+            json!({"event": "surface-exited", "surface": 8}),
+            json!({"event": "client-list-invalidated"}),
+            json!({"event": "client-attached", "client": 11, "transport": "unix"}),
+            json!({"event": "notification", "notification": 12, "surface": 8}),
+        ] {
+            session.handle_line(event);
+        }
+
+        assert!(!session.tree_is_stale());
+        assert!(events.try_iter().next().is_none());
+        assert_eq!(session.tree.lock().unwrap().view.surface(8).unwrap().title, "unrelated");
+
+        session.handle_line(json!({
+            "event": "title-changed",
+            "surface": 7,
+            "title": "target changed",
+        }));
+        assert!(!session.tree_is_stale());
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::TitleChanged { surface: 7, .. })
+        ));
+
+        session.handle_line(json!({"event": "surface-exited", "surface": 7}));
+        assert!(session.tree_is_stale());
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::SurfaceExited(7))
         ));
     }
 

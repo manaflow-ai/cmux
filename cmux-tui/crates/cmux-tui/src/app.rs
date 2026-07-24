@@ -11602,6 +11602,40 @@ mod tests {
     }
 
     #[test]
+    fn opening_shortcut_help_releases_an_active_browser_mouse_press() {
+        let mux = Mux::new("shortcut-help-browser-release-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux));
+        let (dispatcher, received) = BrowserInputDispatcher::blocked(2);
+        app.browser_input = dispatcher;
+        let content = Rect { x: 1, y: 1, width: 20, height: 8 };
+        app.last_browser_hover = Some((surface.id, 4, 3));
+        app.drag = Some(Drag::Browser { surface: surface.id, content });
+
+        app.run_action(Action::ShowShortcuts).unwrap();
+
+        assert!(app.shortcut_help.is_some());
+        assert!(app.drag.is_none());
+        assert!(matches!(
+            received.recv_timeout(Duration::from_secs(1)).map(|event| event.kind),
+            Some(BrowserInputKind::Mouse { event_type: "mouseReleased", .. })
+        ));
+    }
+
+    #[test]
+    fn opening_shortcut_help_finishes_an_active_split_resize() {
+        let mux = Mux::new("shortcut-help-split-release-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.drag =
+            Some(Drag::ResizeSplit { horizontal: Some((1, PaneEdge::Right)), vertical: None });
+
+        app.run_action(Action::ShowShortcuts).unwrap();
+
+        assert!(app.shortcut_help.is_some());
+        assert!(app.drag.is_none());
+    }
+
+    #[test]
     fn prefix_bar_and_shortcut_modal_use_the_resolved_action_catalog() {
         let (mux, _) = test_mux("shortcut-help-test", None);
         let mut app = test_app(Session::Local(mux.clone()));

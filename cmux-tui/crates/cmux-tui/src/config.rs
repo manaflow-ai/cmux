@@ -3006,6 +3006,27 @@ mod tests {
     }
 
     #[test]
+    fn ordinary_binding_collision_preserves_doubled_prefix_passthrough() {
+        let mut keys = Keys::default();
+        let mut raw = HashMap::new();
+        raw.insert(
+            "new-tab".to_string(),
+            Value::Array(vec![Value::String("ctrl+b".to_string()), Value::String("f".to_string())]),
+        );
+
+        keys.apply(&raw);
+
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)),
+            Some(Action::SendPrefix)
+        );
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE)),
+            Some(Action::NewTab)
+        );
+    }
+
+    #[test]
     fn sidebar_view_defaults_parses_and_unknown_values_fall_back_with_warning() {
         assert_eq!(Sidebar::default().view, SidebarView::Workspaces);
         assert_eq!(parse_sidebar_view("files"), Ok(SidebarView::Files));
