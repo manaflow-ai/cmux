@@ -1814,6 +1814,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         stackUserID: String?
     ) async -> Bool {
         guard !isReconnectingStoredMac else { return false }
+        if let accountID = stackUserID ?? identityProvider?.currentUserID {
+            clearTransientAutomaticReconnectBackoff(accountID: accountID)
+        }
         isReconnectingStoredMac = true
         return await reconnectActiveMacIfAvailable(stackUserID: stackUserID)
     }
@@ -1853,6 +1856,49 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             self.didFinishStoredMacReconnectAttempt = true
         }
         defer { restoringDeadline.cancel() }
+        // Run the awaited restore/dial phase under the same hard ceiling for
+        // startup, team changes, manual fallback, and automatic recovery. The
+        // generation claim above remains synchronous, preserving serialization
+        // while the unstructured operation can be abandoned if an FFI dial
+        // ignores cancellation.
+        let deadlineNanoseconds = runtime?.reconnectAttemptDeadlineNanoseconds
+            ?? 30_000_000_000
+        let race = await Self.raceAgainstDeadline(
+            nanoseconds: deadlineNanoseconds
+        ) { [weak self] in
+            await self?.performReconnectActiveMacAttempt(
+                stackUserID: stackUserID,
+                refreshBackupBeforeDial: refreshBackupBeforeDial,
+                generation: generation
+            ) ?? .superseded
+        }
+        registerAbandonedReconnectDial(race.abandoned)
+        if let outcome = race.value {
+            if outcome.didConnect, multiMacAggregationEnabled {
+                // Start secondary dials only after the bounded foreground
+                // operation has handed ownership back to this shared entry.
+                // This preserves foreground-first ordering even though the
+                // deadline race executes the awaited phase in a child task.
+                scheduleSecondaryAggregation()
+            }
+            return outcome
+        }
+        MobileDebugLog.anchormux(
+            "storedMacReconnect deadline expired generation=\(generation)"
+        )
+        finishStoredMacReconnectAttempt(generation: generation)
+        if abandonedReconnectDialCount <= Self.maximumAbandonedReconnectDials,
+           let accountID = stackUserID ?? identityProvider?.currentUserID {
+            recordTransientAutomaticReconnectBackoff(accountID: accountID)
+        }
+        return .failed(.timedOut)
+    }
+
+    private func performReconnectActiveMacAttempt(
+        stackUserID: String?,
+        refreshBackupBeforeDial: Bool,
+        generation: Int
+    ) async -> StoredMacReconnectOutcome {
         // No store / not signed in: can't determine a stored Mac here. Resolve the
         // restoring gate (so a returning user doesn't spin on RestoringSessionView)
         // but leave the persisted hint intact for a future attempt.
@@ -5521,7 +5567,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                     // Aggregate the user's other Macs' workspaces in the background.
                     // Best-effort; never blocks the foreground connect.
-                    if multiMacAggregationEnabled {
+                    if multiMacAggregationEnabled, !isReconnectingStoredMac {
                         self.scheduleSecondaryAggregation()
                     }
                     diagnosticLog?.record(DiagnosticEvent(.pairOk))

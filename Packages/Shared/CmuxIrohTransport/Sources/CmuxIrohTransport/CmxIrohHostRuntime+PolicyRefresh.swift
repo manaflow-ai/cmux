@@ -80,7 +80,17 @@ extension CmxIrohHostRuntime {
         // Discovery follows registration in one trust round. Honor a restored
         // discovery floor first so activation cannot spend a registration call
         // that is guaranteed to stop at the next broker operation.
-        try await broker.preflight(operation: .discovery)
+        do {
+            try await broker.preflight(operation: .discovery)
+        } catch {
+            return try cachedPolicy(
+                after: error,
+                expectedEndpointID: expectedEndpointID,
+                confirmedBinding: nil,
+                relayBootstrap: nil,
+                allowFallback: allowCachedFallback
+            )
+        }
         try requireCurrent(revision)
         let publicHints = Array(address.pathHints.compactMap {
             $0.publicDisclosure(at: now())
@@ -174,7 +184,9 @@ extension CmxIrohHostRuntime {
            CmxIrohBrokerBindingMetadata(binding: confirmedBinding) != localBinding {
             throw CmxIrohHostRuntimeError.invalidLocalBinding
         }
-        guard allowFallback, Self.isConnectivityFailure(error),
+        guard allowFallback,
+              CmxIrohTrustBrokerClientError
+                .preservesVerifiedPolicyDuringRefresh(error),
               let cached = configuration.cachedHostPolicy else {
             throw error
         }
