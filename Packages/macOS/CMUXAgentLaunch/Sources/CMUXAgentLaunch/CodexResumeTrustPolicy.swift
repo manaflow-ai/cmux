@@ -212,9 +212,35 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
         arguments: [String],
         currentDirectory: String
     ) -> String? {
-        guard let baseDirectory = normalizedAbsolutePath(currentDirectory) else {
+        guard isResumeInvocation(arguments: arguments),
+              let baseDirectory = normalizedAbsolutePath(currentDirectory) else {
             return nil
         }
+        let valueOptions: Set<String> = [
+            "-c", "--config",
+            "--enable", "--disable",
+            "-m", "--model",
+            "--remote", "--remote-auth-token-env",
+            "--local-provider",
+            "-p", "--profile",
+            "-s", "--sandbox",
+            "--add-dir",
+            "-a", "--ask-for-approval",
+        ]
+        let flagOptions: Set<String> = [
+            "--strict-config",
+            "--oss",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--dangerously-bypass-hook-trust",
+            "--yolo",
+            "--search",
+            "--no-alt-screen",
+            "--last",
+            "--all",
+            "--include-non-interactive",
+            "-h", "--help",
+            "-V", "--version",
+        ]
         var selectedDirectory: String?
         var index = executableArgumentStart(arguments)
         while index < arguments.count {
@@ -232,6 +258,20 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
                 selectedDirectory = String(argument.dropFirst("-C=".count))
             } else if argument.hasPrefix("--cd=") {
                 selectedDirectory = String(argument.dropFirst("--cd=".count))
+            } else if argument == "-i" || argument == "--image"
+                || argument.hasPrefix("-i=") || argument.hasPrefix("--image=")
+            {
+                return nil
+            } else if valueOptions.contains(argument) {
+                guard index + 1 < arguments.count else { return nil }
+                index += 2
+                continue
+            } else if flagOptions.contains(argument)
+                || recognizedInlineOption(argument)
+            {
+                // These options cannot select the working directory.
+            } else if argument.hasPrefix("-") {
+                return nil
             }
             index += 1
         }

@@ -281,27 +281,21 @@ private final class CLIProcessOutputBuffer: @unchecked Sendable {
     }
 }
 
-private final class CLIJSONLineResponseBuffer: @unchecked Sendable {
-    private let lock = NSLock()
+private struct CLIJSONLineResponseBuffer {
     private let responseID: Int
     private let maxBytes: Int
     private var data = Data()
     private var scanOffset = 0
-    private var matchedResponse = false
-    private var exceededLimit = false
+    private(set) var matchedResponse = false
+    private(set) var exceededLimit = false
 
     init(responseID: Int, maxBytes: Int) {
         self.responseID = responseID
         self.maxBytes = max(1, maxBytes)
     }
 
-    func append(_ chunk: Data) -> (matched: Bool, limitExceeded: Bool) {
-        lock.lock()
-        defer { lock.unlock() }
-
-        guard !matchedResponse, !exceededLimit else {
-            return (matchedResponse, exceededLimit)
-        }
+    mutating func append(_ chunk: Data) {
+        guard !matchedResponse, !exceededLimit else { return }
 
         let remaining = maxBytes - data.count
         if remaining > 0 {
@@ -325,13 +319,10 @@ private final class CLIJSONLineResponseBuffer: @unchecked Sendable {
         if !matchedResponse, chunk.count > remaining {
             exceededLimit = true
         }
-        return (matchedResponse, exceededLimit)
     }
 
-    func snapshot() -> (data: Data, matched: Bool, limitExceeded: Bool) {
-        lock.lock()
-        defer { lock.unlock() }
-        return (data, matchedResponse, exceededLimit)
+    var output: Data {
+        data
     }
 }
 
@@ -566,55 +557,26 @@ enum CLIProcessRunner {
         process.standardError = stderrPipe
 
         let finished = DispatchSemaphore(value: 0)
-        let responseOrExit = DispatchSemaphore(value: 0)
         process.terminationHandler = { _ in
             finished.signal()
-            responseOrExit.signal()
         }
 
-        let stdoutFinished = DispatchSemaphore(value: 0)
-        let stderrFinished = DispatchSemaphore(value: 0)
-        let stdoutBuffer = CLIJSONLineResponseBuffer(
+        var stdoutBuffer = CLIJSONLineResponseBuffer(
             responseID: responseID,
             maxBytes: maxOutputBytes
         )
-        let stderrBuffer = CLIProcessOutputBuffer()
-
-        DispatchQueue.global(qos: .utility).async {
-            var signaledResponse = false
-            let handle = stdoutPipe.fileHandleForReading
-            while true {
-                let chunk: Data
-                do {
-                    guard let next = try handle.read(upToCount: 64 * 1024),
-                          !next.isEmpty else {
-                        break
-                    }
-                    chunk = next
-                } catch {
-                    break
-                }
-                let state = stdoutBuffer.append(chunk)
-                if !signaledResponse, state.matched || state.limitExceeded {
-                    signaledResponse = true
-                    responseOrExit.signal()
-                }
-            }
-            stdoutFinished.signal()
-        }
-        DispatchQueue.global(qos: .utility).async {
-            stderrBuffer.set(stderrPipe.fileHandleForReading.readDataToEndOfFileOrEmpty())
-            stderrFinished.signal()
-        }
+        var stderrData = Data()
+        var stderrLimitExceeded = false
 
         do {
             try cliRunProcess(process)
         } catch {
             try? stdinPipe.fileHandleForWriting.close()
+            try? stdinPipe.fileHandleForReading.close()
             try? stdoutPipe.fileHandleForWriting.close()
+            try? stdoutPipe.fileHandleForReading.close()
             try? stderrPipe.fileHandleForWriting.close()
-            stdoutFinished.wait()
-            stderrFinished.wait()
+            try? stderrPipe.fileHandleForReading.close()
             return CLIProcessResult(
                 status: 1,
                 stdout: "",
@@ -622,6 +584,13 @@ enum CLIProcessRunner {
                 timedOut: false
             )
         }
+
+        // Process owns duplicated child endpoints after launch. Close the
+        // parent's copies so child exit can produce HUP while stdin remains
+        // open through its write endpoint.
+        try? stdinPipe.fileHandleForReading.close()
+        try? stdoutPipe.fileHandleForWriting.close()
+        try? stderrPipe.fileHandleForWriting.close()
 
         if let input = stdinText.data(using: .utf8) {
             _ = cliWrite(
@@ -631,20 +600,135 @@ enum CLIProcessRunner {
             )
         }
 
-        let waitResult = responseOrExit.wait(timeout: .now() + timeout)
+        let stdoutFD = stdoutPipe.fileHandleForReading.fileDescriptor
+        let stderrFD = stderrPipe.fileHandleForReading.fileDescriptor
+        let requestedEvents = Int16(POLLIN | POLLHUP | POLLERR)
+        var descriptors = [
+            pollfd(fd: stdoutFD, events: requestedEvents, revents: 0),
+            pollfd(fd: stderrFD, events: requestedEvents, revents: 0),
+        ]
+        let boundedTimeout = max(0, min(timeout, 3_600))
+        let timeoutNanoseconds = UInt64(boundedTimeout * 1_000_000_000)
+        let startNanoseconds = DispatchTime.now().uptimeNanoseconds
+        let (deadline, overflowed) = startNanoseconds.addingReportingOverflow(
+            timeoutNanoseconds
+        )
+        let effectiveDeadline = overflowed ? UInt64.max : deadline
+        var timedOut = false
+        var pipeError: String?
+
+        func readPipeChunk(fileDescriptor: Int32) -> (data: Data?, error: Int32?) {
+            var bytes = [UInt8](repeating: 0, count: 64 * 1024)
+            while true {
+                let count = bytes.withUnsafeMutableBytes { buffer -> Int in
+                    guard let baseAddress = buffer.baseAddress else { return 0 }
+                    return Darwin.read(
+                        fileDescriptor,
+                        baseAddress,
+                        buffer.count
+                    )
+                }
+                if count > 0 {
+                    return (Data(bytes.prefix(count)), nil)
+                }
+                if count == 0 {
+                    return (nil, nil)
+                }
+                let errorCode = errno
+                if errorCode == EINTR {
+                    continue
+                }
+                if errorCode == EAGAIN || errorCode == EWOULDBLOCK {
+                    return (nil, nil)
+                }
+                return (nil, errorCode)
+            }
+        }
+
+        while !stdoutBuffer.matchedResponse,
+              !stdoutBuffer.exceededLimit,
+              !stderrLimitExceeded,
+              pipeError == nil {
+            let now = DispatchTime.now().uptimeNanoseconds
+            if now >= effectiveDeadline {
+                timedOut = true
+                break
+            }
+            let remainingNanoseconds = effectiveDeadline - now
+            let remainingMilliseconds = max(
+                1,
+                Int((remainingNanoseconds + 999_999) / 1_000_000)
+            )
+            let pollTimeout = Int32(min(remainingMilliseconds, 50))
+            for index in descriptors.indices {
+                descriptors[index].revents = 0
+            }
+            let pollResult = descriptors.withUnsafeMutableBufferPointer {
+                poll($0.baseAddress, nfds_t($0.count), pollTimeout)
+            }
+            if pollResult < 0 {
+                if errno == EINTR {
+                    continue
+                }
+                pipeError = "pipe poll failed: \(String(cString: strerror(errno)))"
+                break
+            }
+            if pollResult == 0 {
+                continue
+            }
+
+            for index in descriptors.indices where descriptors[index].fd >= 0 {
+                let revents = descriptors[index].revents
+                if (revents & Int16(POLLNVAL)) != 0 {
+                    pipeError = "pipe became invalid"
+                    descriptors[index].fd = -1
+                    continue
+                }
+                guard (revents & requestedEvents) != 0 else { continue }
+
+                let result = readPipeChunk(
+                    fileDescriptor: descriptors[index].fd
+                )
+                if let errorCode = result.error {
+                    pipeError = "pipe read failed: \(String(cString: strerror(errorCode)))"
+                    descriptors[index].fd = -1
+                    continue
+                }
+                guard let chunk = result.data else {
+                    descriptors[index].fd = -1
+                    continue
+                }
+
+                if index == 0 {
+                    stdoutBuffer.append(chunk)
+                } else {
+                    let remaining = max(0, maxOutputBytes - stderrData.count)
+                    if remaining > 0 {
+                        stderrData.append(contentsOf: chunk.prefix(remaining))
+                    }
+                    if chunk.count > remaining {
+                        stderrLimitExceeded = true
+                    }
+                }
+            }
+            if descriptors.allSatisfy({ $0.fd < 0 }) {
+                break
+            }
+        }
+
         try? stdinPipe.fileHandleForWriting.close()
+        // Never wait for pipe EOF after the decision. A launcher descendant can
+        // inherit these descriptors, so close our readers before the bounded
+        // direct-child termination wait.
+        try? stdoutPipe.fileHandleForReading.close()
+        try? stderrPipe.fileHandleForReading.close()
         if process.isRunning {
             terminate(process: process, finished: finished)
         }
 
-        stdoutFinished.wait()
-        stderrFinished.wait()
-
-        let output = stdoutBuffer.snapshot()
-        let matchedResponse = output.matched
-        let timedOut = waitResult == .timedOut && !matchedResponse
-        let stdout = String(data: output.data, encoding: .utf8) ?? ""
-        var stderr = String(data: stderrBuffer.get(), encoding: .utf8) ?? ""
+        let matchedResponse = stdoutBuffer.matchedResponse
+        let stdout = String(data: stdoutBuffer.output, encoding: .utf8) ?? ""
+        var stderr = String(data: stderrData, encoding: .utf8) ?? ""
 
         if timedOut {
             if stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -652,9 +736,13 @@ enum CLIProcessRunner {
             } else if !stderr.contains("process timed out") {
                 stderr += "\nprocess timed out"
             }
-        } else if output.limitExceeded {
+        } else if stdoutBuffer.exceededLimit || stderrLimitExceeded {
             if stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                stderr = "process output exceeded \(maxOutputBytes) bytes"
+                stderr = "process output exceeded \(maxOutputBytes) bytes per stream"
+            }
+        } else if let pipeError {
+            if stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                stderr = pipeError
             }
         } else if !matchedResponse,
                   stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -662,14 +750,17 @@ enum CLIProcessRunner {
         }
 
         let status: Int32
-        if matchedResponse {
+        if matchedResponse, !stderrLimitExceeded, pipeError == nil {
             status = 0
         } else if timedOut {
             status = 124
-        } else if output.limitExceeded {
+        } else if stdoutBuffer.exceededLimit || stderrLimitExceeded {
+            status = 1
+        } else if pipeError != nil {
             status = 1
         } else {
-            status = process.terminationStatus == 0 ? 1 : process.terminationStatus
+            let childStatus = process.isRunning ? 1 : process.terminationStatus
+            status = childStatus == 0 ? 1 : childStatus
         }
         return CLIProcessResult(
             status: status,
