@@ -345,7 +345,6 @@ final class ShareSessionController {
 
     private func teardownSession(
         finalMessage: ShareHostMessage? = nil,
-        finalMessageConnection: UInt64? = nil,
         closeChatWindow: Bool = true
     ) {
         startTask?.cancel()
@@ -357,10 +356,7 @@ final class ShareSessionController {
         if let socket {
             socketStopTask = Task { @MainActor in
                 if let finalMessage {
-                    await socket.sendAndStop(
-                        finalMessage,
-                        connection: finalMessageConnection
-                    )
+                    _ = await socket.sendAndStop(finalMessage)
                 } else {
                     await socket.stop()
                 }
@@ -639,10 +635,11 @@ final class ShareSessionController {
                 return
             }
             if shouldTeardownAfterAcknowledgement {
-                teardownSession(
-                    finalMessage: .ack(nonce: acknowledgedNonce),
-                    finalMessageConnection: connection
+                await acknowledgeSessionEndAndTeardown(
+                    nonce: acknowledgedNonce,
+                    connection: connection
                 )
+                return
             } else if let pendingResyncHello,
                       case .hello(let shared, let layouts) = pendingResyncHello {
                 switch socket?.sendAcknowledgementAndResyncHello(
@@ -737,6 +734,28 @@ final class ShareSessionController {
             shouldTeardownAfterAcknowledgement = false
             pendingResyncHello = nil
         }
+    }
+
+    private func acknowledgeSessionEndAndTeardown(
+        nonce: ShareAckNonce,
+        connection: UInt64
+    ) async {
+        guard let socket else {
+            shouldTeardownAfterAcknowledgement = false
+            pendingResyncHello = nil
+            return
+        }
+        let didStop = await socket.sendAndStop(
+            .ack(nonce: nonce),
+            connection: connection
+        )
+        guard didStop else {
+            shouldTeardownAfterAcknowledgement = false
+            pendingResyncHello = nil
+            return
+        }
+        guard self.socket === socket, isSharing else { return }
+        teardownSession()
     }
 
     private func reconnectAfterCriticalOutboundBackpressure(

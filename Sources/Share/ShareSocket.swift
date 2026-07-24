@@ -328,25 +328,27 @@ actor ShareSocket {
 
     /// Sends one final protocol message, waits until URLSession accepts it,
     /// and then permanently stops the socket.
+    @discardableResult
     func sendAndStop(
         _ message: ShareHostMessage,
         connection: UInt64? = nil
-    ) async {
+    ) async -> Bool {
         guard let taskToStop = webSocketTask, !isStopped else {
             if connection == nil {
                 await stop()
+                return true
             }
-            return
+            return false
         }
         if let connection,
            activeConnectionGeneration != connection {
-            return
+            return false
         }
         guard let message = outboundValidator.prepareForTransport(message),
               let (outbound, priority) = Self.encode(message) else {
             shareSocketLogger.error("Dropping an unencodable final share protocol message")
             await stop()
-            return
+            return true
         }
         let finalPriority:
             WorkspaceShareOutboundMailbox<PendingOutbound>.Priority =
@@ -364,10 +366,11 @@ actor ShareSocket {
         if let connection {
             guard activeConnectionGeneration == connection,
                   webSocketTask === taskToStop else {
-                return
+                return false
             }
         }
         await stop()
+        return true
     }
 
     /// Resets reconnect escalation only when a validated snapshot belongs to
