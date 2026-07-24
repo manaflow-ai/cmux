@@ -1689,6 +1689,43 @@ _SHELL_CONTROL_PREFIX = re.compile(
 _SHELL_ASSIGNMENT_START = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 
 
+def _shell_parenthesis_is_case_arm_boundary(
+    line: str,
+    parenthesis_index: int,
+) -> bool:
+    """Return whether ``)`` terminates a pattern in an active case block."""
+    case_starts: list[int] = []
+    prefix = line[:parenthesis_index]
+    for keyword in re.finditer(r"\b(?:case|esac)\b", prefix):
+        if keyword.group() == "case":
+            case_starts.append(keyword.end())
+        elif case_starts:
+            case_starts.pop()
+    return bool(
+        case_starts
+        and re.search(r"\bin\b", prefix[case_starts[-1] :])
+    )
+
+
+def _shell_command_start_indices(line: str) -> list[int]:
+    """Return command boundaries, excluding non-case closing parentheses."""
+    result: list[int] = []
+    for command_start in _SHELL_COMMAND_START.finditer(line):
+        if (
+            command_start.group() == ")"
+            and (
+                _shell_closer_ends_expansion(line, command_start.start())
+                or not _shell_parenthesis_is_case_arm_boundary(
+                    line,
+                    command_start.start(),
+                )
+            )
+        ):
+            continue
+        result.append(command_start.end())
+    return result
+
+
 def _shell_assignment_word_end(line: str, start: int) -> Optional[int]:
     """Return the end of one shell assignment word, including expansions."""
     assignment = _SHELL_ASSIGNMENT_START.match(line, start)
@@ -1810,11 +1847,11 @@ def _shell_assertion_is_command_position(
     assertion_start: int,
 ) -> bool:
     """Return whether an assertion-looking shell token names a command."""
-    for command_start in _SHELL_COMMAND_START.finditer(line):
-        if command_start.end() > assertion_start:
+    for command_start in _shell_command_start_indices(line):
+        if command_start > assertion_start:
             break
         if (
-            _shell_command_name_position(line, command_start.end())
+            _shell_command_name_position(line, command_start)
             == assertion_start
         ):
             return True
@@ -1854,11 +1891,11 @@ def _shell_real_sleep_positions(
                 sleep_position,
             ):
                 positions.setdefault(line_index, set()).add(sleep_position)
-        for command_start in _SHELL_COMMAND_START.finditer(masked_line):
+        for command_start in _shell_command_start_indices(masked_line):
             sleep_position = _shell_prefixed_sleep_position(
                 raw_line,
                 masked_line,
-                command_start.end(),
+                command_start,
             )
             if (
                 sleep_position is not None
@@ -2032,7 +2069,9 @@ def _shell_asserted_substitution_sleep_positions(
 
     for line_index, line in enumerate(masked_lines):
         assertion_starts = {
-            match.start() for match in _ASSERT_TOKEN.finditer(line)
+            match.start()
+            for match in _ASSERT_TOKEN.finditer(line)
+            if _shell_assertion_is_command_position(line, match.start())
         }
         line_sleep_positions = sleep_positions.get(line_index, set())
         index = 0
@@ -2289,6 +2328,9 @@ def _mask_javascript_regex_literals(lines: list[str]) -> list[str]:
     while index < len(text):
         if text[index] != "/":
             index += 1
+            continue
+        if text.startswith(("//", "/*"), index):
+            index += 2
             continue
 
         previous = index - 1
