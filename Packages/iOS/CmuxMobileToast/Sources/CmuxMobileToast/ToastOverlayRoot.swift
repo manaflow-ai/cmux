@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import SwiftUI
 
 /// Chrome shared between the platform host and the overlay: keyboard overlap
@@ -50,6 +51,7 @@ struct ToastOverlayRoot: View {
         .animation(ToastMotion.driver(reduceMotion: reduceMotion), value: center.presented?.toast.id)
         .animation(.easeOut(duration: 0.25), value: chrome.keyboardInset)
         .sensoryFeedback(trigger: feedbackKey) { old, new in
+            guard MobileHapticFeedback().isEnabled else { return nil }
             guard let style = new.style else { return nil }
             if old.id != new.id { return style.appearFeedback }
             if old.bump != new.bump { return .impact(weight: .light) }

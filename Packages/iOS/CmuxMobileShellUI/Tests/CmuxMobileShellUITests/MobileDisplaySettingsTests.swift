@@ -79,6 +79,25 @@ import Testing
         #expect(defaults.object(forKey: "cmux.mobile.terminalFolderTapEnabled") as? Bool == false)
     }
 
+    @Test func hapticFeedbackDefaultsToEnabledWithoutAWrite() throws {
+        let defaults = try makeDefaults("hapticFeedbackDefaults")
+        let settings = MobileDisplaySettings(defaults: defaults)
+
+        #expect(settings.hapticFeedbackEnabled)
+        #expect(defaults.object(forKey: "cmux.mobile.hapticFeedbackEnabled") == nil)
+    }
+
+    @Test func hapticFeedbackPersistsAcrossInstances() throws {
+        let defaults = try makeDefaults("hapticFeedbackPersists")
+        let settings = MobileDisplaySettings(defaults: defaults)
+
+        settings.hapticFeedbackEnabled = false
+        #expect(!MobileDisplaySettings(defaults: defaults).hapticFeedbackEnabled)
+
+        settings.hapticFeedbackEnabled = true
+        #expect(MobileDisplaySettings(defaults: defaults).hapticFeedbackEnabled)
+    }
+
     @Test func terminalFolderTapReadsStoredFalse() throws {
         let defaults = try makeDefaults("terminalFolderTapReadsStoredFalse")
         defaults.set(false, forKey: "cmux.mobile.terminalFolderTapEnabled")

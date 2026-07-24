@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 import Observation
 
@@ -20,6 +21,7 @@ public final class MobileDisplaySettings {
     // UserDefaults is Apple-documented thread-safe; the synchronous read in
     // `init` and the write-through in `didSet` are safe nonisolated.
     private nonisolated(unsafe) let defaults: UserDefaults
+    private let haptics: MobileHapticFeedback
     private static let wrapWorkspaceTitlesKey = "cmux.mobile.wrapWorkspaceTitles"
     private static let showAltScreenNoticeKey = "cmux.mobile.showAltScreenNotice"
     private static let showMissingFilesKey = "cmux.mobile.showMissingFiles"
@@ -77,6 +79,15 @@ public final class MobileDisplaySettings {
     /// Mutating this writes through to the injected ``UserDefaults``.
     public var terminalFolderTapEnabled: Bool {
         didSet { defaults.set(terminalFolderTapEnabled, forKey: Self.terminalFolderTapEnabledKey) }
+    }
+
+    /// Whether cmux emits app-owned haptic feedback. Defaults to `true`.
+    /// Mutating this updates the shared policy consulted by every haptic entry
+    /// point across the mobile app.
+    public var hapticFeedbackEnabled: Bool {
+        didSet {
+            haptics.setEnabled(hapticFeedbackEnabled)
+        }
     }
 
     /// Whether the beta terminal files chip and its count scan are enabled.
@@ -160,11 +171,14 @@ public final class MobileDisplaySettings {
     ///   (single-line titles, enabled folder taps, hidden missing files, two
     ///   preview lines) without a write.
     public init(defaults: UserDefaults = .standard) {
+        let haptics = MobileHapticFeedback(defaults: defaults)
         self.defaults = defaults
+        self.haptics = haptics
         self.wrapWorkspaceTitles = defaults.bool(forKey: Self.wrapWorkspaceTitlesKey)
         self.showAltScreenNotice = defaults.object(forKey: Self.showAltScreenNoticeKey) as? Bool ?? true
         self.showMissingFiles = defaults.bool(forKey: Self.showMissingFilesKey)
         self.terminalFolderTapEnabled = defaults.object(forKey: Self.terminalFolderTapEnabledKey) as? Bool ?? true
+        self.hapticFeedbackEnabled = haptics.isEnabled
         self.terminalFilesChipEnabled = defaults.bool(forKey: Self.terminalFilesChipEnabledKey)
         self.taskComposerEnabled = defaults.bool(forKey: Self.taskComposerEnabledKey)
         let storedPreviewLines = defaults.object(forKey: Self.workspacePreviewLineCountKey) as? Int

@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxMobileSupport
 import SwiftUI
 
@@ -128,7 +129,7 @@ struct TaskComposerPrimaryAction: View {
             value: isEnabled
         )
         .sensoryFeedback(.impact(weight: .light), trigger: isSubmitting) { oldValue, newValue in
-            !oldValue && newValue
+            MobileHapticFeedback().isEnabled && !oldValue && newValue
         }
     }
 }
