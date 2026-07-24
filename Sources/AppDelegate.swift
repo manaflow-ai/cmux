@@ -879,6 +879,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 TerminalController.shouldSuppressSocketCommandActivation()
                     && !TerminalController.socketCommandAllowsInAppFocusMutations()
             },
+            windowAvailability: { [weak self] window in
+                guard let self else {
+                    return .init(isAvailable: false, windowId: nil, workspaceId: nil)
+                }
+                guard let context = self.contextForMainTerminalWindow(window, reindex: false) else {
+                    return .init(
+                        isAvailable: false,
+                        windowId: self.mainWindowId(from: window),
+                        workspaceId: nil
+                    )
+                }
+                return .init(
+                    isAvailable: true,
+                    windowId: context.windowId,
+                    workspaceId: context.tabManager.selectedTabId
+                )
+            },
             setActiveMainWindow: { [weak self] window in
                 self?.setActiveMainWindow(window)
             }
