@@ -344,6 +344,13 @@ actor ShareSocket {
            activeConnectionGeneration != connection {
             return false
         }
+        if connection == nil {
+            // Manual teardown owns the whole session. Close admission and
+            // make its final message the only queued work so an unresolved
+            // delivery-credit barrier cannot strand shutdown.
+            setConnectionAdmission(false)
+            resumeDiscarded(outboundMailbox.discardAll())
+        }
         guard let message = outboundValidator.prepareForTransport(message),
               let (outbound, priority) = Self.encode(message) else {
             shareSocketLogger.error("Dropping an unencodable final share protocol message")
