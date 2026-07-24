@@ -76,6 +76,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case groupSelectedWorkspaces
     /// Toggles collapse for the group containing the focused workspace.
     case toggleFocusedWorkspaceGroupCollapsed
+    case reopenClosedWorkspace
     case reopenClosedBrowserPanel
     case newSurface
     case toggleTerminalCopyMode
@@ -184,7 +185,7 @@ extension ShortcutAction {
              .showNotifications, .jumpToUnread, .toggleUnread, .markOldestUnreadAndJumpNext,
              .focusRightSidebar, .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed,
-             .switchRightSidebarToDock, .triggerFlash:
+             .switchRightSidebarToDock, .triggerFlash, .reopenClosedWorkspace:
             return .workspace
         case .nextSurface, .prevSurface, .moveSurfaceLeft, .moveSurfaceRight, .selectSurfaceByNumber,
              .nextSidebarTab, .prevSidebarTab, .moveWorkspaceUp, .moveWorkspaceDown, .focusHistoryBack, .focusHistoryForward,
@@ -385,6 +386,8 @@ extension ShortcutAction {
             return String(localized: "shortcut.groupSelectedWorkspaces.label", defaultValue: "Group Selected Workspaces")
         case .toggleFocusedWorkspaceGroupCollapsed:
             return String(localized: "shortcut.toggleFocusedWorkspaceGroupCollapsed.label", defaultValue: "Toggle Focused Workspace's Group Collapse")
+        case .reopenClosedWorkspace:
+            return String(localized: "menu.history.reopenClosedWorkspace", defaultValue: "Reopen Closed Workspace")
         case .reopenClosedBrowserPanel: return "Reopen Last Closed"
         case .newSurface: return "New Surface"
         case .toggleTerminalCopyMode: return "Toggle Terminal Copy Mode"

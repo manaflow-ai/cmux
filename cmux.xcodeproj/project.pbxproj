@@ -467,7 +467,9 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		799100000000000000000001 /* CLIWorkspaceStableIDMockServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 799100000000000000000002 /* CLIWorkspaceStableIDMockServer.swift */; };
 		799100000000000000000003 /* CLIWorkspaceStableIDTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 799100000000000000000004 /* CLIWorkspaceStableIDTests.swift */; };
 		C10D51700000000000000002 /* ClosedItemHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D51700000000000000001 /* ClosedItemHistory.swift */; };
+		8772A0010000000000000001 /* ClosedItemHistoryCapacityPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8772B0010000000000000001 /* ClosedItemHistoryCapacityPolicy.swift */; };
 		7375A0037375A0037375A003 /* ClosedMainWindowRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7375A0047375A0047375A004 /* ClosedMainWindowRoutingTests.swift */; };
+		89E62B0A0EB932019C29A32D /* ClosedWorkspaceHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9CE23E8EA87D8E775738D56 /* ClosedWorkspaceHistory.swift */; };
 		B9000025A1B2C3D4E5F60719 /* CloseWindowConfirmDialogUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000026A1B2C3D4E5F60719 /* CloseWindowConfirmDialogUITests.swift */; };
 		B9000023A1B2C3D4E5F60719 /* CloseWorkspaceCmdDUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000022A1B2C3D4E5F60719 /* CloseWorkspaceCmdDUITests.swift */; };
 		B900001AA1B2C3D4E5F60719 /* CloseWorkspaceConfirmDialogUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000019A1B2C3D4E5F60719 /* CloseWorkspaceConfirmDialogUITests.swift */; };
@@ -1832,6 +1834,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C5B6A10000000000000000B1 /* TabManager+SidebarGitHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5B6A10000000000000000B2 /* TabManager+SidebarGitHosting.swift */; };
 		604500100000000000000007 /* TabManager+WindowTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 604500100000000000000008 /* TabManager+WindowTitle.swift */; };
 		736200000000000000000004 /* TabManager+WorkspaceCustomTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 736200000000000000000003 /* TabManager+WorkspaceCustomTitle.swift */; };
+		CDC71D88CCED9EEEE0D83FE5 /* TabManager+WorkspaceDirectoryCustomization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FA1B7598E85578423ADBE3F /* TabManager+WorkspaceDirectoryCustomization.swift */; };
 		A5001003 /* TabManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001013 /* TabManager.swift */; };
 		F8120F5386FBE726864D340B /* TabManagerBackgroundWorkspaceMountBoundTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 481E6848F8513F27E496F7BE /* TabManagerBackgroundWorkspaceMountBoundTests.swift */; };
 		C0DE64160000000000000001 /* TabManagerNotificationFocusRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE64160000000000000002 /* TabManagerNotificationFocusRegressionTests.swift */; };
@@ -2184,6 +2187,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		1A1B2C3D4E5F607180000001 /* WorkspacePromptSubmit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A1B2C3D4E5F607180000002 /* WorkspacePromptSubmit.swift */; };
 		1A1B2C3D4E5F607180000003 /* WorkspacePromptSubmitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A1B2C3D4E5F607180000004 /* WorkspacePromptSubmitTests.swift */; };
 		DCC935C5F55C1DCB33E25521 /* WorkspacePullRequestSidebarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14A7DC53B9CA33BE2A421711 /* WorkspacePullRequestSidebarTests.swift */; };
+		7BD653A20E3A45C693F8D441 /* WorkspaceRecoveryReviewRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 939AA681FBA244B994634EE0 /* WorkspaceRecoveryReviewRegressionTests.swift */; };
+		CB612C41C989F98979226B7C /* WorkspaceRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9D9924AC89D7C3408DBC56A /* WorkspaceRecoveryTests.swift */; };
 		C73660030000000000000001 /* WorkspaceRemoteBadgeTruthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660030000000000000002 /* WorkspaceRemoteBadgeTruthTests.swift */; };
 		F6100000A1B2C3D4E5F60718 /* WorkspaceRemoteConnectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6100001A1B2C3D4E5F60718 /* WorkspaceRemoteConnectionTests.swift */; };
 		7277A0017277A0017277A001 /* WorkspaceRemoteDirectoryProvenanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7277B0017277B0017277B001 /* WorkspaceRemoteDirectoryProvenanceTests.swift */; };
@@ -2756,7 +2761,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		799100000000000000000002 /* CLIWorkspaceStableIDMockServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIWorkspaceStableIDMockServer.swift; sourceTree = "<group>"; };
 		799100000000000000000004 /* CLIWorkspaceStableIDTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIWorkspaceStableIDTests.swift; sourceTree = "<group>"; };
 		C10D51700000000000000001 /* ClosedItemHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedItemHistory.swift; sourceTree = "<group>"; };
+		8772B0010000000000000001 /* ClosedItemHistoryCapacityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedItemHistoryCapacityPolicy.swift; sourceTree = "<group>"; };
 		7375A0047375A0047375A004 /* ClosedMainWindowRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedMainWindowRoutingTests.swift; sourceTree = "<group>"; };
+		A9CE23E8EA87D8E775738D56 /* ClosedWorkspaceHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedWorkspaceHistory.swift; sourceTree = "<group>"; };
 		B9000026A1B2C3D4E5F60719 /* CloseWindowConfirmDialogUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseWindowConfirmDialogUITests.swift; sourceTree = "<group>"; };
 		B9000022A1B2C3D4E5F60719 /* CloseWorkspaceCmdDUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseWorkspaceCmdDUITests.swift; sourceTree = "<group>"; };
 		B9000019A1B2C3D4E5F60719 /* CloseWorkspaceConfirmDialogUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseWorkspaceConfirmDialogUITests.swift; sourceTree = "<group>"; };
@@ -4040,6 +4047,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C5B6A10000000000000000B2 /* TabManager+SidebarGitHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+SidebarGitHosting.swift"; sourceTree = "<group>"; };
 		604500100000000000000008 /* TabManager+WindowTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+WindowTitle.swift"; sourceTree = "<group>"; };
 		736200000000000000000003 /* TabManager+WorkspaceCustomTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+WorkspaceCustomTitle.swift"; sourceTree = "<group>"; };
+		6FA1B7598E85578423ADBE3F /* TabManager+WorkspaceDirectoryCustomization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+WorkspaceDirectoryCustomization.swift"; sourceTree = "<group>"; };
 		A5001013 /* TabManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManager.swift; sourceTree = "<group>"; };
 		481E6848F8513F27E496F7BE /* TabManagerBackgroundWorkspaceMountBoundTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerBackgroundWorkspaceMountBoundTests.swift; sourceTree = "<group>"; };
 		C0DE64160000000000000002 /* TabManagerNotificationFocusRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerNotificationFocusRegressionTests.swift; sourceTree = "<group>"; };
@@ -4392,6 +4400,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		1A1B2C3D4E5F607180000002 /* WorkspacePromptSubmit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePromptSubmit.swift; sourceTree = "<group>"; };
 		1A1B2C3D4E5F607180000004 /* WorkspacePromptSubmitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePromptSubmitTests.swift; sourceTree = "<group>"; };
 		14A7DC53B9CA33BE2A421711 /* WorkspacePullRequestSidebarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePullRequestSidebarTests.swift; sourceTree = "<group>"; };
+		939AA681FBA244B994634EE0 /* WorkspaceRecoveryReviewRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRecoveryReviewRegressionTests.swift; sourceTree = "<group>"; };
+		C9D9924AC89D7C3408DBC56A /* WorkspaceRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRecoveryTests.swift; sourceTree = "<group>"; };
 		C73660030000000000000002 /* WorkspaceRemoteBadgeTruthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRemoteBadgeTruthTests.swift; sourceTree = "<group>"; };
 		F6100001A1B2C3D4E5F60718 /* WorkspaceRemoteConnectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRemoteConnectionTests.swift; sourceTree = "<group>"; };
 		7277B0017277B0017277B001 /* WorkspaceRemoteDirectoryProvenanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRemoteDirectoryProvenanceTests.swift; sourceTree = "<group>"; };
@@ -5131,9 +5141,12 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				DCDC1000000000000000B016 /* TabManager+BrowserFocus.swift */,
 				C5B6A10000000000000000B2 /* TabManager+SidebarGitHosting.swift */,
 				736200000000000000000003 /* TabManager+WorkspaceCustomTitle.swift */,
+				6FA1B7598E85578423ADBE3F /* TabManager+WorkspaceDirectoryCustomization.swift */,
 				F0C05170000000000000001 /* FocusHistory.swift */,
 				C0DEFB100000000000000002 /* FocusSurfaceBroadcaster.swift */,
 				C10D51700000000000000001 /* ClosedItemHistory.swift */,
+				8772B0010000000000000001 /* ClosedItemHistoryCapacityPolicy.swift */,
+				A9CE23E8EA87D8E775738D56 /* ClosedWorkspaceHistory.swift */,
 				D1FFC0DE000000000000D001 /* DiffCommentSubmissionPool.swift */,
 				D1FFC0DE000000000000A001 /* DiffCommentStore.swift */,
 				E3309A04 /* TabManager+EqualizeSplits.swift */,
@@ -6572,6 +6585,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C06552030000000000000002 /* TabManagerTitleUpdateStalenessTests.swift */,
 				C06552020000000000000002 /* TabManagerTitleUpdateTests.swift */,
 				42092CDB2109E250F7F2A76E /* TabManagerUnitTests.swift */,
+				C9D9924AC89D7C3408DBC56A /* WorkspaceRecoveryTests.swift */,
+				939AA681FBA244B994634EE0 /* WorkspaceRecoveryReviewRegressionTests.swift */,
 				AB12CD340000000000000002 /* WorkspaceTodoNotificationRegressionTests.swift */,
 				DCE71A0F7E02A07A155241E4 /* SidebarWorkspaceRowStatusGlyphRemovalTests.swift */,
 				9C5C9824B98FFC44A2C44F47 /* WorkspaceTodoSnapshotTests.swift */,
@@ -7546,6 +7561,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A9F200000000000000000015 /* ClaudeStreamJSONAccumulator.swift in Sources */,
 				C46790000000000000000003 /* CLIForwardingLaunchRouter.swift in Sources */,
 				C10D51700000000000000002 /* ClosedItemHistory.swift in Sources */,
+				8772A0010000000000000001 /* ClosedItemHistoryCapacityPolicy.swift in Sources */,
+				89E62B0A0EB932019C29A32D /* ClosedWorkspaceHistory.swift in Sources */,
 				C10D00010000000000000001 /* CloudVMActionLauncher.swift in Sources */,
 				A5001654 /* CmuxActionTrust.swift in Sources */,
 				C0DE43000000000000000001 /* CmuxAgentChatConfig.swift in Sources */,
@@ -8361,6 +8378,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C5B6A10000000000000000B1 /* TabManager+SidebarGitHosting.swift in Sources */,
 				604500100000000000000007 /* TabManager+WindowTitle.swift in Sources */,
 				736200000000000000000004 /* TabManager+WorkspaceCustomTitle.swift in Sources */,
+				CDC71D88CCED9EEEE0D83FE5 /* TabManager+WorkspaceDirectoryCustomization.swift in Sources */,
 				A5001003 /* TabManager.swift in Sources */,
 				A71100000000000000000001 /* TailscaleStatusProviding.swift in Sources */,
 				C7A503000000000000000002 /* TaskManagerSnapshot.swift in Sources */,
@@ -9390,6 +9408,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				0F2C25F9170130F8DC09DD1B /* WorkspaceManualUnreadTests.swift in Sources */,
 				1A1B2C3D4E5F607180000003 /* WorkspacePromptSubmitTests.swift in Sources */,
 				DCC935C5F55C1DCB33E25521 /* WorkspacePullRequestSidebarTests.swift in Sources */,
+				7BD653A20E3A45C693F8D441 /* WorkspaceRecoveryReviewRegressionTests.swift in Sources */,
+				CB612C41C989F98979226B7C /* WorkspaceRecoveryTests.swift in Sources */,
 				C73660030000000000000001 /* WorkspaceRemoteBadgeTruthTests.swift in Sources */,
 				F6100000A1B2C3D4E5F60718 /* WorkspaceRemoteConnectionTests.swift in Sources */,
 				7277A0017277A0017277A001 /* WorkspaceRemoteDirectoryProvenanceTests.swift in Sources */,

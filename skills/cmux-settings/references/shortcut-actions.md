@@ -40,6 +40,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.newWorkspaceGroup`
 - `shortcuts.bindings.groupSelectedWorkspaces`
 - `shortcuts.bindings.toggleFocusedWorkspaceGroupCollapsed`
+- `shortcuts.bindings.reopenClosedWorkspace`
 - `shortcuts.bindings.moveWorkspaceUp`
 - `shortcuts.bindings.moveWorkspaceDown`
 

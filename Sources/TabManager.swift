@@ -392,6 +392,7 @@ class TabManager: ObservableObject {
     /// Typed synchronous settings access (CmuxSettings).
     private let settings: any SettingsWriting
     private let settingsCatalog = SettingCatalog()
+    let workspaceDirectoryCustomizationStore: WorkspaceDirectoryCustomizationStore
     private var lastFocusHistoryIncludesPanesAndTabs: Bool
     let nativeSSHConnectionBroker: NativeSSHConnectionBroker
 
@@ -476,10 +477,12 @@ class TabManager: ObservableObject {
         gitProbeLimiter: WorkspaceGitMetadataProbeLimiter? = nil,
         panelTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
+        workspaceDirectoryCustomizationStore: WorkspaceDirectoryCustomizationStore = WorkspaceDirectoryCustomizationStore(),
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
         closeTabWarningDefaults: UserDefaults = .standard
     ) {
         self.settings = settings
+        self.workspaceDirectoryCustomizationStore = workspaceDirectoryCustomizationStore
         let focusHistoryScopeKey = SettingCatalog().app.focusHistoryIncludesPanesAndTabs
         self.lastFocusHistoryIncludesPanesAndTabs = settings.value(for: focusHistoryScopeKey)
         self.focusHistoryNavigation = FocusHistoryModel(navigationScope: {
@@ -543,6 +546,7 @@ class TabManager: ObservableObject {
         workspaceGrouping.attach(host: self)
         addWorkspace(
             title: initialWorkspaceTitle,
+            titleSource: .auto,
             workingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: autoWelcomeIfNeeded
@@ -1080,6 +1084,7 @@ class TabManager: ObservableObject {
     func addWorkspace(
         id: UUID? = nil,
         title: String? = nil,
+        titleSource: Workspace.CustomTitleSource = .user,
         workingDirectory overrideWorkingDirectory: String? = nil,
         initialSurface: NewWorkspaceInitialSurface = .terminal,
         initialTerminalCommand: String? = nil,
@@ -1096,6 +1101,7 @@ class TabManager: ObservableObject {
         autoWelcomeIfNeeded: Bool = true,
         autoRefreshMetadata: Bool = true,
         normalizeWorkspaceGroupsAfterInsert: Bool = true,
+        shouldApplyWorkspaceDirectoryCustomization: Bool = true,
         allowTextBoxFocusDefault: Bool = true
     ) -> Workspace {
         let sourceWorkspace = selectedWorkspace
@@ -1170,8 +1176,13 @@ class TabManager: ObservableObject {
                 from: sourceWorkspace ?? capturedTabs.first
             )
             newWorkspace.owningTabManager = self
-            if title != nil {
-                newWorkspace.setCustomTitle(title)
+            if shouldApplyWorkspaceDirectoryCustomization {
+                applyWorkspaceDirectoryCustomization(
+                    to: newWorkspace,
+                    rootDirectory: workingDirectory,
+                    explicitTitle: title,
+                    explicitTitleSource: titleSource
+                )
             }
             wireClosedBrowserTracking(for: newWorkspace)
             if eagerLoadTerminal && !select {
@@ -1747,20 +1758,13 @@ class TabManager: ObservableObject {
 
     func setTabColor(tabId: UUID, color: String?) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        tab.setCustomColor(color)
+        applyWorkspaceColor(color, to: [tab])
     }
 
     func applyWorkspaceColor(_ color: String?, toWorkspaceIds workspaceIds: [UUID]) {
         guard !workspaceIds.isEmpty else { return }
-        if workspaceIds.count == 1, let workspaceId = workspaceIds.first {
-            setTabColor(tabId: workspaceId, color: color)
-            return
-        }
-
         let targetIds = Set(workspaceIds)
-        for tab in tabs where targetIds.contains(tab.id) {
-            tab.setCustomColor(color)
-        }
+        applyWorkspaceColor(color, to: tabs.filter { targetIds.contains($0.id) })
     }
 
     func applyWorkspacePaletteColor(named name: String, toWorkspaceIds workspaceIds: [UUID]) {
@@ -1828,7 +1832,7 @@ class TabManager: ObservableObject {
         title: String? = nil,
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
-        initialBrowserTransparentBackground: Bool = false
+        initialBrowserTransparentBackground: Bool = false, shouldApplyWorkspaceDirectoryCustomization: Bool = true
     ) -> Workspace? {
         workspaceGrouping.createWorkspaceInGroup(
             groupId: groupId,
@@ -1839,7 +1843,7 @@ class TabManager: ObservableObject {
             title: title,
             initialBrowserURL: initialBrowserURL,
             initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
-            initialBrowserTransparentBackground: initialBrowserTransparentBackground
+            initialBrowserTransparentBackground: initialBrowserTransparentBackground, shouldApplyWorkspaceDirectoryCustomization: shouldApplyWorkspaceDirectoryCustomization
         )
     }
 
@@ -1922,6 +1926,7 @@ class TabManager: ObservableObject {
     ) -> Workspace {
         addWorkspace(
             title: title,
+            titleSource: .auto,
             workingDirectory: workingDirectory,
             inheritWorkingDirectory: inheritWorkingDirectory,
             select: select,
@@ -1939,7 +1944,7 @@ class TabManager: ObservableObject {
         initialBrowserOmnibarVisible: Bool,
         initialBrowserTransparentBackground: Bool,
         inheritWorkingDirectory: Bool,
-        select: Bool
+        select: Bool, shouldApplyWorkspaceDirectoryCustomization: Bool
     ) -> Workspace {
         addWorkspace(
             title: title,
@@ -1950,7 +1955,7 @@ class TabManager: ObservableObject {
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
             inheritWorkingDirectory: inheritWorkingDirectory,
             select: select,
-            autoWelcomeIfNeeded: false
+            autoWelcomeIfNeeded: false, shouldApplyWorkspaceDirectoryCustomization: shouldApplyWorkspaceDirectoryCustomization
         )
     }
 
@@ -4090,8 +4095,8 @@ class TabManager: ObservableObject {
         )
     }
 
-    /// Reopen the most recently closed browser panel (Cmd+Shift+T).
-    /// No-op when no browser panel restore snapshot is available.
+    /// Reopen the most recently closed item, retaining the legacy API name.
+    /// Falls back to the pre-unified browser-panel history when needed.
     @discardableResult
     func reopenMostRecentlyClosedBrowserPanel() -> Bool {
         if reopenMostRecentlyClosedItem() {
@@ -4239,7 +4244,8 @@ class TabManager: ObservableObject {
             title: entry.snapshot.customTitle ?? entry.snapshot.processTitle,
             workingDirectory: entry.snapshot.currentDirectory,
             select: false,
-            autoWelcomeIfNeeded: false
+            autoWelcomeIfNeeded: false,
+            shouldApplyWorkspaceDirectoryCustomization: false
         )
         let restoredPanelIds = workspace.restoreSessionSnapshot(entry.snapshot, excludingStableIdentities: excludedStableIdentities)
         guard !entry.snapshot.hasRestorablePanels || !restoredPanelIds.isEmpty else {
@@ -4250,6 +4256,7 @@ class TabManager: ObservableObject {
             closeWorkspace(workspace, recordHistory: false)
             return false
         }
+        reconcileWorkspaceDirectoryCustomization(afterRestoring: entry.snapshot, to: workspace)
         // The snapshot may carry a groupId for a group that no longer exists
         // in this TabManager (e.g. the group was dissolved between close and
         // reopen). Drop those stale references so the restored workspace
@@ -5665,6 +5672,7 @@ extension TabManager {
             hasher.combine(workspace.groupId)
             hasher.combine(workspace.focusedPanelId)
             hasher.combine(workspace.currentDirectory)
+            hasher.combine(workspace.customizationDirectory ?? "")
             hasher.combine(workspace.customTitle ?? "")
             hasher.combine(workspace.customDescription ?? "")
             hasher.combine(workspace.customColor ?? "")
@@ -6055,8 +6063,7 @@ extension TabManager {
         selectionSideEffectsGeneration &+= 1
         browserModel.clearRecentlyClosedBrowserPanels()
 
-        // Build the new workspace list locally to avoid intermediate @Published
-        // emissions (empty tabs, nil selectedTabId) that can leave SwiftUI's
+        // Build locally to avoid intermediate @Published emissions (empty tabs, nil selectedTabId) that can leave SwiftUI's
         // mountedWorkspaceIds empty and cause a frozen blank launch state (#399).
         var newTabs: [Workspace] = []
         var restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]] = []
@@ -6066,6 +6073,7 @@ extension TabManager {
         )
         let workspaceSnapshots = normalizedWorkspaceSnapshots
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
+        var restoredDirectoryCustomizations = cachedWorkspaceDirectoryCustomizations(afterRestoring: Array(workspaceSnapshots))
         var restoredOriginalWorkspaceIds: [UUID?] = []
         var reservedWorkspaceIds = excludingWorkspaceIds
         let identitySelector = WorkspaceSessionRestoreIdentity()
@@ -6089,6 +6097,7 @@ extension TabManager {
             )
             workspace.owningTabManager = self
             let restoredPanelIds = workspace.restoreSessionSnapshot(workspaceSnapshot, excludingStableIdentities: excludingStableIdentities)
+            reconcileWorkspaceDirectoryCustomization(afterRestoring: workspaceSnapshot, to: workspace, cachedCustomizations: &restoredDirectoryCustomizations)
             Self.recordRestoredTaskCreateProvenance(for: workspace, in: workspaceCreateIdempotencyCache)
             wireClosedBrowserTracking(for: workspace)
             newTabs.append(workspace)
@@ -6111,6 +6120,7 @@ extension TabManager {
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )
             fallback.owningTabManager = self
+            applyWorkspaceDirectoryCustomization(to: fallback, rootDirectory: nil, explicitTitle: nil, explicitTitleSource: .auto)
             wireClosedBrowserTracking(for: fallback)
             newTabs.append(fallback)
         }
