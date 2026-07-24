@@ -210,13 +210,15 @@ def self_test() -> int:
                 failures += 1
 
     # The CLI must refuse a missing snapshot rather than report an empty, successful scan.
-    absent = os.path.join(tempfile.gettempdir(), "crash-reports-since-absent-snapshot.txt")
-    if os.path.exists(absent):
-        os.remove(absent)
-    probe = subprocess.run(
-        [sys.executable, os.path.abspath(__file__), "--new-since", absent],
-        capture_output=True,
-    )
+    # The path lives inside a fresh directory and is never created, so "absent" is guaranteed
+    # rather than assumed — a fixed name in the shared temp directory could be left behind by an
+    # earlier run or created by a concurrent one, and then this checks nothing.
+    with tempfile.TemporaryDirectory() as scratch:
+        absent = os.path.join(scratch, "snapshot-that-was-never-written.txt")
+        probe = subprocess.run(
+            [sys.executable, os.path.abspath(__file__), "--new-since", absent],
+            capture_output=True,
+        )
     if probe.returncode != 0:
         print("  ok   a missing snapshot fails the command instead of reading as clean")
     else:
