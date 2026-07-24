@@ -298,7 +298,8 @@ public actor RenderWorkerClient {
                     remainingRelaunches: 0,
                     ackSequence: nil
                 ),
-                generation: gen
+                generation: gen,
+                recoversFromFailure: false
             )
         }
         if let lastScene, let data = try? JSONEncoder().encode(RenderWorkerInbound.scene(lastScene)) {
@@ -309,7 +310,8 @@ public actor RenderWorkerClient {
                     remainingRelaunches: 0,
                     ackSequence: lastScene.seq
                 ),
-                generation: gen
+                generation: gen,
+                recoversFromFailure: false
             )
         }
 
@@ -319,10 +321,14 @@ public actor RenderWorkerClient {
     private func enqueueOnWriter(
         _ writer: RenderWorkerWritePump,
         outbound: RenderWorkerOutboundWrite,
-        generation gen: Int
+        generation gen: Int,
+        recoversFromFailure: Bool = true
     ) {
         writer.enqueue(outbound) { [weak self] in
-            guard let self else { return }
+            // Cached state reconstructs a newly launched worker. It must not
+            // consume the initiating outbound write's retry: if this replay
+            // finds a dead pipe, the queued initiating write owns recovery.
+            guard recoversFromFailure, let self else { return }
             Task {
                 await self.writeFailed(outbound, generation: gen)
             }

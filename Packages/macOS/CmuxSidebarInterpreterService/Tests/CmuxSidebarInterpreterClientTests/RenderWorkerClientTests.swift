@@ -84,6 +84,29 @@ import Testing
         #expect(firstContext != secondContext, "a respawned worker must announce a fresh context")
     }
 
+    /// If a cached replay finds that a just-launched worker already closed
+    /// stdin, the initiating scene write retains the one relaunch budget and
+    /// recovers without waiting for another host tick.
+    @Test func initiatingSceneRecoversWhenInitialReplayWriteFails() async {
+        let closeStdinMarker = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-render-worker-close-stdin-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: closeStdinMarker) }
+        let client = RenderWorkerClient(
+            executableURL: renderFixtureURL(),
+            environment: ["CMUX_RENDER_FIXTURE_CLOSE_STDIN_ONCE_PATH": closeStdinMarker.path]
+        )
+        let collector = RenderEventCollector(stream: await client.subscribe())
+
+        await client.updateScene(filePath: "/tmp/sidebar.swift", state: [:], topInset: 0, bottomInset: 0)
+        let events = await collector.waitForEvents(count: 1)
+        await client.shutdown()
+
+        guard case .context = events.first else {
+            Issue.record("expected the initiating scene to relaunch after a failed cached replay, got \(events)")
+            return
+        }
+    }
+
     /// A renderer that never acks a scene is presumed hung: the watchdog
     /// discards it, and the next scene update relaunches a fresh worker that
     /// replays the latest scene.
