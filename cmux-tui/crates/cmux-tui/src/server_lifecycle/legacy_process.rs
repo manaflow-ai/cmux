@@ -293,6 +293,8 @@ fn direct_child_pids(_parent: libc::pid_t) -> io::Result<Vec<libc::pid_t>> {
 #[cfg(test)]
 mod tests {
     use std::process::{Command, Stdio};
+    #[cfg(target_os = "linux")]
+    use std::sync::mpsc;
 
     use super::*;
 
@@ -310,5 +312,30 @@ mod tests {
 
         child.kill().unwrap();
         child.wait().unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_child_enumeration_includes_children_spawned_by_worker_threads() {
+        let (child_tx, child_rx) = mpsc::sync_channel(1);
+        let worker = std::thread::spawn(move || {
+            let child =
+                Command::new("yes").stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+            child_tx.send(child.id()).unwrap();
+            child
+        });
+        let child_pid = child_rx.recv().unwrap();
+        let parent = libc::pid_t::try_from(std::process::id()).unwrap();
+        let child_pid = libc::pid_t::try_from(child_pid).unwrap();
+
+        let children = direct_child_pids(parent).unwrap();
+
+        let mut child = worker.join().unwrap();
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert!(
+            children.contains(&child_pid),
+            "worker child {child_pid} missing from {children:?}"
+        );
     }
 }
