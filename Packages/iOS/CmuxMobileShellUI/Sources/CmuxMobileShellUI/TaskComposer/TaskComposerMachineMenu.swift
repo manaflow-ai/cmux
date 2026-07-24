@@ -72,14 +72,7 @@ struct TaskComposerMachineMenu: View, Equatable {
     private func machineIcon(_ mac: MobilePairedMac) -> some View {
         ZStack {
             Circle()
-                .fill(
-                    MachineAvatarColors.gradient(
-                        customColor: mac.customColor,
-                        fallbackIndex: nil,
-                        machineID: mac.macDeviceID,
-                        fallbackID: mac.id
-                    )
-                )
+                .fill(Color.accentColor)
             switch MacAvatarIcon.resolve(custom: mac.customIcon, defaultSymbol: "desktopcomputer") {
             case .symbol(let name):
                 Image(systemName: name)

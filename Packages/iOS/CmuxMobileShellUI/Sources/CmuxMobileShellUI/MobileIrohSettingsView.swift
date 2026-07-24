@@ -329,6 +329,11 @@ private extension MobileIrohSettingsView {
             L10n.string("mobile.iroh.diagnostics.failure.offline", defaultValue: "Offline")
         case .some(.timedOut):
             L10n.string("mobile.iroh.diagnostics.failure.timedOut", defaultValue: "Timed Out")
+        case .some(.transportIdleTimedOut):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.transportIdleTimedOut",
+                defaultValue: "Transport Idle Timeout"
+            )
         case .some(.connectionRefused):
             L10n.string(
                 "mobile.iroh.diagnostics.failure.connectionRefused",

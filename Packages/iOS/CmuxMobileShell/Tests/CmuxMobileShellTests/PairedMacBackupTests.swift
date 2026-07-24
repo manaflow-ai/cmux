@@ -225,7 +225,7 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
     }
 
     @Test func failedDeleteUploadLeavesDurableLocalTombstone() async throws {
-        // If a Forget tombstone upload fails, the stale live server record must
+        // If a delete tombstone upload fails, the stale live server record must
         // not resurrect on the next restore. The local tombstone outbox is
         // durable and is passed into restore as an additional delete set until a
         // tombstone upload eventually succeeds.
@@ -506,8 +506,8 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
     }
 
     @Test func removeDrainsRestoreSuspendedInsideUpsertBeforeDeletingExistingMac() async throws {
-        // Regression: forgetting a Mac while a refresh is suspended inside upsert
-        // must leave the Mac forgotten. The delete is authoritative, so `remove`
+        // Regression: deleting a Mac while a refresh is suspended inside upsert
+        // must leave the Mac deleted. The delete is authoritative, so `remove`
         // drains the in-flight restore before issuing the final local delete.
         let (real, dir) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -529,9 +529,9 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
 
         let refresh = Task { await backing.refreshFromBackup(stackUserID: "user-1") }
         await gated.waitUntilUpsertEntered()
-        let forget = Task { try await backing.remove(macDeviceID: "mac-a", stackUserID: "user-1", teamID: nil) }
+        let delete = Task { try await backing.remove(macDeviceID: "mac-a", stackUserID: "user-1", teamID: nil) }
         await gated.release()
-        try await forget.value
+        try await delete.value
         _ = await refresh.value
 
         #expect(try await real.loadAll(stackUserID: "user-1").isEmpty)
