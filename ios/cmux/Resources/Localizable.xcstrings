@@ -11969,6 +11969,23 @@
         }
       }
     },
+    "mobile.workspaces.macPicker.titleWithBuildFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        }
+      }
+    },
     "mobile.workspaces.macPicker.label": {
       "extractionState": "manual",
       "localizations": {

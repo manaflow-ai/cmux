@@ -1,4 +1,5 @@
 #if canImport(UIKit) && DEBUG
+import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -143,6 +144,39 @@ public struct WorkspaceListLayoutPreviewView: View {
             terminals: [
                 MobileTerminalPreview(id: "terminal-notes", name: "Notes"),
             ]
+        ),
+    ]
+
+    static let previewPairedMacs: [MobilePairedMac] = [
+        MobilePairedMac(
+            macDeviceID: "preview-macbook-pro",
+            displayName: "MacBook Pro",
+            routes: [],
+            createdAt: Date(timeIntervalSince1970: 0),
+            lastSeenAt: Date(timeIntervalSince1970: 2),
+            isActive: true,
+            stackUserID: nil,
+            instanceTag: "nightly"
+        ),
+        MobilePairedMac(
+            macDeviceID: "preview-macbook-pro",
+            displayName: "MacBook Pro",
+            routes: [],
+            createdAt: Date(timeIntervalSince1970: 0),
+            lastSeenAt: Date(timeIntervalSince1970: 1),
+            isActive: false,
+            stackUserID: nil,
+            instanceTag: "stable"
+        ),
+        MobilePairedMac(
+            macDeviceID: "preview-studio",
+            displayName: "Studio Display Bench With A Very Long Name",
+            routes: [],
+            createdAt: Date(timeIntervalSince1970: 0),
+            lastSeenAt: Date(timeIntervalSince1970: 0),
+            isActive: false,
+            stackUserID: nil,
+            instanceTag: "stable"
         ),
     ]
 
@@ -342,4 +376,14 @@ public struct WorkspaceListLayoutPreviewView: View {
         }
     }
 }
+
+/// Pairing rows for the store-free workspace-list fixture. Lives in this
+/// DEBUG-only file so the production view exposes no fixture storage; the
+/// picker reads it only when `UITestConfig.workspaceListLayoutPreviewEnabled`.
+enum WorkspaceListLayoutPreviewFixture {
+    static var displayPairedMacs: [MobilePairedMac] {
+        WorkspaceListLayoutPreviewView.previewPairedMacs
+    }
+}
+
 #endif
