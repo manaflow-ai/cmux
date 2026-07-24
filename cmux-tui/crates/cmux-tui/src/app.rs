@@ -32,8 +32,8 @@ use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use ghostty_vt::{
-    KeyEncoder, Mods, MouseAction, MouseButton as GhosttyMouseButton, MouseInput, RenderState,
-    Screen,
+    KeyEncoder, KeyInput, Mods, MouseAction, MouseButton as GhosttyMouseButton, MouseInput,
+    RenderState, Screen,
 };
 use ratatui::Terminal as RatatuiTerminal;
 use ratatui::backend::CrosstermBackend;
@@ -1941,13 +1941,13 @@ impl OrderedSession {
         );
     }
 
-    pub fn clear_history_or_send(&self, surface: SurfaceId, fallback: Vec<u8>) {
+    pub fn clear_history_or_send_key(&self, surface: SurfaceId, fallback_key: KeyInput) {
         let session = self.inner.clone();
         self.operations.enqueue_surface_operation(
             "clear terminal history",
             surface,
             self.remote,
-            move || session.clear_history_or_send(surface, &fallback),
+            move || session.clear_history_or_send_key(surface, &fallback_key),
         );
     }
 
@@ -8149,19 +8149,10 @@ impl App {
         let Some(surface) = self.session.surface(surface_id) else {
             return RenderAction::None;
         };
-        self.encode_buf.clear();
         let _ = surface.scroll_to_bottom();
-        let Some(encoded) = surface.with_terminal(|term| {
-            self.encoder.sync_from_terminal(term);
-            self.encoder.encode(&key_input, &mut self.encode_buf)
-        }) else {
-            return RenderAction::None;
-        };
-        if encoded.is_ok() {
-            self.session.clear_history_or_send(surface_id, self.encode_buf.clone());
-            self.render_states.remove(&surface_id);
-            self.selection = None;
-        }
+        self.session.clear_history_or_send_key(surface_id, key_input);
+        self.render_states.remove(&surface_id);
+        self.selection = None;
         if self.status_message.is_some() { RenderAction::Draw } else { RenderAction::None }
     }
 

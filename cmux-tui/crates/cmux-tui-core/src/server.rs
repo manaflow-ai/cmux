@@ -29,7 +29,8 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use ghostty_vt::{
-    Dirty, KeyEncoder, StyledRun, UnderlineStyle, key_input_from_chord, rows_to_runs,
+    Dirty, KeyAction, KeyEncoder, KeyInput, Mods, StyledRun, UnderlineStyle, key_input_from_chord,
+    rows_to_runs,
 };
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -55,12 +56,70 @@ use crate::{
 const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
 pub const CLEAR_HISTORY_CAPABILITY: &str = "clear-history-v1";
+pub const CLEAR_HISTORY_KEY_CAPABILITY: &str = "clear-history-key-v1";
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
     "provider-managed-workspace-authority-v2";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
 pub const PROTOCOL_VERSION: u32 = STACK_LAYOUT_PROTOCOL_VERSION;
+
+/// Lossless key input carried over the control protocol for authoritative
+/// terminal-mode encoding.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ProtocolKeyInput {
+    key: u32,
+    mods: u16,
+    consumed_mods: u16,
+    utf8: String,
+    unshifted_codepoint: u32,
+    action: Option<ProtocolKeyAction>,
+    macos_option_as_alt: bool,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum ProtocolKeyAction {
+    Press,
+    Release,
+    Repeat,
+}
+
+impl From<&KeyInput> for ProtocolKeyInput {
+    fn from(input: &KeyInput) -> Self {
+        Self {
+            key: input.key,
+            mods: input.mods.0,
+            consumed_mods: input.consumed_mods.0,
+            utf8: input.utf8.clone(),
+            unshifted_codepoint: input.unshifted_codepoint,
+            action: input.action.map(|action| match action {
+                KeyAction::Press => ProtocolKeyAction::Press,
+                KeyAction::Release => ProtocolKeyAction::Release,
+                KeyAction::Repeat => ProtocolKeyAction::Repeat,
+            }),
+            macos_option_as_alt: input.macos_option_as_alt,
+        }
+    }
+}
+
+impl From<ProtocolKeyInput> for KeyInput {
+    fn from(input: ProtocolKeyInput) -> Self {
+        Self {
+            key: input.key,
+            mods: Mods(input.mods),
+            consumed_mods: Mods(input.consumed_mods),
+            utf8: input.utf8,
+            unshifted_codepoint: input.unshifted_codepoint,
+            action: input.action.map(|action| match action {
+                ProtocolKeyAction::Press => KeyAction::Press,
+                ProtocolKeyAction::Release => KeyAction::Release,
+                ProtocolKeyAction::Repeat => KeyAction::Repeat,
+            }),
+            macos_option_as_alt: input.macos_option_as_alt,
+        }
+    }
+}
 
 /// Default socket path for a session.
 pub fn default_socket_path(session: &str) -> PathBuf {
@@ -136,10 +195,10 @@ enum Command {
     },
     ClearHistory {
         surface: SurfaceId,
-        /// Base64-encoded key bytes to send when the authoritative terminal
-        /// is in the alternate screen.
+        /// Structured key input encoded using the authoritative terminal
+        /// modes when the surface is in the alternate screen.
         #[serde(default)]
-        fallback: Option<String>,
+        fallback_key: Option<ProtocolKeyInput>,
     },
     ReadScrollback {
         surface: SurfaceId,
@@ -2762,6 +2821,7 @@ fn handle_command(
                 ATTACH_INITIAL_SIZE_CAPABILITY,
                 WORKSPACE_REGISTRY_CAPABILITY,
                 CLEAR_HISTORY_CAPABILITY,
+                CLEAR_HISTORY_KEY_CAPABILITY,
                 PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY
             ],
             "session": mux.session,
@@ -2877,13 +2937,11 @@ fn handle_command(
             let text = surface.try_with_terminal(|t| t.viewport_text())??;
             Ok(json!({ "text": text }))
         }
-        Command::ClearHistory { surface, fallback } => {
+        Command::ClearHistory { surface, fallback_key } => {
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
-            let fallback = fallback
-                .map(|bytes| base64::engine::general_purpose::STANDARD.decode(bytes))
-                .transpose()?;
-            surface.clear_history_or_write(fallback.as_deref())?;
+            let fallback_key = fallback_key.map(KeyInput::from);
+            surface.clear_history_or_encode_key(fallback_key.as_ref())?;
             Ok(json!({}))
         }
         Command::ReadScrollback { surface, start, count } => {
@@ -5659,10 +5717,36 @@ mod tests {
             "attach-initial-size",
             "workspace-registry-v1",
             CLEAR_HISTORY_CAPABILITY,
+            CLEAR_HISTORY_KEY_CAPABILITY,
             PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
         ] {
             assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
         }
+    }
+
+    #[test]
+    fn protocol_key_input_round_trips_encoder_metadata() {
+        let input = KeyInput {
+            key: ghostty_vt::sys::GHOSTTY_KEY_NUMPAD_ENTER,
+            mods: Mods::CTRL | Mods::CAPS_LOCK | Mods::NUM_LOCK,
+            consumed_mods: Mods::SHIFT,
+            utf8: "ß".to_string(),
+            unshifted_codepoint: 's' as u32,
+            action: Some(KeyAction::Repeat),
+            macos_option_as_alt: false,
+        };
+
+        let value = serde_json::to_value(ProtocolKeyInput::from(&input)).unwrap();
+        let decoded = serde_json::from_value::<ProtocolKeyInput>(value).unwrap();
+        let decoded = KeyInput::from(decoded);
+
+        assert_eq!(decoded.key, input.key);
+        assert_eq!(decoded.mods, input.mods);
+        assert_eq!(decoded.consumed_mods, input.consumed_mods);
+        assert_eq!(decoded.utf8, input.utf8);
+        assert_eq!(decoded.unshifted_codepoint, input.unshifted_codepoint);
+        assert_eq!(decoded.action, input.action);
+        assert_eq!(decoded.macos_option_as_alt, input.macos_option_as_alt);
     }
 
     #[test]

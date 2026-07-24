@@ -16,8 +16,8 @@ use std::sync::{Arc, Mutex, TryLockError, Weak};
 use std::time::{Duration, Instant};
 
 use ghostty_vt::{
-    Callbacks, CursorShape, MouseEncoders, MouseInput, RenderFrame, RenderState, Rgb, Screen,
-    Terminal,
+    Callbacks, CursorShape, KeyEncoder, KeyInput, MouseEncoders, MouseInput, RenderFrame,
+    RenderState, Rgb, Screen, Terminal,
 };
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
@@ -980,13 +980,17 @@ impl Surface {
     /// are sent to the child. Attached byte frontends receive the same VT erase
     /// sequence. Alternate-screen applications are left untouched.
     pub fn clear_history(&self) -> anyhow::Result<()> {
-        self.clear_history_or_write(None)
+        self.clear_history_or_encode_key(None)
     }
 
-    /// Clear primary-screen history, or write `fallback` when the
+    /// Clear primary-screen history, or encode `fallback_key` when the
     /// authoritative terminal is in the alternate screen. The screen
-    /// decision and fallback write share the terminal and PTY writer locks.
-    pub fn clear_history_or_write(&self, fallback: Option<&[u8]>) -> anyhow::Result<()> {
+    /// decision, keyboard-mode snapshot, encoding, and write share the
+    /// terminal and PTY writer locks.
+    pub fn clear_history_or_encode_key(
+        &self,
+        fallback_key: Option<&KeyInput>,
+    ) -> anyhow::Result<()> {
         const CLEAR_PROMPT_HISTORY_AND_SCREEN: &[u8] = b"\x1b[2J\x1b[3J\x1b[H";
         const CLEAR_SCROLLBACK: &[u8] = b"\x1b[3J";
         const REDRAW_PROMPT: &[u8] = b"\x0c";
@@ -998,12 +1002,18 @@ impl Surface {
         let (scroll_changed, redraw_prompt) = {
             let mut term = pty.term.lock().unwrap();
             if term.active_screen() == Screen::Alternate {
-                return match fallback {
-                    Some(bytes) if !bytes.is_empty() => {
-                        writer.write_all(bytes).and_then(|()| writer.flush()).map_err(Into::into)
-                    }
-                    _ => Ok(()),
-                };
+                let Some(input) = fallback_key else { return Ok(()) };
+                let mut encoder = KeyEncoder::new()?;
+                let mut encoded = Vec::new();
+                encoder.sync_from_terminal(&term);
+                encoder.encode(input, &mut encoded)?;
+                if encoded.is_empty() {
+                    return Ok(());
+                }
+                let submission = pty.begin_prompt_submission(&encoded);
+                let result = writer.write_all(&encoded).and_then(|()| writer.flush());
+                pty.finish_prompt_submission(submission, result.is_ok());
+                return result.map_err(Into::into);
             }
             let prompt_metadata_ready = pty.prompt_metadata_ready(&term);
             let redraw_prompt = prompt_metadata_ready && term.cursor_is_at_prompt();
@@ -1984,6 +1994,27 @@ mod tests {
         assert_eq!(mirror.history_rows(), 0);
         assert_eq!(mirror.viewport_text().unwrap(), mirror_before);
         assert!(events.try_iter().any(|event| matches!(event, MuxEvent::SurfaceOutput(1))));
+    }
+
+    #[test]
+    fn clear_history_encodes_fallback_from_authoritative_keyboard_modes() {
+        let mux = Mux::new_for_test("clear-history-key-mode", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let writer = CapturingWriter::default();
+        *surface.as_pty().unwrap().writer.lock().unwrap() = Box::new(writer.clone());
+        surface.with_terminal(|term| term.vt_write(b"\x1b[?1049h\x1b[>1u"));
+        let input = KeyInput {
+            key: ghostty_vt::sys::GHOSTTY_KEY_K,
+            mods: ghostty_vt::Mods::SUPER,
+            unshifted_codepoint: 'k' as u32,
+            action: Some(ghostty_vt::KeyAction::Press),
+            ..Default::default()
+        };
+
+        surface.clear_history_or_encode_key(Some(&input)).unwrap();
+
+        assert_eq!(&*writer.0.lock().unwrap(), b"\x1b[107;9u");
     }
 
     #[test]

@@ -15,10 +15,12 @@ use base64::Engine;
 use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, DefaultColors, MuxEvent, MuxEventBroadcaster,
     MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge, Rgb, SurfaceId,
-    SurfaceKind, platform::transport, server::CLEAR_HISTORY_CAPABILITY,
+    SurfaceKind,
+    platform::transport,
+    server::{CLEAR_HISTORY_CAPABILITY, CLEAR_HISTORY_KEY_CAPABILITY, ProtocolKeyInput},
 };
 use cmux_tui_machine_protocol::BearerToken;
-use ghostty_vt::{Callbacks, MouseEncoders, MouseInput, RenderState, Terminal};
+use ghostty_vt::{Callbacks, KeyInput, MouseEncoders, MouseInput, RenderState, Terminal};
 use serde_json::{Value, json};
 use zeroize::Zeroize;
 
@@ -1068,15 +1070,23 @@ impl RemoteSession {
         self.clear_history_request(surface, None)
     }
 
-    pub fn clear_history_or_send(&self, surface: SurfaceId, fallback: &[u8]) -> anyhow::Result<()> {
-        let fallback = base64::engine::general_purpose::STANDARD.encode(fallback);
-        self.clear_history_request(surface, Some(fallback))
+    pub fn clear_history_or_send_key(
+        &self,
+        surface: SurfaceId,
+        fallback_key: &KeyInput,
+    ) -> anyhow::Result<()> {
+        require_capability(
+            &self.capabilities.lock().unwrap(),
+            CLEAR_HISTORY_KEY_CAPABILITY,
+            "clear-history",
+        )?;
+        self.clear_history_request(surface, Some(ProtocolKeyInput::from(fallback_key)))
     }
 
     fn clear_history_request(
         &self,
         surface: SurfaceId,
-        fallback: Option<String>,
+        fallback_key: Option<ProtocolKeyInput>,
     ) -> anyhow::Result<()> {
         require_capability(
             &self.capabilities.lock().unwrap(),
@@ -1086,7 +1096,7 @@ impl RemoteSession {
         self.request(json!({
             "cmd": "clear-history",
             "surface": surface,
-            "fallback": fallback,
+            "fallback_key": fallback_key,
         }))
         .map(|_| ())
     }
@@ -1553,6 +1563,15 @@ mod tests {
             "capabilities": ["clear-history-v1"]
         }));
         require_capability(&with, CLEAR_HISTORY_CAPABILITY, "clear-history").unwrap();
+        let error =
+            require_capability(&with, CLEAR_HISTORY_KEY_CAPABILITY, "clear-history").unwrap_err();
+        assert_eq!(error.to_string(), CLEAR_HISTORY_UNSUPPORTED_ERROR);
+
+        let with_key_fallback = identity_capabilities(&json!({
+            "capabilities": ["clear-history-v1", "clear-history-key-v1"]
+        }));
+        require_capability(&with_key_fallback, CLEAR_HISTORY_KEY_CAPABILITY, "clear-history")
+            .unwrap();
     }
 
     #[test]

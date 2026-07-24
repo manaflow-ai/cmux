@@ -19,7 +19,7 @@ use cmux_tui_core::{
     SidebarPluginStatus, SplitDir, SplitId, Surface, SurfaceId, SurfaceKind, SurfaceRenderFrame,
     SurfaceResizeReporter, WorkspaceId, ZoomMode,
 };
-use ghostty_vt::{MouseInput, RenderState, Terminal};
+use ghostty_vt::{KeyInput, MouseInput, RenderState, Terminal};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -756,13 +756,17 @@ impl Session {
         }
     }
 
-    pub fn clear_history_or_send(&self, surface: SurfaceId, fallback: &[u8]) -> anyhow::Result<()> {
+    pub fn clear_history_or_send_key(
+        &self,
+        surface: SurfaceId,
+        fallback_key: &KeyInput,
+    ) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => mux
                 .surface(surface)
                 .ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?
-                .clear_history_or_write(Some(fallback)),
-            Session::Remote(remote) => remote.clear_history_or_send(surface, fallback),
+                .clear_history_or_encode_key(Some(fallback_key)),
+            Session::Remote(remote) => remote.clear_history_or_send_key(surface, fallback_key),
         }
     }
 
