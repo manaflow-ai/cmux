@@ -30,8 +30,6 @@ public final class MobileDisplaySettings {
     private static let taskComposerEnabledKey = "cmux.mobile.taskComposerEnabled"
     private static let workspacePreviewLineCountKey = "cmux.mobile.workspacePreviewLineCount"
     private static let unreadIndicatorLeftShiftKey = "cmux.mobile.debug.unreadIndicatorLeftShift.v2"
-    private static let profilePictureLeftShiftKey = "cmux.mobile.debug.profilePictureLeftShift"
-    private static let profilePictureSizeKey = "cmux.mobile.debug.profilePictureSize"
     #if DEBUG
     private static let taskComposerShellIconVariantKey = "cmux.mobile.debug.taskComposerShellIconVariant.v1"
     #endif
@@ -43,15 +41,9 @@ public final class MobileDisplaySettings {
     public static let defaultWorkspacePreviewLineCount = 2
     /// Debug slider range for moving the unread dot left, in points.
     public static let unreadIndicatorLeftShiftRange: ClosedRange<Double> = 0...24
-    /// Debug slider range for moving the workspace profile picture left, in points.
-    public static let profilePictureLeftShiftRange: ClosedRange<Double> = 0...24
-    /// Debug slider range for the workspace profile picture size, in points.
-    public static let profilePictureSizeRange: ClosedRange<Double> = 36...64
     /// With the workspace list's 12pt leading row inset, 10pt unread gutter, and
     /// 11pt unread dot, this places the dot's leading edge 10pt from the screen.
     public static let defaultUnreadIndicatorLeftShift = 1.5
-    public static let defaultProfilePictureLeftShift = 4.0
-    public static let defaultProfilePictureSize = 45.0
 
     /// Whether workspace-list row titles wrap onto multiple lines instead of
     /// truncating to a single line. Defaults to `false` (single-line). Mutating
@@ -130,25 +122,6 @@ public final class MobileDisplaySettings {
         }
     }
 
-    /// DEBUG-only layout tuning value, exposed in Settings > Developer. Positive
-    /// values move the workspace profile picture left without changing text layout.
-    public var profilePictureLeftShift: Double {
-        didSet {
-            let clamped = Self.clamped(profilePictureLeftShift, to: Self.profilePictureLeftShiftRange)
-            if clamped != profilePictureLeftShift { profilePictureLeftShift = clamped }
-            defaults.set(clamped, forKey: Self.profilePictureLeftShiftKey)
-        }
-    }
-
-    /// DEBUG-only layout tuning value, exposed in Settings > Developer.
-    public var profilePictureSize: Double {
-        didSet {
-            let clamped = Self.clamped(profilePictureSize, to: Self.profilePictureSizeRange)
-            if clamped != profilePictureSize { profilePictureSize = clamped }
-            defaults.set(clamped, forKey: Self.profilePictureSizeKey)
-        }
-    }
-
     #if DEBUG
     /// Persisted selection for the debug-only Shell icon lab.
     var taskComposerShellIconVariant: TaskComposerShellIconVariant {
@@ -189,16 +162,6 @@ public final class MobileDisplaySettings {
         self.unreadIndicatorLeftShift = Self.clamped(
             storedUnreadLeftShift ?? Self.defaultUnreadIndicatorLeftShift,
             to: Self.unreadIndicatorLeftShiftRange
-        )
-        let storedProfileLeftShift = defaults.object(forKey: Self.profilePictureLeftShiftKey) as? Double
-        self.profilePictureLeftShift = Self.clamped(
-            storedProfileLeftShift ?? Self.defaultProfilePictureLeftShift,
-            to: Self.profilePictureLeftShiftRange
-        )
-        let storedProfilePictureSize = defaults.object(forKey: Self.profilePictureSizeKey) as? Double
-        self.profilePictureSize = Self.clamped(
-            storedProfilePictureSize ?? Self.defaultProfilePictureSize,
-            to: Self.profilePictureSizeRange
         )
         #if DEBUG
         self.taskComposerShellIconVariant = defaults.string(

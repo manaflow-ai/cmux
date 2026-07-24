@@ -769,28 +769,40 @@ final class SessionPersistenceTests: XCTestCase {
             AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
                 isTerminatingApp: false,
                 didApplyStartupSessionRestore: false,
-                isApplyingSessionRestore: false
+                isApplyingSessionRestore: false,
+                isStartupSessionRestorePending: false
             )
         )
         XCTAssertFalse(
             AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
                 isTerminatingApp: true,
                 didApplyStartupSessionRestore: false,
-                isApplyingSessionRestore: false
+                isApplyingSessionRestore: false,
+                isStartupSessionRestorePending: false
             )
         )
         XCTAssertFalse(
             AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
                 isTerminatingApp: false,
                 didApplyStartupSessionRestore: true,
-                isApplyingSessionRestore: false
+                isApplyingSessionRestore: false,
+                isStartupSessionRestorePending: false
             )
         )
         XCTAssertFalse(
             AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
                 isTerminatingApp: false,
                 didApplyStartupSessionRestore: false,
-                isApplyingSessionRestore: true
+                isApplyingSessionRestore: true,
+                isStartupSessionRestorePending: false
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
+                isTerminatingApp: false,
+                didApplyStartupSessionRestore: false,
+                isApplyingSessionRestore: false,
+                isStartupSessionRestorePending: true
             )
         )
     }
@@ -816,12 +828,55 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
-    func testSessionAutosaveTickPolicySkipsWhenTerminating() {
+    func testStartupRestoreTransitionGatesEverySessionSave() {
         XCTAssertTrue(
-            AppDelegate.shouldRunSessionAutosaveTick(isTerminatingApp: false)
+            AppDelegate.shouldSkipSessionSaveDuringStartupTransition(
+                isStartupSessionRestorePending: true,
+                isApplyingSessionRestore: false,
+                includeScrollback: false
+            )
+        )
+        XCTAssertTrue(
+            AppDelegate.shouldSkipSessionSaveDuringStartupTransition(
+                isStartupSessionRestorePending: true,
+                isApplyingSessionRestore: false,
+                includeScrollback: true
+            )
+        )
+        XCTAssertTrue(
+            AppDelegate.shouldSkipSessionSaveDuringStartupTransition(
+                isStartupSessionRestorePending: false,
+                isApplyingSessionRestore: true,
+                includeScrollback: false
+            )
         )
         XCTAssertFalse(
-            AppDelegate.shouldRunSessionAutosaveTick(isTerminatingApp: true)
+            AppDelegate.shouldSkipSessionSaveDuringStartupTransition(
+                isStartupSessionRestorePending: false,
+                isApplyingSessionRestore: false,
+                includeScrollback: false
+            )
+        )
+    }
+
+    func testSessionAutosaveTickPolicySkipsWhenTerminatingOrStartupRestorePending() {
+        XCTAssertTrue(
+            AppDelegate.shouldRunSessionAutosaveTick(
+                isTerminatingApp: false,
+                isStartupSessionRestorePending: false
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldRunSessionAutosaveTick(
+                isTerminatingApp: true,
+                isStartupSessionRestorePending: false
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldRunSessionAutosaveTick(
+                isTerminatingApp: false,
+                isStartupSessionRestorePending: true
+            )
         )
     }
 
