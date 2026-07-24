@@ -13862,6 +13862,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        let matchesResizeSplitLeft = matchConfiguredDirectionalShortcut(
+            event: event,
+            action: .resizeSplitLeft,
+            arrowGlyph: "←",
+            arrowKeyCode: 123
+        )
+        let matchesResizeSplitRight = matchConfiguredDirectionalShortcut(
+            event: event,
+            action: .resizeSplitRight,
+            arrowGlyph: "→",
+            arrowKeyCode: 124
+        )
+        let matchesResizeSplitUp = matchConfiguredDirectionalShortcut(
+            event: event,
+            action: .resizeSplitUp,
+            arrowGlyph: "↑",
+            arrowKeyCode: 126
+        )
+        let matchesResizeSplitDown = matchConfiguredDirectionalShortcut(
+            event: event,
+            action: .resizeSplitDown,
+            arrowGlyph: "↓",
+            arrowKeyCode: 125
+        )
+
         // Pane focus navigation (defaults to Cmd+Option+Arrow, but can be customized to letter/number keys).
         let shouldMatchGhosttyGotoSplitFallback = activeConfiguredShortcutChordPrefixForCurrentEvent == nil
         if matchConfiguredDirectionalShortcut(
@@ -13871,6 +13896,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             arrowKeyCode: 123
         ) || (
             shouldMatchGhosttyGotoSplitFallback &&
+                !matchesResizeSplitLeft &&
                 matchesGhosttyGotoSplitShortcut(event: event, direction: .left)
         ) {
             if performFocusedDockShortcut(.focusPane(.left), event: event) { return true }
@@ -13889,6 +13915,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             arrowKeyCode: 124
         ) || (
             shouldMatchGhosttyGotoSplitFallback &&
+                !matchesResizeSplitRight &&
                 matchesGhosttyGotoSplitShortcut(event: event, direction: .right)
         ) {
             if performFocusedDockShortcut(.focusPane(.right), event: event) { return true }
@@ -13907,6 +13934,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             arrowKeyCode: 126
         ) || (
             shouldMatchGhosttyGotoSplitFallback &&
+                !matchesResizeSplitUp &&
                 matchesGhosttyGotoSplitShortcut(event: event, direction: .up)
         ) {
             if performFocusedDockShortcut(.focusPane(.up), event: event) { return true }
@@ -13925,6 +13953,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             arrowKeyCode: 125
         ) || (
             shouldMatchGhosttyGotoSplitFallback &&
+                !matchesResizeSplitDown &&
                 matchesGhosttyGotoSplitShortcut(event: event, direction: .down)
         ) {
             if performFocusedDockShortcut(.focusPane(.down), event: event) { return true }
@@ -13937,12 +13966,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredDirectionalShortcut(
-            event: event,
-            action: .resizeSplitLeft,
-            arrowGlyph: "←",
-            arrowKeyCode: 123
-        ) {
+        if matchesResizeSplitLeft {
             _ = performResizeSplitShortcut(
                 direction: .left,
                 preferredWindow: event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
@@ -13950,12 +13974,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredDirectionalShortcut(
-            event: event,
-            action: .resizeSplitRight,
-            arrowGlyph: "→",
-            arrowKeyCode: 124
-        ) {
+        if matchesResizeSplitRight {
             _ = performResizeSplitShortcut(
                 direction: .right,
                 preferredWindow: event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
@@ -13963,12 +13982,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredDirectionalShortcut(
-            event: event,
-            action: .resizeSplitUp,
-            arrowGlyph: "↑",
-            arrowKeyCode: 126
-        ) {
+        if matchesResizeSplitUp {
             _ = performResizeSplitShortcut(
                 direction: .up,
                 preferredWindow: event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
@@ -13976,12 +13990,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredDirectionalShortcut(
-            event: event,
-            action: .resizeSplitDown,
-            arrowGlyph: "↓",
-            arrowKeyCode: 125
-        ) {
+        if matchesResizeSplitDown {
             _ = performResizeSplitShortcut(
                 direction: .down,
                 preferredWindow: event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
