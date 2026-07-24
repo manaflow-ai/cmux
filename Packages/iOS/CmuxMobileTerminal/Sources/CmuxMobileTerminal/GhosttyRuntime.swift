@@ -265,11 +265,10 @@ public final class GhosttyRuntime {
 
         if action.tag == GHOSTTY_ACTION_RENDER {
             guard target.tag == GHOSTTY_TARGET_SURFACE,
-                  let surface = target.target.surface else { return false }
-            let surfaceBits = Int(bitPattern: surface)
-            Task { @MainActor in
-                guard let surface = ghostty_surface_t(bitPattern: surfaceBits) else { return }
-                GhosttySurfaceView.requestRender(for: surface)
+                  let surface = target.target.surface,
+                  let bridge = GhosttySurfaceBridge.fromOpaque(ghostty_surface_userdata(surface)) else { return false }
+            Task { @MainActor [bridge] in
+                bridge.surfaceView?.drawForWakeup()
             }
             return true
         }
