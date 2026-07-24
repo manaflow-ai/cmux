@@ -4487,6 +4487,22 @@ impl App {
                 RenderAction::None
             }
             MachineControllerCompletion::ReplacementSettled { action_id, committed, updates } => {
+                if !self
+                    .pending_machine_replacement
+                    .as_ref()
+                    .is_some_and(|pending| pending.action_id == action_id)
+                {
+                    self.status_message = Some(format!(
+                        "{}: {}",
+                        localization::catalog().sidebar.machine_action_failed,
+                        localization::catalog().sidebar.machine_replacement_stale
+                    ));
+                    return RenderAction::Draw;
+                }
+                let pending = self
+                    .pending_machine_replacement
+                    .take()
+                    .expect("matching pending replacement was checked");
                 self.machine_action_in_flight = false;
                 let reconnecting = self.take_machine_action_was_provider_reconnect();
                 let mut action = RenderAction::None;
@@ -4495,18 +4511,6 @@ impl App {
                         if reconnecting {
                             self.clear_machine_provider_reconnect();
                         }
-                        let Some(pending) = self
-                            .pending_machine_replacement
-                            .take()
-                            .filter(|pending| pending.action_id == action_id)
-                        else {
-                            self.status_message = Some(format!(
-                                "{}: {}",
-                                localization::catalog().sidebar.machine_action_failed,
-                                localization::catalog().sidebar.machine_replacement_stale
-                            ));
-                            return RenderAction::Draw;
-                        };
                         let PreparedMachineAction { ui, session_mutation, session_label, session } =
                             pending.action;
                         self.install_prepared_machine_session(session);
@@ -4520,13 +4524,13 @@ impl App {
                         }
                     }
                     Ok(false) => {
-                        self.pending_machine_replacement.take();
+                        drop(pending);
                         if reconnecting {
                             self.schedule_machine_provider_reconnect();
                         }
                     }
                     Err(error) => {
-                        self.pending_machine_replacement.take();
+                        drop(pending);
                         if reconnecting {
                             self.schedule_machine_provider_reconnect();
                         }
