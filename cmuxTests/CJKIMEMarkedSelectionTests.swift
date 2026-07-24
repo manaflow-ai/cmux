@@ -68,16 +68,15 @@ struct CJKIMEMarkedSelectionTests {
     @Test func keyDownThatStartsPreeditIsOwnedByTextInput() throws {
         let hostedTerminal = try makeHostedTerminalWindow()
         let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
-        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
+        let previousTextInputHandler = GhosttyNSView.debugTextInputEventHandler
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
-            cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputHandler
             hostedTerminal.window.orderOut(nil)
             withExtendedLifetime(hostedTerminal.surface) {}
         }
 
-        installCJKIMEInterpretKeyEventsSwizzle()
-        cjkIMEInterpretKeyEventsHook = { candidateView, _ in
+        GhosttyNSView.debugTextInputEventHandler = { candidateView, _ in
             guard candidateView === hostedTerminal.surfaceView else { return false }
             candidateView.setMarkedText(
                 "ㄓ",
@@ -131,16 +130,15 @@ struct CJKIMEMarkedSelectionTests {
     @Test func textInputConsumptionWithoutCallbacksDoesNotSynthesizeFallback() throws {
         let hostedTerminal = try makeHostedTerminalWindow()
         let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
-        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
+        let previousTextInputHandler = GhosttyNSView.debugTextInputEventHandler
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
-            cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputHandler
             hostedTerminal.window.orderOut(nil)
             withExtendedLifetime(hostedTerminal.surface) {}
         }
 
-        installCJKIMEInterpretKeyEventsSwizzle()
-        cjkIMEInterpretKeyEventsHook = { candidateView, _ in
+        GhosttyNSView.debugTextInputEventHandler = { candidateView, _ in
             candidateView === hostedTerminal.surfaceView
         }
 
@@ -172,10 +170,10 @@ struct CJKIMEMarkedSelectionTests {
     @Test func textInputCommandAfterPreeditCommitDoesNotReplayPhysicalKey() throws {
         let hostedTerminal = try makeHostedTerminalWindow()
         let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
-        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
+        let previousTextInputHandler = GhosttyNSView.debugTextInputEventHandler
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
-            cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputHandler
             hostedTerminal.window.orderOut(nil)
             withExtendedLifetime(hostedTerminal.surface) {}
         }
@@ -185,8 +183,7 @@ struct CJKIMEMarkedSelectionTests {
             selectedRange: NSRange(location: 7, length: 0),
             replacementRange: NSRange(location: NSNotFound, length: 0)
         )
-        installCJKIMEInterpretKeyEventsSwizzle()
-        cjkIMEInterpretKeyEventsHook = { candidateView, _ in
+        GhosttyNSView.debugTextInputEventHandler = { candidateView, _ in
             guard candidateView === hostedTerminal.surfaceView else { return false }
             candidateView.insertText(
                 "committed",
@@ -223,10 +220,10 @@ struct CJKIMEMarkedSelectionTests {
     @Test func committedPreeditTextPrecedesReplayedNavigationKey() throws {
         let hostedTerminal = try makeHostedTerminalWindow()
         let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
-        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
+        let previousTextInputHandler = GhosttyNSView.debugTextInputEventHandler
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
-            cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputHandler
             hostedTerminal.window.orderOut(nil)
             withExtendedLifetime(hostedTerminal.surface) {}
         }
@@ -236,8 +233,7 @@ struct CJKIMEMarkedSelectionTests {
             selectedRange: NSRange(location: 1, length: 0),
             replacementRange: NSRange(location: NSNotFound, length: 0)
         )
-        installCJKIMEInterpretKeyEventsSwizzle()
-        cjkIMEInterpretKeyEventsHook = { candidateView, _ in
+        GhosttyNSView.debugTextInputEventHandler = { candidateView, _ in
             guard candidateView === hostedTerminal.surfaceView else { return false }
             candidateView.insertText(
                 "한",

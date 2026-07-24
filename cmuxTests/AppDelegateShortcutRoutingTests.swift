@@ -6186,7 +6186,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
-    func testConfiguredOptionShortcutWinsBeforeTextInputRouting() throws {
+    func testPrintableOptionTextBypassesConfiguredShortcutRouting() throws {
 #if DEBUG
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -6228,16 +6228,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 return
             }
 
-            XCTAssertTrue(
+            XCTAssertFalse(
                 appDelegate.debugHandleCustomShortcut(event: event),
-                "An exact Option+Q binding should remain routable on layouts where Option+Q produces text"
+                "Option+Q that produces @ on Turkish Q should pass through as text input"
             )
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
             XCTAssertEqual(
                 manager.tabs.count,
-                workspaceCountBefore + 1,
-                "The registered cmux shortcut should win before unmatched Option input reaches AppKit"
+                workspaceCountBefore,
+                "Printable Option text should not trigger the remapped New Workspace shortcut"
             )
         }
 #else

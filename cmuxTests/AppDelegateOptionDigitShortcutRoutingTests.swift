@@ -159,6 +159,51 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
         }
     }
 
+    @Test
+    func configuredOptionTextShortcutBeatsUnmatchedOptionRouting() throws {
+        try withIsolatedShortcutRoutingState {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let testWindow = try #require(self.window(withId: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspaceCountBefore = manager.tabs.count
+            let optionQShortcut = StoredShortcut(
+                key: "q",
+                command: false,
+                shift: false,
+                option: true,
+                control: false
+            )
+
+            try withTemporaryShortcut(action: .newTab, shortcut: optionQShortcut) {
+                let event = try #require(NSEvent.keyEvent(
+                    with: .keyDown,
+                    location: .zero,
+                    modifierFlags: [.option],
+                    timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: testWindow.windowNumber,
+                    context: nil,
+                    characters: "@",
+                    charactersIgnoringModifiers: "q",
+                    isARepeat: false,
+                    keyCode: 12
+                ))
+
+                #expect(
+                    appDelegate.debugHandleCustomShortcut(event: event),
+                    "An exact Option+Q binding must route before unmatched Option text reaches AppKit"
+                )
+                RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+                #expect(
+                    manager.tabs.count == workspaceCountBefore + 1,
+                    "The configured cmux shortcut must win even when the layout gives Option+Q printable text"
+                )
+            }
+        }
+    }
+
     private func withIsolatedShortcutRoutingState(_ body: () throws -> Void) throws {
         let actionsWithPersistedShortcut = Set(
             KeyboardShortcutSettings.Action.allCases.filter {
