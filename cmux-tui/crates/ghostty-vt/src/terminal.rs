@@ -1903,7 +1903,16 @@ impl Terminal {
     /// did not set. This byte-only compatibility API discards Kitty number
     /// aliases.
     pub fn vt_replay_bounded_theme_portable(&mut self, max_bytes: usize) -> Result<Vec<u8>> {
-        Ok(self.vt_replay_bounded_with_palette(max_bytes, false)?.bytes)
+        Ok(self.vt_replay_bounded_theme_portable_with_aliases(max_bytes)?.bytes)
+    }
+
+    /// Theme-portable replay retaining aliases for the Kitty images admitted
+    /// by the bounded replay plan.
+    pub fn vt_replay_bounded_theme_portable_with_aliases(
+        &mut self,
+        max_bytes: usize,
+    ) -> Result<VtReplay> {
+        self.vt_replay_bounded_with_palette(max_bytes, false)
     }
 
     fn vt_replay_bounded_with_palette(
@@ -2812,8 +2821,8 @@ impl Drop for Terminal {
 #[cfg(test)]
 mod tests {
     use crate::kitty::{
-        KittyGraphicsSnapshot, KittyImage, KittyImageFormat, KittyPlacement, KittyPlacementAnchor,
-        KittyPlacementKey, KittyReplaySnapshot,
+        KittyGraphicsSnapshot, KittyImage, KittyImageAlias, KittyImageFormat, KittyPlacement,
+        KittyPlacementAnchor, KittyPlacementKey, KittyReplaySnapshot,
     };
 
     use super::{
@@ -2914,6 +2923,25 @@ mod tests {
         let full = source.vt_replay_bytes().unwrap();
         assert!(full.len() < 8 * 1024 * 1024);
         assert_eq!(source.vt_replay_bounded_bytes(8 * 1024 * 1024).unwrap(), full);
+    }
+
+    #[test]
+    fn theme_portable_replay_retains_aliases_for_admitted_kitty_images() {
+        let mut source = Terminal::new(20, 4, 100, Callbacks::default()).unwrap();
+        source.vt_write(b"\x1b_Ga=T,t=d,f=24,I=77,p=0,s=1,v=1,c=1,r=1,q=2;/wAA\x1b\\");
+        let image_id = source.kitty_graphics_snapshot().unwrap().images[0].id;
+
+        let replay = source.vt_replay_bounded_theme_portable_with_aliases(1024 * 1024).unwrap();
+        assert_eq!(
+            replay.kitty_image_aliases,
+            vec![KittyImageAlias { image_id, image_number: 77 }]
+        );
+
+        let mut target = Terminal::new(20, 4, 100, Callbacks::default()).unwrap();
+        target.vt_write(&replay.bytes);
+        target.restore_kitty_image_aliases(&replay.kitty_image_aliases).unwrap();
+        target.vt_write(b"\x1b_Ga=p,I=77,p=5,c=1,r=1,q=2;\x1b\\");
+        assert_eq!(target.kitty_graphics_snapshot().unwrap().placements[0].image_id, image_id);
     }
 
     #[test]

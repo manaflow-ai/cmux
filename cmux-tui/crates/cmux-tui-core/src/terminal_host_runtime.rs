@@ -7,7 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use ghostty_vt::{Rgb, TerminalColorOverrides};
+use ghostty_vt::{KittyImageAlias, Rgb, TerminalColorOverrides};
 use serde::{Deserialize, Serialize};
 
 use crate::surface::{DefaultColors, SurfaceOptions, replace_ghostty_cursor_defaults};
@@ -16,26 +16,36 @@ use crate::terminal_host::{
     HostHello, HostIncarnation, HostReady, TerminalId,
 };
 use crate::terminal_host_protocol::{
-    FLAG_COLORS_FOLLOW, FLAG_VIEWER_SIZE_ACKS, Frame, MAX_FRAME_PAYLOAD, MessageKind,
+    FLAG_COLORS_FOLLOW, FLAG_VIEWER_SIZE_ACKS, Frame, KITTY_IMAGE_ALIAS_COUNT_LEN,
+    KITTY_IMAGE_ALIAS_ENCODED_LEN, MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind,
     PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED, read_frame, write_frame,
 };
 
 const HOST_RECORD_VERSION: u32 = 2;
 const MAX_LAUNCH_PAYLOAD: usize = 1024 * 1024;
 const MAX_STRING: usize = 256 * 1024;
-const MAX_BLOB: usize = 8 * 1024 * 1024;
+const MAX_BLOB: usize = crate::surface::VT_REPLAY_MAX_BYTES;
 const MAX_ARGV: usize = 256;
 const MAX_ENV: usize = 1024;
 const MAX_RENDERER_CAPABILITY_TTL: std::time::Duration = std::time::Duration::from_secs(60);
 const CAPABILITY_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 const HOST_HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
-const MAX_HOST_CLIENT_QUEUED_BYTES: usize = 8 * 1024 * 1024;
+const MAX_HOST_CLIENT_QUEUED_BYTES: usize =
+    MAX_FRAME_PAYLOAD + MAX_TERMINAL_COLORS_PAYLOAD + 2 * crate::terminal_host_protocol::HEADER_LEN;
 const HOST_START_NONCE_LEN: usize = 32;
 const TERMINAL_DIMENSION_MAX: u16 = 10_000;
 const TERMINAL_CELL_AREA_MAX: u64 = 4_000_000;
 const TERMINAL_COLORS_WIRE_VERSION_V1: u16 = 1;
 pub const TERMINAL_COLORS_WIRE_VERSION: u16 = 2;
 pub const MAX_TERMINAL_COLORS_PAYLOAD: usize = 8 + 3 * 3 + 2 + 256 * 4;
+const _: () = assert!(
+    2 * size_of::<u16>()
+        + size_of::<u32>()
+        + crate::surface::VT_REPLAY_MAX_BYTES
+        + KITTY_IMAGE_ALIAS_COUNT_LEN
+        + MAX_KITTY_IMAGE_ALIASES * KITTY_IMAGE_ALIAS_ENCODED_LEN
+        <= MAX_FRAME_PAYLOAD
+);
 
 pub(crate) fn normalize_terminal_geometry(cols: u16, rows: u16) -> anyhow::Result<(u16, u16)> {
     let cols = cols.clamp(1, TERMINAL_DIMENSION_MAX);
@@ -103,6 +113,7 @@ pub struct HostSnapshot {
     pub cols: u16,
     pub rows: u16,
     pub replay: Vec<u8>,
+    pub kitty_image_aliases: Vec<KittyImageAlias>,
     /// Global live-stream sequence at the atomic Snapshot/Colors boundary.
     pub sequence_boundary: u64,
     /// Complete application-authored color state at `sequence_boundary`.
@@ -1617,29 +1628,33 @@ mod unix {
                     return Err(error.into());
                 }
             }
-            let replay =
-                match term.vt_replay_bounded_theme_portable(crate::surface::VT_REPLAY_MAX_BYTES) {
-                    Ok(replay) => replay,
-                    Err(error) => {
-                        if changed {
-                            let _ = term.resize(previous.0, previous.1, 8, 16);
-                            let _ = master.resize(PtySize {
-                                rows: previous.1,
-                                cols: previous.0,
-                                pixel_width: 0,
-                                pixel_height: 0,
-                            });
-                        }
-                        return Err(error.into());
+            let replay = match term
+                .vt_replay_bounded_theme_portable_with_aliases(crate::surface::VT_REPLAY_MAX_BYTES)
+            {
+                Ok(replay) => replay,
+                Err(error) => {
+                    if changed {
+                        let _ = term.resize(previous.0, previous.1, 8, 16);
+                        let _ = master.resize(PtySize {
+                            rows: previous.1,
+                            cols: previous.0,
+                            pixel_width: 0,
+                            pixel_height: 0,
+                        });
                     }
-                };
+                    return Err(error.into());
+                }
+            };
             let colors = term.color_overrides();
             if changed {
                 *size = (cols, rows);
             }
             // Keep the parser lock through sequence publication so output
             // parsed at the new size cannot overtake the Resized marker.
-            let mut resized = Frame::new(MessageKind::Resized, encode_resize(cols, rows, &replay));
+            let mut resized = Frame::new(
+                MessageKind::Resized,
+                encode_resize(cols, rows, &replay.bytes, &replay.kitty_image_aliases)?,
+            );
             resized.flags = FLAG_COLORS_FOLLOW;
             let targeted = targeted_ack.map(|(request_id, tap)| {
                 let mut frame =
@@ -2325,8 +2340,9 @@ mod unix {
             // initial snapshot an atomic member of size arbitration too.
             let mut viewer_sizes = host.viewer_sizes.lock().unwrap();
             let mut term = host.term.lock().unwrap();
-            let replay =
-                term.vt_replay_bounded_theme_portable(crate::surface::VT_REPLAY_MAX_BYTES)?;
+            let replay = term.vt_replay_bounded_theme_portable_with_aliases(
+                crate::surface::VT_REPLAY_MAX_BYTES,
+            )?;
             let colors = term.color_overrides();
             let (cols, rows) = (term.cols(), term.rows());
             let _broadcast = host.broadcast_lock.lock().unwrap();
@@ -2347,7 +2363,8 @@ mod unix {
                 HostSnapshot {
                     cols,
                     rows,
-                    replay,
+                    replay: replay.bytes,
+                    kitty_image_aliases: replay.kitty_image_aliases,
                     sequence_boundary: 0,
                     colors: colors.clone(),
                     pid: host.pid,
@@ -2563,6 +2580,10 @@ mod unix {
         for argument in &snapshot.command {
             put_string(&mut output, argument)?;
         }
+        encode_kitty_image_aliases(&mut output, &snapshot.kitty_image_aliases)?;
+        if output.len() > MAX_FRAME_PAYLOAD {
+            anyhow::bail!("terminal-host snapshot payload is too large");
+        }
         Ok(output)
     }
 
@@ -2583,11 +2604,13 @@ mod unix {
         for _ in 0..argc {
             command.push(decoder.string()?);
         }
+        let kitty_image_aliases = decode_kitty_image_aliases(&mut decoder)?;
         decoder.finish()?;
         Ok(HostSnapshot {
             cols,
             rows,
             replay,
+            kitty_image_aliases,
             sequence_boundary: 0,
             colors: TerminalColorOverrides::default(),
             pid,
@@ -2596,15 +2619,92 @@ mod unix {
         })
     }
 
-    fn encode_resize(cols: u16, rows: u16, replay: &[u8]) -> Vec<u8> {
-        let replay_len =
-            u32::try_from(replay.len()).expect("terminal-host resize replay exceeds u32");
-        let mut output = Vec::with_capacity(8 + replay.len());
+    fn validate_kitty_image_aliases(aliases: &[KittyImageAlias]) -> anyhow::Result<()> {
+        if aliases.len() > MAX_KITTY_IMAGE_ALIASES {
+            anyhow::bail!("terminal-host Kitty image alias count is too large");
+        }
+        let mut image_ids = HashSet::with_capacity(aliases.len());
+        let mut image_numbers = HashSet::with_capacity(aliases.len());
+        for alias in aliases {
+            if alias.image_id == 0 || alias.image_number == 0 {
+                anyhow::bail!("terminal-host Kitty image aliases must be nonzero");
+            }
+            if !image_ids.insert(alias.image_id) {
+                anyhow::bail!("duplicate terminal-host Kitty image alias ID");
+            }
+            if !image_numbers.insert(alias.image_number) {
+                anyhow::bail!("duplicate terminal-host Kitty image alias number");
+            }
+        }
+        Ok(())
+    }
+
+    fn encode_kitty_image_aliases(
+        output: &mut Vec<u8>,
+        aliases: &[KittyImageAlias],
+    ) -> anyhow::Result<()> {
+        validate_kitty_image_aliases(aliases)?;
+        output.extend_from_slice(&(aliases.len() as u16).to_le_bytes());
+        for alias in aliases {
+            output.extend_from_slice(&alias.image_id.to_le_bytes());
+            output.extend_from_slice(&alias.image_number.to_le_bytes());
+        }
+        Ok(())
+    }
+
+    fn decode_kitty_image_aliases(
+        decoder: &mut PayloadDecoder<'_>,
+    ) -> anyhow::Result<Vec<KittyImageAlias>> {
+        let count = decoder.u16()? as usize;
+        if count > MAX_KITTY_IMAGE_ALIASES {
+            anyhow::bail!("terminal-host Kitty image alias count is too large");
+        }
+        let mut aliases = Vec::with_capacity(count);
+        for _ in 0..count {
+            aliases
+                .push(KittyImageAlias { image_id: decoder.u32()?, image_number: decoder.u32()? });
+        }
+        validate_kitty_image_aliases(&aliases)?;
+        Ok(aliases)
+    }
+
+    fn encode_resize(
+        cols: u16,
+        rows: u16,
+        replay: &[u8],
+        kitty_image_aliases: &[KittyImageAlias],
+    ) -> anyhow::Result<Vec<u8>> {
+        let (cols, rows) = normalize_terminal_geometry(cols, rows)?;
+        if replay.len() > crate::surface::VT_REPLAY_MAX_BYTES {
+            anyhow::bail!("terminal-host resize replay is too large");
+        }
+        let replay_len = u32::try_from(replay.len())
+            .map_err(|_| anyhow::anyhow!("terminal-host resize replay exceeds u32"))?;
+        let mut output = Vec::with_capacity(
+            8 + replay.len()
+                + KITTY_IMAGE_ALIAS_COUNT_LEN
+                + kitty_image_aliases.len() * KITTY_IMAGE_ALIAS_ENCODED_LEN,
+        );
         output.extend_from_slice(&cols.to_le_bytes());
         output.extend_from_slice(&rows.to_le_bytes());
         output.extend_from_slice(&replay_len.to_le_bytes());
         output.extend_from_slice(replay);
-        output
+        encode_kitty_image_aliases(&mut output, kitty_image_aliases)?;
+        if output.len() > MAX_FRAME_PAYLOAD {
+            anyhow::bail!("terminal-host resize payload is too large");
+        }
+        Ok(output)
+    }
+
+    pub(crate) fn decode_host_resize_payload(
+        payload: &[u8],
+    ) -> anyhow::Result<(u16, u16, Vec<u8>, Vec<KittyImageAlias>)> {
+        let mut decoder = PayloadDecoder::new(payload);
+        let (cols, rows) = normalize_terminal_geometry(decoder.u16()?, decoder.u16()?)?;
+        let replay = decoder.bytes_with_limit(crate::surface::VT_REPLAY_MAX_BYTES)?.to_vec();
+        let kitty_image_aliases = decode_kitty_image_aliases(&mut decoder)?;
+        decoder.finish()?;
+        Ok((cols, rows, replay, kitty_image_aliases))
     }
 
     fn encode_resize_ack(cols: u16, rows: u16, canonical_changed: bool) -> Vec<u8> {
@@ -2874,8 +2974,8 @@ mod unix {
         #[test]
         fn resized_payload_is_length_prefixed_for_cross_language_clients() {
             assert_eq!(
-                encode_resize(0x0123, 0x4567, &[0xaa, 0xbb, 0xcc]),
-                vec![0x23, 0x01, 0x67, 0x45, 3, 0, 0, 0, 0xaa, 0xbb, 0xcc]
+                encode_resize(0x0123, 0x0456, &[0xaa, 0xbb, 0xcc], &[]).unwrap(),
+                vec![0x23, 0x01, 0x56, 0x04, 3, 0, 0, 0, 0xaa, 0xbb, 0xcc, 0, 0]
             );
         }
 
@@ -2885,24 +2985,56 @@ mod unix {
                 cols: 80,
                 rows: 24,
                 replay: b"theme-portable replay".to_vec(),
+                kitty_image_aliases: vec![KittyImageAlias { image_id: 41, image_number: 77 }],
                 sequence_boundary: 0,
                 colors: TerminalColorOverrides::default(),
                 pid: Some(42),
                 command: vec!["/bin/cat".into()],
                 cwd: Some("/tmp".into()),
             };
-            let mut payload = encode_snapshot(&snapshot).unwrap();
-            payload.extend_from_slice(&1u16.to_le_bytes());
-            payload.extend_from_slice(&41u32.to_le_bytes());
-            payload.extend_from_slice(&77u32.to_le_bytes());
+            let payload = encode_snapshot(&snapshot).unwrap();
 
             let decoded =
                 decode_snapshot(&payload).expect("snapshot decoder must retain Kitty aliases");
+            assert_eq!(decoded.kitty_image_aliases, snapshot.kitty_image_aliases);
             assert_eq!(
                 encode_snapshot(&decoded).unwrap(),
                 payload,
                 "snapshot encode/decode dropped Kitty image-number aliases"
             );
+        }
+
+        #[test]
+        fn resize_alias_section_rejects_malformed_or_unbounded_data() {
+            let alias = KittyImageAlias { image_id: 41, image_number: 77 };
+            let valid = encode_resize(80, 24, b"replay", &[alias]).unwrap();
+            assert_eq!(
+                decode_host_resize_payload(&valid).unwrap(),
+                (80, 24, b"replay".to_vec(), vec![alias])
+            );
+
+            let alias_offset = 8 + b"replay".len();
+            let mut zero_id = valid.clone();
+            zero_id[alias_offset + 2..alias_offset + 6].fill(0);
+            assert!(decode_host_resize_payload(&zero_id).is_err());
+
+            let duplicate_aliases = [
+                KittyImageAlias { image_id: 41, image_number: 77 },
+                KittyImageAlias { image_id: 42, image_number: 77 },
+            ];
+            assert!(encode_resize(80, 24, b"replay", &duplicate_aliases).is_err());
+
+            let mut truncated = valid.clone();
+            truncated.pop();
+            assert!(decode_host_resize_payload(&truncated).is_err());
+
+            let mut trailing = valid.clone();
+            trailing.push(0);
+            assert!(decode_host_resize_payload(&trailing).is_err());
+
+            let mut excessive = vec![80, 0, 24, 0, 0, 0, 0, 0];
+            excessive.extend_from_slice(&((MAX_KITTY_IMAGE_ALIASES + 1) as u16).to_le_bytes());
+            assert!(decode_host_resize_payload(&excessive).is_err());
         }
 
         #[test]
@@ -3404,6 +3536,8 @@ mod unix {
     }
 }
 
+#[cfg(unix)]
+pub(crate) use unix::decode_host_resize_payload;
 #[cfg(unix)]
 pub use unix::{
     HostAttachment, adopt_terminal_host, isolate_terminal_host_process_fds, launch_terminal_host,

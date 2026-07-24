@@ -242,8 +242,17 @@ pub enum AttachFrame {
 #[derive(Debug)]
 enum HostedTransition {
     Output(Vec<u8>),
-    OutputWithColors { output: Vec<u8>, colors: TerminalColorOverrides },
-    ResizedWithColors { cols: u16, rows: u16, replay: Vec<u8>, colors: TerminalColorOverrides },
+    OutputWithColors {
+        output: Vec<u8>,
+        colors: TerminalColorOverrides,
+    },
+    ResizedWithColors {
+        cols: u16,
+        rows: u16,
+        replay: Vec<u8>,
+        kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
+        colors: TerminalColorOverrides,
+    },
     Metadata(MessageKind),
     Exit,
     ResyncRequired,
@@ -253,7 +262,12 @@ enum HostedTransition {
 #[derive(Debug)]
 enum PendingHostedTransition {
     Output(Vec<u8>),
-    Resized { cols: u16, rows: u16, replay: Vec<u8> },
+    Resized {
+        cols: u16,
+        rows: u16,
+        replay: Vec<u8>,
+        kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
+    },
 }
 
 #[cfg(unix)]
@@ -288,8 +302,14 @@ impl HostedFrameStager {
                 PendingHostedTransition::Output(output) => {
                     HostedTransition::OutputWithColors { output, colors }
                 }
-                PendingHostedTransition::Resized { cols, rows, replay } => {
-                    HostedTransition::ResizedWithColors { cols, rows, replay, colors }
+                PendingHostedTransition::Resized { cols, rows, replay, kitty_image_aliases } => {
+                    HostedTransition::ResizedWithColors {
+                        cols,
+                        rows,
+                        replay,
+                        kitty_image_aliases,
+                        colors,
+                    }
                 }
             }));
         }
@@ -304,21 +324,17 @@ impl HostedFrameStager {
                 _ => Err("unknown Output flags"),
             },
             MessageKind::Resized => {
-                if frame.flags != FLAG_COLORS_FOLLOW
-                    || frame.payload.len() < 4
-                    || frame.payload.len() - 4 > VT_REPLAY_MAX_BYTES
-                {
+                if frame.flags != FLAG_COLORS_FOLLOW {
                     return Err("invalid Resized frame");
                 }
-                let (cols, rows) = crate::terminal_host_runtime::normalize_terminal_geometry(
-                    u16::from_le_bytes([frame.payload[0], frame.payload[1]]),
-                    u16::from_le_bytes([frame.payload[2], frame.payload[3]]),
-                )
-                .map_err(|_| "invalid Resized geometry")?;
+                let (cols, rows, replay, kitty_image_aliases) =
+                    crate::terminal_host_runtime::decode_host_resize_payload(&frame.payload)
+                        .map_err(|_| "invalid Resized payload")?;
                 self.pending = Some(PendingHostedTransition::Resized {
                     cols,
                     rows,
-                    replay: frame.payload[4..].to_vec(),
+                    replay,
+                    kitty_image_aliases,
                 });
                 Ok(None)
             }
@@ -1144,6 +1160,7 @@ impl Surface {
             replace_ghostty_cursor_defaults(&mut term, colors);
         }
         term.vt_write(&snapshot.replay);
+        term.restore_kitty_image_aliases(&snapshot.kitty_image_aliases)?;
         let initial_color_delta = terminal_color_override_full_state(&snapshot.colors);
         if !initial_color_delta.is_empty() {
             term.vt_write(&initial_color_delta);
@@ -1321,7 +1338,13 @@ impl Surface {
                                     });
                                 }
                             }
-                            HostedTransition::ResizedWithColors { cols, rows, replay, colors } => {
+                            HostedTransition::ResizedWithColors {
+                                cols,
+                                rows,
+                                replay,
+                                kitty_image_aliases,
+                                colors,
+                            } => {
                                 let mut geometry = pty.geometry.lock().unwrap();
                                 let next_geometry = PtyGeometry { cols, rows, ..*geometry };
                                 let defaults = mux
@@ -1357,6 +1380,12 @@ impl Surface {
                                 replacement.set_default_palette(&defaults.palette);
                                 replace_ghostty_cursor_defaults(&mut replacement, defaults);
                                 replacement.vt_write(&replay);
+                                if replacement
+                                    .restore_kitty_image_aliases(&kitty_image_aliases)
+                                    .is_err()
+                                {
+                                    break;
+                                }
                                 let delta = terminal_color_override_full_state(&colors);
                                 if !delta.is_empty() {
                                     replacement.vt_write(&delta);
@@ -1386,7 +1415,7 @@ impl Surface {
                                         cols,
                                         rows,
                                         replay,
-                                        kitty_image_aliases: Vec::new(),
+                                        kitty_image_aliases,
                                         colors: Box::new(
                                             pty.terminal_colors_locked(&term, defaults),
                                         ),
@@ -1589,6 +1618,13 @@ impl Surface {
                         replacement_term.set_default_palette(&defaults.palette);
                         replace_ghostty_cursor_defaults(&mut replacement_term, defaults);
                         replacement_term.vt_write(&replacement_snapshot.replay);
+                        if replacement_term
+                            .restore_kitty_image_aliases(&replacement_snapshot.kitty_image_aliases)
+                            .is_err()
+                        {
+                            std::thread::sleep(retry_delay);
+                            continue;
+                        }
                         let color_delta =
                             terminal_color_override_full_state(&replacement_snapshot.colors);
                         if !color_delta.is_empty() {
@@ -1609,7 +1645,7 @@ impl Surface {
                                 cols: replacement_snapshot.cols,
                                 rows: replacement_snapshot.rows,
                                 replay: replacement_snapshot.replay,
-                                kitty_image_aliases: Vec::new(),
+                                kitty_image_aliases: replacement_snapshot.kitty_image_aliases,
                                 colors: Box::new(pty.terminal_colors_locked(&term, defaults)),
                             });
                             pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
@@ -3520,7 +3556,9 @@ mod tests {
         let mut stager = HostedFrameStager::new(40);
         let mut resize = Frame::new(MessageKind::Resized, {
             let mut payload = Vec::from([101, 0, 37, 0]);
+            payload.extend_from_slice(&(b"authoritative replay".len() as u32).to_le_bytes());
             payload.extend_from_slice(b"authoritative replay");
+            payload.extend_from_slice(&0u16.to_le_bytes());
             payload
         });
         resize.flags = FLAG_COLORS_FOLLOW;
@@ -3541,9 +3579,16 @@ mod tests {
         );
         colors_frame.sequence = 42;
         match stager.push(colors_frame).unwrap().unwrap() {
-            HostedTransition::ResizedWithColors { cols, rows, replay, colors: received } => {
+            HostedTransition::ResizedWithColors {
+                cols,
+                rows,
+                replay,
+                kitty_image_aliases,
+                colors: received,
+            } => {
                 assert_eq!((cols, rows), (101, 37));
                 assert_eq!(replay, b"authoritative replay");
+                assert!(kitty_image_aliases.is_empty());
                 assert_eq!(received, colors);
             }
             other => panic!("unexpected staged transition: {other:?}"),
@@ -3591,10 +3636,16 @@ mod tests {
         );
         colors.sequence = 10;
         match stager.push(colors).unwrap().unwrap() {
-            HostedTransition::ResizedWithColors { replay: received, .. } => {
+            HostedTransition::ResizedWithColors {
+                replay: received, kitty_image_aliases, ..
+            } => {
                 assert_eq!(
                     received, replay,
                     "resize length and alias metadata leaked into VT replay bytes"
+                );
+                assert_eq!(
+                    kitty_image_aliases,
+                    vec![ghostty_vt::KittyImageAlias { image_id: 41, image_number: 77 }]
                 );
             }
             other => panic!("unexpected staged transition: {other:?}"),
@@ -3623,6 +3674,17 @@ mod tests {
         let mut exit = Frame::new(MessageKind::Exit, vec![]);
         exit.sequence = 2;
         assert!(stager.push(exit).is_err(), "a coupled frame requires Colors exactly next");
+
+        let mut stager = HostedFrameStager::new(0);
+        let mut malformed = Frame::new(MessageKind::Resized, {
+            let mut payload = vec![80, 0, 24, 0, 0, 0, 0, 0];
+            payload.extend_from_slice(&1u16.to_le_bytes());
+            payload.extend_from_slice(&41u32.to_le_bytes());
+            payload
+        });
+        malformed.flags = FLAG_COLORS_FOLLOW;
+        malformed.sequence = 1;
+        assert!(stager.push(malformed).is_err(), "truncated aliases must fail closed");
     }
 
     #[cfg(unix)]
