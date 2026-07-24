@@ -2,6 +2,7 @@ import Foundation
 
 extension Workspace {
     private nonisolated static let remoteRelayWorkspaceIDKeys: Set<String> = [
+        "CMUX_WORKSPACE_ID",
         "workspace_id",
         "preferred_workspace_id",
         "selected_workspace_id",
@@ -12,6 +13,7 @@ extension Workspace {
     ]
 
     private nonisolated static let remoteRelaySurfaceIDKeys: Set<String> = [
+        "CMUX_SURFACE_ID",
         "panel_id",
         "surface_id",
         "preferred_panel_id",
@@ -64,8 +66,7 @@ extension Workspace {
         surfaceAliases: [UUID: UUID],
         remoteWorkspaceID: UUID? = nil
     ) -> (commandLine: Data, method: String?) {
-        guard !workspaceAliases.isEmpty || !surfaceAliases.isEmpty || remoteWorkspaceID != nil,
-              let line = String(data: commandLine, encoding: .utf8) else {
+        guard let line = String(data: commandLine, encoding: .utf8) else {
             return (commandLine, nil)
         }
         let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -88,6 +89,11 @@ extension Workspace {
             if method == "surface.resume.set",
                let remoteWorkspaceID {
                 params["_cmux_remote_workspace_id"] = remoteWorkspaceID.uuidString
+                didRewrite = true
+            }
+            if method == "agent.hook.enqueue",
+               params["relay_backed"] as? Bool != true {
+                params["relay_backed"] = true
                 didRewrite = true
             }
             request["params"] = params

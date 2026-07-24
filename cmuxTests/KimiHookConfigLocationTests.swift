@@ -38,7 +38,7 @@ struct KimiHookConfigLocationTests {
         #expect(FileManager.default.fileExists(atPath: currentConfig.path), Comment(rawValue: result.output))
         #expect(!FileManager.default.fileExists(atPath: legacyConfig.path), Comment(rawValue: result.output))
         let installed = try String(contentsOf: currentConfig, encoding: .utf8)
-        #expect(installed.contains("hooks kimi stop"))
+        #expect(installed.contains("hooks enqueue kimi stop"))
         #expect(installed.contains(#"event = "Notification""#))
         #expect(!installed.contains(#"event = "PermissionRequest""#))
         #expect(!installed.contains(#"event = "Interrupt""#))
@@ -76,7 +76,7 @@ struct KimiHookConfigLocationTests {
         let installed = try String(contentsOf: currentConfig, encoding: .utf8)
         let migratedLegacy = try String(contentsOf: legacyConfig, encoding: .utf8)
         #expect(installed.contains(#"command = "vibe-island""#))
-        #expect(installed.contains("hooks kimi stop"))
+        #expect(installed.contains("hooks enqueue kimi stop"))
         #expect(migratedLegacy == legacyUserContent)
     }
 
@@ -105,7 +105,7 @@ struct KimiHookConfigLocationTests {
 
         #expect(!result.timedOut, Comment(rawValue: result.output))
         #expect(result.status == 0, Comment(rawValue: result.output))
-        #expect(try String(contentsOf: currentConfig, encoding: .utf8).contains("hooks kimi stop"))
+        #expect(try String(contentsOf: currentConfig, encoding: .utf8).contains("hooks enqueue kimi stop"))
         #expect(result.output.contains(legacyConfig.path))
     }
 
@@ -135,7 +135,7 @@ struct KimiHookConfigLocationTests {
         #expect(!result.timedOut, Comment(rawValue: result.output))
         #expect(result.status == 0, Comment(rawValue: result.output))
         let installed = try String(contentsOf: currentConfig, encoding: .utf8)
-        #expect(installed.contains("hooks kimi stop"), Comment(rawValue: result.output))
+        #expect(installed.contains("hooks enqueue kimi stop"), Comment(rawValue: result.output))
     }
 
     @Test("Declining setup previews and preserves both Kimi configs")

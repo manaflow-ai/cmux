@@ -7,6 +7,7 @@ struct InstalledHookEntry {
     let eventName: String
     let command: String
     let body: String
+    let timeout: Int?
 }
 
 struct CodexHookProcessRunResult {
@@ -42,7 +43,12 @@ func codexHookEntries(in codexHome: URL) throws -> [InstalledHookEntry] {
                 } else {
                     body = command
                 }
-                return InstalledHookEntry(eventName: eventName, command: command, body: body)
+                return InstalledHookEntry(
+                    eventName: eventName,
+                    command: command,
+                    body: body,
+                    timeout: hook["timeout"] as? Int
+                )
             }
     }
 }

@@ -21,6 +21,7 @@ import {
 
 // Pinned by tests/test-preload.ts before @/app/env loads.
 const WEBHOOK_SECRET = process.env.STRIPE_FOUNDERS_WEBHOOK_SECRET ?? "";
+const RESEND_API_KEY = process.env.RESEND_API_KEY ?? "";
 
 type SentEmail = {
   payload: {
@@ -40,6 +41,16 @@ const resendSend = mock(async (...args: unknown[]) => {
   });
   return { data: resendError ? null : { id: "email_1" }, error: resendError };
 });
+
+// bun:test module mocks are process-global. feedback-route.test.ts also mocks
+// @/app/env and can run first on Linux, so pin this route's own config before
+// importing it instead of inheriting another suite's partial env fixture.
+mock.module("@/app/env", () => ({
+  env: {
+    RESEND_API_KEY,
+    STRIPE_FOUNDERS_WEBHOOK_SECRET: WEBHOOK_SECRET,
+  },
+}));
 
 mock.module("resend", () => ({
   Resend: class MockResend {

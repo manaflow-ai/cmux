@@ -17,7 +17,7 @@ function sendHook(subcommand: string, ctx: ExtensionContext, extra: HookExtra = 
     event: eventName(subcommand),
     ...extra,
   };
-  const result = runCmux(["hooks", "pi", subcommand], cwd, JSON.stringify(payload));
+  const result = runCmux(["hooks", "enqueue", "pi", subcommand], cwd, JSON.stringify(payload));
   if (!result.ok) {
     warn(ctx, "cmux hook command failed", {
       subcommand,

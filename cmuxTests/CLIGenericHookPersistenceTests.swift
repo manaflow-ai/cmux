@@ -909,21 +909,31 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let preToolCommands = preToolUse
             .compactMap { $0["hooks"] as? [[String: Any]] }
             .flatMap { $0 }
+        let preToolCommand = try XCTUnwrap(preToolCommands.first {
+            ($0["command"] as? String)?.contains("hooks feed --source antigravity --event PreToolUse") == true
+                && ($0["timeout"] as? Int) == 120
+        })
         XCTAssertTrue(
-            preToolCommands.contains {
-                ($0["command"] as? String)?.contains("hooks feed --source antigravity --event PreToolUse") == true
-                    && ($0["timeout"] as? Int) == 120
-            },
-            "Expected Antigravity PreToolUse feed hook with second-based timeout, saw \(preToolCommands)"
+            (preToolCommand["command"] as? String)?.contains("exit $cmux_hook_status") == true,
+            "Antigravity decision/feed hooks must continue propagating dispatch failures, saw \(preToolCommand)"
         )
 
         let stop = try XCTUnwrap(cmuxGroup["Stop"] as? [[String: Any]])
+        let stopCommand = try XCTUnwrap(stop.first {
+            ($0["command"] as? String)?.contains("hooks enqueue antigravity stop") == true
+                && ($0["timeout"] as? Int) == 10
+        }?["command"] as? String)
         XCTAssertTrue(
-            stop.contains {
-                ($0["command"] as? String)?.contains("hooks antigravity stop") == true
-                    && ($0["timeout"] as? Int) == 10
-            },
-            "Expected Antigravity Stop hook to be a direct command handler, saw \(stop)"
+            stopCommand.contains(#"if [ "$cmux_hook_status" -ne 0 ]; then echo '{}'; fi"#),
+            "Antigravity queued admission must emit a neutral response when cmux is unavailable, saw \(stopCommand)"
+        )
+        XCTAssertTrue(
+            stopCommand.contains("exit 0"),
+            "Antigravity queued admission must fail open after recording the dispatch status, saw \(stopCommand)"
+        )
+        XCTAssertFalse(
+            stopCommand.contains("exit $cmux_hook_status"),
+            "Antigravity queued admission must not propagate queue-admission failures to the agent, saw \(stopCommand)"
         )
         XCTAssertNotNil(cmuxGroup["SessionStart"])
         XCTAssertNotNil(cmuxGroup["SessionEnd"])
@@ -2827,8 +2837,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .compactMap { $0["command"] as? String }
 
         XCTAssertTrue(
-            notificationCommands.contains { $0.contains("cmux hooks grok notification") },
-            "Expected Grok Notification to dispatch to the notification handler, saw \(notificationCommands)"
+            notificationCommands.contains { $0.contains("hooks enqueue grok notification") },
+            "Expected Grok Notification to use queued admission, saw \(notificationCommands)"
         )
         XCTAssertFalse(
             notificationCommands.contains { $0.contains("cmux hooks grok stop") },
@@ -3091,7 +3101,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(
             commandBodies.contains {
                 $0.contains("CMUX_BUNDLED_CLI_PATH")
-                    && $0.contains("\"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" hooks codex prompt-submit")
+                    && $0.contains("\"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" hooks enqueue codex prompt-submit")
             },
             "Codex hooks should route through the launching app's bundled CLI, saw \(commandBodies)"
         )
@@ -3104,7 +3114,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Codex setup should replace bundled-CLI hooks that did not pin CMUX_SOCKET_PATH, saw \(commandBodies)"
         )
         XCTAssertEqual(
-            allCommands.filter { $0.contains("hooks codex prompt-submit") }.count,
+            allCommands.filter { $0.contains("hooks enqueue codex prompt-submit") }.count,
             1,
             "Codex setup should collapse duplicate cmux-owned prompt hooks to one entry, saw \(allCommands)"
         )

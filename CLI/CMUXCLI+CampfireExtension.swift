@@ -214,8 +214,8 @@ async function sendHook(
       resolve();
     };
     try {
-      const child = spawn(invocation.cmux, ["hooks", "campfire", subcommand], {
-        env: invocation.env,
+      const child = spawn(invocation.cmux, ["hooks", "enqueue", "campfire", subcommand], {
+        env: { ...invocation.env, CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC: "1" },
         stdio: ["pipe", "ignore", "ignore"],
         detached: !waitForExit,
       });

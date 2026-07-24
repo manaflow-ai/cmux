@@ -2705,6 +2705,10 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
                 "tab_ids": [originalWorkspaceId.uuidString, originalPanelId.uuidString],
                 "tab_id_groups": [[originalWorkspaceId.uuidString, originalPanelId.uuidString]],
                 "session_id": sessionID,
+                "environment": [
+                    "CMUX_WORKSPACE_ID": originalWorkspaceId.uuidString,
+                    "CMUX_SURFACE_ID": originalPanelId.uuidString,
+                ],
                 "caller": [
                     "workspace_id": originalWorkspaceId.uuidString,
                     "surface_id": originalPanelId.uuidString,
@@ -2745,6 +2749,10 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(params["tab_ids"] as? [String], [restoredWorkspace.id.uuidString, restoredPanelId.uuidString])
         XCTAssertEqual(params["tab_id_groups"] as? [[String]], [[restoredWorkspace.id.uuidString, restoredPanelId.uuidString]])
         XCTAssertEqual(params["session_id"] as? String, sessionID)
+
+        let environment = try XCTUnwrap(params["environment"] as? [String: String])
+        XCTAssertEqual(environment["CMUX_WORKSPACE_ID"], restoredWorkspace.id.uuidString)
+        XCTAssertEqual(environment["CMUX_SURFACE_ID"], restoredPanelId.uuidString)
 
         let caller = try XCTUnwrap(params["caller"] as? [String: Any])
         XCTAssertEqual(caller["workspace_id"] as? String, restoredWorkspace.id.uuidString)
@@ -2854,6 +2862,29 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(params["surface_id"] as? String, restoredPanelID.uuidString)
         XCTAssertEqual(params["tab_id"] as? String, restoredWorkspaceID.uuidString)
         XCTAssertEqual(params["tab_ids"] as? [String], [restoredWorkspaceID.uuidString])
+    }
+
+    func testRemoteRelayForcesQueuedHookProvenanceWithoutIDAliases() throws {
+        let request: [String: Any] = [
+            "id": "relay-hook-provenance-request",
+            "method": "agent.hook.enqueue",
+            "params": [
+                "agent": "claude",
+                "subcommand": "prompt-submit",
+                "relay_backed": false,
+            ],
+        ]
+        let requestData = try JSONSerialization.data(withJSONObject: request, options: [])
+
+        let rewrittenData = Workspace.rewriteRemoteRelayCommandLine(
+            requestData,
+            workspaceAliases: [:],
+            surfaceAliases: [:]
+        )
+        let rewritten = try XCTUnwrap(JSONSerialization.jsonObject(with: rewrittenData) as? [String: Any])
+        let params = try XCTUnwrap(rewritten["params"] as? [String: Any])
+
+        XCTAssertEqual(params["relay_backed"] as? Bool, true)
     }
 
     func testPersistentSSHPTYRestoreRewritesMovedSourceWorkspaceContextID() throws {
