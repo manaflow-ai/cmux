@@ -57,6 +57,145 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
     }
 
     @Test
+    func focusHistoryRebindingRoutesNewShortcutsAndDropsDefaults() throws {
+        try withIsolatedShortcutRoutingState {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let testWindow = try #require(self.window(withId: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let firstWorkspace = try #require(manager.selectedWorkspace)
+            let secondWorkspace = manager.addTab(select: true)
+
+            let reboundBack = StoredShortcut(
+                key: "y",
+                command: false,
+                shift: false,
+                option: true,
+                control: false
+            )
+            let reboundForward = StoredShortcut(
+                key: "u",
+                command: false,
+                shift: true,
+                option: true,
+                control: false
+            )
+
+            try withTemporaryShortcut(action: .focusHistoryBack, shortcut: reboundBack) {
+                try withTemporaryShortcut(action: .focusHistoryForward, shortcut: reboundForward) {
+                    let reboundBackEvent = try #require(makeKeyEvent(
+                        modifierFlags: [.option],
+                        characters: "¥",
+                        charactersIgnoringModifiers: "y",
+                        keyCode: 16,
+                        windowNumber: testWindow.windowNumber
+                    ))
+                    let defaultBackEvent = try #require(makeKeyEvent(
+                        modifierFlags: [.command],
+                        characters: "[",
+                        charactersIgnoringModifiers: "[",
+                        keyCode: 33,
+                        windowNumber: testWindow.windowNumber
+                    ))
+
+                    #expect(appDelegate.debugMatchesConfiguredShortcut(
+                        event: reboundBackEvent,
+                        action: .focusHistoryBack
+                    ))
+                    #expect(appDelegate.debugHandleCustomShortcut(event: reboundBackEvent))
+                    #expect(manager.selectedTabId == firstWorkspace.id)
+                    #expect(!appDelegate.debugMatchesConfiguredShortcut(
+                        event: defaultBackEvent,
+                        action: .focusHistoryBack
+                    ))
+                    #expect(!appDelegate.debugHandleCustomShortcut(event: defaultBackEvent))
+
+                    let reboundForwardEvent = try #require(makeKeyEvent(
+                        modifierFlags: [.option, .shift],
+                        characters: "¨",
+                        charactersIgnoringModifiers: "U",
+                        keyCode: 32,
+                        windowNumber: testWindow.windowNumber
+                    ))
+                    let defaultForwardEvent = try #require(makeKeyEvent(
+                        modifierFlags: [.command],
+                        characters: "]",
+                        charactersIgnoringModifiers: "]",
+                        keyCode: 30,
+                        windowNumber: testWindow.windowNumber
+                    ))
+
+                    #expect(appDelegate.debugMatchesConfiguredShortcut(
+                        event: reboundForwardEvent,
+                        action: .focusHistoryForward
+                    ))
+                    #expect(appDelegate.debugHandleCustomShortcut(event: reboundForwardEvent))
+                    #expect(manager.selectedTabId == secondWorkspace.id)
+                    #expect(!appDelegate.debugMatchesConfiguredShortcut(
+                        event: defaultForwardEvent,
+                        action: .focusHistoryForward
+                    ))
+                    #expect(!appDelegate.debugHandleCustomShortcut(event: defaultForwardEvent))
+                }
+            }
+        }
+    }
+
+    @Test
+    func focusHistoryRebindingMatchesCommandShiftOptionAndControlVariants() throws {
+        try withIsolatedShortcutRoutingState {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let testWindow = try #require(self.window(withId: windowId))
+            let candidates: [(KeyboardShortcutSettings.Action, StoredShortcut, NSEvent.ModifierFlags, String, String, UInt16)] = [
+                (
+                    .focusHistoryBack,
+                    StoredShortcut(key: "y", command: true, shift: true, option: false, control: false),
+                    [.command, .shift],
+                    "Y",
+                    "Y",
+                    16
+                ),
+                (
+                    .focusHistoryForward,
+                    StoredShortcut(key: "u", command: false, shift: false, option: false, control: true),
+                    [.control],
+                    "\u{15}",
+                    "u",
+                    32
+                ),
+                (
+                    .focusHistoryBack,
+                    StoredShortcut(key: "y", command: false, shift: true, option: true, control: true),
+                    [.shift, .option, .control],
+                    "Y",
+                    "Y",
+                    16
+                ),
+            ]
+
+            for (action, shortcut, modifiers, characters, charactersIgnoringModifiers, keyCode) in candidates {
+                try withTemporaryShortcut(action: action, shortcut: shortcut) {
+                    let event = try #require(makeKeyEvent(
+                        modifierFlags: modifiers,
+                        characters: characters,
+                        charactersIgnoringModifiers: charactersIgnoringModifiers,
+                        keyCode: keyCode,
+                        windowNumber: testWindow.windowNumber
+                    ))
+
+                    #expect(appDelegate.debugMatchesConfiguredShortcut(event: event, action: action))
+                    #expect(appDelegate.debugHandleCustomShortcut(event: event))
+                }
+            }
+        }
+    }
+
+    @Test
     func terminalKeyEquivalentRoutesActiveOptionDigitWorkspaceShortcut() throws {
         try withIsolatedShortcutRoutingState {
             let appDelegate = try #require(AppDelegate.shared)
@@ -245,14 +384,15 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
         modifierFlags: NSEvent.ModifierFlags,
         characters: String,
         charactersIgnoringModifiers: String,
-        keyCode: UInt16
+        keyCode: UInt16,
+        windowNumber: Int = 0
     ) -> NSEvent? {
         NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: modifierFlags,
             timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: 0,
+            windowNumber: windowNumber,
             context: nil,
             characters: characters,
             charactersIgnoringModifiers: charactersIgnoringModifiers,
