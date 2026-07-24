@@ -979,28 +979,52 @@ mod tests {
     }
 
     #[test]
-    fn equal_z_outer_ids_follow_inner_image_ids_instead_of_position_or_input_order() {
-        let lower = placement(
+    fn late_lower_inner_image_id_remaps_outer_ids_before_equal_z_compositing() {
+        let mut lower = placement(
             image(21, 7, 1, GraphicFormat::Rgb, &[7; 12]),
             1,
             0,
             Rect { x: 40, y: 20, width: 1, height: 1 },
         );
-        let higher = placement(
+        let mut higher = placement(
             image(21, 90, 1, GraphicFormat::Rgb, &[90; 12]),
             1,
             0,
             Rect { x: 0, y: 0, width: 1, height: 1 },
         );
+        lower.z = 8;
+        higher.z = -8;
         let lower_key = lower.image.key;
         let higher_key = higher.image.key;
         let mut state = GraphicsState::default();
 
-        state.frame_batches(&[higher, lower]);
+        state.frame_batches(std::slice::from_ref(&higher));
+        let old_higher_id = state.image_ids[&higher_key];
+        let remap = joined(&state.frame_batches(&[higher.clone(), lower.clone()]));
 
         assert!(
             state.image_ids[&lower_key] < state.image_ids[&higher_key],
-            "equal-z outer IDs must preserve the authoritative inner image-ID order: {:?}",
+            "outer IDs must preserve inner image-ID order even when allocation first saw another z: {:?}",
+            state.image_ids
+        );
+        assert!(
+            remap.contains(&format!("a=d,d=I,i={old_higher_id}")),
+            "remapping must delete the old host image: {remap:?}"
+        );
+        assert_eq!(remap.matches("a=t,t=d").count(), 2, "{remap:?}");
+        assert_eq!(remap.matches("a=p").count(), 2, "{remap:?}");
+        assert!(
+            !state.image_ids.values().any(|image_id| *image_id == old_higher_id),
+            "remapping must release the old outer image ID: {:?}",
+            state.image_ids
+        );
+
+        lower.z = 0;
+        higher.z = 0;
+        state.frame_batches(&[higher, lower]);
+        assert!(
+            state.image_ids[&lower_key] < state.image_ids[&higher_key],
+            "equal-z outer IDs must ignore input order and y position: {:?}",
             state.image_ids
         );
     }
