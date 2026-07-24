@@ -414,6 +414,14 @@ impl Default for GraphicsState {
 }
 
 impl GraphicsState {
+    /// Forget all host-side Kitty state after the outer terminal clears it.
+    ///
+    /// The next frame must retransmit both pixels and placements even when
+    /// its logical scene is identical to the previous frame.
+    pub fn invalidate_host_scene(&mut self) {
+        *self = Self::default();
+    }
+
     pub fn frame_batches(&mut self, placements: &[GraphicPlacement]) -> Vec<Vec<u8>> {
         let mut placements = placements
             .iter()

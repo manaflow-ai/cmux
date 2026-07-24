@@ -2902,6 +2902,7 @@ pub struct App {
     pub render_states: HashMap<SurfaceId, RenderState>,
     pub graphics_writer: Option<GraphicsWriter>,
     pub graphics_supported: bool,
+    graphics_host_scene_reset_pending: bool,
     stdout_lock: Arc<Mutex<()>>,
     pub pane_areas: Vec<PaneArea>,
     pane_focus_history: PaneFocusHistory,
@@ -3803,6 +3804,7 @@ pub fn run_with_machine_updates(
         render_states: HashMap::new(),
         graphics_writer,
         graphics_supported,
+        graphics_host_scene_reset_pending: false,
         stdout_lock: stdout_lock.clone(),
         pane_areas: Vec::new(),
         pane_focus_history: PaneFocusHistory::default(),
@@ -4982,6 +4984,10 @@ impl App {
         let placements = self.graphic_placements();
         self.mark_graphics_clean(&placements);
         if let Some(writer) = &self.graphics_writer {
+            if self.graphics_host_scene_reset_pending {
+                writer.invalidate_host_scene();
+                self.graphics_host_scene_reset_pending = false;
+            }
             writer.submit(placements);
         }
         Ok(())
@@ -5881,6 +5887,9 @@ impl App {
                 Ok(RenderAction::None)
             }
             AppEvent::Input(Event::Resize(_, _)) => {
+                if self.graphics_supported {
+                    self.graphics_host_scene_reset_pending = true;
+                }
                 self.refresh_cell_pixels(false);
                 self.render_states.clear();
                 self.sidebar_plugin_surface = None;
@@ -15975,6 +15984,7 @@ mod tests {
             render_states: HashMap::<u64, RenderState>::new(),
             graphics_writer: None,
             graphics_supported: false,
+            graphics_host_scene_reset_pending: false,
             stdout_lock: Arc::new(Mutex::new(())),
             pane_areas: Vec::new(),
             pane_focus_history: PaneFocusHistory::default(),
