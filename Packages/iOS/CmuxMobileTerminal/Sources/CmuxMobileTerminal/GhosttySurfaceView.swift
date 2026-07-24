@@ -2495,22 +2495,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // never use-after-free against the free, and no two of them ever touch
         // the surface concurrently. `processOutput`'s main-actor guard stops new
         // work from being enqueued once `surface` is nil, so only the bounded
-        // backlog drains before the free. (Retain the bridge across the hop; it
-        // owns the userdata libghostty still references until the free.)
-        enqueueSurfaceFree(surface, bridge: currentBridge, generation: surfaceGeneration, on: currentQueue)
+        // backlog drains before the free. libghostty owns bridge userdata through final destruction and every app-action lease.
+        enqueueSurfaceFree(surface, generation: surfaceGeneration, on: currentQueue)
     }
 
     func enqueueSurfaceFree(
         _ surface: ghostty_surface_t,
-        bridge: GhosttySurfaceBridge,
         generation: UInt64, on queue: GhosttySurfaceWorkQueue,
         completion: (@MainActor @Sendable () -> Void)? = nil
     ) {
-        let retainedBridge = Unmanaged.passRetained(bridge)
         surfaceFreeDrainWatchdog.start(generation: generation) { [weak self] in self?.pendingSurfaceFreeCount ?? 0 }
         queue.async { [weak self] in
             ghostty_surface_free(surface)
-            retainedBridge.release()
             Task { @MainActor in self?.surfaceFreeDrainWatchdog.cancel(generation: generation); completion?() }
         }
     }
@@ -3465,7 +3461,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private func makeSurface(app: ghostty_app_t) -> ghostty_surface_t? {
         var surfaceConfig = ghostty_surface_config_new()
-        let bridgePointer = Unmanaged.passUnretained(bridge).toOpaque()
+        let retainedBridge = Unmanaged.passRetained(bridge)
+        let bridgePointer = retainedBridge.toOpaque()
         surfaceConfig.userdata = bridgePointer
         surfaceConfig.platform_tag = GHOSTTY_PLATFORM_IOS
         surfaceConfig.platform = ghostty_platform_u(
@@ -3484,7 +3481,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
         }
         surfaceConfig.io_write_userdata = bridgePointer
-        guard let createdSurface = ghostty_surface_new(app, &surfaceConfig) else {
+        guard let createdSurface = ghostty_surface_new_with_owned_userdata(
+            app, &surfaceConfig, GhosttySurfaceBridge.releaseRetainedOpaque
+        ) else {
+            retainedBridge.release()
             return nil
         }
         guard ghostty_surface_set_render_presented_callback(
