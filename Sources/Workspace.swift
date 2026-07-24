@@ -2705,11 +2705,16 @@ final class Workspace: Identifiable, ObservableObject {
     ) -> WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot> {
         WorkspaceSessionRestorePolicyService(
             applyStoredApproval: { binding, fileURL, signingSecret in
-                SurfaceResumeApprovalStore.applyingStoredApproval(
+                switch SurfaceResumeApprovalStore.applyingStoredApproval(
                     to: binding,
                     fileURL: fileURL,
                     signingSecret: signingSecret
-                )
+                ) {
+                case .pendingSigningSecret:
+                    return nil
+                case let .resolved(effectiveBinding):
+                    return effectiveBinding
+                }
             },
             shouldRunPromptedSurfaceResume: { binding in
                 Self.shouldRunPromptedSurfaceResume(binding)

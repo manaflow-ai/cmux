@@ -712,7 +712,7 @@ enum SurfaceResumeApprovalStore {
             SurfaceResumeApprovalStore.loadOrCreateSigningSecret(fileManager: .default)
         },
         schedule: { job in
-            DispatchQueue.global(qos: .utility).async(execute: job)
+            SurfaceResumeApprovalSigningSecretCache.utilityTask(job)
         }
     )
 
@@ -801,75 +801,6 @@ enum SurfaceResumeApprovalStore {
         return (try? JSONDecoder().decode([SurfaceResumeApprovalRecord].self, from: data)) ?? []
     }
 
-    static func validRecords(
-        fileURL: URL = defaultURL(),
-        fileManager: FileManager = .default,
-        signingSecret: Data? = nil
-    ) -> [SurfaceResumeApprovalRecord] {
-        let signingSecret = signingSecret ?? defaultSigningSecret(fileManager: fileManager)
-        guard let signingSecret else { return [] }
-        return loadRecords(fileURL: fileURL, fileManager: fileManager)
-            .filter { $0.hasValidSignature(secret: signingSecret) }
-    }
-
-    static func matchingRecord(
-        for binding: SurfaceResumeBindingSnapshot,
-        fileURL: URL = defaultURL(),
-        fileManager: FileManager = .default,
-        signingSecret: Data? = nil
-    ) -> SurfaceResumeApprovalRecord? {
-        validRecords(fileURL: fileURL, fileManager: fileManager, signingSecret: signingSecret)
-            .filter { $0.matches(binding) }
-            .sorted { lhs, rhs in
-                if lhs.commandPrefix.count != rhs.commandPrefix.count {
-                    return lhs.commandPrefix.count > rhs.commandPrefix.count
-                }
-                return lhs.updatedAt > rhs.updatedAt
-            }
-            .first
-    }
-
-    static func applyingStoredApproval(
-        to binding: SurfaceResumeBindingSnapshot,
-        fileURL: URL = defaultURL(),
-        fileManager: FileManager = .default,
-        signingSecret: Data? = nil
-    ) -> SurfaceResumeBindingSnapshot {
-        if binding.isProcessDetected {
-            var trustedBinding = binding
-            trustedBinding.autoResume = true
-            trustedBinding.approvalPolicy = .auto
-            trustedBinding.approvalRecordId = nil
-            return trustedBinding
-        }
-
-        if binding.isAgentHookBinding {
-            var trustedBinding = binding
-            trustedBinding.autoResume = binding.autoResume == true
-            trustedBinding.approvalPolicy = trustedBinding.autoResume == true ? .auto : .manual
-            trustedBinding.approvalRecordId = nil
-            return trustedBinding
-        }
-
-        var effective = binding
-        guard let record = matchingRecord(
-            for: binding,
-            fileURL: fileURL,
-            fileManager: fileManager,
-            signingSecret: signingSecret
-        ) else {
-            effective.autoResume = false
-            effective.approvalPolicy = .manual
-            effective.approvalRecordId = nil
-            return effective
-        }
-
-        effective.approvalPolicy = record.policy
-        effective.approvalRecordId = record.id
-        effective.autoResume = record.policy == .auto
-        return effective
-    }
-
     static func shouldPromptForProposal(
         binding: SurfaceResumeBindingSnapshot,
         existingRecord: SurfaceResumeApprovalRecord?,
@@ -914,12 +845,7 @@ enum SurfaceResumeApprovalStore {
         ) else {
             return nil
         }
-        var effectiveBinding = applyingStoredApproval(
-            to: binding,
-            fileURL: fileURL,
-            fileManager: fileManager,
-            signingSecret: signingSecret
-        )
+        var effectiveBinding = binding
         effectiveBinding.approvalPolicy = record.policy
         effectiveBinding.approvalRecordId = record.id
         effectiveBinding.autoResume = record.policy == .auto
@@ -935,8 +861,8 @@ enum SurfaceResumeApprovalStore {
         fileManager: FileManager = .default,
         signingSecret: Data? = nil
     ) -> SurfaceResumeApprovalRecord? {
-        let signingSecret = signingSecret ?? defaultSigningSecret(fileManager: fileManager)
-        guard let signingSecret,
+        let resolution = signingSecretResolution(explicit: signingSecret, fileManager: fileManager)
+        guard case let .ready(signingSecret?) = resolution,
               let tokens = SurfaceResumeCommandCanonicalizer.tokens(from: binding.command) else {
             return nil
         }
@@ -978,8 +904,8 @@ enum SurfaceResumeApprovalStore {
         fileManager: FileManager = .default,
         signingSecret: Data? = nil
     ) -> Bool {
-        let signingSecret = signingSecret ?? defaultSigningSecret(fileManager: fileManager)
-        guard let signingSecret else { return false }
+        let resolution = signingSecretResolution(explicit: signingSecret, fileManager: fileManager)
+        guard case let .ready(signingSecret?) = resolution else { return false }
         var records = loadRecords(fileURL: fileURL, fileManager: fileManager)
         guard let index = records.firstIndex(where: { $0.id == recordId }) else { return false }
         var record = records[index]
@@ -1020,20 +946,17 @@ enum SurfaceResumeApprovalStore {
         return true
     }
 
-    static func isValid(_ record: SurfaceResumeApprovalRecord, signingSecret: Data? = defaultSigningSecret()) -> Bool {
-        guard let signingSecret else { return false }
-        return record.hasValidSignature(secret: signingSecret)
-    }
-
-    static func defaultSigningSecret(fileManager: FileManager = .default) -> Data? {
+    static func defaultSigningSecret(
+        fileManager: FileManager = .default
+    ) -> SurfaceResumeApprovalSigningSecretResolution {
         if let data = environmentSigningSecret() {
-            return data
+            return .ready(data)
         }
         if fileManager === FileManager.default {
             return signingSecretCache.value(isMainThread: Thread.isMainThread)
         }
-        guard !Thread.isMainThread else { return nil }
-        return loadOrCreateSigningSecret(fileManager: fileManager)
+        guard !Thread.isMainThread else { return .ready(nil) }
+        return .ready(loadOrCreateSigningSecret(fileManager: fileManager))
     }
 
     /// Starts the one-time Keychain/file lookup early while preserving the

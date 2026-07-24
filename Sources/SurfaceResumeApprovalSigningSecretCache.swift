@@ -1,5 +1,17 @@
 import Foundation
 
+enum SurfaceResumeApprovalSigningSecretResolution: Equatable, Sendable {
+    case pending
+    case ready(Data?)
+}
+
+enum SurfaceResumeApprovalLookup<Value> {
+    case pendingSigningSecret
+    case resolved(Value)
+}
+
+extension SurfaceResumeApprovalLookup: Sendable where Value: Sendable {}
+
 /// Resolves the surface-resume signing secret once without making main-thread
 /// callers wait for Keychain or filesystem I/O.
 ///
@@ -11,38 +23,59 @@ final class SurfaceResumeApprovalSigningSecretCache: @unchecked Sendable {
 
     private enum State {
         case unresolved
-        case loading([Completion])
+        case loading([Completion], Task<Void, Never>?)
         case ready(Data?)
     }
 
     private let lock = NSLock()
     private let loader: @Sendable () -> Data?
-    private let schedule: @Sendable (@escaping @Sendable () -> Void) -> Void
+    private let schedule: @Sendable (@escaping @Sendable () -> Void) -> Task<Void, Never>?
     private var state: State = .unresolved
 
     init(
         loader: @escaping @Sendable () -> Data?,
-        schedule: @escaping @Sendable (@escaping @Sendable () -> Void) -> Void
+        schedule: @escaping @Sendable (@escaping @Sendable () -> Void) -> Task<Void, Never>?
     ) {
         self.loader = loader
         self.schedule = schedule
+    }
+
+    deinit {
+        let task: Task<Void, Never>? = lock.withLock {
+            guard case let .loading(_, task) = state else { return nil }
+            return task
+        }
+        task?.cancel()
+    }
+
+    static func utilityTask(_ job: @escaping @Sendable () -> Void) -> Task<Void, Never> {
+#if compiler(>=6.2)
+        let operation: @concurrent @Sendable () async -> Void = {
+            job()
+        }
+#else
+        let operation: @Sendable () async -> Void = {
+            job()
+        }
+#endif
+        return Task.detached(priority: .utility, operation: operation)
     }
 
     /// Returns the cached secret or starts its one-time resolution.
     ///
     /// Main-thread callers always return immediately. A background caller may
     /// perform the first resolution synchronously; callers arriving while that
-    /// resolution is in flight observe `nil` until it completes.
-    func value(isMainThread: Bool) -> Data? {
+    /// resolution is in flight observe `.pending` until it completes.
+    func value(isMainThread: Bool) -> SurfaceResumeApprovalSigningSecretResolution {
         let decision: ValueDecision = lock.withLock {
             switch state {
             case .unresolved:
-                state = .loading([])
+                state = .loading([], nil)
                 return isMainThread ? .schedule : .load
             case .loading:
-                return .return(nil)
+                return .return(.pending)
             case let .ready(value):
-                return .return(value)
+                return .return(.ready(value))
             }
         }
 
@@ -50,12 +83,13 @@ final class SurfaceResumeApprovalSigningSecretCache: @unchecked Sendable {
         case let .return(value):
             return value
         case .schedule:
-            schedule { [weak self] in
+            let task = schedule { [weak self] in
                 self?.resolve()
             }
-            return nil
+            retainScheduledTask(task)
+            return .pending
         case .load:
-            return resolve()
+            return .ready(resolve())
         }
     }
 
@@ -72,10 +106,10 @@ final class SurfaceResumeApprovalSigningSecretCache: @unchecked Sendable {
         let decision: PreloadDecision = lock.withLock {
             switch state {
             case .unresolved:
-                state = .loading([completion])
+                state = .loading([completion], nil)
                 return .schedule
-            case let .loading(completions):
-                state = .loading(completions + [completion])
+            case let .loading(completions, task):
+                state = .loading(completions + [completion], task)
                 return .none
             case let .ready(value):
                 return .complete(completion, value)
@@ -84,9 +118,10 @@ final class SurfaceResumeApprovalSigningSecretCache: @unchecked Sendable {
 
         switch decision {
         case .schedule:
-            schedule { [weak self] in
+            let task = schedule { [weak self] in
                 self?.resolve()
             }
+            retainScheduledTask(task)
         case let .complete(completion, value):
             completion(value)
         case .none:
@@ -99,7 +134,7 @@ final class SurfaceResumeApprovalSigningSecretCache: @unchecked Sendable {
         let value = loader()
         let completions: [Completion] = lock.withLock {
             let completions: [Completion]
-            if case let .loading(pending) = state {
+            if case let .loading(pending, _) = state {
                 completions = pending
             } else {
                 completions = []
@@ -111,8 +146,20 @@ final class SurfaceResumeApprovalSigningSecretCache: @unchecked Sendable {
         return value
     }
 
+    private func retainScheduledTask(_ task: Task<Void, Never>?) {
+        guard let task else { return }
+        let shouldCancel = lock.withLock {
+            guard case let .loading(completions, nil) = state else { return true }
+            state = .loading(completions, task)
+            return false
+        }
+        if shouldCancel {
+            task.cancel()
+        }
+    }
+
     private enum ValueDecision {
-        case `return`(Data?)
+        case `return`(SurfaceResumeApprovalSigningSecretResolution)
         case schedule
         case load
     }
@@ -121,5 +168,233 @@ final class SurfaceResumeApprovalSigningSecretCache: @unchecked Sendable {
         case schedule
         case none
         case complete(Completion, Data?)
+    }
+}
+
+extension SurfaceResumeApprovalStore {
+    static func validRecords(
+        fileURL: URL = defaultURL(),
+        fileManager: FileManager = .default,
+        signingSecret: Data
+    ) -> [SurfaceResumeApprovalRecord] {
+        loadRecords(fileURL: fileURL, fileManager: fileManager)
+            .filter { $0.hasValidSignature(secret: signingSecret) }
+    }
+
+    static func validRecords(
+        fileURL: URL = defaultURL(),
+        fileManager: FileManager = .default,
+        signingSecret: Data? = nil
+    ) -> SurfaceResumeApprovalLookup<[SurfaceResumeApprovalRecord]> {
+        validRecords(
+            fileURL: fileURL,
+            fileManager: fileManager,
+            signingSecretResolution: signingSecretResolution(
+                explicit: signingSecret,
+                fileManager: fileManager
+            )
+        )
+    }
+
+    static func validRecords(
+        fileURL: URL = defaultURL(),
+        fileManager: FileManager = .default,
+        signingSecretResolution: SurfaceResumeApprovalSigningSecretResolution
+    ) -> SurfaceResumeApprovalLookup<[SurfaceResumeApprovalRecord]> {
+        switch signingSecretResolution {
+        case .pending:
+            return .pendingSigningSecret
+        case let .ready(signingSecret):
+            guard let signingSecret else { return .resolved([]) }
+            return .resolved(validRecords(
+                fileURL: fileURL,
+                fileManager: fileManager,
+                signingSecret: signingSecret
+            ))
+        }
+    }
+
+    static func matchingRecord(
+        for binding: SurfaceResumeBindingSnapshot,
+        fileURL: URL = defaultURL(),
+        fileManager: FileManager = .default,
+        signingSecret: Data
+    ) -> SurfaceResumeApprovalRecord? {
+        validRecords(fileURL: fileURL, fileManager: fileManager, signingSecret: signingSecret)
+            .filter { $0.matches(binding) }
+            .sorted { lhs, rhs in
+                if lhs.commandPrefix.count != rhs.commandPrefix.count {
+                    return lhs.commandPrefix.count > rhs.commandPrefix.count
+                }
+                return lhs.updatedAt > rhs.updatedAt
+            }
+            .first
+    }
+
+    static func matchingRecord(
+        for binding: SurfaceResumeBindingSnapshot,
+        fileURL: URL = defaultURL(),
+        fileManager: FileManager = .default,
+        signingSecret: Data? = nil
+    ) -> SurfaceResumeApprovalLookup<SurfaceResumeApprovalRecord?> {
+        matchingRecord(
+            for: binding,
+            fileURL: fileURL,
+            fileManager: fileManager,
+            signingSecretResolution: signingSecretResolution(
+                explicit: signingSecret,
+                fileManager: fileManager
+            )
+        )
+    }
+
+    static func matchingRecord(
+        for binding: SurfaceResumeBindingSnapshot,
+        fileURL: URL = defaultURL(),
+        fileManager: FileManager = .default,
+        signingSecretResolution: SurfaceResumeApprovalSigningSecretResolution
+    ) -> SurfaceResumeApprovalLookup<SurfaceResumeApprovalRecord?> {
+        switch validRecords(
+            fileURL: fileURL,
+            fileManager: fileManager,
+            signingSecretResolution: signingSecretResolution
+        ) {
+        case .pendingSigningSecret:
+            return .pendingSigningSecret
+        case let .resolved(records):
+            let record = records
+                .filter { $0.matches(binding) }
+                .sorted { lhs, rhs in
+                    if lhs.commandPrefix.count != rhs.commandPrefix.count {
+                        return lhs.commandPrefix.count > rhs.commandPrefix.count
+                    }
+                    return lhs.updatedAt > rhs.updatedAt
+                }
+                .first
+            return .resolved(record)
+        }
+    }
+
+    static func applyingStoredApproval(
+        to binding: SurfaceResumeBindingSnapshot,
+        fileURL: URL = defaultURL(),
+        fileManager: FileManager = .default,
+        signingSecret: Data
+    ) -> SurfaceResumeBindingSnapshot {
+        if let trustedBinding = trustedBinding(from: binding) {
+            return trustedBinding
+        }
+
+        let record = matchingRecord(
+            for: binding,
+            fileURL: fileURL,
+            fileManager: fileManager,
+            signingSecret: signingSecret
+        )
+        return bindingByApplying(record: record, to: binding)
+    }
+
+    static func applyingStoredApproval(
+        to binding: SurfaceResumeBindingSnapshot,
+        fileURL: URL = defaultURL(),
+        fileManager: FileManager = .default,
+        signingSecret: Data? = nil
+    ) -> SurfaceResumeApprovalLookup<SurfaceResumeBindingSnapshot> {
+        applyingStoredApproval(
+            to: binding,
+            fileURL: fileURL,
+            fileManager: fileManager,
+            signingSecretResolution: signingSecretResolution(
+                explicit: signingSecret,
+                fileManager: fileManager
+            )
+        )
+    }
+
+    static func applyingStoredApproval(
+        to binding: SurfaceResumeBindingSnapshot,
+        fileURL: URL = defaultURL(),
+        fileManager: FileManager = .default,
+        signingSecretResolution: SurfaceResumeApprovalSigningSecretResolution
+    ) -> SurfaceResumeApprovalLookup<SurfaceResumeBindingSnapshot> {
+        if let trustedBinding = trustedBinding(from: binding) {
+            return .resolved(trustedBinding)
+        }
+
+        switch matchingRecord(
+            for: binding,
+            fileURL: fileURL,
+            fileManager: fileManager,
+            signingSecretResolution: signingSecretResolution
+        ) {
+        case .pendingSigningSecret:
+            return .pendingSigningSecret
+        case let .resolved(record):
+            return .resolved(bindingByApplying(record: record, to: binding))
+        }
+    }
+
+    static func isValid(_ record: SurfaceResumeApprovalRecord, signingSecret: Data) -> Bool {
+        record.hasValidSignature(secret: signingSecret)
+    }
+
+    static func isValid(
+        _ record: SurfaceResumeApprovalRecord,
+        signingSecret: Data? = nil
+    ) -> SurfaceResumeApprovalLookup<Bool> {
+        switch signingSecretResolution(explicit: signingSecret, fileManager: .default) {
+        case .pending:
+            return .pendingSigningSecret
+        case let .ready(signingSecret):
+            guard let signingSecret else { return .resolved(false) }
+            return .resolved(isValid(record, signingSecret: signingSecret))
+        }
+    }
+
+    static func signingSecretResolution(
+        explicit signingSecret: Data?,
+        fileManager: FileManager
+    ) -> SurfaceResumeApprovalSigningSecretResolution {
+        if let signingSecret {
+            return .ready(signingSecret)
+        }
+        return defaultSigningSecret(fileManager: fileManager)
+    }
+
+    private static func trustedBinding(
+        from binding: SurfaceResumeBindingSnapshot
+    ) -> SurfaceResumeBindingSnapshot? {
+        if binding.isProcessDetected {
+            var trustedBinding = binding
+            trustedBinding.autoResume = true
+            trustedBinding.approvalPolicy = .auto
+            trustedBinding.approvalRecordId = nil
+            return trustedBinding
+        }
+        if binding.isAgentHookBinding {
+            var trustedBinding = binding
+            trustedBinding.autoResume = binding.autoResume == true
+            trustedBinding.approvalPolicy = trustedBinding.autoResume == true ? .auto : .manual
+            trustedBinding.approvalRecordId = nil
+            return trustedBinding
+        }
+        return nil
+    }
+
+    private static func bindingByApplying(
+        record: SurfaceResumeApprovalRecord?,
+        to binding: SurfaceResumeBindingSnapshot
+    ) -> SurfaceResumeBindingSnapshot {
+        var effective = binding
+        guard let record else {
+            effective.autoResume = false
+            effective.approvalPolicy = .manual
+            effective.approvalRecordId = nil
+            return effective
+        }
+        effective.approvalPolicy = record.policy
+        effective.approvalRecordId = record.id
+        effective.autoResume = record.policy == .auto
+        return effective
     }
 }

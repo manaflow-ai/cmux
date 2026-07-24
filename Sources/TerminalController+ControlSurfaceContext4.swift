@@ -91,9 +91,12 @@ extension TerminalController {
     /// approval prompt in the app bundle.
     private func surfaceResumeBindingWithApproval(
         _ binding: SurfaceResumeBindingSnapshot
-    ) -> SurfaceResumeBindingSnapshot {
-        let existingRecord = SurfaceResumeApprovalStore.matchingRecord(for: binding)
-        var effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(to: binding)
+    ) -> SurfaceResumeBindingSnapshot? {
+        guard case let .resolved(existingRecord) = SurfaceResumeApprovalStore.matchingRecord(for: binding),
+              case let .resolved(resolvedBinding) = SurfaceResumeApprovalStore.applyingStoredApproval(to: binding) else {
+            return nil
+        }
+        var effectiveBinding = resolvedBinding
         if let promptlessCLIManualBinding = SurfaceResumeApprovalStore.applyingPromptlessCLIManualApprovalIfNeeded(
             to: binding,
             existingRecord: existingRecord
@@ -112,7 +115,6 @@ extension TerminalController {
         guard let record = SurfaceResumeApprovalStore.approve(binding: binding, policy: policy) else {
             return effectiveBinding
         }
-        effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(to: binding)
         effectiveBinding.approvalPolicy = record.policy
         effectiveBinding.approvalRecordId = record.id
         effectiveBinding.autoResume = record.policy == .auto
@@ -203,7 +205,9 @@ extension TerminalController {
         } else {
             locatedBinding = binding
         }
-        let effectiveBinding = surfaceResumeBindingWithApproval(locatedBinding)
+        guard let effectiveBinding = surfaceResumeBindingWithApproval(locatedBinding) else {
+            return .emptyResumeCommand
+        }
         guard target.workspace.setSurfaceResumeBinding(effectiveBinding, panelId: target.surfaceId) else {
             return .emptyResumeCommand
         }

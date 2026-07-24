@@ -14,11 +14,14 @@ import Testing
         let scheduler = LockedJobScheduler()
         let cache = SurfaceResumeApprovalSigningSecretCache(
             loader: { loader.call() },
-            schedule: { scheduler.append($0) }
+            schedule: {
+                scheduler.append($0)
+                return nil
+            }
         )
 
-        #expect(cache.value(isMainThread: true) == nil)
-        #expect(cache.value(isMainThread: true) == nil)
+        #expect(cache.value(isMainThread: true) == .pending)
+        #expect(cache.value(isMainThread: true) == .pending)
         #expect(loader.callCount == 0, "main-thread reads must not run the Keychain loader")
         #expect(scheduler.count == 1, "concurrent autosave panels must share one pending load")
 
@@ -29,11 +32,46 @@ import Testing
 
         scheduler.runNext()
 
-        #expect(cache.value(isMainThread: true) == expected)
+        #expect(cache.value(isMainThread: true) == .ready(expected))
         #expect(cache.isReady)
         #expect(completion.values == [expected])
         #expect(loader.callCount == 1)
         #expect(scheduler.count == 0)
+    }
+
+    @Test func resumeApprovalLookupWaitsForSigningSecretResolution() {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "cli",
+            autoResume: true,
+            approvalPolicy: .auto,
+            approvalRecordId: "unverified-record"
+        )
+        let missingStore = URL(fileURLWithPath: "/tmp/cmux-missing-\(UUID().uuidString).json")
+
+        let pending = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: binding,
+            fileURL: missingStore,
+            signingSecretResolution: .pending
+        )
+        guard case .pendingSigningSecret = pending else {
+            Issue.record("a pending secret must not produce an approval decision")
+            return
+        }
+
+        let unavailable = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: binding,
+            fileURL: missingStore,
+            signingSecretResolution: .ready(nil)
+        )
+        guard case let .resolved(effectiveBinding) = unavailable else {
+            Issue.record("a definitively unavailable secret must resolve the existing fallback policy")
+            return
+        }
+        #expect(effectiveBinding.approvalPolicy == .manual)
+        #expect(!effectiveBinding.allowsAutomaticResume)
+        #expect(effectiveBinding.approvalRecordId == nil)
     }
 
     @Test func hangWatchdogCapturesOncePerStarvationEpisode() {

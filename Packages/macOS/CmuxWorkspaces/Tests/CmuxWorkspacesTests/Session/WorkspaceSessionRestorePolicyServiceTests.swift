@@ -78,7 +78,7 @@ struct WorkspaceSessionRestorePolicyServiceTests {
     }
 
     private func makeService(
-        applyStoredApproval: @escaping @Sendable (FakeBinding, URL, Data?) -> FakeBinding = { binding, _, _ in binding },
+        applyStoredApproval: @escaping @Sendable (FakeBinding, URL, Data?) -> FakeBinding? = { binding, _, _ in binding },
         shouldRunPromptedSurfaceResume: @escaping @Sendable (FakeBinding) -> Bool = { _ in false },
         isRunningUnderAutomatedTests: @escaping @Sendable () -> Bool = { false },
         truncateScrollback: @escaping @Sendable (String?) -> String? = { $0 },
@@ -125,6 +125,21 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         #expect(result == "input:echo ok:launcher=false")
         #expect(observation.url == approvalURL)
         #expect(observation.secret == Data("secret".utf8))
+    }
+
+    @Test("pending stored approval prevents launch")
+    func pendingStoredApprovalPreventsLaunch() {
+        let service = makeService(
+            applyStoredApproval: { _, _, _ in nil }
+        )
+
+        let result = service.surfaceResumeStartupInput(
+            FakeBinding(allowsAutomaticResume: true),
+            autoResumeAgentSessions: true,
+            approvalStoreURL: URL(fileURLWithPath: "/tmp/cmux-approvals.json")
+        )
+
+        #expect(result == nil)
     }
 
     @Test("prompt approval uses the injected prompt decision")

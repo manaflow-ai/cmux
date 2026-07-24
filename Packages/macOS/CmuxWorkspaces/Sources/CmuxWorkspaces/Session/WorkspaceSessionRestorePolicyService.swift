@@ -7,7 +7,7 @@ public import Foundation
 /// this package independent of app DTO storage and UI while preserving the
 /// exact restore behavior.
 public struct WorkspaceSessionRestorePolicyService<Binding: WorkspaceSurfaceResumeBinding>: Sendable {
-    private let applyStoredApproval: @Sendable (Binding, URL, Data?) -> Binding
+    private let applyStoredApproval: @Sendable (Binding, URL, Data?) -> Binding?
     private let shouldRunPromptedSurfaceResume: @Sendable (Binding) -> Bool
     private let isRunningUnderAutomatedTests: @Sendable () -> Bool
     private let truncateScrollback: @Sendable (String?) -> String?
@@ -16,7 +16,7 @@ public struct WorkspaceSessionRestorePolicyService<Binding: WorkspaceSurfaceResu
 
     /// Creates a restore policy service.
     public init(
-        applyStoredApproval: @escaping @Sendable (Binding, URL, Data?) -> Binding,
+        applyStoredApproval: @escaping @Sendable (Binding, URL, Data?) -> Binding?,
         shouldRunPromptedSurfaceResume: @escaping @Sendable (Binding) -> Bool,
         isRunningUnderAutomatedTests: @escaping @Sendable () -> Bool,
         truncateScrollback: @escaping @Sendable (String?) -> String?,
@@ -161,7 +161,13 @@ public struct WorkspaceSessionRestorePolicyService<Binding: WorkspaceSurfaceResu
         approvalSigningSecret: Data? = nil
     ) -> Binding? {
         guard let resumeBinding else { return nil }
-        var effectiveBinding = applyStoredApproval(resumeBinding, approvalStoreURL, approvalSigningSecret)
+        guard var effectiveBinding = applyStoredApproval(
+            resumeBinding,
+            approvalStoreURL,
+            approvalSigningSecret
+        ) else {
+            return nil
+        }
         effectiveBinding = WorkspaceHermesAgentCommandBootstrapper(
             hermesCodexEnvironment: hermesCodexEnvironment
         ).bindingForStartup(effectiveBinding)
