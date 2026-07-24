@@ -3131,19 +3131,38 @@ fn browser_content_size_for_rect(rect: Rect, scrollbar: ScrollbarPosition) -> Op
     (content.width > 0 && content.height > 0).then_some((content.width, content.height))
 }
 
-fn minimum_tabbed_height(node: &Node) -> u16 {
+#[derive(Clone, Copy)]
+struct SubtreeMinimumHeight {
+    full: u16,
+    bar_only: u16,
+}
+
+fn minimum_tabbed_height(node: &Node) -> SubtreeMinimumHeight {
     match node {
-        Node::Leaf(_) => MIN_TABBED_PANE_HEIGHT,
+        Node::Leaf(_) => SubtreeMinimumHeight { full: MIN_TABBED_PANE_HEIGHT, bar_only: 1 },
         Node::Split { dir: SplitDir::Right, a, b, .. } => {
-            minimum_tabbed_height(a).max(minimum_tabbed_height(b))
+            let first = minimum_tabbed_height(a);
+            let second = minimum_tabbed_height(b);
+            SubtreeMinimumHeight {
+                full: first.full.max(second.full),
+                bar_only: first.bar_only.max(second.bar_only),
+            }
         }
         Node::Split { dir: SplitDir::Down, ratio, a, b, .. } => {
-            minimum_split_height(*ratio, minimum_tabbed_height(a), minimum_tabbed_height(b))
+            let first = minimum_tabbed_height(a);
+            let second = minimum_tabbed_height(b);
+            SubtreeMinimumHeight {
+                full: minimum_split_height(*ratio, first.full, second.full),
+                bar_only: minimum_split_height(*ratio, first.bar_only, second.bar_only),
+            }
         }
         Node::Stack { panes, .. } => {
             let collapsed_headers =
                 u16::try_from(panes.len().saturating_sub(1)).unwrap_or(u16::MAX);
-            MIN_TABBED_PANE_HEIGHT.saturating_add(collapsed_headers)
+            SubtreeMinimumHeight {
+                full: MIN_TABBED_PANE_HEIGHT.saturating_add(collapsed_headers),
+                bar_only: 1u16.saturating_add(collapsed_headers),
+            }
         }
     }
 }
@@ -3171,7 +3190,10 @@ fn minimum_split_height(ratio: f32, first_minimum: u16, second_minimum: u16) -> 
     low
 }
 
-fn vertical_split_minimum_heights(node: &Node, target: SplitId) -> Option<(u16, u16)> {
+fn vertical_split_minimum_heights(
+    node: &Node,
+    target: SplitId,
+) -> Option<(SubtreeMinimumHeight, SubtreeMinimumHeight)> {
     match node {
         Node::Leaf(_) | Node::Stack { .. } => None,
         Node::Split { id, dir, a, b, .. } if *id == target => {
@@ -3180,6 +3202,17 @@ fn vertical_split_minimum_heights(node: &Node, target: SplitId) -> Option<(u16, 
         Node::Split { a, b, .. } => vertical_split_minimum_heights(a, target)
             .or_else(|| vertical_split_minimum_heights(b, target)),
     }
+}
+
+fn clamp_ratio_to_minimum_heights(
+    height: u16,
+    requested: f32,
+    first_minimum: u16,
+    second_minimum: u16,
+) -> Option<f32> {
+    let minimum = (f32::from(first_minimum) / f32::from(height)).max(0.05);
+    let maximum = (f32::from(height.saturating_sub(second_minimum)) / f32::from(height)).min(0.95);
+    (minimum <= maximum).then(|| requested.clamp(minimum, maximum))
 }
 
 fn clamp_split_ratio_for_tab_bars(root: &Node, split: SplitId, height: u16, requested: f32) -> f32 {
@@ -3191,12 +3224,18 @@ fn clamp_split_ratio_for_tab_bars(root: &Node, split: SplitId, height: u16, requ
         return requested;
     }
 
-    let minimum = (f32::from(first_minimum) / f32::from(height)).max(0.05);
-    let maximum = (f32::from(height.saturating_sub(second_minimum)) / f32::from(height)).min(0.95);
-    if minimum > maximum {
-        return requested;
+    if let Some(clamped) =
+        clamp_ratio_to_minimum_heights(height, requested, first_minimum.full, second_minimum.full)
+    {
+        return clamped;
     }
-    requested.clamp(minimum, maximum)
+    clamp_ratio_to_minimum_heights(
+        height,
+        requested,
+        first_minimum.bar_only,
+        second_minimum.bar_only,
+    )
+    .unwrap_or(requested)
 }
 
 fn pane_parts_for_rect(
@@ -3224,7 +3263,7 @@ fn pane_parts_for_rect(
             },
             Some(Rect { x: track_x, y: rect.y + 1, width: 1, height: rect.height - 2 }),
         )
-    } else if rect.width >= 2 && rect.height > 0 {
+    } else if rect.width > 2 && rect.height > 0 {
         (
             Some(Rect { height: 1, ..rect }),
             Rect { y: rect.y.saturating_add(1), height: 0, ..rect },
