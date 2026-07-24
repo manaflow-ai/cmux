@@ -316,7 +316,9 @@ struct WorkspaceShareSocketRequestTests {
         )
 
         #expect(socket.enqueueEventForTesting(.connectionStateChanged(true)))
+        #expect(socket.send(.chat(text: "before overflow", bubble: nil)) == .admitted)
         #expect(!socket.enqueueEventForTesting(.connectionStateChanged(false)))
+        #expect(socket.send(.chat(text: "after overflow", bubble: nil)) == .backpressured)
         await socket.stop()
     }
 }

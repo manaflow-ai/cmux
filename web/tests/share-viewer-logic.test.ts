@@ -16,6 +16,7 @@ mock.module("next-intl", () => ({
 
 const {
   createAnimationFrameScheduler,
+  createPaneRectRegistry,
   LayoutView,
   paneKeyOf,
   paneRefFromKey,
@@ -170,14 +171,100 @@ describe("TerminalGridModel", () => {
 });
 
 describe("chat draft admission", () => {
-  test("clears only after the socket accepts the message", () => {
-    expect(submitChatDraft("keep me", () => false)).toBe("keep me");
-    expect(submitChatDraft("send me", () => true)).toBe("");
-    expect(submitChatDraft("   ", () => true)).toBe("   ");
+  test("sends once and clears with a value update only after admission", () => {
+    let draft = "send me";
+    let sends = 0;
+    let functionalUpdates = 0;
+    const strictModeSetter = (
+      next: string | ((current: string) => string),
+    ): void => {
+      if (typeof next === "function") {
+        functionalUpdates += 1;
+        draft = next(draft);
+        draft = next(draft);
+      } else {
+        draft = next;
+      }
+    };
+
+    submitChatDraft(
+      draft,
+      () => {
+        sends += 1;
+        return true;
+      },
+      strictModeSetter,
+    );
+
+    expect(sends).toBe(1);
+    expect(functionalUpdates).toBe(0);
+    expect(draft).toBe("");
+  });
+
+  test("retains rejected and blank drafts", () => {
+    let draft = "keep me";
+    submitChatDraft(draft, () => false, (next) => {
+      draft = next;
+    });
+    expect(draft).toBe("keep me");
+
+    let blankSends = 0;
+    draft = "   ";
+    submitChatDraft(
+      draft,
+      () => {
+        blankSends += 1;
+        return true;
+      },
+      (next) => {
+        draft = next;
+      },
+    );
+    expect(blankSends).toBe(0);
+    expect(draft).toBe("   ");
   });
 });
 
 describe("terminal-only split renderer", () => {
+  test("publishes pane registration and inner resize geometry changes", () => {
+    let resize: (() => void) | null = null;
+    const observed: HTMLElement[] = [];
+    const unobserved: HTMLElement[] = [];
+    const registry = createPaneRectRegistry((onResize) => {
+      resize = onResize;
+      return {
+        observe(element) {
+          observed.push(element);
+        },
+        unobserve(element) {
+          unobserved.push(element);
+        },
+        disconnect() {},
+      };
+    });
+    let notifications = 0;
+    const unsubscribe = registry.subscribe(() => {
+      notifications += 1;
+    });
+    const pane = {} as HTMLElement;
+
+    registry.register("pane", pane);
+    expect(registry.getRevision()).toBe(1);
+    expect(notifications).toBe(1);
+    expect(observed).toEqual([pane]);
+
+    resize?.();
+    expect(registry.getRevision()).toBe(2);
+    expect(notifications).toBe(2);
+
+    registry.register("pane", null);
+    expect(registry.getRevision()).toBe(3);
+    expect(notifications).toBe(3);
+    expect(unobserved).toEqual([pane]);
+
+    unsubscribe();
+  });
+
   test("round-trips opaque workspace and pane ids for cursor targeting", () => {
     const key = paneKeyOf("workspace with spaces", "pane with spaces");
     expect(paneRefFromKey(key)).toEqual([

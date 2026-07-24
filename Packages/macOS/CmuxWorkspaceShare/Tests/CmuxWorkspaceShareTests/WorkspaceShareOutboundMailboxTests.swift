@@ -57,7 +57,7 @@ struct WorkspaceShareOutboundMailboxTests {
     @Test
     func `Resync ACK precedes replay hello and full grid`() throws {
         let mailbox = WorkspaceShareOutboundMailbox<String>(
-            maximumMessages: 8,
+            maximumMessages: 5,
             maximumBytes: 1_000,
             reservedControlMessages: 1,
             reservedControlBytes: 100,
@@ -65,17 +65,50 @@ struct WorkspaceShareOutboundMailboxTests {
             reservedAcknowledgementBytes: 100
         )
 
-        // A resync-triggered hello intentionally uses the control lane. The
-        // accepted payload's matching ACK enters first and cannot be overtaken
-        // by the hello or its subsequent full binary replay.
-        #expect(mailbox.admit("ack-resync", byteCount: 10, priority: .acknowledgement))
-        #expect(mailbox.admit("hello-replay", byteCount: 50, priority: .control))
-        #expect(mailbox.admit("full-grid", byteCount: 200, priority: .bulk))
+        #expect(mailbox.admit("control-1", byteCount: 100, priority: .control))
+        #expect(mailbox.admit("control-2", byteCount: 100, priority: .control))
+        #expect(mailbox.admit("control-3", byteCount: 100, priority: .control))
+        #expect(!mailbox.admit("control-full", byteCount: 1, priority: .control))
+        _ = mailbox.beginAcknowledgementBarrier()
+        #expect(mailbox.admitAcknowledgementAndReplayAndRelease(
+            acknowledgement: "ack-resync",
+            acknowledgementByteCount: 10,
+            replay: "hello-replay",
+            replayByteCount: 50
+        ))
 
         #expect(
             try drain(mailbox)
-                == ["ack-resync", "hello-replay", "full-grid"]
+                == [
+                    "ack-resync",
+                    "hello-replay",
+                    "control-1",
+                    "control-2",
+                    "control-3",
+                ]
         )
+    }
+
+    @Test
+    func `Resync acknowledgement and replay reject atomically`() {
+        let mailbox = WorkspaceShareOutboundMailbox<String>(
+            maximumMessages: 1,
+            maximumBytes: 100,
+            reservedControlMessages: 0,
+            reservedControlBytes: 0,
+            reservedAcknowledgementMessages: 1,
+            reservedAcknowledgementBytes: 100
+        )
+
+        _ = mailbox.beginAcknowledgementBarrier()
+        #expect(!mailbox.admitAcknowledgementAndReplayAndRelease(
+            acknowledgement: "ack-resync",
+            acknowledgementByteCount: 10,
+            replay: "hello-replay",
+            replayByteCount: 50
+        ))
+        #expect(mailbox.pendingMessages == 0)
+        #expect(mailbox.hasAcknowledgementBarrier)
     }
 
     @Test
