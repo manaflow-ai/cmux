@@ -9,11 +9,11 @@ final class CLIForwardingLaunchArgumentTests: XCTestCase {
         XCTAssertTrue(CLIForwardingLaunchRouter.shouldForwardToBundledCLI(arguments: ["cmux", "hooks", "setup"]))
     }
 
+    /// A CLI invocation that reaches the GUI binary with the forwarding
+    /// guard already set must not fall through to a GUI launch: hook
+    /// commands (`cmux claude-hook …`) would each leave a faceless app
+    /// instance running forever.
     func testForwardingDecisionFailsClosedWhenGuardIsAlreadySet() {
-        // A CLI invocation that reaches the GUI binary with the forwarding
-        // guard already set must not fall through to a GUI launch: hook
-        // commands (`cmux claude-hook …`) would each leave a faceless app
-        // instance running forever.
         XCTAssertEqual(
             CLIForwardingLaunchRouter.forwardingDecision(
                 arguments: ["cmux", "claude-hook", "pre-tool-use"],
@@ -30,6 +30,8 @@ final class CLIForwardingLaunchArgumentTests: XCTestCase {
         )
     }
 
+    /// GUI-style launches (no subcommand, `-psn_...` flags, `cmux://` URLs)
+    /// stay in the app regardless of the forwarding guard.
     func testForwardingDecisionKeepsGuiLaunchesInAppEvenWithGuardSet() {
         XCTAssertEqual(
             CLIForwardingLaunchRouter.forwardingDecision(arguments: ["cmux"], forwardingGuardIsSet: true),
