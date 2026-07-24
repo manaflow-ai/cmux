@@ -291,6 +291,29 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "EOF\n"
                 'assert "$ready"\n'
             ),
+            "comment-prefixed-fstring.py": (
+                'rendered = f"""\n'
+                "# {time.sleep(0.1)}\n"
+                '"""\n'
+                "assert finished\n"
+            ),
+            "comment-prefixed-heredoc-substitution.sh": (
+                "cat <<EOF\n"
+                "# $(sleep 1)\n"
+                "EOF\n"
+                'assert "$ready"\n'
+            ),
+            "case-esac-argument.sh": (
+                'case "$state" in\n'
+                "ready) echo esac ;;\n"
+                "waiting) DELAY=1 sleep 1 ;;\n"
+                "esac\n"
+                'assert "$ready"\n'
+            ),
+            "nested-quoted-assignment.sh": (
+                'DELAY="$(printf "hello world")" sleep 1\n'
+                'assert "$ready"\n'
+            ),
             "shell-expansion-suffix-before-sleep.sh": (
                 "value=$(printf ok)#suffix; sleep 1\n"
                 'assert "$actual" "$expected"\n'
@@ -387,6 +410,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "swift-raw-multiline-interpolation.swift",
                     "shell-assert-multiline-substitution.sh",
                     "class-name-visible-during-body.py",
+                    "case-esac-argument.sh",
                 )
                 else
                 2
@@ -401,6 +425,8 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "regex-comment-marker-before-sleep.ts",
                     "multiline-case-assignment.sh",
                     "heredoc-arithmetic-command-substitution.sh",
+                    "comment-prefixed-fstring.py",
+                    "comment-prefixed-heredoc-substitution.sh",
                 )
                 else 1
             )
@@ -787,6 +813,18 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "        assert finished\n"
                     "    clock = fake_clock\n"
                     "    inner()\n"
+                ),
+                "nested-nonlocal-rebound.py": (
+                    "def outer():\n"
+                    "    import time as clock\n"
+                    "    def middle():\n"
+                    "        nonlocal clock\n"
+                    "        def inner():\n"
+                    "            clock.sleep(0.01)\n"
+                    "            assert finished\n"
+                    "        clock = fake_clock\n"
+                    "        inner()\n"
+                    "    middle()\n"
                 ),
             }
         )
