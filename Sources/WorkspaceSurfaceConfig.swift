@@ -266,7 +266,7 @@ extension Workspace {
         ) { current, delta in
             policy.clampedRuntimePoints(current + delta)
         }
-        TerminalFontSizeLineage(
+        return TerminalFontSizeLineage(
             basePoints: CmuxSurfaceConfigTemplate.baseFontSize(
                 fromRuntimePoints: finalRuntimePoints,
                 percent: GlobalFontMagnification.storedPercent
