@@ -34,6 +34,7 @@ interface CommandResult {
 }
 
 const sessionStates = new Map<string, SessionState>();
+const pendingPromptHooks = new Map<string, Promise<boolean>>();
 
 function firstString(...values: unknown[]): string | null {
   for (const value of values) {

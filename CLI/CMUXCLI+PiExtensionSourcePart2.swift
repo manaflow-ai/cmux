@@ -29,6 +29,77 @@ function sendHook(subcommand: string, ctx: ExtensionContext, extra: HookExtra = 
   return result.ok;
 }
 
+function sendPromptHookAsync(ctx: ExtensionContext, extra: HookExtra): Promise<boolean> {
+  if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return Promise.resolve(true);
+  if (!process.env.CMUX_SURFACE_ID) return Promise.resolve(true);
+
+  const sessionId = sessionIdFrom(ctx);
+  if (!sessionId) return Promise.resolve(true);
+
+  const cwd = cwdFrom(ctx);
+  const payload: HookExtra = {
+    session_id: sessionId,
+    cwd,
+    hook_event_name: eventName("prompt-submit"),
+    event: eventName("prompt-submit"),
+    ...extra,
+  };
+
+  // Start the turn without waiting for a slow cmux hook process.
+  return new Promise((resolve) => {
+    let settled = false;
+    let timeout: NodeJS.Timeout | undefined;
+    const finish = (ok: boolean, status: number | null, error?: unknown) => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      if (!ok) {
+        warn(ctx, "cmux hook command failed", {
+          subcommand: "prompt-submit",
+          status,
+          stderr_available: false,
+          error_available: error !== undefined,
+        });
+      }
+      resolve(ok);
+    };
+
+    try {
+      const child = spawn(cmuxExecutable(), ["hooks", "pi", "prompt-submit"], {
+        env: hookEnvironment(cwd, true),
+        stdio: ["pipe", "ignore", "ignore"],
+        detached: true,
+      });
+      const killChildTree = () => {
+        // A detached process group lets timeout cleanup include hook descendants.
+        if (process.platform !== "win32" && child.pid) {
+          try {
+            process.kill(-child.pid, "SIGKILL");
+            return;
+          } catch (_) {}
+        }
+        child.kill("SIGKILL");
+      };
+      child.on("error", (error) => finish(false, null, error));
+      child.on("close", (status) => finish(status === 0, status));
+      child.stdin.on("error", (error) => {
+        killChildTree();
+        child.stdin.destroy();
+        finish(false, null, error);
+      });
+      child.stdin.end(JSON.stringify(payload));
+      // Bound the background hook without holding the Pi lifecycle callback.
+      timeout = setTimeout(() => {
+        killChildTree();
+        child.stdin.destroy();
+        finish(false, null, new Error("cmux hook command timed out"));
+      }, 15000);
+    } catch (error) {
+      finish(false, null, error);
+    }
+  });
+}
+
 function surfaceTargetArgs(): string[] | null {
   const surfaceId = firstString(process.env.CMUX_SURFACE_ID);
   if (!surfaceId) return null;
@@ -211,33 +282,45 @@ function sendFeed(eventName: "PreToolUse" | "PostToolUse", ctx: ExtensionContext
     tool_input: objectValue(event, ["args", "input"]),
     ...extra,
   };
-  try {
-    const child = spawn(cmuxExecutable(), ["hooks", "feed", "--source", "pi", "--event", eventName], {
-      env: hookEnvironment(cwd, true),
-      stdio: ["pipe", "ignore", "ignore"],
-      detached: true,
-    });
-    child.on("error", () => {});
-    child.stdin.on("error", () => {});
-    child.stdin.end(JSON.stringify(payload));
-    child.unref();
-  } catch (_) {}
+  const deliver = () => {
+    try {
+      const child = spawn(cmuxExecutable(), ["hooks", "feed", "--source", "pi", "--event", eventName], {
+        env: hookEnvironment(cwd, true),
+        stdio: ["pipe", "ignore", "ignore"],
+        detached: true,
+      });
+      child.on("error", () => {});
+      child.stdin.on("error", () => {});
+      child.stdin.end(JSON.stringify(payload));
+      child.unref();
+    } catch (_) {}
+  };
+  // Feed telemetry follows the prompt hook that establishes the active turn.
+  const pendingPrompt = pendingPromptHooks.get(sessionId);
+  if (pendingPrompt) void pendingPrompt.then(deliver);
+  else deliver();
 }
 
 function publishPendingCompletion(ctx: ExtensionContext, sessionId: string): void {
   const completion = settleTurn(sessionId);
   if (!completion) return;
-  const notificationRouted = sendHook("notification", ctx, {
-    message: completion.lastAssistantMessage || "Task completed",
-    turn_id: completion.turnId,
-    notification: { type: completion.notificationType },
-  });
-  const stopPayload: HookExtra = {
-    last_assistant_message: completion.lastAssistantMessage,
-    turn_id: completion.turnId,
+  const publish = () => {
+    const notificationRouted = sendHook("notification", ctx, {
+      message: completion.lastAssistantMessage || "Task completed",
+      turn_id: completion.turnId,
+      notification: { type: completion.notificationType },
+    });
+    const stopPayload: HookExtra = {
+      last_assistant_message: completion.lastAssistantMessage,
+      turn_id: completion.turnId,
+    };
+    if (notificationRouted) stopPayload.cmux_notification_routed = true;
+    sendHook("stop", ctx, stopPayload);
   };
-  if (notificationRouted) stopPayload.cmux_notification_routed = true;
-  sendHook("stop", ctx, stopPayload);
+  // Completion follows the prompt hook that establishes the active turn.
+  const pendingPrompt = pendingPromptHooks.get(sessionId);
+  if (pendingPrompt) void pendingPrompt.then(publish);
+  else publish();
 }
 
 export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
@@ -256,7 +339,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
   pi.on("before_agent_start", async (event, ctx) => {
     const sessionId = sessionIdFrom(ctx);
     const turnId = sessionId ? beginTurn(sessionId, event) : undefined;
-    sendHook("prompt-submit", ctx, { prompt: event.prompt, turn_id: turnId });
+    if (!sessionId) return;
+    const previous = pendingPromptHooks.get(sessionId) ?? Promise.resolve(true);
+    // Keep prompt hooks ordered without holding Pi's lifecycle callback.
+    const pending = previous.then(() => sendPromptHookAsync(ctx, { prompt: event.prompt, turn_id: turnId }));
+    pendingPromptHooks.set(sessionId, pending);
+    void pending.finally(() => {
+      if (pendingPromptHooks.get(sessionId) === pending) pendingPromptHooks.delete(sessionId);
+    });
   });
 
   pi.on("tool_execution_start", async (event, ctx) => {
@@ -295,6 +385,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
   pi.on("session_shutdown", async (event, ctx) => {
     const sessionId = sessionIdFrom(ctx);
     if (!sessionId) return;
+    await pendingPromptHooks.get(sessionId);
     const state = stateFor(sessionId);
     const cwd = cwdFrom(ctx);
     if (!state.stopped) {

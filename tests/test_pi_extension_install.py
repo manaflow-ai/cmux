@@ -42,6 +42,17 @@ def wait_for_path(path: Path, timeout: float = 5.0) -> bool:
     return path.exists()
 
 
+def wait_for_payload_text(path: Path, expected_count: int, timeout: float = 5.0) -> str:
+    deadline = time.monotonic() + timeout
+    pattern = f"{path.name}.*"
+    while time.monotonic() < deadline:
+        files = sorted(path.parent.glob(pattern))
+        if len(files) >= expected_count:
+            return "\n---\n".join(file.read_text(encoding="utf-8") for file in files)
+        time.sleep(0.05)
+    return "\n---\n".join(file.read_text(encoding="utf-8") for file in sorted(path.parent.glob(pattern)))
+
+
 def payloads_from_log(text: str) -> list[dict[str, object]]:
     payloads: list[dict[str, object]] = []
     for raw in text.split("\n---\n"):
@@ -152,8 +163,8 @@ def main() -> int:
 set -euo pipefail
 printf '%s\n' "$*" >> "$CMUX_TEST_PI_ARGS_LOG"
 payload="$(cat)"
-printf '%s' "$payload" >> "$CMUX_TEST_PI_STDIN_LOG"
-printf '\n---\n' >> "$CMUX_TEST_PI_STDIN_LOG"
+# Keep each detached hook payload isolated from concurrent writers.
+printf '%s' "$payload" > "$CMUX_TEST_PI_STDIN_LOG.$$"
 if printf '%s' "$payload" | grep -q 'pi-session-nonblocking'; then
   : > "$CMUX_TEST_PI_NONBLOCKING_STARTED"
   cat "$CMUX_TEST_PI_NONBLOCKING_RELEASE" >/dev/null
@@ -255,6 +266,14 @@ mod.default({
     handlers.set(name, handler);
   }
 });
+process.argv.splice(
+  0,
+  process.argv.length,
+  "/opt/homebrew/bin/node",
+  process.env.CMUX_TEST_PI_MODERN_SCRIPT_PATH,
+  "--model",
+  "anthropic/claude-sonnet-4-5"
+);
 const ctx = {
   cwd: "/tmp/pi-project",
   sessionManager: {
@@ -263,6 +282,9 @@ const ctx = {
 };
 await handlers.get("before_agent_start")({ prompt: "do not block" }, ctx);
 await Bun.write(process.env.CMUX_TEST_PI_NONBLOCKING_RETURNED, "returned");
+while (!(await Bun.file(process.env.CMUX_TEST_PI_NONBLOCKING_STARTED).exists())) {
+  await Bun.sleep(20);
+}
 """
         nonblocking_check = subprocess.Popen(
             [bun, "--eval", nonblocking_source],
@@ -272,18 +294,19 @@ await Bun.write(process.env.CMUX_TEST_PI_NONBLOCKING_RETURNED, "returned");
             text=True,
             env=check_env,
         )
-        if not wait_for_path(nonblocking_started):
+        if not wait_for_path(nonblocking_started, timeout=20.0):
             nonblocking_check.kill()
             stdout, stderr = nonblocking_check.communicate(timeout=5)
             print("FAIL: blocking Pi prompt hook did not start")
             print(f"stdout={stdout.strip()}")
             print(f"stderr={stderr.strip()}")
+            print(f"args={fake_args_log.read_text(encoding='utf-8') if fake_args_log.exists() else ''}")
             return 1
 
         # The lifecycle callback must return while the fake cmux hook remains blocked.
-        returned_before_release = wait_for_path(nonblocking_returned, timeout=1.0)
+        returned_before_release = wait_for_path(nonblocking_returned, timeout=3.0)
         nonblocking_release.write_text("release", encoding="utf-8")
-        stdout, stderr = nonblocking_check.communicate(timeout=5)
+        stdout, stderr = nonblocking_check.communicate(timeout=20)
         if nonblocking_check.returncode != 0:
             print("FAIL: nonblocking Pi prompt check failed")
             print(f"exit={nonblocking_check.returncode}")
@@ -338,6 +361,14 @@ async function completionHookCount() {
   const lines = (await Bun.file(path).text()).split("\\n");
   return lines.filter((line) => line.includes("hooks pi notification") || line.includes("hooks pi stop")).length;
 }
+async function waitForCompletionHookCount(expected) {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    if (await completionHookCount() >= expected) return;
+    await Bun.sleep(20);
+  }
+  throw new Error(`timed out waiting for ${expected} completion hooks`);
+}
 await handlers.get("session_start")({}, ctx);
 await handlers.get("before_agent_start")({ prompt: "hello pi" }, ctx);
 await handlers.get("tool_execution_start")({
@@ -376,6 +407,7 @@ if (await completionHookCount() !== completionCount) throw new Error("busy settl
 agentIdle = true;
 await handlers.get("agent_settled")({}, ctx);
 completionCount += 2;
+await waitForCompletionHookCount(completionCount);
 if (await completionHookCount() !== completionCount) throw new Error("agent_settled did not emit notification and stop");
 await handlers.get("agent_settled")({}, ctx);
 if (await completionHookCount() !== completionCount) throw new Error("duplicate agent_settled emitted completion twice");
@@ -434,6 +466,7 @@ await handlers.get("agent_end")({
 if (await completionHookCount() !== completionCount) throw new Error("failed notification was attempted before settlement");
 await handlers.get("agent_settled")({}, notificationFailureCtx);
 completionCount += 2;
+await waitForCompletionHookCount(completionCount);
 if (await completionHookCount() !== completionCount) throw new Error("settlement did not attempt failed notification and stop");
 await handlers.get("agent_settled")({}, notificationFailureCtx);
 if (await completionHookCount() !== completionCount) throw new Error("failed notification was retried after duplicate settlement");
@@ -458,6 +491,7 @@ await handlers.get("agent_end")({
   stopReason: "completed"
 }, legacyCtx);
 completionCount += 2;
+await waitForCompletionHookCount(completionCount);
 if (await completionHookCount() !== completionCount) throw new Error("legacy Pi agent_end did not emit completion fallback");
 process.argv.splice(
   0,
@@ -480,6 +514,7 @@ await handlers.get("agent_end")({
   stopReason: "completed"
 }, unknownCtx);
 completionCount += 2;
+await waitForCompletionHookCount(completionCount);
 if (await completionHookCount() !== completionCount) throw new Error("unknown Pi agent_end did not emit completion fallback");
 process.argv.splice(
   0,
@@ -502,6 +537,7 @@ await handlers.get("agent_end")({
   stopReason: "completed"
 }, malformedCtx);
 completionCount += 2;
+await waitForCompletionHookCount(completionCount);
 if (await completionHookCount() !== completionCount) throw new Error("malformed Pi agent_end did not emit completion fallback");
 """
         check = subprocess.run(
@@ -520,9 +556,9 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
             print(f"stderr={check.stderr.strip()}")
             return 1
 
-        args_log = wait_for_text(fake_args_log, 39, timeout=20.0)
-        stdin_log = wait_for_text(fake_stdin_log, 64, timeout=20.0)
-        env_log = wait_for_text(fake_env_log, 39 * 3, timeout=20.0)
+        args_log = wait_for_text(fake_args_log, 40, timeout=20.0)
+        stdin_log = wait_for_payload_text(fake_stdin_log, 40, timeout=20.0)
+        env_log = wait_for_text(fake_env_log, 40 * 3, timeout=20.0)
         for expected in [
             "hooks pi session-start",
             "hooks pi prompt-submit",
@@ -663,7 +699,7 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
             return 1
         feed_events = [payload for payload in payloads if payload.get("hook_event_name") in {"PreToolUse", "PostToolUse"}]
         if len(feed_events) != 2 or {payload.get("tool_name") for payload in feed_events} != {"bash"}:
-            print(f"FAIL: Pi Feed bridge payloads were incomplete: {feed_events!r}")
+            print(f"FAIL: Pi Feed bridge payloads were incomplete: {feed_events!r}; args={args_log!r}")
             return 1
         if {payload.get("turn_id") for payload in feed_events} != {prompt_turn_id}:
             print(f"FAIL: Pi Feed bridge did not use the active prompt turn id: {feed_events!r}")
