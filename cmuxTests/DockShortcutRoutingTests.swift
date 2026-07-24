@@ -310,6 +310,32 @@ struct DockShortcutRoutingTests {
             }
         }
     }
+
+    @Test("Simulator shortcuts target the focused Dock Simulator")
+    @MainActor
+    func simulatorShortcutTargetsFocusedDock() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try Self.withHarness { harness in
+                let flags = CmuxFeatureFlags.shared
+                let simulatorFlag = CmuxFeatureFlags.allFlags[5]
+                let previousOverride = flags.overrideValue(for: simulatorFlag)
+                flags.setOverride(true, for: simulatorFlag)
+                defer { flags.setOverride(previousOverride, for: simulatorFlag) }
+
+                let panel = try harness.dock.seedSimulatorPanel(inPane: harness.rootPane)
+                defer { panel.close() }
+                let responder = DockSimulatorResponder(
+                    owner: ObjectIdentifier(panel.coordinator)
+                )
+                harness.window.contentView = responder
+                #expect(harness.window.makeFirstResponder(responder))
+                let shortcut = Self.customShortcut(key: "y")
+                KeyboardShortcutSettings.setShortcut(shortcut, for: .simulatorHome)
+
+                #expect(Self.dispatch(shortcut, in: harness))
+            }
+        }
+    }
 }
 
 private extension DockShortcutRoutingTests {
@@ -467,4 +493,39 @@ private extension DockSplitStore {
         applyDockSelection(tabId: tabId, inPane: pane)
         return panel
     }
+
+    @MainActor
+    func seedSimulatorPanel(inPane pane: PaneID) throws -> SimulatorPanel {
+        let panel = SimulatorPanel()
+        panels[panel.id] = panel
+        let tabId = try #require(
+            bonsplitController.createTab(
+                title: panel.displayTitle,
+                icon: panel.displayIcon,
+                kind: SurfaceKind.simulator.rawValue,
+                isDirty: panel.isDirty,
+                inPane: pane
+            )
+        )
+        surfaceIdToPanelId[tabId] = panel.id
+        bonsplitController.focusPane(pane)
+        bonsplitController.selectTab(tabId)
+        applyDockSelection(tabId: tabId, inPane: pane)
+        return panel
+    }
+}
+
+@MainActor
+private final class DockSimulatorResponder: NSView, SimulatorInputResponder {
+    let simulatorOwnerID: ObjectIdentifier?
+
+    init(owner: ObjectIdentifier) {
+        simulatorOwnerID = owner
+        super.init(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    override var acceptsFirstResponder: Bool { true }
 }

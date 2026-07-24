@@ -28,4 +28,21 @@ final class ToolOutputFixture: @unchecked Sendable {
             return try JSONDecoder().decode(SimulatorWorkerOutbound.self, from: data)
         }.value
     }
+
+    func receiveAvailable() throws -> [SimulatorWorkerOutbound] {
+        let originalFlags = fcntl(descriptors[0], F_GETFL)
+        guard originalFlags >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        guard fcntl(descriptors[0], F_SETFL, originalFlags | O_NONBLOCK) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        defer { _ = fcntl(descriptors[0], F_SETFL, originalFlags) }
+
+        var messages: [SimulatorWorkerOutbound] = []
+        while let data = host.receiveMessage() {
+            messages.append(try JSONDecoder().decode(SimulatorWorkerOutbound.self, from: data))
+        }
+        return messages
+    }
 }

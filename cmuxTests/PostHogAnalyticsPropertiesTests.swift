@@ -25,16 +25,44 @@ struct PostHogAnalyticsPropertiesTests {
         #expect(await probe.callCount == 1)
     }
 
-    @Test("feature flag control plane uses a product-wide non-analytics identity")
+    @MainActor
+    @Test("feature flag control plane uses a stable anonymous rollout identity and targeting context")
     func featureFlagControlPlaneRespectsTelemetryConsent() throws {
-        let request = try #require(CmuxFeatureFlags.postHogControlPlaneRequest())
-        let body = try #require(request.httpBody)
-        let payload = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let defaults = UserDefaults.standard
+        let identityKey = "cmux.flags.releaseControlDistinctID"
+        let previousIdentity = defaults.object(forKey: identityKey)
+        defaults.removeObject(forKey: identityKey)
+        defer {
+            if let previousIdentity {
+                defaults.set(previousIdentity, forKey: identityKey)
+            } else {
+                defaults.removeObject(forKey: identityKey)
+            }
+        }
 
-        #expect(request.url?.host == "cmux.com")
-        #expect(payload["distinctId"] as? String == "cmux-desktop-release-control")
-        #expect(payload["$anon_distinct_id"] == nil)
-        #expect(payload["person_properties"] == nil)
+        let firstRequest = try #require(CmuxFeatureFlags.postHogControlPlaneRequest())
+        let secondRequest = try #require(CmuxFeatureFlags.postHogControlPlaneRequest())
+        let firstBody = try #require(firstRequest.httpBody)
+        let secondBody = try #require(secondRequest.httpBody)
+        let firstPayload = try #require(
+            JSONSerialization.jsonObject(with: firstBody) as? [String: Any]
+        )
+        let secondPayload = try #require(
+            JSONSerialization.jsonObject(with: secondBody) as? [String: Any]
+        )
+        let distinctID = try #require(firstPayload["distinctId"] as? String)
+        let prefix = "cmux-desktop-release-control-"
+        let context = try #require(firstPayload["context"] as? [String: Any])
+        let personProperties = try #require(context["personProperties"] as? [String: Any])
+
+        #expect(firstRequest.url?.host == "cmux.com")
+        #expect(distinctID.hasPrefix(prefix))
+        #expect(UUID(uuidString: String(distinctID.dropFirst(prefix.count))) != nil)
+        #expect(secondPayload["distinctId"] as? String == distinctID)
+        #expect(personProperties["$os"] as? String == "macOS")
+        #expect((personProperties["cmux_architecture"] as? String)?.isEmpty == false)
+        #expect(firstPayload["$anon_distinct_id"] == nil)
+        #expect(firstPayload["person_properties"] == nil)
     }
 
     @Test("feature flag bool coercion accepts PostHog bool-like values")

@@ -140,6 +140,22 @@ extension SimulatorPaneCoordinatorTests {
         #expect(coordinator.actionLog.last?.action == "worker-25")
     }
 
+    @Test("Interactive actions keep the worker's single authoritative history entry")
+    func interactiveActionHistoryHasOneWriter() async throws {
+        let coordinator = SimulatorPaneCoordinator(client: SimulatorPaneClientSpy(devices: []))
+
+        try await coordinator.perform(.interactive(.hardwareButton(.home)))
+        coordinator.receive(.message(.actionLog(SimulatorActionLogEntry(
+            id: UUID(),
+            timestamp: Date(),
+            action: "button",
+            summary: "home",
+            succeeded: true
+        ))))
+
+        #expect(coordinator.actionLog.map(\.action) == ["button"])
+    }
+
     @Test("Cancellation racing a successful result preserves the commit boundary")
     func cancellationAfterSuccessfulResult() async throws {
         let client = SimulatorPaneClientSpy(

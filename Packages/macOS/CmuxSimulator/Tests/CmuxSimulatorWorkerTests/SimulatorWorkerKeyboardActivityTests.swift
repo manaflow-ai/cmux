@@ -20,4 +20,26 @@ struct SimulatorWorkerKeyboardActivityTests {
 
         #expect(try await fixture.receiveAsync() == .ack(42))
     }
+
+    @Test("Unavailable interactive actions emit one failure and one activity row")
+    @MainActor
+    func unavailableInteractiveActionHasOneLogEntry() async throws {
+        let fixture = try ToolOutputFixture()
+        let coordinator = SimulatorWorkerCoordinator(channel: fixture.worker)
+
+        #expect(!(await coordinator.performInteractiveAction(.hardwareButton(.home))))
+
+        let messages = try fixture.receiveAvailable()
+        #expect(messages.count == 2)
+        #expect(messages.contains { message in
+            if case let .failure(failure) = message {
+                return failure.code == "button_unavailable"
+            }
+            return false
+        })
+        #expect(messages.filter { message in
+            if case .actionLog = message { return true }
+            return false
+        }.count == 1)
+    }
 }

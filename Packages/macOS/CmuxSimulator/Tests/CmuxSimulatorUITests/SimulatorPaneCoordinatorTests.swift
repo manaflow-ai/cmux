@@ -166,6 +166,26 @@ struct SimulatorPaneCoordinatorTests {
         #expect(coordinator.accessibilityOverlayIsVisible)
     }
 
+    @Test("Removing an obsolete host cannot hide a visible replacement")
+    func overlappingHostVisibility() {
+        let coordinator = SimulatorPaneCoordinator(client: SimulatorPaneClientSpy(devices: []))
+        let obsoleteHost = UUID()
+        let replacementHost = UUID()
+        coordinator.setPaneVisibility(true)
+
+        coordinator.setHostWindowVisibility(true, for: obsoleteHost)
+        coordinator.setHostWindowVisibility(true, for: replacementHost)
+        coordinator.removeHostWindowVisibilityObserver(obsoleteHost)
+
+        #expect(coordinator.frameIsVisible)
+        #expect(coordinator.accessibilityOverlayIsVisible)
+
+        coordinator.setHostWindowVisibility(false, for: replacementHost)
+
+        #expect(!coordinator.frameIsVisible)
+        #expect(!coordinator.accessibilityOverlayIsVisible)
+    }
+
     @Test("Explicit recovery returns only after the selected device streams")
     func explicitRecoveryWaitsForActivation() async throws {
         let client = SimulatorPaneClientSpy(devices: [
