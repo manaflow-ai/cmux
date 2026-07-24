@@ -55,6 +55,46 @@ import Testing
         #expect(!plan.forwardsPhysicalKey)
     }
 
+    @Test func accumulatedComposingC0IsSuppressedBeforeAppKitCommandReplay() {
+        let plan = planner.plan(for: snapshot(
+            hasMarkedText: true,
+            textInputConsumed: true,
+            textInputCommandPerformed: true,
+            committedText: ["\u{0008}"],
+            translatedText: nil,
+            rawText: "\u{0008}"
+        ))
+
+        #expect(plan.actions.isEmpty)
+        #expect(!plan.forwardsPhysicalKey)
+    }
+
+    @Test func accumulatedComposingC0DoesNotBlockOpaqueCommittedText() {
+        let actions = planner.actions(for: snapshot(
+            hasMarkedText: true,
+            textInputConsumed: true,
+            textInputCommandPerformed: true,
+            committedText: ["opaque", "\u{0008}"],
+            translatedText: nil,
+            rawText: "\u{0008}"
+        ))
+
+        #expect(actions == [.sendKey(text: "opaque", composing: false)])
+    }
+
+    @Test func accumulatedComposingC0DoesNotTriggerPostCommitNavigationReplay() {
+        let actions = planner.actions(for: snapshot(
+            hadMarkedText: true,
+            textInputConsumed: true,
+            committedText: ["\u{0008}"],
+            translatedText: "\u{F703}",
+            rawText: "\u{0008}",
+            replaysPhysicalKeyAfterPreeditCommit: true
+        ))
+
+        #expect(actions.isEmpty)
+    }
+
     @Test func committedTextDoesNotOwnNativeKeyRelease() {
         let plan = planner.plan(for: snapshot(
             hadMarkedText: true,

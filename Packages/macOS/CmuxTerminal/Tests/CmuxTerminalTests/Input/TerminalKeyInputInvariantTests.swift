@@ -155,10 +155,14 @@ import Testing
         let committedText = snapshot.committedText.filter {
             !ghosttySuppressesControlText($0, composing: composing)
         }
+        let suppressedAccumulatedControl = snapshot.committedText.contains {
+            ghosttySuppressesControlText($0, composing: composing)
+        }
 
         if snapshot.hadMarkedText, !snapshot.committedText.isEmpty {
             var actions = committedText.map(TerminalKeyInputAction.sendCommittedText)
-            if snapshot.event.replaysPhysicalKeyAfterPreeditCommit {
+            if !suppressedAccumulatedControl,
+               snapshot.event.replaysPhysicalKeyAfterPreeditCommit {
                 actions.append(.sendKey(text: nil, composing: false))
             }
             return actions
@@ -168,7 +172,8 @@ import Testing
             var actions: [TerminalKeyInputAction] = committedText.map {
                 .sendKey(text: $0, composing: false)
             }
-            if snapshot.textInputCommandPerformed {
+            if !suppressedAccumulatedControl,
+               snapshot.textInputCommandPerformed {
                 actions.append(.sendKey(text: nil, composing: false))
             }
             return actions
