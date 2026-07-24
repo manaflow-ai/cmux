@@ -53,14 +53,15 @@ extension SimulatorPaneCoordinator {
         if webInspectorIsHighlighted {
             do {
                 _ = try await perform(.setWebInspectorHighlight(enabled: false))
+                webInspectorIsHighlighted = false
             } catch {
                 highlightFailure = error
             }
-            webInspectorIsHighlighted = false
         }
         guard case .webInspectorSession(.detached) = try await perform(.releaseWebInspector) else {
             return false
         }
+        webInspectorIsHighlighted = false
         if let highlightFailure { throw highlightFailure }
         return true
     }
