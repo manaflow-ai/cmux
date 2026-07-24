@@ -114,7 +114,7 @@ pub struct ClientSurfaceSize {
     pub size_participating: Option<bool>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct ClientInfo {
     pub client: u64,
     pub transport: String,
@@ -123,8 +123,44 @@ pub struct ClientInfo {
     pub connected_seconds: u64,
     pub attached: Vec<u64>,
     pub sizes: Vec<ClientSurfaceSize>,
-    #[serde(rename = "self")]
     pub is_self: bool,
+}
+
+#[derive(Deserialize)]
+struct ClientInfoWire {
+    client: u64,
+    transport: String,
+    name: Option<String>,
+    kind: Option<String>,
+    connected_seconds: u64,
+    attached: Vec<u64>,
+    sizes: Vec<ClientSurfaceSize>,
+    size_participating: Option<bool>,
+    #[serde(rename = "self")]
+    is_self: bool,
+}
+
+impl<'de> Deserialize<'de> for ClientInfo {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let mut wire = ClientInfoWire::deserialize(deserializer)?;
+        let fallback = wire.size_participating.unwrap_or(true);
+        for size in &mut wire.sizes {
+            size.size_participating.get_or_insert(fallback);
+        }
+        Ok(Self {
+            client: wire.client,
+            transport: wire.transport,
+            name: wire.name,
+            kind: wire.kind,
+            connected_seconds: wire.connected_seconds,
+            attached: wire.attached,
+            sizes: wire.sizes,
+            is_self: wire.is_self,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -9,11 +9,17 @@ public record ClientSurfaceSize(
     Boolean sizeParticipating
 ) {
     static ClientSurfaceSize from(Map<String, Object> data) {
+        return from(data, Boolean.TRUE);
+    }
+
+    static ClientSurfaceSize from(Map<String, Object> data, Boolean fallbackParticipation) {
         return new ClientSurfaceSize(
             CmuxClient.asLong(data.get("surface")),
             data.get("cols") instanceof Number value ? value.intValue() : null,
             data.get("rows") instanceof Number value ? value.intValue() : null,
-            data.get("size_participating") instanceof Boolean value ? value : null
+            data.get("size_participating") instanceof Boolean value
+                ? value
+                : fallbackParticipation
         );
     }
 }

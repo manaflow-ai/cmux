@@ -39,6 +39,44 @@ type ClientInfo struct {
 	Self             bool                `json:"self"`
 }
 
+func (c *ClientInfo) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		Client            uint64              `json:"client"`
+		Transport         string              `json:"transport"`
+		Name              *string             `json:"name"`
+		Kind              *string             `json:"kind"`
+		ConnectedSeconds  uint64              `json:"connected_seconds"`
+		Attached          []uint64            `json:"attached"`
+		Sizes             []ClientSurfaceSize `json:"sizes"`
+		SizeParticipating *bool               `json:"size_participating"`
+		Self              bool                `json:"self"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	fallback := true
+	if wire.SizeParticipating != nil {
+		fallback = *wire.SizeParticipating
+	}
+	for index := range wire.Sizes {
+		if wire.Sizes[index].SizeParticipating == nil {
+			participating := fallback
+			wire.Sizes[index].SizeParticipating = &participating
+		}
+	}
+	*c = ClientInfo{
+		Client:           wire.Client,
+		Transport:        wire.Transport,
+		Name:             wire.Name,
+		Kind:             wire.Kind,
+		ConnectedSeconds: wire.ConnectedSeconds,
+		Attached:         wire.Attached,
+		Sizes:            wire.Sizes,
+		Self:             wire.Self,
+	}
+	return nil
+}
+
 type SurfaceResult struct {
 	Surface uint64 `json:"surface"`
 }

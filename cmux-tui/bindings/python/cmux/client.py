@@ -437,7 +437,7 @@ class CmuxClient:
                         size_participating=(
                             bool(size["size_participating"])
                             if "size_participating" in size
-                            else None
+                            else item.get("size_participating", True) is not False
                         ),
                     )
                     for size in item.get("sizes", [])

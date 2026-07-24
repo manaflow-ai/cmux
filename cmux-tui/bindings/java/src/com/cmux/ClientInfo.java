@@ -22,7 +22,10 @@ public record ClientInfo(
             data.get("kind") == null ? null : CmuxClient.asString(data.get("kind")),
             CmuxClient.asLong(data.get("connected_seconds")),
             attached(data.get("attached")),
-            sizes(data.get("sizes")),
+            sizes(
+                data.get("sizes"),
+                data.get("size_participating") instanceof Boolean value ? value : Boolean.TRUE
+            ),
             Boolean.TRUE.equals(data.get("self"))
         );
     }
@@ -39,14 +42,17 @@ public record ClientInfo(
     }
 
     @SuppressWarnings("unchecked")
-    private static List<ClientSurfaceSize> sizes(Object value) {
+    private static List<ClientSurfaceSize> sizes(Object value, Boolean fallbackParticipation) {
         if (!(value instanceof List<?> values)) {
             return List.of();
         }
         List<ClientSurfaceSize> sizes = new ArrayList<>(values.size());
         for (Object item : values) {
             if (item instanceof Map<?, ?> map) {
-                sizes.add(ClientSurfaceSize.from((Map<String, Object>) map));
+                sizes.add(ClientSurfaceSize.from(
+                    (Map<String, Object>) map,
+                    fallbackParticipation
+                ));
             }
         }
         return List.copyOf(sizes);
