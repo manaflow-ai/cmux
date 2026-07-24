@@ -907,53 +907,27 @@ extension MobileShellComposite {
         _ operation: @escaping @Sendable () async -> Value
     ) async -> DeadlineRaceOutcome<Value> {
         let operationTask = Task { await operation() }
-        // The operation runs unstructured (so a cancellation-ignoring dial
-        // cannot park the race past its deadline), which severs implicit
-        // cancellation inheritance — forward the caller's cancellation
-        // explicitly so a superseded recovery attempt still aborts a
-        // well-behaved dial immediately.
-        let value: Value? = await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Value?, Never>) in
-                let once = RaceContinuationOnce(continuation)
-                Task {
-                    once.finish(await operationTask.value)
-                }
-                Task {
-                    // Intentional bounded deadline timer (not a polling wait);
-                    // cancellation of the race cancels the operation via the
-                    // handler above, and this timer resolves the race at the
-                    // bound either way.
-                    try? await ContinuousClock().sleep(for: .nanoseconds(Int64(nanoseconds)))
-                    operationTask.cancel()
-                    once.finish(nil)
-                }
-            }
-        } onCancel: {
+        // RPCTaskTimeout owns the deadline race through an actor. Keep the
+        // operation itself separate so a cancellation-ignoring FFI dial does
+        // not park the timeout scheduler; the returned handle accounts for
+        // that abandoned work until it eventually resolves.
+        let deadlineWaiter = Task<Value, any Error> {
+            await operationTask.value
+        }
+        let value: Value?
+        do {
+            value = try await RPCTaskTimeout().value(
+                deadlineWaiter,
+                timeoutNanoseconds: nanoseconds
+            )
+        } catch {
+            deadlineWaiter.cancel()
             operationTask.cancel()
+            value = nil
         }
         return DeadlineRaceOutcome(
             value: value,
             abandoned: value == nil ? operationTask : nil
         )
-    }
-}
-
-/// Resumes a race continuation exactly once, whichever side finishes first.
-/// Lock-based rather than actor-based so both racing tasks can call it
-/// without an isolation hop.
-private final class RaceContinuationOnce<Value: Sendable>: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<Value?, Never>?
-
-    init(_ continuation: CheckedContinuation<Value?, Never>) {
-        self.continuation = continuation
-    }
-
-    func finish(_ value: Value?) {
-        lock.lock()
-        let continuation = self.continuation
-        self.continuation = nil
-        lock.unlock()
-        continuation?.resume(returning: value)
     }
 }
