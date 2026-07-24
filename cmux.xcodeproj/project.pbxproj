@@ -235,6 +235,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D35A0000000000000000000A /* BrowserDesignModeError.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B0000000000000000000A /* BrowserDesignModeError.swift */; };
 		D35A00000000000000000015 /* BrowserDesignModeJavaScriptEvaluator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000015 /* BrowserDesignModeJavaScriptEvaluator.swift */; };
 		D35A00000000000000000007 /* BrowserDesignModeMessageHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000007 /* BrowserDesignModeMessageHandler.swift */; };
+		D35C00000000000000000004 /* BrowserDesignModeOffscreenSelectionHandoffTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35D00000000000000000004 /* BrowserDesignModeOffscreenSelectionHandoffTests.swift */; };
 		D35A00000000000000000012 /* BrowserDesignModeOverflowMenuButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000012 /* BrowserDesignModeOverflowMenuButton.swift */; };
 		D35A00000000000000000008 /* BrowserDesignModePhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000008 /* BrowserDesignModePhase.swift */; };
 		D35A00000000000000000017 /* BrowserDesignModePopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000017 /* BrowserDesignModePopover.swift */; };
@@ -2500,6 +2501,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D35B0000000000000000000A /* BrowserDesignModeError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeError.swift; sourceTree = "<group>"; };
 		D35B00000000000000000015 /* BrowserDesignModeJavaScriptEvaluator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeJavaScriptEvaluator.swift; sourceTree = "<group>"; };
 		D35B00000000000000000007 /* BrowserDesignModeMessageHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeMessageHandler.swift; sourceTree = "<group>"; };
+		D35D00000000000000000004 /* BrowserDesignModeOffscreenSelectionHandoffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDesignModeOffscreenSelectionHandoffTests.swift; sourceTree = "<group>"; };
 		D35B00000000000000000012 /* BrowserDesignModeOverflowMenuButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeOverflowMenuButton.swift; sourceTree = "<group>"; };
 		D35B00000000000000000008 /* BrowserDesignModePhase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModePhase.swift; sourceTree = "<group>"; };
 		D35B00000000000000000017 /* BrowserDesignModePopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModePopover.swift; sourceTree = "<group>"; };
@@ -6316,6 +6318,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B6585002B6585002B6585002 /* BrowserHiddenWebViewDiscardMemoryPressureTests.swift */,
 				D35D00000000000000000002 /* BrowserDesignModeComposerHostingViewTests.swift */,
 				D35D00000000000000000003 /* BrowserDesignModeArtifactStoreTests.swift */,
+				D35D00000000000000000004 /* BrowserDesignModeOffscreenSelectionHandoffTests.swift */,
 				D35D00000000000000000001 /* BrowserDesignModeScreenshotEvaluatorTests.swift */,
 				B75040020000000000000002 /* BrowserDiscardedWebViewRestoreRetryTests.swift */,
 				B75040030000000000000002 /* BrowserDiscardRestoreHealPredicateTests.swift */,
@@ -8781,6 +8784,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E12E88F82733EC42F32C36A3 /* BrowserConfigTests.swift in Sources */,
 				D35C00000000000000000003 /* BrowserDesignModeArtifactStoreTests.swift in Sources */,
 				D35C00000000000000000002 /* BrowserDesignModeComposerHostingViewTests.swift in Sources */,
+				D35C00000000000000000004 /* BrowserDesignModeOffscreenSelectionHandoffTests.swift in Sources */,
 				D35C00000000000000000001 /* BrowserDesignModeScreenshotEvaluatorTests.swift in Sources */,
 				B1F0C0060000000000000001 /* BrowserDeveloperToolsDockControlNormalizerTests.swift in Sources */,
 				B1F0C0070000000000000001 /* BrowserDeveloperToolsLifecycleTests.swift in Sources */,
