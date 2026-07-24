@@ -3906,7 +3906,6 @@ final class TmuxWorkspacePaneOverlayTests: XCTestCase {
     func testAllFlashReasonsUseNotificationRingAccent() {
         let reasons: [WorkspaceAttentionFlashReason] = [
             .navigation,
-            .userInitiated,
             .notificationArrival,
             .notificationDismiss,
             .unreadIndicatorDismiss,

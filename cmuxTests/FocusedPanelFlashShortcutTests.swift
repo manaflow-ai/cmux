@@ -74,6 +74,14 @@ struct FocusedPanelFlashShortcutTests {
         #expect(workspace.tmuxWorkspaceFlashPanelId == focusedPanel.id)
     }
 
+    @Test("User-initiated flashes use the notification ring accent")
+    func userInitiatedFlashUsesNotificationRingAccent() {
+        #expect(
+            WorkspaceAttentionCoordinator.flashStyle(for: .userInitiated).accent ==
+                WorkspaceAttentionCoordinator.notificationRingStyle.accent
+        )
+    }
+
     private func restoreDefault(_ value: Any?, key: String) {
         if let value {
             UserDefaults.standard.set(value, forKey: key)
