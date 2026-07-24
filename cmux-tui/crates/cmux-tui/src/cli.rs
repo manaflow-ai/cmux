@@ -1786,6 +1786,30 @@ mod tests {
     }
 
     #[test]
+    fn protocol_9_client_listing_uses_client_wide_sizing_participation() {
+        let clients = json!([{
+            "client": 7,
+            "transport": "unix",
+            "name": null,
+            "kind": null,
+            "connected_seconds": 1,
+            "attached": [9],
+            "sizes": [{
+                "surface": 9,
+                "cols": 80,
+                "rows": 24
+            }],
+            "size_participating": false,
+            "self": false
+        }]);
+        let mut output = Vec::new();
+
+        print_clients(&clients, &mut output).unwrap();
+
+        assert!(String::from_utf8(output).unwrap().contains("9:80x24:sizing=false"));
+    }
+
+    #[test]
     fn protocol_v7_cli_builders_emit_render_tree_paste_and_scrollback_fields() {
         let attach = VERBS.iter().find(|verb| verb.name == "attach-surface").unwrap();
         assert!(attach.allowed.contains(&"cols"));

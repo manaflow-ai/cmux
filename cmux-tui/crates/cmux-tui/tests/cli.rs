@@ -8,6 +8,8 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::fd::FromRawFd;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+#[cfg(unix)]
+use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::mpsc;
@@ -210,6 +212,72 @@ fn configured_websocket_server_does_not_attach_to_existing_session() {
     }
 
     panic!("configured WebSocket server attached instead of preserving server mode");
+}
+
+#[cfg(unix)]
+#[test]
+fn client_sizing_rejects_protocol_9_without_forwarding_mutation() {
+    let dir = unique_temp_dir("protocol-9-client-sizing");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let (commands_tx, commands_rx) = mpsc::channel();
+    let server = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        let mut writer = stream.try_clone().unwrap();
+        let mut reader = BufReader::new(stream);
+        let mut commands = Vec::new();
+        loop {
+            let mut line = String::new();
+            match reader.read_line(&mut line) {
+                Ok(0) => break,
+                Ok(_) => {}
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    break;
+                }
+                Err(error) => panic!("protocol 9 test server read failed: {error}"),
+            }
+            let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+            let command = request["cmd"].as_str().unwrap().to_string();
+            commands.push(command.clone());
+            let id = request["id"].as_u64().unwrap();
+            let response = if command == "identify" {
+                serde_json::json!({
+                    "id": id,
+                    "ok": true,
+                    "data": {
+                        "protocol": 9,
+                        "capabilities": []
+                    }
+                })
+            } else {
+                serde_json::json!({"id": id, "ok": true, "data": {}})
+            };
+            writeln!(writer, "{response}").unwrap();
+        }
+        commands_tx.send(commands).unwrap();
+    });
+
+    let output = Command::new(bin())
+        .args(["--socket"])
+        .arg(&socket)
+        .args(["set-client-sizing", "--surface", "9", "--client", "7", "--enabled", "false"])
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    let commands = commands_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+    server.join().unwrap();
+    fs::remove_dir_all(dir).unwrap();
+
+    assert!(!output.status.success(), "protocol 9 sizing mutation unexpectedly succeeded");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("requires protocol 10"));
+    assert_eq!(commands, vec!["identify"]);
 }
 
 #[test]

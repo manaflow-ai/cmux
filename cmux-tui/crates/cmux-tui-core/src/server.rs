@@ -5306,6 +5306,12 @@ mod tests {
         mux.control_clients.attach_surface(late, surface.id, late_stream).unwrap();
         assert!(!mux.client_size_participates(surface.id, late));
 
+        let other_writer = test_writer();
+        let other = mux.control_clients.register(ClientTransport::Unix, other_writer.clone());
+        let other_stream = other_writer.start_stream(&json!({"event": "test"})).unwrap();
+        mux.control_clients.attach_surface(other, surface.id, other_stream).unwrap();
+        assert!(!mux.client_size_participates(surface.id, other));
+
         handle_command(
             &mux,
             late,
@@ -5320,6 +5326,7 @@ mod tests {
         .unwrap();
 
         assert!(mux.client_size_participates(surface.id, late));
+        assert!(!mux.client_size_participates(surface.id, other));
     }
 
     #[test]

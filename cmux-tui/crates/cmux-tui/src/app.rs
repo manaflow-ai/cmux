@@ -12889,6 +12889,10 @@ mod tests {
         app.session.attach_surface(surface, Some((80, 24)));
         reached.wait();
         app.session.forget_surface(surface);
+        // The authoritative refresh can prune the general tombstone before
+        // the in-flight attach returns. Its claim must retain the retirement.
+        app.session.reconcile_exited_surfaces(&TreeView::default());
+        assert!(!app.session.exited_surfaces.lock().unwrap().contains(&surface));
         release.wait();
 
         let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
