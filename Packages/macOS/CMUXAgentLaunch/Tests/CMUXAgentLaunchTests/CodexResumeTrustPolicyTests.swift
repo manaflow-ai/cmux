@@ -40,6 +40,17 @@ struct CodexResumeTrustPolicyTests {
                 effectiveProjectDecisionPaths: ["/Users/me/repo"]
             ).isEmpty
         )
+        #expect(
+            policy.undecidedProjectOverride(
+                arguments: ["codex", "resume", "SID"],
+                currentDirectory: "/Users/me/worktree/nested",
+                repositoryRoots: [
+                    "/Users/me/worktree",
+                    "/Users/me/repo",
+                ],
+                effectiveProjectDecisionPaths: ["/Users/me/worktree"]
+            ).isEmpty
+        )
     }
 
     @Test("Fresh sessions never receive or query an automatic trust decision")

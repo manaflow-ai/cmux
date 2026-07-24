@@ -22,6 +22,22 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
         repositoryRoot: String?,
         effectiveProjectDecisionPaths: Set<String>
     ) -> [String] {
+        undecidedProjectOverride(
+            arguments: arguments,
+            currentDirectory: currentDirectory,
+            repositoryRoots: [repositoryRoot].compactMap { $0 },
+            effectiveProjectDecisionPaths: effectiveProjectDecisionPaths
+        )
+    }
+
+    /// Variant that preserves decisions for both a linked checkout root and its
+    /// main repository root.
+    public func undecidedProjectOverride(
+        arguments: [String],
+        currentDirectory: String,
+        repositoryRoots: [String],
+        effectiveProjectDecisionPaths: Set<String>
+    ) -> [String] {
         guard isResumeInvocation(arguments: arguments) else { return [] }
 
         let currentDirectory = effectiveWorkingDirectory(
@@ -31,7 +47,9 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
         guard let currentDirectory else { return [] }
 
         var candidates = Set<String>()
-        for path in [currentDirectory, repositoryRoot].compactMap({ normalizedAbsolutePath($0) }) {
+        for path in ([currentDirectory] + repositoryRoots).compactMap({
+            normalizedAbsolutePath($0)
+        }) {
             candidates.insert(path)
             candidates.insert(canonicalProjectPath(path))
         }

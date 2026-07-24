@@ -123,7 +123,7 @@ extension CMUXCLI {
         ) else {
             return []
         }
-        let repository = codexCommonRepositoryRoot(
+        let repository = codexRepositoryDecisionRoots(
             currentDirectory: effectiveDirectory
         )
         guard repository.resolved else {
@@ -132,7 +132,7 @@ extension CMUXCLI {
         return policy.undecidedProjectOverride(
             arguments: arguments,
             currentDirectory: currentDirectory,
-            repositoryRoot: repository.root,
+            repositoryRoots: repository.roots,
             effectiveProjectDecisionPaths: projectDecisions
         )
     }
@@ -346,9 +346,9 @@ extension CMUXCLI {
     /// be keyed by the main repository root rather than the checkout root. A
     /// failed probe is distinct from a confirmed non-repository so an
     /// invocation-only override cannot hide an authoritative root decision.
-    private func codexCommonRepositoryRoot(
+    private func codexRepositoryDecisionRoots(
         currentDirectory: String
-    ) -> (resolved: Bool, root: String?) {
+    ) -> (resolved: Bool, roots: [String]) {
         let result = CLIProcessRunner.runProcess(
             executablePath: "/usr/bin/env",
             arguments: [
@@ -358,25 +358,46 @@ extension CMUXCLI {
                 currentDirectory,
                 "rev-parse",
                 "--path-format=absolute",
+                "--show-toplevel",
+                "--git-dir",
                 "--git-common-dir",
             ],
             timeout: 1
         )
         if result.status == 0, !result.timedOut {
-            guard let commonDirectory = normalizedHookValue(result.stdout) else {
-                return (false, nil)
+            let paths = result.stdout
+                .split(whereSeparator: \.isNewline)
+                .compactMap { normalizedHookValue(String($0)) }
+            guard paths.count == 3,
+                  paths.allSatisfy({ $0.hasPrefix("/") }) else {
+                return (false, [])
             }
-            let commonURL = URL(
-                fileURLWithPath: commonDirectory,
+            let checkoutURL = URL(
+                fileURLWithPath: paths[0],
                 isDirectory: true
-            )
-            guard commonURL.lastPathComponent == ".git" else {
-                return (false, nil)
+            ).standardizedFileURL
+            let gitURL = URL(
+                fileURLWithPath: paths[1],
+                isDirectory: true
+            ).standardizedFileURL
+            let commonURL = URL(
+                fileURLWithPath: paths[2],
+                isDirectory: true
+            ).standardizedFileURL
+
+            var roots = [checkoutURL.path]
+            let worktreesURL = gitURL.deletingLastPathComponent()
+            if worktreesURL.lastPathComponent == "worktrees",
+               worktreesURL.deletingLastPathComponent().path
+                == commonURL.path {
+                roots.append(
+                    commonURL
+                        .deletingLastPathComponent()
+                        .standardizedFileURL
+                        .path
+                )
             }
-            return (
-                true,
-                commonURL.deletingLastPathComponent().standardizedFileURL.path
-            )
+            return (true, Array(Set(roots)).sorted())
         }
 
         guard !result.timedOut,
@@ -384,9 +405,9 @@ extension CMUXCLI {
               result.stderr.contains("not a git repository"),
               !codexRepositoryEnvironmentIsConfigured(),
               !codexRepositoryMarkerExists(currentDirectory: currentDirectory) else {
-            return (false, nil)
+            return (false, [])
         }
-        return (true, nil)
+        return (true, [])
     }
 
     private func codexRepositoryEnvironmentIsConfigured() -> Bool {
