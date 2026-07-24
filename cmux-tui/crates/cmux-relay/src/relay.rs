@@ -1766,8 +1766,18 @@ mod tests {
             }
         );
 
-        client_circuit.send(ClientMessage::Close(None)).await.unwrap();
-        let error = receive_control(&mut daemon_circuit).await;
+        daemon_circuit
+            .feed(ClientMessage::Binary(Bytes::from_static(b"final authorization rejection")))
+            .await
+            .unwrap();
+        daemon_circuit.feed(ClientMessage::Close(None)).await.unwrap();
+        daemon_circuit.flush().await.unwrap();
+        assert_eq!(
+            receive_binary(&mut client_circuit).await,
+            Bytes::from_static(b"final authorization rejection"),
+            "the relay dropped data queued before its peer disconnected"
+        );
+        let error = receive_control(&mut client_circuit).await;
         assert!(matches!(
             error,
             RelayControl::Error { code, retryable: true, .. } if code == "peer-disconnected"
