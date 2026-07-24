@@ -16,7 +16,7 @@ $TMPDIR/cmux-tui-<uid>/<session>.sock
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":9,"capabilities":["attach-initial-size","workspace-registry-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":9,"capabilities":["attach-initial-size","workspace-registry-v1","provider-managed-workspace-authority-v2","server-shutdown-v1"],"session":"main","pid":12345}}
 ```
 
 Responses have this shape:

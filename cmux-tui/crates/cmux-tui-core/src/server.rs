@@ -57,6 +57,7 @@ use crate::{
 
 const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
+pub const SERVER_SHUTDOWN_CAPABILITY: &str = "server-shutdown-v1";
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
     "provider-managed-workspace-authority-v2";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -2944,7 +2945,8 @@ fn handle_command(
                 "capabilities": [
                     ATTACH_INITIAL_SIZE_CAPABILITY,
                     WORKSPACE_REGISTRY_CAPABILITY,
-                    PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY
+                    PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
+                    SERVER_SHUTDOWN_CAPABILITY
                 ],
                 "session": mux.session,
                 "pid": std::process::id(),
@@ -6477,6 +6479,7 @@ mod tests {
             "attach-initial-size",
             "workspace-registry-v1",
             PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
+            SERVER_SHUTDOWN_CAPABILITY,
         ] {
             assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
         }

@@ -43,6 +43,7 @@ const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
 const PROVIDER_WORKSPACE_AUTHORITY_MIN_BYTES: usize = 32;
 const PROVIDER_WORKSPACE_AUTHORITY_MAX_BYTES: usize = 512;
 const SHUTDOWN_TERMINATION_TIMEOUT: Duration = Duration::from_millis(100);
+const SHUTDOWN_HOST_EXIT_TIMEOUT: Duration = Duration::from_secs(4);
 const SHUTDOWN_FANOUT_WORKERS: usize = 128;
 
 /// An opaque per-mux credential provisioned by the external machine
@@ -812,6 +813,7 @@ pub struct Mux {
     /// its own lock so a new native-browser owner cannot race the shutdown.
     pub(crate) daemon_handoff_pending: AtomicBool,
     shutting_down: AtomicBool,
+    daemon_shutdown_requested: AtomicBool,
     pub(crate) control_clients: crate::server::ClientRegistry,
     pairing: PairingBroker,
     #[cfg(test)]
@@ -1036,6 +1038,7 @@ impl Mux {
             terminal_adoptions: Mutex::new(HashSet::new()),
             daemon_handoff_pending: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
+            daemon_shutdown_requested: AtomicBool::new(false),
             control_clients: crate::server::ClientRegistry::new(),
             pairing: PairingBroker::new(),
             #[cfg(test)]
@@ -3640,6 +3643,16 @@ impl Mux {
         self.shutting_down.store(true, Ordering::Release);
         self.surface_creations.stop_and_wait();
 
+        #[cfg(unix)]
+        let terminal_host_records = {
+            let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
+            match root {
+                Some(root) => crate::terminal_host_runtime::load_terminal_host_records(&root)
+                    .context("load terminal hosts for server shutdown")?,
+                None => Vec::new(),
+            }
+        };
+
         let (surfaces, tree_changed) = {
             let mutation = WorkspaceMutation::local("cmux-tui-shutdown");
             let mut registry = self.workspace_registry.lock().unwrap();
@@ -3691,50 +3704,30 @@ impl Mux {
             self.emit(MuxEvent::TreeChanged);
         }
 
-        #[cfg(unix)]
-        let terminated_hosts = Mutex::new(HashSet::new());
         bounded_shutdown_fanout(&surfaces, |surface| {
-            let accepted = surface.terminate_for_server_shutdown(SHUTDOWN_TERMINATION_TIMEOUT);
-            #[cfg(unix)]
-            if accepted && let Some(identity) = surface.terminal_host_identity() {
-                terminated_hosts
-                    .lock()
-                    .unwrap()
-                    .insert((identity.terminal_id, identity.incarnation));
-            }
+            surface.terminate_for_server_shutdown(SHUTDOWN_TERMINATION_TIMEOUT);
         });
 
         #[cfg(unix)]
         {
-            let terminated_hosts = terminated_hosts.into_inner().unwrap();
-            let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
-            if let Some(root) = root {
-                let records = crate::terminal_host_runtime::load_terminal_host_records(&root)
-                    .context("load terminal hosts for server shutdown")?;
-                let failed = Mutex::new(Vec::new());
-                bounded_shutdown_fanout(&records, |(path, record)| {
-                    if terminated_hosts
-                        .contains(&(record.terminal_id.clone(), record.incarnation.clone()))
-                    {
-                        return;
-                    }
-                    if !cleanup_terminal_host_record_with_timeout(
-                        record,
-                        path,
-                        SHUTDOWN_TERMINATION_TIMEOUT,
-                    ) {
-                        failed.lock().unwrap().push(record.terminal_id.clone());
-                    }
-                });
-                let mut failed = failed.into_inner().unwrap();
-                if !failed.is_empty() {
-                    failed.sort();
-                    anyhow::bail!(
-                        "could not terminate {} terminal host(s): {}",
-                        failed.len(),
-                        failed.join(", ")
-                    );
+            let failed = Mutex::new(Vec::new());
+            bounded_shutdown_fanout(&terminal_host_records, |(path, record)| {
+                if !terminate_and_confirm_terminal_host_record(
+                    record,
+                    path,
+                    SHUTDOWN_HOST_EXIT_TIMEOUT,
+                ) {
+                    failed.lock().unwrap().push(record.terminal_id.clone());
                 }
+            });
+            let mut failed = failed.into_inner().unwrap();
+            if !failed.is_empty() {
+                failed.sort();
+                anyhow::bail!(
+                    "could not terminate {} terminal host(s): {}",
+                    failed.len(),
+                    failed.join(", ")
+                );
             }
         }
 
@@ -3758,10 +3751,11 @@ impl Mux {
     pub fn request_daemon_shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
         self.surface_creations.stop_and_wait();
+        self.daemon_shutdown_requested.store(true, Ordering::Release);
     }
 
     pub fn daemon_shutdown_requested(&self) -> bool {
-        self.shutting_down.load(Ordering::Acquire)
+        self.daemon_shutdown_requested.load(Ordering::Acquire)
     }
 
     /// Update options used for future surface/browser launches.
@@ -7501,25 +7495,47 @@ fn cleanup_terminal_host_record(
 }
 
 #[cfg(unix)]
-fn cleanup_terminal_host_record_with_timeout(
+fn terminate_and_confirm_terminal_host_record(
     record: &crate::terminal_host_runtime::TerminalHostRecord,
     record_path: &Path,
     timeout: Duration,
 ) -> bool {
-    match terminal_host_record_liveness(record_path, record) {
-        TerminalHostLiveness::Dead => {
-            match crate::terminal_host_runtime::remove_stale_terminal_host_record(
-                record_path,
-                record,
-            ) {
-                Ok(removed) => removed,
-                Err(_) if !record_path.exists() => true,
-                Err(_) => false,
+    let deadline = Instant::now() + timeout;
+    let mut termination_sent = false;
+    let mut last_terminate_attempt = None;
+    loop {
+        match terminal_host_record_liveness(record_path, record) {
+            TerminalHostLiveness::Dead => {
+                return match crate::terminal_host_runtime::remove_stale_terminal_host_record(
+                    record_path,
+                    record,
+                ) {
+                    Ok(removed) => removed,
+                    Err(_) if !record_path.exists() => true,
+                    Err(_) => false,
+                };
             }
+            TerminalHostLiveness::Live | TerminalHostLiveness::Indeterminate => {}
         }
-        TerminalHostLiveness::Live | TerminalHostLiveness::Indeterminate => {
-            terminate_host_record_with_timeout(record.clone(), record_path.to_path_buf(), timeout)
+
+        let now = Instant::now();
+        if !termination_sent
+            && last_terminate_attempt.is_none_or(|attempt: Instant| {
+                now.duration_since(attempt) >= Duration::from_millis(100)
+            })
+        {
+            termination_sent = terminate_host_record_with_timeout(
+                record.clone(),
+                record_path.to_path_buf(),
+                SHUTDOWN_TERMINATION_TIMEOUT,
+            );
+            last_terminate_attempt = Some(Instant::now());
         }
+        let now = Instant::now();
+        if now >= deadline {
+            return false;
+        }
+        std::thread::sleep(deadline.saturating_duration_since(now).min(Duration::from_millis(10)));
     }
 }
 
@@ -9878,10 +9894,14 @@ mod tests {
         let error = mux.close_all_surfaces_for_shutdown().unwrap_err();
 
         assert!(format!("{error:#}").contains("forced terminal close failure"));
+        assert!(!mux.shutdown_requested());
+        assert!(!mux.daemon_shutdown_requested());
         assert!(mux.surface(surface).is_some());
         assert!(mux.with_state(|state| state.pane_of(surface).is_some()));
         mux.set_terminal_close_failure_for_test(false).unwrap();
         assert_eq!(mux.close_all_surfaces_for_shutdown().unwrap(), 1);
+        assert!(!mux.shutdown_requested());
+        assert!(!mux.daemon_shutdown_requested());
         assert!(mux.surface(surface).is_none());
     }
 

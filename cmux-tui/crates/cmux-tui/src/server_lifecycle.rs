@@ -7,15 +7,22 @@ use std::time::{Duration, Instant};
 
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::release::ReleaseIdentity;
-use cmux_tui_core::server::PROTOCOL_VERSION;
+use cmux_tui_core::server::{PROTOCOL_VERSION, SERVER_SHUTDOWN_CAPABILITY};
 use serde_json::{Value, json};
+
+#[cfg(unix)]
+mod legacy_process;
+#[cfg(unix)]
+use legacy_process::{ProcessIdentity, terminate_process_tree};
 
 const PROBE_REQUEST_ID: u64 = 0;
 const SHUTDOWN_REQUEST_ID: u64 = 1;
 #[cfg(unix)]
 const LEGACY_LIST_REQUEST_ID: u64 = 2;
 #[cfg(unix)]
-const LEGACY_CLOSE_REQUEST_ID_START: u64 = 3;
+const LEGACY_STABLE_EMPTY_SCANS: usize = 2;
+#[cfg(unix)]
+const LEGACY_MAX_SCAN_ROUNDS: usize = 64;
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
 
 type TransportReader = BufReader<Box<dyn transport::Stream>>;
@@ -175,6 +182,10 @@ impl ServerLifecycle {
     }
 
     pub(crate) fn stop(mut self) -> anyhow::Result<()> {
+        if !self.probe.identity.supports(SERVER_SHUTDOWN_CAPABILITY) {
+            return self.stop_legacy_server();
+        }
+
         write_json_line(
             self.reader.get_mut(),
             &json!({"id": SHUTDOWN_REQUEST_ID, "cmd": "shutdown"}),
@@ -189,16 +200,13 @@ impl ServerLifecycle {
         if accepted {
             return wait_for_disconnect(&mut self.reader);
         }
-        if self.probe.is_compatible() {
-            anyhow::bail!(crate::localization::catalog().server.shutdown_failed);
-        }
-        self.stop_legacy_server()
+        anyhow::bail!(crate::localization::catalog().server.shutdown_failed)
     }
 
     #[cfg(unix)]
     fn stop_legacy_server(self) -> anyhow::Result<()> {
-        let pid = verified_legacy_pid(self.probe.identity.pid, self.peer_process_id)?;
-        let result = run_detached_legacy_stop(&self.path, pid);
+        let process = verified_legacy_process(self.probe.identity.pid, self.peer_process_id)?;
+        let result = run_detached_legacy_stop(&self.path, process);
         drop(self.reader);
         result
     }
@@ -209,23 +217,42 @@ impl ServerLifecycle {
     }
 
     #[cfg(unix)]
-    fn close_legacy_surfaces(&mut self) -> anyhow::Result<()> {
+    fn close_legacy_surfaces_until_stable(&mut self) -> anyhow::Result<()> {
+        let mut next_request_id = LEGACY_LIST_REQUEST_ID;
+        let mut consecutive_empty_scans = 0;
+        for _ in 0..LEGACY_MAX_SCAN_ROUNDS {
+            let closed = self.close_legacy_surface_snapshot(&mut next_request_id)?;
+            if closed == 0 {
+                consecutive_empty_scans += 1;
+                if consecutive_empty_scans == LEGACY_STABLE_EMPTY_SCANS {
+                    return Ok(());
+                }
+            } else {
+                consecutive_empty_scans = 0;
+            }
+        }
+        anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed)
+    }
+
+    #[cfg(unix)]
+    fn close_legacy_surface_snapshot(
+        &mut self,
+        next_request_id: &mut u64,
+    ) -> anyhow::Result<usize> {
+        let list_request_id = take_legacy_request_id(next_request_id)?;
         write_json_line(
             self.reader.get_mut(),
-            &json!({"id": LEGACY_LIST_REQUEST_ID, "cmd": "list-workspaces"}),
+            &json!({"id": list_request_id, "cmd": "list-workspaces"}),
         )
         .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.transport_failed))?;
-        let response = read_response(&mut self.reader, LEGACY_LIST_REQUEST_ID)?;
+        let response = read_response(&mut self.reader, list_request_id)?;
         let data = response_data(&response)?;
+        let mut surfaces = legacy_surface_ids(data);
+        surfaces.sort_unstable();
+        surfaces.dedup();
 
-        for (index, surface) in legacy_surface_ids(data).into_iter().enumerate() {
-            let request_id = LEGACY_CLOSE_REQUEST_ID_START
-                .checked_add(u64::try_from(index).map_err(|_| {
-                    anyhow::anyhow!(crate::localization::catalog().server.legacy_too_many_surfaces)
-                })?)
-                .ok_or_else(|| {
-                    anyhow::anyhow!(crate::localization::catalog().server.legacy_too_many_surfaces)
-                })?;
+        for &surface in &surfaces {
+            let request_id = take_legacy_request_id(next_request_id)?;
             write_json_line(
                 self.reader.get_mut(),
                 &json!({"id": request_id, "cmd": "close-surface", "surface": surface}),
@@ -240,12 +267,21 @@ impl ServerLifecycle {
                 }
             }
         }
-        Ok(())
+        Ok(surfaces.len())
     }
 }
 
 #[cfg(unix)]
-fn run_detached_legacy_stop(path: &Path, expected_pid: libc::pid_t) -> anyhow::Result<()> {
+fn take_legacy_request_id(next_request_id: &mut u64) -> anyhow::Result<u64> {
+    let request_id = *next_request_id;
+    *next_request_id = request_id.checked_add(1).ok_or_else(|| {
+        anyhow::anyhow!(crate::localization::catalog().server.legacy_too_many_surfaces)
+    })?;
+    Ok(request_id)
+}
+
+#[cfg(unix)]
+fn run_detached_legacy_stop(path: &Path, expected: ProcessIdentity) -> anyhow::Result<()> {
     use std::os::unix::process::CommandExt;
 
     let executable = std::env::current_exe().map_err(|_| {
@@ -255,7 +291,8 @@ fn run_detached_legacy_stop(path: &Path, expected_pid: libc::pid_t) -> anyhow::R
     command
         .arg("__legacy-stop-helper")
         .arg(path)
-        .arg(expected_pid.to_string())
+        .arg(expected.pid().to_string())
+        .arg(expected.started_at().to_string())
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
@@ -278,43 +315,38 @@ fn run_detached_legacy_stop(path: &Path, expected_pid: libc::pid_t) -> anyhow::R
 
 #[cfg(unix)]
 pub(crate) fn run_legacy_stop_helper(args: &[String]) -> anyhow::Result<()> {
-    let [path, expected_pid] = args else {
+    let [path, expected_pid, expected_started_at] = args else {
         anyhow::bail!(crate::localization::catalog().server.shutdown_unsupported);
     };
     let expected_pid =
         expected_pid.parse::<libc::pid_t>().ok().filter(|pid| *pid > 1).ok_or_else(|| {
             anyhow::anyhow!(crate::localization::catalog().server.shutdown_unsupported)
         })?;
+    let expected_started_at = expected_started_at
+        .parse::<u128>()
+        .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.shutdown_unsupported))?;
+    let expected = ProcessIdentity::from_parts(expected_pid, expected_started_at);
     let mut lifecycle = ServerLifecycle::connect(PathBuf::from(path))?;
-    let actual_pid = verified_legacy_pid(lifecycle.probe.identity.pid, lifecycle.peer_process_id)?;
-    if actual_pid != expected_pid {
+    if lifecycle.probe.identity.supports(SERVER_SHUTDOWN_CAPABILITY) {
+        anyhow::bail!(crate::localization::catalog().server.legacy_peer_mismatch);
+    }
+    let actual = verified_legacy_process(lifecycle.probe.identity.pid, lifecycle.peer_process_id)?;
+    if actual != expected {
         anyhow::bail!(crate::localization::catalog().server.legacy_peer_mismatch);
     }
 
-    write_json_line(
-        lifecycle.reader.get_mut(),
-        &json!({"id": SHUTDOWN_REQUEST_ID, "cmd": "shutdown"}),
-    )
-    .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.transport_failed))?;
-    let response = read_shutdown_response(&mut lifecycle.reader, SHUTDOWN_REQUEST_ID)?;
-    if response.get("ok").and_then(Value::as_bool) == Some(true) {
-        return wait_for_disconnect(&mut lifecycle.reader);
-    }
-    if lifecycle.probe.is_compatible() {
-        anyhow::bail!(crate::localization::catalog().server.shutdown_failed);
-    }
-    lifecycle.close_legacy_surfaces().map_err(|_| {
+    lifecycle.close_legacy_surfaces_until_stable().map_err(|_| {
         anyhow::anyhow!(crate::localization::catalog().server.legacy_cleanup_failed)
     })?;
-    terminate_legacy_server(actual_pid)?;
+    terminate_legacy_process_tree(actual)?;
     wait_for_disconnect(&mut lifecycle.reader)
 }
 
 #[cfg(unix)]
-fn verified_legacy_pid(
+fn verified_legacy_process(
     reported_pid: u32,
     peer_process_id: Option<u32>,
-) -> anyhow::Result<libc::pid_t> {
+) -> anyhow::Result<ProcessIdentity> {
     let messages = &crate::localization::catalog().server;
     let peer_process_id =
         peer_process_id.ok_or_else(|| anyhow::anyhow!(messages.legacy_peer_unavailable))?;
@@ -322,22 +354,19 @@ fn verified_legacy_pid(
         anyhow::bail!(messages.legacy_peer_mismatch);
     }
     let current_pid = libc::pid_t::try_from(std::process::id()).ok();
-    libc::pid_t::try_from(reported_pid)
+    let pid = libc::pid_t::try_from(reported_pid)
         .ok()
         .filter(|pid| *pid > 1 && Some(*pid) != current_pid)
-        .ok_or_else(|| anyhow::anyhow!(messages.shutdown_unsupported))
+        .ok_or_else(|| anyhow::anyhow!(messages.shutdown_unsupported))?;
+    ProcessIdentity::capture(pid)
+        .map_err(|_| anyhow::anyhow!(messages.legacy_peer_unavailable))?
+        .ok_or_else(|| anyhow::anyhow!(messages.legacy_peer_mismatch))
 }
 
 #[cfg(unix)]
-fn terminate_legacy_server(pid: libc::pid_t) -> anyhow::Result<()> {
-    // Older interactive clients can install a SIGTERM handler while blocking
-    // indefinitely in terminal input, so a graceful signal does not reliably
-    // stop the verified socket peer. Every surface has already acknowledged
-    // close above; kill the still-connected, kernel-verified peer directly.
-    if unsafe { libc::kill(pid, libc::SIGKILL) } != 0 {
-        anyhow::bail!(crate::localization::catalog().server.legacy_signal_failed);
-    }
-    Ok(())
+fn terminate_legacy_process_tree(process: ProcessIdentity) -> anyhow::Result<()> {
+    terminate_process_tree(process)
+        .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.legacy_signal_failed))
 }
 
 pub(crate) fn validate_local_identity(data: &Value, path: &Path) -> anyhow::Result<()> {
@@ -529,8 +558,8 @@ mod tests {
         let mut child =
             Command::new("yes").stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
 
-        let pid = verified_legacy_pid(child.id(), Some(child.id())).unwrap();
-        terminate_legacy_server(pid).unwrap();
+        let process = verified_legacy_process(child.id(), Some(child.id())).unwrap();
+        terminate_legacy_process_tree(process).unwrap();
 
         assert!(!child.wait().unwrap().success());
     }
@@ -538,7 +567,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn legacy_stop_rejects_a_reported_pid_that_is_not_the_socket_peer() {
-        let error = verified_legacy_pid(41, Some(42)).unwrap_err();
+        let error = verified_legacy_process(41, Some(42)).unwrap_err();
 
         assert_eq!(error.to_string(), crate::localization::catalog().server.legacy_peer_mismatch);
     }

@@ -182,7 +182,7 @@ object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:s
 
 `build_commit` and `ghostty_commit` are additive build-stamp fields. Current source builds derive them from the repository and terminal-engine checkout. A dirty source build appends a deterministic content fingerprint. Distribution builds may override both stamps explicitly. Older binaries can omit the fields or return `null`, so clients must preserve compatibility with those identities.
 
-`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits.
+`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits. `server-shutdown-v1` advertises atomic destructive shutdown; clients may use the compatibility cleanup path only when this capability is absent.
 
 Errors:
 
@@ -196,7 +196,7 @@ CLI mapping:
 | --- | --- |
 | Verb | `identify` |
 | Flags | none |
-| Plain stdout | `cmux-tui version=<version> protocol=<protocol>` |
+| Plain stdout | `cmux-tui session=<session> protocol=<protocol> pid=<pid> version=<version>` |
 | JSON stdout | exact result object |
 | Exit codes | common |
 
@@ -204,7 +204,7 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":9,"capabilities":["attach-initial-size","workspace-registry-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":9,"capabilities":["attach-initial-size","workspace-registry-v1","provider-managed-workspace-authority-v2","server-shutdown-v1"],"session":"main","pid":12345}}
 ```
 
 The current server reports protocol `9` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`, and protocol 9 before decoding stack layouts or sending `new-pane`.

@@ -2092,28 +2092,29 @@ impl Surface {
         }
     }
 
-    /// Terminate the runtime while reporting whether an attached terminal
-    /// host accepted the request. Callers can retry a failed hosted request
-    /// through its durable discovery record after removing topology.
-    pub(crate) fn terminate_for_server_shutdown(&self, timeout: Duration) -> bool {
+    /// Start runtime termination. Durable terminal-host death is confirmed
+    /// separately through the process-bound discovery record.
+    pub(crate) fn terminate_for_server_shutdown(&self, timeout: Duration) {
         match self {
             #[cfg(unix)]
             Surface::Pty(pty) => {
                 let mut runtime = pty.runtime.lock().unwrap();
                 match &mut *runtime {
-                    PtyRuntime::Hosted(host) => host.terminate_with_timeout(timeout).is_ok(),
+                    PtyRuntime::Hosted(host) => {
+                        let _ = host.terminate_with_timeout(timeout);
+                    }
                     PtyRuntime::Local { killer, .. } => {
                         let _ = killer.kill();
-                        true
                     }
-                    PtyRuntime::ExitedHosted => true,
+                    PtyRuntime::ExitedHosted => {}
                 }
             }
             #[cfg(not(unix))]
-            Surface::Pty(_) => self.terminate_runtime(),
+            Surface::Pty(_) => {
+                let _ = self.terminate_runtime();
+            }
             Surface::Browser(browser) => {
                 browser.kill();
-                true
             }
         }
     }
