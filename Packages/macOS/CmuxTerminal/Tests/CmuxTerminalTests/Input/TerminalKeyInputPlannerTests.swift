@@ -82,7 +82,7 @@ import Testing
         #expect(actions == [.sendKey(text: "opaque", composing: false)])
     }
 
-    @Test func accumulatedComposingC0DoesNotTriggerPostCommitNavigationReplay() {
+    @Test func accumulatedComposingC0PreservesPostCommitNavigationReplay() {
         let actions = planner.actions(for: snapshot(
             hadMarkedText: true,
             textInputConsumed: true,
@@ -92,7 +92,7 @@ import Testing
             replaysPhysicalKeyAfterPreeditCommit: true
         ))
 
-        #expect(actions.isEmpty)
+        #expect(actions == [.sendKey(text: nil, composing: false)])
     }
 
     @Test func committedTextDoesNotOwnNativeKeyRelease() {
