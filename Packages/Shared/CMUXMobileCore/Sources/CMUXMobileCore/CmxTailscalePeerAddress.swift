@@ -48,7 +48,12 @@ public struct CmxTailscalePeerAddress: Hashable, Sendable {
         let bytes = withUnsafeBytes(of: &address) { Array($0) }
         var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
         guard inet_ntop(AF_INET, &address, &buffer, socklen_t(buffer.count)) != nil else { return nil }
-        return (decode(buffer), bytes)
+        let canonical = decode(buffer)
+        // Darwin's inet_pton accepts leading-zero octets as decimal while the
+        // dialer's inet_aton reads them as octal. Refuse any non-canonical
+        // spelling so classification never diverges from dialing.
+        guard canonical == value else { return nil }
+        return (canonical, bytes)
     }
 
     private static func parseIPv6(_ value: String) -> (canonical: String, bytes: [UInt8])? {
