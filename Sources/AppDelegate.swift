@@ -13279,34 +13279,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let globalSearchAction = KeyboardShortcutSettings.Action.globalSearch
         let globalSearchShortcut = KeyboardShortcutSettingsObserver.shared.globalSearchShortcut
         let matchesGlobalSearchShortcut = matchCachedGlobalSearchShortcut(event: event)
-        let matchesGlobalSearchChordPrefix =
-            activeConfiguredShortcutChordPrefixForCurrentEvent == nil
-            && globalSearchShortcut.hasChord
-            && matchShortcutStroke(event: event, stroke: globalSearchShortcut.firstStroke)
-            && shortcutWhenClauseAllows(action: globalSearchAction, event: event)
-        if matchesGlobalSearchShortcut || matchesGlobalSearchChordPrefix {
-            // An active chord owns its second stroke. Otherwise, defer matching
-            // input to the shared terminal/browser ownership gates below.
-            let yieldsToFocusedInput =
-                activeConfiguredShortcutChordPrefixForCurrentEvent == nil
-                && (
-                    isControlD
-                    || (
-                        shouldRouteBrowserDocumentEditingCommandEquivalentThroughWebContentFirst(event)
-                        && shortcutEventFirstResponderOwnsBrowserWebView(event)
-                    )
-                )
-            if !yieldsToFocusedInput {
-                if matchesGlobalSearchShortcut {
-                    toggleGlobalSearchPalette()
-                    return true
-                }
-                pendingConfiguredShortcutChord = PendingConfiguredShortcutChord(
-                    firstStroke: globalSearchShortcut.firstStroke,
-                    windowNumber: configuredShortcutChordWindowNumber(for: event)
-                )
-                return true
-            }
+        if matchesGlobalSearchShortcut,
+           activeConfiguredShortcutChordPrefixForCurrentEvent != nil || commandPaletteEffectiveInTargetWindow {
+            // Once armed, the chord owns its suffix. The command palette is the
+            // only unarmed early route because it swallows unmatched input below.
+            toggleGlobalSearchPalette()
+            return true
+        }
+        if commandPaletteEffectiveInTargetWindow,
+           activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+           globalSearchShortcut.hasChord,
+           shortcutWhenClauseAllows(action: globalSearchAction, event: event),
+           armConfiguredShortcutChordIfNeeded(event: event, actions: [], shortcuts: [globalSearchShortcut]) {
+            return true
         }
 
         if shouldConsumeShortcutWhileCommandPaletteVisible(
@@ -13447,7 +13432,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // one does not swallow its first stroke elsewhere (issue #5189).
                 KeyboardShortcutSettings.effectiveWhenClause(for: action).evaluate(shortcutContext)
             }
-            if armConfiguredShortcutChordIfNeeded(event: event, actions: availableChordActions) {
+            let globalSearchChordShortcuts =
+                globalSearchShortcut.hasChord
+                && KeyboardShortcutSettings.effectiveWhenClause(for: globalSearchAction)
+                    .evaluate(shortcutContext)
+                ? [globalSearchShortcut]
+                : []
+            if armConfiguredShortcutChordIfNeeded(event: event, actions: availableChordActions, shortcuts: globalSearchChordShortcuts) {
                 return true
             }
         }
@@ -13486,6 +13477,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                pageURL: shortcutEventBrowserPanel(event)?.webView.url
            ) {
             return false
+        }
+
+        if matchCachedGlobalSearchShortcut(event: event) {
+            toggleGlobalSearchPalette()
+            return true
         }
 
         if matchConfiguredShortcut(event: event, action: .commandPalette) {
