@@ -1037,17 +1037,25 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		730600020000000000000002 /* MainWindowVisibleFrameFitRescue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 730600020000000000000001 /* MainWindowVisibleFrameFitRescue.swift */; };
 		A9D9000000000000000F0017 /* markdown-viewer in Resources */ = {isa = PBXBuildFile; fileRef = A9D9000000000000000F0016 /* markdown-viewer */; };
 		A28B087F0000000000000003 /* MarkdownEditableFocusMessageHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28B087F0000000000000004 /* MarkdownEditableFocusMessageHandler.swift */; };
+		8178A0108178A0108178A010 /* MarkdownFindController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8178A00F8178A00F8178A00F /* MarkdownFindController.swift */; };
+		8178A00E8178A00E8178A00E /* MarkdownFindOperation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8178A00D8178A00D8178A00D /* MarkdownFindOperation.swift */; };
+		8178F0048178F0048178F004 /* MarkdownFindScriptEvaluatorSpy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8178F0038178F0038178F003 /* MarkdownFindScriptEvaluatorSpy.swift */; };
+		8178F0028178F0028178F002 /* MarkdownFindTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8178F0018178F0018178F001 /* MarkdownFindTests.swift */; };
 		F5168A040000000000000001 /* MarkdownFontFamily.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5168A040000000000000002 /* MarkdownFontFamily.swift */; };
 		F5168A070000000000000001 /* MarkdownFontFamilyCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5168A070000000000000002 /* MarkdownFontFamilyCache.swift */; };
 		F5168A030000000000000001 /* MarkdownFontSizeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5168A030000000000000002 /* MarkdownFontSizeSettings.swift */; };
 		D7470002D7470002D7470002 /* MarkdownLinkBoundaryRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7470001D7470001D7470001 /* MarkdownLinkBoundaryRegressionTests.swift */; };
 		F5168A050000000000000001 /* MarkdownMaxWidthSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5168A050000000000000002 /* MarkdownMaxWidthSettings.swift */; };
 		D6069002D6069002D6069002 /* MarkdownMermaidZoomTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6069001D6069001D6069001 /* MarkdownMermaidZoomTests.swift */; };
+		8178A0148178A0148178A014 /* MarkdownPanel+Find.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8178A0138178A0138178A013 /* MarkdownPanel+Find.swift */; };
 		A5001420 /* MarkdownPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001418 /* MarkdownPanel.swift */; };
 		A50014F2 /* MarkdownPanelFileLinkResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F0 /* MarkdownPanelFileLinkResolver.swift */; };
 		D3664002D3664002D3664002 /* MarkdownPanelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3664001D3664001D3664001 /* MarkdownPanelTests.swift */; };
 		A5001421 /* MarkdownPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001419 /* MarkdownPanelView.swift */; };
 		A50014F7 /* MarkdownRemoteImageLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F6 /* MarkdownRemoteImageLoader.swift */; };
+		8178A0168178A0168178A016 /* MarkdownRendererSession+Find.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8178A0158178A0158178A015 /* MarkdownRendererSession+Find.swift */; };
+		8178A0128178A0128178A012 /* MarkdownSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8178A0118178A0118178A011 /* MarkdownSearchOverlay.swift */; };
+		8178A00C8178A00C8178A00C /* MarkdownSearchState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8178A00B8178A00B8178A00B /* MarkdownSearchState.swift */; };
 		F5168A020000000000000001 /* MarkdownTypographyControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5168A020000000000000002 /* MarkdownTypographyControl.swift */; };
 		F5168A060000000000000001 /* MarkdownTypographyDefaults.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5168A060000000000000002 /* MarkdownTypographyDefaults.swift */; };
 		A5001290 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = A5001291 /* MarkdownUI */; };
@@ -1460,6 +1468,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE1A070000000000000001 /* SavedLayoutStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1A070000000000000002 /* SavedLayoutStoreTests.swift */; };
 		E8BA79E246754A8B99A0B823 /* ScreenIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47D5AA7D29C94F5CA865B2BF /* ScreenIdentity.swift */; };
 		D1F0A00600000000000000F1 /* ScreenLockObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00600000000000000F2 /* ScreenLockObserver.swift */; };
+		8178A0028178A0028178A002 /* SearchButtonStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8178A0018178A0018178A001 /* SearchButtonStyle.swift */; };
 		3865A0013865A0013865A001 /* SearchIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0013865B0013865B001 /* SearchIndex.swift */; };
 		3865A0043865A0043865A004 /* SearchIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0043865B0043865B004 /* SearchIndexTests.swift */; };
 		C0DEF0C20000000000000001 /* SemanticVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0C20000000000000002 /* SemanticVersion.swift */; };
@@ -2051,6 +2060,11 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		ACE4FE2A8F1CC6C0B6A673AB /* VMClientSocketCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CEC6F0035B71AE59FA45BA7 /* VMClientSocketCommands.swift */; };
 		C37800000000000000000003 /* VMDefaultCloudCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C37800000000000000000004 /* VMDefaultCloudCommandTests.swift */; };
 		C37800000000000000000001 /* VMSSHCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C37800000000000000000002 /* VMSSHCommandTests.swift */; };
+		8178A0048178A0048178A004 /* WebViewFindBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8178A0038178A0038178A003 /* WebViewFindBar.swift */; };
+		8178A0188178A0188178A018 /* WebViewFindBarCorner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8178A0178178A0178178A017 /* WebViewFindBarCorner.swift */; };
+		8178A0068178A0068178A006 /* WebViewFindNativeTextField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8178A0058178A0058178A005 /* WebViewFindNativeTextField.swift */; };
+		8178A0088178A0088178A008 /* WebViewFindTextField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8178A0078178A0078178A007 /* WebViewFindTextField.swift */; };
+		8178A00A8178A00A8178A00A /* WebViewFindTextFieldCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8178A0098178A0098178A009 /* WebViewFindTextFieldCoordinator.swift */; };
 		A500120C /* WindowAccessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001222 /* WindowAccessor.swift */; };
 		063BC42CEE257D6213A2E30C /* WindowAndDragTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */; };
 		A59170000000000000000001 /* WindowAppearanceSnapshotPaneBackgroundTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A59170000000000000000002 /* WindowAppearanceSnapshotPaneBackgroundTests.swift */; };
@@ -3235,17 +3249,25 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		730600020000000000000001 /* MainWindowVisibleFrameFitRescue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MainWindowVisibleFrameFitRescue.swift; sourceTree = "<group>"; };
 		A9D9000000000000000F0016 /* markdown-viewer */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = "markdown-viewer"; sourceTree = "<group>"; };
 		A28B087F0000000000000004 /* MarkdownEditableFocusMessageHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownEditableFocusMessageHandler.swift; sourceTree = "<group>"; };
+		8178A00F8178A00F8178A00F /* MarkdownFindController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/MarkdownFindController.swift; sourceTree = "<group>"; };
+		8178A00D8178A00D8178A00D /* MarkdownFindOperation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/MarkdownFindOperation.swift; sourceTree = "<group>"; };
+		8178F0038178F0038178F003 /* MarkdownFindScriptEvaluatorSpy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownFindScriptEvaluatorSpy.swift; sourceTree = "<group>"; };
+		8178F0018178F0018178F001 /* MarkdownFindTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownFindTests.swift; sourceTree = "<group>"; };
 		F5168A040000000000000002 /* MarkdownFontFamily.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownFontFamily.swift; sourceTree = "<group>"; };
 		F5168A070000000000000002 /* MarkdownFontFamilyCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownFontFamilyCache.swift; sourceTree = "<group>"; };
 		F5168A030000000000000002 /* MarkdownFontSizeSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownFontSizeSettings.swift; sourceTree = "<group>"; };
 		D7470001D7470001D7470001 /* MarkdownLinkBoundaryRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownLinkBoundaryRegressionTests.swift; sourceTree = "<group>"; };
 		F5168A050000000000000002 /* MarkdownMaxWidthSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownMaxWidthSettings.swift; sourceTree = "<group>"; };
 		D6069001D6069001D6069001 /* MarkdownMermaidZoomTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownMermaidZoomTests.swift; sourceTree = "<group>"; };
+		8178A0138178A0138178A013 /* MarkdownPanel+Find.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/MarkdownPanel+Find.swift"; sourceTree = "<group>"; };
 		A5001418 /* MarkdownPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanel.swift; sourceTree = "<group>"; };
 		A50014F0 /* MarkdownPanelFileLinkResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanelFileLinkResolver.swift; sourceTree = "<group>"; };
 		D3664001D3664001D3664001 /* MarkdownPanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownPanelTests.swift; sourceTree = "<group>"; };
 		A5001419 /* MarkdownPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanelView.swift; sourceTree = "<group>"; };
 		A50014F6 /* MarkdownRemoteImageLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownRemoteImageLoader.swift; sourceTree = "<group>"; };
+		8178A0158178A0158178A015 /* MarkdownRendererSession+Find.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/MarkdownRendererSession+Find.swift"; sourceTree = "<group>"; };
+		8178A0118178A0118178A011 /* MarkdownSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/MarkdownSearchOverlay.swift; sourceTree = "<group>"; };
+		8178A00B8178A00B8178A00B /* MarkdownSearchState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/MarkdownSearchState.swift; sourceTree = "<group>"; };
 		F5168A020000000000000002 /* MarkdownTypographyControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownTypographyControl.swift; sourceTree = "<group>"; };
 		F5168A060000000000000002 /* MarkdownTypographyDefaults.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownTypographyDefaults.swift; sourceTree = "<group>"; };
 		A50014F1 /* MarkdownViewerAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownViewerAssets.swift; sourceTree = "<group>"; };
@@ -3653,6 +3675,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DE1A070000000000000002 /* SavedLayoutStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedLayoutStoreTests.swift; sourceTree = "<group>"; };
 		47D5AA7D29C94F5CA865B2BF /* ScreenIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ScreenIdentity.swift; sourceTree = "<group>"; };
 		D1F0A00600000000000000F2 /* ScreenLockObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenLockObserver.swift; sourceTree = "<group>"; };
+		8178A0018178A0018178A001 /* SearchButtonStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/SearchButtonStyle.swift; sourceTree = "<group>"; };
 		3865B0013865B0013865B001 /* SearchIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/SearchIndex.swift; sourceTree = "<group>"; };
 		3865B0043865B0043865B004 /* SearchIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchIndexTests.swift; sourceTree = "<group>"; };
 		C0DEF0C20000000000000002 /* SemanticVersion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SemanticVersion.swift; sourceTree = "<group>"; };
@@ -4232,6 +4255,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		9CEC6F0035B71AE59FA45BA7 /* VMClientSocketCommands.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VMClientSocketCommands.swift; sourceTree = "<group>"; };
 		C37800000000000000000004 /* VMDefaultCloudCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMDefaultCloudCommandTests.swift; sourceTree = "<group>"; };
 		C37800000000000000000002 /* VMSSHCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMSSHCommandTests.swift; sourceTree = "<group>"; };
+		8178A0038178A0038178A003 /* WebViewFindBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/WebViewFindBar.swift; sourceTree = "<group>"; };
+		8178A0178178A0178178A017 /* WebViewFindBarCorner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/WebViewFindBarCorner.swift; sourceTree = "<group>"; };
+		8178A0058178A0058178A005 /* WebViewFindNativeTextField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/WebViewFindNativeTextField.swift; sourceTree = "<group>"; };
+		8178A0078178A0078178A007 /* WebViewFindTextField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/WebViewFindTextField.swift; sourceTree = "<group>"; };
+		8178A0098178A0098178A009 /* WebViewFindTextFieldCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/WebViewFindTextFieldCoordinator.swift; sourceTree = "<group>"; };
 		A5001222 /* WindowAccessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAccessor.swift; sourceTree = "<group>"; };
 		BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAndDragTests.swift; sourceTree = "<group>"; };
 		A59170000000000000000002 /* WindowAppearanceSnapshotPaneBackgroundTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAppearanceSnapshotPaneBackgroundTests.swift; sourceTree = "<group>"; };
@@ -5520,6 +5548,16 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001301 /* SurfaceSearchOverlay.swift */,
 				C0DE53350000000000000002 /* TerminalSearchOverlayHostingView.swift */,
 				A5008370 /* BrowserSearchOverlay.swift */,
+				8178A0018178A0018178A001 /* SearchButtonStyle.swift */,
+				8178A0038178A0038178A003 /* WebViewFindBar.swift */,
+				8178A0178178A0178178A017 /* WebViewFindBarCorner.swift */,
+				8178A0058178A0058178A005 /* WebViewFindNativeTextField.swift */,
+				8178A0078178A0078178A007 /* WebViewFindTextField.swift */,
+				8178A0098178A0098178A009 /* WebViewFindTextFieldCoordinator.swift */,
+				8178A00B8178A00B8178A00B /* MarkdownSearchState.swift */,
+				8178A00D8178A00D8178A00D /* MarkdownFindOperation.swift */,
+				8178A00F8178A00F8178A00F /* MarkdownFindController.swift */,
+				8178A0118178A0118178A011 /* MarkdownSearchOverlay.swift */,
 				A5008372 /* BrowserFindWebViewEvaluator.swift */,
 				3865B0013865B0013865B001 /* SearchIndex.swift */,
 				3865B0073865B0073865B007 /* GlobalSearchDocuments.swift */,
@@ -5688,6 +5726,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5010000000000000000001F /* BrowserWebAuthnTransportSummary.swift */,
 				A50100000000000000000021 /* BrowserWebAuthnUserDescriptor.swift */,
 				A5001418 /* MarkdownPanel.swift */,
+				8178A0138178A0138178A013 /* MarkdownPanel+Find.swift */,
 				8311EFDE1BC83CBAB1F21B6F /* WorkspaceTodoPanelView.swift */,
 				28F2A069A4931E9403474975 /* WorkspaceTodoPanel.swift */,
 				A50014F0 /* MarkdownPanelFileLinkResolver.swift */,
@@ -5702,6 +5741,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A50014F4 /* MarkdownWebRenderer.swift */,
 				A50014F6 /* MarkdownRemoteImageLoader.swift */,
 				A50014F8 /* MarkdownWebSupport.swift */,
+				8178A0158178A0158178A015 /* MarkdownRendererSession+Find.swift */,
 				A50014F1 /* MarkdownViewerAssets.swift */,
 				A5001423 /* FilePreviewPanel.swift */,
 				A5C0DE0000000000000000B1 /* ProjectPanel.swift */,
@@ -6450,6 +6490,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D8072A03D8072A03D8072A03 /* BrowserViewportRuntimeTests.swift */,
 				D6069001D6069001D6069001 /* MarkdownMermaidZoomTests.swift */,
 				D3664001D3664001D3664001 /* MarkdownPanelTests.swift */,
+				8178F0018178F0018178F001 /* MarkdownFindTests.swift */,
+				8178F0038178F0038178F003 /* MarkdownFindScriptEvaluatorSpy.swift */,
 				A3340001A3340001A3340001 /* ViewerNavigationTests.swift */,
 				C0DE31410000000000000104 /* DebugEventLogSerializedAppendTests.swift */,
 				8175A0010000000000000002 /* SidebarGitProcessCompositionTests.swift */,
@@ -7740,14 +7782,20 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				2F0C06000000000000000002 /* MainWindowVisibilityController.swift in Sources */,
 				730600020000000000000002 /* MainWindowVisibleFrameFitRescue.swift in Sources */,
 				A28B087F0000000000000003 /* MarkdownEditableFocusMessageHandler.swift in Sources */,
+				8178A0108178A0108178A010 /* MarkdownFindController.swift in Sources */,
+				8178A00E8178A00E8178A00E /* MarkdownFindOperation.swift in Sources */,
 				F5168A040000000000000001 /* MarkdownFontFamily.swift in Sources */,
 				F5168A070000000000000001 /* MarkdownFontFamilyCache.swift in Sources */,
 				F5168A030000000000000001 /* MarkdownFontSizeSettings.swift in Sources */,
 				F5168A050000000000000001 /* MarkdownMaxWidthSettings.swift in Sources */,
+				8178A0148178A0148178A014 /* MarkdownPanel+Find.swift in Sources */,
 				A5001420 /* MarkdownPanel.swift in Sources */,
 				A50014F2 /* MarkdownPanelFileLinkResolver.swift in Sources */,
 				A5001421 /* MarkdownPanelView.swift in Sources */,
 				A50014F7 /* MarkdownRemoteImageLoader.swift in Sources */,
+				8178A0168178A0168178A016 /* MarkdownRendererSession+Find.swift in Sources */,
+				8178A0128178A0128178A012 /* MarkdownSearchOverlay.swift in Sources */,
+				8178A00C8178A00C8178A00C /* MarkdownSearchState.swift in Sources */,
 				F5168A020000000000000001 /* MarkdownTypographyControl.swift in Sources */,
 				F5168A060000000000000001 /* MarkdownTypographyDefaults.swift in Sources */,
 				A50014F3 /* MarkdownViewerAssets.swift in Sources */,
@@ -8021,6 +8069,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE1A020000000000000001 /* SavedLayoutStore.swift in Sources */,
 				E8BA79E246754A8B99A0B823 /* ScreenIdentity.swift in Sources */,
 				D1F0A00600000000000000F1 /* ScreenLockObserver.swift in Sources */,
+				8178A0028178A0028178A002 /* SearchButtonStyle.swift in Sources */,
 				3865A0013865A0013865A001 /* SearchIndex.swift in Sources */,
 				C0DEF0C20000000000000001 /* SemanticVersion.swift in Sources */,
 				5E2701020000000000000001 /* SentryEventScrubber.swift in Sources */,
@@ -8452,6 +8501,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A28B087F0000000000000005 /* ViewerNavigationKeyRouter.swift in Sources */,
 				ACE4FE1A8F1CC6C0B6A673AB /* VMClient.swift in Sources */,
 				ACE4FE2A8F1CC6C0B6A673AB /* VMClientSocketCommands.swift in Sources */,
+				8178A0048178A0048178A004 /* WebViewFindBar.swift in Sources */,
+				8178A0188178A0188178A018 /* WebViewFindBarCorner.swift in Sources */,
+				8178A0068178A0068178A006 /* WebViewFindNativeTextField.swift in Sources */,
+				8178A0088178A0088178A008 /* WebViewFindTextField.swift in Sources */,
+				8178A00A8178A00A8178A00A /* WebViewFindTextFieldCoordinator.swift in Sources */,
 				A500120C /* WindowAccessor.swift in Sources */,
 				A5001900A1B2C3D4E5F60718 /* WindowBackgroundComposition.swift in Sources */,
 				B7F9A602B7F9A602B7F9A602 /* WindowChromeMetrics.swift in Sources */,
@@ -8999,6 +9053,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				17C9F5BA0DD14EDC8C3E5001 /* MainWindowVisibilityControllerTests.swift in Sources */,
 				A6D1F0100000000000000002 /* MainWindowVisibilityLifecycleTests.swift in Sources */,
 				730600000000000000000001 /* MainWindowVisibleFrameFitCoreTests.swift in Sources */,
+				8178F0048178F0048178F004 /* MarkdownFindScriptEvaluatorSpy.swift in Sources */,
+				8178F0028178F0028178F002 /* MarkdownFindTests.swift in Sources */,
 				D7470002D7470002D7470002 /* MarkdownLinkBoundaryRegressionTests.swift in Sources */,
 				D6069002D6069002D6069002 /* MarkdownMermaidZoomTests.swift in Sources */,
 				D3664002D3664002D3664002 /* MarkdownPanelTests.swift in Sources */,

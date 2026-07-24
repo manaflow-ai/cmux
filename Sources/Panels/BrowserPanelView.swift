@@ -943,9 +943,9 @@ struct BrowserPanelView: View {
         // in AppKit by WindowBrowserPortal to avoid layering/clipping issues.
         if !panel.shouldRenderWebView, let searchState = panel.searchState {
             BrowserSearchOverlay(
-                panelId: panel.id,
                 searchState: searchState,
                 focusRequestGeneration: panel.searchFocusRequestGeneration,
+                selectAllOnFocusRequest: panel.searchFocusSelectAll,
                 canApplyFocusRequest: { generation in
                     canApplyBrowserFindFieldFocusRequest(generation)
                 },
@@ -1709,6 +1709,7 @@ struct BrowserPanelView: View {
                             panelId: panel.id,
                             searchState: searchState,
                             focusRequestGeneration: panel.searchFocusRequestGeneration,
+                            selectAllOnFocusRequest: panel.searchFocusSelectAll,
                             canApplyFocusRequest: { generation in
                                 canApplyBrowserFindFieldFocusRequest(generation)
                             },

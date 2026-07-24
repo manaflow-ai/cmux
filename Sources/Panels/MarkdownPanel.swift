@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import CmuxFoundation
 import Combine
 import Foundation
@@ -71,7 +72,8 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     /// Stable markdown renderer state. Keep this panel-owned so split/tab
     /// layout churn does not recreate the WKWebView and flash existing content.
-    let rendererSession = MarkdownRendererSession()
+    let rendererSession: MarkdownRendererSession
+    let findController: MarkdownFindController
 
     // MARK: - File watching
 
@@ -99,13 +101,23 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// - Parameter fontSize: Initial body font size in points. When `nil`, the
     ///   panel uses the persistent `markdown.fontSize` default. The value is
     ///   clamped to the supported range.
-    init(workspaceId: UUID, filePath: String, fontSize: Double? = nil) {
+    init(
+        workspaceId: UUID,
+        filePath: String,
+        fontSize: Double? = nil,
+        findEvaluator: (any BrowserFindScriptEvaluating)? = nil
+    ) {
         let defaultSize = MarkdownFontSizeSettings.resolvedDefault()
         let defaultFamily = MarkdownFontFamily.resolvedDefault()
         let defaultMaxWidth = MarkdownMaxWidthSettings.resolvedDefault()
+        let rendererSession = MarkdownRendererSession()
+        let evaluator: any BrowserFindScriptEvaluating = findEvaluator ?? rendererSession
+        let findController = MarkdownFindController(evaluator: evaluator)
         self.id = UUID()
         self.workspaceId = workspaceId
         self.filePath = filePath
+        self.rendererSession = rendererSession
+        self.findController = findController
         self.fontSize = MarkdownFontSizeSettings.clamp(fontSize ?? defaultSize)
         self.fontFamily = defaultFamily
         self.maxContentWidth = defaultMaxWidth
@@ -113,6 +125,10 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         self.followedFontFamily = defaultFamily
         self.followedMaxContentWidth = defaultMaxWidth
         self.displayTitle = (filePath as NSString).lastPathComponent
+
+        rendererSession.setRenderCompletionHandler { [weak findController] in
+            findController?.renderDidComplete()
+        }
 
         loadFileContent()
         startWatching()
@@ -244,6 +260,8 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     func close() {
         isClosed = true
+        findController.close()
+        rendererSession.clearRenderCompletionHandler()
         rendererSession.close()
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         textView = nil
@@ -262,6 +280,9 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     func setDisplayMode(_ mode: MarkdownPanelDisplayMode) {
         guard displayMode != mode else { return }
+        if mode == .text {
+            _ = findController.hideFind()
+        }
         displayMode = mode
         if mode == .text {
             focus()

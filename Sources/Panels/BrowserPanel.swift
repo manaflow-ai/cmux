@@ -2922,6 +2922,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Incremented whenever async browser find focus ownership changes.
     @Published private(set) var searchFocusRequestGeneration: UInt64 = 0
+    private(set) var searchFocusSelectAll = false
     private var lastSearchNeedle = ""
 
     /// Find-in-page state. Non-nil when the find bar is visible.
@@ -7330,37 +7331,8 @@ extension BrowserPanel {
         pendingAddressBarFocusRequestId = nil
         pendingAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
         NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)
-        let generation = beginSearchFocusRequest(reason: "startFind")
-        postBrowserSearchFocusNotification(reason: "immediate", generation: generation, selectAll: shouldSelectAll)
-        // Re-post because portal overlay mount can race first responder focus.
-        DispatchQueue.main.async { [weak self] in
-            self?.postBrowserSearchFocusNotification(reason: "async0", generation: generation, selectAll: shouldSelectAll)
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            self?.postBrowserSearchFocusNotification(reason: "async50ms", generation: generation, selectAll: shouldSelectAll)
-        }
-    }
-
-    private func postBrowserSearchFocusNotification(reason: String, generation: UInt64, selectAll: Bool) {
-        guard canApplySearchFocusRequest(generation) else {
-#if DEBUG
-            cmuxDebugLog(
-                "browser.find.focusNotification.skip panel=\(id.uuidString.prefix(5)) " +
-                "reason=\(reason) generation=\(generation)"
-            )
-#endif
-            return
-        }
-#if DEBUG
-        let window = webView.window
-        cmuxDebugLog(
-            "browser.find.focusNotification panel=\(id.uuidString.prefix(5)) " +
-            "generation=\(generation) " +
-            "reason=\(reason) selectAll=\(selectAll ? 1 : 0) window=\(window?.windowNumber ?? -1) " +
-            "firstResponder=\(String(describing: window?.firstResponder))"
-        )
-#endif
-        NotificationCenter.default.post(name: .browserSearchFocus, object: id, userInfo: [FindFocusNotificationKey.selectAll: selectAll])
+        searchFocusSelectAll = shouldSelectAll
+        beginSearchFocusRequest(reason: "startFind")
     }
 
     func findNext() {
@@ -7555,7 +7527,8 @@ extension BrowserPanel {
         if replaySearch, !state.needle.isEmpty {
             executeFindSearch(state.needle)
         }
-        postBrowserSearchFocusNotification(reason: "restoreAfterNavigation", generation: searchFocusRequestGeneration, selectAll: false)
+        searchFocusSelectAll = false
+        beginSearchFocusRequest(reason: "restoreAfterNavigation")
     }
 
     private func executeFindSearch(_ needle: String) {
