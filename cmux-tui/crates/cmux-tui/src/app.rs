@@ -5001,6 +5001,7 @@ impl App {
     }
 
     fn install_prepared_machine_session(&mut self, prepared: PreparedMachineSession) {
+        self.cancel_pointer_interaction();
         let PreparedMachineSession {
             session,
             event_worker,
@@ -5051,6 +5052,7 @@ impl App {
         self.pane_areas.clear();
         self.pane_focus_history = PaneFocusHistory::default();
         self.pane_focus_history.sync_membership(&self.tree);
+        self.rendered_terminal_sizes.clear();
         self.rendered_terminal_bounds.clear();
         self.visible_size_surfaces.clear();
         self.pending_size_releases.clear();
@@ -5084,6 +5086,7 @@ impl App {
         self.deferred_input.clear();
         self.pending_pointer_motion = None;
         self.deferred_input_sequence = 0;
+        self.rendered_pointer_frame = RenderedPointerFrame::default();
         self.pointer_route_phase = PointerRoutePhase::DrawPending;
         self.layout_refresh_retries_remaining = 0;
         self.background_refresh_attempts = 0;
@@ -5594,6 +5597,7 @@ impl App {
         }
         self.render_states.remove(&surface);
         self.rendered_terminal_sizes.remove(&surface);
+        self.rendered_terminal_bounds.remove(&surface);
         self.visible_size_surfaces.remove(&surface);
         self.pending_size_releases.remove(&surface);
         self.mux_titles.remove(surface);
