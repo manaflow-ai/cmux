@@ -209,7 +209,7 @@ extension Workspace {
         )
 #endif
         guard customDescription != normalizedDescription else { return }
-        customDescriptionRevision &+= 1
+        bumpCustomDescriptionRevision()
         customDescription = normalizedDescription
     }
 }
