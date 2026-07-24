@@ -599,9 +599,14 @@ export class CmuxClient {
     if (mode === "render") {
       return this.openStream(
         request,
-        (event) => event as RenderAttachEvent,
+        (event) => this.validateRenderAttachEvent(event),
         (event, dedicated) => dedicated || this.matchesAttachEvent(event, surface, mode),
         (event) => event.event === "detached" || this.isSurfaceOverflow(event, surface),
+        false,
+        {
+          maxBytes: this.maxAttachEncodedChars,
+          retainedBytes: (event) => this.renderAttachEventRetainedBytes(event),
+        },
       );
     }
     return this.openStream(
@@ -752,6 +757,41 @@ export class CmuxClient {
       }
       default: return event as DecodedAttachEvent;
     }
+  }
+
+  private validateRenderAttachEvent(event: UnknownEvent): RenderAttachEvent {
+    if (event.event !== "render-state" && event.event !== "render-delta") {
+      return event as RenderAttachEvent;
+    }
+    const graphics = event.graphics;
+    if (graphics === undefined) return event as RenderAttachEvent;
+    if (graphics === null || typeof graphics !== "object" || Array.isArray(graphics)) {
+      throw new CmuxProtocolError(`${event.event} graphics is not an object`);
+    }
+    const images = (graphics as { images?: unknown }).images;
+    if (images === undefined) return event as RenderAttachEvent;
+    if (!Array.isArray(images)) {
+      throw new CmuxProtocolError(`${event.event} graphics images is not an array`);
+    }
+    for (const image of images) {
+      if (image === null || typeof image !== "object" || Array.isArray(image)) {
+        throw new CmuxProtocolError(`${event.event} graphics image is not an object`);
+      }
+      this.validateAttachEncodedData(
+        (image as { data?: unknown }).data,
+        `${event.event} graphics image`,
+      );
+    }
+    return event as RenderAttachEvent;
+  }
+
+  private renderAttachEventRetainedBytes(event: RenderAttachEvent): number {
+    if (event.event !== "render-state" && event.event !== "render-delta") return 0;
+    const graphics = (event as { graphics?: { images?: Array<{ data?: unknown }> } }).graphics;
+    return graphics?.images?.reduce(
+      (total, image) => total + (typeof image.data === "string" ? image.data.length : 0),
+      0,
+    ) ?? 0;
   }
 
   private decodeAttachData(value: unknown, eventName: string): Uint8Array {

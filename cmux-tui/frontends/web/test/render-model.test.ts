@@ -175,7 +175,7 @@ describe("render model", () => {
   });
 
   it("starts with empty graphics when attached to an older additive protocol server", () => {
-    expect(applySnapshot(snapshot(undefined, undefined)).graphics).toEqual({
+    expect(applySnapshot({ ...snapshot(), graphics: undefined }).graphics).toEqual({
       generation: 0,
       images: [],
       placements: [],

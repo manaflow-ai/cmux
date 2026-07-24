@@ -3,6 +3,7 @@ import type { CmuxClient, Id, RenderRow } from "cmux/browser";
 import { useRenderTerminal } from "../hooks/useRenderTerminal";
 import { t } from "../i18n";
 import { runPresentation } from "../lib/renderStyles";
+import { RenderGraphics } from "./RenderGraphics";
 import { TerminalFrame } from "./TerminalFrame";
 
 interface RenderTerminalProps {
@@ -90,15 +91,17 @@ export function RenderTerminal({
           data-render-scroll
         >
           <div className="render-grid" style={gridStyle} role="log">
-            {rows.map((row, index) => (
-              <RenderRowView
-                row={row}
-                index={index}
-                defaultFg={defaultFg}
-                defaultBg={defaultBg}
-                key={`${history.active ? "history" : "live"}-${row.row}`}
-              />
-            ))}
+            <RenderGraphics graphics={history.active ? undefined : model?.graphics}>
+              {rows.map((row, index) => (
+                <RenderRowView
+                  row={row}
+                  index={index}
+                  defaultFg={defaultFg}
+                  defaultBg={defaultBg}
+                  key={`${history.active ? "history" : "live"}-${row.row}`}
+                />
+              ))}
+            </RenderGraphics>
             {!history.active && cursor?.visible && cursorStyle !== undefined && (
               <span
                 aria-hidden="true"

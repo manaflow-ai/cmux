@@ -166,4 +166,43 @@ describe("RenderTerminal DOM grid", () => {
 
     expect(container.querySelectorAll("[data-graphic-placement]")).toHaveLength(0);
   });
+
+  it("draws source crops and releases canvas backing stores on unmount", () => {
+    class FakeImageData {
+      readonly colorSpace = "srgb";
+      constructor(
+        readonly data: Uint8ClampedArray,
+        readonly width: number,
+        readonly height: number,
+      ) {}
+    }
+    const context = {
+      clearRect: vi.fn(),
+      putImageData: vi.fn(),
+    };
+    vi.stubGlobal("ImageData", FakeImageData);
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, "getContext")
+      .mockReturnValue(context as unknown as CanvasRenderingContext2D);
+    try {
+      const { container, unmount } = render(
+        <RenderTerminal client={{ protocol: 7 } as CmuxClient} surface={7} active error={null} onError={vi.fn()} />,
+      );
+      const canvases = [...container.querySelectorAll<HTMLCanvasElement>("[data-graphic-placement]")];
+
+      expect(context.putImageData).toHaveBeenCalledWith(
+        expect.objectContaining({ width: 2, height: 2 }),
+        -1,
+        -0,
+        1,
+        0,
+        1,
+        2,
+      );
+      unmount();
+      expect(canvases.every((canvas) => canvas.width === 0 && canvas.height === 0)).toBe(true);
+    } finally {
+      getContext.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
 });
