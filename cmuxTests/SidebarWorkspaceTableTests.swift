@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import SwiftUI
 import Testing
 
@@ -22,7 +23,10 @@ struct SidebarWorkspaceTableTests {
                 && area.options.contains(.inVisibleRect)
         })
 
-        #expect(container.tableView.style == .fullWidth)
+        // .plain intentionally: fullWidth insets cell frames ~6pt per side
+        // (see makeContainerView); stale .fullWidth expectation slipped in
+        // while PR CI was disabled.
+        #expect(container.tableView.style == .plain)
         #expect(container.scrollView.contentInsets.left == 0)
         #expect(container.scrollView.contentInsets.right == 0)
         #expect(container.tableView.intercellSpacing.width == 0)
@@ -337,7 +341,7 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
-    func dropTargetGeometryIsIdleDuringScrollAndTracksDragLifecycle() async {
+    func dropTargetGeometryIsIdleOutsideBonsplitTargetCollection() async {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
         let workspaceId = UUID()
@@ -366,19 +370,135 @@ struct SidebarWorkspaceTableTests {
         await flushStagedTableMutations()
         #expect(computations == 0)
 
+        // Reorder drags resolve targets synchronously in validateDrop and
+        // must never wake the bonsplit geometry gate.
         controller.workspaceDragSessionDidBegin()
-        #expect(computations == 1)
-        #expect(container.reorderDropView.targets.map(\.workspaceId) == [workspaceId])
-
         controller.viewportDidChange()
         await flushStagedTableMutations()
-        #expect(computations == 2)
-
+        #expect(computations == 0)
         controller.workspaceDragSessionDidEnd()
-        #expect(container.reorderDropView.targets.isEmpty)
+
+        container.bonsplitDropView.setWorkspaceDropTargetCollectionActive(true)
+        #expect(computations == 1)
+
         controller.viewportDidChange()
         await flushStagedTableMutations()
         #expect(computations == 2)
+
+        container.bonsplitDropView.setWorkspaceDropTargetCollectionActive(false)
+        controller.viewportDidChange()
+        await flushStagedTableMutations()
+        #expect(computations == 2)
+    }
+
+    @Test
+    @MainActor
+    func reorderDragReplansFromStoredWindowPointOnViewportChange() async {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let ids = (0..<30).map { _ in UUID() }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        var plannedPoints: [CGPoint] = []
+        var plannedTargetCounts: [Int] = []
+        var indicatorClears = 0
+        let draggedId = ids[2]
+        let actions = makeTableActions(
+            updateWorkspaceDrag: { point, targets, _ in
+                plannedPoints.append(point)
+                plannedTargetCounts.append(targets.count)
+                return SidebarWorkspaceTableReorderDropUpdate(
+                    indicator: SidebarDropIndicator(tabId: ids[5], edge: .top),
+                    scope: .raw,
+                    draggedWorkspaceId: draggedId,
+                    indicatorRowIds: ids,
+                    plan: nil
+                )
+            },
+            clearWorkspaceDropIndicator: { indicatorClears += 1 }
+        )
+        controller.apply(
+            rows: ids.map { makeRowConfiguration(workspaceId: $0) },
+            actions: actions,
+            workspaceIds: ids,
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+
+        let windowPoint = NSPoint(x: 40, y: 120)
+        #expect(controller.updateReorderDrag(windowPoint: windowPoint))
+        #expect(plannedPoints.count == 1)
+        // Targets are the visible rows only, not the full 30-row model.
+        #expect(plannedTargetCounts == [container.tableView.rows(in: container.tableView.visibleRect).length])
+
+        // Autoscroll moves content under a stationary pointer: same window
+        // point, new viewport, so the stored point must re-plan and resolve
+        // to a shifted table-space position.
+        let originBefore = container.clipView.bounds.origin.y
+        container.clipView.scroll(to: NSPoint(x: 0, y: originBefore + 100))
+        container.scrollView.reflectScrolledClipView(container.clipView)
+        controller.viewportDidChange()
+        await flushStagedTableMutations()
+        #expect(plannedPoints.count == 2)
+        let scrolledBy = container.clipView.bounds.origin.y - originBefore
+        #expect(abs((plannedPoints[1].y - plannedPoints[0].y) - scrolledBy) < 0.5)
+
+        // Leaving the table retires the stored point: later viewport changes
+        // must not keep planning a drag that is no longer over the sidebar.
+        controller.reorderDropDragExited()
+        #expect(indicatorClears == 1)
+        controller.viewportDidChange()
+        await flushStagedTableMutations()
+        #expect(plannedPoints.count == 2)
+    }
+
+    @Test
+    func reorderIndicatorPainterMatchesPredicateAndSuppressesDraggedRow() {
+        let ids = (0..<5).map { _ in UUID() }
+
+        let topEdge = SidebarWorkspaceTableReorderIndicatorPainter(
+            indicator: SidebarDropIndicator(tabId: ids[3], edge: .top),
+            scope: .raw,
+            draggedWorkspaceId: ids[1],
+            indicatorRowIds: ids
+        )
+        let targetPaint = topEdge.paint(forRowWorkspaceId: ids[3])
+        #expect(targetPaint.top)
+        #expect(!targetPaint.bottom)
+        let bystanderPaint = topEdge.paint(forRowWorkspaceId: ids[2])
+        #expect(!bystanderPaint.top)
+        #expect(!bystanderPaint.bottom)
+
+        // A bottom-edge indicator canonicalizes to the top of the row after
+        // the gap, same as the SwiftUI sidebar's predicate.
+        let bottomEdge = SidebarWorkspaceTableReorderIndicatorPainter(
+            indicator: SidebarDropIndicator(tabId: ids[2], edge: .bottom),
+            scope: .raw,
+            draggedWorkspaceId: ids[1],
+            indicatorRowIds: ids
+        )
+        let canonicalPaint = bottomEdge.paint(forRowWorkspaceId: ids[3])
+        #expect(canonicalPaint.top)
+
+        // The dragged row never paints: AppKit snapshots it as the drag image
+        // lazily, and a painted line would be baked into the ghost.
+        let selfTargeting = SidebarWorkspaceTableReorderIndicatorPainter(
+            indicator: SidebarDropIndicator(tabId: ids[1], edge: .top),
+            scope: .raw,
+            draggedWorkspaceId: ids[1],
+            indicatorRowIds: ids
+        )
+        let draggedPaint = selfTargeting.paint(forRowWorkspaceId: ids[1])
+        #expect(!draggedPaint.top)
+        #expect(!draggedPaint.bottom)
     }
 #endif
 
@@ -463,7 +583,10 @@ struct SidebarWorkspaceTableTests {
     }
 
     @MainActor
-    private func makeTableActions() -> SidebarWorkspaceTableActions {
+    private func makeTableActions(
+        updateWorkspaceDrag: @escaping (CGPoint, [SidebarWorkspaceReorderDropOverlay.Target], UUID?) -> SidebarWorkspaceTableReorderDropUpdate? = { _, _, _ in nil },
+        clearWorkspaceDropIndicator: @escaping () -> Void = {}
+    ) -> SidebarWorkspaceTableActions {
         SidebarWorkspaceTableActions(
             attachScrollView: { _ in },
             closeWorkspace: { _ in },
@@ -472,12 +595,12 @@ struct SidebarWorkspaceTableTests {
             beginWorkspaceDrag: { _ in },
             endWorkspaceDrag: {},
             isValidWorkspaceDrag: { true },
-            updateWorkspaceDrag: { _, _ in false },
-            performWorkspaceDrop: { _, _ in false },
-            clearWorkspaceDropIndicator: {},
+            updateWorkspaceDrag: updateWorkspaceDrag,
+            performWorkspaceDrop: { _, _, _ in false },
+            commitWorkspaceDropPlan: { _ in false },
+            clearWorkspaceDropIndicator: clearWorkspaceDropIndicator,
             currentDropIndicator: { nil },
             currentDropIndicatorScope: { .raw },
-            setWorkspaceDropTargetCollectionActive: { _ in },
             canPerformBonsplitAction: { _, _ in false },
             moveBonsplitToExistingWorkspace: { _, _ in false },
             moveBonsplitToNewWorkspace: { _, _ in nil },

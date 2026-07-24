@@ -77,35 +77,49 @@ final class WorkspaceContentViewVisibilityTests {
 
     @Test
     @MainActor
-    func sidebarResizerCursorReleaseSchedulerCancelsReplacedDelayedRelease() async throws {
-        let scheduler = SidebarResizerCursorReleaseScheduler()
+    func sidebarResizerCursorReleaseSchedulerCancelsReplacedDelayedRelease() async {
+        let clock = SidebarTestManualClock()
+        let scheduler = SidebarResizerCursorReleaseScheduler(clock: clock)
+        let releaseEvents = AsyncStream<Bool>.makeStream()
+        defer { releaseEvents.continuation.finish() }
+        var releaseIterator = releaseEvents.stream.makeAsyncIterator()
         var releases: [Bool] = []
-
-        let initialForce = await withCheckedContinuation { continuation in
-            scheduler.schedule(force: false, delay: .zero) { force in
-                continuation.resume(returning: force)
-            }
-        }
-        #expect(initialForce == false)
-
-        let replacementForce = await withCheckedContinuation { continuation in
-            scheduler.schedule(force: false, delay: .milliseconds(200)) { force in
-                releases.append(force)
-            }
-            scheduler.schedule(force: true, delay: .milliseconds(10)) { force in
-                releases.append(force)
-                continuation.resume(returning: force)
-            }
-        }
-        #expect(replacementForce)
-        #expect(releases == [true])
 
         scheduler.schedule(force: false, delay: .zero) { force in
             releases.append(force)
+            releaseEvents.continuation.yield(force)
         }
-        scheduler.cancelPendingRelease()
-        await Task.yield()
+        #expect(releases.isEmpty)
+        let immediateRelease = await releaseIterator.next()
+        #expect(immediateRelease == false)
+        #expect(releases == [false])
+        releases.removeAll()
+
+        scheduler.schedule(force: false, delay: .milliseconds(200)) { force in
+            releases.append(force)
+            releaseEvents.continuation.yield(force)
+        }
+        await clock.waitUntilSleeping(for: .milliseconds(200))
+        scheduler.schedule(force: true, delay: .milliseconds(10)) { force in
+            releases.append(force)
+            releaseEvents.continuation.yield(force)
+        }
+        await clock.waitUntilSleeping(for: .milliseconds(10))
+
+        clock.advance(by: .milliseconds(10))
+        let replacementRelease = await releaseIterator.next()
+        #expect(replacementRelease == true)
         #expect(releases == [true])
+
+        await clock.waitUntilIdle()
+        clock.advance(by: .milliseconds(190))
+        scheduler.schedule(force: true, delay: .zero) { force in
+            releases.append(force)
+            releaseEvents.continuation.yield(force)
+        }
+        let sentinelRelease = await releaseIterator.next()
+        #expect(sentinelRelease == true)
+        #expect(releases == [true, true])
     }
 
     @Test
