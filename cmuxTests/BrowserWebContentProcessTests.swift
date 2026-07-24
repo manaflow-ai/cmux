@@ -192,6 +192,15 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func webAuthnNativeCapabilitiesOmitUnavailablePlatformSignals() throws {
+        let reply = BrowserWebAuthnCoordinator().capabilityReply()
+        let capabilities = try #require(reply["capabilities"] as? [String: Bool])
+
+        #expect(reply["ok"] as? Bool == true)
+        #expect(capabilities.isEmpty)
+    }
+
+    @Test
     func webAuthnNativeBridgeScopesParentDomainRelyingPartyIDs() throws {
         let googleOrigin = try #require(
             BrowserWebAuthnSecurityOrigin(url: URL(string: "https://accounts.google.com")!)
