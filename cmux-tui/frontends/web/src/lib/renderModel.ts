@@ -69,29 +69,78 @@ function samePlacements(
     && left.every((placement, index) => samePlacement(placement, right[index]!));
 }
 
-function normalizeGraphics(
+function sameImage(left: RenderGraphicImage, right: RenderGraphicImage): boolean {
+  return left.id === right.id
+    && left.generation === right.generation
+    && left.width === right.width
+    && left.height === right.height
+    && left.format === right.format
+    && left.data === right.data;
+}
+
+function snapshotGraphics(
   graphics: RenderGraphics | undefined,
-  previous?: RenderGraphicsModel,
 ): RenderGraphicsModel {
-  if (graphics === undefined) {
-    return previous ?? { generation: 0, images: [], placements: [] };
-  }
-  const images = graphics.images === undefined
-    ? (previous?.images ?? [])
-    : graphics.images.map((image) => ({ ...image }));
-  const placements = previous !== undefined
-    && samePlacements(previous.placements, graphics.placements)
-    ? previous.placements
-    : graphics.placements.map((placement) => ({ ...placement }));
-  if (previous !== undefined
-    && graphics.generation === previous.generation
-    && images === previous.images
-    && placements === previous.placements) return previous;
+  if (graphics === undefined) return { generation: 0, images: [], placements: [] };
   return {
     generation: graphics.generation,
-    images,
-    placements,
+    images: (graphics.images ?? []).map((image) => ({ ...image })),
+    placements: graphics.placements.map((placement) => ({ ...placement })),
   };
+}
+
+function mergeImages(
+  previous: readonly RenderGraphicImage[],
+  upserts: readonly RenderGraphicImage[],
+  removals: readonly number[],
+): readonly RenderGraphicImage[] {
+  if (upserts.length === 0 && removals.length === 0) return previous;
+  const removed = new Set(removals);
+  const pending = new Map(upserts.map((image) => [image.id, image]));
+  const merged: RenderGraphicImage[] = [];
+  let changed = false;
+  for (const image of previous) {
+    if (removed.has(image.id) && !pending.has(image.id)) {
+      changed = true;
+      continue;
+    }
+    const upsert = pending.get(image.id);
+    if (upsert === undefined) {
+      merged.push(image);
+      continue;
+    }
+    pending.delete(image.id);
+    if (sameImage(image, upsert)) {
+      merged.push(image);
+    } else {
+      merged.push({ ...upsert });
+      changed = true;
+    }
+  }
+  for (const upsert of pending.values()) {
+    merged.push({ ...upsert });
+    changed = true;
+  }
+  return changed ? merged : previous;
+}
+
+function applyGraphicsDelta(
+  previous: RenderGraphicsModel,
+  graphics: RenderGraphics | undefined,
+): RenderGraphicsModel {
+  if (graphics === undefined) return previous;
+  const images = mergeImages(
+    previous.images,
+    graphics.images ?? [],
+    graphics.removed_image_ids ?? [],
+  );
+  const placements = samePlacements(previous.placements, graphics.placements)
+    ? previous.placements
+    : graphics.placements.map((placement) => ({ ...placement }));
+  if (graphics.generation === previous.generation
+    && images === previous.images
+    && placements === previous.placements) return previous;
+  return { generation: graphics.generation, images, placements };
 }
 
 export function applySnapshot(snapshot: RenderStateEvent): RenderModel {
@@ -103,7 +152,7 @@ export function applySnapshot(snapshot: RenderStateEvent): RenderModel {
     defaultBg: snapshot.default_bg,
     scrollbackRows: snapshot.scrollback_rows,
     rows: normalizeRows(snapshot.rows, snapshot.size.rows),
-    graphics: normalizeGraphics(snapshot.graphics),
+    graphics: snapshotGraphics(snapshot.graphics),
   };
 }
 
@@ -134,6 +183,6 @@ export function applyDelta(model: RenderModel, delta: RenderDeltaEvent): RenderM
     defaultBg: delta.default_bg ?? model.defaultBg,
     scrollbackRows: delta.scrollback_rows ?? model.scrollbackRows,
     rows,
-    graphics: normalizeGraphics(delta.graphics, model.graphics),
+    graphics: applyGraphicsDelta(model.graphics, delta.graphics),
   };
 }

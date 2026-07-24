@@ -2398,27 +2398,27 @@ fn render_cursor_json(frame: &SurfaceRenderFrame) -> Value {
 
 fn render_graphics_json(
     graphics: &ghostty_vt::KittyGraphicsSnapshot,
-    include_images: bool,
+    image_ids: Option<&HashSet<u32>>,
+    removed_image_ids: &[u32],
 ) -> Value {
-    let images = include_images.then(|| {
-        graphics
-            .images
-            .iter()
-            .map(|image| {
-                json!({
-                    "id": image.id,
-                    "generation": image.generation,
-                    "width": image.width,
-                    "height": image.height,
-                    "format": match image.format {
-                        ghostty_vt::KittyImageFormat::Rgb => "rgb",
-                        ghostty_vt::KittyImageFormat::Rgba => "rgba",
-                    },
-                    "data": base64::engine::general_purpose::STANDARD.encode(&image.data),
-                })
+    let images = graphics
+        .images
+        .iter()
+        .filter(|image| image_ids.is_none_or(|ids| ids.contains(&image.id)))
+        .map(|image| {
+            json!({
+                "id": image.id,
+                "generation": image.generation,
+                "width": image.width,
+                "height": image.height,
+                "format": match image.format {
+                    ghostty_vt::KittyImageFormat::Rgb => "rgb",
+                    ghostty_vt::KittyImageFormat::Rgba => "rgba",
+                },
+                "data": base64::engine::general_purpose::STANDARD.encode(&image.data),
             })
-            .collect::<Vec<_>>()
-    });
+        })
+        .collect::<Vec<_>>();
     let placements = graphics
         .placements
         .iter()
@@ -2450,8 +2450,11 @@ fn render_graphics_json(
         "generation": graphics.generation,
         "placements": placements,
     });
-    if let Some(images) = images {
+    if image_ids.is_none() || !images.is_empty() {
         value["images"] = json!(images);
+    }
+    if !removed_image_ids.is_empty() {
+        value["removed_image_ids"] = json!(removed_image_ids);
     }
     value
 }
@@ -2467,7 +2470,7 @@ fn render_state_json(surface: SurfaceId, frame: &SurfaceRenderFrame) -> Value {
         "default_bg": rgb_hex(frame.frame.default_colors.0),
         "scrollback_rows": frame.scrollback_rows,
         "rows": render_rows_json(frame, 0..rows),
-        "graphics": render_graphics_json(&frame.frame.kitty_graphics, true),
+        "graphics": render_graphics_json(&frame.frame.kitty_graphics, None, &[]),
     })
 }
 
@@ -2475,7 +2478,8 @@ struct RenderClientState {
     size: (u16, u16),
     default_colors: (Rgb, Rgb),
     scrollback_rows: u32,
-    graphics_generation: u64,
+    graphics_image_generations: HashMap<u32, u64>,
+    graphics_placements: Vec<ghostty_vt::KittyPlacement>,
 }
 
 impl RenderClientState {
@@ -2484,7 +2488,14 @@ impl RenderClientState {
             size: frame.frame.size,
             default_colors: frame.frame.default_colors,
             scrollback_rows: frame.scrollback_rows,
-            graphics_generation: frame.frame.kitty_graphics.generation,
+            graphics_image_generations: frame
+                .frame
+                .kitty_graphics
+                .images
+                .iter()
+                .map(|image| (image.id, image.generation))
+                .collect(),
+            graphics_placements: frame.frame.kitty_graphics.placements.clone(),
         }
     }
 
@@ -2521,12 +2532,40 @@ impl RenderClientState {
         if scrollback_changed {
             value["scrollback_rows"] = json!(frame.scrollback_rows);
         }
-        let graphics_changed = self.graphics_generation != frame.frame.kitty_graphics.generation;
-        value["graphics"] = render_graphics_json(&frame.frame.kitty_graphics, graphics_changed);
+        let graphics = &frame.frame.kitty_graphics;
+        let image_generations = graphics
+            .images
+            .iter()
+            .map(|image| (image.id, image.generation))
+            .collect::<HashMap<_, _>>();
+        let upsert_image_ids = image_generations
+            .iter()
+            .filter_map(|(&id, &generation)| {
+                (self.graphics_image_generations.get(&id) != Some(&generation)).then_some(id)
+            })
+            .collect::<HashSet<_>>();
+        let mut removed_image_ids = self
+            .graphics_image_generations
+            .keys()
+            .filter(|id| !image_generations.contains_key(id))
+            .copied()
+            .collect::<Vec<_>>();
+        removed_image_ids.sort_unstable();
+        let images_changed = !upsert_image_ids.is_empty() || !removed_image_ids.is_empty();
+        let placements_changed = self.graphics_placements != graphics.placements;
+        if images_changed || placements_changed {
+            value["graphics"] =
+                render_graphics_json(graphics, Some(&upsert_image_ids), &removed_image_ids);
+        }
         self.size = frame.frame.size;
         self.default_colors = frame.frame.default_colors;
         self.scrollback_rows = frame.scrollback_rows;
-        self.graphics_generation = frame.frame.kitty_graphics.generation;
+        if images_changed {
+            self.graphics_image_generations = image_generations;
+        }
+        if placements_changed {
+            self.graphics_placements = graphics.placements.clone();
+        }
         value
     }
 }

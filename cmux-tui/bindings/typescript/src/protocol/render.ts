@@ -66,14 +66,16 @@ export interface RenderGraphicPlacement {
 }
 
 /**
- * Authoritative Kitty placements and optionally refreshed image pixels.
+ * Authoritative Kitty placements and incremental image changes.
  *
- * `placements` always replaces the previous placement set. An omitted
- * `images` field preserves the previous image set.
+ * `placements` replaces the previous placement set. `images` upserts by image
+ * id, while `removed_image_ids` deletes cached images. Omitted change fields
+ * preserve the previous image cache.
  */
 export interface RenderGraphics {
   generation: number;
   images?: RenderGraphicImage[];
+  removed_image_ids?: number[];
   placements: RenderGraphicPlacement[];
 }
 
@@ -87,7 +89,7 @@ export interface RenderStateEvent {
   default_bg: ColorHex;
   scrollback_rows: number;
   rows: RenderRow[];
-  /** Omitted by servers predating render-mode Kitty graphics. */
+  /** Complete initial graphics state, omitted by older additive protocol servers. */
   graphics?: RenderGraphics;
 }
 
@@ -102,6 +104,6 @@ export interface RenderDeltaEvent {
   default_bg?: ColorHex;
   scrollback_rows?: number;
   rows: RenderRow[];
-  /** Omitted by servers predating render-mode Kitty graphics. */
+  /** Incremental graphics changes, omitted when only text or cursor state changed. */
   graphics?: RenderGraphics;
 }
