@@ -10,10 +10,11 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     UITableViewDragDelegate, UITableViewDropDelegate
 {
     private enum HeightKind: Hashable {
-        case workspaceUniform
+        case workspaceUniform(hasDescription: Bool)
         case workspaceWrapped(
             id: MobileWorkspacePreview.ID,
             name: String,
+            hasDescription: Bool,
             isSelected: Bool,
             isIndented: Bool
         )
@@ -29,7 +30,6 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         let widthInPixels: Int
         let contentSizeCategory: String
         let previewLineLimit: Int
-        let profilePictureSizeInPixels: Int
     }
 
     private static let cellReuseIdentifier = "WorkspaceListTableCell"
@@ -60,7 +60,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             UITableViewCell.self,
             forCellReuseIdentifier: Self.cellReuseIdentifier
         )
-        dataSource = UITableViewDiffableDataSource<Int, WorkspaceListTableItem>(
+        let dataSource = WorkspaceListTableDataSource(
             tableView: tableView
         ) { [weak self] tableView, indexPath, item in
             guard let self else { return UITableViewCell() }
@@ -71,6 +71,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             self.configure(cell, for: self.configuredItemsByID[item.id] ?? item)
             return cell
         }
+        dataSource.coordinator = self
+        self.dataSource = dataSource
         tableView.layoutMetricsDidChange = { [weak self, weak tableView] in
             guard let self, let tableView else { return }
             self.heightCache.removeAll(keepingCapacity: true)
@@ -402,6 +404,18 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         }
     }
 
+    fileprivate func canEditRow(at indexPath: IndexPath) -> Bool {
+        guard let workspace = workspace(at: indexPath) else { return false }
+        return (workspace.actionCapabilities.supportsReadStateActions && configuration.setUnread != nil)
+            || (workspace.actionCapabilities.supportsCloseActions
+                && configuration.requestWorkspaceClose != nil)
+    }
+
+    fileprivate func canMoveRow(at indexPath: IndexPath) -> Bool {
+        guard let item = dataSource?.itemIdentifier(for: indexPath) else { return false }
+        return configuration.enablesReorder && configuration.moveRows != nil && isMovable(item)
+    }
+
     private func configure(_ cell: UITableViewCell, for item: WorkspaceListTableItem) {
         cell.backgroundColor = .clear
         cell.contentView.backgroundColor = .clear
@@ -452,6 +466,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             guard let workspace = configuration.workspacesByID[workspaceID] else {
                 return AnyView(EmptyView())
             }
+            let capabilities = workspace.actionCapabilities
             let connectionStatus = workspace.macConnectionStatus ?? configuration.connectionStatus
             return AnyView(
                 WorkspaceRow(
@@ -461,9 +476,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                         && configuration.selectedWorkspaceID == workspace.id,
                     wrapWorkspaceTitles: configuration.wrapWorkspaceTitles,
                     previewLineLimit: configuration.previewLineLimit,
-                    unreadIndicatorLeftShift: configuration.unreadIndicatorLeftShift,
-                    profilePictureLeftShift: configuration.profilePictureLeftShift,
-                    profilePictureSize: configuration.profilePictureSize
+                    unreadIndicatorLeftShift: configuration.unreadIndicatorLeftShift
                 )
                 .accessibilityElement(children: .combine)
                 .accessibilityAddTraits(.isButton)
@@ -472,6 +485,30 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 .accessibilityValue(
                     workspace.accessibilitySummary(connectionStatus: connectionStatus)
                 )
+                .accessibilityActions {
+                    if capabilities.supportsWorkspaceActions,
+                       capabilities.supportsWorkspaceMetadata,
+                       let customizeRequest = configuration.customizeRequest {
+                        Button(L10n.string("mobile.workspace.customize.action", defaultValue: "Customize")) {
+                            customizeRequest(workspace.id)
+                        }
+                    } else if capabilities.supportsWorkspaceActions,
+                              let renameRequest = configuration.renameRequest {
+                        Button(L10n.string("mobile.workspace.rename.action", defaultValue: "Rename")) {
+                            renameRequest(workspace.id)
+                        }
+                    }
+                    if capabilities.supportsWorkspaceActions,
+                       let setPinned = configuration.setPinned {
+                        Button(
+                            workspace.isPinned
+                                ? L10n.string("mobile.workspace.unpin", defaultValue: "Unpin")
+                                : L10n.string("mobile.workspace.pin", defaultValue: "Pin")
+                        ) {
+                            setPinned(workspace.id, !workspace.isPinned)
+                        }
+                    }
+                }
             )
         case .groupHeader(let groupID):
             guard let group = configuration.groupsByID[groupID] else {
@@ -564,12 +601,15 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 kind = .workspaceWrapped(
                     id: id,
                     name: workspace.name,
+                    hasDescription: workspace.displayDescription != nil,
                     isSelected: configuration.navigationStyle == .sidebar
                         && configuration.selectedWorkspaceID == id,
                     isIndented: item.isIndentedWorkspace
                 )
             } else {
-                kind = .workspaceUniform
+                kind = .workspaceUniform(
+                    hasDescription: configuration.workspacesByID[id]?.displayDescription != nil
+                )
             }
         case .groupHeader:
             kind = .groupHeader
@@ -605,8 +645,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             kind: kind,
             widthInPixels: Int((tableView.bounds.width * scale).rounded()),
             contentSizeCategory: tableView.traitCollection.preferredContentSizeCategory.rawValue,
-            previewLineLimit: configuration.previewLineLimit,
-            profilePictureSizeInPixels: Int((configuration.profilePictureSize * scale).rounded())
+            previewLineLimit: configuration.previewLineLimit
         )
     }
 
@@ -632,8 +671,6 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 || previous.wrapWorkspaceTitles != next.wrapWorkspaceTitles
                 || previous.previewLineLimit != next.previewLineLimit
                 || previous.unreadIndicatorLeftShift != next.unreadIndicatorLeftShift
-                || previous.profilePictureLeftShift != next.profilePictureLeftShift
-                || previous.profilePictureSize != next.profilePictureSize
                 || previousConnectionStatus != nextConnectionStatus
                 || workspaceActionAvailabilityChanged(previous: previous, next: next)
         case .groupHeader(let id):
@@ -682,6 +719,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             || (previous.setUnread != nil) != (next.setUnread != nil)
             || (previous.setPinned != nil) != (next.setPinned != nil)
             || (previous.renameRequest != nil) != (next.renameRequest != nil)
+            || (previous.customizeRequest != nil) != (next.customizeRequest != nil)
     }
 
     private func groupActionAvailabilityChanged(
@@ -694,6 +732,20 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             || (previous.ungroupWorkspaceGroup != nil) != (next.ungroupWorkspaceGroup != nil)
             || (previous.deleteWorkspaceGroup != nil) != (next.deleteWorkspaceGroup != nil)
             || (previous.toggleGroupCollapsed != nil) != (next.toggleGroupCollapsed != nil)
+    }
+}
+
+private final class WorkspaceListTableDataSource:
+    UITableViewDiffableDataSource<Int, WorkspaceListTableItem>
+{
+    weak var coordinator: WorkspaceListTableCoordinator?
+
+    override func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
+        coordinator?.canEditRow(at: indexPath) ?? false
+    }
+
+    override func tableView(_ tableView: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
+        coordinator?.canMoveRow(at: indexPath) ?? false
     }
 }
 #endif
