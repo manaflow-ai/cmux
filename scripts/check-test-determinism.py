@@ -215,15 +215,8 @@ _JS_SUFFIXES = (".ts", ".tsx", ".js", ".mjs")
 _SLASH_NONCODE_MARKER = re.compile(r'//|/\*|"""|\'\'\'|["\'`]')
 _HASH_NONCODE_MARKER = re.compile(r'#|"""|\'\'\'|["\']')
 _BLOCK_COMMENT_MARKER = re.compile(r'/\*|\*/')
-_SHELL_HEREDOC_START = re.compile(
-    r"""(?x)
-    (?<!<) << (?P<strip>-)? (?!<) [ \t]*
-    (?:
-        '(?P<single>[^'\n]+)'
-      | "(?P<double>[^"\n]+)"
-      | (?P<backslash>\\)?(?P<bare>[^ \t\r\n;&|()<>"'`]+)
-    )
-    """
+_SHELL_HEREDOC_OPERATOR = re.compile(
+    r"(?<!<)<<(?P<strip>-)?(?!<)[ \t]*"
 )
 
 _ASSERTION_HINTS = ("assert", "expect", "require", "XCT", "raise", "must")
@@ -891,6 +884,13 @@ class _PythonSleepVisitor(ast.NodeVisitor):
         local_names, global_names, nonlocal_names = (
             _python_function_bindings(node.body)
         )
+        scope_snapshots: list[tuple[_PythonScope, dict[str, str]]] = []
+        snapshot_scope: Optional[_PythonScope] = previous_scope
+        while snapshot_scope is not None:
+            scope_snapshots.append(
+                (snapshot_scope, snapshot_scope.bindings.copy())
+            )
+            snapshot_scope = snapshot_scope.parent
         self.scope = _PythonScope(
             "function",
             parent,
@@ -903,9 +903,13 @@ class _PythonSleepVisitor(ast.NodeVisitor):
         )
         for argument in self._argument_nodes(node.args):
             self._bind(argument.arg)
-        for statement in node.body:
-            self.visit(statement)
-        self.scope = previous_scope
+        try:
+            for statement in node.body:
+                self.visit(statement)
+        finally:
+            for scope, bindings in scope_snapshots:
+                scope.bindings = bindings
+            self.scope = previous_scope
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         self._visit_function(node)
@@ -1360,6 +1364,55 @@ def _mask_shell_heredoc_expansions(
     return "".join(masked)
 
 
+def _parse_shell_heredoc_word(
+    line: str,
+    start: int,
+) -> Optional[tuple[str, bool]]:
+    """Return a quote-removed heredoc delimiter and expansion policy."""
+    delimiter: list[str] = []
+    quoted = False
+    index = start
+    while index < len(line):
+        char = line[index]
+        if char.isspace() or char in ";&|()<>":
+            break
+        if char == "'":
+            quoted = True
+            closing = line.find("'", index + 1)
+            if closing < 0:
+                return None
+            delimiter.append(line[index + 1 : closing])
+            index = closing + 1
+            continue
+        if char == '"':
+            quoted = True
+            index += 1
+            while index < len(line) and line[index] != '"':
+                if line[index] == "\\" and index + 1 < len(line):
+                    delimiter.append(line[index + 1])
+                    index += 2
+                else:
+                    delimiter.append(line[index])
+                    index += 1
+            if index >= len(line):
+                return None
+            index += 1
+            continue
+        if char == "\\":
+            quoted = True
+            if index + 1 >= len(line):
+                return None
+            delimiter.append(line[index + 1])
+            index += 2
+            continue
+        delimiter.append(char)
+        index += 1
+
+    if not delimiter:
+        return None
+    return "".join(delimiter), not quoted
+
+
 def _shell_arithmetic_ranges(
     line: str,
     initial_depth: int,
@@ -1641,48 +1694,93 @@ _JS_REGEX_PREFIX_WORDS = frozenset(
         "yield",
     )
 )
+_JS_CONTROL_HEADER_WORDS = frozenset(
+    ("catch", "for", "if", "switch", "while", "with")
+)
 
 
-def _mask_javascript_regex_literals(line: str) -> str:
-    """Mask high-confidence JavaScript regex literals on one physical line."""
-    masked = list(line)
+def _javascript_control_header_before(
+    text: str,
+    closing_parenthesis: int,
+) -> bool:
+    depth = 0
+    index = closing_parenthesis
+    while index >= 0:
+        char = text[index]
+        if char == ")":
+            depth += 1
+        elif char == "(":
+            depth -= 1
+            if depth == 0:
+                index -= 1
+                while index >= 0 and text[index].isspace():
+                    index -= 1
+                word_end = index + 1
+                while index >= 0 and (
+                    text[index].isalnum() or text[index] in "_$"
+                ):
+                    index -= 1
+                return (
+                    text[index + 1 : word_end]
+                    in _JS_CONTROL_HEADER_WORDS
+                )
+        index -= 1
+    return False
+
+
+def _mask_javascript_regex_literals(lines: list[str]) -> list[str]:
+    """Mask high-confidence JavaScript regex literals across source lines."""
+    text = "\n".join(lines)
+    masked = list(text)
     index = 0
-    while index < len(line):
-        if line[index] != "/":
+    while index < len(text):
+        if text[index] != "/":
             index += 1
             continue
 
         previous = index - 1
-        while previous >= 0 and line[previous].isspace():
+        while previous >= 0 and text[previous].isspace():
             previous -= 1
-        can_start = previous < 0 or line[previous] in _JS_REGEX_PREFIX_CHARS
+        can_start = previous < 0 or text[previous] in _JS_REGEX_PREFIX_CHARS
+        if (
+            not can_start
+            and previous >= 0
+            and text[previous] == ")"
+        ):
+            can_start = _javascript_control_header_before(text, previous)
         if (
             can_start
             and previous >= 0
-            and line[previous] == "<"
-            and index + 1 < len(line)
-            and (line[index + 1].isalpha() or line[index + 1] == ">")
+            and text[previous] == "<"
+            and index + 1 < len(text)
+            and (text[index + 1].isalpha() or text[index + 1] == ">")
         ):
             can_start = False
         if not can_start and previous >= 0 and (
-            line[previous].isalnum() or line[previous] in "_$"
+            text[previous].isalnum() or text[previous] in "_$"
         ):
             word_end = previous + 1
             word_start = previous
             while word_start >= 0 and (
-                line[word_start].isalnum()
-                or line[word_start] in "_$"
+                text[word_start].isalnum()
+                or text[word_start] in "_$"
             ):
                 word_start -= 1
-            can_start = line[word_start + 1 : word_end] in _JS_REGEX_PREFIX_WORDS
+            can_start = (
+                text[word_start + 1 : word_end]
+                in _JS_REGEX_PREFIX_WORDS
+            )
         if not can_start:
             index += 1
             continue
 
         cursor = index + 1
         in_character_class = False
-        while cursor < len(line):
-            char = line[cursor]
+        closed = False
+        while cursor < len(text):
+            char = text[cursor]
+            if char == "\n":
+                break
             if char == "\\":
                 cursor += 2
                 continue
@@ -1692,15 +1790,16 @@ def _mask_javascript_regex_literals(line: str) -> str:
                 in_character_class = False
             elif char == "/" and not in_character_class:
                 cursor += 1
-                while cursor < len(line) and line[cursor].isalpha():
+                while cursor < len(text) and text[cursor].isalpha():
                     cursor += 1
                 masked[index:cursor] = " " * (cursor - index)
                 index = cursor
+                closed = True
                 break
             cursor += 1
-        else:
+        if not closed:
             index += 1
-    return "".join(masked)
+    return "".join(masked).split("\n")
 
 
 def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
@@ -1908,35 +2007,32 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
                     shell_arithmetic_depth,
                 )
             )
-            for heredoc in _SHELL_HEREDOC_START.finditer(line):
-                if masked_line[heredoc.start() : heredoc.start() + 2] != "<<":
+            for operator in _SHELL_HEREDOC_OPERATOR.finditer(line):
+                if masked_line[operator.start() : operator.start() + 2] != "<<":
                     continue
                 if any(
-                    start <= heredoc.start() < end
+                    start <= operator.start() < end
                     for start, end in arithmetic_ranges
                 ):
                     continue
-                delimiter = (
-                    heredoc.group("single")
-                    or heredoc.group("double")
-                    or heredoc.group("bare")
+                parsed_word = _parse_shell_heredoc_word(
+                    line,
+                    operator.end(),
                 )
+                if parsed_word is None:
+                    continue
+                delimiter, allow_expansions = parsed_word
                 shell_heredocs.append(
                     (
                         delimiter,
-                        heredoc.group("strip") is not None,
-                        heredoc.group("single") is None
-                        and heredoc.group("double") is None
-                        and heredoc.group("backslash") is None,
+                        operator.group("strip") is not None,
+                        allow_expansions,
                     )
                 )
         masked_lines.append(masked_line)
 
     if path_suffix in _JS_SUFFIXES:
-        return [
-            _mask_javascript_regex_literals(line)
-            for line in masked_lines
-        ]
+        return _mask_javascript_regex_literals(masked_lines)
     return masked_lines
 
 
