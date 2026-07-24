@@ -803,6 +803,9 @@ class _PythonScope:
     deferred_parent_bindings: dict[str, str] = field(default_factory=dict)
 
 
+_PythonScopeState = list[tuple[_PythonScope, dict[str, str]]]
+
+
 class _PythonSleepVisitor(ast.NodeVisitor):
     """Find exact trusted ``sleep`` calls without guessing receiver types."""
 
@@ -827,7 +830,7 @@ class _PythonSleepVisitor(ast.NodeVisitor):
         self.assertion_positions: dict[int, set[int]] = {}
         self.asserted_sleep_positions: dict[int, set[int]] = {}
         self.assertion_depth = 0
-        self.loop_break_states: list[list[dict[str, str]]] = []
+        self.loop_break_states: list[list[_PythonScopeState]] = []
 
     def _resolve(self, name: str) -> Optional[str]:
         scope: Optional[_PythonScope] = self.scope
@@ -893,36 +896,54 @@ class _PythonSleepVisitor(ast.NodeVisitor):
             scope = scope.parent
         return scope
 
-    def _scope_state(self) -> dict[str, str]:
-        return self.scope.bindings.copy()
+    def _scope_state(self) -> _PythonScopeState:
+        result: _PythonScopeState = []
+        scope: Optional[_PythonScope] = self.scope
+        while scope is not None:
+            result.append((scope, scope.bindings.copy()))
+            scope = scope.parent
+        return result
 
-    def _restore_scope_state(self, state: dict[str, str]) -> None:
-        self.scope.bindings = state.copy()
+    def _restore_scope_state(self, state: _PythonScopeState) -> None:
+        for scope, bindings in state:
+            scope.bindings = bindings.copy()
 
     def _merged_scope_state(
         self,
-        states: list[dict[str, str]],
-    ) -> dict[str, str]:
-        result: dict[str, str] = {}
-        keys = set().union(*(state.keys() for state in states))
-        for key in keys:
-            values = {state.get(key) for state in states}
-            result[key] = (
-                values.pop()
-                if len(values) == 1 and None not in values
-                else _PYTHON_SHADOWED_BINDING
+        states: list[_PythonScopeState],
+    ) -> _PythonScopeState:
+        result: _PythonScopeState = []
+        for state_index, (scope, _) in enumerate(states[0]):
+            bindings_states = [
+                state[state_index][1]
+                for state in states
+            ]
+            merged_bindings: dict[str, str] = {}
+            keys = set().union(
+                *(bindings.keys() for bindings in bindings_states)
             )
+            for key in keys:
+                values = {
+                    bindings.get(key)
+                    for bindings in bindings_states
+                }
+                merged_bindings[key] = (
+                    values.pop()
+                    if len(values) == 1 and None not in values
+                    else _PYTHON_SHADOWED_BINDING
+                )
+            result.append((scope, merged_bindings))
         return result
 
-    def _merge_scope_states(self, states: list[dict[str, str]]) -> None:
-        self.scope.bindings = self._merged_scope_state(states)
+    def _merge_scope_states(self, states: list[_PythonScopeState]) -> None:
+        self._restore_scope_state(self._merged_scope_state(states))
 
     def _visit_branch_blocks(
         self,
         blocks: list[list[ast.stmt]],
     ) -> None:
         base = self._scope_state()
-        states: list[dict[str, str]] = []
+        states: list[_PythonScopeState] = []
         for block in blocks:
             self._restore_scope_state(base)
             for statement in block:
@@ -1155,7 +1176,7 @@ class _PythonSleepVisitor(ast.NodeVisitor):
         target: Optional[ast.expr] = None,
     ) -> None:
         base = self._scope_state()
-        states: list[dict[str, str]] = []
+        states: list[_PythonScopeState] = []
 
         self._restore_scope_state(base)
         for statement in orelse:
@@ -2446,8 +2467,13 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
     marker_pattern = (
         _HASH_NONCODE_MARKER if hash_comments else _SLASH_NONCODE_MARKER
     )
+    javascript_structural_lines = (
+        _mask_javascript_regex_literals(lines)
+        if path_suffix in _JS_SUFFIXES
+        else lines
+    )
 
-    for line in lines:
+    for line_index, line in enumerate(lines):
         if path_suffix == ".sh" and shell_heredocs:
             delimiter, strip_tabs, allow_expansions = shell_heredocs[0]
             candidate = line.lstrip("\t") if strip_tabs else line
@@ -2548,7 +2574,10 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
                 quote = None
                 continue
 
-            marker = marker_pattern.search(line, i)
+            marker = marker_pattern.search(
+                javascript_structural_lines[line_index],
+                i,
+            )
             if path_suffix == ".sh" and shell_interpolations:
                 interpolation_kind, depth = shell_interpolations[-1]
                 if interpolation_kind == "backtick":
@@ -2844,6 +2873,8 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
         if suffix in (".py", ".swift")
         else bool(sleep_pattern and sleep_pattern.search(text))
     )
+    if suffix in _JS_SUFFIXES:
+        has_sleep_candidate = "sleep" in text or "setTimeout" in text
     if suffix == ".sh":
         has_sleep_candidate = "sleep" in text
     masked_lines = (
