@@ -20,6 +20,13 @@ fileprivate enum TerminalSocketMutation {
     case clearAllNotifications(through: UInt64)
     case clearNotificationsForTab(UUID, through: UInt64)
     case clearNotificationsForSurface(UUID, UUID, through: UInt64)
+    case clearAgentNotifications(
+        claimedTabId: UUID,
+        surfaceId: UUID,
+        statusKey: String,
+        eventTime: TimeInterval,
+        through: UInt64
+    )
     case perform(@MainActor () -> Void)
 }
 
@@ -119,31 +126,32 @@ final class TerminalMutationBus: @unchecked Sendable {
         lock.lock()
         let boundary = currentNotificationGeneration
         currentNotificationGeneration &+= 1
+        var coalescedEventTime = agentEventTime
+        pending.removeAll { entry in
+            guard case .clearAgentNotifications(
+                claimedTabId: _,
+                surfaceId: let queuedSurfaceId,
+                statusKey: let queuedStatusKey,
+                eventTime: let queuedEventTime,
+                through: _
+            ) = entry.mutation,
+            queuedSurfaceId == surfaceId,
+            queuedStatusKey == statusKey else {
+                return false
+            }
+            coalescedEventTime = max(coalescedEventTime, queuedEventTime)
+            return true
+        }
         nextSequence &+= 1
         pending.append(TerminalSocketMutationEntry(
             sequence: nextSequence,
-            mutation: .perform { @MainActor in
-                guard let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
-                    claimedTabId: tabId,
-                    surfaceId: surfaceId
-                ), let liveSurfaceId = target.surfaceId else { return }
-                let manager = AppDelegate.shared?.tabManagerFor(tabId: target.tabId) ?? AppDelegate.shared?.tabManager
-                guard let workspace = manager?.workspacesById[target.tabId],
-                      workspace.acceptAgentRuntimeMutation(
-                          statusKey: statusKey,
-                          panelId: liveSurfaceId,
-                          agentEventTime: agentEventTime,
-                          enforceOrdering: true
-                      ) else {
-                    return
-                }
-                TerminalNotificationStore.shared.clearNotifications(
-                    forTabId: target.tabId,
-                    surfaceId: liveSurfaceId,
-                    discardQueuedNotifications: false,
-                    throughNotificationGeneration: boundary
-                )
-            },
+            mutation: .clearAgentNotifications(
+                claimedTabId: tabId,
+                surfaceId: surfaceId,
+                statusKey: statusKey,
+                eventTime: coalescedEventTime,
+                through: boundary
+            ),
             notificationGeneration: nil,
             notificationCoalescingKey: nil,
             performReplaceKey: nil
@@ -517,6 +525,33 @@ final class TerminalMutationBus: @unchecked Sendable {
                 TerminalNotificationStore.shared.clearNotifications(
                     forTabId: tabId,
                     surfaceId: surfaceId,
+                    discardQueuedNotifications: false,
+                    throughNotificationGeneration: boundary
+                )
+            case .clearAgentNotifications(
+                claimedTabId: let claimedTabId,
+                surfaceId: let surfaceId,
+                statusKey: let statusKey,
+                eventTime: let eventTime,
+                through: let boundary
+            ):
+                guard let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
+                    claimedTabId: claimedTabId,
+                    surfaceId: surfaceId
+                ), let liveSurfaceId = target.surfaceId else { continue }
+                let manager = AppDelegate.shared?.tabManagerFor(tabId: target.tabId) ?? AppDelegate.shared?.tabManager
+                guard let workspace = manager?.workspacesById[target.tabId],
+                      workspace.acceptAgentRuntimeMutation(
+                          statusKey: statusKey,
+                          panelId: liveSurfaceId,
+                          agentEventTime: eventTime,
+                          enforceOrdering: true
+                      ) else {
+                    continue
+                }
+                TerminalNotificationStore.shared.clearNotifications(
+                    forTabId: target.tabId,
+                    surfaceId: liveSurfaceId,
                     discardQueuedNotifications: false,
                     throughNotificationGeneration: boundary
                 )

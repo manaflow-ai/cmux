@@ -83,7 +83,9 @@ extension Workspace {
 
         var agentPIDsForPanel: [String: pid_t] = [:]
         var agentPIDIdentitiesForPanel: [String: AgentPIDProcessIdentity] = [:]
-        var statusEntriesForPanel: [String: SidebarStatusEntry] = [:]
+        var statusEntriesForPanel = statusEntries.filter {
+            $0.value.agentOwnerPanelID == panelId
+        }
         for key in pidKeys {
             if let pid = agentPIDs[key] {
                 agentPIDsForPanel[key] = pid
@@ -347,6 +349,11 @@ extension Workspace {
             if clearAgentPID(key: key, panelId: runtimeState.panelId, clearStatus: true, refreshPorts: false) {
                 didChange = true
             }
+        }
+        for statusKey in runtimeState.statusEntries.keys {
+            guard statusEntries[statusKey]?.agentOwnerPanelID == runtimeState.panelId else { continue }
+            statusEntries.removeValue(forKey: statusKey)
+            didChange = true
         }
         if didChange {
             refreshTrackedAgentPorts()
