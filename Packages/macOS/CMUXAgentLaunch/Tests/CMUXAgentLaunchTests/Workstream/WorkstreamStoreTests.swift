@@ -73,6 +73,77 @@ struct WorkstreamStoreTests {
         #expect(!store.hasMorePersistedItems)
     }
 
+    @Test("start expires restored decisions because their reply waiter did not survive restart")
+    func restoredPendingDecisionsExpireOnStart() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-store-restored-pending-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        let createdAt = Date(timeIntervalSince1970: 100)
+        let restoredItems = [
+            WorkstreamItem(
+                workstreamId: "local",
+                source: .claude,
+                kind: .permissionRequest,
+                createdAt: createdAt,
+                payload: .permissionRequest(
+                    requestId: "local",
+                    toolName: "Write",
+                    toolInputJSON: "{}",
+                    pattern: nil
+                ),
+                ppid: 1234,
+                processNamespace: .local
+            ),
+            WorkstreamItem(
+                workstreamId: "remote",
+                source: .codex,
+                kind: .permissionRequest,
+                createdAt: createdAt,
+                payload: .permissionRequest(
+                    requestId: "remote",
+                    toolName: "shell",
+                    toolInputJSON: "{}",
+                    pattern: nil
+                ),
+                ppid: 1234,
+                processNamespace: .remote
+            ),
+            WorkstreamItem(
+                workstreamId: "telemetry",
+                source: .claude,
+                kind: .toolUse,
+                createdAt: createdAt,
+                payload: .toolUse(toolName: "Read", toolInputJSON: "{}")
+            ),
+        ]
+        for item in restoredItems {
+            try await persistence.append(item)
+        }
+
+        let clock = TestClock(initial: Date(timeIntervalSince1970: 200))
+        let store = WorkstreamStore(
+            persistence: persistence,
+            ringCapacity: 10,
+            initialLoadLimit: 2,
+            historyPageSize: 2,
+            clock: { clock.now }
+        )
+
+        await store.start()
+
+        #expect(store.pending.isEmpty)
+        #expect(store.items.count == 2)
+        #expect(store.items[0].status == .expired(at: clock.now))
+        #expect(store.items[1].status == .telemetry)
+
+        await store.loadOlderItems()
+
+        #expect(store.pending.isEmpty)
+        #expect(store.items.count == 3)
+        #expect(store.items[0].status == .expired(at: clock.now))
+    }
+
     @Test("expireAbandonedItems expires items whose agent PID is dead")
     func expireAbandoned() {
         let clock = TestClock(initial: Date(timeIntervalSince1970: 0))
