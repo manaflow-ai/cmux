@@ -2890,6 +2890,13 @@ impl Mux {
         // Removal participates in the same ordering as size reports.
         let mut sizing = self.client_sizing.lock().unwrap();
         let attached_clients = self.control_clients.attached_client_ids_for_surface(id);
+        // Final-stream cleanup runs after the registry removes this
+        // attachment. Reconstruct the preceding attachment set so an
+        // unreported client only triggers geometry when its removal actually
+        // changes excluded-report fallback.
+        let mut attached_clients_before = attached_clients.clone();
+        attached_clients_before.insert(client);
+        let fallback_before = sizing.uses_excluded_fallback(id, Some(&attached_clients_before));
         let removed = {
             let removed = sizing
                 .surfaces
@@ -2905,7 +2912,7 @@ impl Mux {
         // A final unreported attachment can be the only thing suppressing
         // this terminal's excluded-report fallback even though it had no
         // visibility lease of its own to remove.
-        if !removed && !fallback_after {
+        if !removed && fallback_before == fallback_after {
             return;
         }
         #[cfg(test)]

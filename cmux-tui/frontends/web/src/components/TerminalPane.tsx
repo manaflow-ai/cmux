@@ -4,7 +4,7 @@ import { t } from "../i18n";
 import type { PaneLayoutView } from "../lib/layout";
 import { layoutToViewModel, visibleStackPanes } from "../lib/layout";
 import type { ScreenView } from "../lib/tree";
-import { contextMenuReducer } from "../lib/contextMenu";
+import { contextMenuReducer, type ContextMenuPoint } from "../lib/contextMenu";
 import { clientSizingMenuItems, paneClientSummary } from "../lib/clientSizing";
 import { renameCanCommit, renameReducer } from "../lib/rename";
 import { splitDividerTarget, splitRatioFromPointer, splitRatioToCommit } from "../lib/splitDrag";
@@ -33,6 +33,27 @@ interface TerminalPaneProps {
   onCloseSurface(surface: Id): void;
   onRenamePane(pane: Id, name: string): void;
   onRenameSurface(surface: Id, name: string): void;
+}
+
+type PaneMenuState =
+  | { open: false }
+  | { open: true; point: ContextMenuPoint; surface: Id | null };
+
+type PaneMenuAction =
+  | { type: "open"; point: ContextMenuPoint; surface: Id | null }
+  | { type: "close" };
+
+function paneMenuReducer(state: PaneMenuState, action: PaneMenuAction): PaneMenuState {
+  if (action.type === "close") return { open: false };
+  if (
+    state.open
+    && state.surface === action.surface
+    && state.point.x === action.point.x
+    && state.point.y === action.point.y
+  ) {
+    return state;
+  }
+  return { open: true, point: action.point, surface: action.surface };
 }
 
 interface TabButtonProps {
@@ -122,11 +143,13 @@ function PaneLeaf({
   onUseAllClientSizing,
   onDetachClient,
 }: PaneLeafProps) {
-  const [menu, dispatchMenu] = useReducer(contextMenuReducer, { open: false });
-  const [clientMenu, dispatchClientMenu] = useReducer(contextMenuReducer, { open: false });
+  const tab = pane?.tabs[pane.active_tab] ?? null;
+  const surface = tab?.kind === "pty" && !tab.dead ? tab.surface : null;
+  const [menu, dispatchMenu] = useReducer(paneMenuReducer, { open: false });
+  const [clientMenu, dispatchClientMenu] = useReducer(paneMenuReducer, { open: false });
   const [rename, dispatchRename] = useReducer(renameReducer, null);
   const trigger = useContextTrigger((point) => {
-    dispatchMenu({ type: "open", point });
+    dispatchMenu({ type: "open", point, surface });
     onRefreshClients();
   });
   const { onPointerDown: startLongPress, ...contextTrigger } = trigger;
@@ -135,15 +158,23 @@ function PaneLeaf({
     surface: Id | null;
     message: string;
   } | null>(null);
-  const tab = pane?.tabs[pane.active_tab] ?? null;
-  const surface = tab?.kind === "pty" && !tab.dead ? tab.surface : null;
   const clientSummary = paneClientSummary(clients, surface);
-  const clientItems = clientSummary ? clientSizingMenuItems(clientSummary, {
+  const sizingActions = {
     setParticipation: onSetClientSizing,
     useOnly: onUseOnlyClientSizing,
     useAll: onUseAllClientSizing,
     detach: onDetachClient,
-  }) : [];
+  };
+  const clientMenuSummary = clientMenu.open
+    ? paneClientSummary(clients, clientMenu.surface)
+    : null;
+  const clientMenuItems = clientMenuSummary
+    ? clientSizingMenuItems(clientMenuSummary, sizingActions)
+    : [];
+  const paneMenuSummary = menu.open ? paneClientSummary(clients, menu.surface) : null;
+  const paneMenuClientItems = paneMenuSummary
+    ? clientSizingMenuItems(paneMenuSummary, sizingActions)
+    : [];
   const reportError = useCallback(
     (error: Error) => setErrorState({ client, surface, message: error.message }),
     [client, surface],
@@ -228,12 +259,16 @@ function PaneLeaf({
         <span className="pane-corner" aria-hidden="true">└</span>
         {clientSummary && (
           <button
-            aria-expanded={clientMenu.open}
+            aria-expanded={clientMenu.open && clientMenu.surface === clientSummary.surface}
             aria-haspopup="menu"
             className="pane-clients-trigger"
             onClick={(event) => {
               const rect = event.currentTarget.getBoundingClientRect();
-              dispatchClientMenu({ type: "open", point: { x: rect.left, y: rect.bottom } });
+              dispatchClientMenu({
+                type: "open",
+                point: { x: rect.left, y: rect.bottom },
+                surface: clientSummary.surface,
+              });
               onRefreshClients();
             }}
             type="button"
@@ -244,11 +279,11 @@ function PaneLeaf({
         <span className="pane-rule" />
         <span className="pane-corner" aria-hidden="true">┘</span>
       </div>
-      {clientMenu.open && clientSummary && (
+      {clientMenu.open && clientMenuSummary && (
         <ContextMenu
           point={clientMenu.point}
           onClose={() => dispatchClientMenu({ type: "close" })}
-          items={clientItems}
+          items={clientMenuItems}
         />
       )}
       {menu.open && (
@@ -263,7 +298,9 @@ function PaneLeaf({
               onSelect: () => dispatchRename({ type: "begin", target: { kind: "pane", id: paneId, value: pane?.name || "" } }),
             },
             { label: zoomed ? t("restorePane") : t("zoomPane"), onSelect: () => onZoomPane(paneId) },
-            ...(clientSummary ? [{ label: clientSummary.label, children: clientItems }] : []),
+            ...(paneMenuSummary
+              ? [{ label: paneMenuSummary.label, children: paneMenuClientItems }]
+              : []),
             { label: t("closePane"), danger: true, onSelect: () => onClosePane(paneId) },
           ]}
         />
