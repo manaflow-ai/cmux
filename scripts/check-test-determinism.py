@@ -245,7 +245,7 @@ _SHELL_BARE_SLEEP = re.compile(
   | ^\s* [^;&|()]+ (?:\|[^;&|()]+)* \) \s* sleep (?=\s|$)
     """
 )
-_SHELL_COMMAND_SEPARATOR = re.compile(r";|&&|\|\||(?<!\|)\|(?!\|)")
+_SHELL_COMMAND_SEPARATOR = re.compile(r";|&&|\|\||(?<!\|)\|(?!\|)|\)")
 
 # Loop-body markers: if the sleep line itself is a loop header or sits in an
 # obvious poll, we treat it as an allowed deadline-bounded poll, not a sync hack.
@@ -754,6 +754,44 @@ class _PythonDeferredBindingCollector(_PythonLocalBindingCollector):
         return result
 
 
+class _PythonLoopBreakFinder(ast.NodeVisitor):
+    """Find breaks owned by one loop without entering nested scopes/loops."""
+
+    def __init__(self) -> None:
+        self.found = False
+
+    def visit_Break(self, node: ast.Break) -> None:
+        self.found = True
+
+    def visit_For(self, node: ast.For) -> None:
+        return
+
+    def visit_AsyncFor(self, node: ast.AsyncFor) -> None:
+        return
+
+    def visit_While(self, node: ast.While) -> None:
+        return
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        return
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        return
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        return
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        return
+
+
+def _python_block_can_break(body: list[ast.stmt]) -> bool:
+    finder = _PythonLoopBreakFinder()
+    for statement in body:
+        finder.visit(statement)
+    return finder.found
+
+
 def _python_function_bindings(
     body: list[ast.stmt],
 ) -> tuple[set[str], set[str], set[str]]:
@@ -801,6 +839,9 @@ class _PythonSleepVisitor(ast.NodeVisitor):
         self.deferred_module_bindings = deferred_module_bindings
         self.sleep_lines: set[int] = set()
         self.sleep_positions: dict[int, set[int]] = {}
+        self.assertion_positions: dict[int, set[int]] = {}
+        self.asserted_sleep_positions: dict[int, set[int]] = {}
+        self.assertion_depth = 0
 
     def _resolve(self, name: str) -> Optional[str]:
         scope: Optional[_PythonScope] = self.scope
@@ -1141,6 +1182,8 @@ class _PythonSleepVisitor(ast.NodeVisitor):
             self._bind_target(target)
         for statement in body:
             self.visit(statement)
+        if _python_block_can_break(body):
+            states.append(self._scope_state())
         for statement in orelse:
             self.visit(statement)
         states.append(self._scope_state())
@@ -1296,30 +1339,58 @@ class _PythonSleepVisitor(ast.NodeVisitor):
 
     def visit_Call(self, node: ast.Call) -> None:
         function = node.func
+        assertion_name: Optional[str] = None
+        if isinstance(function, ast.Name):
+            assertion_name = function.id
+        elif isinstance(function, ast.Attribute):
+            assertion_name = function.attr
+        is_assertion = bool(
+            assertion_name
+            and _ASSERT_TOKEN.fullmatch(assertion_name)
+        )
+        if is_assertion:
+            self.assertion_positions.setdefault(node.lineno - 1, set()).add(
+                node.col_offset
+            )
+            self.assertion_depth += 1
+
+        is_sleep = False
         if (
             isinstance(function, ast.Attribute)
             and function.attr == "sleep"
             and isinstance(function.value, ast.Name)
             and self._resolve(function.value.id) == _PYTHON_MODULE_BINDING
         ):
-            self.sleep_lines.add(node.lineno - 1)
-            self.sleep_positions.setdefault(node.lineno - 1, set()).add(
-                node.col_offset
-            )
+            is_sleep = True
         elif (
             isinstance(function, ast.Name)
             and self._resolve(function.id) == _PYTHON_FUNCTION_BINDING
         ):
+            is_sleep = True
+
+        if is_sleep:
             self.sleep_lines.add(node.lineno - 1)
             self.sleep_positions.setdefault(node.lineno - 1, set()).add(
                 node.col_offset
             )
-        self.generic_visit(node)
+            if self.assertion_depth:
+                self.asserted_sleep_positions.setdefault(
+                    node.lineno - 1,
+                    set(),
+                ).add(node.col_offset)
+        try:
+            self.generic_visit(node)
+        finally:
+            if is_assertion:
+                self.assertion_depth -= 1
 
 
 def _python_real_sleep_lines(
     text: str,
     positions: Optional[dict[int, set[int]]] = None,
+    assertion_causal_sleep_positions: Optional[
+        dict[int, set[int]]
+    ] = None,
 ) -> set[int]:
     """Locate direct trusted Python sleep APIs with lexical AST resolution."""
     try:
@@ -1340,20 +1411,58 @@ def _python_real_sleep_lines(
         deferred_binding_collector.deferred_bindings(),
     )
     visitor.visit(tree)
-    if positions is not None:
+    if positions is not None or assertion_causal_sleep_positions is not None:
         source_lines = text.splitlines()
-        for line_index, byte_columns in visitor.sleep_positions.items():
-            source_line = source_lines[line_index]
-            encoded_line = source_line.encode("utf-8")
-            positions[line_index] = {
-                len(
-                    encoded_line[:byte_column].decode(
-                        "utf-8",
-                        errors="ignore",
+
+        def character_positions(
+            byte_positions: dict[int, set[int]],
+        ) -> dict[int, set[int]]:
+            result: dict[int, set[int]] = {}
+            for line_index, byte_columns in byte_positions.items():
+                source_line = source_lines[line_index]
+                encoded_line = source_line.encode("utf-8")
+                result[line_index] = {
+                    len(
+                        encoded_line[:byte_column].decode(
+                            "utf-8",
+                            errors="ignore",
+                        )
                     )
+                    for byte_column in byte_columns
+                }
+            return result
+
+        converted_sleeps = character_positions(visitor.sleep_positions)
+        if positions is not None:
+            positions.update(converted_sleeps)
+        if assertion_causal_sleep_positions is not None:
+            converted_assertions = character_positions(
+                visitor.assertion_positions
+            )
+            converted_asserted_sleeps = character_positions(
+                visitor.asserted_sleep_positions
+            )
+            for line_index, sleep_columns in converted_sleeps.items():
+                assertion_columns = converted_assertions.get(
+                    line_index,
+                    set(),
                 )
-                for byte_column in byte_columns
-            }
+                asserted_columns = converted_asserted_sleeps.get(
+                    line_index,
+                    set(),
+                )
+                for sleep_column in sleep_columns:
+                    if (
+                        sleep_column in asserted_columns
+                        or any(
+                            assertion_column > sleep_column
+                            for assertion_column in assertion_columns
+                        )
+                    ):
+                        assertion_causal_sleep_positions.setdefault(
+                            line_index,
+                            set(),
+                        ).add(sleep_column)
     return visitor.sleep_lines
 
 
@@ -1723,6 +1832,136 @@ def _shell_real_sleep_positions(
             ):
                 positions.setdefault(line_index, set()).add(sleep_position)
     return positions
+
+
+def _shell_sleep_end_positions(
+    raw_lines: list[str],
+    sleep_positions: dict[int, set[int]],
+) -> dict[int, list[tuple[int, int]]]:
+    """Map shell sleeps to the end of their logical multiline command."""
+    result: dict[int, list[tuple[int, int]]] = {}
+    for start_line, columns in sleep_positions.items():
+        for column in columns:
+            frames: list[_ShellExpansionFrame] = []
+            quotes: list[Optional[str]] = [None]
+            command_end = (start_line, len(raw_lines[start_line]))
+            finished = False
+            for line_index in range(start_line, len(raw_lines)):
+                line = raw_lines[line_index]
+                index = column if line_index == start_line else 0
+                while index < len(line):
+                    quote = quotes[-1]
+                    char = line[index]
+                    if quote == "'":
+                        if char == "'":
+                            quotes[-1] = None
+                        index += 1
+                        continue
+                    if quote == '"':
+                        if char == "\\":
+                            index += 2
+                            continue
+                        if char == '"':
+                            quotes[-1] = None
+                            index += 1
+                            continue
+                        if line.startswith("$((", index):
+                            frames.append(
+                                _ShellExpansionFrame("arithmetic", 2)
+                            )
+                            quotes.append(None)
+                            index += 3
+                            continue
+                        if line.startswith("$(", index):
+                            frames.append(_ShellExpansionFrame("paren"))
+                            quotes.append(None)
+                            index += 2
+                            continue
+                        if line.startswith("${", index):
+                            frames.append(_ShellExpansionFrame("brace"))
+                            quotes.append(None)
+                            index += 2
+                            continue
+                        if char == "`":
+                            frames.append(_ShellExpansionFrame("backtick"))
+                            quotes.append(None)
+                        index += 1
+                        continue
+
+                    if char == "\\":
+                        index += 2
+                        continue
+                    if char in ("'", '"'):
+                        quotes[-1] = char
+                        index += 1
+                        continue
+                    if line.startswith("$((", index):
+                        frames.append(_ShellExpansionFrame("arithmetic", 2))
+                        quotes.append(None)
+                        index += 3
+                        continue
+                    if line.startswith("$(", index):
+                        frames.append(_ShellExpansionFrame("paren"))
+                        quotes.append(None)
+                        index += 2
+                        continue
+                    if line.startswith("${", index):
+                        frames.append(_ShellExpansionFrame("brace"))
+                        quotes.append(None)
+                        index += 2
+                        continue
+                    if char == "`":
+                        if frames and frames[-1].kind == "backtick":
+                            frames.pop()
+                            quotes.pop()
+                        else:
+                            frames.append(_ShellExpansionFrame("backtick"))
+                            quotes.append(None)
+                        index += 1
+                        continue
+
+                    if frames and frames[-1].kind != "backtick":
+                        frame = frames[-1]
+                        opener, closer = (
+                            ("{", "}")
+                            if frame.kind == "brace"
+                            else ("(", ")")
+                        )
+                        if char == opener:
+                            frame.depth += 1
+                        elif char == closer:
+                            frame.depth -= 1
+                            if frame.depth == 0:
+                                frames.pop()
+                                quotes.pop()
+                        index += 1
+                        continue
+
+                    if not frames:
+                        if (
+                            char == "#"
+                            and _shell_hash_starts_comment(line, index)
+                        ):
+                            command_end = (line_index, index)
+                            finished = True
+                            break
+                        if char in ";&|":
+                            command_end = (line_index, index)
+                            finished = True
+                            break
+                    index += 1
+
+                if finished:
+                    break
+                if (
+                    quotes[-1] is None
+                    and not frames
+                    and not _has_odd_trailing_backslashes(line)
+                ):
+                    command_end = (line_index, len(line))
+                    break
+            result.setdefault(start_line, []).append(command_end)
+    return result
 
 
 @dataclass
@@ -2586,9 +2825,11 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
     known_sleep_lines: Optional[set[int]] = None
     if suffix == ".py" and has_sleep_candidate:
         known_sleep_positions = {}
+        assertion_enclosed_sleep_positions = {}
         known_sleep_lines = _python_real_sleep_lines(
             text,
             known_sleep_positions,
+            assertion_enclosed_sleep_positions,
         )
     elif suffix == ".swift" and has_sleep_candidate:
         known_sleep_positions = _swift_real_sleep_positions(masked_lines)
@@ -2602,13 +2843,20 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
             masked_lines,
         )
         known_sleep_lines = set(known_sleep_positions)
+        known_sleep_end_positions = _shell_sleep_end_positions(
+            raw_lines,
+            known_sleep_positions,
+        )
         assertion_enclosed_sleep_positions = (
             _shell_asserted_substitution_sleep_positions(
                 masked_lines,
                 known_sleep_positions,
             )
         )
-    if known_sleep_positions is not None and suffix != ".sh":
+    if (
+        known_sleep_positions is not None
+        and known_sleep_end_positions is None
+    ):
         known_sleep_end_positions = _sleep_call_end_positions(
             masked_lines,
             known_sleep_positions,
