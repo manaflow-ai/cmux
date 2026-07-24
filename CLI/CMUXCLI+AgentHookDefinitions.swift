@@ -222,8 +222,13 @@ extension CMUXCLI {
         }
     }
 
+    static let stdinDrainingHookNoOpShellCommand = "cat >/dev/null 2>/dev/null || true; echo '{}'"
+
     private static func shellNoOpSnippet(_ noOpCommand: String) -> String {
-        noOpCommand == "echo '{}'" ? noOpCommand : "{ \(noOpCommand); }"
+        let command = noOpCommand == "echo '{}'"
+            ? stdinDrainingHookNoOpShellCommand
+            : noOpCommand
+        return "{ \(command); }"
     }
 
     private static let grokPinnedHookMarker = "cmux-grok-hook-v2"
@@ -304,7 +309,7 @@ extension CMUXCLI {
         } else {
             dispatch = "command -v cmux >/dev/null 2>&1 && \(fallbackInvocation) || \(noOpSnippet)"
         }
-        return ": \(pinnedHookMarker(for: def)); \(shellTraceStart); printenv \(def.disableEnvVar) | grep -qx 1 && { \(shellTraceDisabled); \(noOpCommand); } || { \(dispatch); cmux_hook_status=$?; \(shellTraceExit); exit $cmux_hook_status; }"
+        return ": \(pinnedHookMarker(for: def)); \(shellTraceStart); printenv \(def.disableEnvVar) | grep -qx 1 && { \(shellTraceDisabled); \(noOpSnippet); } || { \(dispatch); cmux_hook_status=$?; \(shellTraceExit); exit $cmux_hook_status; }"
     }
 
     private static func pinnedHookInvocation(
