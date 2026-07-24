@@ -268,6 +268,16 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 'DELAY="$(compute_delay)" sleep 1\n'
                 'assert "$actual" "$expected"\n'
             ),
+            "shell-parameter-trim-before-sleep.sh": (
+                "trimmed=${value#prefix}; sleep 1\n"
+                'assert "$actual" "$expected"\n'
+            ),
+            "class-name-visible-during-body.py": (
+                "import time\n"
+                "class time:\n"
+                "    time.sleep(0.1)\n"
+                "    assert done\n"
+            ),
         }
 
         result = self.run_checker(fixtures)
@@ -292,6 +302,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "swift-multiline-interpolation.swift",
                     "swift-raw-multiline-interpolation.swift",
                     "shell-assert-multiline-substitution.sh",
+                    "class-name-visible-during-body.py",
                 )
                 else
                 2
@@ -387,6 +398,13 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "        time = fake_time\n"
                     "    time.sleep(0.1)\n"
                     "    assert done\n"
+                ),
+                "class-name-visible-to-method.py": (
+                    "import time\n"
+                    "class time:\n"
+                    "    def later(self):\n"
+                    "        time.sleep(0.1)\n"
+                    "        assert done\n"
                 ),
                 "cross-language.swift": (
                     "Bun.sleep(1)\n"
@@ -795,6 +813,9 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "assert-before-sleep-pipe.sh": (
                     'assert "$ready" | sleep 1\n'
                 ),
+                "assert-before-sleep-comma.ts": (
+                    "(expect(done).toBe(true), setTimeout(resolve, 1))\n"
+                ),
             }
         )
 
@@ -990,6 +1011,9 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "printf '%s\\n' \\( sleep 1\n"
                     'assert "$actual" "$expected"\n'
                 ),
+                "sleep-function-declaration.sh": (
+                    'sleep () { assert "$ready"; }\n'
+                ),
             },
             timeout=2,
         )
@@ -1099,6 +1123,16 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     ")\n"
                     "expect(finished).toBe(true)\n"
                 ),
+                "multiline-bun-member.ts": (
+                    "await Bun\n"
+                    "    .sleep(1)\n"
+                    "expect(finished).toBe(true)\n"
+                ),
+                "multiline-global-timeout-member.ts": (
+                    "globalThis\n"
+                    "    .setTimeout(resolve, 1)\n"
+                    "expect(finished).toBe(true)\n"
+                ),
             }
         )
 
@@ -1109,9 +1143,20 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             "continued-timeout.ts",
             "regex-in-timeout.ts",
             "control-regex-in-timeout.ts",
+            "multiline-bun-member.ts",
+            "multiline-global-timeout-member.ts",
         ):
+            line = (
+                2
+                if relative_path
+                in (
+                    "multiline-bun-member.ts",
+                    "multiline-global-timeout-member.ts",
+                )
+                else 1
+            )
             self.assertIn(
-                f"fixtures/{relative_path}:1: sleep-then-assert:",
+                f"fixtures/{relative_path}:{line}: sleep-then-assert:",
                 result.stdout,
             )
 
