@@ -3362,6 +3362,8 @@ pub struct App {
     drag: Option<Drag>,
     active_pointer_buttons: HashSet<MouseButton>,
     ignored_pty_mouse_buttons: HashSet<MouseButton>,
+    #[cfg(test)]
+    timeout_drain_hook: Option<Box<dyn FnOnce() + Send>>,
     encoder: KeyEncoder,
     encode_buf: Vec<u8>,
     quit: bool,
@@ -4361,6 +4363,8 @@ pub fn run_with_machine_updates(
         drag: None,
         active_pointer_buttons: HashSet::new(),
         ignored_pty_mouse_buttons: HashSet::new(),
+        #[cfg(test)]
+        timeout_drain_hook: None,
         encoder,
         encode_buf: Vec::with_capacity(64),
         quit: false,
@@ -4566,6 +4570,12 @@ impl App {
                 }
                 Err(RecvTimeoutError::Disconnected) => break,
             };
+            #[cfg(test)]
+            if first.is_none()
+                && let Some(hook) = self.timeout_drain_hook.take()
+            {
+                hook();
+            }
             if let Some(event) = first {
                 action = action.merge(self.handle(event)?);
                 action = action.merge(self.process_machine_requests());
@@ -15362,6 +15372,277 @@ mod tests {
     }
 
     #[test]
+    fn deferred_wheel_cannot_retarget_a_new_blank_machine_rail() {
+        let mux = Mux::new("blank-rail-pointer-route-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_visible = false;
+        app.sync_layout((100, 10));
+        app.commit_rendered_pointer_frame();
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
+
+        app.machine_ui = Some(MachineUiState::new(MachineSnapshot {
+            machines: vec![MachineDescriptor {
+                key: MachineKey(1),
+                id: "machine-1".to_string(),
+                name: "machine-1".to_string(),
+                subtitle: "cloud".to_string(),
+                status: MachineStatus::Running,
+            }],
+            active: Some(MachineKey(1)),
+            capabilities: MachineCapabilities::default(),
+        }));
+        app.sidebar_visible = true;
+        app.sync_layout((100, 10));
+        let rail = app.sidebar_layout.machine.expect("machine rail should be pending");
+        app.pointer_route_phase = PointerRoutePhase::DrawPending;
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: rail.x + 1,
+            row: rail.y + rail.height.saturating_sub(2),
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+
+        assert_eq!(app.deferred_input.len(), 1);
+        app.commit_rendered_pointer_frame();
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
+        app.replay_deferred_input().unwrap();
+
+        assert_eq!(
+            app.machine_rail_scroll, 0,
+            "a wheel event captured outside the old frame must not scroll a newly drawn rail"
+        );
+        assert_eq!(app.machine_footer_scroll, 0);
+    }
+
+    #[test]
+    fn timeout_draw_marks_pointer_route_stale_before_channel_drain() {
+        let mux = Mux::new("timeout-pointer-route-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.prompt = Some(Prompt::new("Rename", String::new(), PromptTarget::Surface(77)));
+        app.shake_frames = 2;
+        let (timeout_started_tx, timeout_started_rx) = std::sync::mpsc::channel();
+        let (pointer_queued_tx, pointer_queued_rx) = std::sync::mpsc::channel();
+        app.timeout_drain_hook = Some(Box::new(move || {
+            timeout_started_tx.send(()).unwrap();
+            pointer_queued_rx.recv().unwrap();
+        }));
+        let (events, receiver) = std::sync::mpsc::channel();
+        let sender = std::thread::spawn(move || {
+            timeout_started_rx.recv().unwrap();
+            events
+                .send(AppEvent::Input(Event::Mouse(MouseEvent {
+                    kind: MouseEventKind::ScrollDown,
+                    column: 1,
+                    row: 1,
+                    modifiers: KeyModifiers::NONE,
+                })))
+                .unwrap();
+            pointer_queued_tx.send(()).unwrap();
+        });
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+
+        app.event_loop(&mut terminal, receiver).unwrap();
+        sender.join().unwrap();
+
+        assert_eq!(
+            app.deferred_input_sequence, 1,
+            "pointer input drained after a timeout-triggered draw must cross the rendered-frame barrier"
+        );
+    }
+
+    #[test]
+    fn focus_loss_cancels_non_pty_pointer_interaction() {
+        let mux = Mux::new("focus-loss-selection-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.drag = Some(Drag::Select {
+            content: Rect { x: 2, y: 3, width: 20, height: 8 },
+            auto_scroll: Some(1),
+            col: 4,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        app.handle(AppEvent::Input(Event::FocusLost)).unwrap();
+
+        assert!(app.drag.is_none(), "focus loss must stop selection and its auto-scroll tick");
+        assert!(app.active_pointer_buttons.is_empty());
+    }
+
+    #[test]
+    fn focus_loss_settles_an_active_split_resize() {
+        let mux = Mux::new("focus-loss-split-settle-test", SurfaceOptions::default());
+        let (mut app, _events) = test_app_with_events(Session::Local(mux));
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        app.session.operations.enqueue_session_mutation("block split settle", false, move || {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            Ok(())
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        app.drag =
+            Some(Drag::ResizeSplit { horizontal: Some((1, PaneEdge::Right)), vertical: None });
+
+        app.handle(AppEvent::Input(Event::FocusLost)).unwrap();
+        let pending_pointer = app.session.pending_pointer_mutations.load(Ordering::Acquire);
+        release_tx.send(()).unwrap();
+
+        assert_eq!(
+            pending_pointer, 1,
+            "canceling a split drag must enqueue its final authoritative settlement"
+        );
+        assert!(app.drag.is_none());
+    }
+
+    #[test]
+    fn focus_loss_releases_an_active_browser_press() {
+        let mux = Mux::new("focus-loss-browser-release-test", SurfaceOptions::default());
+        let surface = mux.new_browser_tab("about:blank".to_string(), None, Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        let (dispatcher, _blocked) = BrowserInputDispatcher::blocked(1);
+        app.browser_input = dispatcher;
+        app.drag = Some(Drag::Browser {
+            surface: surface.id,
+            content: Rect { x: 2, y: 3, width: 20, height: 8 },
+        });
+
+        app.handle(AppEvent::Input(Event::FocusLost)).unwrap();
+
+        assert!(
+            app.browser_input.tracks_surface(surface.id),
+            "focus loss must enqueue mouseReleased for the browser that owns the press"
+        );
+        assert!(app.drag.is_none());
+        mux.close_surface(surface.id);
+    }
+
+    #[test]
+    fn right_button_capture_cannot_cross_a_new_pairing_dialog() {
+        let mux = Mux::new("pairing-menu-capture-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 24))).unwrap();
+        let (mut app, mutation_events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.sync_layout((100, 20));
+        while app.session.has_pending_mutations() {
+            app.handle(mutation_events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let content = app.pane_areas[0].content;
+        let press = (content.x + 4, content.y + 2);
+        let select = (press.0 + 1, press.1);
+        let action = app
+            .handle(AppEvent::Input(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Right),
+                column: press.0,
+                row: press.1,
+                modifiers: KeyModifiers::SHIFT,
+            })))
+            .unwrap();
+        app.render_action(&mut terminal, action).unwrap();
+        assert!(app.menu.is_some());
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Right));
+
+        let (challenge, decision) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
+        app.handle(AppEvent::Mux(MuxEvent::PairingRequested(challenge.clone()))).unwrap();
+        for kind in
+            [MouseEventKind::Drag(MouseButton::Right), MouseEventKind::Up(MouseButton::Right)]
+        {
+            app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+                kind,
+                column: select.0,
+                row: select.1,
+                modifiers: KeyModifiers::SHIFT,
+            })))
+            .unwrap();
+        }
+        let (events, receiver) = std::sync::mpsc::channel();
+        drop(events);
+        app.event_loop(&mut terminal, receiver).unwrap();
+
+        assert_eq!(
+            app.pairing_dialog.as_ref().map(|dialog| dialog.challenge.id),
+            Some(challenge.id)
+        );
+        assert!(
+            app.prompt.is_none(),
+            "the old right-button capture must not activate its menu behind a trusted dialog"
+        );
+        assert!(decision.try_recv().is_err());
+    }
+
+    #[test]
+    fn enter_cannot_approve_a_pairing_dialog_before_it_is_rendered() {
+        let mux = Mux::new("pairing-key-render-barrier-test", SurfaceOptions::default());
+        let (challenge, decision) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
+        let mut app = test_app(Session::Local(mux));
+        let (events, receiver) = std::sync::mpsc::channel();
+        events.send(AppEvent::Mux(MuxEvent::PairingRequested(challenge.clone()))).unwrap();
+        events
+            .send(AppEvent::Input(Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))))
+            .unwrap();
+        drop(events);
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+
+        app.event_loop(&mut terminal, receiver).unwrap();
+
+        assert_eq!(
+            app.pairing_dialog.as_ref().map(|dialog| dialog.challenge.id),
+            Some(challenge.id)
+        );
+        assert!(decision.try_recv().is_err(), "Enter must not approve an unseen trusted dialog");
+    }
+
+    #[test]
+    fn enter_cannot_approve_an_unrendered_replacement_pairing_dialog() {
+        let mux = Mux::new("pairing-key-replacement-barrier-test", SurfaceOptions::default());
+        let (first, first_decision) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
+        let (second, second_decision) = mux.begin_pairing("127.0.0.2".parse().unwrap()).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        let action = app.handle(AppEvent::Mux(MuxEvent::PairingRequested(first.clone()))).unwrap();
+        app.render_action(&mut terminal, action).unwrap();
+        let action = app.handle(AppEvent::Mux(MuxEvent::PairingRequested(second.clone()))).unwrap();
+        app.render_action(&mut terminal, action).unwrap();
+        assert!(mux.respond_pairing(first.id, false));
+        assert!(first_decision.recv_timeout(Duration::from_secs(1)).is_ok());
+
+        app.handle(AppEvent::Mux(MuxEvent::PairingResolved { request: first.id })).unwrap();
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))))
+            .unwrap();
+
+        assert_eq!(app.pairing_dialog.as_ref().map(|dialog| dialog.challenge.id), Some(second.id));
+        assert!(
+            second_decision.try_recv().is_err(),
+            "Enter must not approve the queued dialog until that identity is rendered"
+        );
+        assert!(mux.respond_pairing(second.id, false));
+    }
+
+    #[test]
+    fn key_cannot_reach_underlay_while_a_resolved_pairing_dialog_is_still_rendered() {
+        let mux = Mux::new("pairing-key-removal-barrier-test", SurfaceOptions::default());
+        let (challenge, decision) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.prompt = Some(Prompt::new("Rename", String::new(), PromptTarget::Surface(77)));
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        let action =
+            app.handle(AppEvent::Mux(MuxEvent::PairingRequested(challenge.clone()))).unwrap();
+        app.render_action(&mut terminal, action).unwrap();
+        assert!(mux.respond_pairing(challenge.id, false));
+        assert!(decision.recv_timeout(Duration::from_secs(1)).is_ok());
+
+        app.handle(AppEvent::Mux(MuxEvent::PairingResolved { request: challenge.id })).unwrap();
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('x'),
+            KeyModifiers::NONE,
+        ))))
+        .unwrap();
+
+        assert_eq!(app.prompt.as_ref().unwrap().input.as_str(), "");
+    }
+
+    #[test]
     fn key_after_retained_pointer_keeps_physical_input_order() {
         let mux = Mux::new("retained-pointer-key-order-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -18037,6 +18318,7 @@ mod tests {
             drag: None,
             active_pointer_buttons: HashSet::new(),
             ignored_pty_mouse_buttons: HashSet::new(),
+            timeout_drain_hook: None,
             encoder: KeyEncoder::new().unwrap(),
             encode_buf: Vec::new(),
             quit: false,
