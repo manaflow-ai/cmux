@@ -50,6 +50,7 @@ actor RoutingHostRouter {
     }
     private(set) var pasteImages: [PasteImageRecord] = []
     private(set) var pastes: [PasteRecord] = []
+    let terminalInputRecorder = RoutingTerminalInputRecorder()
     private(set) var directorySearchQueries: [String] = []
     private(set) var dismisses: [(notificationIDs: [String], clientID: String?)] = []
     private var workspaceCreates: [WorkspaceCreateRecord] = []
@@ -365,6 +366,8 @@ actor RoutingHostRouter {
             let text = info.text ?? ""
             pastes.append(PasteRecord(surfaceID: surfaceID, text: text))
             return try? Self.resultFrame(id: id, result: [:])
+        case "terminal.input":
+            return await terminalInputResponse(info)
         case "notification.dismiss":
             dismisses.append((
                 notificationIDs: info.notificationIDs ?? [],
@@ -378,7 +381,7 @@ actor RoutingHostRouter {
         }
     }
 
-    private static func resultFrame(id: String?, result: [String: Any]) throws -> Data {
+    static func resultFrame(id: String?, result: [String: Any]) throws -> Data {
         let envelope: [String: Any] = [
             "id": id ?? UUID().uuidString,
             "ok": true,

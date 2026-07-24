@@ -405,22 +405,133 @@ final class MobileHostService {
     /// Static form for callers already on non-main queues or Sendable
     /// notification closures. This path only touches the connection registry,
     /// not actor-isolated listener state.
+    ///
+    /// The event is encoded exactly once and admitted synchronously into each
+    /// connection's bounded queue. No per-connection task or payload copy
+    /// outlives this call, so emission cost stays O(connections) and pinned
+    /// memory stays O(queue capacity) no matter how far producers run ahead of
+    /// a slow, paused, or half-dead subscriber (issue #8842).
     nonisolated static func emitEvent(topic: String, payload: [String: Any]) {
         guard MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic) else {
             return
         }
+        guard let frame = encodedEventFrame(topic: topic, payload: payload) else {
+            mobileHostLog.error(
+                "mobile host dropped unencodable event topic=\(topic, privacy: .public)"
+            )
+            return
+        }
+        deliverEventFrame(
+            frame,
+            topic: topic,
+            coalesceKey: eventCoalesceKey(topic: topic, payload: payload),
+            isFullRenderGridFrame: topic == MobileHostEventTopicPolicy.renderGridTopic
+                && payload["full"] as? Bool == true
+        )
+    }
+
+    /// Render-grid fast path: the frame is already JSON-encoded, so the event
+    /// envelope is spliced around it without parsing the grid into a dictionary
+    /// and re-serializing it — this is the hottest producer in the app
+    /// (issue #8842).
+    nonisolated static func emitRenderGridEvent(
+        payloadJSON: Data,
+        surfaceID: String,
+        isFullFrame: Bool
+    ) {
+        let topic = MobileHostEventTopicPolicy.renderGridTopic
+        guard MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic) else {
+            return
+        }
+        var envelope = Data(#"{"kind":"event","topic":"terminal.render_grid","payload":"#.utf8)
+        envelope.append(payloadJSON)
+        envelope.append(UInt8(ascii: "}"))
+        guard let frame = try? MobileSyncFrameCodec.encodeFrame(envelope) else {
+            mobileHostLog.error("mobile host dropped oversized render-grid event")
+            return
+        }
+        deliverEventFrame(
+            frame,
+            topic: topic,
+            coalesceKey: surfaceID,
+            isFullRenderGridFrame: isFullFrame
+        )
+    }
+
+    /// Encodes the shared event envelope once for every connection. Returns
+    /// `nil` for payloads that cannot be serialized or frames over the wire
+    /// limit; such an event is undeliverable to every connection, so the
+    /// caller drops it instead of punishing any peer.
+    nonisolated static func encodedEventFrame(
+        topic: String,
+        payload: [String: Any]
+    ) -> Data? {
+        let envelope: [String: Any] = [
+            "kind": "event",
+            "topic": topic,
+            "payload": payload,
+        ]
+        guard let encoded = try? JSONSerialization.data(withJSONObject: envelope) else {
+            return nil
+        }
+        return try? MobileSyncFrameCodec.encodeFrame(encoded)
+    }
+
+    /// The per-surface key bounded queues coalesce render-grid and byte events
+    /// on. `nil` for topics without per-surface recovery semantics.
+    nonisolated static func eventCoalesceKey(topic: String, payload: [String: Any]) -> String? {
+        switch topic {
+        case MobileHostEventTopicPolicy.renderGridTopic, "terminal.bytes":
+            return payload["surface_id"] as? String
+        default:
+            return nil
+        }
+    }
+
+    /// Fans one encoded event frame out to every registered connection through
+    /// synchronous bounded admission, then acts on the admission outcomes:
+    /// starts at most one drain per connection, closes connections whose
+    /// non-droppable events overflowed, and requests full-frame resyncs for
+    /// surfaces whose queued render-grid frames were shed.
+    nonisolated private static func deliverEventFrame(
+        _ frame: Data,
+        topic: String,
+        coalesceKey: String?,
+        isFullRenderGridFrame: Bool
+    ) {
         let connections = MobileHostConnectionRegistry.shared.snapshot()
         guard !connections.isEmpty else { return }
         #if DEBUG
         cmuxDebugLog("mobile.emit topic=\(topic) connections=\(connections.count)")
         #endif
+        var resyncSurfaceIDs = Set<String>()
         for connection in connections {
-            Task {
-                let delivered = await connection.sendEvent(topic: topic, payload: payload)
-                #if DEBUG
-                cmuxDebugLog("mobile.emit -> connection delivered=\(delivered) topic=\(topic)")
-                #endif
+            let result = connection.enqueueEventFrame(
+                frame,
+                topic: topic,
+                coalesceKey: coalesceKey,
+                isFullRenderGridFrame: isFullRenderGridFrame
+            )
+            resyncSurfaceIDs.formUnion(result.renderGridResyncSurfaceIDs)
+            if result.startDrain {
+                Task { await connection.drainQueuedEvents() }
             }
+            if result.shouldClose {
+                Task {
+                    await connection.close(
+                        reason: "event queue exceeded bounded capacity",
+                        exit: CmxIrohAdmittedConnectionExit(
+                            lifecycle: .controlWriteFailed,
+                            failure: .sendQueueOverflow
+                        )
+                    )
+                }
+            }
+        }
+        if !resyncSurfaceIDs.isEmpty {
+            MobileTerminalRenderObserver.requestRenderGridFullResync(
+                surfaceIDStrings: resyncSurfaceIDs
+            )
         }
     }
 
@@ -1029,19 +1140,24 @@ final class MobileHostService {
         }
     }
 
+    @discardableResult
     nonisolated static func acceptTransport(
         _ transport: any CmxByteTransport,
         authorization: MobileHostConnectionAuthorizationContext,
         artifactTransfers: MobileHostIrohArtifactTransferRegistry? = nil,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
         isCurrent: @escaping @Sendable () async -> Bool
-    ) async {
+    ) async -> CmxIrohAdmittedConnectionExit {
+        let expectedExit = CmxIrohAdmittedConnectionExit(
+            lifecycle: .explicitlyInvalidated,
+            failure: .none
+        )
         MobileHostRequestActivity.beginConnection()
         guard await isCurrent() else {
             mobileHostLog.info("mobile host rejected stale transport")
             await transport.close()
             MobileHostRequestActivity.endConnection()
-            return
+            return expectedExit
         }
 
         let id = UUID()
@@ -1099,7 +1215,7 @@ final class MobileHostService {
         guard await isCurrent() else {
             await transport.close()
             MobileHostRequestActivity.endConnection()
-            return
+            return expectedExit
         }
         guard MobileHostConnectionRegistry.shared.insert(
             session,
@@ -1112,9 +1228,9 @@ final class MobileHostService {
             )
             await transport.close()
             MobileHostRequestActivity.endConnection()
-            return
+            return expectedExit
         }
-        await session.run()
+        return await session.run()
     }
 
     nonisolated static func connectionAuthorizationError(
@@ -1661,19 +1777,15 @@ actor MobileHostConnection {
     private static let maximumReceiveBufferByteCount = MobileSyncFrameCodec.defaultMaximumFrameByteCount + MobileSyncFrameCodec.headerByteCount
     private static let defaultFirstFrameTimeoutNanoseconds: UInt64 = 15 * 1_000_000_000
     private static let defaultIdleTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
-    private static let maximumQueuedEventCount = 256
-    private static let maximumQueuedEventByteCount =
-        MobileSyncFrameCodec.defaultMaximumFrameByteCount
-        + MobileSyncFrameCodec.headerByteCount
+    /// Bounded deadline for one control-lane event write. A peer that accepted
+    /// the connection but stopped reading (TCP zero-window, QUIC flow-control
+    /// stall) would otherwise pin the drain — and with it this connection's
+    /// queue, transport, and tasks — indefinitely (issue #8842).
+    private static let defaultEventSendStallTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
 
     private struct EventSubscription: Sendable {
         let topics: Set<String>
         let transport: MobileHostEventTransport
-    }
-
-    private struct QueuedEvent: Sendable {
-        let topic: String
-        let frame: Data
     }
 
     private struct ResponseTask: Sendable {
@@ -1692,18 +1804,28 @@ actor MobileHostConnection {
     private let handleRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
     private let onClose: @Sendable (UUID) async -> Void
     private let responseWorkQuota = MobileHostRPCWorkQuota()
+    /// Bounded pre-write mailbox with synchronous admission from the event
+    /// fan-out. Nonisolated so ``MobileHostService/emitEvent(topic:payload:)``
+    /// admits events without scheduling any per-event actor work.
+    nonisolated let eventQueue = MobileHostConnectionEventQueue()
+    private let eventSendStallTimeoutNanoseconds: UInt64
+    /// Invalidates the pending event-send stall deadline: bumped when a send
+    /// starts and again when it settles, so a deadline armed for send N can
+    /// never close the connection after N completed.
+    private var eventSendGeneration: UInt64 = 0
     private var receiveBuffer = Data()
     private var firstFrameTimeoutTask: Task<Void, Never>?
     private var idleTimeoutTask: Task<Void, Never>?
     private var responseTasks: [UUID: ResponseTask] = [:]
     private var receiveTask: Task<Void, Never>?
-    private var queuedEvents: [QueuedEvent] = []
-    private var queuedEventByteCount = 0
-    private var eventDrainTask: Task<Void, Never>?
     private var independentEventRevision: UInt64 = 0
     private var independentEventNegotiationInProgress = false
     private var didDecodeFirstFrame = false
     private var isClosed = false
+    private var exit = CmxIrohAdmittedConnectionExit(
+        lifecycle: .explicitlyInvalidated,
+        failure: .none
+    )
     /// stream_id → topics and their negotiated event delivery path.
     /// Populated by `mobile.events.subscribe`; cleared on close.
     private var subscriptions: [String: EventSubscription] = [:]
@@ -1713,6 +1835,7 @@ actor MobileHostConnection {
         connection: NWConnection,
         firstFrameTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultFirstFrameTimeoutNanoseconds,
         idleTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultIdleTimeoutNanoseconds,
+        eventSendStallTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultEventSendStallTimeoutNanoseconds,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
@@ -1726,6 +1849,7 @@ actor MobileHostConnection {
         self.independentEventWriter = independentEventWriter
         self.firstFrameTimeoutNanoseconds = firstFrameTimeoutNanoseconds
         self.idleTimeoutNanoseconds = idleTimeoutNanoseconds
+        self.eventSendStallTimeoutNanoseconds = eventSendStallTimeoutNanoseconds
         self.authorizeRequest = authorizeRequest
         self.onAuthorizedRequest = onAuthorizedRequest
         self.handleRequest = handleRequest
@@ -1737,6 +1861,7 @@ actor MobileHostConnection {
         transport: any CmxByteTransport,
         firstFrameTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultFirstFrameTimeoutNanoseconds,
         idleTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultIdleTimeoutNanoseconds,
+        eventSendStallTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultEventSendStallTimeoutNanoseconds,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
@@ -1749,6 +1874,7 @@ actor MobileHostConnection {
         self.independentEventWriter = independentEventWriter
         self.firstFrameTimeoutNanoseconds = firstFrameTimeoutNanoseconds
         self.idleTimeoutNanoseconds = idleTimeoutNanoseconds
+        self.eventSendStallTimeoutNanoseconds = eventSendStallTimeoutNanoseconds
         self.authorizeRequest = authorizeRequest
         self.onAuthorizedRequest = onAuthorizedRequest
         self.handleRequest = handleRequest
@@ -1760,8 +1886,8 @@ actor MobileHostConnection {
     /// The caller retains connection ownership until this method returns. This
     /// matters for Iroh, whose sibling application-lane task closes the shared
     /// QUIC session when either side of the task group finishes.
-    func run() async {
-        guard receiveTask == nil, !isClosed else { return }
+    func run() async -> CmxIrohAdmittedConnectionExit {
+        guard receiveTask == nil, !isClosed else { return exit }
         startFirstFrameTimeout()
         let transport = transport
         let connectionID = id
@@ -1773,7 +1899,13 @@ actor MobileHostConnection {
                 )
                 while !Task.isCancelled {
                     guard let data = try await transport.receive() else {
-                        await self?.close(reason: "remote closed")
+                        await self?.close(
+                            reason: "remote closed",
+                            exit: CmxIrohAdmittedConnectionExit(
+                                lifecycle: .remoteClosed,
+                                failure: .connectionClosed
+                            )
+                        )
                         return
                     }
                     await self?.handleReceive(data: data)
@@ -1781,7 +1913,13 @@ actor MobileHostConnection {
             } catch is CancellationError {
                 await self?.close(reason: "cancelled")
             } catch {
-                await self?.close(reason: String(describing: error))
+                await self?.close(
+                    reason: String(describing: error),
+                    exit: CmxIrohAdmittedConnectionExit(
+                        lifecycle: .controlReadFailed,
+                        failure: DiagnosticFailureKind.classify(error)
+                    )
+                )
             }
         }
         receiveTask = task
@@ -1793,23 +1931,30 @@ actor MobileHostConnection {
                 task.cancel()
             }
         )
+        return exit
     }
 
-    func close(reason: String) async {
+    func close(
+        reason: String,
+        exit: CmxIrohAdmittedConnectionExit = CmxIrohAdmittedConnectionExit(
+            lifecycle: .explicitlyInvalidated,
+            failure: .none
+        )
+    ) async {
         guard !isClosed else {
             return
         }
         isClosed = true
+        self.exit = exit
         firstFrameTimeoutTask?.cancel()
         firstFrameTimeoutTask = nil
         idleTimeoutTask?.cancel()
         idleTimeoutTask = nil
         receiveTask?.cancel()
         receiveTask = nil
-        eventDrainTask?.cancel()
-        eventDrainTask = nil
-        queuedEvents.removeAll(keepingCapacity: false)
-        queuedEventByteCount = 0
+        // Rejects all future admissions and releases every queued payload; the
+        // drain loop observes the closed queue and exits on its own.
+        eventQueue.close()
         let tasks = responseTasks.values.map(\.task)
         responseTasks.removeAll()
         for task in tasks {
@@ -1841,7 +1986,13 @@ actor MobileHostConnection {
                         message: "Invalid frame"
                     )
                 )
-                await close(reason: "receive buffer exceeded frame limit")
+                await close(
+                    reason: "receive buffer exceeded frame limit",
+                    exit: CmxIrohAdmittedConnectionExit(
+                        lifecycle: .controlReadFailed,
+                        failure: .protocolViolation
+                    )
+                )
                 return
             }
             receiveBuffer.append(data)
@@ -1861,7 +2012,13 @@ actor MobileHostConnection {
                         return
                     }
                     guard startResponseTask(for: frame) else {
-                        await close(reason: "rpc work capacity exceeded")
+                        await close(
+                            reason: "rpc work capacity exceeded",
+                            exit: CmxIrohAdmittedConnectionExit(
+                                lifecycle: .controlReadFailed,
+                                failure: .protocolViolation
+                            )
+                        )
                         return
                     }
                 }
@@ -1877,7 +2034,13 @@ actor MobileHostConnection {
                         message: "Invalid frame"
                     )
                 )
-                await close(reason: "frame decode error")
+                await close(
+                    reason: "frame decode error",
+                    exit: CmxIrohAdmittedConnectionExit(
+                        lifecycle: .controlReadFailed,
+                        failure: .protocolViolation
+                    )
+                )
                 return
             }
         }
@@ -1928,7 +2091,13 @@ actor MobileHostConnection {
         guard !didDecodeFirstFrame else {
             return
         }
-        await close(reason: "first frame timed out")
+        await close(
+            reason: "first frame timed out",
+            exit: CmxIrohAdmittedConnectionExit(
+                lifecycle: .controlReadFailed,
+                failure: .timedOut
+            )
+        )
     }
 
     private func startIdleTimeout() {
@@ -1953,7 +2122,13 @@ actor MobileHostConnection {
         guard didDecodeFirstFrame, subscriptions.isEmpty, responseTasks.isEmpty else {
             return
         }
-        await close(reason: "idle after frame timed out")
+        await close(
+            reason: "idle after frame timed out",
+            exit: CmxIrohAdmittedConnectionExit(
+                lifecycle: .controlReadFailed,
+                failure: .timedOut
+            )
+        )
     }
 
     private func respond(to frame: Data) async {
@@ -1999,7 +2174,13 @@ actor MobileHostConnection {
                 return
             }
             _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: nil, result: .failure(error)))
-            await close(reason: "invalid rpc envelope")
+            await close(
+                reason: "invalid rpc envelope",
+                exit: CmxIrohAdmittedConnectionExit(
+                    lifecycle: .controlReadFailed,
+                    failure: .protocolViolation
+                )
+            )
         }
     }
 
@@ -2091,6 +2272,7 @@ actor MobileHostConnection {
             topics: topics,
             transport: transport
         )
+        eventQueue.updateSubscribedTopics(currentSubscribedTopics())
         MobileHostEventSubscriptionTracker.replace(
             previousTopics: previousTopics,
             nextTopics: topics
@@ -2104,6 +2286,7 @@ actor MobileHostConnection {
     func unsubscribe(streamID: String) async -> Bool {
         let previousSubscription = subscriptions.removeValue(forKey: streamID)
         let removed = previousSubscription != nil
+        eventQueue.updateSubscribedTopics(currentSubscribedTopics())
         if let previousSubscription {
             MobileHostEventSubscriptionTracker.replace(
                 previousTopics: previousSubscription.topics,
@@ -2130,9 +2313,16 @@ actor MobileHostConnection {
         return false
     }
 
-    /// Enqueues a server-pushed event for this connection. One drain task owns
-    /// wire writes. The queue is bounded; overflow closes the connection so a
-    /// slow phone cannot accumulate unbounded tasks or stale terminal deltas.
+    /// The union of every stream's topics, mirrored into the event queue so
+    /// fan-out admission can check subscription without an actor hop.
+    private func currentSubscribedTopics() -> Set<String> {
+        subscriptions.values.reduce(into: Set<String>()) { $0.formUnion($1.topics) }
+    }
+
+    /// Encodes and enqueues one server-pushed event for this connection
+    /// through the same bounded synchronous admission as the fan-out path
+    /// (``MobileHostService/emitEvent(topic:payload:)``). Returns whether the
+    /// event was admitted.
     @discardableResult
     func sendEvent(topic: String, payload: [String: Any]) async -> Bool {
         guard !isClosed else {
@@ -2141,34 +2331,61 @@ actor MobileHostConnection {
             #endif
             return false
         }
-        guard isSubscribed(to: topic) else {
-            #if DEBUG
-            cmuxDebugLog("mobile.send skip: not subscribed topic=\(topic) connID=\(self.id.uuidString) subs=\(subscriptions.count)")
-            #endif
+        guard let frame = MobileHostService.encodedEventFrame(topic: topic, payload: payload) else {
+            // An unencodable or over-limit event is undeliverable to every
+            // connection: a host-side producer fault, not this peer's.
+            mobileHostLog.error(
+                "mobile host dropped unencodable event topic=\(topic, privacy: .public)"
+            )
             return false
         }
-        let envelope: [String: Any] = [
-            "kind": "event",
-            "topic": topic,
-            "payload": payload,
-        ]
-        guard let data = try? JSONSerialization.data(withJSONObject: envelope) else { return false }
-        let frame: Data
-        do {
-            frame = try MobileSyncFrameCodec.encodeFrame(data)
-        } catch {
-            await close(reason: "event frame encode failed")
-            return false
+        let result = eventQueue.enqueue(
+            topic: topic,
+            coalesceKey: MobileHostService.eventCoalesceKey(topic: topic, payload: payload),
+            isFullRenderGridFrame: topic == MobileHostEventTopicPolicy.renderGridTopic
+                && payload["full"] as? Bool == true,
+            frame: frame
+        )
+        if !result.renderGridResyncSurfaceIDs.isEmpty {
+            MobileTerminalRenderObserver.requestRenderGridFullResync(
+                surfaceIDStrings: result.renderGridResyncSurfaceIDs
+            )
         }
-        guard queuedEvents.count < Self.maximumQueuedEventCount,
-              frame.count <= Self.maximumQueuedEventByteCount - queuedEventByteCount else {
-            await close(reason: "event queue exceeded bounded capacity")
-            return false
+        if result.startDrain {
+            Task { await self.drainQueuedEvents() }
         }
-        queuedEvents.append(QueuedEvent(topic: topic, frame: frame))
-        queuedEventByteCount += frame.count
-        startEventDrainIfNeeded()
-        return true
+        if result.shouldClose {
+            // The bounded queue fills when the control stream stops draining
+            // (e.g. the peer's network path died mid-write) while terminal
+            // events keep arriving. The peer violated nothing; field host
+            // rings (2026-07-23 WiFi path flap) showed this close mislabeled
+            // protocolViolation seconds after admission.
+            await close(
+                reason: "event queue exceeded bounded capacity",
+                exit: CmxIrohAdmittedConnectionExit(
+                    lifecycle: .controlWriteFailed,
+                    failure: .sendQueueOverflow
+                )
+            )
+        }
+        return result.admitted
+    }
+
+    /// Synchronous bounded admission from the fan-out path. Never blocks and
+    /// never schedules per-event work; the caller acts on the returned
+    /// outcome (drain start, overflow close, render-grid resync).
+    nonisolated func enqueueEventFrame(
+        _ frame: Data,
+        topic: String,
+        coalesceKey: String?,
+        isFullRenderGridFrame: Bool
+    ) -> MobileHostEventEnqueueResult {
+        eventQueue.enqueue(
+            topic: topic,
+            coalesceKey: coalesceKey,
+            isFullRenderGridFrame: isFullRenderGridFrame,
+            frame: frame
+        )
     }
 
     private func prepareIndependentEventWriter() async -> Bool {
@@ -2184,7 +2401,9 @@ actor MobileHostConnection {
         independentEventNegotiationInProgress = true
         defer {
             independentEventNegotiationInProgress = false
-            startEventDrainIfNeeded()
+            if eventQueue.claimDrain() {
+                Task { await self.drainQueuedEvents() }
+            }
         }
         let probePayload = Data(#"{"kind":"event_stream_probe"}"#.utf8)
         guard let probeFrame = try? MobileSyncFrameCodec.encodeFrame(probePayload) else {
@@ -2206,30 +2425,36 @@ actor MobileHostConnection {
         return false
     }
 
-    private func startEventDrainIfNeeded() {
-        guard eventDrainTask == nil,
-              !independentEventNegotiationInProgress,
-              !isClosed else { return }
-        eventDrainTask = Task { [weak self] in
-            guard let self else { return }
-            await self.drainEventQueue()
+    /// Single-writer drain loop: at most one instance runs per connection
+    /// (enforced by the queue's drain claim), pulling from the bounded queue
+    /// and writing to the negotiated lane. Exits when the queue is empty, the
+    /// connection closes, lane negotiation pauses delivery, or a delivery
+    /// fails or stalls (which closes the connection).
+    func drainQueuedEvents() async {
+        while true {
+            if isClosed || independentEventNegotiationInProgress {
+                eventQueue.abandonDrain()
+                return
+            }
+            guard let event = eventQueue.dequeue() else {
+                if eventQueue.finishDrain() { continue }
+                return
+            }
+            guard eventQueue.isSubscribed(topic: event.topic) else { continue }
+            guard await deliverQueuedEvent(event) else {
+                eventQueue.abandonDrain()
+                return
+            }
+            let resyncSurfaceIDs = eventQueue.takeResyncAfterDrainRequests()
+            if !resyncSurfaceIDs.isEmpty {
+                MobileTerminalRenderObserver.requestRenderGridFullResync(
+                    surfaceIDStrings: resyncSurfaceIDs
+                )
+            }
         }
     }
 
-    private func drainEventQueue() async {
-        defer { eventDrainTask = nil }
-        while !Task.isCancelled, !isClosed, !queuedEvents.isEmpty {
-            let event = queuedEvents.removeFirst()
-            queuedEventByteCount -= event.frame.count
-            guard isSubscribed(to: event.topic) else { continue }
-            guard await deliverQueuedEvent(event) else { return }
-        }
-        if !isClosed, !queuedEvents.isEmpty {
-            startEventDrainIfNeeded()
-        }
-    }
-
-    private func deliverQueuedEvent(_ event: QueuedEvent) async -> Bool {
+    private func deliverQueuedEvent(_ event: MobileHostConnectionEventQueue.QueuedEvent) async -> Bool {
         let prefersIndependent = subscriptions.values.contains {
             $0.transport == .irohServerEvents && $0.topics.contains(event.topic)
         }
@@ -2243,10 +2468,44 @@ actor MobileHostConnection {
                 await independentEventWriter.reset()
                 // Deliver the event that exposed the dead/backpressured lane on
                 // control immediately. Subsequent events also use control.
-                return await sendControlFrame(event.frame)
+                return await sendEventControlFrame(event.frame)
             }
         }
-        return await sendControlFrame(event.frame)
+        return await sendEventControlFrame(event.frame)
+    }
+
+    /// Writes one event frame on the control lane under the bounded stall
+    /// deadline. On a stall the connection is closed — `transport.close()`
+    /// resolves the pending write — converting a half-dead subscriber into
+    /// deterministic teardown instead of a forever-pinned drain.
+    private func sendEventControlFrame(_ frame: Data) async -> Bool {
+        guard !isClosed else { return false }
+        let timeoutNanoseconds = eventSendStallTimeoutNanoseconds
+        guard timeoutNanoseconds > 0 else {
+            return await sendControlFrame(frame)
+        }
+        eventSendGeneration &+= 1
+        let generation = eventSendGeneration
+        let deadlineTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: timeoutNanoseconds)
+            guard !Task.isCancelled else { return }
+            await self?.closeIfEventSendStillInFlight(generation: generation)
+        }
+        let delivered = await sendControlFrame(frame)
+        eventSendGeneration &+= 1
+        deadlineTask.cancel()
+        return delivered && !isClosed
+    }
+
+    private func closeIfEventSendStillInFlight(generation: UInt64) async {
+        guard eventSendGeneration == generation, !isClosed else { return }
+        await close(
+            reason: "event send stalled past the bounded deadline",
+            exit: CmxIrohAdmittedConnectionExit(
+                lifecycle: .controlWriteFailed,
+                failure: .timedOut
+            )
+        )
     }
 
     private func downgradeIndependentSubscriptionsToControl() {
@@ -2272,7 +2531,15 @@ actor MobileHostConnection {
         do {
             frame = try MobileSyncFrameCodec.encodeFrame(response)
         } catch {
-            await close(reason: "response frame encode failed")
+            // MobileSyncFrameCodec.encodeFrame only throws frameTooLarge: a
+            // local wire-limit violation, so protocolViolation is honest here.
+            await close(
+                reason: "response frame encode failed",
+                exit: CmxIrohAdmittedConnectionExit(
+                    lifecycle: .controlWriteFailed,
+                    failure: .protocolViolation
+                )
+            )
             return false
         }
 
@@ -2285,7 +2552,13 @@ actor MobileHostConnection {
             try await writer.send(frame)
             return true
         } catch {
-            await close(reason: String(describing: error))
+            await close(
+                reason: String(describing: error),
+                exit: CmxIrohAdmittedConnectionExit(
+                    lifecycle: .controlWriteFailed,
+                    failure: DiagnosticFailureKind.classify(error)
+                )
+            )
             return false
         }
     }
@@ -2319,7 +2592,7 @@ extension MobileHostConnection {
     }
 
     func debugQueuedEventCountForTesting() -> Int {
-        queuedEvents.count
+        eventQueue.count
     }
 }
 #endif
