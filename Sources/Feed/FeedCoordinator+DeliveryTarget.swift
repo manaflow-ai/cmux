@@ -26,9 +26,10 @@ extension FeedCoordinator {
                   events.allSatisfy({ $0.workspaceId.flatMap(normalizedUUID) == workspaceId })
             else { return .notFound }
             guard let appDelegate = AppDelegate.shared else { return .unavailable }
-            guard let owner = appDelegate.tabManagerFor(tabId: workspaceId),
-                  owner.workspacesById[workspaceId] != nil
-            else {
+            guard let target = appDelegate.agentNotificationDeliveryTarget(
+                claimedTabId: workspaceId,
+                surfaceId: nil
+            ) else {
                 return appDelegate.shouldDeferNavigationURLRequestsForStartupRestore
                     ? .unavailable
                     : .notFound
@@ -37,7 +38,7 @@ extension FeedCoordinator {
             return .accepted(events.map {
                 event(
                     $0,
-                    rehomedToWorkspaceId: workspaceId.uuidString,
+                    rehomedToWorkspaceId: target.tabId.uuidString,
                     surfaceId: nil
                 )
             })
@@ -46,9 +47,9 @@ extension FeedCoordinator {
               events.allSatisfy({ $0.surfaceId.flatMap(normalizedUUID) == surfaceId })
         else { return .notFound }
         guard let appDelegate = AppDelegate.shared else { return .unavailable }
-        guard let owner = appDelegate.workspaceContainingPanel(
-            panelId: surfaceId,
-            preferredWorkspaceId: first.workspaceId.flatMap(normalizedUUID)
+        guard let target = appDelegate.agentNotificationDeliveryTarget(
+            claimedTabId: first.workspaceId.flatMap(normalizedUUID),
+            surfaceId: surfaceId
         ) else {
             return appDelegate.shouldDeferNavigationURLRequestsForStartupRestore
                 ? .unavailable
@@ -58,7 +59,7 @@ extension FeedCoordinator {
         return .accepted(events.map {
             event(
                 $0,
-                rehomedToWorkspaceId: owner.workspace.id.uuidString,
+                rehomedToWorkspaceId: target.tabId.uuidString,
                 surfaceId: surfaceId.uuidString
             )
         })
