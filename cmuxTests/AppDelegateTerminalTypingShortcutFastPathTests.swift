@@ -24,13 +24,13 @@ struct AppDelegateTerminalTypingShortcutFastPathTests {
             appDelegate.debugResetShortcutRoutingStateForTesting()
         }
 
-        let window = try #require(window(withId: windowId))
+        let mainWindow = try #require(mainWindow(withId: windowId))
         let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
         let workspace = try #require(manager.selectedWorkspace)
         let panelId = try #require(workspace.focusedPanelId)
         let terminalPanel = try #require(workspace.terminalPanel(for: panelId))
 
-        window.makeKeyAndOrderFront(nil)
+        mainWindow.makeKeyAndOrderFront(nil)
         terminalPanel.hostedView.setVisibleInUI(true)
         terminalPanel.hostedView.setActive(true)
         terminalPanel.hostedView.moveFocus()
@@ -38,7 +38,7 @@ struct AppDelegateTerminalTypingShortcutFastPathTests {
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         #expect(
-            window.firstResponder === terminalPanel.hostedView.surfaceView,
+            mainWindow.firstResponder === terminalPanel.hostedView.surfaceView,
             "The regression must exercise a terminal-owned key event"
         )
 
@@ -75,13 +75,13 @@ struct AppDelegateTerminalTypingShortcutFastPathTests {
         )
     }
 
-    private func window(withId windowId: UUID) -> NSWindow? {
+    private func mainWindow(withId windowId: UUID) -> NSWindow? {
         let identifier = "cmux.main.\(windowId.uuidString)"
         return NSApp.windows.first { $0.identifier?.rawValue == identifier }
     }
 
     private func closeWindow(withId windowId: UUID) {
-        guard let window = window(withId: windowId) else { return }
+        guard let window = mainWindow(withId: windowId) else { return }
         window.close()
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
     }
