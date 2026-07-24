@@ -17,6 +17,9 @@ const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
 #[cfg(test)]
 static SNAPSHOT_IMAGE_VISITS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+static PIXEL_CACHE_GENERATION_LOOKUPS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
 
 #[cfg(test)]
 fn record_snapshot_image_visit() {
@@ -25,6 +28,11 @@ fn record_snapshot_image_visit() {
 
 #[cfg(not(test))]
 fn record_snapshot_image_visit() {}
+
+#[cfg(test)]
+fn record_pixel_cache_generation_lookup() {
+    PIXEL_CACHE_GENERATION_LOOKUPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
 
 /// Bounded copy of a Kitty direct transmission that libghostty is still
 /// assembling. A fresh attach terminal must consume this exact prefix before
@@ -527,7 +535,11 @@ pub(crate) fn snapshot(
         *ordinal = ordinal.saturating_add(1);
     }
     pixel_cache.retain(|image_generation, _| {
-        images.values().any(|image| image.generation == *image_generation)
+        images.values().any(|image| {
+            #[cfg(test)]
+            record_pixel_cache_generation_lookup();
+            image.generation == *image_generation
+        })
     });
 
     Ok(KittyGraphicsSnapshot { generation, images: images.into_values().collect(), placements })
@@ -766,6 +778,8 @@ fn png_header_within_limits(encoded: &[u8]) -> bool {
 mod tests {
     use super::*;
 
+    static SNAPSHOT_COUNTER_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn inflight_tracker_replays_completed_and_partial_chunks() {
         let first = b"\x1b_Ga=t,t=d,f=24,i=92,s=1,v=2,m=1;AAAA\x1b\\";
@@ -813,6 +827,7 @@ mod tests {
 
     #[test]
     fn snapshot_enumerates_each_stored_image_once() {
+        let _counter_guard = SNAPSHOT_COUNTER_TEST_LOCK.lock().unwrap();
         let mut terminal = Terminal::new(20, 8, 100, crate::Callbacks::default()).unwrap();
         for number in 1..=64 {
             terminal.vt_write(
@@ -830,6 +845,29 @@ mod tests {
             graphics.images.len()
         );
         assert_eq!(graphics.images.iter().filter(|image| image.number == 0).count(), 1);
+    }
+
+    #[test]
+    fn snapshot_pixel_cache_retention_looks_up_each_generation_once() {
+        let _counter_guard = SNAPSHOT_COUNTER_TEST_LOCK.lock().unwrap();
+        let mut terminal = Terminal::new(20, 8, 100, crate::Callbacks::default()).unwrap();
+        for image_id in 1..=64 {
+            terminal.vt_write(
+                format!("\x1b_Ga=t,t=d,f=24,i={image_id},s=1,v=1,q=2;AAAA\x1b\\").as_bytes(),
+            );
+        }
+        let mut pixel_cache = HashMap::new();
+        let graphics = snapshot(&terminal, &mut pixel_cache, true).unwrap();
+        assert_eq!(pixel_cache.len(), graphics.images.len());
+
+        PIXEL_CACHE_GENERATION_LOOKUPS.store(0, std::sync::atomic::Ordering::Relaxed);
+        let refreshed = snapshot(&terminal, &mut pixel_cache, true).unwrap();
+
+        assert_eq!(refreshed.images.len(), graphics.images.len());
+        assert_eq!(
+            PIXEL_CACHE_GENERATION_LOOKUPS.load(std::sync::atomic::Ordering::Relaxed),
+            graphics.images.len()
+        );
     }
 
     #[test]
