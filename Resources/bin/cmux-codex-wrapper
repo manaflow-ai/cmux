@@ -103,7 +103,9 @@ cmux_codex_physical_candidate() {
 
 # Print the nearest physical ancestor of a directory that contains a Git
 # marker. Outside a Git checkout, the directory itself is the untrusted project
-# boundary.
+# boundary. A physical HOME root is not a project boundary: treating it as one
+# rejects the user's own ~/.local, ~/.bun, nvm, Volta, and similar installs.
+# Return 2 for that intentional no-boundary case and 1 for resolution failure.
 cmux_codex_untrusted_project_root() {
     local directory="$1"
     local root
@@ -118,6 +120,11 @@ cmux_codex_untrusted_project_root() {
         cursor="${cursor%/*}"
         [[ -n "$cursor" ]] || cursor="/"
     done
+    if [[ "${HOME:-}" == /* ]]; then
+        local physical_home
+        physical_home="$(cd -P "$HOME" 2>/dev/null && pwd -P)" || return 1
+        [[ "$root" == "$physical_home" ]] && return 2
+    fi
     printf '%s' "$root"
 }
 
@@ -168,8 +175,13 @@ find_real_codex() {
     if [[ "${cmux_codex_inject_hooks:-0}" == "1" ]]; then
         session_requires_project_validation=true
         local project_root
-        project_root="$(cmux_codex_untrusted_project_root ".")" || return 1
-        project_roots+=("$project_root")
+        project_root="$(cmux_codex_untrusted_project_root ".")"
+        local project_root_status=$?
+        if (( project_root_status == 0 )); then
+            project_roots+=("$project_root")
+        elif (( project_root_status != 2 )); then
+            return 1
+        fi
 
         # Codex applies -C/--cd from the inherited cwd, and accepts it in both
         # global and resume scopes. Validate against every requested project
@@ -320,8 +332,13 @@ cmux_codex_trusted_cmux_candidate() {
 
     local project_roots=()
     local project_root
-    project_root="$(cmux_codex_untrusted_project_root ".")" || return 1
-    project_roots+=("$project_root")
+    project_root="$(cmux_codex_untrusted_project_root ".")"
+    local project_root_status=$?
+    if (( project_root_status == 0 )); then
+        project_roots+=("$project_root")
+    elif (( project_root_status != 2 )); then
+        return 1
+    fi
 
     local args=("$@")
     local index=0 argument directory
