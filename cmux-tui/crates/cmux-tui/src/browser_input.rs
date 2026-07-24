@@ -173,7 +173,20 @@ pub struct BrowserInputDispatcher {
 
 #[cfg(test)]
 pub(crate) struct BlockedBrowserInput {
-    _rx: Receiver<SequencedBrowserInputEvent>,
+    rx: Receiver<SequencedBrowserInputEvent>,
+}
+
+#[cfg(test)]
+impl BlockedBrowserInput {
+    pub(crate) fn drain_mouse_lifetimes(&self) -> Vec<(&'static str, bool)> {
+        let mut events = Vec::new();
+        while let Ok(event) = self.rx.try_recv() {
+            if let BrowserInputKind::Mouse { event_type, .. } = event.event.kind {
+                events.push((event_type, event.lifetime.load(Ordering::Acquire)));
+            }
+        }
+        events
+    }
 }
 
 impl BrowserInputDispatcher {
@@ -215,7 +228,7 @@ impl BrowserInputDispatcher {
                 failed_resizes: Arc::new(Mutex::new(HashMap::new())),
                 surface_lifetimes: Arc::new(Mutex::new(HashMap::new())),
             },
-            BlockedBrowserInput { _rx: rx },
+            BlockedBrowserInput { rx },
         )
     }
 

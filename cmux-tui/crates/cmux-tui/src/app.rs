@@ -16363,6 +16363,50 @@ mod tests {
     }
 
     #[test]
+    fn retained_motion_replays_through_ordered_mutation_without_overtaking_discrete_input() {
+        let mux = Mux::new("ordered-mutation-pointer-replay-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let motion = MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 14,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.pending_pointer_motion =
+            Some(super::PendingPointerMotion { event: motion, focus_generation: 0, sequence: 1 });
+        app.deferred_input.push_back(DeferredInput {
+            event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
+            destination: None,
+            destination_intent: None,
+            sidebar_focus_intent: false,
+            pointer: None,
+            sequence: 2,
+        });
+        app.deferred_input_sequence = 2;
+        app.session.pending_mutations.store(1, Ordering::Release);
+        assert!(
+            !app.session.has_pending_pointer_mutations(),
+            "the synthetic mutation must model MutationImpact::Ordered"
+        );
+
+        let replay = app.replay_deferred_input_batch().unwrap();
+
+        app.session.pending_mutations.store(0, Ordering::Release);
+        assert_eq!(
+            app.hover,
+            Some((motion.column, motion.row)),
+            "retained passive motion should replay through an ordered-only mutation"
+        );
+        assert!(app.pending_pointer_motion.is_none());
+        assert_eq!(
+            app.deferred_input.front().map(|input| input.sequence),
+            Some(2),
+            "later discrete input must remain behind the pending ordered mutation"
+        );
+        assert_eq!(replay.disposition, DeferredReplayDisposition::Blocked);
+    }
+
+    #[test]
     fn missing_surface_motion_stays_ahead_of_later_deferred_input() {
         let mux = Mux::new("replayed-missing-motion-order-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -18699,6 +18743,62 @@ mod tests {
         );
         assert!(app.drag.is_none());
         assert!(app.active_pointer_buttons.is_empty());
+    }
+
+    #[test]
+    fn machine_session_replacement_preserves_only_the_old_browser_release() {
+        let first = Mux::new("machine-browser-release-first", SurfaceOptions::default());
+        let browser =
+            first.new_browser_tab("about:blank".to_string(), None, Some((20, 8))).unwrap();
+        let second = Mux::new("machine-browser-release-second", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(first.clone()));
+        app.replace_tree(app.session.tree());
+        assert!(app.tab_locations.contains_key(&browser.id));
+        let (dispatcher, blocked) = BrowserInputDispatcher::blocked(2);
+        app.browser_input = dispatcher;
+        assert!(app.browser_input.enqueue(BrowserInputEvent {
+            surface_id: browser.id,
+            surface: app.session.surface(browser.id).unwrap(),
+            kind: BrowserInputKind::Mouse {
+                event_type: "mouseMoved",
+                x: 1.0,
+                y: 1.0,
+                button: Some("none"),
+                click_count: None,
+            },
+        }));
+        app.drag = Some(Drag::Browser {
+            surface: browser.id,
+            content: Rect { x: 2, y: 3, width: 20, height: 8 },
+            position: (5, 5),
+        });
+        let (session, event_worker, mux_titles, mux_recovery_generation) = prepare_ordered_session(
+            Session::Local(second),
+            app.pty_input.sender(),
+            app.app_events.clone(),
+            2,
+        )
+        .unwrap();
+        let tree = session.tree();
+
+        app.install_prepared_machine_session(super::PreparedMachineSession {
+            session,
+            event_worker,
+            generation: 2,
+            mux_titles,
+            mux_recovery_generation,
+            tree,
+            label: "second".into(),
+            session_available: true,
+            color_error: None,
+        });
+
+        assert_eq!(
+            blocked.drain_mouse_lifetimes(),
+            vec![("mouseMoved", true), ("mouseReleased", false)],
+            "session replacement must cancel stale browser input but preserve the release that closes the old press"
+        );
+        first.close_surface(browser.id).unwrap();
     }
 
     #[test]
