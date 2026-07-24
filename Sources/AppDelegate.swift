@@ -12991,8 +12991,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        if matchCachedGlobalSearchShortcut(event: event) { toggleGlobalSearchPalette(); return true }
-
         if browserFocusModePanelForShortcutEvent(event) != nil {
 #if DEBUG
             cmuxDebugLog("browser.focusMode.shortcutMonitor.bypass \(debugShortcutRouteSnapshot(event: event))")
@@ -13289,6 +13287,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) {
             return false
         }
+
+        if matchCachedGlobalSearchShortcut(event: event) { toggleGlobalSearchPalette(); return true }
 
         // When the notifications popover is open, Escape should dismiss it immediately.
         if flags.isEmpty, event.keyCode == 53, titlebarAccessoryController.dismissNotificationsPopoverIfShown() {
