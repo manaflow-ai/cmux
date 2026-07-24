@@ -1,5 +1,6 @@
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxMobileSupport
 import Foundation
 
 extension WorkspaceShellView {
