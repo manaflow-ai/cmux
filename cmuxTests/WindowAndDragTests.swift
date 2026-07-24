@@ -3367,7 +3367,10 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         )
 
         XCTAssertEqual(stashed.size, window.size)
-        XCTAssertEqual(stashed.midX, screen.maxX)
+        XCTAssertEqual(
+            screen.intersection(stashed).width,
+            window.width * WorkspaceFloatingDockStashLayout.restingVisibleFraction
+        )
         XCTAssertGreaterThanOrEqual(stashed.minY, screen.minY)
         XCTAssertLessThanOrEqual(stashed.maxY, screen.maxY)
     }

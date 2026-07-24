@@ -1,7 +1,7 @@
 import AppKit
 
 enum WorkspaceFloatingDockStashLayout {
-    static let restingVisibleFraction: CGFloat = 0.5
+    static let restingVisibleFraction: CGFloat = 0.25
     static let hoverRevealDistance: CGFloat = 96
 
     static func stashedWindowFrame(

@@ -58,8 +58,11 @@ extension AppDelegate {
         guard let window else { return nil }
         let screen = window.screen
             ?? NSScreen.screens.first(where: { $0.frame.intersects(window.frame) })
-        guard let screen else { return nil }
+        return displaySnapshot(for: screen)
+    }
 
+    func displaySnapshot(for screen: NSScreen?) -> SessionDisplaySnapshot? {
+        guard let screen else { return nil }
         return SessionDisplaySnapshot(
             displayID: screen.cmuxDisplayID,
             stableID: screen.cmuxStableDisplayKey,
