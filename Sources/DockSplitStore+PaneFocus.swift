@@ -8,6 +8,10 @@ extension DockSplitStore {
         return surfaceIdToPanelId[tabId]
     }
 
+    var focusedPanel: (any Panel)? {
+        focusedPanelId.flatMap { panels[$0] }
+    }
+
     /// Whether a panel id is present in the Dock tree.
     func containsPanel(_ panelId: UUID) -> Bool {
         panels[panelId] != nil
