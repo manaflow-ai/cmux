@@ -81,6 +81,10 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             "usleep.swift": "usleep(1)\n#expect(finished)\n",
             "nanosleep.swift": "nanosleep(nil, nil)\n#expect(finished)\n",
             "time.py": "time.sleep(0.01)\nassert finished\n",
+            "module-annotation.py": (
+                "marker: time.sleep(0.01)\n"
+                "assert finished\n"
+            ),
             "asyncio.py": "await asyncio.sleep(0.01)\nassert finished\n",
             "bun.ts": "await Bun.sleep(1)\nexpect(finished).toBe(true)\n",
             "timeout.ts": (
@@ -627,6 +631,132 @@ class DeterminismCheckerCLITests(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn(
             "fixtures/dotted-import.py:2: sleep-then-assert:",
+            result.stdout,
+        )
+
+    def test_python_non_executable_annotations_remain_silent(self) -> None:
+        result = self.run_checker(
+            {
+                "local-annotation.py": (
+                    "def test_case():\n"
+                    "    marker: time.sleep(0.01)\n"
+                    "    assert finished\n"
+                ),
+                "future-module-annotation.py": (
+                    "from __future__ import annotations\n"
+                    "marker: time.sleep(0.01)\n"
+                    "assert finished\n"
+                ),
+                "future-class-annotation.py": (
+                    "from __future__ import annotations\n"
+                    "class TestCase:\n"
+                    "    marker: time.sleep(0.01)\n"
+                    "    assert finished\n"
+                ),
+                "future-signature-annotation.py": (
+                    "from __future__ import annotations\n"
+                    "def test_case(marker: time.sleep(0.01)): pass\n"
+                    "assert finished\n"
+                ),
+            }
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(
+            "test-determinism: 0 active finding(s)",
+            result.stdout,
+        )
+
+    def test_python_try_prefix_shadow_reaches_handler(self) -> None:
+        result = self.run_checker(
+            {
+                "try-prefix-shadow.py": (
+                    "import time\n"
+                    "try:\n"
+                    "    time = fake_clock\n"
+                    "    raise RuntimeError\n"
+                    "except RuntimeError:\n"
+                    "    time.sleep(0.01)\n"
+                    "    assert finished\n"
+                ),
+            }
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(
+            "test-determinism: 0 active finding(s)",
+            result.stdout,
+        )
+
+    def test_shell_heredoc_bodies_remain_silent(self) -> None:
+        result = self.run_checker(
+            {
+                "quoted-heredoc.sh": (
+                    "cat <<'EOF'\n"
+                    "sleep 1\n"
+                    "EOF\n"
+                    'assert "$actual" "$expected"\n'
+                ),
+                "tab-heredoc.sh": (
+                    "cat <<-EOF\n"
+                    "\tsleep 1\n"
+                    "\tEOF\n"
+                    'assert "$actual" "$expected"\n'
+                ),
+            }
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(
+            "test-determinism: 0 active finding(s)",
+            result.stdout,
+        )
+
+    def test_unquoted_heredoc_substitutions_are_executable(self) -> None:
+        result = self.run_checker(
+            {
+                "heredoc-substitution.sh": (
+                    "cat <<EOF\n"
+                    "$(sleep 1)\n"
+                    "EOF\n"
+                    'assert "$actual" "$expected"\n'
+                ),
+                "heredoc-backtick.sh": (
+                    "cat <<EOF\n"
+                    "`sleep 1`\n"
+                    "EOF\n"
+                    'assert "$actual" "$expected"\n'
+                ),
+            }
+        )
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        for relative_path in (
+            "heredoc-substitution.sh",
+            "heredoc-backtick.sh",
+        ):
+            self.assertIn(
+                f"fixtures/{relative_path}:2: sleep-then-assert:",
+                result.stdout,
+            )
+
+    def test_multiline_specialized_task_sleep_is_reported(self) -> None:
+        result = self.run_checker(
+            {
+                "multiline-specialized-task.swift": (
+                    "try await Task<\n"
+                    "    Never,\n"
+                    "    Never\n"
+                    ">.sleep(nanoseconds: 1)\n"
+                    "#expect(finished)\n"
+                ),
+            }
+        )
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(
+            "fixtures/multiline-specialized-task.swift:4: "
+            "sleep-then-assert:",
             result.stdout,
         )
 
