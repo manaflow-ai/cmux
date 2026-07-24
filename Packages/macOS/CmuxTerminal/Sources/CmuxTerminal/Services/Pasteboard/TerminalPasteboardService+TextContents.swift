@@ -90,13 +90,25 @@ extension TerminalPasteboardService {
     }
 
     private func richTextContents(from pasteboard: NSPasteboard) -> String? {
-        if let htmlText = attributedStringContents(from: pasteboard, type: .html, documentType: .html) {
+        if let htmlText = htmlPlainTextContents(from: pasteboard) {
             return htmlText
         }
         if let rtfText = attributedStringContents(from: pasteboard, type: .rtf, documentType: .rtf) {
             return rtfText
         }
         return attributedStringContents(from: pasteboard, type: .rtfd, documentType: .rtfd)
+    }
+
+    private func htmlPlainTextContents(
+        from pasteboard: NSPasteboard
+    ) -> String? {
+        let html =
+            pasteboard.string(forType: .html)
+            ?? pasteboard.data(forType: .html).flatMap {
+                String(data: $0, encoding: .utf8)
+            }
+        guard let html else { return nil }
+        return HTMLPlainTextParser().plainText(from: html)
     }
 
     private func plainTextContents(from pasteboard: NSPasteboard) -> String? {

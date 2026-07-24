@@ -372,11 +372,11 @@ class GhosttyApp {
     /// The process-wide pasteboard service (was the `GhosttyPasteboardHelper`
     /// namespace enum).
     static let terminalPasteboard = TerminalPasteboardService()
-
+    /// The single bounded lane shared by terminal and composer paste preparation.
+    static let terminalImageTransferPreparation = TerminalImageTransferPreparationService()
     /// The process-wide serialized native-surface free queue (was the
     /// `TerminalSurfaceRuntimeTeardownCoordinator.shared` actor singleton).
     static let terminalSurfaceRuntimeTeardown = TerminalSurfaceRuntimeTeardownCoordinator()
-
     /// The process-wide paced native-surface creation queue for session restore.
     @MainActor
     static let terminalSurfaceRestoreSpawnScheduler = TerminalSurfaceRestoreSpawnScheduler()
@@ -533,103 +533,107 @@ class GhosttyApp {
                 completeClipboardRequest(with: "")
                 return
             }
+            let pasteboardTypeDescription = (pasteboard.types ?? [])
+                .map(\.rawValue)
+                .joined(separator: ",")
 
-            let preparedContent = TerminalImageTransferPlanner.prepare(
-                pasteboard: pasteboard,
-                mode: .paste
-            )
+            Task { @MainActor in
+                let preparedContent = await TerminalImageTransferPlanner.prepare(
+                    pasteboard: pasteboard,
+                    mode: .paste
+                )
 
 #if DEBUG
-            cmuxDebugLog(
-                "terminal.clipboard.read surface=\(callbackContext.surfaceId.uuidString.prefix(5)) " +
-                "types=\((pasteboard.types ?? []).map(\.rawValue).joined(separator: ",")) " +
-                "prepared=\(Self.debugDescription(for: preparedContent))"
-            )
+                cmuxDebugLog(
+                    "terminal.clipboard.read surface=\(callbackContext.surfaceId.uuidString.prefix(5)) " +
+                    "types=\(pasteboardTypeDescription) " +
+                    "prepared=\(Self.debugDescription(for: preparedContent))"
+                )
 #endif
 
-            switch preparedContent {
-            case .reject:
-                completeClipboardRequest(with: "")
-            case .insertText(let text):
-                completeClipboardRequest(with: text)
-            case .fileURLs(let fileURLs):
-                let operation = TerminalImageTransferOperation()
-                MainActor.assumeIsolated {
+                switch preparedContent {
+                case .reject:
+                    completeClipboardRequest(with: "")
+                case .insertText(let text):
+                    completeClipboardRequest(with: text)
+                case .fileURLs(let fileURLs):
+                    let operation = TerminalImageTransferOperation()
                     callbackContext.terminalSurface?.hostedView.beginImageTransferIndicator(
                         for: operation,
                         onCancel: {
                             completeClipboardRequest(with: "")
                         }
                     )
-                }
 
-                let target = MainActor.assumeIsolated {
-                    callbackContext.terminalSurface?.resolvedImageTransferTarget() ?? .local
-                }
-                let plan = TerminalImageTransferPlanner.plan(
-                    fileURLs: fileURLs,
-                    target: target
-                )
+                    let target =
+                        callbackContext.terminalSurface?
+                            .resolvedImageTransferTarget()
+                        ?? .local
+                    let plan = TerminalImageTransferPlanner.plan(
+                        fileURLs: fileURLs,
+                        target: target
+                    )
 
-                let handledByCustomUpload = Self.handleCustomPasteUploadIfMatched(
-                    plan: plan,
-                    operation: operation,
-                    callbackContext: callbackContext,
-                    completeClipboardRequest: completeClipboardRequest
-                )
-
-                if !handledByCustomUpload {
-                    TerminalImageTransferPlanner.execute(
+                    let handledByCustomUpload = Self.handleCustomPasteUploadIfMatched(
                         plan: plan,
                         operation: operation,
-                        uploadWorkspaceRemote: { fileURLs, operation, finish in
-                            guard let workspace = MainActor.assumeIsolated({
-                                callbackContext.terminalSurface?.owningWorkspace()
-                            }) else {
-                                finish(.failure(NSError(domain: "cmux.remote.paste", code: 3)))
-                                GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
-                                return
-                            }
-                            workspace.uploadDroppedFilesForRemoteTerminal(
-                                fileURLs,
-                                operation: operation,
-                                completion: { result in
-                                    finish(result)
-                                    GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
-                                }
-                            )
-                        },
-                        uploadDetectedSSH: { session, fileURLs, operation, finish in
-                            session.uploadDroppedFiles(
-                                fileURLs,
-                                operation: operation,
-                                completion: { result in
-                                    finish(result)
-                                    GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
-                                }
-                            )
-                        },
-                        insertText: { text in
-                            MainActor.assumeIsolated {
-                                callbackContext.terminalSurface?.hostedView.endImageTransferIndicator(
-                                    for: operation
-                                )
-                            }
-                            completeClipboardRequest(with: text)
-                        },
-                        onFailure: { _ in
-                            MainActor.assumeIsolated {
-                                callbackContext.terminalSurface?.hostedView.endImageTransferIndicator(
-                                    for: operation
-                                )
-                            }
-                            NSSound.beep()
-#if DEBUG
-                            cmuxDebugLog("terminal.remotePasteUpload.failed surface=\(callbackContext.surfaceId.uuidString.prefix(5))")
-#endif
-                            completeClipboardRequest(with: "")
-                        }
+                        callbackContext: callbackContext,
+                        completeClipboardRequest: completeClipboardRequest
                     )
+
+                    if !handledByCustomUpload {
+                        TerminalImageTransferPlanner.execute(
+                            plan: plan,
+                            operation: operation,
+                            uploadWorkspaceRemote: { fileURLs, operation, finish in
+                                guard let workspace = MainActor.assumeIsolated({
+                                    callbackContext.terminalSurface?.owningWorkspace()
+                                }) else {
+                                    finish(.failure(NSError(domain: "cmux.remote.paste", code: 3)))
+                                    GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                                    return
+                                }
+                                workspace.uploadDroppedFilesForRemoteTerminal(
+                                    fileURLs,
+                                    operation: operation,
+                                    completion: { result in
+                                        finish(result)
+                                        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                                    }
+                                )
+                            },
+                            uploadDetectedSSH: { session, fileURLs, operation, finish in
+                                session.uploadDroppedFiles(
+                                    fileURLs,
+                                    operation: operation,
+                                    completion: { result in
+                                        finish(result)
+                                        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                                    }
+                                )
+                            },
+                            insertText: { text in
+                                MainActor.assumeIsolated {
+                                    callbackContext.terminalSurface?.hostedView.endImageTransferIndicator(
+                                        for: operation
+                                    )
+                                }
+                                completeClipboardRequest(with: text)
+                            },
+                            onFailure: { _ in
+                                MainActor.assumeIsolated {
+                                    callbackContext.terminalSurface?.hostedView.endImageTransferIndicator(
+                                        for: operation
+                                    )
+                                }
+                                NSSound.beep()
+#if DEBUG
+                                cmuxDebugLog("terminal.remotePasteUpload.failed surface=\(callbackContext.surfaceId.uuidString.prefix(5))")
+#endif
+                                completeClipboardRequest(with: "")
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -7510,7 +7514,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @discardableResult
     fileprivate func insertDroppedPasteboard(_ pasteboard: NSPasteboard) -> Bool {
         executePreparedImageTransfer(
-            TerminalImageTransferPlanner.prepare(
+            TerminalImageTransferPlanner.prepareSynchronously(
                 pasteboard: pasteboard,
                 mode: .drop
             ),
