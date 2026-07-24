@@ -288,7 +288,7 @@ public struct CMUXMobileRootScene: View {
         rootContent
             // App-wide toast layer: every root host gets the presentation
             // window and the ToastCenter environment.
-            .toastHost(toastCenter)
+            .toastHost(toastCenter, haptics: displaySettings.haptics)
             .environment(auth.coordinator)
             .analytics(analytics)
             .tailscaleStatusMonitor(tailscaleStatusMonitor)

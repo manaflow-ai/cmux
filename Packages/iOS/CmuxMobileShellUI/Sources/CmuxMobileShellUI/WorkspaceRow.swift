@@ -3,8 +3,9 @@ import CmuxMobileSupport
 import SwiftUI
 
 struct WorkspaceRow: View {
-    private static let unreadDotAvatarVisualGap: CGFloat = 10
-    private static let avatarTextVisualGap: CGFloat = 8
+    private static let unreadDotRailVisualGap: CGFloat = 8
+    private static let railTextVisualGap: CGFloat = 10
+    private static let railVerticalInset: CGFloat = 5
 
     let workspace: MobileWorkspacePreview
     let connectionStatus: MobileMacConnectionStatus
@@ -17,24 +18,23 @@ struct WorkspaceRow: View {
     /// with short previews keep the same height as their neighbors.
     var previewLineLimit: Int = MobileDisplaySettings.defaultWorkspacePreviewLineCount
     var unreadIndicatorLeftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift
-    var profilePictureLeftShift: Double = MobileDisplaySettings.defaultProfilePictureLeftShift
-    var profilePictureSize: Double = MobileDisplaySettings.defaultProfilePictureSize
 
     var body: some View {
-        HStack(alignment: .top, spacing: 0) {
-            // Unread is JUST this dot, left of the icon like iMessage. The
+        HStack(alignment: .center, spacing: 0) {
+            // Unread is JUST this dot, left of the workspace rail. The
             // gutter is always present (hidden dot when read) so read and
-            // unread rows line up. Centered against the avatar's height.
+            // unread rows line up. Center alignment keeps it centered in the
+            // actual row height as descriptions and previews wrap.
             WorkspaceUnreadDot(isUnread: workspace.hasUnread, leftShift: unreadIndicatorLeftShift)
-                .frame(height: CGFloat(profilePictureSize))
 
             Spacer()
-                .frame(width: unreadDotAvatarLayoutGap)
+                .frame(width: unreadDotRailLayoutGap)
 
-            WorkspaceAvatar(workspace: workspace, size: profilePictureSize, leftShift: profilePictureLeftShift)
+            Color.clear
+                .frame(width: WorkspaceColorRail.width)
 
             Spacer()
-                .frame(width: avatarTextLayoutGap)
+                .frame(width: Self.railTextVisualGap)
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -58,11 +58,30 @@ struct WorkspaceRow: View {
                         .lineLimit(1)
                 }
 
+                if let description = workspace.displayDescription {
+                    Text(description)
+                        .font(.subheadline)
+                        .foregroundStyle(.primary)
+                        .lineLimit(2, reservesSpace: true)
+                }
+
                 Text(workspace.previewLine)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(previewLineLimit, reservesSpace: true)
             }
+        }
+        .overlay(alignment: .leading) {
+            HStack(spacing: 0) {
+                Spacer()
+                    .frame(width: railLeadingOffset)
+
+                WorkspaceColorRail(color: workspace.workspaceAccentColor)
+                    .padding(.vertical, Self.railVerticalInset)
+
+                Spacer(minLength: 0)
+            }
+            .allowsHitTesting(false)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 8)
@@ -76,44 +95,32 @@ struct WorkspaceRow: View {
         .contentShape(Rectangle())
     }
 
-    private var unreadDotAvatarLayoutGap: CGFloat {
+    private var unreadDotRailLayoutGap: CGFloat {
         let dotTrailing = (WorkspaceUnreadDot.gutterWidth + WorkspaceUnreadDot.dotDiameter) / 2
             - CGFloat(unreadIndicatorLeftShift)
         return max(
             0,
-            Self.unreadDotAvatarVisualGap + dotTrailing - WorkspaceUnreadDot.gutterWidth
-                + CGFloat(profilePictureLeftShift)
+            Self.unreadDotRailVisualGap + dotTrailing - WorkspaceUnreadDot.gutterWidth
         )
     }
 
-    private var avatarTextLayoutGap: CGFloat {
-        max(0, Self.avatarTextVisualGap - CGFloat(profilePictureLeftShift))
+    private var railLeadingOffset: CGFloat {
+        WorkspaceUnreadDot.gutterWidth + unreadDotRailLayoutGap
     }
 }
 
-struct WorkspaceAvatar: View {
-    let workspace: MobileWorkspacePreview
-    var size: Double = MobileDisplaySettings.defaultProfilePictureSize
-    var leftShift: Double = MobileDisplaySettings.defaultProfilePictureLeftShift
+struct WorkspaceColorRail: View {
+    static let width: CGFloat = 3
+    private static let cornerRadius: CGFloat = 1.5
+
+    let color: Color?
 
     var body: some View {
-        ZStack {
-            Circle()
-                .fill(workspace.avatarGradient)
-                .frame(width: CGFloat(size), height: CGFloat(size))
-
-            switch workspace.avatarIcon {
-            case .symbol(let name):
-                Image(systemName: name)
-                    .font(.system(size: CGFloat(size) * 0.38, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .accessibilityHidden(true)
-            case .emoji(let emoji):
-                Text(emoji)
-                    .font(.system(size: CGFloat(size) * 0.5))
-                    .accessibilityHidden(true)
-            }
-        }
-        .offset(x: -CGFloat(leftShift))
+        RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
+            .fill(color ?? Color.clear)
+            .frame(width: Self.width)
+            .frame(maxHeight: .infinity)
+            .opacity(color == nil ? 0 : 0.95)
+            .accessibilityHidden(true)
     }
 }

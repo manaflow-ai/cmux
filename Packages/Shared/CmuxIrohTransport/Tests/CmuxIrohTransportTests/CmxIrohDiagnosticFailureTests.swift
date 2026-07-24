@@ -67,6 +67,27 @@ import Testing
             "ConnectionLost(TransportError(Error { code: Code::crypto(2a), reason: \"TLS error\" }))",
             DiagnosticFailureKind.secureChannelFailed
         ),
+        ("TimedOut", DiagnosticFailureKind.transportIdleTimedOut),
+        ("LocallyClosed", DiagnosticFailureKind.cancelled),
+        ("Reset", DiagnosticFailureKind.connectionClosed),
+        (
+            "ApplicationClosed(ApplicationClose { error_code: 0, reason: b\"server_closed\" })",
+            DiagnosticFailureKind.connectionClosed
+        ),
+        (
+            "ConnectionClosed(ConnectionClose { error_code: Code(10), frame_type: None, reason: b\"\" })",
+            DiagnosticFailureKind.connectionClosed
+        ),
+        (
+            "TransportError(Error { code: Code(1), frame: None, reason: \"internal\", crypto: None })",
+            DiagnosticFailureKind.connectionClosed
+        ),
+        (
+            "TransportError(Error { code: Code::crypto(2a), frame: None, reason: \"TLS error\" })",
+            DiagnosticFailureKind.secureChannelFailed
+        ),
+        ("VersionMismatch", DiagnosticFailureKind.protocolViolation),
+        ("CidsExhausted", DiagnosticFailureKind.endpointUnavailable),
         ("ReadError(ClosedStream)", DiagnosticFailureKind.connectionClosed),
         ("opaque unclassified bridge failure", DiagnosticFailureKind.unknown),
     ])

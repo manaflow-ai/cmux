@@ -1,6 +1,9 @@
 use std::sync::{Arc, Mutex};
 
-use ghostty_vt::{Callbacks, Cell, ColorSpec, CursorShape, Dirty, RenderState, Rgb, Terminal};
+use ghostty_vt::{
+    Callbacks, Cell, ColorSpec, CursorShape, Dirty, RenderState, Rgb, Terminal,
+    TerminalColorOverrides,
+};
 
 fn snapshot_cells(term: &mut Terminal) -> Vec<Vec<Cell>> {
     let mut rs = RenderState::new().unwrap();
@@ -8,6 +11,13 @@ fn snapshot_cells(term: &mut Terminal) -> Vec<Vec<Cell>> {
     let mut rows = Vec::new();
     rs.walk_rows(|_, _, cells| rows.push(cells.to_vec())).unwrap();
     rows
+}
+
+fn assert_no_dynamic_color_overrides(colors: &TerminalColorOverrides) {
+    assert_eq!(colors.foreground, None);
+    assert_eq!(colors.background, None);
+    assert_eq!(colors.cursor, None);
+    assert!(colors.palette.iter().all(Option::is_none));
 }
 
 #[test]
@@ -107,6 +117,34 @@ fn default_colors_answer_osc_queries() {
 }
 
 #[test]
+fn replace_defaults_can_clear_prior_embedder_colors_and_cursor() {
+    let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+    let initial_colors = term.effective_colors();
+    let initial_cursor = term.effective_cursor_visual().unwrap();
+
+    term.replace_default_colors(
+        Some(Rgb { r: 1, g: 2, b: 3 }),
+        Some(Rgb { r: 4, g: 5, b: 6 }),
+        Some(Rgb { r: 7, g: 8, b: 9 }),
+    );
+    term.replace_default_cursor(Some(CursorShape::Bar), Some(false));
+    assert_eq!(
+        term.effective_colors(),
+        (
+            Some(Rgb { r: 1, g: 2, b: 3 }),
+            Some(Rgb { r: 4, g: 5, b: 6 }),
+            Some(Rgb { r: 7, g: 8, b: 9 })
+        )
+    );
+    assert_eq!(term.effective_cursor_visual().unwrap(), (CursorShape::Bar, false));
+
+    term.replace_default_colors(None, None, None);
+    term.replace_default_cursor(None, None);
+    assert_eq!(term.effective_colors(), initial_colors);
+    assert_eq!(term.effective_cursor_visual().unwrap(), initial_cursor);
+}
+
+#[test]
 fn ghostty_config_colors_and_palette_defaults_use_engine_parsers() {
     assert_eq!(ghostty_vt::parse_color("ForestGreen"), Some(Rgb { r: 0x22, g: 0x8b, b: 0x22 }));
     assert_eq!(
@@ -150,18 +188,93 @@ fn render_state_cursor_visual_tracks_defaults_and_decscusr() {
     let mut rs = RenderState::new().unwrap();
     rs.update(&mut term).unwrap();
     assert!(!term.cursor_overridden());
+    assert_eq!(term.color_overrides().cursor_visual, Some((CursorShape::Bar, false)));
     assert_eq!(rs.cursor_visual().unwrap(), (CursorShape::Bar, false));
 
     term.vt_write(b"\x1b[3");
     term.vt_write(b" q");
     rs.update(&mut term).unwrap();
     assert!(term.cursor_overridden());
+    assert_eq!(term.color_overrides().cursor_visual, Some((CursorShape::Underline, true)));
     assert_eq!(rs.cursor_visual().unwrap(), (CursorShape::Underline, true));
 
     term.vt_write(b"\x1b[0 q");
     rs.update(&mut term).unwrap();
     assert!(!term.cursor_overridden());
+    assert_eq!(term.color_overrides().cursor_visual, Some((CursorShape::Bar, false)));
     assert_eq!(rs.cursor_visual().unwrap(), (CursorShape::Bar, false));
+}
+
+#[test]
+fn color_overrides_report_resolved_decscusr_visuals_and_resets() {
+    let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+    term.set_default_cursor(Some(CursorShape::Bar), Some(false));
+    assert_eq!(term.color_overrides().cursor_visual, Some((CursorShape::Bar, false)));
+    for (value, expected) in [
+        (1, (CursorShape::Block, true)),
+        (2, (CursorShape::Block, false)),
+        (3, (CursorShape::Underline, true)),
+        (4, (CursorShape::Underline, false)),
+        (5, (CursorShape::Bar, true)),
+        (6, (CursorShape::Bar, false)),
+    ] {
+        term.vt_write(format!("\x1b[{value} q").as_bytes());
+        assert_eq!(term.color_overrides().cursor_visual, Some(expected));
+    }
+
+    term.vt_write(b"\x1b[0 q");
+    assert_eq!(term.color_overrides().cursor_visual, Some((CursorShape::Bar, false)));
+    assert!(!term.cursor_overridden());
+    term.vt_write(b"\x1b[2 q");
+    term.vt_write(b"\x1b[ q");
+    assert_eq!(term.color_overrides().cursor_visual, Some((CursorShape::Bar, false)));
+    assert!(!term.cursor_overridden());
+    term.vt_write(b"\x1b[5 q");
+    term.vt_write(b"\x1bc");
+    assert_eq!(term.color_overrides().cursor_visual, Some((CursorShape::Bar, false)));
+    assert!(!term.cursor_overridden());
+}
+
+#[test]
+fn effective_cursor_visual_follows_active_screen_and_mode_12() {
+    let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+    term.set_default_cursor(Some(CursorShape::Block), Some(false));
+    assert_eq!(term.effective_cursor_visual().unwrap(), (CursorShape::Block, false));
+
+    term.vt_write(b"\x1b[6 q");
+    assert_eq!(term.effective_cursor_visual().unwrap(), (CursorShape::Bar, false));
+
+    term.vt_write(b"\x1b[?1049h\x1b[3 q\x1b[?1049l");
+    assert_eq!(
+        term.effective_cursor_visual().unwrap(),
+        (CursorShape::Bar, true),
+        "primary shape is restored while terminal-global blink follows the alt-screen DECSCUSR"
+    );
+
+    term.vt_write(b"\x1b[?12l");
+    assert_eq!(term.effective_cursor_visual().unwrap(), (CursorShape::Bar, false));
+    assert_eq!(term.color_overrides().cursor_visual, Some((CursorShape::Bar, false)));
+}
+
+#[test]
+fn cursor_activity_advances_for_same_pair_screen_roundtrips_and_resets() {
+    let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+    let initial_visual = term.effective_cursor_visual().unwrap();
+
+    let before_screen = term.cursor_activity().unwrap();
+    term.vt_write(b"\x1b[?1049h\x1b[?1049l");
+    assert_eq!(term.effective_cursor_visual().unwrap(), initial_visual);
+    assert_ne!(term.cursor_activity().unwrap(), before_screen);
+
+    let before_reset = term.cursor_activity().unwrap();
+    term.vt_write(b"\x1b[0 q");
+    assert_eq!(term.effective_cursor_visual().unwrap(), initial_visual);
+    assert_ne!(term.cursor_activity().unwrap(), before_reset);
+
+    let before_ris = term.cursor_activity().unwrap();
+    term.vt_write(b"\x1bc");
+    assert_eq!(term.effective_cursor_visual().unwrap(), initial_visual);
+    assert_ne!(term.cursor_activity().unwrap(), before_ris);
 }
 
 #[test]
@@ -422,7 +535,11 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
     assert_eq!(state.palette_color(0), Rgb { r: 0x00, g: 0x11, b: 0x22 });
     let original_nine = state.palette_color(9);
     term.vt_write(b"\x9d4;9;#090909\x07");
-    assert!(!term.palette_overridden(9), "raw C1 is not dispatched by Ghostty's VT stream");
+    assert!(term.palette_overridden(9), "standalone C1 OSC is normalized before dispatch");
+    state.update(&mut term).unwrap();
+    assert_eq!(state.palette_color(9), Rgb { r: 9, g: 9, b: 9 });
+    term.vt_write(b"\x1b]104;9\x07");
+    assert!(!term.palette_overridden(9));
     term.vt_write(b"\xc2\x9d4;9;#090909\x07");
     assert!(!term.palette_overridden(9), "UTF-8 C1 is printable text, not an OSC opener");
     state.update(&mut term).unwrap();
@@ -461,8 +578,8 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
 
     term.vt_write(b"\x1b]4;21;#212121\x07");
     term.vt_write(b"\x1b]104;21\x9d4;22;#222222\x07");
-    assert!(term.palette_overridden(21), "Ghostty treats raw C1 as OSC payload in OSC state");
-    assert!(!term.palette_overridden(22), "raw C1 must not begin a nested OSC in OSC state");
+    assert!(!term.palette_overridden(21), "normalized C1 OSC commits the preceding reset");
+    assert!(term.palette_overridden(22), "normalized C1 OSC begins the following override");
     term.vt_write(b"\x1bPq\x9d4;22;#222222\x07");
     assert!(term.palette_overridden(22), "C1 OSC must leave DCS and begin an OSC");
     state.update(&mut term).unwrap();
@@ -522,4 +639,111 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
     );
     state.update(&mut term).unwrap();
     assert_eq!(state.palette_color(4), Rgb { r: 1, g: 2, b: 3 });
+}
+
+#[test]
+fn vt_write_returns_the_exact_normalized_stream_across_split_utf8_and_c1_controls() {
+    let mut term = Terminal::new(80, 2, 0, Callbacks::default()).unwrap();
+    let chunks: &[&[u8]] =
+        &[b"\xc2", b"\x9dUTF8-continued ", b"\x9d4;9;#090909", b"\x9c", b"VISIBLE"];
+    let mut emitted = Vec::new();
+    for chunk in chunks {
+        emitted.extend_from_slice(term.vt_write_with_normalized(chunk).as_ref());
+    }
+
+    assert_eq!(emitted, b"\xc2\x9dUTF8-continued \x1b]4;9;#090909\x1b\\VISIBLE");
+    assert!(term.palette_overridden(9));
+    assert!(term.viewport_text().unwrap().contains("VISIBLE"));
+}
+
+#[test]
+fn color_overrides_are_sparse_and_resets_return_to_embedder_defaults() {
+    let mut term = Terminal::new(5, 1, 0, Callbacks::default()).unwrap();
+    term.set_default_colors(
+        Some(Rgb { r: 220, g: 221, b: 222 }),
+        Some(Rgb { r: 10, g: 11, b: 12 }),
+        Some(Rgb { r: 30, g: 31, b: 32 }),
+    );
+    let mut palette = [None; 256];
+    palette[3] = Some(Rgb { r: 40, g: 41, b: 42 });
+    term.set_default_palette(&palette);
+    assert_no_dynamic_color_overrides(&term.color_overrides());
+
+    term.vt_write(b"\x1b]4;3;#010203\x07\x1b]10;#111213\x07\x1b]11;#212223\x07\x1b]12;#313233\x07");
+    let colors = term.color_overrides();
+    assert_eq!(colors.palette[3], Some(Rgb { r: 1, g: 2, b: 3 }));
+    assert_eq!(colors.foreground, Some(Rgb { r: 17, g: 18, b: 19 }));
+    assert_eq!(colors.background, Some(Rgb { r: 33, g: 34, b: 35 }));
+    assert_eq!(colors.cursor, Some(Rgb { r: 49, g: 50, b: 51 }));
+
+    term.vt_write(b"\x1b]104;3\x07\x1b]110\x07\x1b]111\x07\x1b]112\x07");
+    assert_no_dynamic_color_overrides(&term.color_overrides());
+}
+
+#[test]
+fn color_override_authorship_survives_equal_defaults_fragmentation_and_queries() {
+    let foreground = Rgb { r: 17, g: 18, b: 19 };
+    let palette_color = Rgb { r: 1, g: 2, b: 3 };
+    let mut term = Terminal::new(5, 1, 0, Callbacks::default()).unwrap();
+    term.set_default_colors(Some(foreground), None, None);
+    let mut palette = [None; 256];
+    palette[3] = Some(palette_color);
+    term.set_default_palette(&palette);
+
+    // Queries do not author state, even when split across writes.
+    term.vt_write(b"\x1b]10;");
+    term.vt_write(b"?\x1b\\\x1b]4;3;?\x07");
+    assert_no_dynamic_color_overrides(&term.color_overrides());
+
+    // Setting exactly the embedder default is still application-authored.
+    term.vt_write(b"\x1b]10;#111213\x1b");
+    term.vt_write(b"\\\x1b]4;3;#010203");
+    term.vt_write(b"\x07");
+    let colors = term.color_overrides();
+    assert_eq!(colors.foreground, Some(foreground));
+    assert_eq!(colors.palette[3], Some(palette_color));
+
+    term.vt_write(b"\x1b]110\x1b\\\x1b]104;3\x07");
+    assert_no_dynamic_color_overrides(&term.color_overrides());
+}
+
+#[test]
+fn color_override_tracker_handles_c1_osc_and_st_without_misreading_utf8() {
+    let mut term = Terminal::new(5, 1, 0, Callbacks::default()).unwrap();
+    term.vt_write("❝👍".as_bytes());
+    assert_no_dynamic_color_overrides(&term.color_overrides());
+
+    term.vt_write(b"\x9d10;#010203");
+    term.vt_write(b"\x9c\x1b]4;7;#040506");
+    term.vt_write(b"\x9c");
+    let colors = term.color_overrides();
+    assert_eq!(colors.foreground, Some(Rgb { r: 1, g: 2, b: 3 }));
+    assert_eq!(colors.palette[7], Some(Rgb { r: 4, g: 5, b: 6 }));
+
+    term.vt_write(b"\x9d110\x9c\x9d104;7\x9c");
+    assert_no_dynamic_color_overrides(&term.color_overrides());
+}
+
+#[test]
+fn theme_portable_replay_omits_terminal_color_osc_state() {
+    let mut source = Terminal::new(20, 2, 100, Callbacks::default()).unwrap();
+    source.vt_write(
+        b"\x1b]4;3;#010203\x07\x1b]10;#111213\x07\x1b]11;#212223\x07\
+          \x1b]12;#313233\x07hello",
+    );
+    let portable = source.vt_replay_bounded_theme_portable(1024 * 1024).unwrap();
+    let replay_text = String::from_utf8_lossy(&portable);
+    for color_osc in ["\x1b]4;", "\x1b]10;", "\x1b]11;", "\x1b]12;"] {
+        assert!(!replay_text.contains(color_osc), "portable replay leaked {color_osc:?}");
+    }
+
+    let mut target = Terminal::new(20, 2, 100, Callbacks::default()).unwrap();
+    target.set_default_colors(
+        Some(Rgb { r: 240, g: 241, b: 242 }),
+        Some(Rgb { r: 4, g: 5, b: 6 }),
+        Some(Rgb { r: 7, g: 8, b: 9 }),
+    );
+    target.vt_write(&portable);
+    assert_no_dynamic_color_overrides(&target.color_overrides());
+    assert!(target.viewport_text().unwrap().contains("hello"));
 }
