@@ -1987,6 +1987,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE7B100000000000000001 /* TextBoxInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B100000000000000002 /* TextBoxInput.swift */; };
 		B88351000000000000000011 /* TextBoxInputContainer+Paste.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88351000000000000000012 /* TextBoxInputContainer+Paste.swift */; };
 		B8835100000000000000000F /* TextBoxInputTextView+AsyncPastePreparation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88351000000000000000010 /* TextBoxInputTextView+AsyncPastePreparation.swift */; };
+		B88353000000000000000001 /* TextBoxInputTextView+PendingPasteReservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88353000000000000000002 /* TextBoxInputTextView+PendingPasteReservation.swift */; };
 		C0DE7B3B0000000000000001 /* TextBoxInputTextViewDebug.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B3B0000000000000002 /* TextBoxInputTextViewDebug.swift */; };
 		C0DE7B310000000000000001 /* TextBoxMentionCachedIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B310000000000000002 /* TextBoxMentionCachedIndex.swift */; };
 		C0DE7B250000000000000001 /* TextBoxMentionCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B250000000000000002 /* TextBoxMentionCandidate.swift */; };
@@ -2003,6 +2004,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE7B220000000000000001 /* TextBoxMentionSuggestion.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B220000000000000002 /* TextBoxMentionSuggestion.swift */; };
 		B8835100000000000000000B /* TextBoxPastePreparationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835100000000000000000C /* TextBoxPastePreparationService.swift */; };
 		B88351000000000000000009 /* TextBoxPastePreparedContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835100000000000000000A /* TextBoxPastePreparedContent.swift */; };
+		B88353000000000000000003 /* TextBoxPendingPasteReservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88353000000000000000004 /* TextBoxPendingPasteReservation.swift */; };
 		B88352000000000000000001 /* TextBoxPendingPasteReservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88352000000000000000002 /* TextBoxPendingPasteReservationTests.swift */; };
 		B88351000000000000000007 /* TextBoxPreparedAttachment.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88351000000000000000008 /* TextBoxPreparedAttachment.swift */; };
 		C0DE7B290000000000000001 /* TextBoxProcessTerminationStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B290000000000000002 /* TextBoxProcessTerminationStatus.swift */; };
@@ -4180,6 +4182,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DE7B100000000000000002 /* TextBoxInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInput.swift; sourceTree = "<group>"; };
 		B88351000000000000000012 /* TextBoxInputContainer+Paste.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TextBoxInputContainer+Paste.swift"; sourceTree = "<group>"; };
 		B88351000000000000000010 /* TextBoxInputTextView+AsyncPastePreparation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TextBoxInputTextView+AsyncPastePreparation.swift"; sourceTree = "<group>"; };
+		B88353000000000000000002 /* TextBoxInputTextView+PendingPasteReservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TextBoxInputTextView+PendingPasteReservation.swift"; sourceTree = "<group>"; };
 		C0DE7B3B0000000000000002 /* TextBoxInputTextViewDebug.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/TextBoxInputTextViewDebug.swift; sourceTree = "<group>"; };
 		C0DE7B310000000000000002 /* TextBoxMentionCachedIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxMentionCachedIndex.swift; sourceTree = "<group>"; };
 		C0DE7B250000000000000002 /* TextBoxMentionCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxMentionCandidate.swift; sourceTree = "<group>"; };
@@ -4196,6 +4199,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DE7B220000000000000002 /* TextBoxMentionSuggestion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxMentionSuggestion.swift; sourceTree = "<group>"; };
 		B8835100000000000000000C /* TextBoxPastePreparationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxPastePreparationService.swift; sourceTree = "<group>"; };
 		B8835100000000000000000A /* TextBoxPastePreparedContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxPastePreparedContent.swift; sourceTree = "<group>"; };
+		B88353000000000000000004 /* TextBoxPendingPasteReservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxPendingPasteReservation.swift; sourceTree = "<group>"; };
 		B88352000000000000000002 /* TextBoxPendingPasteReservationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxPendingPasteReservationTests.swift; sourceTree = "<group>"; };
 		B88351000000000000000008 /* TextBoxPreparedAttachment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxPreparedAttachment.swift; sourceTree = "<group>"; };
 		C0DE7B290000000000000002 /* TextBoxProcessTerminationStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxProcessTerminationStatus.swift; sourceTree = "<group>"; };
@@ -5063,6 +5067,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B8835100000000000000000E /* TextBoxAttachment+PreparedPaste.swift */,
 				B88351000000000000000012 /* TextBoxInputContainer+Paste.swift */,
 				B88351000000000000000010 /* TextBoxInputTextView+AsyncPastePreparation.swift */,
+				B88353000000000000000002 /* TextBoxInputTextView+PendingPasteReservation.swift */,
+				B88353000000000000000004 /* TextBoxPendingPasteReservation.swift */,
 				B88351000000000000000008 /* TextBoxPreparedAttachment.swift */,
 				B8835100000000000000000A /* TextBoxPastePreparedContent.swift */,
 				B8835100000000000000000C /* TextBoxPastePreparationService.swift */,
@@ -8437,6 +8443,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE7B100000000000000001 /* TextBoxInput.swift in Sources */,
 				B88351000000000000000011 /* TextBoxInputContainer+Paste.swift in Sources */,
 				B8835100000000000000000F /* TextBoxInputTextView+AsyncPastePreparation.swift in Sources */,
+				B88353000000000000000001 /* TextBoxInputTextView+PendingPasteReservation.swift in Sources */,
 				C0DE7B3B0000000000000001 /* TextBoxInputTextViewDebug.swift in Sources */,
 				C0DE7B310000000000000001 /* TextBoxMentionCachedIndex.swift in Sources */,
 				C0DE7B250000000000000001 /* TextBoxMentionCandidate.swift in Sources */,
@@ -8451,6 +8458,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE7B220000000000000001 /* TextBoxMentionSuggestion.swift in Sources */,
 				B8835100000000000000000B /* TextBoxPastePreparationService.swift in Sources */,
 				B88351000000000000000009 /* TextBoxPastePreparedContent.swift in Sources */,
+				B88353000000000000000003 /* TextBoxPendingPasteReservation.swift in Sources */,
 				B88351000000000000000007 /* TextBoxPreparedAttachment.swift in Sources */,
 				C0DE7B290000000000000001 /* TextBoxProcessTerminationStatus.swift in Sources */,
 				C0DE7B370000000000000001 /* TextBoxSubmitAction.swift in Sources */,

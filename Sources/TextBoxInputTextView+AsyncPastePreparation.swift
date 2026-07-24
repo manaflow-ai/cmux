@@ -17,7 +17,9 @@ extension TextBoxInputTextView {
     ) -> Bool {
         let request = TerminalPasteboardReadRequest(pasteboard: pasteboard)
         let placeholderID = UUID()
-        insertPendingAttachmentUploadPlaceholder(id: placeholderID)
+        guard beginPendingPasteReservation(id: placeholderID) else {
+            return false
+        }
         let validationToken = pendingAttachmentUploadValidationToken()
         let service = TextBoxPastePreparationService()
 
@@ -32,6 +34,10 @@ extension TextBoxInputTextView {
                   canAcceptPendingAttachmentUpload(
                     validationToken: validationToken
                   ) else {
+                _ = rollbackPendingPasteReservation(
+                    id: placeholderID,
+                    notifyingTextChange: false
+                )
                 preparedContent.cleanupTransferredTemporaryFiles()
                 return
             }

@@ -558,18 +558,17 @@ class GhosttyApp {
                     completeClipboardRequest(with: text)
                 case .fileURLs(let fileURLs):
                     let operation = TerminalImageTransferOperation()
-                    MainActor.assumeIsolated {
-                        callbackContext.terminalSurface?.hostedView.beginImageTransferIndicator(
-                            for: operation,
-                            onCancel: {
-                                completeClipboardRequest(with: "")
-                            }
-                        )
-                    }
+                    callbackContext.terminalSurface?.hostedView.beginImageTransferIndicator(
+                        for: operation,
+                        onCancel: {
+                            completeClipboardRequest(with: "")
+                        }
+                    )
 
-                    let target = MainActor.assumeIsolated {
-                        callbackContext.terminalSurface?.resolvedImageTransferTarget() ?? .local
-                    }
+                    let target =
+                        callbackContext.terminalSurface?
+                            .resolvedImageTransferTarget()
+                        ?? .local
                     let plan = TerminalImageTransferPlanner.plan(
                         fileURLs: fileURLs,
                         target: target

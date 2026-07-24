@@ -29,6 +29,10 @@ extension TextBoxInputContainer {
               textView.canAcceptPendingAttachmentUpload(
                 validationToken: validationToken
               ) else {
+            _ = textView.rollbackPendingPasteReservation(
+                id: placeholderID,
+                notifyingTextChange: false
+            )
             preparedContent.cleanupTransferredTemporaryFiles()
             return
         }
@@ -39,6 +43,7 @@ extension TextBoxInputContainer {
                 id: placeholderID,
                 withText: insertedText
             ) else {
+                preparedContent.cleanupTransferredTemporaryFiles()
                 return
             }
             publishComposerContent(from: textView)

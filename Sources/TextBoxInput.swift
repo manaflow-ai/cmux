@@ -3000,15 +3000,21 @@ struct TextBoxInputContainer: View {
     ) {
         let placeholderID = existingPlaceholderID ?? UUID()
         if existingPlaceholderID == nil {
-            textView.insertPendingAttachmentUploadPlaceholder(id: placeholderID)
+            guard textView.beginPendingPasteReservation(id: placeholderID)
+            else {
+                GhosttyApp.terminalPasteboard
+                    .cleanupTransferredTemporaryImageFiles(fileURLs)
+                return
+            }
         }
         let operation = TerminalImageTransferOperation()
         let uploadValidationToken = existingValidationToken
             ?? textView.pendingAttachmentUploadValidationToken()
         let preparedAttachmentsByPath = Dictionary(
-            uniqueKeysWithValues: preparedAttachments.map {
+            preparedAttachments.map {
                 ($0.fileURL.standardizedFileURL.path, $0)
-            }
+            },
+            uniquingKeysWith: { first, _ in first }
         )
         surface.hostedView.beginImageTransferIndicator(
             for: operation,
@@ -3018,10 +3024,12 @@ struct TextBoxInputContainer: View {
         let finish: (Result<[String], Error>) -> Void = { [weak surface] result in
             DispatchQueue.main.async {
                 @MainActor func removePendingPlaceholder() {
-                    guard textViewReference.textView === textView,
-                          textView.removePendingAttachmentUploadPlaceholder(id: placeholderID) else {
+                    guard textView.removePendingAttachmentUploadPlaceholder(
+                        id: placeholderID
+                    ) else {
                         return
                     }
+                    guard textViewReference.textView === textView else { return }
                     attachments = textView.inlineAttachments()
                     text = textView.plainText()
                 }
@@ -3491,8 +3499,8 @@ final class TextBoxInputTextView: NSTextView {
     private var isReportingLayoutCompletion = false
 
     private static let localControlKeys: Set<String> = ["a", "e", "f", "b", "n", "p", "k", "h"]
-    private static let pendingAttachmentUploadPlaceholderCharacter = "\u{200B}"
-    private static let pendingAttachmentUploadPlaceholderAttribute = NSAttributedString.Key(
+    static let pendingAttachmentUploadPlaceholderCharacter = "\u{200B}"
+    static let pendingAttachmentUploadPlaceholderAttribute = NSAttributedString.Key(
         "cmux.textBoxPendingAttachmentUploadID"
     )
     private var attachmentPreviewPopover: NSPopover?
@@ -3502,6 +3510,7 @@ final class TextBoxInputTextView: NSTextView {
     private var preserveAttachmentFocusOnNextResign = false
     private var attachmentUploadInvalidationGeneration: UInt64 = 0
     var activePastePreparationTasks: [UUID: Task<Void, Never>] = [:]
+    var pendingPasteReservations: [UUID: TextBoxPendingPasteReservation] = [:]
     private var mentionCompletionPanel: TextBoxMentionCompletionPanel?
     private var mentionCompletionPanelHost: NSHostingView<TextBoxMentionCompletionPopoverView>?
     private var mentionCompletionControllerStorage: TextBoxMentionCompletionController?
@@ -3673,13 +3682,13 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     func clearContent(cleanupAttachmentFiles: Bool = true) {
+        invalidatePendingAttachmentUploads()
         if cleanupAttachmentFiles {
             cleanupDisposableAttachmentFiles(
                 inlineAttachments(),
                 preservingActiveInlineAttachments: false
             )
         }
-        invalidatePendingAttachmentUploads()
         dismissMentionCompletions()
         clearAttachmentFocus(dismissPreview: true)
         textStorage?.setAttributedString(NSAttributedString(string: ""))
@@ -3737,6 +3746,7 @@ final class TextBoxInputTextView: NSTextView {
 
     func attributedContentForPreservation() -> NSAttributedString {
         let preserved = NSMutableAttributedString(attributedString: attributedString())
+        restorePendingPasteReservations(in: preserved)
         Self.removePendingAttachmentUploadPlaceholders(from: preserved)
         return preserved
     }
@@ -3833,17 +3843,7 @@ final class TextBoxInputTextView: NSTextView {
 
     func insertPendingAttachmentUploadPlaceholder(id: UUID) {
         window?.makeFirstResponder(self)
-        var attributes = currentTextAttributes()
-        attributes[Self.pendingAttachmentUploadPlaceholderAttribute] = id.uuidString
-        insertText(
-            NSAttributedString(
-                string: Self.pendingAttachmentUploadPlaceholderCharacter,
-                attributes: attributes
-            ),
-            replacementRange: selectedRange()
-        )
-        normalizeTextBaselineOffsets()
-        recenterSingleLineTextContainer()
+        _ = beginPendingPasteReservation(id: id)
     }
 
     @discardableResult
@@ -3851,27 +3851,7 @@ final class TextBoxInputTextView: NSTextView {
         id: UUID,
         with attachments: [TextBoxAttachment]
     ) -> Bool {
-        guard !attachments.isEmpty,
-              let textStorage,
-              let placeholderRange = pendingAttachmentUploadPlaceholderRange(id: id) else {
-            return false
-        }
-
-        attachments.forEach(TextBoxDraftAttachmentStorage.prepareDurableCopy)
-        let selectedRangeBeforeReplacement = selectedRange()
-        let inserted = inlineAttachmentAttributedString(for: attachments, replacing: placeholderRange)
-        textStorage.replaceCharacters(in: placeholderRange, with: inserted)
-        setSelectedRange(
-            adjustedSelectionRange(
-                selectedRangeBeforeReplacement,
-                replacing: placeholderRange,
-                insertedLength: inserted.length
-            )
-        )
-        normalizeTextBaselineOffsets()
-        recenterSingleLineTextContainer()
-        didChangeText()
-        return true
+        commitPendingPasteReservation(id: id, with: attachments)
     }
 
     @discardableResult
@@ -3879,63 +3859,19 @@ final class TextBoxInputTextView: NSTextView {
         id: UUID,
         withText insertedText: String
     ) -> Bool {
-        guard !insertedText.isEmpty,
-              let textStorage,
-              let placeholderRange = pendingAttachmentUploadPlaceholderRange(
-                id: id
-              ) else {
-            return false
-        }
-
-        let selectedRangeBeforeReplacement = selectedRange()
-        let attributedText = NSAttributedString(
-            string: insertedText,
-            attributes: currentTextAttributes()
-        )
-        textStorage.replaceCharacters(
-            in: placeholderRange,
-            with: attributedText
-        )
-        setSelectedRange(
-            adjustedSelectionRange(
-                selectedRangeBeforeReplacement,
-                replacing: placeholderRange,
-                insertedLength: attributedText.length
-            )
-        )
-        normalizeTextBaselineOffsets()
-        recenterSingleLineTextContainer()
-        didChangeText()
-        return true
+        commitPendingPasteReservation(id: id, withText: insertedText)
     }
 
     @discardableResult
     func removePendingAttachmentUploadPlaceholder(id: UUID) -> Bool {
-        guard let textStorage,
-              let placeholderRange = pendingAttachmentUploadPlaceholderRange(id: id) else {
-            return false
-        }
-
-        let selectedRangeBeforeRemoval = selectedRange()
-        textStorage.replaceCharacters(in: placeholderRange, with: NSAttributedString(string: ""))
-        setSelectedRange(
-            adjustedSelectionRange(
-                selectedRangeBeforeRemoval,
-                replacing: placeholderRange,
-                insertedLength: 0
-            )
-        )
-        normalizeTextBaselineOffsets()
-        recenterSingleLineTextContainer()
-        didChangeText()
-        return true
+        rollbackPendingPasteReservation(id: id)
     }
 
     func hasPendingAttachmentUploadPlaceholder() -> Bool {
         pendingAttachmentUploadPlaceholderRange(id: nil) != nil
     }
 
-    private func insertAttachments(
+    func insertAttachments(
         _ attachments: [TextBoxAttachment],
         replacementRange: NSRange
     ) {
@@ -4865,6 +4801,7 @@ final class TextBoxInputTextView: NSTextView {
     func invalidatePendingAttachmentUploads() {
         attachmentUploadInvalidationGeneration &+= 1
         cancelActivePastePreparations()
+        rollbackAllPendingPasteReservations(notifyingTextChange: false)
     }
 
     func submitIfAllowed() {
@@ -5253,7 +5190,7 @@ final class TextBoxInputTextView: NSTextView {
         return (attachments, range)
     }
 
-    private func isValidSelectedRange(_ range: NSRange) -> Bool {
+    func isValidSelectedRange(_ range: NSRange) -> Bool {
         guard range.location != NSNotFound,
               range.location >= 0,
               range.length >= 0 else {
@@ -5481,7 +5418,7 @@ final class TextBoxInputTextView: NSTextView {
         return character.rangeOfCharacter(from: .whitespacesAndNewlines) != nil
     }
 
-    private static func pendingAttachmentUploadPlaceholderRanges(
+    static func pendingAttachmentUploadPlaceholderRanges(
         in attributed: NSAttributedString,
         id: UUID?
     ) -> [NSRange] {
@@ -5513,7 +5450,7 @@ final class TextBoxInputTextView: NSTextView {
         }
     }
 
-    private func pendingAttachmentUploadPlaceholderRange(id: UUID?) -> NSRange? {
+    func pendingAttachmentUploadPlaceholderRange(id: UUID?) -> NSRange? {
         Self.pendingAttachmentUploadPlaceholderRanges(in: attributedString(), id: id).first
     }
 
@@ -5613,7 +5550,7 @@ final class TextBoxInputTextView: NSTextView {
         fileURL.standardizedFileURL.path
     }
 
-    private func adjustedSelectionRange(
+    func adjustedSelectionRange(
         _ selectedRange: NSRange,
         replacing replacedRange: NSRange,
         insertedLength: Int
