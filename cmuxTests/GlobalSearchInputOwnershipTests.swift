@@ -116,6 +116,84 @@ final class GlobalSearchInputOwnershipTests {
 #endif
     }
 
+    @Test func genericMarkedTextResponderOwnsOptionOnlyGlobalSearchShortcut() throws {
+#if DEBUG
+        let appDelegate = try #require(AppDelegate.shared)
+        let windowId = appDelegate.createMainWindow()
+        let window = try #require(window(withId: windowId))
+        defer {
+            GlobalSearchCoordinator.shared.dismissPalette()
+            closeWindow(window, appDelegate: appDelegate)
+        }
+
+        let textView = NSTextView(frame: NSRect(x: 8, y: 8, width: 240, height: 24))
+        window.contentView?.addSubview(textView)
+        window.makeKeyAndOrderFront(nil)
+        #expect(window.makeFirstResponder(textView))
+        textView.setMarkedText(
+            "かな",
+            selectedRange: NSRange(location: 2, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+        #expect(textView.hasMarkedText())
+
+        let shortcut = StoredShortcut(
+            key: "\r",
+            command: false,
+            shift: false,
+            option: true,
+            control: false
+        )
+        KeyboardShortcutSettings.setShortcut(shortcut, for: .globalSearch)
+        let event = try makeKeyDownEvent(
+            key: "\r",
+            modifiers: [.option],
+            keyCode: 36,
+            windowNumber: window.windowNumber
+        )
+
+        #expect(!shortcutRoutingShouldBypassForPrintableOptionText(event: event))
+        #expect(
+            !appDelegate.debugHandleCustomShortcut(event: event),
+            "Any marked NSTextInputClient must own non-Command input before Global Search routing"
+        )
+#else
+        Issue.record("Global Search input-ownership routing requires a DEBUG build")
+#endif
+    }
+
+    @Test func globalSearchRoutesWhileCommandPaletteIsEffective() throws {
+#if DEBUG
+        let appDelegate = try #require(AppDelegate.shared)
+        let windowId = appDelegate.createMainWindow()
+        let window = try #require(window(withId: windowId))
+        defer {
+            GlobalSearchCoordinator.shared.dismissPalette()
+            appDelegate.setCommandPaletteVisible(false, for: window)
+            closeWindow(window, appDelegate: appDelegate)
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        appDelegate.setCommandPaletteVisible(true, for: window)
+        GlobalSearchCoordinator.shared.dismissPalette()
+        #expect(!GlobalSearchCoordinator.shared.isPaletteVisible())
+        let event = try makeKeyDownEvent(
+            key: "f",
+            modifiers: [.command, .option],
+            keyCode: 3,
+            windowNumber: window.windowNumber
+        )
+
+        #expect(appDelegate.debugHandleCustomShortcut(event: event))
+        #expect(
+            GlobalSearchCoordinator.shared.isPaletteVisible(),
+            "The foreground Global Search action must run before command-palette shortcut swallowing"
+        )
+#else
+        Issue.record("Global Search command-palette routing requires a DEBUG build")
+#endif
+    }
+
     private func makeBrowserHarness(
         appDelegate: AppDelegate
     ) throws -> (window: NSWindow, panel: BrowserPanel, webView: CmuxWebView) {
