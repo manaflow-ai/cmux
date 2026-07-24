@@ -2481,7 +2481,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// To avoid stranding the user, the store's active row is only updated on a
     /// successful connect, and on failure the previously-active Mac (still the
     /// active row) is reconnected. A no-op when already connected to that Mac.
-    /// - Parameter macDeviceID: The stored Mac to switch to.
+    /// - Parameters:
+    ///   - macDeviceID: The stored physical Mac to switch to.
+    ///   - instanceTag: Exact saved app instance to switch to, or `nil` for
+    ///     legacy device-level routing.
     /// - Returns: `true` if the foreground connection now targets that Mac (or
     ///   already did), `false` if the switch could not connect — so callers like
     ///   `openWorkspace` can avoid selecting a workspace whose Mac is not live.

@@ -16,6 +16,7 @@ struct WorkspaceMachineSnapshots: Equatable {
         filterMachineIDFor: (String) -> String = { $0 },
         macPickerMachineIDs: Set<String>,
         namesByID: [String: String],
+        buildLabelsByID: [String: String] = [:],
         fallbackName: String
     ) {
         let filterMachineIDs = Set(
@@ -23,11 +24,25 @@ struct WorkspaceMachineSnapshots: Equatable {
         )
         self.filterMachines = filterMachineIDs.count > 1
             ? filterMachineIDs
-                .map { WorkspaceFilterMachine(id: $0, namesByID: namesByID, fallbackName: fallbackName) }
+                .map {
+                    WorkspaceFilterMachine(
+                        id: $0,
+                        namesByID: namesByID,
+                        buildLabel: nil,
+                        fallbackName: fallbackName
+                    )
+                }
                 .sortedForMenuDisplay()
             : []
         self.macPickerMachines = macPickerMachineIDs
-            .map { WorkspaceFilterMachine(id: $0, namesByID: namesByID, fallbackName: fallbackName) }
+            .map {
+                WorkspaceFilterMachine(
+                    id: $0,
+                    namesByID: namesByID,
+                    buildLabel: buildLabelsByID[$0],
+                    fallbackName: fallbackName
+                )
+            }
             .sortedForMenuDisplay()
     }
 }

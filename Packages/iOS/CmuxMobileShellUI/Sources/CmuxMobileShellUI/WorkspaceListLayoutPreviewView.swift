@@ -1,4 +1,5 @@
 #if canImport(UIKit) && DEBUG
+import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -146,6 +147,39 @@ public struct WorkspaceListLayoutPreviewView: View {
         ),
     ]
 
+    private static let previewPairedMacs: [MobilePairedMac] = [
+        MobilePairedMac(
+            macDeviceID: "preview-macbook-pro",
+            displayName: "MacBook Pro",
+            routes: [],
+            createdAt: Date(timeIntervalSince1970: 0),
+            lastSeenAt: Date(timeIntervalSince1970: 2),
+            isActive: true,
+            stackUserID: nil,
+            instanceTag: "nightly"
+        ),
+        MobilePairedMac(
+            macDeviceID: "preview-macbook-pro",
+            displayName: "MacBook Pro",
+            routes: [],
+            createdAt: Date(timeIntervalSince1970: 0),
+            lastSeenAt: Date(timeIntervalSince1970: 1),
+            isActive: false,
+            stackUserID: nil,
+            instanceTag: "stable"
+        ),
+        MobilePairedMac(
+            macDeviceID: "preview-studio",
+            displayName: "Studio Display Bench With A Very Long Name",
+            routes: [],
+            createdAt: Date(timeIntervalSince1970: 0),
+            lastSeenAt: Date(timeIntervalSince1970: 0),
+            isActive: false,
+            stackUserID: nil,
+            instanceTag: "stable"
+        ),
+    ]
+
     private static let seedNames = [
         "cmux", "iOS avatar tuning", "Docs", "Sidebar perf", "Typing latency",
         "Release prep", "Chip gallery", "Diff viewer", "Workspace todos", "Super search",
@@ -250,6 +284,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                             },
                             createWorkspace: {},
                             macSelection: $macSelection,
+                            previewDisplayPairedMacs: Self.previewPairedMacs,
                             refresh: {
                                 await MainActor.run {
                                     let current = workspacesBinding.wrappedValue

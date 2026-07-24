@@ -21,8 +21,15 @@ public enum MobileTaskDirectorySearchFailure: Error, Equatable, Sendable {
 
 extension MobileShellComposite {
     /// Returns matching Mac directories with explicit index and filesystem coverage.
+    /// - Parameters:
+    ///   - macDeviceID: Physical Mac that owns the filesystem.
+    ///   - instanceTag: Exact paired app instance to query, or `nil` for
+    ///     legacy device-level routing.
+    ///   - rawQuery: User-entered directory search text.
+    /// - Returns: Matching directories or a user-actionable failure.
     public func searchTaskDirectories(
         macDeviceID: String,
+        instanceTag: String? = nil,
         query rawQuery: String
     ) async -> Result<MobileTaskDirectorySearchResponse, MobileTaskDirectorySearchFailure> {
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -32,10 +39,14 @@ extension MobileShellComposite {
                 searchScope: .contextualCandidatesOnly
             ))
         }
-        if macDeviceID != foregroundMacDeviceID || remoteClient == nil {
-            guard await switchToMac(macDeviceID: macDeviceID) else { return .failure(.unavailable) }
+        if !matchesForegroundPairing(macDeviceID: macDeviceID, instanceTag: instanceTag)
+            || remoteClient == nil {
+            guard await switchToMac(macDeviceID: macDeviceID, instanceTag: instanceTag) else {
+                return .failure(.unavailable)
+            }
         }
-        guard !Task.isCancelled, foregroundMacDeviceID == macDeviceID,
+        guard !Task.isCancelled,
+              matchesForegroundPairing(macDeviceID: macDeviceID, instanceTag: instanceTag),
               let client = remoteClient else { return .failure(.cancelled) }
         let generation = connectionGeneration
         // The last learned capability set can be stale after a tagged Mac
@@ -47,7 +58,8 @@ extension MobileShellComposite {
                 params: ["query": query]
             )
             let data = try await client.sendRequest(request, timeoutNanoseconds: 4_000_000_000)
-            guard !Task.isCancelled, foregroundMacDeviceID == macDeviceID else {
+            guard !Task.isCancelled,
+                  matchesForegroundPairing(macDeviceID: macDeviceID, instanceTag: instanceTag) else {
                 return .failure(.cancelled)
             }
             return .success(try MobileTaskDirectorySearchResponse.decode(data))
@@ -168,6 +180,8 @@ extension MobileShellComposite {
     /// Submit a task-composer workspace create request to the selected Mac.
     /// - Parameters:
     ///   - macDeviceID: Target Mac device id.
+    ///   - instanceTag: Exact paired app instance to target, or `nil` for
+    ///     legacy device-level routing.
     ///   - spec: Workspace-create parameters derived from the selected template.
     ///   - willStartCreate: Optional main-actor callback invoked after the target
     ///     Mac and capability are resolved, immediately before the create begins.
@@ -175,6 +189,7 @@ extension MobileShellComposite {
     @discardableResult
     public func submitTaskComposer(
         macDeviceID: String,
+        instanceTag: String? = nil,
         spec: MobileWorkspaceCreateSpec,
         willStartCreate: (@MainActor () -> Void)? = nil
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
@@ -183,20 +198,42 @@ extension MobileShellComposite {
         // must not skip the switch, or the create fails as not-connected without
         // ever attempting a re-dial. `switchToMac` short-circuits when the
         // foreground connection to this Mac is genuinely live.
-        if macDeviceID != foregroundMacDeviceID || remoteClient == nil {
-            guard await switchToMac(macDeviceID: macDeviceID) else {
-                return .failure(.notConnected(hostDisplayName: taskComposerTargetName(macDeviceID: macDeviceID)))
+        if !matchesForegroundPairing(macDeviceID: macDeviceID, instanceTag: instanceTag)
+            || remoteClient == nil {
+            guard await switchToMac(macDeviceID: macDeviceID, instanceTag: instanceTag) else {
+                return .failure(.notConnected(
+                    hostDisplayName: taskComposerTargetName(
+                        macDeviceID: macDeviceID,
+                        instanceTag: instanceTag
+                    )
+                ))
             }
         }
         guard !Task.isCancelled else {
-            return .failure(.notConnected(hostDisplayName: taskComposerTargetName(macDeviceID: macDeviceID)))
+            return .failure(.notConnected(
+                hostDisplayName: taskComposerTargetName(
+                    macDeviceID: macDeviceID,
+                    instanceTag: instanceTag
+                )
+            ))
         }
         guard let pinnedContext = captureWorkspaceCreateContext(),
-              pinnedContext.macDeviceID == macDeviceID else {
-            return .failure(.notConnected(hostDisplayName: taskComposerTargetName(macDeviceID: macDeviceID)))
+              pinnedContext.macDeviceID == macDeviceID,
+              instanceTag == nil || pinnedContext.instanceTag == instanceTag else {
+            return .failure(.notConnected(
+                hostDisplayName: taskComposerTargetName(
+                    macDeviceID: macDeviceID,
+                    instanceTag: instanceTag
+                )
+            ))
         }
         guard pinnedContext.supportedHostCapabilities.contains(Self.taskCreateCapability) else {
-            return .failure(.unsupported(hostDisplayName: taskComposerTargetName(macDeviceID: macDeviceID)))
+            return .failure(.unsupported(
+                hostDisplayName: taskComposerTargetName(
+                    macDeviceID: macDeviceID,
+                    instanceTag: instanceTag
+                )
+            ))
         }
         guard !Task.isCancelled else {
             return .failure(.notConnected(hostDisplayName: pinnedContext.hostDisplayName))
@@ -208,9 +245,20 @@ extension MobileShellComposite {
         )
     }
 
-    private func taskComposerTargetName(macDeviceID: String) -> String {
-        displayPairedMacs.first { $0.macDeviceID == macDeviceID }?.resolvedName
-            ?? pairedMacs.first { $0.macDeviceID == macDeviceID }?.resolvedName
+    private func taskComposerTargetName(macDeviceID: String, instanceTag: String?) -> String {
+        displayPairedMacs.first {
+            $0.macDeviceID == macDeviceID
+                && (instanceTag == nil || $0.instanceTag == instanceTag)
+        }?.resolvedName
+            ?? pairedMacs.first {
+                $0.macDeviceID == macDeviceID
+                    && (instanceTag == nil || $0.instanceTag == instanceTag)
+            }?.resolvedName
             ?? macDeviceID
+    }
+
+    private func matchesForegroundPairing(macDeviceID: String, instanceTag: String?) -> Bool {
+        foregroundMacDeviceID == macDeviceID
+            && (instanceTag == nil || activeMacInstanceTag == instanceTag)
     }
 }

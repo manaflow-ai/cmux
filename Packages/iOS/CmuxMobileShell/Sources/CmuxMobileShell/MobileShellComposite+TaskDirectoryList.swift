@@ -10,6 +10,8 @@ extension MobileShellComposite {
     ///
     /// - Parameters:
     ///   - macDeviceID: The paired Mac that owns the filesystem.
+    ///   - instanceTag: Exact paired app instance to query, or `nil` for
+    ///     legacy device-level routing.
     ///   - path: An absolute path, `~`, or a path beginning with `~/`.
     ///   - offset: A nonnegative entry offset in the directory's stable order.
     ///   - limit: A page size from `1` through
@@ -17,6 +19,7 @@ extension MobileShellComposite {
     /// - Returns: A validated page, or a typed user-actionable failure.
     public func listTaskDirectories(
         macDeviceID: String,
+        instanceTag: String? = nil,
         path: String,
         offset: Int = 0,
         limit: Int = MobileTaskDirectoryListRequest.defaultPageSize
@@ -29,12 +32,16 @@ extension MobileShellComposite {
             return .failure(.invalidPath)
         }
 
-        if macDeviceID != foregroundMacDeviceID || remoteClient == nil {
-            guard await switchToMac(macDeviceID: macDeviceID) else {
+        let matchesForegroundPairing = foregroundMacDeviceID == macDeviceID
+            && (instanceTag == nil || activeMacInstanceTag == instanceTag)
+        if !matchesForegroundPairing || remoteClient == nil {
+            guard await switchToMac(macDeviceID: macDeviceID, instanceTag: instanceTag) else {
                 return .failure(Task.isCancelled ? .cancelled : .unavailable)
             }
         }
-        guard !Task.isCancelled, foregroundMacDeviceID == macDeviceID,
+        guard !Task.isCancelled,
+              foregroundMacDeviceID == macDeviceID,
+              instanceTag == nil || activeMacInstanceTag == instanceTag,
               let client = remoteClient else {
             return .failure(.cancelled)
         }
@@ -53,7 +60,9 @@ extension MobileShellComposite {
                 requestData,
                 timeoutNanoseconds: 4_000_000_000
             )
-            guard !Task.isCancelled, foregroundMacDeviceID == macDeviceID else {
+            guard !Task.isCancelled,
+                  foregroundMacDeviceID == macDeviceID,
+                  instanceTag == nil || activeMacInstanceTag == instanceTag else {
                 return .failure(.cancelled)
             }
             return .success(try MobileTaskDirectoryListResponse.decode(data))

@@ -1,3 +1,4 @@
+import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -43,12 +44,17 @@ struct WorkspaceListView: View {
     /// Which Mac's workspaces the list is focused on. Owned by the shell so
     /// every create-workspace entrypoint shares the same selected-Mac gate.
     @Binding var macSelection: WorkspaceMacSelection
-    /// Switch the foreground Mac before applying a machine-scoped title-picker
-    /// filter. `nil` in previews, where the picker remains a pure local filter.
-    var switchMac: (@MainActor (String) async -> Bool)? = nil
+    /// Switch the foreground Mac app instance before applying a machine-scoped
+    /// title-picker filter. `nil` in previews, where the picker remains a pure
+    /// local filter.
+    var switchMac: (@MainActor (String, String?) async -> Bool)? = nil
     /// Cancels a title-picker switch that is still in flight. `nil` in previews,
     /// where no real foreground connection exists.
     var cancelMacSwitch: (@MainActor (_ restorePreviousOnCancel: Bool) async -> Void)? = nil
+    #if DEBUG
+    /// Pairing rows supplied by the store-free workspace-list simulator fixture.
+    var previewDisplayPairedMacs: [MobilePairedMac] = []
+    #endif
     /// Pull-to-refresh action. Awaits the real workspace-list re-sync from the
     /// paired Mac so the system refresh spinner reflects actual completion (and
     /// ends gracefully, leaving the list intact, when the Mac is offline). Passed
@@ -472,16 +478,8 @@ struct WorkspaceListView: View {
     }
 
     private func shouldSwitchForMacTitlePickerMachine(_ id: String) -> Bool {
-        guard switchMac != nil, let store else { return false }
-        let scope = macSelectionScope
-        let targetIDs = scope.aliasIndex.filterMachineIDs(for: id)
-        if !scope.foregroundMachineIDs.isDisjoint(with: targetIDs) {
-            return false
-        }
-        return store.displayPairedMacs.contains { mac in
-            let pairedMacIDs = scope.aliasIndex.filterMachineIDs(for: mac.macDeviceID)
-            return !pairedMacIDs.isDisjoint(with: targetIDs)
-        }
+        guard switchMac != nil, store != nil else { return false }
+        return macSelectionScope.shouldSwitch(to: id)
     }
 
     @discardableResult
@@ -537,12 +535,14 @@ struct WorkspaceListView: View {
             macSelection = selection
         case .machine(let id):
             guard isCurrentSwitchRequest() else { return }
-            guard shouldSwitchForMacTitlePickerMachine(id), let switchMac else {
+            guard shouldSwitchForMacTitlePickerMachine(id),
+                  let target = macSelectionScope.switchTarget(for: id),
+                  let switchMac else {
                 macTitlePickerPendingSelection = nil
                 macSelection = selection
                 return
             }
-            let switched = await switchMac(id)
+            let switched = await switchMac(target.macDeviceID, target.instanceTag)
             guard isCurrentSwitchRequest() else { return }
             macTitlePickerPendingSelection = nil
             guard switched else { return }
