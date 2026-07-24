@@ -129,12 +129,12 @@ extension TerminalController {
             guard let self else { return }
             var tab = self.controlSidebarResolveMutationTab(target)
             if let panelID, case .workspace = target,
-               tab?.panels.keys.contains(panelID) != true,
+               tab?.controlReportingSurfaceIds.contains(panelID) != true,
                let owner = AppDelegate.shared?.workspaceContainingPanel(panelId: panelID) {
                 tab = owner.workspace
             }
             guard let tab else { return }
-            if let panelID, !tab.panels.keys.contains(panelID) { return }
+            if let panelID, !tab.controlReportingSurfaceIds.contains(panelID) { return }
             mutation(self, tab)
         }
     }
@@ -156,7 +156,7 @@ extension TerminalController {
                       let tab = self.controlSidebarTabForMutation(id: scope.workspaceID) else {
                     return
                 }
-                let validSurfaceIds = Set(tab.panels.keys)
+                let validSurfaceIds = tab.controlReportingSurfaceIds
                 tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
                 guard validSurfaceIds.contains(scope.panelID) else { return }
                 mutation(tab, scope.panelID)
@@ -171,9 +171,9 @@ extension TerminalController {
                   let tab = self.controlSidebarResolveTabForReport(tabArg: tabArg) else {
                 return
             }
-            let validSurfaceIds = Set(tab.panels.keys)
+            let validSurfaceIds = tab.controlReportingSurfaceIds
             tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
-            guard let surfaceId = surfaceIdFromOptions ?? tab.focusedPanelId else { return }
+            guard let surfaceId = surfaceIdFromOptions ?? tab.controlReportingFocusedSurfaceId else { return }
             guard validSurfaceIds.contains(surfaceId) else { return }
             mutation(tab, surfaceId)
         }
@@ -191,7 +191,7 @@ extension TerminalController {
                   let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
                 return
             }
-            let validSurfaceIds = Set(tab.panels.keys)
+            let validSurfaceIds = tab.controlReportingSurfaceIds
             tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
             guard validSurfaceIds.contains(scope.panelID) else { return }
             self.controlSidebarApplyDirectoryReport(
@@ -265,7 +265,7 @@ extension TerminalController {
         }
 
         if prune {
-            let validSurfaceIds = Set(tab.panels.keys)
+            let validSurfaceIds = tab.controlReportingSurfaceIds
             tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
         }
 
@@ -279,14 +279,14 @@ extension TerminalController {
             }
             surfaceId = parsedId
         } else {
-            guard let focused = tab.focusedPanelId else {
+            guard let focused = tab.controlReportingFocusedSurfaceId else {
                 return .noFocusedPanel
             }
             surfaceId = focused
         }
 
         if requireLiveSurface {
-            let validSurfaceIds = Set(tab.panels.keys)
+            let validSurfaceIds = tab.controlReportingSurfaceIds
             guard validSurfaceIds.contains(surfaceId) else {
                 return .panelNotFound(surfaceId)
             }

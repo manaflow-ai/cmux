@@ -324,6 +324,7 @@ class TabManager: ObservableObject {
                 }
             }
             publishCmuxWorkspaceSelectedChange(from: previousTabId)
+            AppDelegate.shared?.refreshWorkspaceFloatingDocks(for: self)
             let notificationDismissalContext = notificationDismissal.takePendingSelectionContext() ?? .activeFocus
 #if DEBUG
             let switchId = debugWorkspaceSwitchId
@@ -428,6 +429,7 @@ class TabManager: ObservableObject {
     private var closeConfirmationInFlight = false
     let closeTabWarningDefaults: UserDefaults
     var confirmCloseHandler: ((String, String, Bool) -> Bool)?
+    private var pendingAutosaveCloseWorkspaceIds: Set<UUID> = []
     private var agentPIDSweepTimer: DispatchSourceTimer?
 #if DEBUG
     private var debugWorkspaceSwitchCounter: UInt64 = 0
@@ -2056,8 +2058,23 @@ class TabManager: ObservableObject {
         )
     }
 
-    func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true) {
-        guard tabs.count > 1 else { return }
+    @discardableResult
+    func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true) -> Bool {
+        guard tabs.count > 1 else { return false }
+        if workspace.needsAutosavingNoteFlush {
+            guard pendingAutosaveCloseWorkspaceIds.insert(workspace.id).inserted else { return true }
+            Task { @MainActor [weak self, weak workspace] in
+                guard let self, let workspace else { return }
+                let saved = await workspace.flushPendingAutosavingNotes()
+                self.pendingAutosaveCloseWorkspaceIds.remove(workspace.id)
+                guard saved else {
+                    NSSound.beep()
+                    return
+                }
+                self.closeWorkspace(workspace, recordHistory: recordHistory)
+            }
+            return true
+        }
         panelTitleUpdateCoalescer.flushNow()
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
         // Closing a mirrored remote tmux workspace DETACHES from the remote session,
@@ -2118,6 +2135,7 @@ class TabManager: ObservableObject {
             }
         }
         publishCmuxWorkspaceClosed(workspace)
+        return true
     }
 
     /// Detach a workspace from this window without closing its panels.
@@ -5678,6 +5696,7 @@ extension TabManager {
             hasher.combine(workspace.panelPullRequests.count)
             hasher.combine(workspace.panelGitBranches.count)
             hasher.combine(workspace.surfaceListeningPorts.count); workspace.combineTodoStateIntoSessionAutosaveFingerprint(into: &hasher)
+            workspace.combineFloatingDocksIntoSessionAutosaveFingerprint(into: &hasher)
             hasher.combine(notificationStore?.hasManualUnread(forTabId: workspace.id) ?? false)
             hasher.combine(notificationStore?.workspaceIsUnread(forTabId: workspace.id) ?? false)
             Self.hashNotifications(

@@ -14,6 +14,44 @@ protocol FilePreviewTextEditingPanel: AnyObject {
     func saveTextContent() -> Task<Void, Never>?
 }
 
+enum FilePreviewTextEditorStyle: Equatable, Sendable {
+    case file
+    case note
+
+    var textContainerInset: NSSize {
+        switch self {
+        case .file:
+            NSSize(width: 12, height: 10)
+        case .note:
+            NSSize(width: 40, height: 32)
+        }
+    }
+
+    var defaultFontSize: CGFloat {
+        switch self {
+        case .file: 13
+        case .note: 14
+        }
+    }
+
+    var placeholder: String? {
+        guard self == .note else { return nil }
+        return String(
+            localized: "floatingDock.note.placeholder",
+            defaultValue: "Start writing..."
+        )
+    }
+
+    func font(ofSize size: CGFloat) -> NSFont {
+        switch self {
+        case .file:
+            GlobalFontMagnification.monospacedSystemFont(ofSize: size, weight: .regular)
+        case .note:
+            GlobalFontMagnification.systemFont(ofSize: size, weight: .regular)
+        }
+    }
+}
+
 struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: ObservableObject & FilePreviewTextEditingPanel {
     @ObservedObject var panel: PanelModel
     let isVisibleInUI: Bool
@@ -23,6 +61,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     /// Whether long lines soft-wrap at the editor's right edge. Sourced from
     /// the persisted `fileEditor.wordWrap` setting; updates apply live.
     let wordWrap: Bool
+    let style: FilePreviewTextEditorStyle
 
     func makeCoordinator() -> Coordinator {
         Coordinator(panel: panel)
@@ -42,6 +81,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         textView.delegate = context.coordinator
         textView.drawsBackground = drawsBackground
         textView.string = panel.textContent
+        textView.applyFilePreviewTextEditorStyle(style)
         panel.attachTextView(textView)
 
         scrollView.documentView = textView
@@ -66,12 +106,13 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         )
         guard let textView = scrollView.documentView as? SavingTextView else { return }
         textView.panel = panel
-        textView.applyFilePreviewTextEditorInsets()
+        textView.applyFilePreviewTextEditorStyle(style)
         textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
         panel.attachTextView(textView)
         guard textView.string != panel.textContent else { return }
         context.coordinator.isApplyingPanelUpdate = true
         textView.string = panel.textContent
+        textView.needsDisplay = true
         context.coordinator.isApplyingPanelUpdate = false
     }
 
@@ -91,6 +132,9 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             textView.backgroundColor = resolvedBackgroundColor
             textView.textColor = foregroundColor
             textView.insertionPointColor = foregroundColor
+            if let savingTextView = textView as? SavingTextView {
+                savingTextView.placeholderForegroundColor = foregroundColor.withAlphaComponent(0.32)
+            }
         }
     }
 
@@ -107,13 +151,15 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         func textDidChange(_ notification: Notification) {
             guard !isApplyingPanelUpdate,
                   let textView = notification.object as? NSTextView else { return }
+            textView.needsDisplay = true
             panel.updateTextContent(textView.string)
         }
     }
 }
 
 enum FilePreviewTextEditorLayout {
-    static let textContainerInset = NSSize(width: 12, height: 10)
+    static let textContainerInset = FilePreviewTextEditorStyle.file.textContainerInset
+    static let noteTextContainerInset = FilePreviewTextEditorStyle.note.textContainerInset
     static let lineFragmentPadding: CGFloat = 0
 }
 
@@ -164,7 +210,7 @@ extension SavingTextView {
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = true
         textView.autoresizingMask = [.width]
-        textView.applyFilePreviewTextEditorInsets()
+        textView.applyFilePreviewTextEditorInsets(for: .file)
         return textView
     }
 }
@@ -200,8 +246,8 @@ extension NSTextView {
         }
     }
 
-    func applyFilePreviewTextEditorInsets() {
-        let targetInset = FilePreviewTextEditorLayout.textContainerInset
+    func applyFilePreviewTextEditorInsets(for style: FilePreviewTextEditorStyle) {
+        let targetInset = style.textContainerInset
         if textContainerInset.width != targetInset.width || textContainerInset.height != targetInset.height {
             textContainerInset = targetInset
         }
@@ -212,7 +258,6 @@ extension NSTextView {
 }
 
 final class SavingTextView: NSTextView {
-    private static let defaultPreviewFontSize: CGFloat = 13
     private static let minimumPreviewFontSize: CGFloat = 8
     private static let maximumPreviewFontSize: CGFloat = 36
     private static let previewFontZoomShortcutActions: [KeyboardShortcutSettings.Action] = [
@@ -222,7 +267,12 @@ final class SavingTextView: NSTextView {
     ]
 
     weak var panel: (any FilePreviewTextEditingPanel)?
-    private var previewFontSize: CGFloat = 13
+    private(set) var filePreviewEditorStyle = FilePreviewTextEditorStyle.file
+    private(set) var filePreviewPlaceholder: String?
+    var placeholderForegroundColor = NSColor.placeholderTextColor {
+        didSet { needsDisplay = true }
+    }
+    private var previewFontSize = FilePreviewTextEditorStyle.file.defaultFontSize
     private var pendingEditorShortcutChordPrefix: ShortcutStroke?
     private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
 
@@ -251,8 +301,54 @@ final class SavingTextView: NSTextView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         clearPendingShortcutChordPrefixes()
-        applyFilePreviewTextEditorInsets()
+        applyFilePreviewTextEditorStyle(filePreviewEditorStyle)
         panel?.retryPendingFocus()
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard string.isEmpty,
+              !hasMarkedText(),
+              let filePreviewPlaceholder,
+              !filePreviewPlaceholder.isEmpty else { return }
+
+        let placeholderFont = font ?? filePreviewEditorStyle.font(ofSize: previewFontSize)
+        let origin = textContainerOrigin
+        let lineFragmentPadding = textContainer?.lineFragmentPadding ?? 0
+        let drawingRect = NSRect(
+            x: origin.x + lineFragmentPadding,
+            y: origin.y,
+            width: max(0, bounds.width - origin.x - lineFragmentPadding),
+            height: ceil(placeholderFont.ascender - placeholderFont.descender + placeholderFont.leading)
+        )
+        (filePreviewPlaceholder as NSString).draw(
+            with: drawingRect,
+            options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+            attributes: [
+                .font: placeholderFont,
+                .foregroundColor: placeholderForegroundColor,
+            ]
+        )
+    }
+
+    override func didChangeText() {
+        super.didChangeText()
+        needsDisplay = true
+    }
+
+    func applyFilePreviewTextEditorStyle(_ style: FilePreviewTextEditorStyle) {
+        if style != filePreviewEditorStyle {
+            let usedPreviousDefault = abs(previewFontSize - filePreviewEditorStyle.defaultFontSize) < 0.0001
+            filePreviewEditorStyle = style
+            if usedPreviousDefault {
+                previewFontSize = style.defaultFontSize
+            }
+        }
+        filePreviewPlaceholder = style.placeholder
+        setAccessibilityPlaceholderValue(filePreviewPlaceholder)
+        applyFilePreviewTextEditorInsets(for: style)
+        applyCurrentPreviewFont()
+        needsDisplay = true
     }
 
     override func resignFirstResponder() -> Bool {
@@ -288,7 +384,7 @@ final class SavingTextView: NSTextView {
     }
 
     override func smartMagnify(with event: NSEvent) {
-        if previewFontSize == Self.defaultPreviewFontSize {
+        if previewFontSize == filePreviewEditorStyle.defaultFontSize {
             _ = setPreviewFontSize(18)
         } else {
             _ = resetPreviewFontSize()
@@ -307,7 +403,7 @@ final class SavingTextView: NSTextView {
 
     @discardableResult
     func resetPreviewFontSize() -> Bool {
-        setPreviewFontSize(Self.defaultPreviewFontSize)
+        setPreviewFontSize(filePreviewEditorStyle.defaultFontSize)
     }
 
     @discardableResult
@@ -326,7 +422,7 @@ final class SavingTextView: NSTextView {
     }
 
     func applyCurrentPreviewFont() {
-        let nextFont = GlobalFontMagnification.monospacedSystemFont(ofSize: previewFontSize, weight: .regular)
+        let nextFont = filePreviewEditorStyle.font(ofSize: previewFontSize)
         font = nextFont
         typingAttributes[.font] = nextFont
     }

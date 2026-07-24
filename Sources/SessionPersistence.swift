@@ -30,6 +30,8 @@ enum SessionPersistencePolicy {
     static let maxWindowsPerSnapshot: Int = 12
     static let maxWorkspacesPerWindow: Int = 128
     static let maxPanelsPerWorkspace: Int = 512
+    static let maxFloatingDocksPerWorkspace: Int = 32
+    static let maxFloatingDockPanelsPerWorkspace: Int = 128
     static let maxScrollbackLinesPerTerminal: Int = 4000
     static let maxScrollbackCharactersPerTerminal: Int = 400_000
 
@@ -1634,6 +1636,8 @@ struct SessionMarkdownPanelSnapshot: Codable, Sendable {
 }
 struct SessionFilePreviewPanelSnapshot: Codable, Sendable {
     var filePath: String
+    /// Present when this file preview is an autosaving Floating Dock note.
+    var noteTitle: String? = nil
 }
 struct SessionCustomSidebarPanelSnapshot: Codable, Sendable { var name: String }
 /// Marker for a workspace todo pane; the pane has no content of its own (the checklist
@@ -1809,6 +1813,8 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// Canvas pane frames in z-order; persisted whenever any exist so
     /// positions survive toggling back to splits across restarts.
     var canvasPanes: [SessionCanvasPaneSnapshot]? = nil
+    /// Workspace-scoped window-like Dock containers.
+    var floatingDocks: [SessionFloatingDockSnapshot]? = nil
     var panels: [SessionPanelSnapshot]
     var statusEntries: [SessionStatusEntrySnapshot]
     var logEntries: [SessionLogEntrySnapshot]

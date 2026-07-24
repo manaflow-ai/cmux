@@ -22,6 +22,9 @@ public enum ControlSurfaceCloseResolution: Sendable, Equatable {
     /// The close call failed (legacy `internal_error` / "Failed to close surface",
     /// `data: {"surface_id": …}`). Carries the surface id.
     case closeFailed(UUID)
+    /// Note persistence is still running. The request was accepted, and callers
+    /// can poll `surface.list` until this identity disappears.
+    case pending(windowID: UUID?, workspaceID: UUID, surfaceID: UUID)
     /// The surface was closed. Carries the echoed identity.
     case closed(windowID: UUID?, workspaceID: UUID, surfaceID: UUID)
 }

@@ -2,6 +2,20 @@
 
 Global app preferences live in `~/.config/cmux/cmux.json`.
 
+## `shortcuts.bindings.newWorkspaceFloatingDock`
+
+Creates a terminal floating window in the current workspace. If another floating window is active, macOS cascades the new one from it. The default shortcut is `cmd+ctrl+n`. Rebind it in **Settings > Keyboard Shortcuts** or `cmux.json`:
+
+```json
+{
+  "shortcuts": {
+    "bindings": {
+      "newWorkspaceFloatingDock": "cmd+ctrl+n"
+    }
+  }
+}
+```
+
 ## `mobile.artifactFolderAccess`
 
 Controls which files and folders cmux on iOS may browse after a chat references a directory or a directory path appears in a terminal.

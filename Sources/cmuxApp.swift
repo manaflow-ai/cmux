@@ -554,6 +554,14 @@ struct cmuxApp: App {
                     ) {
                         BonsplitTabBarDebugWindowController.shared.show()
                     }
+                    Button(
+                        String(
+                            localized: "debug.menu.floatingDockTextureDebug",
+                            defaultValue: "Floating Dock Texture Debug…"
+                        )
+                    ) {
+                        WorkspaceFloatingDockTextureDebugWindowController.shared.show()
+                    }
                     Button("Browser Import Hint Debug…") {
                         BrowserImportHintDebugWindowController.shared.show()
                     }
@@ -1418,6 +1426,7 @@ struct cmuxApp: App {
         FeedTextEditorDebugWindowController.shared.show()
         FeedButtonStyleDebugWindowController.shared.show()
         BonsplitTabBarDebugWindowController.shared.show()
+        WorkspaceFloatingDockTextureDebugWindowController.shared.show()
         SplitButtonLayoutDebugWindowController.shared.show()
     }
 #endif
@@ -1471,6 +1480,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.titlebarLayoutDebug",
     "cmux.devWindowDisplay",
     "cmux.mobilePairingWindow",
+    "cmux.workspaceFloatingDockTextureDebug",
 ]
 
 /// Returns whether the given window should handle the standard close shortcut
@@ -1479,6 +1489,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
 func cmuxWindowShouldOwnCloseShortcut(_ window: NSWindow?) -> Bool {
     guard let identifier = window?.identifier?.rawValue else { return false }
     return cmuxAuxiliaryWindowIdentifiers.contains(identifier)
+        || identifier.hasPrefix(cmuxWorkspaceFloatingDockWindowIdentifierPrefix)
 }
 
 private enum DebugWindowConfigSnapshot {

@@ -624,6 +624,16 @@ extension ControlCommandCoordinator {
                 message: "Failed to close surface",
                 data: .object(["surface_id": .string(id.uuidString)])
             )
+        case .pending(let windowID, let workspaceID, let surfaceID):
+            return .ok(.object([
+                "workspace_id": .string(workspaceID.uuidString),
+                "workspace_ref": ref(.workspace, workspaceID),
+                "surface_id": .string(surfaceID.uuidString),
+                "surface_ref": ref(.surface, surfaceID),
+                "window_id": orNull(windowID?.uuidString),
+                "window_ref": ref(.window, windowID),
+                "status": .string("pending"),
+            ]))
         case .closed(let windowID, let workspaceID, let surfaceID):
             return .ok(.object([
                 "workspace_id": .string(workspaceID.uuidString),

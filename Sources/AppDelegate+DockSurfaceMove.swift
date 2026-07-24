@@ -39,9 +39,37 @@ extension AppDelegate {
 
     /// Whether a live surface can leave its current owner and be driven from
     /// `destinationDock`.
-    func canMoveSurfaceIntoDock(sourceTabId: UUID, destinationDock _: DockSplitStore) -> Bool {
+    func canMoveSurfaceIntoDock(sourceTabId: UUID, destinationDock: DockSplitStore) -> Bool {
         guard let source = locateContainerSurface(tabId: sourceTabId) else { return false }
-        return canMoveSurfaceIntoDock(source)
+        return canMoveSurfaceIntoDock(source) &&
+            floatingDockSupportsPersistenceForMove(source, destinationDock: destinationDock) &&
+            floatingDockHasCapacityForMove(source, destinationDock: destinationDock)
+    }
+
+    private func floatingDockSupportsPersistenceForMove(
+        _ source: ContainerSurfaceLocation,
+        destinationDock: DockSplitStore
+    ) -> Bool {
+        guard workspaceFloatingDock(owning: destinationDock) != nil else { return true }
+        let panel: (any Panel)? = switch source {
+        case .workspace(_, let workspace, let panelId, _): workspace.panels[panelId]
+        case .dock(let dock, let panelId): dock.panels[panelId]
+        }
+        guard let panel else { return false }
+        return DockSplitStore.supportsFloatingDockPersistence(panel)
+    }
+
+    private func floatingDockHasCapacityForMove(
+        _ source: ContainerSurfaceLocation,
+        destinationDock: DockSplitStore
+    ) -> Bool {
+        guard let destination = workspaceFloatingDock(owning: destinationDock) else { return true }
+        if case .dock(let sourceDock, _) = source,
+           let sourceFloatingDock = workspaceFloatingDock(owning: sourceDock),
+           sourceFloatingDock.workspace === destination.workspace {
+            return true
+        }
+        return destination.workspace.canCreateFloatingDockPanel
     }
 
     /// Whether the right sidebar (Files / Find / Dock) currently owns input
@@ -61,34 +89,15 @@ extension AppDelegate {
     /// owns a pane. Used by the portal drop target to route a tab dropped on a
     /// Dock pane to the Dock's own controller instead of the workspace's.
     func dockForPane(_ paneId: PaneID) -> DockSplitStore? {
-        if let windowDock = windowDockContainingPane(paneId.id) {
-            return windowDock
-        }
-        for context in mainWindowContexts.values {
-            for workspace in context.tabManager.tabs {
-                if let dock = workspace._dockSplit, dock.containsPane(paneId.id) {
-                    return dock
-                }
-            }
-        }
-        return nil
+        DockSplitStore.liveStores.first(where: { $0.containsPane(paneId.id) })
     }
 
     /// Finds a Dock-hosted source for a Bonsplit tab (ignoring workspace panes).
     /// Used by `moveBonsplitTab` to route a Dock→main-area drop.
     func locateDockSurface(tabId: UUID) -> (dock: DockSplitStore, panelId: UUID)? {
         let bonsplitTabId = TabID(uuid: tabId)
-        // Per-window Docks first (they have no owning workspace), then each
-        // workspace's local Dock.
-        for windowDock in existingWindowDocks {
-            if let panel = windowDock.panel(for: bonsplitTabId) {
-                return (windowDock, panel.id)
-            }
-        }
-        for context in mainWindowContexts.values {
-            for workspace in context.tabManager.tabs {
-                guard let dock = workspace._dockSplit,
-                      let panel = dock.panel(for: bonsplitTabId) else { continue }
+        for dock in DockSplitStore.liveStores {
+            if let panel = dock.panel(for: bonsplitTabId) {
                 return (dock, panel.id)
             }
         }
@@ -104,7 +113,11 @@ extension AppDelegate {
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool {
         guard let source = locateContainerSurface(tabId: sourceTabId) else { return false }
-        guard canMoveSurfaceIntoDock(source) else { return false }
+        guard canMoveSurfaceIntoDock(source),
+              floatingDockSupportsPersistenceForMove(source, destinationDock: destinationDock),
+              floatingDockHasCapacityForMove(source, destinationDock: destinationDock) else {
+            return false
+        }
         let shouldPreserveSourceWorkspace = shouldPreserveSourceWorkspaceAfterDockMove(
             source,
             destinationDock: destinationDock
@@ -150,12 +163,18 @@ extension AppDelegate {
         // requested focus. Resolve the destination Dock's OWN window rather than
         // the global key window: during a cross-window drag the source window can
         // still be key, which would publish focus to the wrong window's state.
-        let destinationDockWindow = dockReferenceTabManager(for: destinationDock)
-            .flatMap { windowId(for: $0) }
-            .flatMap { mainWindow(for: $0) }
-        destinationDock.noteKeyboardFocusIntent(
-            window: destinationDockWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
-        )
+        if let floating = workspaceFloatingDock(owning: destinationDock) {
+            floating.dock.ownsInputFocus = true
+            mainWindowContexts.values.first(where: { $0.tabManager === floating.tabManager })?
+                .workspaceFloatingDockPresenter?.focus(floating.dock)
+        } else {
+            let destinationDockWindow = dockReferenceTabManager(for: destinationDock)
+                .flatMap { windowId(for: $0) }
+                .flatMap { mainWindow(for: $0) }
+            destinationDock.noteKeyboardFocusIntent(
+                window: destinationDockWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+            )
+        }
 
         cleanupEmptyContainerAfterMove(
             source,
@@ -342,26 +361,16 @@ extension AppDelegate {
     ) {
         switch source {
         case .workspace(let windowId, let workspace, _, let manager):
-            if preserveSourceWorkspace {
-                preserveEmptySourceWorkspaceAfterSurfaceMove(sourceWorkspace: workspace)
-            } else {
-                cleanupEmptySourceWorkspaceAfterSurfaceMove(
-                    sourceWorkspace: workspace,
-                    sourceManager: manager,
-                    sourceWindowId: windowId
-                )
-            }
+            cleanupEmptySourceWorkspaceAfterSurfaceMove(
+                sourceWorkspace: workspace,
+                sourceManager: manager,
+                sourceWindowId: windowId,
+                preserveIfEmpty: preserveSourceWorkspace
+            )
         case .dock:
             // The Dock auto-closes emptied panes (autoCloseEmptyPanes) and keeps
             // an empty root pane, so there is nothing to tear down.
             break
         }
-    }
-
-    private func preserveEmptySourceWorkspaceAfterSurfaceMove(sourceWorkspace: Workspace) {
-        guard sourceWorkspace.panels.isEmpty else { return }
-        sourceWorkspace.detachRemoteTmuxMirrorKeptOpenLocallyIfNeeded()
-        _ = sourceWorkspace.createReplacementTerminalPanel()
-        sourceWorkspace.scheduleTerminalGeometryReconcile()
     }
 }

@@ -153,6 +153,16 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy(forV1Command: "read_screen") == .socketWorker(mainThreadCallable: false))
     }
 
+    @Test func floatingNoteDiskAccessRunsOnTheWorkerAndIsNotMainThreadCallable() {
+        for method in ["workspace.float.note.get", "workspace.float.note.set"] {
+            #expect(
+                ControlCommandExecutionPolicy(forMethod: method)
+                    == .socketWorker(mainThreadCallable: false),
+                "\(method)"
+            )
+        }
+    }
+
     @Test func diagnosticReadsRunOnTheWorkerAndAreNotMainThreadCallable() {
         #expect(ControlCommandExecutionPolicy(forV1Command: "iroh_diag") == .socketWorker(mainThreadCallable: false))
     }

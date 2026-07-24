@@ -1,4 +1,6 @@
 import AppKit
+import CmuxControlSocket
+import CmuxSettings
 import Foundation
 import Testing
 
@@ -15,6 +17,172 @@ import Testing
 /// See https://github.com/manaflow-ai/cmux/issues/7142.
 @Suite("Window Dock socket routing", .serialized)
 struct WindowDockRoutingSocketTests {
+    private static let socketWorkerQueue = DispatchQueue(
+        label: "com.cmux.tests.floating-note-socket-worker"
+    )
+
+    @Test("Dock surface owner lookup follows panel lifecycle")
+    @MainActor
+    func dockSurfaceOwnerLookupFollowsPanelLifecycle() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-dock-owner-index-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            loadsConfiguration: false,
+            baseDirectoryProvider: { nil }
+        )
+        let pane = try #require(store.bonsplitController.allPaneIds.first)
+        let panelID = try #require(store.newSurface(
+            kind: .note,
+            inPane: pane,
+            noteFilePath: root.appendingPathComponent("note.md").path,
+            focus: false
+        ))
+
+        #expect(DockSplitStore.owner(containingPanel: panelID) === store)
+        #expect(store.closePanel(panelID, force: true))
+        #expect(DockSplitStore.owner(containingPanel: panelID) == nil)
+    }
+
+    @Test("Floating Dock routing rejects surface and pane selectors from different Docks")
+    @MainActor
+    func floatingDockRoutingRejectsConflictingSurfaceAndPaneSelectors() throws {
+        try withSocketAppContext { manager, workspace, _ in
+            let firstDock = try #require(workspace.createFloatingDock(initialContent: .terminal))
+            let secondDock = try #require(workspace.createFloatingDock(initialContent: .terminal))
+            let firstSurfaceID = try #require(firstDock.store.panels.keys.first)
+            let secondPaneID = try #require(secondDock.store.bonsplitController.allPaneIds.first)
+            let routing = ControlRoutingSelectors(
+                hasWindowIDParam: false,
+                windowID: nil,
+                groupID: nil,
+                workspaceID: workspace.id,
+                surfaceID: firstSurfaceID,
+                paneID: secondPaneID.id
+            )
+
+            #expect(TerminalController.shared.containerDockForSurfaceRouting(
+                routing,
+                tabManager: manager
+            ) == nil)
+        }
+    }
+
+    @Test("Floating Dock stash lifecycle is visible over the socket")
+    @MainActor
+    func floatingDockStashLifecycleIsVisibleOverSocket() throws {
+        try withSocketAppContext { _, workspace, _ in
+            let dock = try #require(workspace.createFloatingDock(initialContent: .terminal))
+
+            let stashed = try v2Result(method: "workspace.float.stash", params: [
+                "workspace_id": workspace.id.uuidString,
+                "float": dock.id.uuidString,
+            ])
+            #expect(stashed["presentation"] as? String == "stashed")
+            #expect(stashed["visible"] as? Bool == true)
+            #expect(stashed["presentation_frame"] as? [String: Any] != nil)
+            #expect(stashed["stashed_at"] is NSNumber)
+            #expect(dock.isStashed)
+
+            let focused = try v2Result(method: "workspace.float.focus", params: [
+                "workspace_id": workspace.id.uuidString,
+                "float": dock.id.uuidString,
+            ])
+            #expect(focused["presentation"] as? String == "visible")
+            #expect(!dock.isStashed)
+        }
+    }
+
+    @Test("Closing all floating Docks uses one aggregate confirmation")
+    @MainActor
+    func closingAllFloatingDocksUsesOneAggregateConfirmation() async throws {
+        try await withSocketAppContext { manager, workspace, _ in
+            let warningStore = CloseTabWarningStore(defaults: .standard)
+            let previousWarning = warningStore.warnsBeforeClosingTab
+            warningStore.setWarnsBeforeClosingTab(true)
+            defer { warningStore.setWarnsBeforeClosingTab(previousWarning) }
+
+            let firstDock = try #require(workspace.createFloatingDock(initialContent: .terminal))
+            let secondDock = try #require(workspace.createFloatingDock(initialContent: .terminal))
+            let terminals = [firstDock, secondDock].compactMap {
+                $0.store.panels.values.compactMap { $0 as? TerminalPanel }.first
+            }
+            #expect(terminals.count == 2)
+            terminals.forEach { $0.surface.setNeedsConfirmCloseOverrideForTesting(true) }
+            defer { terminals.forEach { $0.surface.setNeedsConfirmCloseOverrideForTesting(nil) } }
+
+            var confirmationCount = 0
+            manager.confirmCloseHandler = { _, _, _ in
+                confirmationCount += 1
+                return true
+            }
+
+            let closedCount = AppDelegate.shared?.closeAllWorkspaceFloatingDocks(
+                in: workspace,
+                tabManager: manager,
+                policy: .confirmInteractive
+            )
+            await waitForFloatingDockClose(firstDock.id, in: workspace)
+            await waitForFloatingDockClose(secondDock.id, in: workspace)
+
+            #expect(closedCount == 2)
+            #expect(confirmationCount == 1)
+            #expect(workspace.floatingDocks.isEmpty)
+        }
+    }
+
+    @Test("Closing a floating Dock flushes its note before confirmation")
+    @MainActor
+    func closingFloatingDockFlushesNoteBeforeConfirmation() async throws {
+        try await withSocketAppContext { manager, workspace, _ in
+            let warningStore = CloseTabWarningStore(defaults: .standard)
+            let previousWarning = warningStore.warnsBeforeClosingTab
+            warningStore.setWarnsBeforeClosingTab(true)
+            defer { warningStore.setWarnsBeforeClosingTab(previousWarning) }
+
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-floating-close-flush-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let noteURL = root.appendingPathComponent("note.md")
+            let dock = WorkspaceFloatingDock(
+                id: UUID(),
+                workspaceId: workspace.id,
+                title: "Autosaving note",
+                frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+                noteFilePath: noteURL.path,
+                initialContent: .note,
+                baseDirectoryProvider: { nil },
+                remoteBrowserSettingsProvider: { .local }
+            )
+            workspace.floatingDocks.append(dock)
+            let note = try #require(dock.notePanel)
+            await note.loadTextContent().value
+            note.updateTextContent("persist before close")
+            #expect(note.isDirty)
+
+            var confirmationCount = 0
+            manager.confirmCloseHandler = { _, _, _ in
+                confirmationCount += 1
+                return true
+            }
+            let closed = AppDelegate.shared?.closeWorkspaceFloatingDock(
+                dock,
+                in: workspace,
+                tabManager: manager,
+                policy: .confirmInteractive
+            )
+            await waitForFloatingDockClose(dock.id, in: workspace)
+
+            #expect(closed == true)
+            #expect(confirmationCount == 0)
+            #expect(workspace.floatingDock(id: dock.id) == nil)
+            #expect(try String(contentsOf: noteURL, encoding: .utf8) == "persist before close")
+        }
+    }
+
     @MainActor
     private func v2Envelope(method: String, params: [String: Any] = [:]) throws -> [String: Any] {
         let request: [String: Any] = [
@@ -36,6 +204,28 @@ struct WindowDockRoutingSocketTests {
             Issue.record("Expected \(method) to succeed: \(envelope)")
         }
         return try #require(envelope["result"] as? [String: Any])
+    }
+
+    @MainActor
+    private func v2EnvelopeOnSocketWorker(
+        method: String,
+        params: [String: Any] = [:]
+    ) async throws -> [String: Any] {
+        let request: [String: Any] = [
+            "id": method,
+            "method": method,
+            "params": params,
+        ]
+        let requestData = try JSONSerialization.data(withJSONObject: request)
+        let requestLine = try #require(String(data: requestData, encoding: .utf8))
+        let controller = TerminalController.shared
+        let raw = await withCheckedContinuation { continuation in
+            Self.socketWorkerQueue.async {
+                continuation.resume(returning: controller.handleSocketLine(requestLine))
+            }
+        }
+        let responseData = try #require(raw.data(using: .utf8))
+        return try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
     }
 
     @MainActor
@@ -101,6 +291,46 @@ struct WindowDockRoutingSocketTests {
         try body(manager, workspace, windowId)
     }
 
+    @MainActor
+    private func withSocketAppContext(
+        fileExplorerState: FileExplorerState? = nil,
+        _ body: @MainActor (TabManager, Workspace, UUID) async throws -> Void
+    ) async rethrows {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+            let appDelegate = AppDelegate()
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            AppDelegate.shared = appDelegate
+            appDelegate.tabManager = manager
+            if let fileExplorerState {
+                appDelegate.fileExplorerState = fileExplorerState
+            }
+            TerminalController.shared.setActiveTabManager(manager)
+            let windowId = appDelegate.registerMainWindowContextForTesting(
+                tabManager: manager,
+                fileExplorerState: fileExplorerState
+            )
+            defer {
+                TerminalController.shared.setActiveTabManager(previousManager)
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                manager.tabs.forEach { $0.teardownAllPanels() }
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            let workspace = try #require(manager.tabs.first)
+            try await body(manager, workspace, windowId)
+        }
+    }
+
+    @MainActor
+    private func waitForFloatingDockClose(_ dockId: UUID, in workspace: Workspace) async {
+        let deadline = ContinuousClock.now + .seconds(2)
+        while workspace.floatingDock(id: dockId) != nil, ContinuousClock.now < deadline {
+            await Task.yield()
+        }
+    }
+
     @Test("Legacy global Dock alias workspace_id routes to the caller window's Dock")
     @MainActor
     func legacyDockAliasRoutesToCallerWindowDock() throws {
@@ -143,6 +373,614 @@ struct WindowDockRoutingSocketTests {
                 let windowDock = try #require(AppDelegate.shared?.existingWindowDock(forWindowId: windowId))
                 #expect(!windowDock.containsPanel(dockSurfaceId))
             }
+        }
+    }
+
+    @Test("Floating Dock note writes finish before success and report persistence failures")
+    @MainActor
+    func floatingDockNoteWritesAreAcknowledgedAfterPersistence() async throws {
+        try await withSocketAppContext { _, workspace, _ in
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-floating-note-write-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+
+            let noteURL = root.appendingPathComponent("note.md")
+            let dock = WorkspaceFloatingDock(
+                id: UUID(),
+                workspaceId: workspace.id,
+                title: "Writable note",
+                frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+                noteFilePath: noteURL.path,
+                initialContent: nil,
+                baseDirectoryProvider: { nil },
+                remoteBrowserSettingsProvider: { .local }
+            )
+            workspace.floatingDocks.append(dock)
+
+            let first = try await v2EnvelopeOnSocketWorker(method: "workspace.float.note.set", params: [
+                "workspace_id": workspace.id.uuidString,
+                "float": dock.id.uuidString,
+                "text": "first",
+            ])
+            #expect(first["ok"] as? Bool == true)
+            #expect(try String(contentsOf: noteURL, encoding: .utf8) == "first")
+
+            let second = try await v2EnvelopeOnSocketWorker(method: "workspace.float.note.set", params: [
+                "workspace_id": workspace.id.uuidString,
+                "float": dock.id.uuidString,
+                "text": "second",
+            ])
+            #expect(second["ok"] as? Bool == true)
+            #expect(try String(contentsOf: noteURL, encoding: .utf8) == "second")
+
+            let blocker = root.appendingPathComponent("not-a-directory")
+            try "block".write(to: blocker, atomically: true, encoding: .utf8)
+            let blockedDock = WorkspaceFloatingDock(
+                id: UUID(),
+                workspaceId: workspace.id,
+                title: "Blocked note",
+                frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+                noteFilePath: blocker.appendingPathComponent("note.md").path,
+                initialContent: nil,
+                baseDirectoryProvider: { nil },
+                remoteBrowserSettingsProvider: { .local }
+            )
+            workspace.floatingDocks.append(blockedDock)
+            let failed = try await v2EnvelopeOnSocketWorker(method: "workspace.float.note.set", params: [
+                "workspace_id": workspace.id.uuidString,
+                "float": blockedDock.id.uuidString,
+                "text": "must not be acknowledged",
+            ])
+            #expect(failed["ok"] as? Bool == false)
+            #expect(blockedDock.noteTextSnapshot.isEmpty)
+            #expect(blockedDock.loadedNoteTextSnapshot == nil)
+        }
+    }
+
+    @Test("Floating Dock note get observes persisted text before asynchronous loading finishes")
+    @MainActor
+    func floatingDockNoteGetObservesPersistedTextImmediately() async throws {
+        try await withSocketAppContext { _, workspace, _ in
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-floating-note-immediate-get-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+
+            let noteURL = root.appendingPathComponent("note.md")
+            try "persisted before restore".write(to: noteURL, atomically: true, encoding: .utf8)
+            let dock = WorkspaceFloatingDock(
+                id: UUID(),
+                workspaceId: workspace.id,
+                title: "Persisted note",
+                frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+                noteFilePath: noteURL.path,
+                initialContent: .note,
+                baseDirectoryProvider: { nil },
+                remoteBrowserSettingsProvider: { .local }
+            )
+            workspace.floatingDocks.append(dock)
+
+            let envelope = try await v2EnvelopeOnSocketWorker(method: "workspace.float.note.get", params: [
+                "workspace_id": workspace.id.uuidString,
+                "float": dock.id.uuidString,
+            ])
+            #expect(envelope["ok"] as? Bool == true)
+            let result = try #require(envelope["result"] as? [String: Any])
+
+            #expect(result["text"] as? String == "persisted before restore")
+            #expect(dock.loadedNoteTextSnapshot == "persisted before restore")
+        }
+    }
+
+    @Test("Floating Dock note get fails closed for an unreadable persisted note")
+    @MainActor
+    func floatingDockNoteGetDoesNotReportUnreadableFileAsEmpty() async throws {
+        try await withSocketAppContext { _, workspace, _ in
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-floating-note-unreadable-get-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+
+            let noteURL = root.appendingPathComponent("note.md")
+            _ = FileManager.default.createFile(atPath: noteURL.path, contents: nil)
+            let handle = try FileHandle(forWritingTo: noteURL)
+            try handle.truncate(atOffset: FilePreviewTextLoader.maximumLoadedTextBytes + 1)
+            try handle.close()
+            let dock = WorkspaceFloatingDock(
+                id: UUID(),
+                workspaceId: workspace.id,
+                title: "Unreadable note",
+                frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+                noteFilePath: noteURL.path,
+                initialContent: .note,
+                baseDirectoryProvider: { nil },
+                remoteBrowserSettingsProvider: { .local }
+            )
+            workspace.floatingDocks.append(dock)
+
+            let envelope = try await v2EnvelopeOnSocketWorker(method: "workspace.float.note.get", params: [
+                "workspace_id": workspace.id.uuidString,
+                "float": dock.id.uuidString,
+            ])
+
+            #expect(envelope["ok"] as? Bool == false)
+            #expect(dock.loadedNoteTextSnapshot == nil)
+            #expect(
+                try noteURL.resourceValues(forKeys: [.fileSizeKey]).fileSize
+                    == Int(FilePreviewTextLoader.maximumLoadedTextBytes + 1)
+            )
+        }
+    }
+
+    @Test("Socket note updates follow a managed note in another window")
+    @MainActor
+    func socketNoteUpdatesFollowManagedNoteInAnotherWindow() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+            let appDelegate = AppDelegate()
+            let sourceManager = TabManager(autoWelcomeIfNeeded: false)
+            let destinationManager = TabManager(autoWelcomeIfNeeded: false)
+            AppDelegate.shared = appDelegate
+            appDelegate.tabManager = sourceManager
+            TerminalController.shared.setActiveTabManager(sourceManager)
+            let sourceWindowID = appDelegate.registerMainWindowContextForTesting(tabManager: sourceManager)
+            let destinationWindowID = appDelegate.registerMainWindowContextForTesting(tabManager: destinationManager)
+            defer {
+                TerminalController.shared.setActiveTabManager(previousManager)
+                appDelegate.unregisterMainWindowContextForTesting(windowId: sourceWindowID)
+                appDelegate.unregisterMainWindowContextForTesting(windowId: destinationWindowID)
+                sourceManager.tabs.forEach { $0.teardownAllPanels() }
+                destinationManager.tabs.forEach { $0.teardownAllPanels() }
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            let sourceWorkspace = try #require(sourceManager.tabs.first)
+            let destinationWorkspace = try #require(destinationManager.tabs.first)
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-floating-note-cross-window-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+
+            let noteURL = root.appendingPathComponent("note.md")
+            try "before socket".write(to: noteURL, atomically: true, encoding: .utf8)
+            let dock = WorkspaceFloatingDock(
+                id: UUID(),
+                workspaceId: sourceWorkspace.id,
+                title: "Cross-window note",
+                frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+                noteFilePath: noteURL.path,
+                initialContent: nil,
+                baseDirectoryProvider: { nil },
+                remoteBrowserSettingsProvider: { .local }
+            )
+            sourceWorkspace.floatingDocks.append(dock)
+            let destinationPane = try #require(destinationWorkspace.bonsplitController.allPaneIds.first)
+            let notePanel = try #require(destinationWorkspace.newFilePreviewSurface(
+                inPane: destinationPane,
+                filePath: noteURL.path,
+                presentation: .note(title: "Cross-window note"),
+                focus: false
+            ))
+            await notePanel.loadTextContent().value
+
+            let response = try await v2EnvelopeOnSocketWorker(method: "workspace.float.note.set", params: [
+                "workspace_id": sourceWorkspace.id.uuidString,
+                "float": dock.id.uuidString,
+                "text": "updated across windows",
+            ])
+
+            #expect(response["ok"] as? Bool == true)
+            #expect(notePanel.textContent == "updated across windows")
+            #expect(try String(contentsOf: noteURL, encoding: .utf8) == "updated across windows")
+        }
+    }
+
+    @Test("Floating Dock note set wins over pending asynchronous restore")
+    @MainActor
+    func floatingDockNoteSetWinsOverPendingRestore() async throws {
+        try await withSocketAppContext { _, workspace, _ in
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-floating-note-set-restore-race-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+
+            let noteURL = root.appendingPathComponent("note.md")
+            try "stale persisted text".write(to: noteURL, atomically: true, encoding: .utf8)
+            let dock = WorkspaceFloatingDock(
+                id: UUID(),
+                workspaceId: workspace.id,
+                title: "Restoring note",
+                frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+                noteFilePath: noteURL.path,
+                initialContent: .note,
+                baseDirectoryProvider: { nil },
+                remoteBrowserSettingsProvider: { .local }
+            )
+            workspace.floatingDocks.append(dock)
+
+            let response = try await v2EnvelopeOnSocketWorker(
+                method: "workspace.float.note.set",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "float": dock.id.uuidString,
+                    "text": "new socket text",
+                ]
+            )
+            #expect(response["ok"] as? Bool == true)
+            let notePanel = try #require(dock.notePanel)
+            await notePanel.loadTextContent().value
+
+            #expect(try String(contentsOf: noteURL, encoding: .utf8) == "new socket text")
+            #expect(dock.noteTextSnapshot == "new socket text")
+            #expect(notePanel.textContent == "new socket text")
+        }
+    }
+
+    @Test("Floating Dock socket close bypasses interactive dirty-note confirmation")
+    @MainActor
+    func floatingDockSocketCloseBypassesInteractiveConfirmation() async throws {
+        try await withSocketAppContext { _, workspace, _ in
+            let dock = try #require(workspace.createFloatingDock(initialContent: .note))
+            let note = try #require(dock.notePanel)
+            await note.loadTextContent().value
+            note.updateTextContent("dirty note")
+            #expect(note.isDirty)
+
+            let response = try v2Envelope(method: "workspace.float.close", params: [
+                "workspace_id": workspace.id.uuidString,
+                "float": dock.id.uuidString,
+            ])
+            let pendingResult = try #require(response["result"] as? [String: Any])
+            #expect(pendingResult["status"] as? String == "pending")
+            await waitForFloatingDockClose(dock.id, in: workspace)
+
+            #expect(response["ok"] as? Bool == true)
+            #expect(workspace.floatingDock(id: dock.id) == nil)
+        }
+    }
+
+    @Test("Floating Dock surface close reports pending while its note saves")
+    @MainActor
+    func floatingDockSurfaceCloseReportsPendingNoteSave() async throws {
+        try await withSocketAppContext { _, workspace, _ in
+            let dock = try #require(workspace.createFloatingDock(initialContent: .note))
+            let note = try #require(dock.notePanel)
+            await note.loadTextContent().value
+            note.updateTextContent("persist before surface close")
+
+            let result = try v2Result(method: "surface.close", params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": note.id.uuidString,
+            ])
+
+            #expect(result["status"] as? String == "pending")
+            let deadline = ContinuousClock.now + .seconds(2)
+            while dock.store.containsPanel(note.id), ContinuousClock.now < deadline {
+                await Task.yield()
+            }
+            #expect(!dock.store.containsPanel(note.id))
+        }
+    }
+
+    @Test("Floating Dock note writer rejects stale autosave completions")
+    func floatingDockNoteWriterRejectsStaleAutosaveCompletions() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-note-sequence-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let noteURL = root.appendingPathComponent("note.md")
+        let writer = WorkspaceFloatingDockNoteWriter(fileURL: noteURL)
+        let staleAutosaveSequence = writer.reserveSequence()
+        let socketWriteSequence = writer.reserveSequence()
+
+        guard case .saved = writer.saveSynchronously(
+            content: "socket write",
+            sequence: socketWriteSequence
+        ) else {
+            Issue.record("Expected socket note write to succeed")
+            return
+        }
+        guard case .saved = writer.saveSynchronously(
+            content: "stale autosave",
+            sequence: staleAutosaveSequence
+        ) else {
+            Issue.record("Expected stale autosave to be discarded without failure")
+            return
+        }
+        #expect(try String(contentsOf: noteURL, encoding: .utf8) == "socket write")
+
+        let reservedSocketSequence = writer.reserveSequence()
+        let newerLocalEditSequence = writer.reserveSequence()
+        guard case .saved = writer.saveSynchronously(
+            content: "reserved socket write",
+            sequence: reservedSocketSequence
+        ), case .saved = writer.saveSynchronously(
+            content: "newer local edit",
+            sequence: newerLocalEditSequence
+        ) else {
+            Issue.record("Expected ordered socket and local note writes to succeed")
+            return
+        }
+        #expect(try String(contentsOf: noteURL, encoding: .utf8) == "newer local edit")
+    }
+
+    @Test("Floating Dock note reads wait for an already reserved socket write")
+    func floatingDockNoteReadsWaitForReservedSocketWrite() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-note-read-write-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let noteURL = root.appendingPathComponent("note.md")
+        try "old".write(to: noteURL, atomically: true, encoding: .utf8)
+        let writer = WorkspaceFloatingDockNoteWriter(fileURL: noteURL)
+        let loader = WorkspaceFloatingDockNoteLoader(fileURL: noteURL)
+        let writeSequence = writer.reserveControlWriteSequence()
+
+        let read = Task.detached {
+            writer.loadSynchronously(using: loader)
+        }
+        try await Task.sleep(nanoseconds: 30_000_000)
+        guard case .saved = writer.saveSynchronously(
+            content: "new",
+            sequence: writeSequence
+        ) else {
+            Issue.record("Expected the reserved socket write to succeed")
+            return
+        }
+
+        guard case .loaded(let text, _) = await read.value else {
+            Issue.record("Expected the serialized note read to load text")
+            return
+        }
+        #expect(text == "new")
+    }
+
+    @Test("Floating Dock list exposes an asynchronous close save failure")
+    @MainActor
+    func floatingDockListExposesCloseSaveFailure() async throws {
+        try await withSocketAppContext { _, workspace, _ in
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-floating-close-status-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let blocker = root.appendingPathComponent("not-a-directory")
+            try "block".write(to: blocker, atomically: true, encoding: .utf8)
+            let dock = WorkspaceFloatingDock(
+                id: UUID(),
+                workspaceId: workspace.id,
+                title: "Unsaved note",
+                frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+                noteFilePath: blocker.appendingPathComponent("note.md").path,
+                initialContent: .note,
+                baseDirectoryProvider: { nil },
+                remoteBrowserSettingsProvider: { .local }
+            )
+            workspace.floatingDocks.append(dock)
+            let note = try #require(dock.notePanel)
+            await note.loadTextContent().value
+            note.updateTextContent("must remain recoverable")
+
+            let close = try v2Envelope(method: "workspace.float.close", params: [
+                "workspace_id": workspace.id.uuidString,
+                "float": dock.id.uuidString,
+            ])
+            let closeResult = try #require(close["result"] as? [String: Any])
+            #expect(closeResult["status"] as? String == "pending")
+            let deadline = ContinuousClock.now + .seconds(2)
+            while workspace.pendingFloatingDockCloseIds.contains(dock.id),
+                  ContinuousClock.now < deadline {
+                await Task.yield()
+            }
+
+            let list = try v2Result(method: "workspace.float.list", params: [
+                "workspace_id": workspace.id.uuidString,
+            ])
+            let floats = try #require(list["floats"] as? [[String: Any]])
+            let listedDock = try #require(floats.first { $0["id"] as? String == dock.id.uuidString })
+            #expect(listedDock["close_status"] as? String == "failed")
+            #expect(listedDock["close_error"] as? String == "note_save_failed")
+            #expect(workspace.floatingDock(id: dock.id) === dock)
+        }
+    }
+
+    @Test("Socket note updates follow a note moved out of its floating Dock")
+    @MainActor
+    func socketNoteUpdatesFollowMovedNotePanel() async throws {
+        try await withSocketAppContext { _, workspace, _ in
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-floating-note-move-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+
+            let dock = WorkspaceFloatingDock(
+                id: UUID(),
+                workspaceId: workspace.id,
+                title: "Movable note",
+                frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+                noteFilePath: root.appendingPathComponent("note.md").path,
+                initialContent: .note,
+                baseDirectoryProvider: { nil },
+                remoteBrowserSettingsProvider: { .local }
+            )
+            workspace.floatingDocks.append(dock)
+            let notePanel = try #require(dock.notePanel)
+            let transfer = try #require(dock.store.detachSurface(panelId: notePanel.id))
+            let destinationPane = try #require(workspace.bonsplitController.allPaneIds.first)
+            #expect(workspace.attachDetachedSurface(transfer, inPane: destinationPane, focus: false) == notePanel.id)
+            #expect(dock.notePanel == nil)
+            #expect(workspace.filePreviewPanel(for: notePanel.id) === notePanel)
+
+            let response = try await v2EnvelopeOnSocketWorker(method: "workspace.float.note.set", params: [
+                "workspace_id": workspace.id.uuidString,
+                "float": dock.id.uuidString,
+                "text": "updated after move",
+            ])
+            #expect(response["ok"] as? Bool == true)
+            #expect(notePanel.textContent == "updated after move")
+            #expect(try String(contentsOfFile: dock.noteFilePath, encoding: .utf8) == "updated after move")
+        }
+    }
+
+    @Test("Floating terminal reports remain owned by their workspace")
+    @MainActor
+    func floatingTerminalReportsRemainOwnedByWorkspace() throws {
+        try withSocketAppContext { manager, workspace, _ in
+            let dock = WorkspaceFloatingDock(
+                id: UUID(),
+                workspaceId: workspace.id,
+                title: "Reporting terminal",
+                frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+                noteFilePath: FileManager.default.temporaryDirectory
+                    .appendingPathComponent("cmux-report-note-\(UUID().uuidString).md").path,
+                initialContent: nil,
+                baseDirectoryProvider: { nil },
+                remoteBrowserSettingsProvider: { .local }
+            )
+            workspace.floatingDocks.append(dock)
+            let sourcePanel = try #require(workspace.panels.values.compactMap { $0 as? TerminalPanel }.first)
+            let transfer = try #require(workspace.detachSurface(panelId: sourcePanel.id))
+            let dockPane = try #require(dock.store.bonsplitController.allPaneIds.first)
+            #expect(dock.store.attachDetachedSurface(transfer, inPane: dockPane, focus: true) == sourcePanel.id)
+            dock.ownsInputFocus = true
+            #expect(workspace.panels[sourcePanel.id] == nil)
+
+            let pwd = TerminalController.shared.controlSurfaceReportPWD(
+                workspaceID: workspace.id,
+                requestedSurfaceID: sourcePanel.id,
+                path: "/tmp/floating-report"
+            )
+            guard case .recorded(let reportedSurfaceID) = pwd else {
+                Issue.record("Expected floating terminal pwd report to resolve")
+                return
+            }
+            #expect(reportedSurfaceID == sourcePanel.id)
+            #expect(workspace.panelDirectories[sourcePanel.id] == "/tmp/floating-report")
+
+            let tty = TerminalController.shared.controlSurfaceReportTTY(
+                workspaceID: workspace.id,
+                requestedSurfaceID: sourcePanel.id,
+                ttyName: "ttys999"
+            )
+            guard case .recorded(let ttySurfaceID) = tty else {
+                Issue.record("Expected floating terminal tty report to resolve")
+                return
+            }
+            #expect(ttySurfaceID == sourcePanel.id)
+            #expect(workspace.surfaceTTYNames[sourcePanel.id] == "ttys999")
+            #expect(TerminalController.shared.controlSidebarSetPorts(
+                tabArg: workspace.id.uuidString,
+                panelArg: sourcePanel.id.uuidString,
+                ports: [4317]
+            ) == .done)
+            #expect(workspace.surfaceListeningPorts[sourcePanel.id] == [4317])
+
+            manager.updateSurfaceShellActivity(
+                tabId: workspace.id,
+                surfaceId: sourcePanel.id,
+                state: .commandRunning
+            )
+            #expect(sourcePanel.shellActivity.state == .commandRunning)
+            #expect(dock.store.detachedSurfaceTransfersByPanelId[sourcePanel.id]?.shellActivityState == .commandRunning)
+
+            dock.store.closeAllPanels()
+            #expect(!dock.store.containsPanel(sourcePanel.id))
+            #expect(workspace.panelDirectories[sourcePanel.id] == nil)
+            #expect(workspace.surfaceTTYNames[sourcePanel.id] == nil)
+            #expect(workspace.surfaceListeningPorts[sourcePanel.id] == nil)
+        }
+    }
+
+    @Test("Floating Dock mutations change the session autosave fingerprint")
+    @MainActor
+    func floatingDockMutationsChangeSessionAutosaveFingerprint() throws {
+        try withSocketAppContext { manager, workspace, _ in
+            let baseline = manager.sessionAutosaveFingerprint()
+            let dock = WorkspaceFloatingDock(
+                id: UUID(),
+                workspaceId: workspace.id,
+                title: "Fingerprint",
+                frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+                noteFilePath: FileManager.default.temporaryDirectory
+                    .appendingPathComponent("cmux-fingerprint-note-\(UUID().uuidString).md").path,
+                initialContent: nil,
+                baseDirectoryProvider: { nil },
+                remoteBrowserSettingsProvider: { .local }
+            )
+            workspace.floatingDocks.append(dock)
+            let created = manager.sessionAutosaveFingerprint()
+            #expect(created != baseline)
+
+            dock.frame.origin.x += 40
+            let moved = manager.sessionAutosaveFingerprint()
+            #expect(moved != created)
+
+            let pane = try #require(dock.store.bonsplitController.allPaneIds.first)
+            let notePath = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-fingerprint-extra-\(UUID().uuidString).md").path
+            _ = try #require(dock.store.newSurface(
+                kind: .note,
+                inPane: pane,
+                noteFilePath: notePath,
+                focus: false
+            ))
+            #expect(manager.sessionAutosaveFingerprint() != moved)
+        }
+    }
+
+    @Test("Failed initial browser creation does not append an empty floating Dock")
+    @MainActor
+    func failedInitialBrowserCreationDoesNotAppendFloatingDock() throws {
+        try withSocketAppContext { _, workspace, _ in
+            let defaults = UserDefaults.standard
+            let previous = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
+            BrowserAvailabilitySettings.setDisabled(true, defaults: defaults)
+            defer {
+                if let previous {
+                    defaults.set(previous, forKey: BrowserAvailabilitySettings.disabledKey)
+                } else {
+                    defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
+                }
+            }
+
+            let initialCount = workspace.floatingDocks.count
+            #expect(workspace.createFloatingDock(initialContent: .browser) == nil)
+            #expect(workspace.floatingDocks.count == initialCount)
+        }
+    }
+
+
+    @Test("Floating Dock palette surface commands stay in the Dock container")
+    @MainActor
+    func floatingDockPaletteSurfaceCommandsStayInDock() throws {
+        try withSocketAppContext { manager, workspace, _ in
+            let dock = WorkspaceFloatingDock(
+                id: UUID(),
+                workspaceId: workspace.id,
+                title: "Palette target",
+                frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+                noteFilePath: FileManager.default.temporaryDirectory
+                    .appendingPathComponent("cmux-palette-note-\(UUID().uuidString).md").path,
+                initialContent: nil,
+                baseDirectoryProvider: { nil },
+                remoteBrowserSettingsProvider: { .local }
+            )
+            workspace.floatingDocks.append(dock)
+            let mainPanelCount = workspace.panels.count
+
+            #expect(dock.store.performSurfaceCommand(.create(kind: .terminal, focusAddressBar: false)))
+            #expect(dock.store.panels.count == 1)
+            #expect(workspace.panels.count == mainPanelCount)
+
+            #expect(dock.store.performSurfaceCommand(.split(kind: .terminal, direction: .right)))
+            #expect(dock.store.panels.count == 2)
+            #expect(workspace.panels.count == mainPanelCount)
+
+            #expect(dock.store.performSurfaceCommand(.closeFocused))
+            #expect(dock.store.panels.count == 1)
+            #expect(manager.selectedWorkspace === workspace)
         }
     }
 
@@ -197,6 +1035,36 @@ struct WindowDockRoutingSocketTests {
 
             let activeWorkspace = try #require(activeManager.tabs.first)
             let dockWorkspace = try #require(dockManager.tabs.first)
+            let floatingDock = try #require(activeWorkspace.createFloatingDock(initialContent: .note))
+            let floatingNote = try #require(floatingDock.notePanel)
+            await floatingNote.loadTextContent().value
+            let floatingNoteTextBeforeConflict = floatingNote.textContent
+
+            // Explicit window and workspace selectors are conjunctive. A
+            // window-B scope cannot mutate a floating Dock in window A, even
+            // on the worker-side note-write path.
+            let crossWindowNoteWrite = try await v2EnvelopeOnSocketWorker(
+                method: "workspace.float.note.set",
+                params: [
+                    "window_id": dockWindowId.uuidString,
+                    "workspace_id": activeWorkspace.id.uuidString,
+                    "float": floatingDock.id.uuidString,
+                    "text": "must not cross windows",
+                ]
+            )
+            #expect(crossWindowNoteWrite["ok"] as? Bool == false)
+            #expect(floatingNote.textContent == floatingNoteTextBeforeConflict)
+
+            let crossWindowFloatCloseAll = try v2Envelope(
+                method: "workspace.float.close_all",
+                params: [
+                    "window_id": dockWindowId.uuidString,
+                    "workspace_id": activeWorkspace.id.uuidString,
+                ]
+            )
+            #expect(crossWindowFloatCloseAll["ok"] as? Bool == false)
+            #expect(activeWorkspace.floatingDock(id: floatingDock.id) === floatingDock)
+
             let activeWindowDock = appDelegate.windowDock(forWindowId: activeWindowId)
             let dockPane = try #require(activeWindowDock.bonsplitController.allPaneIds.first)
             let result = try v2Result(method: "surface.create", params: [
@@ -255,6 +1123,14 @@ struct WindowDockRoutingSocketTests {
             #expect(otherWindowDock !== activeWindowDock)
             let otherPane = try #require(otherWindowDock.resolvePane(requestedPaneID: nil))
             let otherDockSurfaceId = try #require(otherWindowDock.newSurface(kind: .terminal, inPane: otherPane, focus: true))
+
+            // A Dock-owner workspace selector resolves to its concrete window.
+            // It cannot authorize a floating-Dock surface owned by another window.
+            let ownerFloatingSurfaceConflict = try v2Envelope(method: "surface.list", params: [
+                "workspace_id": dockWindowId.uuidString,
+                "surface_id": floatingNote.id.uuidString,
+            ])
+            #expect(ownerFloatingSurfaceConflict["ok"] as? Bool == false)
 
             // The CLI injects the caller's main workspace_id even when the
             // user explicitly targets a Dock pane. A non-Dock workspace_id

@@ -887,6 +887,21 @@ final class BrowserPanelOmnibarPillBackgroundColorTests: XCTestCase {
         XCTAssertEqual(actual.alphaComponent, 1.0, accuracy: 0.001)
     }
 
+    func testFloatingGlassContainerUsesTranslucentOmnibarPill() {
+        let themeBackground = NSColor(srgbRed: 0.12, green: 0.13, blue: 0.14, alpha: 1.0)
+
+        guard let actual = resolvedBrowserOmnibarPillBackgroundColor(
+            for: .dark,
+            themeBackgroundColor: themeBackground,
+            usesTransparentContainer: true
+        ).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible color")
+            return
+        }
+
+        XCTAssertEqual(actual.alphaComponent, 0.22, accuracy: 0.001)
+    }
+
     private func assertResolvedColorMatchesExpectedBlend(
         for colorScheme: ColorScheme,
         darkenMix: CGFloat,
@@ -913,6 +928,30 @@ final class BrowserPanelOmnibarPillBackgroundColorTests: XCTestCase {
         XCTAssertEqual(actual.blueComponent, expectedSRGB.blueComponent, accuracy: 0.001, file: file, line: line)
         XCTAssertEqual(actual.alphaComponent, expectedSRGB.alphaComponent, accuracy: 0.001, file: file, line: line)
         XCTAssertNotEqual(actual.redComponent, themeSRGB.redComponent, file: file, line: line)
+    }
+}
+
+
+@MainActor
+final class BrowserPanelTransparentBackgroundHostTests: XCTestCase {
+    func testTransparentBackgroundHostsUseReferenceCountedOwnership() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        let firstHost = UUID()
+        let secondHost = UUID()
+        let baselineRevision = panel.backgroundAppearanceRevision
+
+        panel.setTransparentBackgroundHost(firstHost, enabled: true)
+        XCTAssertEqual(panel.backgroundAppearanceRevision, baselineRevision + 1)
+        XCTAssertFalse(panel.drawsConfiguredWebViewBackgroundForCurrentPage())
+
+        panel.setTransparentBackgroundHost(secondHost, enabled: true)
+        panel.setTransparentBackgroundHost(firstHost, enabled: false)
+        XCTAssertEqual(panel.backgroundAppearanceRevision, baselineRevision + 1)
+        XCTAssertFalse(panel.drawsConfiguredWebViewBackgroundForCurrentPage())
+
+        panel.setTransparentBackgroundHost(secondHost, enabled: false)
+        XCTAssertEqual(panel.backgroundAppearanceRevision, baselineRevision + 2)
     }
 }
 

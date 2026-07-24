@@ -292,9 +292,11 @@ struct DockControlDefinitionDecodingTests {
         let store = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { newRoot.path })
         defer { store.closeAllPanels() }
 
-        let staleGeneration = store.markConfigurationLoadInFlightForTesting(rootDirectory: oldRoot.path)
+        store.setRootDirectory(oldRoot.path)
+        store.reload()
+        let staleGeneration = 1
         store.setRootDirectory(newRoot.path)
-        store.setActive(isVisible: true, mode: .dock)
+        store.reload()
 
         let staleResolution = DockConfigResolution(
             controls: [DockControlDefinition(id: "old", title: "Old", command: "echo old")],
@@ -319,6 +321,31 @@ struct DockControlDefinitionDecodingTests {
         let terminalPanel = try terminalPanel(in: store, panelId: panelId)
         terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
         defer { terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(nil) }
+
+        #expect(workspace.needsConfirmClose())
+    }
+
+    @Test("Workspace close confirmation includes floating Dock panels")
+    @MainActor
+    func workspaceCloseConfirmationIncludesFloatingDockPanels() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+
+        let dock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: workspace.id,
+            title: "Floating terminal",
+            frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+            noteFilePath: FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-floating-close-\(UUID().uuidString).md").path,
+            initialContent: .terminal,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        workspace.floatingDocks.append(dock)
+        let panel = try #require(dock.store.panels.values.compactMap { $0 as? TerminalPanel }.first)
+        panel.surface.setNeedsConfirmCloseOverrideForTesting(true)
+        defer { panel.surface.setNeedsConfirmCloseOverrideForTesting(nil) }
 
         #expect(workspace.needsConfirmClose())
     }

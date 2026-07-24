@@ -806,6 +806,36 @@ final class CommandPaletteRestoreFocusStateMachineTests: XCTestCase {
             ContentView.commandPalettePostRunRestoreFocusIntent(forCommandId: "palette.terminalToggleTextBoxInput")
         )
     }
+
+    @MainActor
+    func testTerminalPostRunFocusKeepsFloatingDockAndSourceWindow() throws {
+        let dock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: UUID(),
+            title: "Floating focus",
+            frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+            noteFilePath: FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-floating-focus-\(UUID().uuidString).md").path,
+            initialContent: .terminal,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        defer { dock.close() }
+        let sourceWindow = NSWindow()
+        let focusedPanelID = try XCTUnwrap(dock.store.focusedPanelId)
+
+        let target = try XCTUnwrap(ContentView.commandPalettePostRunDockFocusTarget(
+            forCommandId: "palette.terminalFocusTextBoxInput",
+            dockStore: dock.store,
+            sourceWindow: sourceWindow
+        ))
+
+        XCTAssertEqual(target.workspaceId, dock.workspaceId)
+        XCTAssertEqual(target.panelId, focusedPanelID)
+        XCTAssertEqual(target.intent, .terminal(.textBoxInput))
+        XCTAssertTrue(target.dockStore === dock.store)
+        XCTAssertTrue(target.sourceWindow === sourceWindow)
+    }
 }
 
 

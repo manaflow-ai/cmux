@@ -295,7 +295,8 @@ extension TerminalController: ControlDebugContext {
         guard let window = AppDelegate.shared?.mainWindow(for: windowID) else {
             return .windowNotFound
         }
-        guard let editor = window.firstResponder as? NSTextView, editor.isFieldEditor else {
+        let inputWindow = commandPalettePresentedPanelWindow(for: window) ?? window
+        guard let editor = inputWindow.firstResponder as? NSTextView, editor.isFieldEditor else {
             return .inactive
         }
         let selectedRange = editor.selectedRange()

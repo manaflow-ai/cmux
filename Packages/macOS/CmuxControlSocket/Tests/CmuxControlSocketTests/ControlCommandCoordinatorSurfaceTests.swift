@@ -145,6 +145,34 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(data == .object(["type": .string("agentSession")]))
     }
 
+    @Test func surfaceClosePendingPayloadPreservesIdentity() {
+        let windowID = UUID()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let context = FakeSurfaceControlCommandContext()
+        context.closeResolution = .pending(
+            windowID: windowID,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID
+        )
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.close",
+            params: ["surface_id": .string(surfaceID.uuidString)]
+        ))
+
+        guard case .ok(.object(let payload)) = result else {
+            Issue.record("expected pending close payload")
+            return
+        }
+        #expect(payload["status"] == .string("pending"))
+        #expect(payload["window_id"] == .string(windowID.uuidString))
+        #expect(payload["workspace_id"] == .string(workspaceID.uuidString))
+        #expect(payload["surface_id"] == .string(surfaceID.uuidString))
+    }
+
     @Test func paneCreateDockUnsupportedTypeReturnsInvalidParams() throws {
         let context = FakeSurfaceControlCommandContext()
         context.paneCreateResolution = .dockUnsupportedType(

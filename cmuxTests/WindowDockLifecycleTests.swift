@@ -87,6 +87,69 @@ struct WindowDockLifecycleTests {
         try body(appDelegate)
     }
 
+    @Test("Closing a main window refuses to discard a failed note autosave")
+    @MainActor
+    func mainWindowCloseRefusesFailedNoteAutosave() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-window-close-note-flush-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let blocker = root.appendingPathComponent("not-a-directory")
+        try "block".write(to: blocker, atomically: true, encoding: .utf8)
+
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let windowId = UUID()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+        AppDelegate.shared = appDelegate
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        let dock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: workspace.id,
+            title: "Unsaved note",
+            frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+            noteFilePath: blocker.appendingPathComponent("note.md").path,
+            initialContent: .note,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        workspace.floatingDocks.append(dock)
+        let note = try #require(dock.notePanel)
+        await note.loadTextContent().value
+        note.updateTextContent("must remain recoverable")
+        defer {
+            try? note.applyPersistedAutosavedTextContent("")
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            workspace.teardownAllPanels()
+            window.orderOut(nil)
+            window.close()
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        #expect(appDelegate.closeMainWindow(windowId: windowId))
+        for _ in 0..<20 where !note.hasAutosaveError {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(appDelegate.mainWindow(for: windowId) === window)
+        #expect(note.isDirty)
+        #expect(note.textContent == "must remain recoverable")
+    }
+
     @Test("Each window gets its own independent Dock store")
     @MainActor
     func windowDocksAreIndependentPerWindow() {
@@ -174,6 +237,25 @@ struct WindowDockLifecycleTests {
 
         // Non-Dock surfaces fall through to the workspace close path untouched.
         #expect(!appDelegate.closeWindowDockRuntimeSurface(surfaceId: UUID(), force: true))
+    }
+
+    @Test("Runtime close routes workspace floating Dock surfaces through their own store")
+    @MainActor
+    func runtimeCloseRoutesWorkspaceFloatingDockSurfaces() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+        }
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let dock = try #require(workspace.createFloatingDock(initialContent: .note))
+        let panel = try #require(dock.notePanel)
+
+        #expect(appDelegate.closeWindowDockRuntimeSurface(surfaceId: panel.id, force: true))
+        #expect(!dock.store.containsPanel(panel.id))
     }
 
     @Test("Window Dock close confirmation uses the owning window manager")
@@ -287,6 +369,105 @@ struct WindowDockLifecycleTests {
         #expect(replacementPanelId != panelId)
         #expect(workspace.surfaceIdFromPanelId(replacementPanelId) != nil)
         #expect(appDelegate.existingWindowDock(forWindowId: windowId) === dock)
+    }
+
+    @Test("Moving the last main panel preserves a workspace that owns floating Docks")
+    @MainActor
+    func externalDropPreservesSourceWorkspaceWithFloatingDock() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let sourceWorkspace = try #require(manager.tabs.first)
+        let sourcePanelId = try #require(sourceWorkspace.panels.keys.first)
+        let sourceTabId = try #require(sourceWorkspace.surfaceIdFromPanelId(sourcePanelId))
+        let floatingDock = try #require(sourceWorkspace.createFloatingDock(initialContent: .note))
+        let destinationWorkspace = manager.addWorkspace(
+            initialSurface: .terminal,
+            select: false,
+            eagerLoadTerminal: true
+        )
+        let destinationDock = destinationWorkspace.dockSplit
+        let destinationPane = try #require(destinationDock.bonsplitController.allPaneIds.first)
+
+        let moved = appDelegate.moveSurfaceIntoDock(
+            sourceTabId: sourceTabId.uuid,
+            destinationDock: destinationDock,
+            destination: .insert(targetPane: destinationPane, targetIndex: nil)
+        )
+
+        #expect(moved)
+        #expect(manager.tabs.contains(where: { $0 === sourceWorkspace }))
+        #expect(sourceWorkspace.floatingDock(id: floatingDock.id) === floatingDock)
+        #expect(sourceWorkspace.panels[sourcePanelId] == nil)
+        #expect(sourceWorkspace.panels.count == 1)
+        #expect(destinationDock.containsPanel(sourcePanelId))
+    }
+
+    @Test("Floating Docks reject panels that cannot be restored")
+    @MainActor
+    func externalDropIntoFloatingDockRejectsUnsupportedPanel() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        appDelegate.tabManager = manager
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let workspace = try #require(manager.tabs.first)
+        let floatingDock = try #require(workspace.createFloatingDock(initialContent: .note))
+        let destinationPane = try #require(floatingDock.store.bonsplitController.allPaneIds.first)
+        let sourceDock = appDelegate.windowDock(forWindowId: windowId)
+        let unsupportedPanel = try sourceDock.seedTestPanel()
+        let sourceTabId = try #require(sourceDock.surfaceId(forPanelId: unsupportedPanel.id))
+
+        #expect(!appDelegate.canMoveSurfaceIntoDock(
+            sourceTabId: sourceTabId.uuid,
+            destinationDock: floatingDock.store
+        ))
+        #expect(!appDelegate.moveSurfaceIntoDock(
+            sourceTabId: sourceTabId.uuid,
+            destinationDock: floatingDock.store,
+            destination: .insert(targetPane: destinationPane, targetIndex: nil)
+        ))
+        #expect(sourceDock.containsPanel(unsupportedPanel.id))
+        #expect(!floatingDock.store.containsPanel(unsupportedPanel.id))
+    }
+
+    @Test("Floating Dock browsers participate in WebView ownership lookup")
+    @MainActor
+    func floatingDockBrowserWebViewOwnership() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        appDelegate.tabManager = manager
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let workspace = try #require(manager.tabs.first)
+        let floatingDock = try #require(workspace.createFloatingDock(initialContent: .browser))
+        let browser = try #require(floatingDock.store.panels.values.first as? BrowserPanel)
+        let webView = try #require(browser.webView as? CmuxWebView)
+        browser.searchState = BrowserSearchState()
+
+        #expect(appDelegate.browserFindBarIsVisible(for: webView))
     }
 
     @Test("External drop keeps remote tmux mirror panes out of Dock")

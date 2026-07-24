@@ -87,7 +87,7 @@ extension DockSplitStore {
         let preservedResumeBinding = surfaceResumeBindingsByPanelId[panelId] ?? preservedTransfer?.resumeBinding
         let preservedResumeSessionDirectory = restoredResumeSessionWorkingDirectoriesByPanelId[panelId]
             ?? preservedTransfer?.restoredResumeSessionWorkingDirectory
-        let kind = (panel.panelType == .browser) ? "browser" : "terminal"
+        let kind = panel.panelType.rawValue
         let icon = panel.displayIcon
         let browser = panel as? BrowserPanel
         let iconImageData = browser?.faviconPNGData
@@ -279,6 +279,9 @@ extension DockSplitStore {
             focus: focus,
             reconcileReason: "dock.attachDetachedSurface"
         )
+        if let filePreviewPanel = panel as? FilePreviewPanel {
+            WorkspaceFloatingDockNoteOwnerRegistry.register(filePreviewPanel)
+        }
         return detached.panelId
     }
 
@@ -294,6 +297,7 @@ extension DockSplitStore {
         bySplitting paneId: PaneID,
         orientation: SplitOrientation,
         insertFirst: Bool,
+        initialDividerPosition: CGFloat? = nil,
         focus: Bool = true
     ) -> UUID? {
         guard bonsplitController.allPaneIds.contains(paneId), panels[detached.panelId] == nil else {
@@ -330,7 +334,8 @@ extension DockSplitStore {
                 paneId,
                 orientation: orientation,
                 withTab: tab,
-                insertFirst: insertFirst
+                insertFirst: insertFirst,
+                initialDividerPosition: initialDividerPosition
             )
         }
         guard let newPane else {
@@ -349,6 +354,9 @@ extension DockSplitStore {
             focus: focus,
             reconcileReason: "dock.attachDetachedSurface.split"
         )
+        if let filePreviewPanel = panel as? FilePreviewPanel {
+            WorkspaceFloatingDockNoteOwnerRegistry.register(filePreviewPanel)
+        }
         return detached.panelId
     }
 

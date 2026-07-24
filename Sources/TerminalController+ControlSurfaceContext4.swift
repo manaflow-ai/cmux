@@ -30,7 +30,7 @@ extension TerminalController {
         guard let tab = controlTabForSidebarMutation(id: workspaceID) else {
             return .workspaceNotFound
         }
-        let validSurfaceIds = Set(tab.panels.keys)
+        let validSurfaceIds = tab.controlReportingSurfaceIds
         tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
 
         let surfaceId = controlResolveReportedSurfaceId(
@@ -46,7 +46,7 @@ extension TerminalController {
             return .surfaceNotFound
         }
 
-        tab.surfaceTTYNames[surfaceId] = ttyName
+        tab.recordReportedSurfaceTTY(ttyName, panelId: surfaceId)
         if tab.isRemoteWorkspace {
             tab.syncRemotePortScanTTYs()
             _ = tab.applyPendingRemoteSurfacePortKickIfNeeded(to: surfaceId)
@@ -66,7 +66,7 @@ extension TerminalController {
         guard let tab = controlTabForSidebarMutation(id: workspaceID) else {
             return .workspaceNotFound
         }
-        let validSurfaceIds = Set(tab.panels.keys)
+        let validSurfaceIds = tab.controlReportingSurfaceIds
         tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
 
         let surfaceId = controlResolveReportedSurfaceId(
@@ -131,7 +131,7 @@ extension TerminalController {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             guard let tab = self.controlTabForSidebarMutation(id: workspaceID) else { return }
-            let validSurfaceIds = Set(tab.panels.keys)
+            let validSurfaceIds = tab.controlReportingSurfaceIds
             tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
             let surfaceId = self.controlResolveReportedSurfaceId(
                 in: tab,
@@ -159,7 +159,7 @@ extension TerminalController {
         guard let tab = controlTabForSidebarMutation(id: workspaceID) else {
             return .workspaceNotFound
         }
-        let validSurfaceIds = Set(tab.panels.keys)
+        let validSurfaceIds = tab.controlReportingSurfaceIds
         tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
 
         let surfaceId = controlResolveReportedSurfaceId(
@@ -207,7 +207,7 @@ extension TerminalController {
             guard validSurfaceIds.contains(requestedSurfaceId) else { return nil }
             return requestedSurfaceId
         }
-        if let focusedSurfaceId = workspace.focusedPanelId,
+        if let focusedSurfaceId = workspace.controlReportingFocusedSurfaceId,
            validSurfaceIds.contains(focusedSurfaceId),
            (!workspace.isRemoteWorkspace || workspace.isRemoteTerminalSurface(focusedSurfaceId)) {
             return focusedSurfaceId

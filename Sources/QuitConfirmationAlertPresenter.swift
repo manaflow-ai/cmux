@@ -89,6 +89,57 @@ final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
 }
 
 extension AppDelegate {
+    func autosavingNotePanelsForLifecycle() -> [FilePreviewPanel] {
+        var panelsByIdentity: [ObjectIdentifier: FilePreviewPanel] = [:]
+        var visitedManagers = Set<ObjectIdentifier>()
+
+        func collect(_ store: DockSplitStore?) {
+            guard let store else { return }
+            for panel in store.panels.values {
+                guard let preview = panel as? FilePreviewPanel,
+                      preview.presentation.autosavesTextChanges else { continue }
+                panelsByIdentity[ObjectIdentifier(preview)] = preview
+            }
+        }
+
+        func collect(_ manager: TabManager?) {
+            guard let manager,
+                  visitedManagers.insert(ObjectIdentifier(manager)).inserted else { return }
+            for workspace in manager.tabs {
+                for panel in workspace.panels.values {
+                    guard let preview = panel as? FilePreviewPanel,
+                          preview.presentation.autosavesTextChanges else { continue }
+                    panelsByIdentity[ObjectIdentifier(preview)] = preview
+                }
+                collect(workspace._dockSplit)
+                workspace.floatingDocks.forEach { collect($0.store) }
+            }
+        }
+
+        mainWindowContexts.values.forEach { collect($0.tabManager) }
+        collect(tabManager)
+        recoverableMainWindowRoutes().forEach { collect($0.tabManager) }
+        existingWindowDocks.forEach { collect($0) }
+
+        return Array(panelsByIdentity.values)
+    }
+
+    var needsAutosavingNoteFlush: Bool {
+        autosavingNotePanelsForLifecycle().contains(where: \.needsAutosaveFlush)
+    }
+
+    func flushPendingAutosavingNotes() async -> Bool {
+        while true {
+            for panel in autosavingNotePanelsForLifecycle() where panel.needsAutosaveFlush {
+                guard await panel.flushPendingAutosave() else { return false }
+            }
+            guard !autosavingNotePanelsForLifecycle().contains(where: \.needsAutosaveFlush) else {
+                continue
+            }
+            return true
+        }
+    }
+
     static func pendingTerminateReply(
         isAwaitingTerminateKills: Bool,
         hasActiveQuitConfirmation: Bool,

@@ -26,6 +26,7 @@ extension WindowGlassEffect {
         private var effectTopConstraint: NSLayoutConstraint!
         private weak var observedWindow: NSWindow?
         private var currentTintColor: NSColor?
+        private var changesTintWithWindowKeyState = true
 
         init(
             frame: NSRect,
@@ -33,7 +34,9 @@ extension WindowGlassEffect {
             tintColor: NSColor?,
             style: WindowGlassEffectStyle?,
             cornerRadius: CGFloat?,
-            isKeyWindow: Bool
+            isKeyWindow: Bool,
+            changesTintWithWindowKeyState: Bool,
+            backgroundOpacity: CGFloat
         ) {
             if let glassClass = NSClassFromString("NSGlassEffectView") as? NSView.Type {
                 effectView = glassClass.init(frame: .zero)
@@ -82,7 +85,9 @@ extension WindowGlassEffect {
                 tintColor: tintColor,
                 style: style,
                 cornerRadius: cornerRadius,
-                isKeyWindow: isKeyWindow
+                isKeyWindow: isKeyWindow,
+                changesTintWithWindowKeyState: changesTintWithWindowKeyState,
+                backgroundOpacity: backgroundOpacity
             )
         }
 
@@ -108,9 +113,13 @@ extension WindowGlassEffect {
             tintColor: NSColor?,
             style: WindowGlassEffectStyle?,
             cornerRadius: CGFloat?,
-            isKeyWindow: Bool
+            isKeyWindow: Bool,
+            changesTintWithWindowKeyState: Bool,
+            backgroundOpacity: CGFloat
         ) {
             currentTintColor = tintColor
+            self.changesTintWithWindowKeyState = changesTintWithWindowKeyState
+            alphaValue = min(max(backgroundOpacity, 0), 1)
             effectView.layer?.cornerRadius = cornerRadius ?? 0
             if usesNativeGlass {
                 updateNativeGlassConfiguration(
@@ -119,7 +128,10 @@ extension WindowGlassEffect {
                     style: style,
                     cornerRadius: cornerRadius
                 )
-                updateInactiveTintOverlay(tintColor: tintColor, isKeyWindow: isKeyWindow)
+                updateInactiveTintOverlay(
+                    tintColor: tintColor,
+                    isKeyWindow: changesTintWithWindowKeyState ? isKeyWindow : true
+                )
             } else if let tintColor {
                 effectView.layer?.masksToBounds = cornerRadius != nil
                 let fallbackTint = tintColor.withAlphaComponent(min(tintColor.alphaComponent, 0.45))
@@ -130,10 +142,28 @@ extension WindowGlassEffect {
                 tintOverlay.layer?.backgroundColor = nil
                 tintOverlay.alphaValue = 0
             }
+            updateObservedWindow(window)
         }
 
         private func updateObservedWindow(_ window: NSWindow?) {
             guard usesNativeGlass else { return }
+            guard changesTintWithWindowKeyState else {
+                if let observedWindow {
+                    NotificationCenter.default.removeObserver(
+                        self,
+                        name: NSWindow.didBecomeKeyNotification,
+                        object: observedWindow
+                    )
+                    NotificationCenter.default.removeObserver(
+                        self,
+                        name: NSWindow.didResignKeyNotification,
+                        object: observedWindow
+                    )
+                }
+                observedWindow = nil
+                updateInactiveTintOverlay(tintColor: currentTintColor, isKeyWindow: true)
+                return
+            }
             if let observedWindow, observedWindow === window {
                 updateInactiveTintOverlay(tintColor: currentTintColor, isKeyWindow: observedWindow.isKeyWindow)
                 return
@@ -172,6 +202,12 @@ extension WindowGlassEffect {
             guard let tintColor else {
                 tintOverlay.layer?.backgroundColor = nil
                 tintOverlay.alphaValue = 0
+                return
+            }
+
+            if !changesTintWithWindowKeyState {
+                tintOverlay.layer?.backgroundColor = tintColor.cgColor
+                tintOverlay.alphaValue = 1
                 return
             }
 
@@ -218,6 +254,12 @@ extension WindowGlassEffect {
         private let backgroundView: GlassBackgroundView
 
         override var isOpaque: Bool { false }
+        override var mouseDownCanMoveWindow: Bool { false }
+
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+            originalContentView?.acceptsFirstMouse(for: event)
+                ?? super.acceptsFirstMouse(for: event)
+        }
 
         init(
             frame: NSRect,
@@ -225,7 +267,9 @@ extension WindowGlassEffect {
             tintColor: NSColor?,
             style: WindowGlassEffectStyle?,
             cornerRadius: CGFloat?,
-            isKeyWindow: Bool
+            isKeyWindow: Bool,
+            changesTintWithWindowKeyState: Bool,
+            backgroundOpacity: CGFloat
         ) {
             backgroundView = GlassBackgroundView(
                 frame: frame,
@@ -233,7 +277,9 @@ extension WindowGlassEffect {
                 tintColor: tintColor,
                 style: style,
                 cornerRadius: cornerRadius,
-                isKeyWindow: isKeyWindow
+                isKeyWindow: isKeyWindow,
+                changesTintWithWindowKeyState: changesTintWithWindowKeyState,
+                backgroundOpacity: backgroundOpacity
             )
 
             super.init(frame: frame)
@@ -287,14 +333,18 @@ extension WindowGlassEffect {
             tintColor: NSColor?,
             style: WindowGlassEffectStyle?,
             cornerRadius: CGFloat?,
-            isKeyWindow: Bool
+            isKeyWindow: Bool,
+            changesTintWithWindowKeyState: Bool,
+            backgroundOpacity: CGFloat
         ) {
             backgroundView.updateTopOffset(topOffset)
             backgroundView.configure(
                 tintColor: tintColor,
                 style: style,
                 cornerRadius: cornerRadius,
-                isKeyWindow: isKeyWindow
+                isKeyWindow: isKeyWindow,
+                changesTintWithWindowKeyState: changesTintWithWindowKeyState,
+                backgroundOpacity: backgroundOpacity
             )
         }
     }

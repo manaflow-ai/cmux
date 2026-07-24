@@ -91,7 +91,7 @@ extension AppDelegate {
         return AppDelegate.shared?.mainWindowContext(forWindowId: id) != nil
     }
 
-    private func mainWindowContext(forWindowId windowId: UUID) -> MainWindowContext? {
+    func mainWindowContext(forWindowId windowId: UUID) -> MainWindowContext? {
         mainWindowContexts.values.first { $0.windowId == windowId }
     }
 
@@ -168,7 +168,11 @@ extension AppDelegate {
     /// ids, so `TabManager.closeRuntimeSurface`-style routing cannot find them.
     @discardableResult
     func closeWindowDockRuntimeSurface(surfaceId: UUID, force: Bool) -> Bool {
-        guard let dock = windowDockContainingPanel(surfaceId) else { return false }
+        let dock = windowDockContainingPanel(surfaceId)
+            ?? DockSplitStore.owner(containingPanel: surfaceId).flatMap { candidate in
+                workspaceFloatingDock(owning: candidate) != nil ? candidate : nil
+            }
+        guard let dock else { return false }
         if dock.closePanel(surfaceId, force: force) {
             notificationStore?.clearNotifications(forTabId: dock.workspaceId, surfaceId: surfaceId)
         }

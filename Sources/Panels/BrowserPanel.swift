@@ -2791,6 +2791,7 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
     @Published private(set) var backgroundAppearanceRevision: UInt64 = 0
+    private var transparentBackgroundHostIDs: Set<UUID> = []
     let hiddenWebViewDiscardManager = BrowserHiddenWebViewDiscardManager()
     var hasCommittedDocumentSinceWebViewReplacement = false
     var userStoppedLoadSinceWebViewReplacement = false
@@ -4894,6 +4895,22 @@ final class BrowserPanel: Panel, ObservableObject {
         deferRestoredWebViewLoadUntilVisible(url: restoredURL, reason: "session_restore")
     }
 
+    func restoreCompleteSessionSnapshot(_ snapshot: SessionBrowserPanelSnapshot) {
+        let pageZoom = CGFloat(max(0.25, min(5.0, snapshot.pageZoom)))
+        if pageZoom.isFinite {
+            _ = setPageZoomFactor(pageZoom)
+        }
+
+        restoreSessionSnapshot(snapshot)
+
+        if snapshot.developerToolsVisible && BrowserAvailabilitySettings.isEnabled() {
+            _ = showDeveloperTools()
+            requestDeveloperToolsRefreshAfterNextAttach(reason: "session_restore")
+        } else {
+            _ = hideDeveloperTools()
+        }
+    }
+
     private func deferRestoredWebViewLoadUntilVisible(url: URL, reason: String) {
         currentURL = url
         shouldRenderWebView = false
@@ -4901,6 +4918,26 @@ final class BrowserPanel: Panel, ObservableObject {
         refreshNavigationAvailability()
         refreshWebViewLifecycleState()
     }
+
+    func sessionPersistenceSnapshot() -> SessionBrowserPanelSnapshot {
+        let history = sessionNavigationHistorySnapshot()
+        let diffViewer = diffViewerSessionComponents()
+        return SessionBrowserPanelSnapshot(
+            urlString: preferredURLStringForSessionSnapshot(),
+            profileID: profileID,
+            shouldRenderWebView: shouldRenderWebViewForSessionSnapshot(),
+            pageZoom: Double(currentPageZoomFactor()),
+            developerToolsVisible: isDeveloperToolsVisible(),
+            isMuted: isMuted,
+            omnibarVisible: isOmnibarVisible,
+            backHistoryURLStrings: history.backHistoryURLStrings,
+            forwardHistoryURLStrings: history.forwardHistoryURLStrings,
+            transparentBackground: sessionSnapshotTransparentBackground,
+            diffViewerToken: diffViewer?.token,
+            diffViewerRequestPath: diffViewer?.requestPath
+        )
+    }
+
     func shouldRenderWebViewForSessionSnapshot() -> Bool {
         // Diff viewer URLs are "temporary" so `preferredURLStringForSessionSnapshot()`
         // is nil, but they are restorable via their token, so honor their render
@@ -5151,7 +5188,7 @@ final class BrowserPanel: Panel, ObservableObject {
             portalAnchorView.layer?.backgroundColor = NSColor.clear.cgColor
             return
         }
-        if usesTransparentBackground {
+        if effectiveUsesTransparentBackground {
             // Transparent internal pages keep their page CSS clear. On opaque
             // themes, the native webview layer owns the terminal-color backing
             // fill so loading/empty/code regions never fall through to window gray.
@@ -5179,10 +5216,28 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func drawsConfiguredWebViewBackgroundForCurrentPage() -> Bool {
-        Self.drawsConfiguredWebViewBackground(
+        // Floating containers own their glass at the window root regardless of
+        // the user's main-window opacity setting.
+        if !transparentBackgroundHostIDs.isEmpty { return false }
+        return Self.drawsConfiguredWebViewBackground(
             isBlankPage: isShowingBlankBrowserPage,
-            usesTransparentBackground: usesTransparentBackground
+            usesTransparentBackground: effectiveUsesTransparentBackground
         )
+    }
+
+    func setTransparentBackgroundHost(_ hostID: UUID, enabled: Bool) {
+        let wasHostedTransparently = !transparentBackgroundHostIDs.isEmpty
+        if enabled {
+            transparentBackgroundHostIDs.insert(hostID)
+        } else {
+            transparentBackgroundHostIDs.remove(hostID)
+        }
+        guard wasHostedTransparently != !transparentBackgroundHostIDs.isEmpty else { return }
+        refreshBackgroundAppearance()
+    }
+
+    private var effectiveUsesTransparentBackground: Bool {
+        usesTransparentBackground || !transparentBackgroundHostIDs.isEmpty
     }
 
     private func restorableDisplayURLForCurrentErrorPage(liveURL: URL?) -> URL? {

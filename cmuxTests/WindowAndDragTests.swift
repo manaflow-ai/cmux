@@ -39,8 +39,52 @@ private final class FakeBonsplitTabItemRegionView: NSView, BonsplitTabItemHitReg
     }
 }
 
+private final class FirstMouseAcceptingGlassContentView: NSView {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
 @MainActor
 final class WindowGlassEffectTests: XCTestCase {
+    func testGlassPreservesOriginalContentFirstMousePolicy() throws {
+        _ = NSApplication.shared
+        let originalContentView = FirstMouseAcceptingGlassContentView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 200)
+        )
+        let window = NSWindow(
+            contentRect: originalContentView.bounds,
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = originalContentView
+
+        WindowGlassEffect().apply(to: window, tintColor: .systemBlue)
+
+        XCTAssertTrue(try XCTUnwrap(window.contentView).acceptsFirstMouse(for: nil))
+    }
+
+    func testGlassKeepsForegroundControlsAsMouseHitTargets() throws {
+        _ = NSApplication.shared
+        let originalContentView = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 200))
+        let button = NSButton(frame: NSRect(x: 40, y: 50, width: 100, height: 32))
+        originalContentView.addSubview(button)
+        let window = NSWindow(
+            contentRect: originalContentView.bounds,
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = originalContentView
+
+        let glassEffect = WindowGlassEffect()
+        glassEffect.apply(to: window, tintColor: .systemBlue)
+        let root = try XCTUnwrap(window.contentView)
+        root.layoutSubtreeIfNeeded()
+        let point = root.convert(NSPoint(x: button.frame.midX, y: button.frame.midY), from: originalContentView)
+
+        XCTAssertTrue(root.hitTest(point) === button)
+    }
+
     func testRemoveRestoresOriginalContentHierarchy() {
         _ = NSApplication.shared
 
@@ -106,6 +150,43 @@ final class WindowGlassEffectTests: XCTestCase {
         XCTAssertEqual(tintOverlay.alphaValue, 0, accuracy: 0.001)
         NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
         XCTAssertGreaterThan(tintOverlay.alphaValue, 0)
+    }
+
+    func testNativeGlassCanKeepTintStableAcrossWindowKeyChanges() throws {
+        let glassEffect = WindowGlassEffect()
+        guard glassEffect.isAvailable else {
+            throw XCTSkip("NSGlassEffectView is unavailable on this macOS version")
+        }
+        _ = NSApplication.shared
+
+        let originalContentView = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 200))
+        let window = NSWindow(
+            contentRect: originalContentView.bounds,
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = originalContentView
+
+        glassEffect.changesTintWithWindowKeyState = false
+        glassEffect.backgroundOpacity = 0.42
+        glassEffect.apply(to: window, tintColor: .black, style: .clear)
+
+        guard let backgroundView = Self.glassBackgroundView(in: window.contentView),
+              let tintOverlay = backgroundView.subviews.last else {
+            XCTFail("Expected glass background tint overlay")
+            return
+        }
+
+        XCTAssertEqual(backgroundView.alphaValue, 0.42, accuracy: 0.001)
+        XCTAssertEqual(tintOverlay.alphaValue, 1, accuracy: 0.001)
+        XCTAssertEqual(tintOverlay.layer?.backgroundColor, NSColor.black.cgColor)
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+        XCTAssertEqual(tintOverlay.alphaValue, 1, accuracy: 0.001)
+        XCTAssertEqual(tintOverlay.layer?.backgroundColor, NSColor.black.cgColor)
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
+        XCTAssertEqual(tintOverlay.alphaValue, 1, accuracy: 0.001)
+        XCTAssertEqual(tintOverlay.layer?.backgroundColor, NSColor.black.cgColor)
     }
 
     private static func windowContainsGlassBackground(_ window: NSWindow) -> Bool {
@@ -858,6 +939,17 @@ final class WindowDragHandleHitTests: XCTestCase {
         XCTAssertTrue(
             windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle, eventType: .leftMouseDown),
             "Empty titlebar space should drag the window"
+        )
+    }
+
+    func testDragHandleOriginFollowsScreenSpaceMouseDelta() {
+        XCTAssertEqual(
+            windowDragHandleMovedOrigin(
+                initialWindowOrigin: NSPoint(x: 40, y: 80),
+                initialMouseLocation: NSPoint(x: 100, y: 240),
+                currentMouseLocation: NSPoint(x: 225, y: 180)
+            ),
+            NSPoint(x: 165, y: 20)
         )
     }
 
@@ -2938,9 +3030,607 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
     }
 }
 
+private final class WorkspaceFloatingDockTitlebarActionRecordingWindow: NSWindow {
+    private(set) var zoomInvocationCount = 0
+    private(set) var miniaturizeInvocationCount = 0
+
+    override func zoom(_ sender: Any?) {
+        zoomInvocationCount += 1
+    }
+
+    override func miniaturize(_ sender: Any?) {
+        miniaturizeInvocationCount += 1
+    }
+}
+
 
 @MainActor
 final class FilePreviewPanelTextSavingTests: XCTestCase {
+    func testWorkspaceFloatingDockUsesNativeCloseAndStashGlassChrome() throws {
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard
+        let debugSettingKeys = [
+            WorkspaceFloatingDockTextureDebugSettings.styleKey,
+            WorkspaceFloatingDockTextureDebugSettings.tintRedKey,
+            WorkspaceFloatingDockTextureDebugSettings.tintGreenKey,
+            WorkspaceFloatingDockTextureDebugSettings.tintBlueKey,
+            WorkspaceFloatingDockTextureDebugSettings.tintStrengthKey,
+            WorkspaceFloatingDockTextureDebugSettings.backdropOpacityKey,
+        ]
+        let originalDebugSettings = debugSettingKeys.map {
+            ($0, defaults.object(forKey: $0))
+        }
+        defaults.set(
+            WorkspaceFloatingDockTextureDebugStyle.regular.rawValue,
+            forKey: WorkspaceFloatingDockTextureDebugSettings.styleKey
+        )
+        defaults.set(
+            WorkspaceFloatingDockTextureDebugSettings.defaultBackdropOpacity,
+            forKey: WorkspaceFloatingDockTextureDebugSettings.backdropOpacityKey
+        )
+        defaults.set(0, forKey: WorkspaceFloatingDockTextureDebugSettings.tintStrengthKey)
+        defer {
+            for (key, value) in originalDebugSettings {
+                if let value {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+        }
+        let url = try temporaryTextFile(contents: "", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let parent = NSWindow(
+            contentRect: CGRect(x: 100, y: 100, width: 900, height: 700),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        let dock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: UUID(),
+            title: "Custom Chrome",
+            frame: CGRect(x: 40, y: 40, width: 520, height: 380),
+            noteFilePath: url.path,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        defer { dock.close() }
+        XCTAssertTrue(
+            dock.store.bonsplitController.configuration.manualTabReorderFallbackEnabled,
+            "Floating Docks must opt into Bonsplit's host-scoped reorder fallback"
+        )
+
+        var stashRequestCount = 0
+        let controller = WorkspaceFloatingDockWindowController(
+            dock: dock,
+            parentWindow: parent,
+            onCloseRequest: { _ in },
+            onStashRequest: { _ in stashRequestCount += 1 }
+        )
+        defer { controller.teardown() }
+        let panel = try XCTUnwrap(controller.window)
+
+        XCTAssertTrue(panel.styleMask.contains(.fullSizeContentView))
+        XCTAssertEqual(panel.titleVisibility, .hidden)
+        XCTAssertTrue(panel.titlebarAppearsTransparent)
+        XCTAssertTrue(panel.standardWindowButton(.closeButton)?.isHidden == false)
+        XCTAssertTrue(panel.standardWindowButton(.miniaturizeButton)?.isHidden == false)
+        XCTAssertTrue(panel.standardWindowButton(.zoomButton)?.isHidden == false)
+        XCTAssertEqual(panel.standardWindowButton(.closeButton)?.alphaValue, 1)
+        XCTAssertEqual(panel.standardWindowButton(.miniaturizeButton)?.alphaValue, 1)
+        XCTAssertEqual(panel.standardWindowButton(.zoomButton)?.alphaValue, 1)
+        XCTAssertTrue(panel.standardWindowButton(.closeButton)?.isEnabled == true)
+        XCTAssertTrue(panel.standardWindowButton(.miniaturizeButton)?.isEnabled == true)
+        XCTAssertTrue(panel.standardWindowButton(.zoomButton)?.isEnabled == false)
+        panel.standardWindowButton(.miniaturizeButton)?.performClick(nil)
+        XCTAssertEqual(stashRequestCount, 1)
+        XCTAssertFalse(panel.isMiniaturized)
+        XCTAssertTrue(panel.canBecomeKey)
+        XCTAssertTrue(panel.canBecomeMain)
+        XCTAssertFalse(panel.isOpaque)
+        XCTAssertTrue(panel.hasShadow)
+        XCTAssertTrue(panel.usesWorkspaceFloatingDockGlassBackdrop)
+        XCTAssertFalse(
+            panel.isMovable,
+            "Floating panels must leave mouse-drag ownership to their content unless the explicit titlebar handle owns the sequence"
+        )
+        XCTAssertFalse(panel.isMovableByWindowBackground)
+        XCTAssertFalse(panel.contentView?.mouseDownCanMoveWindow ?? true)
+        XCTAssertTrue(panel.styleMask.contains(.resizable))
+        XCTAssertEqual(panel.backgroundColor.alphaComponent, 0, accuracy: 0.001)
+        XCTAssertEqual(panel.minSize, NSSize(width: 320, height: 220))
+        XCTAssertEqual(panel.contentMinSize, NSSize(width: 320, height: 220))
+        XCTAssertEqual(
+            controller.windowWillResize(panel, to: NSSize(width: 80, height: 40)),
+            NSSize(width: 320, height: 220)
+        )
+
+        controller.show(focus: false)
+        XCTAssertTrue(panel.parent === parent)
+        XCTAssertTrue(panel.childWindows?.isEmpty ?? true)
+        panel.setFrame(CGRect(x: 170, y: 180, width: 900, height: 600), display: false)
+        XCTAssertEqual(panel.frame.size, NSSize(width: 520, height: 380))
+
+        controller.windowWillStartLiveResize(Notification(
+            name: NSWindow.willStartLiveResizeNotification,
+            object: panel
+        ))
+        panel.setFrame(CGRect(x: 170, y: 180, width: 640, height: 430), display: false)
+        XCTAssertEqual(panel.frame.size, NSSize(width: 640, height: 430))
+        controller.windowDidEndLiveResize(Notification(
+            name: NSWindow.didEndLiveResizeNotification,
+            object: panel
+        ))
+        panel.setFrame(CGRect(x: 170, y: 180, width: 900, height: 600), display: false)
+        XCTAssertEqual(panel.frame.size, NSSize(width: 640, height: 430))
+
+        dock.frame = CGRect(x: 75, y: 85, width: 610, height: 410)
+        controller.show(focus: false)
+        XCTAssertEqual(panel.frame, CGRect(x: 175, y: 185, width: 610, height: 410))
+
+        let glass = WindowGlassEffect()
+        let glassIsInstalled = Self.viewTree(
+            rootedAt: panel.contentView?.superview,
+            contains: glass.rootViewIdentifier
+        ) || Self.viewTree(
+            rootedAt: panel.contentView?.superview,
+            contains: glass.backgroundViewIdentifier
+        )
+        XCTAssertTrue(glassIsInstalled)
+        if NSClassFromString("NSGlassEffectView") != nil {
+            XCTAssertTrue(Self.viewTree(
+                rootedAt: panel.contentView?.superview,
+                containsClassNamed: "NSGlassEffectView"
+            ))
+        }
+
+        defaults.set(
+            WorkspaceFloatingDockTextureDebugStyle.transparent.rawValue,
+            forKey: WorkspaceFloatingDockTextureDebugSettings.styleKey
+        )
+        controller.show(focus: false)
+        XCTAssertFalse(Self.viewTree(
+            rootedAt: panel.contentView?.superview,
+            contains: glass.rootViewIdentifier
+        ))
+
+        defaults.set(
+            WorkspaceFloatingDockTextureDebugStyle.clear.rawValue,
+            forKey: WorkspaceFloatingDockTextureDebugSettings.styleKey
+        )
+        controller.show(focus: false)
+        XCTAssertTrue(Self.viewTree(
+            rootedAt: panel.contentView?.superview,
+            contains: glass.rootViewIdentifier
+        ) || Self.viewTree(
+            rootedAt: panel.contentView?.superview,
+            contains: glass.backgroundViewIdentifier
+        ))
+
+        defaults.set(
+            WorkspaceFloatingDockTextureDebugStyle.hud.rawValue,
+            forKey: WorkspaceFloatingDockTextureDebugSettings.styleKey
+        )
+        controller.show(focus: false)
+        XCTAssertFalse(Self.viewTree(
+            rootedAt: panel.contentView?.superview,
+            contains: glass.rootViewIdentifier
+        ))
+        XCTAssertTrue(Self.viewTree(
+            rootedAt: panel.contentView?.superview,
+            containsClassNamed: "NSVisualEffectView"
+        ))
+        XCTAssertEqual(WorkspaceFloatingDockTextureDebugStyle.allCases.count, 15)
+
+        defaults.set(0.42, forKey: WorkspaceFloatingDockTextureDebugSettings.backdropOpacityKey)
+        defaults.set(
+            WorkspaceFloatingDockTextureDebugStyle.regular.rawValue,
+            forKey: WorkspaceFloatingDockTextureDebugSettings.styleKey
+        )
+        controller.show(focus: false)
+        let glassBackground = Self.findView(
+            rootedAt: panel.contentView?.superview,
+            identifier: glass.backgroundViewIdentifier
+        )
+        XCTAssertEqual(glassBackground?.alphaValue ?? 0, 0.42, accuracy: 0.001)
+    }
+
+    func testWorkspaceFloatingDockUsesUnobstructedBonsplitChromeAndAlignedTrafficLights() throws {
+        _ = NSApplication.shared
+        let url = try temporaryTextFile(contents: "", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let parent = NSWindow(
+            contentRect: CGRect(x: 100, y: 100, width: 900, height: 700),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        let dock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: UUID(),
+            title: "Floating Window",
+            frame: CGRect(x: 40, y: 40, width: 520, height: 380),
+            noteFilePath: url.path,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        defer { dock.close() }
+
+        let controller = WorkspaceFloatingDockWindowController(
+            dock: dock,
+            parentWindow: parent,
+            onCloseRequest: { _ in }
+        )
+        defer { controller.teardown() }
+        let panel = try XCTUnwrap(controller.window)
+
+        controller.show(focus: false)
+        panel.contentView?.layoutSubtreeIfNeeded()
+
+        XCTAssertNil(Self.findView(
+            rootedAt: panel.contentView,
+            identifier: WindowDragHandleView.viewIdentifier
+        ))
+        XCTAssertNil(Self.findView(
+            rootedAt: panel.contentView,
+            identifier: NSUserInterfaceItemIdentifier("WorkspaceFloatingDockNewDockButton")
+        ))
+
+        let closeButton = try XCTUnwrap(panel.standardWindowButton(.closeButton))
+        let titlebarContainer = try XCTUnwrap(closeButton.superview)
+        let desiredTrafficLightMidY = titlebarContainer.bounds.maxY
+            - WindowChromeMetrics.bonsplitTabBarHeight / 2
+        XCTAssertEqual(closeButton.frame.midY, desiredTrafficLightMidY, accuracy: 0.5)
+    }
+
+    func testWorkspaceFloatingDockRaycastBackdropTracksGhosttyThemeAndStaysStable() throws {
+        let darkTheme = try XCTUnwrap(NSColor(hex: "#272822"))
+        let lightTheme = try XCTUnwrap(NSColor(hex: "#F8F8F2"))
+        let dark = WorkspaceFloatingDockBackdropAppearance.raycast(backgroundColor: darkTheme)
+        let light = WorkspaceFloatingDockBackdropAppearance.raycast(backgroundColor: lightTheme)
+
+        XCTAssertEqual(dark.liquidGlassStyle, .regular)
+        XCTAssertNil(dark.compatibilityMaterial)
+        XCTAssertEqual(dark.opacity, 0.96, accuracy: 0.001)
+        XCTAssertEqual(light.opacity, dark.opacity, accuracy: 0.001)
+
+        let darkTint = try XCTUnwrap(dark.tintColor?.usingColorSpace(.sRGB))
+        let darkThemeRGB = try XCTUnwrap(darkTheme.usingColorSpace(.sRGB))
+        XCTAssertGreaterThan(darkTint.redComponent, darkTint.blueComponent)
+        XCTAssertLessThan(abs(darkTint.redComponent - darkThemeRGB.redComponent), 0.05)
+        XCTAssertLessThan(abs(darkTint.greenComponent - darkThemeRGB.greenComponent), 0.05)
+        XCTAssertLessThan(abs(darkTint.blueComponent - darkThemeRGB.blueComponent), 0.05)
+
+        let lightTint = try XCTUnwrap(light.tintColor?.usingColorSpace(.sRGB))
+        XCTAssertGreaterThan(lightTint.redComponent, 0.9)
+        XCTAssertGreaterThan(lightTint.greenComponent, 0.9)
+        XCTAssertGreaterThan(lightTint.blueComponent, 0.9)
+
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "WorkspaceFloatingDockRaycastBackdropTests"))
+        defaults.removePersistentDomain(forName: "WorkspaceFloatingDockRaycastBackdropTests")
+        defer { defaults.removePersistentDomain(forName: "WorkspaceFloatingDockRaycastBackdropTests") }
+        XCTAssertEqual(WorkspaceFloatingDockTextureDebugSettings.currentStyle(defaults: defaults), .raycast)
+        XCTAssertEqual(
+            WorkspaceFloatingDockTextureDebugSettings.currentBackdropOpacity(defaults: defaults),
+            WorkspaceFloatingDockBackdropAppearance.raycastOpacity,
+            accuracy: 0.001
+        )
+    }
+
+    func testWorkspaceFloatingDockTabBarInsetOnlyClearsTrafficLights() {
+        XCTAssertEqual(
+            WorkspaceFloatingDockChromeMetrics.tabBarLeadingInset,
+            WorkspaceFloatingDockChromeMetrics.trafficLightClearance
+        )
+    }
+
+    func testWorkspaceFloatingDockStashKeepsQuarterActualWindowVisibleAndRevealsOnHover() {
+        let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
+        let window = CGRect(x: 240, y: 180, width: 620, height: 420)
+        let resting = WorkspaceFloatingDockStashLayout.stashedWindowFrame(
+            windowFrame: window,
+            visibleScreenFrame: screen,
+            isHovered: false
+        )
+        let hovered = WorkspaceFloatingDockStashLayout.stashedWindowFrame(
+            windowFrame: window,
+            visibleScreenFrame: screen,
+            isHovered: true
+        )
+
+        XCTAssertEqual(resting.size, window.size)
+        XCTAssertEqual(WorkspaceFloatingDockStashLayout.restingVisibleFraction, 0.25)
+        XCTAssertEqual(
+            screen.intersection(resting).width,
+            window.width * WorkspaceFloatingDockStashLayout.restingVisibleFraction
+        )
+        XCTAssertEqual(
+            screen.intersection(hovered).width,
+            screen.intersection(resting).width
+                + WorkspaceFloatingDockStashLayout.hoverRevealDistance
+        )
+        XCTAssertEqual(resting.minY, window.minY)
+        XCTAssertEqual(hovered.minY, window.minY)
+    }
+
+    func testWorkspaceFloatingDockStashAnimationKeepsBonsplitWindowSize() {
+        let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
+        let window = CGRect(x: 240, y: 180, width: 620, height: 420)
+
+        let stashed = WorkspaceFloatingDockStashLayout.stashedWindowFrame(
+            windowFrame: window,
+            visibleScreenFrame: screen,
+            isHovered: false
+        )
+
+        XCTAssertEqual(stashed.size, window.size)
+        XCTAssertEqual(
+            screen.intersection(stashed).width,
+            window.width * WorkspaceFloatingDockStashLayout.restingVisibleFraction
+        )
+        XCTAssertGreaterThanOrEqual(stashed.minY, screen.minY)
+        XCTAssertLessThanOrEqual(stashed.maxY, screen.maxY)
+    }
+
+    func testWorkspaceFloatingDockStashKeepsNativeWindowAndContentAlive() throws {
+        _ = NSApplication.shared
+        let url = try temporaryTextFile(contents: "", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let parent = NSWindow(
+            contentRect: CGRect(x: 100, y: 100, width: 900, height: 700),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let dock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: workspace.id,
+            title: "Persistent stash",
+            frame: CGRect(x: 40, y: 40, width: 520, height: 380),
+            noteFilePath: url.path,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        workspace.floatingDocks.append(dock)
+        let presenter = WorkspaceFloatingDockPresenter(
+            parentWindow: parent,
+            tabManager: manager
+        )
+        defer {
+            presenter.teardown()
+            workspace.floatingDocks.removeAll { $0 === dock }
+            dock.close()
+            parent.orderOut(nil)
+            parent.close()
+        }
+
+        presenter.refresh()
+        let identifier = NSUserInterfaceItemIdentifier(
+            "cmux.workspace.float.\(dock.id.uuidString)"
+        )
+        let originalWindow = try XCTUnwrap(
+            parent.childWindows?.first { $0.identifier == identifier }
+        )
+        let originalContent = try XCTUnwrap(originalWindow.contentView)
+        let restoreFrame = originalWindow.frame
+
+        dock.setStashed(true)
+        presenter.refresh()
+
+        XCTAssertTrue(presenter.owns(window: originalWindow))
+        XCTAssertTrue(originalWindow.isVisible)
+        XCTAssertTrue(originalWindow.contentView === originalContent)
+        XCTAssertNil(
+            originalWindow.parent,
+            "A screen-anchored parked window must not inherit main-window geometry"
+        )
+        let parkedFrame = originalWindow.frame
+
+        parent.setFrame(
+            CGRect(x: 260, y: 190, width: 1100, height: 760),
+            display: false
+        )
+        presenter.refresh()
+
+        XCTAssertEqual(
+            originalWindow.frame,
+            parkedFrame,
+            "Moving or resizing the main window must not shift a parked window"
+        )
+
+        dock.setStashed(false)
+        presenter.refresh()
+
+        XCTAssertTrue(presenter.owns(window: originalWindow))
+        XCTAssertTrue(originalWindow.contentView === originalContent)
+        XCTAssertTrue(originalWindow.parent === parent)
+        XCTAssertEqual(
+            originalWindow.frame,
+            restoreFrame,
+            "Restoring must return to the absolute frame captured before parking"
+        )
+    }
+
+    func testWorkspaceFloatingDockTitlebarDoubleClickDoesNotInvokeNativeWindowActions() throws {
+        let window = WorkspaceFloatingDockTitlebarActionRecordingWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 380),
+            styleMask: [.titled, .resizable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+        let result = handleTitlebarDoubleClick(window: window, behavior: .suppress)
+
+        XCTAssertTrue(result.consumesEvent)
+        XCTAssertEqual(window.zoomInvocationCount, 0)
+        XCTAssertEqual(window.miniaturizeInvocationCount, 0)
+    }
+
+    func testWorkspaceFloatingDockSeedsNativeNoteSurface() throws {
+        let url = try temporaryTextFile(contents: "", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let dock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: UUID(),
+            title: "Notes",
+            frame: CGRect(x: 20, y: 20, width: 500, height: 360),
+            noteFilePath: url.path,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        defer { dock.close() }
+
+        dock.store.setActive(
+            isVisible: true,
+            mode: .dock,
+            visibilityHostId: UUID()
+        )
+
+        let notePanel = try XCTUnwrap(dock.notePanel)
+        XCTAssertEqual(notePanel.filePath, url.path)
+        XCTAssertEqual(dock.store.panels.count, 1)
+        XCTAssertNotNil(dock.store.paneId(forPanelId: notePanel.id))
+        XCTAssertEqual(dock.store.dockPortalReconcileState.reconcilePassCount, 0)
+    }
+
+    func testWorkspaceFloatingDockDoesNotTreatRegularFilePreviewAsItsNote() throws {
+        let noteURL = try temporaryTextFile(contents: "", encoding: .utf8)
+        let previewURL = try temporaryTextFile(contents: "reference", encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: noteURL)
+            try? FileManager.default.removeItem(at: previewURL)
+        }
+
+        let dock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: UUID(),
+            title: "Terminal",
+            frame: CGRect(x: 20, y: 20, width: 500, height: 360),
+            noteFilePath: noteURL.path,
+            initialContent: .terminal,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        defer { dock.close() }
+        let preview = FilePreviewPanel(workspaceId: dock.workspaceId, filePath: previewURL.path)
+        let pane = try XCTUnwrap(dock.store.bonsplitController.allPaneIds.first)
+        dock.store.panels[preview.id] = preview
+        let tab = try XCTUnwrap(dock.store.bonsplitController.createTab(
+            title: preview.displayTitle,
+            icon: preview.displayIcon,
+            kind: "filePreview",
+            isDirty: false,
+            inPane: pane
+        ))
+        dock.store.surfaceIdToPanelId[tab] = preview.id
+
+        XCTAssertNil(dock.notePanel)
+    }
+
+    func testFailedNoteAutosaveStopsUntilAnotherEdit() async throws {
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: "/dev/null/cmux-note.md",
+            presentation: .note(title: "Notes")
+        )
+        await panel.loadTextContent().value
+
+        panel.updateTextContent("cannot persist")
+        for _ in 0..<500 where panel.isSaving {
+            await Task.yield()
+        }
+
+        XCTAssertFalse(panel.isSaving)
+        XCTAssertTrue(panel.isDirty)
+    }
+
+    func testWorkspaceFloatingDockDefaultsToTerminalSurface() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+
+        let dock = try XCTUnwrap(workspace.createFloatingDock())
+        XCTAssertNil(dock.notePanel)
+        XCTAssertEqual(dock.store.panels.count, 1)
+        XCTAssertTrue(dock.store.panels.values.first is TerminalPanel)
+    }
+
+    func testWorkspaceFloatingDockSupportsExplicitInitialContentKinds() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+
+        let notes = try XCTUnwrap(workspace.createFloatingDock(initialContent: .note))
+        let browser = try XCTUnwrap(workspace.createFloatingDock(initialContent: .browser))
+
+        XCTAssertNotNil(notes.notePanel)
+        XCTAssertTrue(browser.store.panels.values.first is BrowserPanel)
+    }
+
+    func testWorkspaceFloatingDockBackgroundColorNormalizesHex() {
+        XCTAssertEqual(WorkspaceFloatingDockBackgroundColor.normalized("272822"), "#272822")
+        XCTAssertEqual(WorkspaceFloatingDockBackgroundColor.normalized(" #aabbcc "), "#AABBCC")
+        XCTAssertNil(WorkspaceFloatingDockBackgroundColor.normalized("monokai"))
+    }
+
+    func testFloatingDockNoteControlWriteUpdatesEditorAndPersistsOffMainActor() async throws {
+        let url = try temporaryTextFile(contents: "original", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: url.path,
+            presentation: .note(title: "Notes")
+        )
+        defer { panel.close() }
+        await panel.loadTextContent().value
+        let textView = NSTextView()
+        textView.string = panel.textContent
+        panel.attachTextView(textView)
+
+        try panel.replaceAutosavedTextContent("agent-visible note")
+
+        for _ in 0..<500 {
+            if !panel.isSaving, !panel.isDirty { break }
+            await Task.yield()
+        }
+
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "agent-visible note")
+        XCTAssertEqual(panel.textContent, "agent-visible note")
+        XCTAssertEqual(textView.string, "agent-visible note")
+        XCTAssertFalse(panel.isDirty)
+    }
+
+    private static func viewTree(
+        rootedAt root: NSView?,
+        contains identifier: NSUserInterfaceItemIdentifier
+    ) -> Bool {
+        guard let root else { return false }
+        if root.identifier == identifier { return true }
+        return root.subviews.contains { Self.viewTree(rootedAt: $0, contains: identifier) }
+    }
+
+    private static func findView(
+        rootedAt root: NSView?,
+        identifier: NSUserInterfaceItemIdentifier
+    ) -> NSView? {
+        guard let root else { return nil }
+        if root.identifier == identifier { return root }
+        return root.subviews.lazy.compactMap {
+            Self.findView(rootedAt: $0, identifier: identifier)
+        }.first
+    }
+
+    private static func viewTree(rootedAt root: NSView?, containsClassNamed className: String) -> Bool {
+        guard let root, let expectedClass = NSClassFromString(className) else { return false }
+        if root.isKind(of: expectedClass) { return true }
+        return root.subviews.contains { Self.viewTree(rootedAt: $0, containsClassNamed: className) }
+    }
+
     func testNativePreviewSessionsDetachAndManageViewsAcrossRecreation() throws {
         let url = try temporaryTextFile(contents: "preview", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }

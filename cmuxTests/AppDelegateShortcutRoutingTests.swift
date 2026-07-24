@@ -484,6 +484,171 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
+    func testControlCommandNDefaultShortcutCreatesFloatingDockInCurrentWorkspace() throws {
+#if DEBUG
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected test window, manager, and selected workspace")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        let initialWorkspaceCount = manager.tabs.count
+        let initialDockCount = workspace.floatingDocks.count
+
+        withTemporaryShortcut(action: .newWorkspaceFloatingDock) {
+            guard let event = makeKeyDownEvent(
+                key: "n",
+                modifiers: [.command, .control],
+                keyCode: 45,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct Control+Cmd+N event")
+                return
+            }
+
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+        }
+
+        XCTAssertEqual(manager.tabs.count, initialWorkspaceCount)
+        XCTAssertEqual(workspace.floatingDocks.count, initialDockCount + 1)
+        let createdDock = try XCTUnwrap(workspace.floatingDocks.last)
+        XCTAssertNil(createdDock.notePanel)
+        XCTAssertTrue(createdDock.store.panels.values.first is TerminalPanel)
+#else
+        throw XCTSkip("debugHandleCustomShortcut is only available in DEBUG builds")
+#endif
+    }
+
+    func testControlCommandNFromFloatingDockCreatesAnotherDockInOwningWorkspace() throws {
+#if DEBUG
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let firstDock = appDelegate.createWorkspaceFloatingDock(in: manager, focus: true) else {
+            XCTFail("Expected manager, workspace, and first floating Dock")
+            return
+        }
+        guard let dockWindow = NSApp.windows.first(where: {
+            $0.identifier?.rawValue == "cmux.workspace.float.\(firstDock.id.uuidString)"
+        }) else {
+            XCTFail("Expected first floating Dock window")
+            return
+        }
+
+        dockWindow.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        let initialWorkspaceCount = manager.tabs.count
+        let initialDockCount = workspace.floatingDocks.count
+
+        withTemporaryShortcut(action: .newWorkspaceFloatingDock) {
+            guard let event = makeKeyDownEvent(
+                key: "n",
+                modifiers: [.command, .control],
+                keyCode: 45,
+                windowNumber: dockWindow.windowNumber
+            ) else {
+                XCTFail("Failed to construct floating Dock Control+Cmd+N event")
+                return
+            }
+
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+        }
+
+        XCTAssertEqual(manager.tabs.count, initialWorkspaceCount)
+        XCTAssertEqual(workspace.floatingDocks.count, initialDockCount + 1)
+        let createdDock = try XCTUnwrap(workspace.floatingDocks.last)
+        XCTAssertNil(createdDock.notePanel)
+        XCTAssertTrue(createdDock.store.panels.values.first is TerminalPanel)
+        guard let createdWindow = NSApp.windows.first(where: {
+            $0.identifier?.rawValue == "cmux.workspace.float.\(createdDock.id.uuidString)"
+        }) else {
+            XCTFail("Expected cascaded floating Dock window")
+            return
+        }
+        XCTAssertNotEqual(createdWindow.frame.origin, dockWindow.frame.origin)
+#else
+        throw XCTSkip("debugHandleCustomShortcut is only available in DEBUG builds")
+#endif
+    }
+
+    func testFloatingDockWindowOwnsSurfaceAndCloseShortcuts() throws {
+#if DEBUG
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+        let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let dock = try XCTUnwrap(appDelegate.createWorkspaceFloatingDock(in: manager, focus: true))
+        let dockWindow = try XCTUnwrap(NSApp.windows.first(where: {
+            $0.identifier?.rawValue == "cmux.workspace.float.\(dock.id.uuidString)"
+        }))
+        dockWindow.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertTrue(cmuxWindowShouldOwnCloseShortcut(dockWindow))
+        let workspacePanelCount = workspace.panels.count
+        let dockPanelCount = dock.store.panels.count
+        let event = try XCTUnwrap(makeKeyDownEvent(
+            key: "t",
+            modifiers: [.command],
+            keyCode: UInt16(kVK_ANSI_T),
+            windowNumber: dockWindow.windowNumber
+        ))
+        withTemporaryShortcut(action: .newSurface) {
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+        }
+        XCTAssertEqual(workspace.panels.count, workspacePanelCount)
+        XCTAssertEqual(dock.store.panels.count, dockPanelCount + 1)
+
+        let mainWindow = try XCTUnwrap(appDelegate.windowForMainWindowId(windowId))
+        var paletteRequest: Notification?
+        let observer = NotificationCenter.default.addObserver(
+            forName: .commandPaletteRequested,
+            object: mainWindow,
+            queue: nil
+        ) { notification in
+            paletteRequest = notification
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        appDelegate.requestCommandPaletteCommands(
+            preferredWindow: mainWindow,
+            sourceWindow: dockWindow,
+            source: "test.floatingDock"
+        )
+        let focusSource = try XCTUnwrap(
+            paletteRequest?.userInfo?[commandPaletteFloatingDockFocusSourceUserInfoKey]
+                as? CommandPaletteFloatingDockFocusSource
+        )
+        XCTAssertTrue(focusSource.store === dock.store)
+        XCTAssertEqual(focusSource.panelId, dock.store.focusedPanelId)
+        XCTAssertTrue(focusSource.window === dockWindow)
+#else
+        throw XCTSkip("debugHandleCustomShortcut is only available in DEBUG builds")
+#endif
+    }
+
     func testNewBrowserWorkspaceShortcutIsBlockedWhileBrowserDisabled() throws {
 #if DEBUG
         guard let appDelegate = AppDelegate.shared else {
@@ -5425,6 +5590,43 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         wait(for: [dismissExpectation], timeout: 1.0)
         XCTAssertEqual(observedDismissWindow?.windowNumber, window.windowNumber)
+    }
+
+    func testCommandPaletteRequestMakesTargetMainWindowKeyFromAuxiliaryWindow() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+        guard let mainWindow = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        let auxiliaryWindow = NSPanel(
+            contentRect: NSRect(x: 80, y: 80, width: 320, height: 220),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            mainWindow.removeChildWindow(auxiliaryWindow)
+            auxiliaryWindow.orderOut(nil)
+            auxiliaryWindow.close()
+        }
+        mainWindow.addChildWindow(auxiliaryWindow, ordered: .above)
+        auxiliaryWindow.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertTrue(auxiliaryWindow.isKeyWindow)
+
+        appDelegate.requestCommandPaletteCommands(
+            preferredWindow: mainWindow,
+            source: "test.auxiliaryWindow"
+        )
+
+        XCTAssertTrue(mainWindow.isKeyWindow)
     }
 
     func testEscapeRepeatIsConsumedImmediatelyAfterPaletteDismiss() {
@@ -10772,6 +10974,41 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             terminalPanel.hostedView.isSurfaceViewFirstResponder(),
             "Blocked terminal moveFocus must not leave the Ghostty surface as first responder"
         )
+    }
+
+    func testTerminalSelectionConvergenceDoesNotStealForeignTextEditorFocus() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView,
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        let textEditor = NSTextView(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+        contentView.addSubview(textEditor)
+        defer { textEditor.removeFromSuperview() }
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+
+        XCTAssertTrue(window.makeFirstResponder(textEditor))
+        terminalPanel.hostedView.moveFocus(respectForeignFirstResponder: true)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertTrue(window.firstResponder === textEditor)
+        XCTAssertFalse(terminalPanel.hostedView.isSurfaceViewFirstResponder())
     }
 
     func testFindShortcutFromFileTreeOpensRightSidebarFind() {

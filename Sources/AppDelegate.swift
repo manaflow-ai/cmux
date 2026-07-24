@@ -553,6 +553,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         weak var window: NSWindow?
         /// Per-window Dock owned by this context and torn down with it.
         var windowDock: DockSplitStore?
+        var workspaceFloatingDockPresenter: WorkspaceFloatingDockPresenter?
+        var isAutosaveClosePending = false
+        var isAutosaveCloseApproved = false
 
         init(
             windowId: UUID,
@@ -1094,6 +1097,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didReplyToTerminate = false
     // True while remote tmux kill-before-quit owns the terminate reply.
     private var isAwaitingTerminateKills = false
+    private var isAwaitingTerminatePreparation = false
+    private var terminatePreparationGeneration = 0
+    private var terminatePreparationTimeoutTask: Task<Void, Never>?
     private var terminateKillWatchdogTask: Task<Void, Never>?
     /// Force-exits if AppKit's terminate gauntlet wedges (#6758).
     private let terminationWatchdog = TerminationWatchdog()
@@ -1919,16 +1925,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func prepareForConfirmedAppTermination() {
+    private func prepareForConfirmedAppTermination() async -> Bool {
         isTerminatingApp = true
+        guard await flushPendingAutosavingNotes() else {
+            isTerminatingApp = false
+            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.noteFlushFailed")
+            NSSound.beep()
+            return false
+        }
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
-        // Quit is committed and the critical state is now on disk. Bound the
-        // remainder of the terminate sequence so a blocked Apple will-terminate
-        // observer (e.g. CFPasteboardResolveAllPromisedData, #6758) can't hang
-        // the main thread for ~30s. Idempotent and a no-op if the process exits
-        // first.
-        terminationWatchdog.arm()
+        // The caller validates that this preparation generation did not time
+        // out before arming the hard watchdog for AppKit teardown.
+        return true
+    }
+
+    private func beginConfirmedAppTermination(reason: String) {
+        guard !isAwaitingTerminatePreparation else { return }
+        isAwaitingTerminatePreparation = true
+        terminatePreparationGeneration &+= 1
+        let generation = terminatePreparationGeneration
+        terminatePreparationTimeoutTask?.cancel()
+        terminatePreparationTimeoutTask = Task { @MainActor [weak self] in
+            try? await ContinuousClock().sleep(for: .seconds(TerminationWatchdog.defaultDeadline))
+            guard !Task.isCancelled,
+                  let self,
+                  self.isAwaitingTerminatePreparation,
+                  self.terminatePreparationGeneration == generation else { return }
+            self.terminatePreparationGeneration &+= 1
+            self.isAwaitingTerminatePreparation = false
+            self.isTerminatingApp = false
+            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.preparationTimedOut")
+            NSSound.beep()
+            self.replyToTerminateOnce(false)
+        }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let prepared = await self.prepareForConfirmedAppTermination()
+            guard self.terminatePreparationGeneration == generation else { return }
+            self.terminatePreparationTimeoutTask?.cancel()
+            self.terminatePreparationTimeoutTask = nil
+            guard prepared else {
+                self.isAwaitingTerminatePreparation = false
+                self.replyToTerminateOnce(false)
+                return
+            }
+            self.terminationWatchdog.arm()
+            self.closeAllWebInspectorsBeforeAppTeardown()
+            self.isAwaitingTerminatePreparation = false
+            if self.deferTerminateForMarkedRemoteTmuxKills(reason: reason) {
+                return
+            }
+            StartupBreadcrumbLog.append(
+                "appDelegate.shouldTerminate.reply",
+                fields: ["shouldQuit": "1", "reason": reason]
+            )
+            self.replyToTerminateOnce(true)
+        }
     }
 
     private func presentQuitConfirmationAlert(
@@ -1957,13 +2010,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let shouldQuit = response == .alertFirstButtonReturn
         if shouldQuit {
-            prepareForConfirmedAppTermination()
             isQuitWarningConfirmed = true
-            closeAllWebInspectorsBeforeAppTeardown()
-            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "1"])
-            if deferTerminateForMarkedRemoteTmuxKills(reason: "confirmedDialog") {
-                return
-            }
+            beginConfirmedAppTermination(reason: "confirmedDialog")
+            return
         } else {
             // Reset so that the next quit attempt can show the dialog again.
             isTerminatingApp = false
@@ -1975,7 +2024,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if let reply = Self.pendingTerminateReply(
-            isAwaitingTerminateKills: isAwaitingTerminateKills,
+            isAwaitingTerminateKills: isAwaitingTerminateKills || isAwaitingTerminatePreparation,
             hasActiveQuitConfirmation: activeQuitConfirmationAlertPresenter != nil,
             activeQuitConfirmationOwnsTerminateRequest: activeQuitConfirmationOwnsTerminateRequest
         ) {
@@ -2004,8 +2053,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             hasDirtyWorkspaces: hasDirtyWorkspaces,
             isDevBuild: buildFlavor == .dev
         ) {
-            prepareForConfirmedAppTermination()
-            closeAllWebInspectorsBeforeAppTeardown()
             let reason: String
             if isQuitWarningConfirmed {
                 reason = "confirmed"
@@ -2014,13 +2061,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             } else {
                 reason = "policy"
             }
-            // Explicit last-tab closes kill marked remote sessions before quit.
-            // Plain app/window quits have no marker and only detach.
-            if deferTerminateForMarkedRemoteTmuxKills(reason: reason) {
-                return .terminateLater
-            }
-            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": reason])
-            return .terminateNow
+            beginConfirmedAppTermination(reason: reason)
+            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.later", fields: ["reason": reason])
+            return .terminateLater
         }
 
         // Show the same confirmation dialog used by the Cmd+Q shortcut path,
@@ -2048,6 +2091,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // method, so the primary arm above is what bounds #6758; this only
         // widens coverage to other entrypoints.
         isTerminatingApp = true
+        if needsAutosavingNoteFlush {
+            StartupBreadcrumbLog.append("appDelegate.willTerminate.pendingNoteFlush")
+        }
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
         terminationWatchdog.arm()
@@ -4412,8 +4458,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         preserveManualRestoreBackupOnMissingPrimary: Bool = false
     ) {
         guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
+        var retainedFloatingNotePaths = snapshot.map {
+            WorkspaceFloatingDockNoteStorage.retainedPaths(in: $0)
+        } ?? []
+        retainedFloatingNotePaths.formUnion(
+            autosavingNotePanelsForLifecycle().map { $0.fileURL.standardizedFileURL.path }
+        )
+        let closedItemRetentionPaths = ClosedItemHistoryStore.shared.retainedFloatingDockNotePaths()
+        if let closedItemRetentionPaths {
+            retainedFloatingNotePaths.formUnion(closedItemRetentionPaths)
+        }
 
         let writeBlock = {
+            var retainedFloatingNotePaths = retainedFloatingNotePaths
+            let canCleanManualRestoreNotes: Bool
+            if let backupURL = self.sessionSnapshotStore.manualRestoreSnapshotFileURL() {
+                switch self.sessionSnapshotStore.loadOutcome(fileURL: backupURL) {
+                case .loaded(let backup):
+                    retainedFloatingNotePaths.formUnion(
+                        WorkspaceFloatingDockNoteStorage.retainedPaths(in: backup)
+                    )
+                    canCleanManualRestoreNotes = true
+                case .missing:
+                    canCleanManualRestoreNotes = true
+                case .unusable:
+                    // An unreadable backup may still be the user's only
+                    // recovery path. Never delete its external note payloads.
+                    canCleanManualRestoreNotes = false
+                }
+            } else {
+                canCleanManualRestoreNotes = true
+            }
+            let canRemoveOrphanedNotes = closedItemRetentionPaths != nil
+                && canCleanManualRestoreNotes
             Self.removeLegacyPersistedWindowGeometry()
             if let persistedGeometryData {
                 UserDefaults.standard.set(
@@ -4423,7 +4500,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             if let snapshot {
                 Self.clearCrashOnlyPrimarySnapshotRemovalMarker()
-                _ = self.sessionSnapshotStore.save(snapshot, fileURL: nil)
+                if self.sessionSnapshotStore.save(snapshot, fileURL: nil), canRemoveOrphanedNotes {
+                    WorkspaceFloatingDockNoteStorage.removeOrphanedFilesAfterSessionWrite(
+                        retaining: retainedFloatingNotePaths,
+                        sessionWriteIsSynchronous: synchronously
+                    )
+                }
             } else if removeWhenEmpty {
                 if preserveManualRestoreBackupOnMissingPrimary {
                     Self.markCrashOnlyPrimarySnapshotRemoval()
@@ -4431,6 +4513,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     Self.clearCrashOnlyPrimarySnapshotRemovalMarker()
                 }
                 self.sessionSnapshotStore.removeSnapshot(fileURL: nil)
+                if canRemoveOrphanedNotes {
+                    WorkspaceFloatingDockNoteStorage.removeOrphanedFilesAfterSessionWrite(
+                        retaining: retainedFloatingNotePaths,
+                        sessionWriteIsSynchronous: synchronously
+                    )
+                }
             }
         }
 
@@ -4599,6 +4687,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // (cmuxTests/AppDelegateMainWindowTestingSupport.swift, via @testable
     // import) drive the same registration paths.
     func notifyMainWindowContextsDidChange() {
+        refreshAllWorkspaceFloatingDocks()
         NotificationCenter.default.post(name: .mainWindowContextsDidChange, object: self)
     }
 
@@ -4717,6 +4806,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         attemptStartupSessionRestoreAndSaveIfNeeded(primaryWindow: window)
+        if let context = mainWindowContexts.values.first(where: { $0.tabManager === tabManager }) {
+            context.installWorkspaceFloatingDockPresenterIfNeeded()
+            context.workspaceFloatingDockPresenter?.refresh()
+        }
     }
 
 #if DEBUG
@@ -5211,9 +5304,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func postCommandPaletteRequest(
         kind: CommandPaletteRequestKind,
         preferredWindow: NSWindow?,
+        sourceWindow: NSWindow?,
         source: String
     ) {
-        let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
+        let rawTargetWindow = preferredWindow ?? shortcutRoutingActiveWindow
+        let targetWindow = contextForShortcutSourceWindow(rawTargetWindow)?.window ?? rawTargetWindow
+        let floatingDockFocusSource = commandPaletteFloatingDockFocusSource(
+            for: sourceWindow ?? rawTargetWindow
+        )
         if let targetWindow,
            let context = contextForMainWindow(targetWindow) {
             _ = context.tabManager.setFocusedBrowserFocusModeActive(false, reason: "commandPaletteRequest.\(source)")
@@ -5222,7 +5320,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if markPending {
             markCommandPaletteOpenRequested(for: targetWindow)
         }
-        NotificationCenter.default.post(name: Notification.Name(kind.notificationName), object: targetWindow)
+        let userInfo = floatingDockFocusSource.map {
+            [commandPaletteFloatingDockFocusSourceUserInfoKey: $0]
+        }
+        NotificationCenter.default.post(
+            name: Notification.Name(kind.notificationName),
+            object: targetWindow,
+            userInfo: userInfo
+        )
 #if DEBUG
         cmuxDebugLog(
             "shortcut.palette.request source=\(source) " +
@@ -5232,18 +5337,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
     }
 
-    func requestCommandPaletteCommands(preferredWindow: NSWindow? = nil, source: String = "api.commandPalette") {
+    func requestCommandPaletteCommands(
+        preferredWindow: NSWindow? = nil,
+        sourceWindow: NSWindow? = nil,
+        source: String = "api.commandPalette"
+    ) {
         postCommandPaletteRequest(
             kind: .commands,
             preferredWindow: preferredWindow,
+            sourceWindow: sourceWindow,
             source: source
         )
     }
 
-    func requestCommandPaletteSwitcher(preferredWindow: NSWindow? = nil, source: String = "api.commandPaletteSwitcher") {
+    func requestCommandPaletteSwitcher(
+        preferredWindow: NSWindow? = nil,
+        sourceWindow: NSWindow? = nil,
+        source: String = "api.commandPaletteSwitcher"
+    ) {
         postCommandPaletteRequest(
             kind: .switcher,
             preferredWindow: preferredWindow,
+            sourceWindow: sourceWindow,
             source: source
         )
     }
@@ -5252,6 +5367,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         postCommandPaletteRequest(
             kind: .renameTab,
             preferredWindow: preferredWindow,
+            sourceWindow: preferredWindow,
             source: source
         )
     }
@@ -5263,6 +5379,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         postCommandPaletteRequest(
             kind: .renameWorkspace,
             preferredWindow: preferredWindow,
+            sourceWindow: preferredWindow,
             source: source
         )
     }
@@ -5274,6 +5391,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         postCommandPaletteRequest(
             kind: .editWorkspaceDescription,
             preferredWindow: preferredWindow,
+            sourceWindow: preferredWindow,
             source: source
         )
     }
@@ -5629,29 +5747,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let preferredWorkspaceId,
            let manager = tabManagerFor(tabId: preferredWorkspaceId),
            let workspace = manager.tabs.first(where: { $0.id == preferredWorkspaceId }),
-           workspace.panels[panelId] != nil,
-           workspace.surfaceIdFromPanelId(panelId) != nil {
+           workspace.containsPanelIncludingDocks(panelId) {
             return (workspace, manager)
         }
 
         if let located = locateSurface(surfaceId: panelId),
            let workspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
-           workspace.panels[panelId] != nil,
-           workspace.surfaceIdFromPanelId(panelId) != nil {
+           workspace.containsPanelIncludingDocks(panelId) {
             return (workspace, located.tabManager)
         }
 
         if let preferredWorkspaceId,
            let manager = tabManagerFor(tabId: preferredWorkspaceId) ?? tabManager,
            let workspace = manager.tabs.first(where: { $0.id == preferredWorkspaceId }),
-           workspace.panels[panelId] != nil,
-           workspace.surfaceIdFromPanelId(panelId) != nil {
+           workspace.containsPanelIncludingDocks(panelId) {
             return (workspace, manager)
+        }
+
+        for context in mainWindowContexts.values {
+            if let workspace = context.tabManager.tabs.first(where: {
+                $0.containsPanelIncludingDocks(panelId)
+            }) {
+                return (workspace, context.tabManager)
+            }
+        }
+        for route in recoverableMainWindowRoutes() {
+            guard let manager = route.tabManager else { continue }
+            if let workspace = manager.tabs.first(where: {
+                $0.containsPanelIncludingDocks(panelId)
+            }) {
+                return (workspace, manager)
+            }
         }
 
         if let manager = tabManager,
            let workspace = manager.tabs.first(where: {
-               $0.panels[panelId] != nil && $0.surfaceIdFromPanelId(panelId) != nil
+               $0.containsPanelIncludingDocks(panelId)
            }) {
             return (workspace, manager)
         }
@@ -5754,17 +5885,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return didFocus
     }
 
-    func closeMainWindow(windowId: UUID, recordHistory: Bool = true) -> Bool {
+    func closeMainWindow(
+        windowId: UUID,
+        recordHistory: Bool = true,
+        afterClose: (@MainActor () -> Void)? = nil
+    ) -> Bool {
         guard let window = windowForMainWindowId(windowId) else { return false }
+        if needsAutosavingNoteFlush(windowId: windowId) {
+            let context = mainWindowContext(forWindowId: windowId)
+            guard context?.isAutosaveClosePending != true else { return true }
+            context?.isAutosaveClosePending = true
+            Task { @MainActor [weak self, weak window, weak context] in
+                guard let self, let window else { return }
+                let saved = await self.flushPendingAutosavingNotes(windowId: windowId)
+                context?.isAutosaveClosePending = false
+                guard saved, self.windowForMainWindowId(windowId) === window else {
+                    NSSound.beep()
+                    return
+                }
+                if !recordHistory {
+                    self.closedWindowHistorySuppressedWindowIds.insert(windowId)
+                }
+                self.closeMainWindowWithoutInteractiveVeto(window)
+                afterClose?()
+            }
+            return true
+        }
         if !recordHistory {
             closedWindowHistorySuppressedWindowIds.insert(windowId)
         }
         closeMainWindowWithoutInteractiveVeto(window)
+        afterClose?()
         return true
     }
 
     func discardMainWindowWithoutClosedHistory(windowId: UUID) {
         guard let window = windowForMainWindowId(windowId) else { return }
+        if needsAutosavingNoteFlush(windowId: windowId) {
+            let context = mainWindowContext(forWindowId: windowId)
+            guard context?.isAutosaveClosePending != true else { return }
+            context?.isAutosaveClosePending = true
+            Task { @MainActor [weak self, weak window, weak context] in
+                guard let self, let window else { return }
+                let saved = await self.flushPendingAutosavingNotes(windowId: windowId)
+                context?.isAutosaveClosePending = false
+                guard saved, self.windowForMainWindowId(windowId) === window else {
+                    NSSound.beep()
+                    return
+                }
+                self.closedWindowHistorySuppressedWindowIds.insert(windowId)
+                self.closeMainWindowWithoutInteractiveVeto(window)
+            }
+            return
+        }
         closedWindowHistorySuppressedWindowIds.insert(windowId)
         closeMainWindowWithoutInteractiveVeto(window)
     }
@@ -5862,10 +6035,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func cleanupEmptySourceWorkspaceAfterSurfaceMove(
         sourceWorkspace: Workspace,
         sourceManager: TabManager,
-        sourceWindowId: UUID
+        sourceWindowId: UUID,
+        preserveIfEmpty: Bool = false
     ) {
         guard sourceWorkspace.panels.isEmpty else { return }
         guard sourceManager.tabs.contains(where: { $0.id == sourceWorkspace.id }) else { return }
+
+        // Floating Docks are workspace-owned content. Keep their workspace alive
+        // when its last main-area surface moves elsewhere, regardless of which
+        // move entrypoint initiated the transfer.
+        if preserveIfEmpty || !sourceWorkspace.floatingDocks.isEmpty {
+            sourceWorkspace.detachRemoteTmuxMirrorKeptOpenLocallyIfNeeded()
+            _ = sourceWorkspace.createReplacementTerminalPanel()
+            sourceWorkspace.scheduleTerminalGeometryReconcile()
+            return
+        }
 
         if sourceManager.tabs.count > 1 {
             sourceManager.closeWorkspace(sourceWorkspace, recordHistory: false)
@@ -5987,6 +6171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func unregisterMainWindowContext(for window: NSWindow) -> MainWindowContext? {
         guard let removed = contextForMainTerminalWindow(window, reindex: false) else { return nil }
+        removed.teardownWorkspaceFloatingDockPresenter()
         removed.teardownWindowDock()
         let removedKeys = mainWindowContexts.compactMap { key, value in
             value === removed ? key : nil
@@ -6002,6 +6187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     // Internal (not private): see notifyMainWindowContextsDidChange.
     func discardOrphanedMainWindowContext(_ context: MainWindowContext, allowWindowlessFallback: Bool = false) {
+        context.teardownWorkspaceFloatingDockPresenter()
         context.teardownWindowDock()
         let contextKeys = mainWindowContexts.compactMap { key, value in
             value === context ? key : nil
@@ -6056,12 +6242,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func isCommandPaletteOverlayPresented(in window: NSWindow) -> Bool {
+        if commandPalettePresentedPanelWindow(for: window) != nil {
+            return true
+        }
         guard let container = commandPaletteOverlayContainer(in: window) else { return false }
         return !container.isHidden && container.alphaValue > 0.001
     }
 
     private func isCommandPaletteResponderActive(in window: NSWindow) -> Bool {
-        guard let responder = window.firstResponder else { return false }
+        let inputWindow = commandPalettePresentedPanelWindow(for: window) ?? window
+        guard let responder = inputWindow.firstResponder else { return false }
         if let textView = responder as? NSTextView,
            textView.isFieldEditor,
            !(textView.delegate is NSView) {
@@ -6073,7 +6263,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func isCommandPaletteMultilineTextResponderActive(in window: NSWindow) -> Bool {
-        guard let textView = window.firstResponder as? NSTextView,
+        let inputWindow = commandPalettePresentedPanelWindow(for: window) ?? window
+        guard let textView = inputWindow.firstResponder as? NSTextView,
               !textView.isFieldEditor else {
             return false
         }
@@ -6081,13 +6272,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func commandPaletteMarkedTextInput(in window: NSWindow) -> NSTextView? {
-        if let textView = window.firstResponder as? NSTextView,
+        let inputWindow = commandPalettePresentedPanelWindow(for: window) ?? window
+        if let textView = inputWindow.firstResponder as? NSTextView,
            isCommandPaletteResponder(textView),
            textView.hasMarkedText() {
             return textView
         }
 
-        if let textField = window.firstResponder as? NSTextField,
+        if let textField = inputWindow.firstResponder as? NSTextField,
            let editor = textField.currentEditor() as? NSTextView,
            isCommandPaletteResponder(editor),
            editor.hasMarkedText() {
@@ -8479,7 +8671,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let event else { return nil }
 
         if let eventWindow = event.window,
-           let context = contextForMainTerminalWindow(eventWindow) {
+           let context = contextForShortcutSourceWindow(eventWindow) {
             #if DEBUG
             logWorkspaceCreationRouting(
                 phase: "choose",
@@ -8496,7 +8688,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if event.windowNumber > 0,
            let window = debugShortcutRoutingFocusedWindowOverrideForTesting.window,
            window.windowNumber == event.windowNumber,
-           let context = contextForMainTerminalWindow(window) {
+           let context = contextForShortcutSourceWindow(window) {
             logWorkspaceCreationRouting(
                 phase: "choose",
                 source: debugSource,
@@ -8510,7 +8702,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if event.windowNumber > 0,
            let numberedWindow = NSApp.window(withWindowNumber: event.windowNumber),
-           let context = contextForMainTerminalWindow(numberedWindow) {
+           let context = contextForShortcutSourceWindow(numberedWindow) {
             #if DEBUG
             logWorkspaceCreationRouting(
                 phase: "choose",
@@ -8877,7 +9069,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self.mainWindowControllers.removeAll(where: { $0 === controller })
         }
         controller.shouldClose = { [weak self] in
-            let shouldClose = self?.handleMainTerminalWindowShouldClose() ?? true
+            let shouldClose = self?.handleMainTerminalWindowShouldClose(windowId: windowId) ?? true
             if !shouldClose {
                 self?.closedWindowHistorySuppressedWindowIds.remove(windowId)
                 // Close CANCELLED (a genuine veto, not a confirmed quit): clear any
@@ -13226,14 +13418,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if commandPaletteEffectiveInTargetWindow {
             if matchConfiguredShortcut(event: event, action: .commandPalette) {
                 let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
-                requestCommandPaletteCommands(preferredWindow: targetWindow, source: "shortcut.commandPalette")
+                requestCommandPaletteCommands(
+                    preferredWindow: targetWindow,
+                    sourceWindow: event.window ?? shortcutRoutingActiveWindow,
+                    source: "shortcut.commandPalette"
+                )
                 return true
             }
 
             if !hasFocusedAddressBarInShortcutContext,
                matchConfiguredShortcut(event: event, action: .goToWorkspace) {
                 let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
-                requestCommandPaletteSwitcher(preferredWindow: targetWindow, source: "shortcut.goToWorkspace")
+                requestCommandPaletteSwitcher(
+                    preferredWindow: targetWindow,
+                    sourceWindow: event.window ?? shortcutRoutingActiveWindow,
+                    source: "shortcut.goToWorkspace"
+                )
                 return true
             }
 
@@ -13453,7 +13653,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchConfiguredShortcut(event: event, action: .commandPalette) {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
-            requestCommandPaletteCommands(preferredWindow: targetWindow, source: "shortcut.commandPalette")
+            requestCommandPaletteCommands(
+                preferredWindow: targetWindow,
+                sourceWindow: event.window ?? shortcutRoutingActiveWindow,
+                source: "shortcut.commandPalette"
+            )
             return true
         }
 
@@ -13462,7 +13666,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !hasFocusedAddressBarInShortcutContext,
            matchConfiguredShortcut(event: event, action: .goToWorkspace) {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
-            requestCommandPaletteSwitcher(preferredWindow: targetWindow, source: "shortcut.goToWorkspace")
+            requestCommandPaletteSwitcher(
+                preferredWindow: targetWindow,
+                sourceWindow: event.window ?? shortcutRoutingActiveWindow,
+                source: "shortcut.goToWorkspace"
+            )
             return true
         }
 
@@ -13505,6 +13713,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             cmuxDebugLog("shortcut.action name=newWorkspace \(debugShortcutRouteSnapshot(event: event))")
 #endif
             performNewWorkspaceAction(event: event, debugSource: "shortcut.cmdN")
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .newWorkspaceFloatingDock) {
+#if DEBUG
+            cmuxDebugLog("shortcut.action name=newWorkspaceFloatingDock \(debugShortcutRouteSnapshot(event: event))")
+#endif
+            let sourceWindow = event.window ?? shortcutRoutingActiveWindow
+            if let context = contextForShortcutSourceWindow(sourceWindow),
+               let workspace = context.tabManager.selectedWorkspace {
+                let relativeToDockId = context.workspaceFloatingDockPresenter?.dockId(owning: sourceWindow)
+                _ = createWorkspaceFloatingDock(
+                    in: workspace,
+                    tabManager: context.tabManager,
+                    request: WorkspaceFloatingDockCreationRequest(
+                        initialContent: .terminal,
+                        focus: true,
+                        relativeToDockId: relativeToDockId
+                    )
+                )
+            }
             return true
         }
 
@@ -16123,7 +16352,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func browserPanel(for panelId: UUID) -> BrowserPanel? {
-        return workspaceContainingPanel(panelId: panelId)?.workspace.browserPanel(for: panelId)
+        return workspaceContainingPanel(panelId: panelId)?.workspace.browserPanelIncludingDock(for: panelId)
     }
 
     func browserFindBarIsVisible(for webView: CmuxWebView) -> Bool {
@@ -16218,9 +16447,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func browserPanelOwning(_ webView: CmuxWebView, in manager: TabManager) -> BrowserPanel? {
         for workspace in manager.tabs {
-            if let panel = workspace.panels.values
-                .compactMap({ $0 as? BrowserPanel })
-                .first(where: { $0.webView === webView }) {
+            if let panel = workspace.browserPanelIncludingDock(owning: webView) {
                 return panel
             }
         }
@@ -16256,13 +16483,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
     }
 
-    private func handleMainTerminalWindowShouldClose() -> Bool {
+    private func handleMainTerminalWindowShouldClose(windowId: UUID) -> Bool {
+        let context = mainWindowContext(forWindowId: windowId)
+        let autosaveCloseApproved = context?.isAutosaveCloseApproved == true
+        context?.isAutosaveCloseApproved = false
+        if !autosaveCloseApproved,
+           needsAutosavingNoteFlush(windowId: windowId) {
+            guard context?.isAutosaveClosePending != true else { return false }
+            context?.isAutosaveClosePending = true
+            Task { @MainActor [weak self, weak context] in
+                guard let self else { return }
+                let saved = await self.flushPendingAutosavingNotes(windowId: windowId)
+                context?.isAutosaveClosePending = false
+                guard saved, let window = self.windowForMainWindowId(windowId) else {
+                    NSSound.beep()
+                    return
+                }
+                context?.isAutosaveCloseApproved = true
+                window.performClose(nil)
+            }
+            return false
+        }
         // XCTest has no UI for the warn-before-quit dialog and would either block
         // on runModal or have NSApp.terminate kill the test process.
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return true }
         guard !isTerminatingApp, mainWindowContexts.count <= 1 else { return true }
         _ = handleQuitShortcutWarning()
         return false
+    }
+
+    private func needsAutosavingNoteFlush(windowId: UUID) -> Bool {
+        tabManagerFor(windowId: windowId)?.needsAutosavingNoteFlush == true
+            || existingWindowDock(forWindowId: windowId)?.needsAutosavingNoteFlush == true
+    }
+
+    private func flushPendingAutosavingNotes(windowId: UUID) async -> Bool {
+        guard let manager = tabManagerFor(windowId: windowId),
+              await manager.flushPendingAutosavingNotes() else { return false }
+        if let dock = existingWindowDock(forWindowId: windowId),
+           await dock.flushPendingAutosavingNotes() == false { return false }
+        return true
     }
 
     private func unregisterMainWindow(_ window: NSWindow) {

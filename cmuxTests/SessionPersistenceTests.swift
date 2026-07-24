@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import Bonsplit
 import CmuxCore
 import CmuxFoundation
 import CmuxWorkspaces
@@ -32,6 +33,835 @@ final class SessionPersistenceTests: XCTestCase {
             bundleIdentifier: bundleIdentifier,
             appSupportDirectory: appSupportDirectory
         )
+    }
+
+    @MainActor
+    func testWorkspaceSessionSnapshotRestoresFloatingDockContentsAndLayout() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let dock = try XCTUnwrap(workspace.createFloatingDock(
+            title: "Scratch",
+            frame: CGRect(x: 72, y: 96, width: 640, height: 420),
+            initialContent: .note,
+            backgroundTintHex: "#272822"
+        ))
+        let screenFrame = CGRect(x: 1_672, y: 256, width: 640, height: 420)
+        let displaySnapshot = SessionDisplaySnapshot(
+            displayID: 42,
+            stableID: "external-display",
+            frame: SessionRectSnapshot(x: 1_440, y: 0, width: 1_920, height: 1_080),
+            visibleFrame: SessionRectSnapshot(x: 1_440, y: 0, width: 1_920, height: 1_040)
+        )
+        let configEntry = SessionConfigFrameEntry(
+            signature: "dual-display",
+            frame: SessionRectSnapshot(screenFrame),
+            display: displaySnapshot,
+            lastUsedAt: 42
+        )
+        dock.screenFrame = screenFrame
+        dock.displaySnapshot = displaySnapshot
+        dock.configFrames = SessionConfigFrameRing(entries: [configEntry])
+        let rootPane = try XCTUnwrap(dock.store.bonsplitController.allPaneIds.first)
+        let terminal = try XCTUnwrap(dock.store.newSurface(
+            kind: .terminal,
+            inPane: rootPane,
+            workingDirectory: "/tmp",
+            focus: false
+        ))
+        _ = try XCTUnwrap(dock.store.newSplit(
+            kind: .terminal,
+            orientation: .horizontal,
+            insertFirst: false,
+            sourcePanelId: terminal,
+            workingDirectory: "/private/tmp",
+            initialDividerPosition: 0.42,
+            focus: false
+        ))
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let restored = Workspace()
+        defer { restored.teardownAllPanels() }
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredDock = try XCTUnwrap(restored.floatingDocks.first)
+        XCTAssertEqual(restoredDock.title, "Scratch")
+        XCTAssertEqual(restoredDock.frame, CGRect(x: 72, y: 96, width: 640, height: 420))
+        XCTAssertEqual(restoredDock.backgroundTintHex, "#272822")
+        XCTAssertEqual(restoredDock.screenFrame, screenFrame)
+        XCTAssertEqual(restoredDock.displaySnapshot, displaySnapshot)
+        XCTAssertEqual(restoredDock.configFrames.entries, [configEntry])
+        XCTAssertEqual(restoredDock.store.panels.count, 3)
+        XCTAssertEqual(restoredDock.store.bonsplitController.allPaneIds.count, 2)
+        XCTAssertEqual(
+            restoredDock.store.panels.values.compactMap { ($0 as? TerminalPanel)?.requestedWorkingDirectory }.sorted(),
+            ["/private/tmp", "/tmp"]
+        )
+    }
+
+    @MainActor
+    func testFloatingDockTerminalSnapshotPreservesResumeAndRemoteMetadata() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let terminalId = try XCTUnwrap(workspace.focusedPanelId)
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "floating-agent-session",
+            workingDirectory: "/tmp/floating-agent",
+            launchCommand: nil
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "Floating Codex",
+            kind: "codex",
+            command: "codex resume floating-agent-session",
+            cwd: "/tmp/floating-agent",
+            checkpointId: "floating-agent-session",
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 1_777_777_777
+        )
+        workspace.setRestoredAgentSnapshotForTesting(agent, panelId: terminalId)
+        workspace.setRestoredAgentAutoResumePendingForTesting(true, panelId: terminalId)
+        workspace.surfaceResumeBindingsByPanelId[terminalId] = binding
+        workspace.updatePanelShellActivityState(panelId: terminalId, state: .commandRunning)
+        workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            destination: "floating-host",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64007,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-floating-test.sock",
+            terminalStartupCommand: "ssh-pty-attach",
+            preserveAfterTerminalExit: true
+        )
+        workspace.activeRemoteTerminalSurfaceIds.insert(terminalId)
+        workspace.remotePTYSessionIDsByPanelId[terminalId] = "floating-remote-pty"
+
+        let dock = try XCTUnwrap(workspace.createFloatingDock(initialContent: .note))
+        let transfer = try XCTUnwrap(workspace.detachSurface(panelId: terminalId))
+        XCTAssertEqual(transfer.restorableAgent?.sessionId, agent.sessionId)
+        XCTAssertEqual(transfer.resumeBinding?.checkpointId, binding.checkpointId)
+        XCTAssertTrue(transfer.isRemoteTerminal)
+        XCTAssertEqual(transfer.remotePTYSessionID, "floating-remote-pty")
+        let dockPane = try XCTUnwrap(dock.store.bonsplitController.allPaneIds.first)
+        _ = try XCTUnwrap(dock.store.attachDetachedSurface(transfer, inPane: dockPane, focus: false))
+
+        let terminalSnapshot = try XCTUnwrap(
+            workspace.sessionSnapshot(includeScrollback: false)
+                .floatingDocks?.first?.content?.surfaces
+                .first(where: { $0.id == terminalId })?.terminal
+        )
+        XCTAssertEqual(terminalSnapshot.agent?.sessionId, agent.sessionId)
+        XCTAssertEqual(terminalSnapshot.resumeBinding?.checkpointId, binding.checkpointId)
+        XCTAssertEqual(terminalSnapshot.isRemoteTerminal, true)
+        XCTAssertEqual(terminalSnapshot.remotePTYSessionID, "floating-remote-pty")
+        XCTAssertEqual(terminalSnapshot.wasAgentRunning, true)
+    }
+
+    @MainActor
+    func testFloatingDockTerminalRestoreUsesPersistedWorkspaceIDForRemotePTYFallback() throws {
+        let source = Workspace()
+        defer { source.teardownAllPanels() }
+        source.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "floating-host",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64008,
+                relayID: String(repeating: "c", count: 16),
+                relayToken: String(repeating: "d", count: 64),
+                localSocketPath: "/tmp/cmux-floating-restore-test.sock",
+                terminalStartupCommand: "ssh-pty-attach",
+                preserveAfterTerminalExit: true,
+                persistentDaemonSlot: "floating-restore"
+            ),
+            autoConnect: false
+        )
+        _ = try XCTUnwrap(source.createFloatingDock(initialContent: .terminal))
+
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        let persistedWorkspaceID = try XCTUnwrap(snapshot.workspaceId)
+        var floatingDocks = try XCTUnwrap(snapshot.floatingDocks)
+        var content = try XCTUnwrap(floatingDocks[0].content)
+        let terminalIndex = try XCTUnwrap(content.surfaces.firstIndex(where: { $0.kind == .terminal }))
+        let persistedPanelID = content.surfaces[terminalIndex].id
+        content.surfaces[terminalIndex].terminal?.isRemoteTerminal = true
+        content.surfaces[terminalIndex].terminal?.remotePTYSessionID = nil
+        floatingDocks[0].content = content
+        snapshot.floatingDocks = floatingDocks
+
+        let restored = Workspace()
+        defer { restored.teardownAllPanels() }
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredDock = try XCTUnwrap(restored.floatingDocks.first)
+        let restoredTransfer = try XCTUnwrap(
+            restoredDock.store.detachedSurfaceTransfersByPanelId.values.first
+        )
+        XCTAssertEqual(
+            restoredTransfer.remotePTYSessionID,
+            Workspace.defaultSSHPTYSessionID(
+                workspaceId: persistedWorkspaceID,
+                panelId: persistedPanelID
+            )
+        )
+    }
+
+    @MainActor
+    func testFloatingDockCloseRefusesToDiscardFailedNoteAutosave() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-close-autosave-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let blocker = root.appendingPathComponent("not-a-directory")
+        try "block".write(to: blocker, atomically: true, encoding: .utf8)
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let dock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: workspace.id,
+            title: "Unsaved note",
+            frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+            noteFilePath: blocker.appendingPathComponent("note.md").path,
+            initialContent: .note,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        workspace.floatingDocks.append(dock)
+        let note = try XCTUnwrap(dock.notePanel)
+        await note.loadTextContent().value
+        note.updateTextContent("must remain recoverable")
+
+        let didClose = await workspace.closeFloatingDock(id: dock.id)
+        XCTAssertFalse(didClose)
+        XCTAssertTrue(workspace.floatingDock(id: dock.id) === dock)
+        XCTAssertTrue(note.isDirty)
+        XCTAssertTrue(note.hasAutosaveError)
+    }
+
+    @MainActor
+    func testWorkspaceSessionSnapshotRestoresIntentionallyEmptyFloatingDock() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let dock = try XCTUnwrap(workspace.createFloatingDock(initialContent: .note))
+        dock.store.closeAllPanels()
+        XCTAssertTrue(dock.store.panels.isEmpty)
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let restored = Workspace()
+        defer { restored.teardownAllPanels() }
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredDock = try XCTUnwrap(restored.floatingDocks.first)
+        XCTAssertTrue(restoredDock.store.panels.isEmpty)
+        XCTAssertTrue(restoredDock.store.bonsplitController.allTabIds.isEmpty)
+    }
+
+    @MainActor
+    func testWorkspaceSessionSnapshotRestoresFloatingDockStashState() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let dock = try XCTUnwrap(workspace.createFloatingDock(initialContent: .terminal))
+        dock.setStashed(true, at: 1_234)
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let restored = Workspace()
+        defer { restored.teardownAllPanels() }
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredDock = try XCTUnwrap(restored.floatingDocks.first)
+        XCTAssertEqual(restoredDock.presentationState, .stashed)
+        XCTAssertEqual(restoredDock.stashedAt, 1_234)
+    }
+
+    @MainActor
+    func testWorkspaceSessionSnapshotPreservesRegularFilePreviewInFloatingDock() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-preview-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let previewURL = root.appendingPathComponent("reference.txt")
+        try "reference".write(to: previewURL, atomically: true, encoding: .utf8)
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let dock = try XCTUnwrap(workspace.createFloatingDock(initialContent: .note))
+        let workspacePane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let preview = try XCTUnwrap(workspace.newFilePreviewSurface(
+            inPane: workspacePane,
+            filePath: previewURL.path,
+            focus: false
+        ))
+        let transfer = try XCTUnwrap(workspace.detachSurface(panelId: preview.id))
+        let dockPane = try XCTUnwrap(dock.store.bonsplitController.allPaneIds.first)
+        _ = try XCTUnwrap(dock.store.attachDetachedSurface(transfer, inPane: dockPane, focus: false))
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let restored = Workspace()
+        defer { restored.teardownAllPanels() }
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredDock = try XCTUnwrap(restored.floatingDocks.first)
+        let restoredPreview = try XCTUnwrap(restoredDock.store.panels.values
+            .compactMap { $0 as? FilePreviewPanel }
+            .first(where: { $0.filePath == previewURL.path }))
+        XCTAssertEqual(restoredPreview.presentation, .file)
+    }
+
+    @MainActor
+    func testRestoredFloatingNotePreviewSavesToItsOwnFile() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-restored-note-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dockNoteURL = root.appendingPathComponent("dock-note.md")
+        let movedNoteURL = root.appendingPathComponent("moved-note.md")
+        try "dock note".write(to: dockNoteURL, atomically: true, encoding: .utf8)
+        try "moved note".write(to: movedNoteURL, atomically: true, encoding: .utf8)
+
+        let dock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: UUID(),
+            title: "Restore target",
+            frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+            noteFilePath: dockNoteURL.path,
+            initialContent: nil,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        defer { dock.close() }
+        let oldPanelID = UUID()
+        dock.restoreSessionContent(SessionFloatingDockContentSnapshot(
+            layout: .pane(SessionPaneLayoutSnapshot(
+                panelIds: [oldPanelID],
+                selectedPanelId: oldPanelID
+            )),
+            surfaces: [SessionFloatingDockSurfaceSnapshot(
+                id: oldPanelID,
+                kind: .note,
+                filePreview: SessionFilePreviewPanelSnapshot(
+                    filePath: movedNoteURL.path,
+                    noteTitle: "Moved note"
+                )
+            )],
+            focusedPanelId: oldPanelID
+        ))
+
+        let restoredNote = try XCTUnwrap(dock.store.panels.values
+            .compactMap { $0 as? FilePreviewPanel }
+            .first(where: { $0.filePath == movedNoteURL.path }))
+        await restoredNote.loadTextContent().value
+        restoredNote.updateTextContent("edited moved note")
+        await restoredNote.saveTextContent()?.value
+
+        XCTAssertEqual(try String(contentsOf: movedNoteURL, encoding: .utf8), "edited moved note")
+        XCTAssertEqual(try String(contentsOf: dockNoteURL, encoding: .utf8), "dock note")
+    }
+
+    @MainActor
+    func testRestoredWorkspaceNoteUsesSequencedPersistence() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-restored-workspace-note-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let noteURL = root.appendingPathComponent("note.md")
+        try "restored note".write(to: noteURL, atomically: true, encoding: .utf8)
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        _ = try XCTUnwrap(workspace.newFilePreviewSurface(
+            inPane: pane,
+            filePath: noteURL.path,
+            presentation: .note(title: "Restored note"),
+            focus: false
+        ))
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+
+        let restored = Workspace()
+        defer { restored.teardownAllPanels() }
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredNote = try XCTUnwrap(
+            restored.panels.values.compactMap { $0 as? FilePreviewPanel }.first
+        )
+
+        XCTAssertTrue(restoredNote.hasSequencedTextPersistence)
+    }
+
+    @MainActor
+    func testRestoredMovedFloatingNoteRebindsToItsDockOwner() async throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let dock = try XCTUnwrap(workspace.createFloatingDock(
+            title: "Moved note",
+            initialContent: .note
+        ))
+        defer { try? FileManager.default.removeItem(atPath: dock.noteFilePath) }
+        let note = try XCTUnwrap(dock.notePanel)
+        let transfer = try XCTUnwrap(dock.store.detachSurface(panelId: note.id))
+        let workspacePane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        XCTAssertEqual(
+            workspace.attachDetachedSurface(transfer, inPane: workspacePane, focus: false),
+            note.id
+        )
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let restored = Workspace()
+        defer { restored.teardownAllPanels() }
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredDock = try XCTUnwrap(restored.floatingDocks.first)
+        let restoredNote = try XCTUnwrap(restored.panels.values
+            .compactMap { $0 as? FilePreviewPanel }
+            .first(where: { $0.filePath == restoredDock.noteFilePath }))
+        await restoredNote.loadTextContent().value
+        restoredNote.updateTextContent("edited after restore")
+
+        XCTAssertEqual(restoredDock.loadedNoteTextSnapshot, "edited after restore")
+        let mutation = restoredDock.reserveNoteMutation()
+        guard case .saved = restoredDock.noteWriter.saveSynchronously(
+            content: "socket after restore",
+            sequence: mutation.writeSequence
+        ) else {
+            XCTFail("Expected restored Dock note write to succeed")
+            return
+        }
+        XCTAssertTrue(restoredDock.applyPersistedNoteText("socket after restore", to: restoredNote))
+        XCTAssertEqual(restoredNote.textContent, "socket after restore")
+        XCTAssertEqual(restoredDock.loadedNoteTextSnapshot, "socket after restore")
+    }
+
+    @MainActor
+    func testWorkspaceSessionSnapshotDefersAndFullyRestoresFloatingBrowser() throws {
+        let url = try XCTUnwrap(URL(string: "https://example.com/restored"))
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let dock = try XCTUnwrap(workspace.createFloatingDock(initialContent: .note))
+        let pane = try XCTUnwrap(dock.store.bonsplitController.allPaneIds.first)
+        let panelId = try XCTUnwrap(dock.store.newSurface(
+            kind: .browser,
+            inPane: pane,
+            focus: false
+        ))
+        let browser = try XCTUnwrap(dock.store.panels[panelId] as? BrowserPanel)
+        browser.restoreSessionSnapshot(SessionBrowserPanelSnapshot(
+            urlString: url.absoluteString,
+            profileID: browser.profileID,
+            shouldRenderWebView: true,
+            pageZoom: 1,
+            developerToolsVisible: false,
+            backHistoryURLStrings: [],
+            forwardHistoryURLStrings: []
+        ))
+
+        var snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        var floatingDocks = try XCTUnwrap(snapshot.floatingDocks)
+        var content = try XCTUnwrap(floatingDocks[0].content)
+        let browserIndex = try XCTUnwrap(content.surfaces.firstIndex(where: { $0.id == panelId }))
+        content.surfaces[browserIndex].browser?.pageZoom = 1.75
+        content.surfaces[browserIndex].browser?.developerToolsVisible = true
+        floatingDocks[0].content = content
+        snapshot.floatingDocks = floatingDocks
+
+        let restored = Workspace()
+        defer { restored.teardownAllPanels() }
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredBrowser = try XCTUnwrap(restored.floatingDocks.first?.store.panels.values
+            .compactMap { $0 as? BrowserPanel }
+            .first)
+        XCTAssertNil(restoredBrowser.navigationDelegate?.lastAttemptedURL)
+        XCTAssertFalse(restoredBrowser.shouldRenderWebView)
+        XCTAssertEqual(restoredBrowser.currentPageZoomFactor(), 1.75, accuracy: 0.000_001)
+        XCTAssertTrue(restoredBrowser.forceDeveloperToolsRefreshOnNextAttach)
+    }
+
+    @MainActor
+    func testFloatingDockNoteSnapshotRejectsOversizedPersistedFile() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-note-bound-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let noteURL = root.appendingPathComponent("note.md")
+        FileManager.default.createFile(atPath: noteURL.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: noteURL)
+        try handle.truncate(atOffset: FilePreviewTextLoader.maximumLoadedTextBytes + 1)
+        try handle.close()
+
+        let dock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: UUID(),
+            title: "Oversized note",
+            frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+            noteFilePath: noteURL.path,
+            initialContent: nil,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        defer { dock.close() }
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.5))
+        XCTAssertEqual(dock.noteTextSnapshot, "")
+    }
+
+    @MainActor
+    func testFloatingDockRestoreCapsDockCountAndAggregatePanels() {
+        func snapshot(index: Int, panelCount: Int) -> SessionFloatingDockSnapshot {
+            let panelIds = (0..<panelCount).map { _ in UUID() }
+            return SessionFloatingDockSnapshot(
+                id: UUID(),
+                title: "Dock \(index)",
+                x: Double(index),
+                y: Double(index),
+                width: 520,
+                height: 380,
+                content: SessionFloatingDockContentSnapshot(
+                    layout: .pane(SessionPaneLayoutSnapshot(
+                        panelIds: panelIds,
+                        selectedPanelId: panelIds.first
+                    )),
+                    surfaces: panelIds.map {
+                        SessionFloatingDockSurfaceSnapshot(id: $0, kind: .note)
+                    },
+                    focusedPanelId: panelIds.first
+                )
+            )
+        }
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+
+        workspace.restoreFloatingDocks(from: (0..<34).map { snapshot(index: $0, panelCount: 1) })
+        XCTAssertEqual(workspace.floatingDocks.count, 32)
+
+        workspace.restoreFloatingDocks(from: [
+            snapshot(index: 0, panelCount: 100),
+            snapshot(index: 1, panelCount: 100),
+        ])
+        XCTAssertEqual(workspace.floatingDocks.count, 2)
+        XCTAssertEqual(workspace.floatingDocks.reduce(0) { $0 + $1.store.panels.count }, 128)
+    }
+
+    @MainActor
+    func testFloatingDockRuntimeRejectsPanelsBeyondPersistedBudget() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-runtime-budget-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let dock = try XCTUnwrap(workspace.createFloatingDock(initialContent: .note))
+        let pane = try XCTUnwrap(dock.store.bonsplitController.allPaneIds.first)
+        for index in 1..<SessionPersistencePolicy.maxFloatingDockPanelsPerWorkspace {
+            _ = try XCTUnwrap(dock.store.newSurface(
+                kind: .note,
+                inPane: pane,
+                noteFilePath: root.appendingPathComponent("note-\(index).md").path,
+                noteTitle: "Note \(index)",
+                focus: false
+            ))
+        }
+
+        XCTAssertEqual(
+            workspace.floatingDocks.reduce(0) { $0 + $1.store.panels.count },
+            SessionPersistencePolicy.maxFloatingDockPanelsPerWorkspace
+        )
+        XCTAssertNil(dock.store.newSurface(
+            kind: .note,
+            inPane: pane,
+            noteFilePath: root.appendingPathComponent("overflow.md").path,
+            noteTitle: "Overflow",
+            focus: false
+        ))
+        XCTAssertEqual(
+            workspace.floatingDockSessionSnapshots()?.flatMap { $0.content?.surfaces ?? [] }.count,
+            SessionPersistencePolicy.maxFloatingDockPanelsPerWorkspace
+        )
+    }
+
+    @MainActor
+    func testFloatingDockFrameSanitizerBoundsCorruptedSessionGeometry() {
+        let sanitized = Workspace.sanitizedFloatingDockFrame(CGRect(
+            x: CGFloat.greatestFiniteMagnitude,
+            y: -CGFloat.greatestFiniteMagnitude,
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        ))
+
+        XCTAssertLessThanOrEqual(abs(sanitized.origin.x), 1_000_000)
+        XCTAssertLessThanOrEqual(abs(sanitized.origin.y), 1_000_000)
+        XCTAssertLessThanOrEqual(sanitized.width, 16_384)
+        XCTAssertLessThanOrEqual(sanitized.height, 16_384)
+    }
+
+    @MainActor
+    func testFloatingDockNoteStorageRetainsLiveSessionReferences() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let dock = try XCTUnwrap(workspace.createFloatingDock(initialContent: .note))
+        let workspaceSnapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: Date().timeIntervalSince1970,
+            windows: [SessionWindowSnapshot(
+                tabManager: SessionTabManagerSnapshot(
+                    selectedWorkspaceIndex: 0,
+                    workspaces: [workspaceSnapshot]
+                ),
+                sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: 220)
+            )]
+        )
+
+        XCTAssertTrue(
+            WorkspaceFloatingDockNoteStorage.retainedPaths(in: snapshot).contains(
+                URL(fileURLWithPath: dock.noteFilePath).standardizedFileURL.path
+            )
+        )
+    }
+
+    @MainActor
+    func testClosedItemHistoryRetainsFloatingDockNoteFiles() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let dock = try XCTUnwrap(workspace.createFloatingDock(initialContent: .note))
+        let history = ClosedItemHistoryStore(capacity: 10, loadPersisted: false)
+        history.push(.workspace(ClosedWorkspaceHistoryEntry(
+            workspaceId: workspace.id,
+            windowId: nil,
+            workspaceIndex: 0,
+            snapshot: workspace.sessionSnapshot(includeScrollback: false)
+        )))
+
+        let retainedPaths = try XCTUnwrap(history.retainedFloatingDockNotePaths())
+        XCTAssertTrue(
+            retainedPaths.contains(
+                URL(fileURLWithPath: dock.noteFilePath).standardizedFileURL.path
+            )
+        )
+    }
+
+    func testFloatingDockNoteStorageOnlyRemovesUnreferencedManagedFiles() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-note-gc-\(UUID().uuidString)", isDirectory: true)
+        let workspaceDirectory = root.appendingPathComponent(UUID().uuidString.lowercased(), isDirectory: true)
+        try FileManager.default.createDirectory(at: workspaceDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let retained = workspaceDirectory.appendingPathComponent("\(UUID().uuidString.lowercased()).md")
+        let orphaned = workspaceDirectory.appendingPathComponent("\(UUID().uuidString.lowercased()).md")
+        let unmanaged = workspaceDirectory.appendingPathComponent("manual.md")
+        try "retained".write(to: retained, atomically: true, encoding: .utf8)
+        try "orphaned".write(to: orphaned, atomically: true, encoding: .utf8)
+        try "unmanaged".write(to: unmanaged, atomically: true, encoding: .utf8)
+
+        WorkspaceFloatingDockNoteStorage.removeOrphanedFiles(
+            retaining: [retained.standardizedFileURL.path],
+            rootDirectory: root
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: retained.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: orphaned.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: unmanaged.path))
+    }
+
+    func testAsynchronousSessionWriteDoesNotDeleteInterveningFloatingDockNote() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-note-stale-retention-\(UUID().uuidString)", isDirectory: true)
+        let workspaceDirectory = root.appendingPathComponent(UUID().uuidString.lowercased(), isDirectory: true)
+        try FileManager.default.createDirectory(at: workspaceDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        // Simulate a note created after an asynchronous session write captured
+        // its retention snapshot but before that queued write reached cleanup.
+        let interveningNote = workspaceDirectory
+            .appendingPathComponent("\(UUID().uuidString.lowercased()).md")
+        try "created while save was queued".write(to: interveningNote, atomically: true, encoding: .utf8)
+
+        WorkspaceFloatingDockNoteStorage.removeOrphanedFilesAfterSessionWrite(
+            retaining: [],
+            sessionWriteIsSynchronous: false,
+            rootDirectory: root
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: interveningNote.path))
+    }
+
+    @MainActor
+    func testFloatingDockNoteReadsLoadLazilyAndCacheFirstExplicitRead() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-note-concurrent-read-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let noteURL = root.appendingPathComponent("note.md")
+        try "persisted text".write(to: noteURL, atomically: true, encoding: .utf8)
+        let dock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: UUID(),
+            title: "Concurrent note",
+            frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+            noteFilePath: noteURL.path,
+            initialContent: nil,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        defer { dock.close() }
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.5))
+        let firstGeneration = dock.reserveNoteSnapshotRead()
+        XCTAssertNil(dock.loadedNoteTextSnapshot)
+        let secondGeneration = dock.reserveNoteSnapshotRead()
+        XCTAssertEqual(firstGeneration, secondGeneration)
+
+        XCTAssertEqual(
+            dock.applyLoadedNoteTextSnapshot("persisted text", generation: firstGeneration),
+            "persisted text"
+        )
+        XCTAssertEqual(
+            dock.applyLoadedNoteTextSnapshot("persisted text", generation: secondGeneration),
+            "persisted text"
+        )
+        XCTAssertEqual(dock.loadedNoteTextSnapshot, "persisted text")
+    }
+
+    @MainActor
+    func testRestoredFloatingDockCopiesManagedNoteWhenStableIdentityIsRemapped() async throws {
+        let source = Workspace()
+        let sourceDock = try XCTUnwrap(source.createFloatingDock(initialContent: .note))
+        let sourceWorkspaceDirectory = URL(fileURLWithPath: sourceDock.noteFilePath)
+            .deletingLastPathComponent()
+        var restoredWorkspaceDirectory: URL?
+        defer {
+            source.teardownAllPanels()
+            try? FileManager.default.removeItem(at: sourceWorkspaceDirectory)
+            if let restoredWorkspaceDirectory {
+                try? FileManager.default.removeItem(at: restoredWorkspaceDirectory)
+            }
+        }
+        try FileManager.default.createDirectory(
+            at: sourceWorkspaceDirectory,
+            withIntermediateDirectories: true
+        )
+        try "note from the original stable identity".write(
+            toFile: sourceDock.noteFilePath,
+            atomically: true,
+            encoding: .utf8
+        )
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+
+        let restored = Workspace()
+        defer { restored.teardownAllPanels() }
+        restored.restoreSessionSnapshot(snapshot, excludingStableIdentities: [source.stableId])
+
+        XCTAssertNotEqual(restored.stableId, source.stableId)
+        let deadline = ContinuousClock.now + .seconds(2)
+        while restored.floatingDocks.isEmpty, ContinuousClock.now < deadline {
+            await Task.yield()
+        }
+        let restoredDock = try XCTUnwrap(restored.floatingDocks.first)
+        restoredWorkspaceDirectory = URL(fileURLWithPath: restoredDock.noteFilePath)
+            .deletingLastPathComponent()
+        XCTAssertNotEqual(restoredDock.noteFilePath, sourceDock.noteFilePath)
+        XCTAssertEqual(
+            try String(contentsOfFile: restoredDock.noteFilePath, encoding: .utf8),
+            "note from the original stable identity"
+        )
+    }
+
+    func testManagedNoteMigrationFailureRetainsSourceFile() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-note-migration-\(UUID().uuidString)", isDirectory: true)
+        let sourceWorkspace = root.appendingPathComponent(UUID().uuidString.lowercased(), isDirectory: true)
+        let source = sourceWorkspace
+            .appendingPathComponent(UUID().uuidString.lowercased())
+            .appendingPathExtension("md")
+        let destinationBlocker = root.appendingPathComponent("destination-blocker")
+        let destination = destinationBlocker
+            .appendingPathComponent(UUID().uuidString.lowercased())
+            .appendingPathExtension("md")
+        try FileManager.default.createDirectory(at: sourceWorkspace, withIntermediateDirectories: true)
+        try "only recoverable copy".write(to: source, atomically: true, encoding: .utf8)
+        try "not a directory".write(to: destinationBlocker, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let restoredURL = WorkspaceFloatingDockNoteStorage.restoredManagedNoteURL(
+            source: source,
+            destination: destination
+        )
+
+        XCTAssertEqual(restoredURL.standardizedFileURL, source.standardizedFileURL)
+        XCTAssertEqual(
+            try String(contentsOf: restoredURL, encoding: .utf8),
+            "only recoverable copy"
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+    }
+
+    @MainActor
+    func testClosingFloatingDockUnregistersItsRetainedNotePanel() async throws {
+        let noteURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-note-owner-\(UUID().uuidString)")
+            .appendingPathExtension("md")
+        defer { try? FileManager.default.removeItem(at: noteURL) }
+        let firstDock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: UUID(),
+            title: "First owner",
+            frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+            noteFilePath: noteURL.path,
+            initialContent: .note,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        let retainedPanel = try XCTUnwrap(firstDock.notePanel)
+        await retainedPanel.loadTextContent().value
+        firstDock.close()
+
+        let replacementDock = WorkspaceFloatingDock(
+            id: UUID(),
+            workspaceId: UUID(),
+            title: "Replacement owner",
+            frame: CGRect(x: 0, y: 0, width: 520, height: 380),
+            noteFilePath: noteURL.path,
+            initialContent: nil,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        defer { replacementDock.close() }
+
+        retainedPanel.updateTextContent("must not bind to replacement")
+        XCTAssertEqual(replacementDock.noteTextSnapshot, "")
+    }
+
+    func testFloatingDockNoteStorageDoesNotTraverseSymbolicLinks() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-note-gc-root-\(UUID().uuidString)", isDirectory: true)
+        let externalRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-floating-note-gc-external-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: externalRoot, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: externalRoot)
+        }
+
+        let externalNote = externalRoot.appendingPathComponent("\(UUID().uuidString.lowercased()).md")
+        try "outside managed storage".write(to: externalNote, atomically: true, encoding: .utf8)
+        let linkedWorkspace = root.appendingPathComponent(UUID().uuidString.lowercased(), isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: linkedWorkspace, withDestinationURL: externalRoot)
+
+        WorkspaceFloatingDockNoteStorage.removeOrphanedFiles(
+            retaining: [],
+            rootDirectory: root
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: externalNote.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: linkedWorkspace.path))
     }
 
     @MainActor

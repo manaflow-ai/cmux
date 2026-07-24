@@ -6,12 +6,45 @@ extension Workspace {
         browserPanel(for: panelId) ?? dockBrowserPanel(for: panelId)
     }
 
+    func browserPanelIncludingDock(owning webView: CmuxWebView) -> BrowserPanel? {
+        if let panel = panels.values
+            .compactMap({ $0 as? BrowserPanel })
+            .first(where: { $0.webView === webView }) {
+            return panel
+        }
+        if let panel = _dockSplit?.panels.values
+            .compactMap({ $0 as? BrowserPanel })
+            .first(where: { $0.webView === webView }) {
+            return panel
+        }
+        return floatingDocks.lazy.compactMap { dock in
+            dock.store.panels.values
+                .compactMap({ $0 as? BrowserPanel })
+                .first(where: { $0.webView === webView })
+        }.first
+    }
+
     func dockBrowserPanel(for panelId: UUID) -> BrowserPanel? {
-        _dockSplit?.browserPanel(for: panelId)
+        guard let store = DockSplitStore.owner(containingPanel: panelId),
+              ownsDockStore(store) else { return nil }
+        return store.browserPanel(for: panelId)
     }
 
     func dockBrowserPanel(owning responder: NSResponder?, in window: NSWindow?) -> BrowserPanel? {
-        _dockSplit?.browserPanel(owning: responder, in: window)
+        if let panel = _dockSplit?.browserPanel(owning: responder, in: window) { return panel }
+        return floatingDocks.lazy.compactMap {
+            $0.store.browserPanel(owning: responder, in: window)
+        }.first
+    }
+
+    func containsPanelIncludingDocks(_ panelId: UUID) -> Bool {
+        if panels[panelId] != nil, surfaceIdFromPanelId(panelId) != nil { return true }
+        guard let store = DockSplitStore.owner(containingPanel: panelId) else { return false }
+        return ownsDockStore(store)
+    }
+
+    private func ownsDockStore(_ store: DockSplitStore) -> Bool {
+        _dockSplit === store || floatingDocks.contains { $0.store === store }
     }
 
     func containsDockPane(_ paneId: UUID) -> Bool {
@@ -38,8 +71,14 @@ extension Workspace {
         return true
     }
 
+    func isDockAutosaveClosePending(panelId: UUID) -> Bool {
+        _dockSplit?.isAutosaveClosePending(panelId: panelId) ?? false
+    }
+
     func openDockBrowserLinkInNewTab(panel: BrowserPanel, seed: BrowserNewTabNavigationSeed) -> Bool {
-        guard let dock = _dockSplit, let paneId = dock.paneId(forPanelId: panel.id) else { return false }
+        guard let dock = DockSplitStore.owner(containingPanel: panel.id),
+              ownsDockStore(dock),
+              let paneId = dock.paneId(forPanelId: panel.id) else { return false }
         return dock.newSurface(
             kind: .browser,
             inPane: paneId,
@@ -133,8 +172,13 @@ extension DockSplitStore {
         guard let tabId = surfaceId(forPanelId: panelId) else { return false }
         if force { forceCloseDockTabIds.insert(tabId) }
         let closed = bonsplitController.closeTab(tabId)
-        if force && !closed { forceCloseDockTabIds.remove(tabId) }
-        return closed
+        let pending = pendingAutosaveCloseDockTabIds.contains(tabId)
+        if force && !closed && !pending { forceCloseDockTabIds.remove(tabId) }
+        return closed || pending
+    }
+
+    func isAutosaveClosePending(panelId: UUID) -> Bool {
+        surfaceId(forPanelId: panelId).map(pendingAutosaveCloseDockTabIds.contains) ?? false
     }
 
     func applyRemoteProxyEndpointUpdate(_ endpoint: BrowserProxyEndpoint?) {

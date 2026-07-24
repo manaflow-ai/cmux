@@ -194,7 +194,8 @@ func resolvedBrowserChromeColorScheme(
 
 func resolvedBrowserOmnibarPillBackgroundColor(
     for colorScheme: ColorScheme,
-    themeBackgroundColor: NSColor
+    themeBackgroundColor: NSColor,
+    usesTransparentContainer: Bool = false
 ) -> NSColor {
     let darkenMix: CGFloat
     switch colorScheme {
@@ -207,7 +208,10 @@ func resolvedBrowserOmnibarPillBackgroundColor(
     }
 
     let blendedColor = themeBackgroundColor.blended(withFraction: darkenMix, of: .black) ?? themeBackgroundColor
-    return blendedColor.withAlphaComponent(themeBackgroundColor.alphaComponent)
+    let alpha = usesTransparentContainer
+        ? min(themeBackgroundColor.alphaComponent, 0.22)
+        : themeBackgroundColor.alphaComponent
+    return blendedColor.withAlphaComponent(alpha)
 }
 
 private struct BrowserChromeStyle {
@@ -218,7 +222,8 @@ private struct BrowserChromeStyle {
     static func resolve(
         for colorScheme: ColorScheme,
         themeBackgroundColor: NSColor,
-        drawsBackground: Bool
+        drawsBackground: Bool,
+        usesTransparentContainer: Bool
     ) -> BrowserChromeStyle {
         let backgroundColor = resolvedBrowserChromeBackgroundColor(
             for: colorScheme,
@@ -231,7 +236,8 @@ private struct BrowserChromeStyle {
         )
         let omnibarPillBackgroundColor = resolvedBrowserOmnibarPillBackgroundColor(
             for: chromeColorScheme,
-            themeBackgroundColor: themeBackgroundColor
+            themeBackgroundColor: themeBackgroundColor,
+            usesTransparentContainer: usesTransparentContainer
         )
         return BrowserChromeStyle(
             backgroundColor: backgroundColor,
@@ -255,6 +261,7 @@ struct BrowserPanelView: View {
     /// panels in `DockSplitStore`). When set, it overrides the workspace lookup
     /// in `isCurrentPaneOwner`; `nil` preserves the main-area behavior.
     let paneOwnershipOverride: Bool?
+    let usesTransparentContainer: Bool
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.cmuxCanvasInlineBrowserHosting) private var canvasInlineBrowserHosting
     @Environment(\.paneDropZone) private var paneDropZone
@@ -318,6 +325,7 @@ struct BrowserPanelView: View {
     @State private var isBrowserProfileMenuPresented = false
     @State private var isBrowserThemeMenuPresented = false
     @State private var browserChromeStyle: BrowserChromeStyle
+    @State private var transparentBackgroundHostID = UUID()
     // The browser top chrome scales with the tab bar font size so tabs and the
     // browser toolbar share one consistent scale. Seeded from the cached config
     // and refreshed live on `.ghosttyConfigDidReload` (same path the tab strip
@@ -348,6 +356,7 @@ struct BrowserPanelView: View {
         isVisibleInUI: Bool,
         portalPriority: Int,
         paneOwnershipOverride: Bool? = nil,
+        usesTransparentContainer: Bool = false,
         onRequestPanelFocus: @escaping () -> Void
     ) {
         self.panel = panel
@@ -356,11 +365,15 @@ struct BrowserPanelView: View {
         self.isVisibleInUI = isVisibleInUI
         self.portalPriority = portalPriority
         self.paneOwnershipOverride = paneOwnershipOverride
+        self.usesTransparentContainer = usesTransparentContainer
         self.onRequestPanelFocus = onRequestPanelFocus
         self._browserChromeStyle = State(initialValue: BrowserChromeStyle.resolve(
             for: .light,
             themeBackgroundColor: GhosttyBackgroundTheme.currentColor(),
-            drawsBackground: panel.drawsConfiguredWebViewBackgroundForCurrentPage()
+            drawsBackground: usesTransparentContainer
+                ? false
+                : panel.drawsConfiguredWebViewBackgroundForCurrentPage(),
+            usesTransparentContainer: usesTransparentContainer
         ))
     }
 
@@ -674,6 +687,10 @@ struct BrowserPanelView: View {
     }
 
     private func handleBrowserPanelAppear() {
+        panel.setTransparentBackgroundHost(
+            transparentBackgroundHostID,
+            enabled: usesTransparentContainer
+        )
         // One-time setup must not re-run on every commit; `.onAppear` can re-fire
         // repeatedly for a portal-hosted pane (issue #5303). Everything below the
         // setup call is idempotent and cheap, and genuine state transitions are
@@ -730,6 +747,7 @@ struct BrowserPanelView: View {
     }
 
     private func handleBrowserPanelDisappear() {
+        panel.setTransparentBackgroundHost(transparentBackgroundHostID, enabled: false)
         stopOmnibarSuggestionRefreshConsumer()
         cancelPendingOmnibarSuggestionWork()
         focusModeShortcutHintMonitor.stop()
@@ -1826,7 +1844,10 @@ struct BrowserPanelView: View {
         browserChromeStyle = BrowserChromeStyle.resolve(
             for: colorScheme,
             themeBackgroundColor: GhosttyBackgroundTheme.currentColor(),
-            drawsBackground: panel.drawsConfiguredWebViewBackgroundForCurrentPage()
+            drawsBackground: usesTransparentContainer
+                ? false
+                : panel.drawsConfiguredWebViewBackgroundForCurrentPage(),
+            usesTransparentContainer: usesTransparentContainer
         )
     }
 

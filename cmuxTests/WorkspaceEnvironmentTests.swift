@@ -67,6 +67,17 @@ struct WorkspaceEnvironmentTests {
         #expect(second.surface.respawnAdditionalEnvironment["AWS_PROFILE"] == "prod")
     }
 
+    @Test
+    func floatingDockTerminalInheritsWorkspaceEnvironment() throws {
+        let workspace = Workspace(workspaceEnvironment: ["AWS_PROFILE": "prod"])
+        defer { workspace.teardownAllPanels() }
+
+        let dock = try #require(workspace.createFloatingDock(initialContent: .terminal))
+        let terminal = try #require(dock.store.panels.values.first as? TerminalPanel)
+
+        #expect(terminal.surface.respawnAdditionalEnvironment["AWS_PROFILE"] == "prod")
+    }
+
     /// `newTerminalSplit` is the other later-surface choke point (splitting a
     /// surface into a new pane); it must fold in the workspace environment too.
     @Test

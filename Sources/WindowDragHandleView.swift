@@ -65,8 +65,46 @@ enum WindowMouseMovedEventsCoordinator {
     }
 }
 
+private final class WeakWindowHitRegionViewRegistry: @unchecked Sendable {
+    private let lock = NSLock()
+    private let views = NSHashTable<NSView>.weakObjects()
+
+    func register(_ view: NSView) {
+        lock.withLock { views.add(view) }
+    }
+
+    func unregister(_ view: NSView) {
+        lock.withLock { views.remove(view) }
+    }
+
+    func snapshot() -> [NSView] {
+        lock.withLock { views.allObjects }
+    }
+}
+
+private func windowHitRegionViewIsVisible(_ view: NSView) -> Bool {
+    var ancestor: NSView? = view
+    while let candidate = ancestor {
+        guard !candidate.isHidden, candidate.alphaValue > 0 else { return false }
+        ancestor = candidate.superview
+    }
+    return true
+}
+
 func windowDragHandleFormatPoint(_ point: NSPoint) -> String {
     String(format: "(%.1f,%.1f)", point.x, point.y)
+}
+
+func windowDragHandleMovedOrigin(
+    initialWindowOrigin: NSPoint,
+    initialMouseLocation: NSPoint,
+    currentMouseLocation: NSPoint
+) -> NSPoint {
+    BonsplitWindowDragSession.movedOrigin(
+        initialWindowOrigin: initialWindowOrigin,
+        initialMouseLocation: initialMouseLocation,
+        currentMouseLocation: currentMouseLocation
+    )
 }
 
 private func windowDragHandleEventTypeDescription(_ eventType: NSEvent.EventType?) -> String {
@@ -441,41 +479,20 @@ protocol MinimalModeSidebarControlActionHitRegionProviding: MinimalModeTitlebarC
 }
 
 enum MinimalModeTitlebarControlHitRegionRegistry {
-    private static let lock = NSLock()
-    private static let registeredViews = NSHashTable<NSView>.weakObjects()
+    private static let views = WeakWindowHitRegionViewRegistry()
 
     static func register(_ view: NSView) {
-        lock.lock()
-        registeredViews.add(view)
-        lock.unlock()
+        views.register(view)
     }
 
     static func unregister(_ view: NSView) {
-        lock.lock()
-        registeredViews.remove(view)
-        lock.unlock()
-    }
-
-    private static func snapshot() -> [NSView] {
-        lock.lock()
-        let views = registeredViews.allObjects
-        lock.unlock()
-        return views
-    }
-
-    private static func isVisibleInHierarchy(_ view: NSView) -> Bool {
-        var current: NSView? = view
-        while let candidate = current {
-            guard !candidate.isHidden, candidate.alphaValue > 0 else { return false }
-            current = candidate.superview
-        }
-        return true
+        views.unregister(view)
     }
 
     static func containsWindowPoint(_ windowPoint: NSPoint, in window: NSWindow) -> Bool {
         let epsilon = max(0.5, 1.0 / max(1.0, window.backingScaleFactor))
-        for view in snapshot() {
-            guard view.window === window, isVisibleInHierarchy(view) else { continue }
+        for view in views.snapshot() {
+            guard view.window === window, windowHitRegionViewIsVisible(view) else { continue }
             let localPoint = view.convert(windowPoint, from: nil)
             let localBounds = view.bounds.insetBy(dx: -epsilon, dy: -epsilon)
             guard localBounds.contains(localPoint) else { continue }
@@ -492,10 +509,10 @@ enum MinimalModeTitlebarControlHitRegionRegistry {
 
     static func containsSidebarControlHostWindowPoint(_ windowPoint: NSPoint, in window: NSWindow) -> Bool {
         let epsilon = max(0.5, 1.0 / max(1.0, window.backingScaleFactor))
-        for view in snapshot() {
+        for view in views.snapshot() {
             guard view.window === window,
                   view is MinimalModeSidebarControlActionHitRegionProviding,
-                  isVisibleInHierarchy(view) else { continue }
+                  windowHitRegionViewIsVisible(view) else { continue }
             let localPoint = view.convert(windowPoint, from: nil)
             guard view.bounds.insetBy(dx: -epsilon, dy: -epsilon).contains(localPoint) else { continue }
             return true
@@ -508,10 +525,10 @@ enum MinimalModeTitlebarControlHitRegionRegistry {
         in window: NSWindow
     ) -> MinimalModeSidebarControlActionSlot? {
         let epsilon = max(0.5, 1.0 / max(1.0, window.backingScaleFactor))
-        for view in snapshot() {
+        for view in views.snapshot() {
             guard view.window === window,
                   let provider = view as? MinimalModeSidebarControlActionHitRegionProviding,
-                  isVisibleInHierarchy(view) else { continue }
+                  windowHitRegionViewIsVisible(view) else { continue }
             let localPoint = view.convert(windowPoint, from: nil)
             guard view.bounds.insetBy(dx: -epsilon, dy: -epsilon).contains(localPoint) else { continue }
             if let slot = provider.minimalModeSidebarControlActionSlot(localPoint: localPoint) {
@@ -1280,6 +1297,7 @@ struct WindowDragHandleView: NSViewRepresentable {
 
     private final class DraggableView: NSView {
         var doubleClickBehavior: TitlebarDoubleClickBehavior
+        private var windowDragSession = BonsplitWindowDragSession()
 
         init(doubleClickBehavior: TitlebarDoubleClickBehavior) {
             self.doubleClickBehavior = doubleClickBehavior
@@ -1294,6 +1312,10 @@ struct WindowDragHandleView: NSViewRepresentable {
         }
 
         override var mouseDownCanMoveWindow: Bool { false }
+
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+            true
+        }
 
         override func hitTest(_ point: NSPoint) -> NSView? {
             let currentEvent = NSApp.currentEvent
@@ -1319,6 +1341,7 @@ struct WindowDragHandleView: NSViewRepresentable {
         }
 
         override func mouseDown(with event: NSEvent) {
+            windowDragSession.end()
             #if DEBUG
             let point = convert(event.locationInWindow, from: nil)
             let depth = windowDragSuppressionDepth(window: window)
@@ -1348,16 +1371,40 @@ struct WindowDragHandleView: NSViewRepresentable {
             }
 
             if let window {
-                let previousMovableState = withTemporaryWindowMovableEnabled(window: window) {
-                    window.performDrag(with: event)
-                }
+                let mouseLocation = window.convertPoint(toScreen: event.locationInWindow)
+                windowDragSession.begin(with: event, in: window)
                 #if DEBUG
-                let restored = previousMovableState.map { String($0) } ?? "nil"
-                cmuxDebugLog("titlebar.dragHandle.mouseDownComplete restoredMovable=\(restored) nowMovable=\(window.isMovable)")
+                cmuxDebugLog(
+                    "titlebar.dragHandle.mouseDownArmed mouse=\(windowDragHandleFormatPoint(mouseLocation)) "
+                        + "origin=\(windowDragHandleFormatPoint(window.frame.origin))"
+                )
                 #endif
             } else {
                 super.mouseDown(with: event)
             }
+        }
+
+        override func mouseDragged(with event: NSEvent) {
+            guard let window, windowDragSession.isActive else {
+                super.mouseDragged(with: event)
+                return
+            }
+
+            let mouseLocation = window.convertPoint(toScreen: event.locationInWindow)
+            guard let origin = windowDragSession.update(with: event, in: window) else { return }
+            #if DEBUG
+            cmuxDebugLog(
+                "titlebar.dragHandle.mouseDragged mouse=\(windowDragHandleFormatPoint(mouseLocation)) "
+                    + "origin=\(windowDragHandleFormatPoint(origin))"
+            )
+            #endif
+        }
+
+        override func mouseUp(with event: NSEvent) {
+            windowDragSession.end()
+            #if DEBUG
+            cmuxDebugLog("titlebar.dragHandle.mouseUp")
+            #endif
         }
     }
 }

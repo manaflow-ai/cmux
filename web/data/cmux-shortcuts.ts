@@ -83,6 +83,11 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "toggleFileExplorer", combos: [["⌘", "⌥", "B"]], description: { en: "Toggle right sidebar", ja: "右サイドバーを切り替え" } },
       { id: "newTab", combos: [["⌘", "N"]], description: { en: "New workspace", ja: "新規ワークスペース" } },
       {
+        id: "newWorkspaceFloatingDock",
+        combos: [["⌃", "⌘", "N"]],
+        description: { en: "New terminal floating window", ja: "新しいターミナルフローティングウインドウ" },
+      },
+      {
         id: "newBrowserWorkspace",
         combos: [["⌥", "⌘", "N"]],
         description: { en: "New browser workspace", ja: "新規ブラウザワークスペース" },

@@ -31,13 +31,33 @@ private struct DockPaneCloseConfirmationPrompt: Sendable {
 
 extension DockSplitStore {
     func splitTabBar(_ controller: BonsplitController, shouldCloseTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
+        let tabCloseButtonClose = tabCloseButtonCloseDockTabIds.remove(tab.id) != nil
+        guard let panel = panel(for: tab.id) else { return true }
+        if let note = panel as? FilePreviewPanel,
+           note.needsAutosaveFlush {
+            guard pendingAutosaveCloseDockTabIds.insert(tab.id).inserted else { return false }
+            if tabCloseButtonClose {
+                tabCloseButtonCloseDockTabIds.insert(tab.id)
+            }
+            let tabId = tab.id
+            Task { @MainActor [weak self, weak note] in
+                guard let self, let note else { return }
+                let saved = await note.flushPendingAutosave()
+                self.pendingAutosaveCloseDockTabIds.remove(tabId)
+                guard saved, self.panel(for: tabId) != nil else {
+                    self.forceCloseDockTabIds.remove(tabId)
+                    NSSound.beep()
+                    return
+                }
+                _ = self.bonsplitController.closeTab(tabId)
+            }
+            return false
+        }
         if forceCloseDockTabIds.contains(tab.id) {
             return true
         }
 
-        let tabCloseButtonClose = tabCloseButtonCloseDockTabIds.remove(tab.id) != nil
         let closeSource: CloseTabCloseSource = tabCloseButtonClose ? .tabCloseButton : .shortcut
-        guard let panel = panel(for: tab.id) else { return true }
         guard CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
             requiresConfirmation: dockPanelNeedsConfirmClose(panel),
             source: closeSource
@@ -71,9 +91,33 @@ extension DockSplitStore {
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldClosePane pane: PaneID) -> Bool {
+        let paneTabs = controller.tabs(inPane: pane)
+        let notesToFlush = paneTabs.compactMap { tab -> FilePreviewPanel? in
+            guard let note = panel(for: tab.id) as? FilePreviewPanel,
+                  note.needsAutosaveFlush else { return nil }
+            return note
+        }
+        if !notesToFlush.isEmpty {
+            guard pendingAutosaveCloseDockPaneIds.insert(pane.id).inserted else { return false }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                var saved = true
+                for note in notesToFlush where saved {
+                    saved = await note.flushPendingAutosave()
+                }
+                self.pendingAutosaveCloseDockPaneIds.remove(pane.id)
+                guard saved else {
+                    self.forceCloseDockTabIds.subtract(paneTabs.map(\.id))
+                    NSSound.beep()
+                    return
+                }
+                _ = self.bonsplitController.closePane(pane)
+            }
+            return false
+        }
         var paneTitles: [String] = []
         var confirmableTabIds = Set<TabID>()
-        for tab in controller.tabs(inPane: pane) {
+        for tab in paneTabs {
             let panel = panel(for: tab.id)
             paneTitles.append(CloseOtherTabsConfirmationPrompt.displayTitle(panel?.displayTitle ?? tab.title))
             guard !forceCloseDockTabIds.contains(tab.id), let panel else { continue }
@@ -106,13 +150,16 @@ extension DockSplitStore {
     }
 
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
+        markSessionPersistenceChanged()
         forceCloseDockTabIds.remove(tabId)
         pendingCloseConfirmDockTabIds.remove(tabId)
+        pendingAutosaveCloseDockTabIds.remove(tabId)
         tabCloseButtonCloseDockTabIds.remove(tabId)
         reconcilePanels()
     }
 
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
+        markSessionPersistenceChanged()
         reconcilePanels()
     }
 
@@ -142,6 +189,39 @@ extension DockSplitStore {
             return true
         }
         return false
+    }
+
+    func confirmCloseAllPanels() -> Bool {
+        Self.confirmCloseAllPanels(
+            in: [self],
+            confirmationManager: dockCloseConfirmationManager()
+        )
+    }
+
+    static func confirmCloseAllPanels(
+        in stores: [DockSplitStore],
+        confirmationManager: TabManager?
+    ) -> Bool {
+        var panelsToClose: [any Panel] = []
+        var shouldConfirm = false
+        for store in stores {
+            let storePanels = store.bonsplitController.allTabIds.compactMap { store.panel(for: $0) }
+            panelsToClose.append(contentsOf: storePanels)
+            if !shouldConfirm {
+                shouldConfirm = storePanels.contains { panel in
+                    CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
+                        requiresConfirmation: store.dockPanelNeedsConfirmClose(panel),
+                        source: .shortcut
+                    )
+                }
+            }
+        }
+        guard shouldConfirm else { return true }
+        let prompt = DockPaneCloseConfirmationPrompt(
+            titles: panelsToClose.map { CloseOtherTabsConfirmationPrompt.displayTitle($0.displayTitle) }
+        )
+        guard let presenter = stores.first else { return true }
+        return presenter.confirmCloseDockPane(prompt, confirmationManager: confirmationManager)
     }
 
     private func confirmCloseDockPanel(_ panel: any Panel, confirmationManager: TabManager?) -> Bool {

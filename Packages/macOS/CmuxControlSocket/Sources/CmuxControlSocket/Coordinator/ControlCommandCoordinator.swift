@@ -74,6 +74,7 @@ public final class ControlCommandCoordinator {
         if let result = handleLayout(request) { return result }
         if let result = handleWorkspaceGroup(request) { return result }
         if let result = handleWorkspaceTodo(request) { return result }
+        if let result = handleWorkspaceFloatingDock(request) { return result }
         if let result = handlePane(request) { return result }
         if let result = handleCanvas(request) { return result }
         if let result = handleMobileHost(request) { return result }
@@ -143,6 +144,10 @@ public final class ControlCommandCoordinator {
             return surfaceSendText(request.params, context: context)
         case "surface.send_key":
             return surfaceSendKey(request.params, context: context)
+        case "workspace.float.note.set":
+            return workspaceFloatingDockNoteSet(request.params, context: context)
+        case "workspace.float.note.get":
+            return workspaceFloatingDockNoteGet(request.params, context: context)
         default:
             return nil
         }

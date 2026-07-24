@@ -19,15 +19,6 @@ const sendEmail = mock(async () => ({ data: { id: "email-1" }, error: null }));
 
 installVercelFirewallMock();
 
-mock.module("@/app/env", () => ({
-  env: {
-    RESEND_API_KEY: "resend-test-key",
-    CMUX_FEEDBACK_FROM_EMAIL: "feedback@example.test",
-    CMUX_FEEDBACK_RATE_LIMIT_ID: "feedback-rate-limit-test",
-    CMUX_PUSH_RATE_LIMIT_ID: "cmux-push-test",
-  },
-}));
-
 mock.module("resend", () => ({
   Resend: class {
     readonly emails = { send: sendEmail };

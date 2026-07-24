@@ -30,8 +30,8 @@ import WebKit
 
 var fileDropOverlayKey: UInt8 = 0
 private var commandPaletteWindowOverlayKey: UInt8 = 0
-let commandPaletteOverlayContainerIdentifier = NSUserInterfaceItemIdentifier("cmux.commandPalette.overlay.container")
 private func sidebarShortTabId(_ id: UUID?) -> String { id.map { String($0.uuidString.prefix(5)) } ?? "nil" }
+
 @MainActor
 private final class CommandPaletteOverlayContainerView: NSView {
     var capturesMouseEvents = false
@@ -893,10 +893,17 @@ struct ContentView: View {
     @State private var commandPaletteScrollTargetIndex: Int?
     @State private var commandPaletteScrollTargetAnchor: UnitPoint?
     @State private var commandPaletteRestoreFocusTarget: CommandPaletteRestoreFocusTarget?
+    @State private var commandPalettePendingRequestFocusTarget: CommandPaletteRestoreFocusTarget?
     @State private var commandPaletteSearchCorpus: [CommandPaletteSearchCorpusEntry<String>] = []
     @State private var commandPaletteSearchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>] = [:]
     @State private var commandPaletteSearchCommandsByID: [String: CommandPaletteCommand] = [:]
     @State private var commandPaletteNucleoSearchIndex: CommandPaletteNucleoSearchIndex<String>?
+    @State private var commandPalettePreparedSearchScope: CommandPaletteListScope?
+    @State private var commandPalettePreparedSearchFingerprint: Int?
+    @State private var commandPalettePreparedCommandCorpus: CommandPalettePreparedSearchCorpus?
+    @State private var commandPaletteSearchCorpusPreloader = CommandPaletteSearchCorpusPreloader()
+    @State private var commandPaletteCommandPreloadTask: Task<Void, Never>?
+    @State private var commandPaletteCommandPreloadGeneration: UInt64 = 0
     @State private var commandPaletteSearchIndexBuildTask: Task<Void, Never>?
     @State private var commandPaletteSearchIndexBuildGeneration: UInt64 = 0
     @State private var cachedCommandPaletteResults: [CommandPaletteSearchResult] = []
@@ -2571,6 +2578,14 @@ struct ContentView: View {
             applyUITestSidebarSelectionIfNeeded(tabs: tabManager.tabs)
             updateTitlebarText()
             syncTrafficLightInset()
+            Task { @MainActor in
+                // Let the first window frame commit, then capture lightweight
+                // command descriptors. Normalization, indexing, and default
+                // ranking run on the dedicated preparation actor.
+                await Task.yield()
+                refreshCommandPaletteUsageHistory()
+                refreshCommandPaletteSearchCorpus(query: Self.commandPaletteCommandsPrefix)
+            }
 
             // Startup recovery (#399): if session restore or a race condition leaves the
             // view in a broken state (empty tabs, no selection, unmounted workspaces),
@@ -2810,9 +2825,10 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(
-            for: NSWindow.didBecomeKeyNotification,
-            object: observedWindow
-        )) { _ in
+            for: NSWindow.didBecomeKeyNotification
+        )) { notification in
+            guard let window = notification.object as? NSWindow,
+                  window === commandPaletteInputWindow else { return }
             attemptCommandPaletteFocusRestoreIfNeeded()
             attemptCommandPaletteTextSelectionIfNeeded()
         })
@@ -2821,8 +2837,7 @@ struct ContentView: View {
             guard commandPalettePendingTextSelectionBehavior != nil else { return }
             guard let editor = notification.object as? NSTextView,
                   editor.isFieldEditor else { return }
-            guard let observedWindow else { return }
-            guard editor.window === observedWindow else { return }
+            guard editor.window === commandPaletteInputWindow else { return }
             attemptCommandPaletteTextSelectionIfNeeded()
         })
 
@@ -2884,6 +2899,7 @@ struct ContentView: View {
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
             ) else { return }
+            adoptCommandPaletteFloatingDockFocusSource(from: notification)
             toggleCommandPalette()
         })
 
@@ -2895,6 +2911,7 @@ struct ContentView: View {
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
             ) else { return }
+            adoptCommandPaletteFloatingDockFocusSource(from: notification)
             openCommandPaletteCommands()
         })
 
@@ -2912,6 +2929,7 @@ struct ContentView: View {
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
             ) else { return }
+            adoptCommandPaletteFloatingDockFocusSource(from: notification)
             openCommandPaletteSwitcher()
         })
 
@@ -2951,6 +2969,7 @@ struct ContentView: View {
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
             ) else { return }
+            adoptCommandPaletteFloatingDockFocusSource(from: notification)
             openCommandPaletteRenameTabInput()
         })
 
@@ -2962,6 +2981,7 @@ struct ContentView: View {
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
             ) else { return }
+            adoptCommandPaletteFloatingDockFocusSource(from: notification)
             openCommandPaletteRenameWorkspaceInput()
         })
 
@@ -2982,6 +3002,7 @@ struct ContentView: View {
             )
 #endif
             guard shouldHandle else { return }
+            adoptCommandPaletteFloatingDockFocusSource(from: notification)
             openCommandPaletteWorkspaceDescriptionInput()
         })
 
@@ -3038,13 +3059,21 @@ struct ContentView: View {
 
         view = AnyView(view.background(WindowAccessor(dedupeByWindow: false) { window in
             refreshTmuxWorkspacePaneWindowOverlay(in: window)
-            let overlayController = commandPaletteWindowOverlayController(for: window)
-            overlayController.update(
+            let panelController = commandPaletteWindowPanelController(for: window)
+            panelController.update(
                 isVisible: isCommandPalettePresented,
                 onDismiss: { dismissal in
                     dismissCommandPalette(for: dismissal, in: window)
+                },
+                onDidBecomeKey: {
+                    reassertCommandPaletteInputFocusAfterWindowBecameKey()
                 }
-            ) { AnyView(commandPaletteOverlay) }
+            ) { layout, onContentSizeChange in
+                AnyView(commandPalettePanel(
+                    layout: layout,
+                    onContentSizeChange: onContentSizeChange
+                ))
+            }
         }))
 
         view = AnyView(view.onChange(of: bgGlassTintHex) { _ in
@@ -3211,15 +3240,13 @@ struct ContentView: View {
             removeSidebarResizerPointerMonitor()
         })
 
-        let commandPaletteOverlayView = AnyView(commandPaletteOverlay)
         let appKitWindowMutationID = appearance.appKitWindowMutationID(
             windowBackgroundPolicy: windowChrome.windowBackgroundPolicy
         )
-        let mainWindowAccessor = WindowAccessor(refreshID: appKitWindowMutationID) { [appearance, commandPaletteOverlayView] window in
+        let mainWindowAccessor = WindowAccessor(refreshID: appKitWindowMutationID) { [appearance] window in
             configureMainWindowChrome(
                 window,
-                appearance: appearance,
-                commandPaletteOverlayView: commandPaletteOverlayView
+                appearance: appearance
             )
         }
         view = AnyView(view.background(mainWindowAccessor))
@@ -3230,8 +3257,7 @@ struct ContentView: View {
     @MainActor
     private func configureMainWindowChrome(
         _ window: NSWindow,
-        appearance: WindowAppearanceSnapshot,
-        commandPaletteOverlayView: AnyView
+        appearance: WindowAppearanceSnapshot
     ) {
         window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
         window.isRestorable = false
@@ -3276,13 +3302,6 @@ struct ContentView: View {
         let backdropResult = windowChrome.backdropController.apply(plan: backdropPlan, to: window)
         if backdropResult.didChangeGlassRoot {
             refreshTmuxWorkspacePaneWindowOverlay(in: window)
-            commandPaletteWindowOverlayController(for: window)
-                .update(
-                    isVisible: isCommandPalettePresented,
-                    onDismiss: { dismissal in
-                        dismissCommandPalette(for: dismissal, in: window)
-                    }
-                ) { commandPaletteOverlayView }
             TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
             BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
         }
@@ -3473,59 +3492,48 @@ struct ContentView: View {
 #endif
     }
 
-    private var commandPaletteOverlay: some View {
-        GeometryReader { proxy in
-            let maxAllowedWidth = max(340, proxy.size.width - 260)
-            let targetWidth = min(560, maxAllowedWidth)
-            let workspaceDescriptionMaxEditorHeight = max(
-                CommandPaletteMultilineTextEditorRepresentable.defaultMinimumHeight,
-                proxy.size.height - 120
-            )
-
-            ZStack(alignment: .top) {
-                Color.clear
-                    .ignoresSafeArea()
-
-                Color.clear
-                    .ignoresSafeArea()
-                    .contentShape(Rectangle())
-                    .allowsHitTesting(false)
-                    .accessibilityIdentifier("CommandPaletteBackdrop")
-
-                VStack(spacing: 0) {
-                    switch commandPaletteMode {
-                    case .commands:
-                        commandPaletteCommandListView
-                    case .renameInput(let target):
-                        commandPaletteRenameInputView(target: target)
-                    case let .renameConfirm(target, proposedName):
-                        commandPaletteRenameConfirmView(target: target, proposedName: proposedName)
-                    case .workspaceDescriptionInput(let target):
-                        commandPaletteWorkspaceDescriptionInputView(
-                            target: target,
-                            maxEditorHeight: workspaceDescriptionMaxEditorHeight
-                        )
-                    }
-                }
-                .frame(width: targetWidth)
-                .background(CommandPalettePanelHitRegion())
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color(nsColor: .windowBackgroundColor).opacity(0.98))
+    private func commandPalettePanel(
+        layout: CommandPalettePanelLayout,
+        onContentSizeChange: @escaping (CGSize) -> Void
+    ) -> some View {
+        VStack(spacing: 0) {
+            switch commandPaletteMode {
+            case .commands:
+                commandPaletteCommandListView
+            case .renameInput(let target):
+                commandPaletteRenameInputView(target: target)
+            case let .renameConfirm(target, proposedName):
+                commandPaletteRenameConfirmView(target: target, proposedName: proposedName)
+            case .workspaceDescriptionInput(let target):
+                commandPaletteWorkspaceDescriptionInputView(
+                    target: target,
+                    maxEditorHeight: max(
+                        CommandPaletteMultilineTextEditorRepresentable.defaultMinimumHeight,
+                        layout.workspaceDescriptionMaximumEditorHeight
+                    )
                 )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color(nsColor: .separatorColor).opacity(0.7), lineWidth: 1)
-                )
-                .shadow(color: Color.black.opacity(0.24), radius: 10, x: 0, y: 5)
-                .padding(.top, 40)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(width: layout.width)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(CommandPalettePanelHitRegion())
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color(nsColor: .windowBackgroundColor).opacity(0.98))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.7), lineWidth: 1)
+        )
+        .onGeometryChange(for: CGSize.self) { proxy in
+            proxy.size
+        } action: { size in
+            onContentSizeChange(size)
         }
         .onExitCommand {
             dismissCommandPalette()
         }
-        .zIndex(2000)
+        .accessibilityIdentifier("CommandPalettePanel")
     }
 
     private var commandPaletteCommandListView: some View {
@@ -3816,44 +3824,6 @@ struct ContentView: View {
         }
     }
 
-    private final class CommandPaletteNativeTextField: NSTextField {
-        var onHandleKeyEvent: ((NSEvent, NSTextView?) -> Bool)?
-
-        override init(frame frameRect: NSRect) {
-            super.init(frame: frameRect)
-            isBordered = false
-            isBezeled = false
-            drawsBackground = false
-            focusRingType = .none
-            usesSingleLineMode = true
-        }
-
-        required init?(coder: NSCoder) {
-            fatalError("init(coder:) has not been implemented")
-        }
-
-        override func keyDown(with event: NSEvent) {
-            if (currentEditor() as? NSTextView)?.hasMarkedText() == true {
-                super.keyDown(with: event)
-                return
-            }
-            if onHandleKeyEvent?(event, currentEditor() as? NSTextView) == true {
-                return
-            }
-            super.keyDown(with: event)
-        }
-
-        override func performKeyEquivalent(with event: NSEvent) -> Bool {
-            if (currentEditor() as? NSTextView)?.hasMarkedText() == true {
-                return super.performKeyEquivalent(with: event)
-            }
-            if onHandleKeyEvent?(event, currentEditor() as? NSTextView) == true {
-                return true
-            }
-            return super.performKeyEquivalent(with: event)
-        }
-    }
-
     // Keep navigation on the AppKit field editor so scope switches preserve arrow-key handlers.
     private struct CommandPaletteSearchFieldRepresentable: NSViewRepresentable {
         let placeholder: String
@@ -3869,7 +3839,6 @@ struct ContentView: View {
             var parent: CommandPaletteSearchFieldRepresentable
             var isProgrammaticMutation = false
             weak var parentField: CommandPaletteNativeTextField?
-            var pendingFocusRequest: Bool?
             nonisolated(unsafe) var editorTextDidChangeObserver: NSObjectProtocol?
             weak var observedEditor: NSTextView?
 
@@ -3891,9 +3860,7 @@ struct ContentView: View {
                     attachEditorTextDidChangeObserverIfNeeded(editor)
                 }
                 if !parent.isFocused {
-                    DispatchQueue.main.async {
-                        self.parent.isFocused = true
-                    }
+                    parent.isFocused = true
                 }
             }
 
@@ -4003,6 +3970,7 @@ struct ContentView: View {
             context.coordinator.parentField = nsView
             nsView.placeholderString = placeholder
             nsView.font = GlobalFontMagnification.systemFont(ofSize: 13)
+            nsView.requestsFirstResponder = isFocused
 
             if let editor = nsView.currentEditor() as? NSTextView {
                 context.coordinator.attachEditorTextDidChangeObserverIfNeeded(editor)
@@ -4019,33 +3987,12 @@ struct ContentView: View {
                 context.coordinator.detachEditorTextDidChangeObserver()
             }
 
-            guard let window = nsView.window else { return }
-            let firstResponder = window.firstResponder
-            let isFirstResponder =
-                firstResponder === nsView ||
-                nsView.currentEditor() != nil ||
-                ((firstResponder as? NSTextView)?.delegate as? NSTextField) === nsView
-
-            if isFocused, !isFirstResponder, context.coordinator.pendingFocusRequest != true {
-                context.coordinator.pendingFocusRequest = true
-                DispatchQueue.main.async { [weak nsView, weak coordinator = context.coordinator] in
-                    coordinator?.pendingFocusRequest = nil
-                    guard let coordinator, coordinator.parent.isFocused else { return }
-                    guard let nsView, let window = nsView.window else { return }
-                    let firstResponder = window.firstResponder
-                    let alreadyFocused =
-                        firstResponder === nsView ||
-                        nsView.currentEditor() != nil ||
-                        ((firstResponder as? NSTextView)?.delegate as? NSTextField) === nsView
-                    guard !alreadyFocused else { return }
-                    window.makeFirstResponder(nsView)
-                }
-            }
         }
 
         static func dismantleNSView(_ nsView: CommandPaletteNativeTextField, coordinator: Coordinator) {
             nsView.delegate = nil
             nsView.onHandleKeyEvent = nil
+            nsView.requestsFirstResponder = false
             coordinator.detachEditorTextDidChangeObserver()
             coordinator.parentField = nil
         }
@@ -4819,10 +4766,37 @@ struct ContentView: View {
             includeSurfaces: includeSurfaces,
             commandsContext: commandsContext
         )
-        commandPaletteSearchCommandsByID = CommandPaletteSearchOrchestrator.firstValueDictionary(
+        let commandsByID = CommandPaletteSearchOrchestrator.firstValueDictionary(
             entries,
             keyedBy: \.id
         )
+        cachedCommandPaletteScope = scope
+        cachedCommandPaletteFingerprint = fingerprint
+
+        if scope == .commands {
+            if !force,
+               let prepared = commandPalettePreparedCommandCorpus,
+               prepared.fingerprint == fingerprint {
+                activatePreparedCommandCorpus(
+                    prepared,
+                    commandsByID: commandsByID,
+                    publishDefaultResults: !isCommandPalettePresented
+                        || Self.commandPaletteQueryForMatching(
+                            query: commandPaletteQuery,
+                            scope: .commands
+                        ).isEmpty
+                )
+                return
+            }
+            scheduleCommandPaletteCommandPreload(
+                entries: entries,
+                commandsByID: commandsByID,
+                fingerprint: fingerprint
+            )
+            return
+        }
+
+        commandPaletteSearchCommandsByID = commandsByID
         let searchCorpus = entries.map { entry in
             CommandPaletteSearchCorpusEntry(
                 payload: entry.id,
@@ -4836,8 +4810,8 @@ struct ContentView: View {
             searchCorpus,
             keyedBy: \.payload
         )
-        cachedCommandPaletteScope = scope
-        cachedCommandPaletteFingerprint = fingerprint
+        commandPalettePreparedSearchScope = scope
+        commandPalettePreparedSearchFingerprint = fingerprint
         scheduleCommandPaletteSearchIndexBuild(
             entries: searchCorpus,
             scope: scope,
@@ -4854,6 +4828,103 @@ struct ContentView: View {
         commandPaletteSearchIndexBuildTask?.cancel()
         commandPaletteSearchIndexBuildTask = nil
         commandPaletteSearchIndexBuildGeneration &+= 1
+    }
+
+    private func scheduleCommandPaletteCommandPreload(
+        entries: [CommandPaletteCommand],
+        commandsByID: [String: CommandPaletteCommand],
+        fingerprint: Int
+    ) {
+        commandPaletteCommandPreloadTask?.cancel()
+        commandPaletteCommandPreloadGeneration &+= 1
+        let generation = commandPaletteCommandPreloadGeneration
+        let descriptors = entries.map { entry in
+            CommandPaletteSearchCorpusDescriptor(
+                id: entry.id,
+                rank: entry.rank,
+                title: entry.title,
+                searchableTexts: entry.searchableTexts
+            )
+        }
+        let usageHistory = commandPaletteUsageHistoryByCommandId
+        let historyTimestamp = Date().timeIntervalSince1970
+        let preloader = commandPaletteSearchCorpusPreloader
+
+        commandPaletteCommandPreloadTask = Task(priority: .utility) { @MainActor in
+            let prepared = await preloader.prepare(
+                descriptors: descriptors,
+                fingerprint: fingerprint,
+                usageHistory: usageHistory,
+                historyTimestamp: historyTimestamp
+            )
+            guard !Task.isCancelled,
+                  commandPaletteCommandPreloadGeneration == generation else { return }
+
+            commandPaletteCommandPreloadTask = nil
+            commandPalettePreparedCommandCorpus = prepared
+
+            let currentScope = Self.commandPaletteListScope(for: commandPaletteQuery)
+            guard !isCommandPalettePresented || currentScope == .commands else { return }
+            let matchingQuery = Self.commandPaletteQueryForMatching(
+                query: commandPaletteQuery,
+                scope: .commands
+            )
+            activatePreparedCommandCorpus(
+                prepared,
+                commandsByID: commandsByID,
+                publishDefaultResults: !isCommandPalettePresented || matchingQuery.isEmpty
+            )
+            if isCommandPalettePresented, !matchingQuery.isEmpty {
+                scheduleCommandPaletteResultsRefresh(
+                    query: commandPaletteQuery,
+                    preservePendingActivation: true
+                )
+            }
+        }
+    }
+
+    private func activatePreparedCommandCorpus(
+        _ prepared: CommandPalettePreparedSearchCorpus,
+        commandsByID: [String: CommandPaletteCommand],
+        publishDefaultResults: Bool
+    ) {
+        commandPaletteSearchCommandsByID = commandsByID
+        commandPaletteSearchCorpus = prepared.entries
+        commandPaletteSearchCorpusByID = prepared.entriesByID
+        commandPaletteNucleoSearchIndex = prepared.searchIndex
+        commandPalettePreparedSearchScope = .commands
+        commandPalettePreparedSearchFingerprint = prepared.fingerprint
+        cachedCommandPaletteScope = .commands
+        cachedCommandPaletteFingerprint = prepared.fingerprint
+
+        guard publishDefaultResults else { return }
+        let defaultResults = Self.commandPaletteMaterializedSearchResults(
+            matches: prepared.defaultMatches,
+            commandsByID: commandsByID
+        )
+        cachedCommandPaletteResults = defaultResults
+        commandPaletteResolvedSearchRequestID = commandPaletteSearchRequestID
+        commandPaletteResolvedSearchScope = .commands
+        commandPaletteResolvedSearchFingerprint = prepared.fingerprint
+        commandPaletteResolvedMatchingQuery = ""
+        isCommandPaletteSearchPending = false
+        setCommandPaletteVisibleResults(
+            defaultResults,
+            scope: .commands,
+            fingerprint: prepared.fingerprint
+        )
+        let pendingActivationResolution = Self.commandPalettePendingActivationResolution(
+            commandPalettePendingActivation,
+            requestID: commandPaletteSearchRequestID,
+            resultIDs: defaultResults.map(\.id)
+        )
+        if pendingActivationResolution.shouldClearPendingActivation {
+            commandPalettePendingActivation = nil
+        }
+        commandPaletteResultsRevision &+= 1
+        if let resolvedActivation = pendingActivationResolution.resolvedActivation {
+            runCommandPaletteResolvedActivation(resolvedActivation)
+        }
     }
 
     private func scheduleCommandPaletteSearchIndexBuild(
@@ -4875,6 +4946,8 @@ struct ContentView: View {
                     return
                 }
                 commandPaletteNucleoSearchIndex = index
+                commandPalettePreparedSearchScope = scope
+                commandPalettePreparedSearchFingerprint = fingerprint
                 commandPaletteSearchIndexBuildTask = nil
                 guard index != nil else { return }
                 if isCommandPalettePresented,
@@ -4990,6 +5063,23 @@ struct ContentView: View {
         commandPaletteSearchRequestID &+= 1
         let requestID = commandPaletteSearchRequestID
         let fingerprint = cachedCommandPaletteFingerprint
+        guard commandPalettePreparedSearchScope == scope,
+              commandPalettePreparedSearchFingerprint == fingerprint else {
+            isCommandPaletteSearchPending = true
+            syncCommandPaletteOverlayCommandListState()
+            return
+        }
+        if matchingQuery.isEmpty,
+           commandPaletteVisibleResultsScope == scope,
+           commandPaletteVisibleResultsFingerprint == fingerprint,
+           commandPaletteResolvedSearchScope == scope,
+           commandPaletteResolvedSearchFingerprint == fingerprint,
+           commandPaletteResolvedMatchingQuery.isEmpty {
+            commandPaletteResolvedSearchRequestID = requestID
+            isCommandPaletteSearchPending = false
+            syncCommandPaletteOverlayCommandListState()
+            return
+        }
         let searchCorpus = commandPaletteSearchCorpus
         let searchCorpusByID = commandPaletteSearchCorpusByID
         let searchIndex = commandPaletteNucleoSearchIndex
@@ -6731,7 +6821,29 @@ struct ContentView: View {
             )
         }
 
-        if let panelContext = focusedPanelContext {
+        if let dockStore = commandPaletteTargetDockStore,
+           let panelId = dockStore.focusedPanelId,
+           let panel = dockStore.panels[panelId] {
+            let panelIsTerminal = panel.panelType == .terminal
+            snapshot.setBool(CommandPaletteContextKeys.workspaceHasSplits, dockStore.bonsplitController.allPaneIds.count > 1)
+            snapshot.setBool(CommandPaletteContextKeys.hasFocusedPanel, true)
+            snapshot.setString(CommandPaletteContextKeys.panelName, panel.displayTitle)
+            snapshot.setBool(CommandPaletteContextKeys.panelIsBrowser, panel.panelType == .browser)
+            if let browserPanel = panel as? BrowserPanel {
+                snapshot.setBool(CommandPaletteContextKeys.panelBrowserFocusModeActive, browserPanel.isBrowserFocusModeActive)
+                snapshot.setBool(CommandPaletteContextKeys.panelBrowserOmnibarVisible, browserPanel.isOmnibarVisible)
+            }
+            snapshot.setBool(
+                CommandPaletteContextKeys.panelIsMarkdown,
+                (panel as? MarkdownPanel)?.displayMode == .preview
+            )
+            snapshot.setBool(
+                CommandPaletteContextKeys.panelIsFilePreviewTextEditor,
+                (panel as? FilePreviewPanel)?.previewMode == .text
+            )
+            snapshot.setBool(CommandPaletteContextKeys.panelIsTerminal, panelIsTerminal)
+            snapshot.setBool(CommandPaletteContextKeys.panelHasPane, dockStore.paneId(forPanelId: panelId) != nil)
+        } else if let panelContext = focusedPanelContext {
             let workspace = panelContext.workspace
             let panelId = panelContext.panelId
             let panelIsTerminal = panelContext.panel.panelType == .terminal
@@ -6806,6 +6918,10 @@ struct ContentView: View {
         }
 
         return snapshot
+    }
+
+    private var commandPaletteTargetDockStore: DockSplitStore? {
+        commandPaletteRestoreFocusTarget?.dockStore ?? commandPalettePendingRequestFocusTarget?.dockStore
     }
 
     /// Search keywords for the "Mobile Connect" command palette entry.
@@ -8111,6 +8227,7 @@ struct ContentView: View {
     }
 
     private func registerCommandPaletteHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
+        let targetDockStore = commandPaletteTargetDockStore
         registry.register(commandId: "palette.newWorkspace") {
             AppDelegate.shared?.performNewWorkspaceAction(
                 tabManager: tabManager,
@@ -8163,11 +8280,23 @@ struct ContentView: View {
             AppDelegate.shared?.uninstallCmuxCLIInPath(nil)
         }
         registry.register(commandId: "palette.newTerminalTab") {
+            if let targetDockStore {
+                if !targetDockStore.performSurfaceCommand(.create(kind: .terminal, focusAddressBar: false)) {
+                    NSSound.beep()
+                }
+                return
+            }
             if !executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.newTerminal.configID) {
                 tabManager.newSurface()
             }
         }
         registry.register(commandId: "palette.newBrowserTab") {
+            if let targetDockStore {
+                if !targetDockStore.performSurfaceCommand(.create(kind: .browser, focusAddressBar: true)) {
+                    NSSound.beep()
+                }
+                return
+            }
             if executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.newBrowser.configID) {
                 return
             }
@@ -8178,6 +8307,10 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.closeTab") {
+            if let targetDockStore {
+                if !targetDockStore.performSurfaceCommand(.closeFocused) { NSSound.beep() }
+                return
+            }
             tabManager.closeCurrentPanelWithConfirmation()
         }
         registry.register(commandId: "palette.closeWorkspace") {
@@ -8415,9 +8548,11 @@ struct ContentView: View {
         registerIdentifierCopyCommandHandlers(&registry)
 
         registry.register(commandId: "palette.renameTab") {
+            guard targetDockStore == nil else { NSSound.beep(); return }
             beginRenameTabFlow()
         }
         registry.register(commandId: "palette.clearTabName") {
+            guard targetDockStore == nil else { NSSound.beep(); return }
             guard let panelContext = focusedPanelContext else {
                 NSSound.beep()
                 return
@@ -8425,9 +8560,11 @@ struct ContentView: View {
             panelContext.workspace.setPanelCustomTitle(panelId: panelContext.panelId, title: nil)
         }
         registry.register(commandId: "palette.moveTabToNewWorkspace") {
+            guard targetDockStore == nil else { NSSound.beep(); return }
             guard moveFocusedPanelToNewWorkspace() else { NSSound.beep(); return }
         }
         registry.register(commandId: "palette.toggleTabPin") {
+            guard targetDockStore == nil else { NSSound.beep(); return }
             guard let panelContext = focusedPanelContext else {
                 NSSound.beep()
                 return
@@ -8438,6 +8575,7 @@ struct ContentView: View {
             )
         }
         registry.register(commandId: "palette.toggleTabUnread") {
+            guard targetDockStore == nil else { NSSound.beep(); return }
             guard let panelContext = focusedPanelContext else {
                 NSSound.beep()
                 return
@@ -8452,9 +8590,17 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.nextTabInPane") {
+            if let targetDockStore {
+                if !targetDockStore.performShortcutCommand(.selectNextSurface) { NSSound.beep() }
+                return
+            }
             tabManager.selectNextSurface()
         }
         registry.register(commandId: "palette.previousTabInPane") {
+            if let targetDockStore {
+                if !targetDockStore.performShortcutCommand(.selectPreviousSurface) { NSSound.beep() }
+                return
+            }
             tabManager.selectPreviousSurface()
         }
         registry.register(commandId: "palette.openWorkspacePullRequests") {
@@ -8476,75 +8622,149 @@ struct ContentView: View {
         }
 
         registry.register(commandId: "palette.browserBack") {
+            if let targetDockStore {
+                guard let browser = targetDockStore.focusedPanel as? BrowserPanel else { NSSound.beep(); return }
+                browser.goBack(); return
+            }
             tabManager.focusedBrowserPanel?.goBack()
         }
         registry.register(commandId: "palette.browserForward") {
+            if let targetDockStore {
+                guard let browser = targetDockStore.focusedPanel as? BrowserPanel else { NSSound.beep(); return }
+                browser.goForward(); return
+            }
             tabManager.focusedBrowserPanel?.goForward()
         }
         registry.register(commandId: "palette.browserReload") {
+            if let targetDockStore {
+                guard let browser = targetDockStore.focusedPanel as? BrowserPanel else { NSSound.beep(); return }
+                browser.reload(); return
+            }
             tabManager.focusedBrowserPanel?.reload()
         }
         registry.register(commandId: "palette.browserOpenDefault") {
+            if let targetDockStore {
+                guard let browser = targetDockStore.focusedPanel as? BrowserPanel,
+                      let rawURL = browser.preferredURLStringForOmnibar(),
+                      let url = URL(string: rawURL) else { NSSound.beep(); return }
+                NSWorkspace.shared.open(url); return
+            }
             if !openFocusedBrowserInDefaultBrowser() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.browserFocusAddressBar") {
+            if let targetDockStore {
+                guard let browser = targetDockStore.focusedPanel as? BrowserPanel else { NSSound.beep(); return }
+                AppDelegate.shared?.focusBrowserAddressBar(in: browser); return
+            }
             if !focusFocusedBrowserAddressBar() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.browserFocusMode") {
+            if let targetDockStore {
+                guard let browser = targetDockStore.focusedPanel as? BrowserPanel,
+                      browser.toggleBrowserFocusMode(reason: "commandPalette", focusWebView: true) else {
+                    NSSound.beep(); return
+                }
+                return
+            }
             if !tabManager.toggleBrowserFocusModeForFocusedBrowser(reason: "commandPalette") {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.browserToggleOmnibar") {
+            if let targetDockStore {
+                guard let browser = targetDockStore.focusedPanel as? BrowserPanel else { NSSound.beep(); return }
+                browser.toggleOmnibarVisibility(); return
+            }
             if !tabManager.toggleOmnibarFocusedBrowser() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.browserToggleDevTools") {
+            if let targetDockStore {
+                guard let browser = targetDockStore.focusedPanel as? BrowserPanel,
+                      browser.toggleDeveloperTools() else { NSSound.beep(); return }
+                return
+            }
             if !tabManager.toggleDeveloperToolsFocusedBrowser() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.browserConsole") {
+            if let targetDockStore {
+                guard let browser = targetDockStore.focusedPanel as? BrowserPanel,
+                      browser.showDeveloperToolsConsole() else { NSSound.beep(); return }
+                return
+            }
             if !tabManager.showJavaScriptConsoleFocusedBrowser() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.browserReactGrab") {
+            guard targetDockStore == nil else { NSSound.beep(); return }
             if !tabManager.toggleReactGrabFromCurrentFocus() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.browserZoomIn") {
+            if let targetDockStore {
+                let changed = (targetDockStore.focusedPanel as? BrowserPanel)?.zoomIn()
+                    ?? (targetDockStore.focusedPanel as? FilePreviewPanel)?.zoomTextPreviewIn()
+                    ?? false
+                if !changed { NSSound.beep() }; return
+            }
             if !tabManager.zoomInFocusedBrowserOrTextFilePreview() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.browserZoomOut") {
+            if let targetDockStore {
+                let changed = (targetDockStore.focusedPanel as? BrowserPanel)?.zoomOut()
+                    ?? (targetDockStore.focusedPanel as? FilePreviewPanel)?.zoomTextPreviewOut()
+                    ?? false
+                if !changed { NSSound.beep() }; return
+            }
             if !tabManager.zoomOutFocusedBrowserOrTextFilePreview() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.browserZoomReset") {
+            if let targetDockStore {
+                let changed = (targetDockStore.focusedPanel as? BrowserPanel)?.resetZoom()
+                    ?? (targetDockStore.focusedPanel as? FilePreviewPanel)?.resetTextPreviewZoom()
+                    ?? false
+                if !changed { NSSound.beep() }; return
+            }
             if !tabManager.resetZoomFocusedBrowserOrTextFilePreview() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.markdownZoomIn") {
+            if let targetDockStore {
+                if (targetDockStore.focusedPanel as? MarkdownPanel)?.zoomIn() != true { NSSound.beep() }
+                return
+            }
             if !tabManager.zoomInFocusedMarkdown() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.markdownZoomOut") {
+            if let targetDockStore {
+                if (targetDockStore.focusedPanel as? MarkdownPanel)?.zoomOut() != true { NSSound.beep() }
+                return
+            }
             if !tabManager.zoomOutFocusedMarkdown() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.markdownZoomReset") {
+            if let targetDockStore {
+                if (targetDockStore.focusedPanel as? MarkdownPanel)?.resetZoom() != true { NSSound.beep() }
+                return
+            }
             if !tabManager.resetZoomFocusedMarkdown() {
                 NSSound.beep()
             }
@@ -8553,17 +8773,40 @@ struct ContentView: View {
             BrowserHistoryStore.shared.clearHistory()
         }
         registry.register(commandId: "palette.findInDirectory") {
+            guard targetDockStore == nil else { NSSound.beep(); return }
             _ = AppDelegate.shared?.focusFileSearchInActiveMainWindow(
                 preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
             )
         }
         registry.register(commandId: "palette.browserSplitRight") {
+            if let targetDockStore {
+                if !targetDockStore.performSurfaceCommand(.split(kind: .browser, direction: .right)) { NSSound.beep() }
+                return
+            }
             _ = tabManager.createBrowserSplit(direction: .right)
         }
         registry.register(commandId: "palette.browserSplitDown") {
+            if let targetDockStore {
+                if !targetDockStore.performSurfaceCommand(.split(kind: .browser, direction: .down)) { NSSound.beep() }
+                return
+            }
             _ = tabManager.createBrowserSplit(direction: .down)
         }
         registry.register(commandId: "palette.browserDuplicateRight") {
+            if let targetDockStore {
+                let url = (targetDockStore.focusedPanel as? BrowserPanel)?
+                    .preferredURLStringForOmnibar().flatMap(URL.init(string:))
+                guard let source = targetDockStore.focusedPanelId else { NSSound.beep(); return }
+                if targetDockStore.newSplit(
+                    kind: .browser,
+                    orientation: SplitDirection.right.orientation,
+                    insertFirst: SplitDirection.right.insertFirst,
+                    sourcePanelId: source,
+                    url: url,
+                    focus: true
+                ) == nil { NSSound.beep() }
+                return
+            }
             let url = tabManager.focusedBrowserPanel?.preferredURLStringForOmnibar().flatMap(URL.init(string:))
             _ = tabManager.createBrowserSplit(direction: .right, url: url)
         }
@@ -8584,46 +8827,102 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.terminalFind") {
+            if let targetDockStore {
+                guard let panel = targetDockStore.focusedPanel as? TerminalPanel else { NSSound.beep(); return }
+                let hadExistingSearch = panel.searchState != nil
+                panel.hostedView.preparePanelFocusIntentForActivation(.findField)
+                let recoveredNeedle = hadExistingSearch ? "" : panel.surface.lastSearchNeedle
+                if !startOrFocusTerminalSearch(panel.surface, initialNeedle: recoveredNeedle, searchFocusNotifier: { surface in
+                    NotificationCenter.default.post(name: .ghosttySearchFocus, object: surface)
+                }) { NSSound.beep() }
+                return
+            }
             tabManager.startSearch()
         }
         registry.register(commandId: "palette.terminalFindNext") {
+            if let targetDockStore {
+                guard let panel = targetDockStore.focusedPanel as? TerminalPanel else { NSSound.beep(); return }
+                _ = panel.performBindingAction("search:next"); return
+            }
             tabManager.findNext()
         }
         registry.register(commandId: "palette.terminalFindPrevious") {
+            if let targetDockStore {
+                guard let panel = targetDockStore.focusedPanel as? TerminalPanel else { NSSound.beep(); return }
+                _ = panel.performBindingAction("search:previous"); return
+            }
             tabManager.findPrevious()
         }
         registry.register(commandId: "palette.terminalHideFind") {
+            if let targetDockStore {
+                guard let panel = targetDockStore.focusedPanel as? TerminalPanel else { NSSound.beep(); return }
+                panel.surface.closeSearchFromExplicitInput(); return
+            }
             tabManager.hideFind()
         }
         registry.register(commandId: "palette.terminalUseSelectionForFind") {
+            if let targetDockStore {
+                guard let panel = targetDockStore.focusedPanel as? TerminalPanel else { NSSound.beep(); return }
+                if panel.searchState == nil { panel.searchState = TerminalSurface.SearchState() }
+                NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
+                _ = panel.performBindingAction("search_selection"); return
+            }
             tabManager.searchSelection()
         }
         registry.register(commandId: "palette.terminalToggleTextBoxInput") {
+            if let targetDockStore {
+                if (targetDockStore.focusedPanel as? TerminalPanel)?.toggleTextBoxInput() != true { NSSound.beep() }
+                return
+            }
             if !tabManager.toggleFocusedTerminalTextBox() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.terminalFocusTextBoxInput") {
+            if let targetDockStore {
+                if (targetDockStore.focusedPanel as? TerminalPanel)?.focusTextBoxInputOrTerminal() != true { NSSound.beep() }
+                return
+            }
             if !tabManager.focusFocusedTerminalTextBoxInputOrTerminal() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.terminalAttachTextBoxFile") {
+            if let targetDockStore {
+                if (targetDockStore.focusedPanel as? TerminalPanel)?.attachFileToTextBoxInput() != true { NSSound.beep() }
+                return
+            }
             if !tabManager.attachFileToFocusedTerminalTextBoxInput() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.terminalSendCtrlF") {
+            if let targetDockStore {
+                guard let panel = targetDockStore.focusedPanel as? TerminalPanel else { NSSound.beep(); return }
+                let result = panel.sendNamedKeyResult("ctrl-f")
+                if result == .sent { panel.surface.forceRefresh(reason: "commandPalette.sendCtrlF") }
+                if !result.accepted { NSSound.beep() }; return
+            }
             if !tabManager.sendCtrlFToFocusedTerminal() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.terminalClearScreenKeepScrollback") {
+            if let targetDockStore {
+                guard let panel = targetDockStore.focusedPanel as? TerminalPanel,
+                      panel.clearScreenKeepingScrollback() else { NSSound.beep(); return }
+                panel.surface.forceRefresh(reason: "commandPalette.clearScreenKeepingScrollback")
+                return
+            }
             if !tabManager.clearFocusedTerminalKeepingScrollback() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.terminalSplitRight") {
+            if let targetDockStore {
+                if !targetDockStore.performSurfaceCommand(.split(kind: .terminal, direction: .right)) { NSSound.beep() }
+                return
+            }
             if !executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.splitRight.configID) {
                 tabManager.createSplit(direction: .right)
             }
@@ -8647,27 +8946,48 @@ struct ContentView: View {
             forkFocusedAgentConversationToNewWorkspace()
         }
         registry.register(commandId: "palette.terminalSplitDown") {
+            if let targetDockStore {
+                if !targetDockStore.performSurfaceCommand(.split(kind: .terminal, direction: .down)) { NSSound.beep() }
+                return
+            }
             if !executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.splitDown.configID) {
                 tabManager.createSplit(direction: .down)
             }
         }
         registry.register(commandId: "palette.terminalSplitBrowserRight") {
+            if let targetDockStore {
+                if !targetDockStore.performSurfaceCommand(.split(kind: .browser, direction: .right)) { NSSound.beep() }
+                return
+            }
             _ = tabManager.createBrowserSplit(direction: .right)
         }
         registry.register(commandId: "palette.terminalSplitBrowserDown") {
+            if let targetDockStore {
+                if !targetDockStore.performSurfaceCommand(.split(kind: .browser, direction: .down)) { NSSound.beep() }
+                return
+            }
             _ = tabManager.createBrowserSplit(direction: .down)
         }
         registry.register(commandId: "palette.toggleSplitZoom") {
+            if let targetDockStore {
+                if !targetDockStore.performShortcutCommand(.togglePaneZoom) { NSSound.beep() }
+                return
+            }
             if !tabManager.toggleFocusedSplitZoom() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.toggleFullWidthTab") {
+            guard targetDockStore == nil else { NSSound.beep(); return }
             if !tabManager.toggleFocusedFullWidthTab() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.equalizeSplits") {
+            if let targetDockStore {
+                if !targetDockStore.performSurfaceCommand(.equalizeSplits) { NSSound.beep() }
+                return
+            }
             if let workspace = tabManager.selectedWorkspace, !tabManager.equalizeSplits(tabId: workspace.id) {
 #if DEBUG
                 cmuxDebugLog("palette.equalizeSplits result=noSplitOrFailed workspaceId=\(workspace.id)")
@@ -8920,9 +9240,16 @@ struct ContentView: View {
 
     private func forwardCommandPaletteUnhandledNavigationKeyToFocusedTerminal(_ event: NSEvent) -> Bool {
         guard let target = commandPaletteRestoreFocusTarget,
-              target.intent == .terminal(.surface),
-              let workspace = tabManager.tabs.first(where: { $0.id == target.workspaceId }),
-              let terminalPanel = workspace.panels[target.panelId] as? TerminalPanel else { return false }
+              target.intent == .terminal(.surface) else { return false }
+        let terminalPanel: TerminalPanel?
+        if let dockStore = target.dockStore {
+            terminalPanel = dockStore.panels[target.panelId] as? TerminalPanel
+        } else {
+            terminalPanel = tabManager.tabs
+                .first(where: { $0.id == target.workspaceId })?
+                .panels[target.panelId] as? TerminalPanel
+        }
+        guard let terminalPanel else { return false }
         terminalPanel.hostedView.forwardKeyDownToSurface(event); return true
     }
 
@@ -8952,7 +9279,7 @@ struct ContentView: View {
             return .handled
         }
 
-        if let window = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow,
+        if let window = commandPaletteInputWindow,
            let editor = window.firstResponder as? NSTextView,
            editor.isFieldEditor {
             editor.deleteBackward(nil)
@@ -9088,6 +9415,21 @@ struct ContentView: View {
     }
 
     private func commandPalettePostRunFocusTarget(for command: CommandPaletteCommand) -> CommandPaletteRestoreFocusTarget? {
+        let targetDockStore = commandPaletteTargetDockStore
+        let sourceWindow: NSWindow?
+        if let restoreTarget = commandPaletteRestoreFocusTarget,
+           restoreTarget.dockStore === targetDockStore {
+            sourceWindow = restoreTarget.sourceWindow
+        } else {
+            sourceWindow = commandPalettePendingRequestFocusTarget?.sourceWindow
+        }
+        if let dockTarget = Self.commandPalettePostRunDockFocusTarget(
+            forCommandId: command.id,
+            dockStore: targetDockStore,
+            sourceWindow: sourceWindow
+        ) {
+            return dockTarget
+        }
         guard let intent = Self.commandPalettePostRunRestoreFocusIntent(forCommandId: command.id),
               let panelContext = focusedPanelContext else {
             return nil
@@ -9096,6 +9438,26 @@ struct ContentView: View {
             workspaceId: panelContext.workspace.id,
             panelId: panelContext.panelId,
             intent: intent
+        )
+    }
+
+    @MainActor
+    static func commandPalettePostRunDockFocusTarget(
+        forCommandId commandId: String,
+        dockStore: DockSplitStore?,
+        sourceWindow: NSWindow?
+    ) -> CommandPaletteRestoreFocusTarget? {
+        guard let intent = commandPalettePostRunRestoreFocusIntent(forCommandId: commandId),
+              let dockStore,
+              let panelId = dockStore.focusedPanelId else {
+            return nil
+        }
+        return CommandPaletteRestoreFocusTarget(
+            workspaceId: dockStore.workspaceId,
+            panelId: panelId,
+            intent: intent,
+            dockStore: dockStore,
+            sourceWindow: sourceWindow
         )
     }
 
@@ -9191,6 +9553,28 @@ struct ContentView: View {
         return false
     }
 
+    private func adoptCommandPaletteFloatingDockFocusSource(from notification: Notification) {
+        guard let source = notification.userInfo?[commandPaletteFloatingDockFocusSourceUserInfoKey]
+            as? CommandPaletteFloatingDockFocusSource else {
+            if !isCommandPalettePresented {
+                commandPalettePendingRequestFocusTarget = nil
+            }
+            return
+        }
+        let target = CommandPaletteRestoreFocusTarget(
+            workspaceId: source.store.workspaceId,
+            panelId: source.panelId,
+            intent: source.intent,
+            dockStore: source.store,
+            sourceWindow: source.window
+        )
+        if isCommandPalettePresented {
+            commandPaletteRestoreFocusTarget = target
+        } else {
+            commandPalettePendingRequestFocusTarget = target
+        }
+    }
+
     static func shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
         focusedPanelIsBrowser: Bool,
         focusedBrowserAddressBarPanelId: UUID?,
@@ -9272,7 +9656,9 @@ struct ContentView: View {
     private func presentCommandPalette(initialQuery: String) {
         refreshCachedDefaultTerminalStatus(refreshSearchCorpusIfPresented: false)
         commandPaletteFocusRestoreCoordinator.clear()
-        if let panelContext = focusedPanelContext {
+        if let requestedTarget = commandPalettePendingRequestFocusTarget {
+            commandPaletteRestoreFocusTarget = requestedTarget
+        } else if let panelContext = focusedPanelContext {
             commandPaletteRestoreFocusTarget = CommandPaletteRestoreFocusTarget(
                 workspaceId: panelContext.workspace.id,
                 panelId: panelContext.panelId,
@@ -9281,6 +9667,7 @@ struct ContentView: View {
         } else {
             commandPaletteRestoreFocusTarget = nil
         }
+        commandPalettePendingRequestFocusTarget = nil
         isCommandPalettePresented = true
         commandPaletteForkableAgentActivePanelKey = nil
         pruneCommandPaletteForkableAgentProbeResults()
@@ -9300,7 +9687,7 @@ struct ContentView: View {
         commandPaletteScrollTargetIndex = nil
         commandPaletteScrollTargetAnchor = nil
         commandPaletteShouldFocusWorkspaceDescriptionEditor = false
-        scheduleCommandPaletteResultsRefresh(forceSearchCorpusRefresh: true)
+        scheduleCommandPaletteResultsRefresh()
         syncCommandPaletteOverlayCommandListState()
         resetCommandPaletteSearchFocus()
         syncCommandPaletteDebugStateForObservedWindow()
@@ -9394,7 +9781,6 @@ struct ContentView: View {
         }
 #endif
         cancelCommandPaletteSearch()
-        cancelCommandPaletteSearchIndexBuild()
         cancelCommandPaletteForkableAgentAvailabilityProbe()
         cancelCommandPaletteForkableAgentProbeResultExpiryRefresh()
         commandPaletteForkableAgentActivePanelKey = nil
@@ -9414,27 +9800,13 @@ struct ContentView: View {
         isCommandPaletteSearchFocused = false
         isCommandPaletteRenameFocused = false
         commandPaletteRestoreFocusTarget = nil
-        commandPaletteSearchCorpus = []
-        commandPaletteSearchCorpusByID = [:]
-        commandPaletteSearchCommandsByID = [:]
-        commandPaletteNucleoSearchIndex = nil
-        cachedCommandPaletteResults = []
-        commandPaletteVisibleResults = []
-        commandPaletteVisibleResultsScope = nil
-        commandPaletteVisibleResultsFingerprint = nil
-        commandPaletteVisibleResultsVersion &+= 1
-        cachedCommandPaletteScope = nil
-        cachedCommandPaletteFingerprint = nil
+        commandPalettePendingRequestFocusTarget = nil
         commandPalettePendingTextSelectionBehavior = nil
         commandPaletteResolvedSearchRequestID = commandPaletteSearchRequestID
-        commandPaletteResolvedSearchScope = nil
-        commandPaletteResolvedSearchFingerprint = nil
         commandPaletteTerminalOpenTargetAvailability = []
         isCommandPaletteSearchPending = false
         commandPalettePendingActivation = nil
-        commandPaletteResultsRevision &+= 1
-        syncCommandPaletteOverlayCommandListState()
-        if let window = observedWindow {
+        if let window = commandPaletteInputWindow {
             _ = window.makeFirstResponder(nil)
         }
         syncCommandPaletteDebugStateForObservedWindow()
@@ -9451,6 +9823,22 @@ struct ContentView: View {
     private func attemptCommandPaletteFocusRestoreIfNeeded() {
         guard !isCommandPalettePresented else { return }
         guard let target = commandPaletteFocusRestoreCoordinator.pendingTarget else { return }
+        if let dockStore = target.dockStore {
+            guard let panel = dockStore.panels[target.panelId] else {
+                commandPaletteFocusRestoreCoordinator.clear()
+                return
+            }
+            guard commandPaletteFocusRestoreCoordinator.claimRestoreAttempt() else { return }
+            defer { commandPaletteFocusRestoreCoordinator.finishRestoreAttempt() }
+            if let sourceWindow = target.sourceWindow, !sourceWindow.isKeyWindow {
+                sourceWindow.makeKeyAndOrderFront(nil)
+            }
+            dockStore.focusPanel(target.panelId)
+            guard dockStore.focusedPanelId == target.panelId,
+                  panel.restoreFocusIntent(target.intent) else { return }
+            commandPaletteFocusRestoreCoordinator.clear()
+            return
+        }
         guard let targetWorkspace = tabManager.tabs.first(where: { $0.id == target.workspaceId }) else {
             commandPaletteFocusRestoreCoordinator.clear()
             return
@@ -9538,6 +9926,14 @@ struct ContentView: View {
         applyCommandPaletteInputFocusPolicy(.search)
     }
 
+    private var commandPaletteInputWindow: NSWindow? {
+        if let observedWindow,
+           let panel = commandPalettePresentedPanelWindow(for: observedWindow) {
+            return panel
+        }
+        return observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+    }
+
     private func resetCommandPaletteRenameFocus() {
         applyCommandPaletteInputFocusPolicy(commandPaletteRenameInputFocusPolicy())
     }
@@ -9593,17 +9989,29 @@ struct ContentView: View {
     }
 
     private func applyCommandPaletteInputFocusPolicy(_ policy: CommandPaletteInputFocusPolicy) {
-        DispatchQueue.main.async {
-            commandPaletteShouldFocusWorkspaceDescriptionEditor = false
-            switch policy.focusTarget {
-            case .search:
-                isCommandPaletteRenameFocused = false
-                isCommandPaletteSearchFocused = true
-            case .rename:
-                isCommandPaletteSearchFocused = false
-                isCommandPaletteRenameFocused = true
-            }
-            applyCommandPaletteTextSelection(policy.selectionBehavior)
+        commandPaletteShouldFocusWorkspaceDescriptionEditor = false
+        isCommandPaletteSearchFocused = false
+        isCommandPaletteRenameFocused = false
+        switch policy.focusTarget {
+        case .search:
+            isCommandPaletteSearchFocused = true
+        case .rename:
+            isCommandPaletteRenameFocused = true
+        }
+        applyCommandPaletteTextSelection(policy.selectionBehavior)
+    }
+
+    private func reassertCommandPaletteInputFocusAfterWindowBecameKey() {
+        guard isCommandPalettePresented else { return }
+        switch commandPaletteMode {
+        case .commands:
+            resetCommandPaletteSearchFocus()
+        case .renameInput:
+            resetCommandPaletteRenameFocus()
+        case .workspaceDescriptionInput:
+            resetCommandPaletteWorkspaceDescriptionFocus()
+        case .renameConfirm:
+            break
         }
     }
 
@@ -9631,7 +10039,7 @@ struct ContentView: View {
                 return
             }
         }
-        guard let window = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        guard let window = commandPaletteInputWindow else { return }
 
         guard let editor = window.firstResponder as? NSTextView,
               editor.isFieldEditor else {

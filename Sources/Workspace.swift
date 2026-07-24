@@ -152,6 +152,7 @@ extension Workspace {
             layout: layout,
             layoutMode: layoutMode.rawValue,
             canvasPanes: canvasSessionPaneSnapshots(),
+            floatingDocks: floatingDockSessionSnapshots(),
             panels: panelSnapshots,
             statusEntries: statusSnapshots,
             logEntries: logSnapshots,
@@ -257,6 +258,11 @@ extension Workspace {
         isPinned = snapshot.isPinned
         groupId = snapshot.groupId
         restoreTodoState(from: snapshot)
+        restoreFloatingDocks(
+            from: snapshot.floatingDocks,
+            snapshotWorkspaceId: snapshot.workspaceId,
+            snapshotWorkspaceStableId: snapshot.stableId
+        )
 
         // Status entries and agent PIDs are ephemeral runtime state tied to running
         // processes (e.g. claude_code "Running"). Don't restore them across app
@@ -559,22 +565,7 @@ extension Workspace {
             guard let browserPanel = panel as? BrowserPanel else { return nil }
             guard browserPanel.shouldPersistSessionSnapshot() else { return nil }
             terminalSnapshot = nil
-            let historySnapshot = browserPanel.sessionNavigationHistorySnapshot()
-            let diffViewerComponents = browserPanel.diffViewerSessionComponents()
-            browserSnapshot = SessionBrowserPanelSnapshot(
-                urlString: browserPanel.preferredURLStringForSessionSnapshot(),
-                profileID: browserPanel.profileID,
-                shouldRenderWebView: browserPanel.shouldRenderWebViewForSessionSnapshot(),
-                pageZoom: Double(browserPanel.currentPageZoomFactor()),
-                developerToolsVisible: browserPanel.isDeveloperToolsVisible(),
-                isMuted: browserPanel.isMuted,
-                omnibarVisible: browserPanel.isOmnibarVisible,
-                backHistoryURLStrings: historySnapshot.backHistoryURLStrings,
-                forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings,
-                transparentBackground: browserPanel.sessionSnapshotTransparentBackground,
-                diffViewerToken: diffViewerComponents?.token,
-                diffViewerRequestPath: diffViewerComponents?.requestPath
-            )
+            browserSnapshot = browserPanel.sessionPersistenceSnapshot()
             markdownSnapshot = nil
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
@@ -594,7 +585,10 @@ extension Workspace {
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = nil
-            filePreviewSnapshot = SessionFilePreviewPanelSnapshot(filePath: filePreviewPanel.filePath)
+            filePreviewSnapshot = SessionFilePreviewPanelSnapshot(
+                filePath: filePreviewPanel.filePath,
+                noteTitle: filePreviewPanel.presentation.noteTitle
+            )
             rightSidebarToolSnapshot = nil
             agentSessionSnapshot = nil
             projectSnapshot = nil
@@ -1228,6 +1222,42 @@ extension Workspace {
         return storedBinding
     }
 
+    func restoreFloatingDockTerminalTransfer(
+        panelId: UUID,
+        snapshot: SessionTerminalPanelSnapshot,
+        snapshotWorkspaceId: UUID?
+    ) -> DetachedSurfaceTransfer? {
+        guard let pane = bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first else {
+            return nil
+        }
+        let panelSnapshot = SessionPanelSnapshot(
+            id: panelId,
+            type: .terminal,
+            title: nil,
+            customTitle: nil,
+            directory: snapshot.workingDirectory,
+            directoryIsTrustedRemoteReport: snapshot.isRemoteTerminal,
+            isPinned: false,
+            isManuallyUnread: false,
+            gitBranch: nil,
+            listeningPorts: [],
+            ttyName: nil,
+            terminal: snapshot,
+            browser: nil,
+            markdown: nil,
+            filePreview: nil,
+            rightSidebarTool: nil,
+            project: nil
+        )
+        guard let restoredPanelId = createPanel(
+            from: panelSnapshot,
+            inPane: pane,
+            snapshotWorkspaceId: snapshotWorkspaceId,
+            shouldRestoreSingleDefaultCloudTerminal: false
+        ) else { return nil }
+        return detachSurface(panelId: restoredPanelId)
+    }
+
     func createPanel(
         from snapshot: SessionPanelSnapshot,
         inPane paneId: PaneID,
@@ -1684,6 +1714,7 @@ extension Workspace {
                   let filePreviewPanel = newFilePreviewSurface(
                     inPane: paneId,
                     filePath: filePath,
+                    presentation: snapshot.filePreview?.noteTitle.map(FilePreviewPresentation.note) ?? .file,
                     focus: false
                   ) else {
                 return nil
@@ -1811,20 +1842,8 @@ extension Workspace {
 
         if let browserSnapshot = snapshot.browser,
            let browserPanel = browserPanel(for: panelId) {
-            let pageZoom = CGFloat(max(0.25, min(5.0, browserSnapshot.pageZoom)))
-            if pageZoom.isFinite {
-                _ = browserPanel.setPageZoomFactor(pageZoom)
-            }
-
-            browserPanel.restoreSessionSnapshot(browserSnapshot)
+            browserPanel.restoreCompleteSessionSnapshot(browserSnapshot)
             syncBrowserAudioMuteStateForPanel(panelId, browserPanel: browserPanel)
-
-            if browserSnapshot.developerToolsVisible && BrowserAvailabilitySettings.isEnabled() {
-                _ = browserPanel.showDeveloperTools()
-                browserPanel.requestDeveloperToolsRefreshAfterNextAttach(reason: "session_restore")
-            } else {
-                _ = browserPanel.hideDeveloperTools()
-            }
         }
     }
 
@@ -2088,6 +2107,15 @@ final class Workspace: Identifiable, ObservableObject {
     /// (and so reading it during teardown does not lazily create one).
     private(set) var _dockSplit: DockSplitStore?
 
+    /// Window-like Bonsplit containers scoped to this workspace.
+    /// Mutated by the shared lifecycle methods in `Workspace+FloatingDocks`.
+    var floatingDocks: [WorkspaceFloatingDock] = []
+    var floatingDockRestoreGeneration = 0
+    var floatingDockRestoreTask: Task<Void, Never>?
+    var pendingFloatingDockCloseIds: Set<UUID> = []
+    var floatingDockCloseFailures: [UUID: String] = [:]
+    var isPendingCloseAllFloatingDocks = false
+
     /// The right-sidebar Dock for this workspace: its own Bonsplit tree of
     /// terminal/browser panels, separate from the main-area `bonsplitController`.
     /// Created on first access so workspaces that never open the Dock pay nothing.
@@ -2097,14 +2125,7 @@ final class Workspace: Identifiable, ObservableObject {
             workspaceId: id,
             baseDirectoryProvider: { [weak self] in self?.currentDirectory },
             remoteBrowserSettingsProvider: { [weak self] in
-                guard let self else { return .local }
-                return DockRemoteBrowserSettings(
-                    proxyEndpoint: self.remoteProxyEndpoint,
-                    bypassRemoteProxy: false,
-                    isRemoteWorkspace: self.isRemoteWorkspace,
-                    remoteWebsiteDataStoreIdentifier: self.isRemoteWorkspace ? self.id : nil,
-                    remoteStatus: self.browserRemoteWorkspaceStatusSnapshot()
-                )
+                self?.dockRemoteBrowserSettingsSnapshot() ?? .local
             },
             settings: settings,
             agentSessionAutoResumeDefaults: agentSessionAutoResumeDefaults
@@ -3405,6 +3426,8 @@ final class Workspace: Identifiable, ObservableObject {
     /// Tab IDs that are currently showing (or about to show) a close confirmation prompt.
     /// Prevents repeated close gestures (e.g., middle-click spam) from stacking dialogs.
     private var pendingCloseConfirmTabIds: Set<TabID> = []
+    private var pendingAutosaveCloseTabIds: Set<TabID> = []
+    private var pendingAutosaveClosePaneIds: Set<UUID> = []
 
     /// tmux pane ids (multi-pane mirror ✕) with a close-time activity query or
     /// confirmation in flight, so click spam can't double-kill or stack dialogs.
@@ -3929,10 +3952,21 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
+    func dockRemoteBrowserSettingsSnapshot() -> DockRemoteBrowserSettings {
+        DockRemoteBrowserSettings(
+            proxyEndpoint: remoteProxyEndpoint,
+            bypassRemoteProxy: false,
+            isRemoteWorkspace: isRemoteWorkspace,
+            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil,
+            remoteStatus: browserRemoteWorkspaceStatusSnapshot()
+        )
+    }
+
     func applyBrowserRemoteWorkspaceStatusToPanels() {
         let snapshot = browserRemoteWorkspaceStatusSnapshot()
         for panel in panels.values { (panel as? BrowserPanel)?.setRemoteWorkspaceStatus(snapshot) }
         _dockSplit?.applyRemoteWorkspaceStatus(snapshot)
+        floatingDocks.forEach { $0.store.applyRemoteWorkspaceStatus(snapshot) }
     }
 
     // MARK: - Panel Access
@@ -3943,19 +3977,19 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func terminalPanel(for panelId: UUID) -> TerminalPanel? {
-        panels[panelId] as? TerminalPanel
+        controlOwnedPanel(for: panelId) as? TerminalPanel
     }
 
     func browserPanel(for panelId: UUID) -> BrowserPanel? {
-        panels[panelId] as? BrowserPanel
+        controlOwnedPanel(for: panelId) as? BrowserPanel
     }
 
     func markdownPanel(for panelId: UUID) -> MarkdownPanel? {
-        panels[panelId] as? MarkdownPanel
+        controlOwnedPanel(for: panelId) as? MarkdownPanel
     }
 
     func filePreviewPanel(for panelId: UUID) -> FilePreviewPanel? {
-        panels[panelId] as? FilePreviewPanel
+        controlOwnedPanel(for: panelId) as? FilePreviewPanel
     }
 
     /// The working directory app-level actions (diff viewer, configured commands)
@@ -4593,6 +4627,11 @@ final class Workspace: Identifiable, ObservableObject {
         if usesRemoteDirectoryProvenance {
             notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: provenanceChanged)
         }
+        updateDockTransferReportedState(
+            panelId: panelId,
+            directory: trimmed,
+            directoryDisplayLabel: trimmedDisplayLabel.isEmpty ? nil : trimmedDisplayLabel
+        )
         return true
     }
 
@@ -4636,16 +4675,17 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
-        guard panels[panelId] != nil else { return }
+        guard let ownedPanel = controlOwnedPanel(for: panelId) else { return }
         let previousState = panelShellActivityStates[panelId] ?? .unknown
         if previousState == state {
-            if let terminalPanel = panels[panelId] as? TerminalPanel {
+            if let terminalPanel = ownedPanel as? TerminalPanel {
                 terminalPanel.updateShellActivityState(state)
             }
             return
         }
         panelShellActivityStates[panelId] = state
-        if let terminalPanel = panels[panelId] as? TerminalPanel {
+        updateDockTransferReportedState(panelId: panelId, shellActivityState: state)
+        if let terminalPanel = ownedPanel as? TerminalPanel {
             terminalPanel.updateShellActivityState(state)
         }
         if let restoredAgent = restoredAgentSnapshotsByPanelId[panelId] {
@@ -5149,7 +5189,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     @MainActor
     func isRemoteTerminalSurface(_ panelId: UUID) -> Bool {
-        activeRemoteTerminalSurfaceIds.contains(panelId)
+        activeRemoteTerminalSurfaceIds.contains(panelId) || isDockTransferredRemoteTerminal(panelId)
     }
 
     @MainActor
@@ -6377,6 +6417,7 @@ final class Workspace: Identifiable, ObservableObject {
             (panel as? BrowserPanel)?.setRemoteProxyEndpoint(endpoint)
         }
         _dockSplit?.applyRemoteProxyEndpointUpdate(endpoint)
+        floatingDocks.forEach { $0.store.applyRemoteProxyEndpointUpdate(endpoint) }
         applyBrowserRemoteWorkspaceStatusToPanels()
     }
 
@@ -8230,6 +8271,7 @@ final class Workspace: Identifiable, ObservableObject {
     func newFilePreviewSurface(
         inPane paneId: PaneID,
         filePath: String,
+        presentation: FilePreviewPresentation = .file,
         focus: Bool? = nil,
         targetIndex: Int? = nil
     ) -> FilePreviewPanel? {
@@ -8237,7 +8279,11 @@ final class Workspace: Identifiable, ObservableObject {
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
 
-        let filePreviewPanel = FilePreviewPanel(workspaceId: id, filePath: filePath)
+        let filePreviewPanel = WorkspaceFloatingDockNoteWriter.makeFilePreviewPanel(
+            workspaceId: id,
+            filePath: filePath,
+            presentation: presentation
+        )
         panels[filePreviewPanel.id] = filePreviewPanel
         panelTitles[filePreviewPanel.id] = filePreviewPanel.displayTitle
 
@@ -8274,6 +8320,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         installFilePreviewPanelSubscription(filePreviewPanel)
+        WorkspaceFloatingDockNoteOwnerRegistry.register(filePreviewPanel)
         return filePreviewPanel
     }
 
@@ -8498,6 +8545,14 @@ final class Workspace: Identifiable, ObservableObject {
         // Tear down the right-sidebar Dock's own panels (terminals/browsers) too,
         // but only if the Dock was ever opened for this workspace.
         _dockSplit?.closeAllPanels()
+        floatingDockRestoreGeneration &+= 1
+        floatingDockRestoreTask?.cancel()
+        floatingDockRestoreTask = nil
+        floatingDocks.forEach { $0.close() }
+        floatingDocks.removeAll()
+        pendingFloatingDockCloseIds.removeAll()
+        floatingDockCloseFailures.removeAll()
+        isPendingCloseAllFloatingDocks = false
     }
 
     /// Close a panel.
@@ -8541,8 +8596,14 @@ final class Workspace: Identifiable, ObservableObject {
 
     func requestCloseTab(_ tabId: TabID, force: Bool) -> Bool {
         if force { forceCloseTabIds.insert(tabId) }
-        let closed = bonsplitController.closeTab(tabId); if force && !closed { forceCloseTabIds.remove(tabId) }
-        return closed
+        let closed = bonsplitController.closeTab(tabId)
+        let pending = pendingAutosaveCloseTabIds.contains(tabId)
+        if force && !closed && !pending { forceCloseTabIds.remove(tabId) }
+        return closed || pending
+    }
+
+    func isAutosaveClosePending(panelId: UUID) -> Bool {
+        surfaceIdFromPanelId(panelId).map(pendingAutosaveCloseTabIds.contains) ?? false
     }
 
     private func applyInitialSplitDividerPosition(_ position: CGFloat?, sourcePaneId: PaneID, newPaneId: PaneID) {
@@ -9050,6 +9111,9 @@ final class Workspace: Identifiable, ObservableObject {
         if let filePreviewPanel = detached.panel as? FilePreviewPanel,
            panelSubscriptions[filePreviewPanel.id] == nil {
             installFilePreviewPanelSubscription(filePreviewPanel)
+        }
+        if let filePreviewPanel = detached.panel as? FilePreviewPanel {
+            WorkspaceFloatingDockNoteOwnerRegistry.register(filePreviewPanel)
         }
         if let agentPanel = detached.panel as? AgentSessionPanel {
             agentPanel.updateWorkspaceId(id)
@@ -9605,6 +9669,7 @@ final class Workspace: Identifiable, ObservableObject {
             }
         }
         if _dockSplit?.needsConfirmClose() == true { return true }
+        if floatingDocks.contains(where: { $0.store.needsConfirmClose() }) { return true }
         return false
     }
 
@@ -11513,6 +11578,30 @@ extension Workspace: BonsplitDelegate {
         let tabStripClose = tabCloseButtonClose != nil
         let explicitUserClose = explicitUserCloseTabIds.remove(tab.id) != nil || tabStripClose
 
+        if let panelId = panelIdFromSurfaceId(tab.id),
+           let note = panels[panelId] as? FilePreviewPanel,
+           note.needsAutosaveFlush {
+            guard pendingAutosaveCloseTabIds.insert(tab.id).inserted else { return false }
+            if tabCloseButtonClose == true {
+                tabStripCloseButtonByTabId[tab.id] = true
+            }
+            let tabId = tab.id
+            Task { @MainActor [weak self, weak note] in
+                guard let self, let note else { return }
+                let saved = await note.flushPendingAutosave()
+                self.pendingAutosaveCloseTabIds.remove(tabId)
+                guard saved, self.panelIdFromSurfaceId(tabId) != nil else {
+                    self.forceCloseTabIds.remove(tabId)
+                    self.clearStagedClosedBrowserRestoreSnapshot(for: tabId)
+                    self.clearCloseHistoryEligibility(tabId: tabId, panelId: panelId)
+                    NSSound.beep()
+                    return
+                }
+                _ = self.bonsplitController.closeTab(tabId)
+            }
+            return false
+        }
+
         // Remote tmux mirror tab closes route to tmux; tmux reports local removal.
         if isRemoteTmuxMirror, !forceCloseTabIds.contains(tab.id),
            let panelId = panelIdFromSurfaceId(tab.id),
@@ -12026,6 +12115,32 @@ extension Workspace: BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, shouldClosePane pane: PaneID) -> Bool {
         // Check if any panel in this pane needs close confirmation
         let tabs = controller.tabs(inPane: pane)
+        let notesToFlush = tabs.compactMap { tab -> FilePreviewPanel? in
+            guard let panelId = panelIdFromSurfaceId(tab.id),
+                  let note = panels[panelId] as? FilePreviewPanel,
+                  note.needsAutosaveFlush else { return nil }
+            return note
+        }
+        if !notesToFlush.isEmpty {
+            guard pendingAutosaveClosePaneIds.insert(pane.id).inserted else { return false }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                var saved = true
+                for note in notesToFlush where saved {
+                    saved = await note.flushPendingAutosave()
+                }
+                self.pendingAutosaveClosePaneIds.remove(pane.id)
+                guard saved else {
+                    self.forceCloseTabIds.subtract(tabs.map(\.id))
+                    self.pendingPaneClosePanelIds.removeValue(forKey: pane.id)
+                    self.pendingPaneCloseHistoryEntries.removeValue(forKey: pane.id)
+                    NSSound.beep()
+                    return
+                }
+                _ = self.bonsplitController.closePane(pane)
+            }
+            return false
+        }
         for tab in tabs {
             if forceCloseTabIds.contains(tab.id) { continue }
             if let panelId = panelIdFromSurfaceId(tab.id),

@@ -35,7 +35,7 @@ extension TerminalController {
                   let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
                 return
             }
-            let validSurfaceIds = Set(tab.panels.keys)
+            let validSurfaceIds = tab.controlReportingSurfaceIds
             tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
             guard validSurfaceIds.contains(scope.panelID) else { return }
             guard SidebarWorkspaceDetailDefaults.gitMetadataActivity(defaults: .standard).acceptsPassiveReports else {
@@ -83,7 +83,7 @@ extension TerminalController {
                   let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
                 return
             }
-            let validSurfaceIds = Set(tab.panels.keys)
+            let validSurfaceIds = tab.controlReportingSurfaceIds
             tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
             guard validSurfaceIds.contains(scope.panelID) else { return }
             tabManager.clearSurfaceGitBranch(tabId: scope.workspaceID, surfaceId: scope.panelID)
@@ -196,7 +196,7 @@ extension TerminalController {
             return .tabNotFound
         }
 
-        let validSurfaceIds = Set(tab.panels.keys)
+        let validSurfaceIds = tab.controlReportingSurfaceIds
         tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
 
         if let panelArg {
@@ -288,10 +288,10 @@ extension TerminalController {
                   let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
                 return
             }
-            let validSurfaceIds = Set(tab.panels.keys)
+            let validSurfaceIds = tab.controlReportingSurfaceIds
             tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
             guard validSurfaceIds.contains(scope.panelID) else { return }
-            tab.surfaceTTYNames[scope.panelID] = ttyName
+            tab.recordReportedSurfaceTTY(ttyName, panelId: scope.panelID)
             if tab.isRemoteWorkspace {
                 tab.syncRemotePortScanTTYs()
                 _ = tab.applyPendingRemoteSurfacePortKickIfNeeded(to: scope.panelID)
@@ -308,7 +308,7 @@ extension TerminalController {
             prune: false,
             requireLiveSurface: true
         ) { tab, surfaceId in
-            tab.surfaceTTYNames[surfaceId] = ttyName
+            tab.recordReportedSurfaceTTY(ttyName, panelId: surfaceId)
             if tab.isRemoteWorkspace {
                 tab.syncRemotePortScanTTYs()
                 _ = tab.applyPendingRemoteSurfacePortKickIfNeeded(to: surfaceId)
@@ -336,7 +336,7 @@ extension TerminalController {
                   let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
                 return
             }
-            let validSurfaceIds = Set(tab.panels.keys)
+            let validSurfaceIds = tab.controlReportingSurfaceIds
             tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
             guard validSurfaceIds.contains(scope.panelID) else { return }
             if tab.isRemoteWorkspace {
@@ -372,7 +372,7 @@ extension TerminalController {
         guard let tab = controlSidebarResolveTabForReport(tabArg: tabArg) else { return nil }
 
         let focusedPanel: ControlSidebarFocusedPanelInfo?
-        if let focused = tab.focusedPanelId,
+        if let focused = tab.controlReportingFocusedSurfaceId,
            let focusedDir = tab.reportedPanelDirectory(panelId: focused) {
             focusedPanel = ControlSidebarFocusedPanelInfo(panelID: focused, directory: focusedDir)
         } else {

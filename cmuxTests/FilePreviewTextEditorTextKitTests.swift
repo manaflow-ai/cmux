@@ -47,6 +47,22 @@ struct FilePreviewTextEditorTextKitTests {
         #expect(textView.layoutManager?.allowsNonContiguousLayout == true)
     }
 
+    @Test("note editor uses a padded writing canvas and placeholder")
+    func noteEditorWritingCanvasStyle() {
+        let textView = SavingTextView.makeFilePreviewTextView()
+        textView.applyFilePreviewTextEditorStyle(.note)
+
+        #expect(textView.filePreviewEditorStyle == .note)
+        #expect(textView.textContainerInset == FilePreviewTextEditorLayout.noteTextContainerInset)
+        #expect(textView.textContainerInset == NSSize(width: 40, height: 32))
+        #expect(textView.textContainer?.lineFragmentPadding == 0)
+        #expect(textView.filePreviewPlaceholder == String(
+            localized: "floatingDock.note.placeholder",
+            defaultValue: "Start writing..."
+        ))
+        #expect(textView.accessibilityPlaceholderValue() as? String == textView.filePreviewPlaceholder)
+    }
+
     @Test("text preview editor handles standard zoom key equivalents")
     func editorHandlesStandardZoomKeyEquivalents() throws {
         try withDefaultShortcutSettings {
