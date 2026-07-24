@@ -389,6 +389,15 @@ impl From<&GraphicPlacement> for PlacementFingerprint {
     }
 }
 
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct GraphicsOperationCounts {
+    image_id_allocation_checks: usize,
+    placement_id_allocation_checks: usize,
+    stale_image_retain_passes: usize,
+    stale_image_retain_visits: usize,
+}
+
 pub struct GraphicsState {
     next_image_id: u32,
     next_placement_id: u32,
@@ -397,6 +406,8 @@ pub struct GraphicsState {
     placement_fingerprints: HashMap<GraphicPlacementKey, PlacementFingerprint>,
     transmitted: HashMap<GraphicImageKey, u64>,
     visible: HashSet<GraphicPlacementKey>,
+    #[cfg(test)]
+    operation_counts: GraphicsOperationCounts,
 }
 
 impl Default for GraphicsState {
@@ -409,6 +420,8 @@ impl Default for GraphicsState {
             placement_fingerprints: HashMap::new(),
             transmitted: HashMap::new(),
             visible: HashSet::new(),
+            #[cfg(test)]
+            operation_counts: GraphicsOperationCounts::default(),
         }
     }
 }
@@ -460,7 +473,18 @@ impl GraphicsState {
                 batches.push(delete_image(image_id));
             }
             self.transmitted.remove(&key);
+            #[cfg(test)]
+            {
+                self.operation_counts.stale_image_retain_passes += 1;
+                self.operation_counts.stale_image_retain_visits += self.placement_ids.len();
+            }
             self.placement_ids.retain(|placement, _| placement.image != key);
+            #[cfg(test)]
+            {
+                self.operation_counts.stale_image_retain_passes += 1;
+                self.operation_counts.stale_image_retain_visits +=
+                    self.placement_fingerprints.len();
+            }
             self.placement_fingerprints.retain(|placement, _| placement.image != key);
         }
 
@@ -507,6 +531,10 @@ impl GraphicsState {
         if let Some(id) = self.image_ids.get(&key) {
             return *id;
         }
+        #[cfg(test)]
+        {
+            self.operation_counts.image_id_allocation_checks += self.image_ids.len();
+        }
         let id = allocate_id(&mut self.next_image_id, self.image_ids.values().copied());
         self.image_ids.insert(key, id);
         id
@@ -516,9 +544,18 @@ impl GraphicsState {
         if let Some(id) = self.placement_ids.get(&key) {
             return *id;
         }
+        #[cfg(test)]
+        {
+            self.operation_counts.placement_id_allocation_checks += self.placement_ids.len();
+        }
         let id = allocate_id(&mut self.next_placement_id, self.placement_ids.values().copied());
         self.placement_ids.insert(key, id);
         id
+    }
+
+    #[cfg(test)]
+    fn reset_operation_counts(&mut self) {
+        self.operation_counts = GraphicsOperationCounts::default();
     }
 }
 
@@ -867,6 +904,105 @@ mod tests {
         assert_eq!(output.matches("a=p").count(), 3);
         assert_eq!(state.image_ids.values().copied().collect::<HashSet<_>>().len(), 2);
         assert_eq!(state.placement_ids.values().copied().collect::<HashSet<_>>().len(), 3);
+    }
+
+    #[test]
+    fn large_scene_id_allocation_performs_linear_work() {
+        const IMAGE_COUNT: u32 = 256;
+        let placements = (1..=IMAGE_COUNT)
+            .rev()
+            .map(|image_id| {
+                placement(
+                    image(19, image_id, 1, GraphicFormat::Rgb, &[255; 12]),
+                    image_id,
+                    0,
+                    Rect {
+                        x: u16::try_from(image_id % 80).unwrap(),
+                        y: u16::try_from(image_id / 80).unwrap(),
+                        width: 1,
+                        height: 1,
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut state = GraphicsState::default();
+
+        state.frame_batches(&placements);
+
+        assert!(
+            state.operation_counts.image_id_allocation_checks <= IMAGE_COUNT as usize,
+            "image allocation work was not linear: {:?}",
+            state.operation_counts
+        );
+        assert!(
+            state.operation_counts.placement_id_allocation_checks <= IMAGE_COUNT as usize,
+            "placement allocation work was not linear: {:?}",
+            state.operation_counts
+        );
+    }
+
+    #[test]
+    fn stale_image_cleanup_uses_one_linear_retain_pass() {
+        const SURVIVOR_COUNT: u32 = 128;
+        let initial = (1..=SURVIVOR_COUNT * 2)
+            .map(|image_id| {
+                placement(
+                    image(20, image_id, 1, GraphicFormat::Rgb, &[255; 12]),
+                    image_id,
+                    0,
+                    Rect {
+                        x: u16::try_from(image_id % 80).unwrap(),
+                        y: u16::try_from(image_id / 80).unwrap(),
+                        width: 1,
+                        height: 1,
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        let survivors = initial[..SURVIVOR_COUNT as usize].to_vec();
+        let mut state = GraphicsState::default();
+        state.frame_batches(&initial);
+        state.reset_operation_counts();
+
+        state.frame_batches(&survivors);
+
+        assert_eq!(
+            state.operation_counts.stale_image_retain_passes, 1,
+            "stale-image cleanup repeated a retain pass: {:?}",
+            state.operation_counts
+        );
+        assert!(
+            state.operation_counts.stale_image_retain_visits <= SURVIVOR_COUNT as usize,
+            "stale-image cleanup rescanned survivors: {:?}",
+            state.operation_counts
+        );
+    }
+
+    #[test]
+    fn equal_z_outer_ids_follow_inner_image_ids_instead_of_position_or_input_order() {
+        let lower = placement(
+            image(21, 7, 1, GraphicFormat::Rgb, &[7; 12]),
+            1,
+            0,
+            Rect { x: 40, y: 20, width: 1, height: 1 },
+        );
+        let higher = placement(
+            image(21, 90, 1, GraphicFormat::Rgb, &[90; 12]),
+            1,
+            0,
+            Rect { x: 0, y: 0, width: 1, height: 1 },
+        );
+        let lower_key = lower.image.key;
+        let higher_key = higher.image.key;
+        let mut state = GraphicsState::default();
+
+        state.frame_batches(&[higher, lower]);
+
+        assert!(
+            state.image_ids[&lower_key] < state.image_ids[&higher_key],
+            "equal-z outer IDs must preserve the authoritative inner image-ID order: {:?}",
+            state.image_ids
+        );
     }
 
     #[test]
