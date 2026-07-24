@@ -2880,6 +2880,32 @@ mod unix {
         }
 
         #[test]
+        fn snapshot_payload_round_trip_preserves_kitty_image_alias_section() {
+            let snapshot = HostSnapshot {
+                cols: 80,
+                rows: 24,
+                replay: b"theme-portable replay".to_vec(),
+                sequence_boundary: 0,
+                colors: TerminalColorOverrides::default(),
+                pid: Some(42),
+                command: vec!["/bin/cat".into()],
+                cwd: Some("/tmp".into()),
+            };
+            let mut payload = encode_snapshot(&snapshot).unwrap();
+            payload.extend_from_slice(&1u16.to_le_bytes());
+            payload.extend_from_slice(&41u32.to_le_bytes());
+            payload.extend_from_slice(&77u32.to_le_bytes());
+
+            let decoded =
+                decode_snapshot(&payload).expect("snapshot decoder must retain Kitty aliases");
+            assert_eq!(
+                encode_snapshot(&decoded).unwrap(),
+                payload,
+                "snapshot encode/decode dropped Kitty image-number aliases"
+            );
+        }
+
+        #[test]
         fn process_nonce_proves_stale_record_even_if_pid_is_live_and_reused() {
             let (record_path, record, lease) = record_fixture("liveness");
             assert_eq!(

@@ -3566,6 +3566,43 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn hosted_stager_excludes_resize_framing_and_aliases_from_vt_replay() {
+        let replay = b"\x1b[2Jhost replay";
+        let mut payload = Vec::from([101, 0, 37, 0]);
+        payload.extend_from_slice(&(replay.len() as u32).to_le_bytes());
+        payload.extend_from_slice(replay);
+        payload.extend_from_slice(&1u16.to_le_bytes());
+        payload.extend_from_slice(&41u32.to_le_bytes());
+        payload.extend_from_slice(&77u32.to_le_bytes());
+
+        let mut stager = HostedFrameStager::new(8);
+        let mut resize = Frame::new(MessageKind::Resized, payload);
+        resize.flags = FLAG_COLORS_FOLLOW;
+        resize.sequence = 9;
+        assert!(stager.push(resize).unwrap().is_none());
+
+        let colors = TerminalColorOverrides {
+            cursor_visual: Some((CursorShape::Block, true)),
+            ..Default::default()
+        };
+        let mut colors = Frame::new(
+            MessageKind::Colors,
+            crate::terminal_host_runtime::encode_terminal_color_overrides(&colors),
+        );
+        colors.sequence = 10;
+        match stager.push(colors).unwrap().unwrap() {
+            HostedTransition::ResizedWithColors { replay: received, .. } => {
+                assert_eq!(
+                    received, replay,
+                    "resize length and alias metadata leaked into VT replay bytes"
+                );
+            }
+            other => panic!("unexpected staged transition: {other:?}"),
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn hosted_stager_fails_closed_on_invalid_flags_and_pairing() {
         let mut stager = HostedFrameStager::new(0);
         let mut resized = Frame::new(MessageKind::Resized, vec![80, 0, 24, 0]);
