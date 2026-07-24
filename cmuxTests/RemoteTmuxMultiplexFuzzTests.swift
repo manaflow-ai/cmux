@@ -89,7 +89,19 @@ struct RemoteTmuxMultiplexFuzzTests {
                     + "login tab per session for a single parked stream"),
         ]
 
-        let members = Mirror(reflecting: RemoteTmuxSessionObservers()).children
+        let members = Mirror(reflecting: RemoteTmuxSessionObservers(
+            onPaneOutput: nil,
+            onPaneSeed: nil,
+            onPaneCwd: nil,
+            onPaneReflow: nil,
+            onActivePaneChanged: nil,
+            onSessionChanged: nil,
+            onTopologyChanged: nil,
+            onReconnectReady: nil,
+            onExit: nil,
+            onConnectionStateChanged: nil,
+            onAuthRequired: nil
+        )).children
             .compactMap(\.label)
         #expect(!members.isEmpty, "reflection must see the bundle's members")
         let undecided = Set(members).subtracting(decided.keys)
@@ -567,7 +579,17 @@ private final class MultiplexFuzzHarness {
             let id = ObjectIdentifier(channel)
             readyPerChannel[id] = 0
             let token = channel.addObserver(RemoteTmuxSessionObservers(
-                onReconnectReady: { readyPerChannel[id, default: 0] += 1 }
+                onPaneOutput: nil,
+                onPaneSeed: nil,
+                onPaneCwd: nil,
+                onPaneReflow: nil,
+                onActivePaneChanged: nil,
+                onSessionChanged: nil,
+                onTopologyChanged: nil,
+                onReconnectReady: { readyPerChannel[id, default: 0] += 1 },
+                onExit: nil,
+                onConnectionStateChanged: nil,
+                onAuthRequired: nil
             ))
             tokens.append((channel, token))
         }
@@ -603,7 +625,17 @@ private final class MultiplexFuzzHarness {
             let id = ObjectIdentifier(channel)
             seenBy[id] = []
             let token = channel.addObserver(RemoteTmuxSessionObservers(
-                onPaneSeed: { pane, _ in seenBy[id, default: []].append(pane) }
+                onPaneOutput: nil,
+                onPaneSeed: { pane, _ in seenBy[id, default: []].append(pane) },
+                onPaneCwd: nil,
+                onPaneReflow: nil,
+                onActivePaneChanged: nil,
+                onSessionChanged: nil,
+                onTopologyChanged: nil,
+                onReconnectReady: nil,
+                onExit: nil,
+                onConnectionStateChanged: nil,
+                onAuthRequired: nil
             ))
             tokens.append((channel, token))
         }
@@ -642,7 +674,7 @@ private final class MultiplexFuzzHarness {
     private func endViewWhileAwaitingCredentials(on host: FuzzHostModel) throws {
         let scratch = RemoteTmuxHost(destination: "user@fuzz-authscratch-\(step)")
         let key = scratch.connectionHash
-        RemoteTmuxController.hostsAwaitingCredentials.remove(key)
+        RemoteTmuxController.hostAuth.retire(scratch)
         controller.multiplexedViewsByHost[key] = RemoteTmuxViewConnection(
             host: scratch, ownerId: "fuzz-authscratch")
 
@@ -666,7 +698,7 @@ private final class MultiplexFuzzHarness {
                 != .authenticationRequired(scratch.destination),
             "\(ctx): a host that connected is no longer waiting for a login"
         )
-        RemoteTmuxController.hostsAwaitingCredentials.remove(key)
+        RemoteTmuxController.hostAuth.retire(scratch)
     }
 
     /// Every channel this host currently has a live mirror for.
