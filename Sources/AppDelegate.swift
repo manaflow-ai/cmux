@@ -13276,17 +13276,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        if matchCachedGlobalSearchShortcut(event: event) {
-            toggleGlobalSearchPalette()
-            return true
-        }
-
         let globalSearchAction = KeyboardShortcutSettings.Action.globalSearch
         let globalSearchShortcut = KeyboardShortcutSettingsObserver.shared.globalSearchShortcut
-        if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
-           globalSearchShortcut.hasChord,
-           matchShortcutStroke(event: event, stroke: globalSearchShortcut.firstStroke),
-           shortcutWhenClauseAllows(action: globalSearchAction, event: event) {
+        let matchesGlobalSearchShortcut = matchCachedGlobalSearchShortcut(event: event)
+        let matchesGlobalSearchChordPrefix =
+            activeConfiguredShortcutChordPrefixForCurrentEvent == nil
+            && globalSearchShortcut.hasChord
+            && matchShortcutStroke(event: event, stroke: globalSearchShortcut.firstStroke)
+            && shortcutWhenClauseAllows(action: globalSearchAction, event: event)
+        if matchesGlobalSearchShortcut || matchesGlobalSearchChordPrefix {
+            // An active chord owns its second stroke. Otherwise, preserve the
+            // focused-input gates that all ordinary application shortcuts use.
+            if activeConfiguredShortcutChordPrefixForCurrentEvent == nil {
+                if prepareControlDForTerminalRoutingIfNeeded(isControlD) {
+                    return false
+                }
+                if shouldRouteBrowserDocumentEditingCommandEquivalentThroughWebContentFirst(event),
+                   shortcutEventFirstResponderOwnsBrowserWebView(event) {
+                    return false
+                }
+            }
+            if matchesGlobalSearchShortcut {
+                toggleGlobalSearchPalette()
+                return true
+            }
             pendingConfiguredShortcutChord = PendingConfiguredShortcutChord(
                 firstStroke: globalSearchShortcut.firstStroke,
                 windowNumber: configuredShortcutChordWindowNumber(for: event)
@@ -13372,22 +13385,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutWindow ?? shortcutRoutingKeyWindow); return performFindShortcutInActiveMainWindow(preferredWindow: shortcutWindow)
         }
 
-        // Keep keyboard routing deterministic after split close/reparent transitions:
-        // before processing shortcuts, converge first responder with the focused terminal panel.
-        if isControlD {
-#if DEBUG
-            let selected = tabManager?.selectedTabId?.uuidString.prefix(5) ?? "nil"
-            let focused = tabManager?.selectedWorkspace?.focusedPanelId?.uuidString.prefix(5) ?? "nil"
-            let frType = shortcutRoutingKeyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-            cmuxDebugLog("shortcut.ctrlD stage=preReconcile selected=\(selected) focused=\(focused) fr=\(frType)")
-#endif
-            tabManager?.reconcileFocusedPanelFromFirstResponderForKeyboard()
-            #if DEBUG
-            let frAfterType = shortcutRoutingKeyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-            cmuxDebugLog("shortcut.ctrlD stage=postReconcile fr=\(frAfterType)")
-            writeChildExitKeyboardProbe([:], increments: ["probeAppShortcutCtrlDPassedCount": 1])
-            #endif
-            // Ctrl+D belongs to the focused terminal surface; never treat it as an app shortcut.
+        if prepareControlDForTerminalRoutingIfNeeded(isControlD) {
             return false
         }
         // Chrome-like omnibar navigation while holding Ctrl+N / Ctrl+P.
@@ -15216,6 +15214,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
         return shortcutWhenClauseAllows(action: action, event: event)
+    }
+
+    private func prepareControlDForTerminalRoutingIfNeeded(_ isControlD: Bool) -> Bool {
+        guard isControlD else { return false }
+        // Keep keyboard routing deterministic after split close/reparent
+        // transitions before the event continues to the focused terminal.
+#if DEBUG
+        let selected = tabManager?.selectedTabId?.uuidString.prefix(5) ?? "nil"
+        let focused = tabManager?.selectedWorkspace?.focusedPanelId?.uuidString.prefix(5) ?? "nil"
+        let firstResponderType = shortcutRoutingKeyWindow?.firstResponder
+            .map { String(describing: type(of: $0)) } ?? "nil"
+        cmuxDebugLog(
+            "shortcut.ctrlD stage=preReconcile selected=\(selected) " +
+                "focused=\(focused) fr=\(firstResponderType)"
+        )
+#endif
+        tabManager?.reconcileFocusedPanelFromFirstResponderForKeyboard()
+#if DEBUG
+        let reconciledFirstResponderType = shortcutRoutingKeyWindow?.firstResponder
+            .map { String(describing: type(of: $0)) } ?? "nil"
+        cmuxDebugLog("shortcut.ctrlD stage=postReconcile fr=\(reconciledFirstResponderType)")
+        writeChildExitKeyboardProbe([:], increments: ["probeAppShortcutCtrlDPassedCount": 1])
+#endif
+        return true
     }
 
     /// Whether `action`'s effective `when` clause (its `shortcuts.when` override,
