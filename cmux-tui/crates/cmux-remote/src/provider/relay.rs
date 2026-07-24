@@ -1423,6 +1423,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn durable_object_circuit_coalesces_concurrent_frames() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = Url::parse(&format!("ws://{}", listener.local_addr().unwrap())).unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+            let first =
+                socket.next().await.expect("circuit closed before its first batch").unwrap();
+            let second = tokio::time::timeout(Duration::from_millis(25), socket.next()).await;
+            (first, second)
+        });
+
+        let socket = connect_relay_socket(&endpoint, None, 1024 * 1024).await.unwrap();
+        let link = Arc::new(RelayCircuitLink::new("relay+do://relay.example", 64, socket));
+        futures_util::future::join_all((0_u8..10).map(|marker| {
+            let link = link.clone();
+            async move {
+                link.send(Bytes::from(vec![marker; 8])).await.unwrap();
+            }
+        }))
+        .await;
+
+        let (first, second) = server.await.unwrap();
+        assert!(matches!(first, Message::Binary(_)));
+        assert!(
+            second.is_err(),
+            "Durable Object relay emitted one WebSocket message per logical frame"
+        );
+    }
+
+    #[tokio::test]
     async fn established_relay_circuit_treats_retryable_error_as_carrier_loss() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = Url::parse(&format!("ws://{}", listener.local_addr().unwrap())).unwrap();
