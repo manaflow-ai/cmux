@@ -736,6 +736,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A9E02000000000000000000E /* CodexAppServerSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E01000000000000000000E /* CodexAppServerSession.swift */; };
 		A9E040000000000000000002 /* CodexAppServerSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E040000000000000000001 /* CodexAppServerSessionTests.swift */; };
 		C8711B000000000000000002 /* CodexCodeModeRolloutIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8711B000000000000000001 /* CodexCodeModeRolloutIdentityTests.swift */; };
+		D8628E010000000000000001 /* CodexPermissionBoundaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8628E020000000000000002 /* CodexPermissionBoundaryTests.swift */; };
 		D8628D1B000000000000001B /* CodexPermissionEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8628D1A000000000000001A /* CodexPermissionEvent.swift */; };
 		D8628D1C000000000000001C /* CodexPermissionEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8628D1A000000000000001A /* CodexPermissionEvent.swift */; };
 		D8628D120000000000000012 /* CodexPermissionPhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8628D0A000000000000000A /* CodexPermissionPhase.swift */; };
@@ -3007,6 +3008,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A9E01000000000000000000E /* CodexAppServerSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CodexAppServerSession.swift; sourceTree = "<group>"; };
 		A9E040000000000000000001 /* CodexAppServerSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexAppServerSessionTests.swift; sourceTree = "<group>"; };
 		C8711B000000000000000001 /* CodexCodeModeRolloutIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexCodeModeRolloutIdentityTests.swift; sourceTree = "<group>"; };
+		D8628E020000000000000002 /* CodexPermissionBoundaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexPermissionBoundaryTests.swift; sourceTree = "<group>"; };
 		D8628D1A000000000000001A /* CodexPermissionEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexPermissionEvent.swift; sourceTree = "<group>"; };
 		D8628D0A000000000000000A /* CodexPermissionPhase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexPermissionPhase.swift; sourceTree = "<group>"; };
 		D8628D1D000000000000001D /* CodexPermissionRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexPermissionRequest.swift; sourceTree = "<group>"; };
@@ -6745,6 +6747,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A8628A040000000000000004 /* AgentStatusRuntimeGenerationTests.swift */,
 				A8628E020000000000000002 /* AgentStatusReconciliationRecoveryTests.swift */,
 				D8628D020000000000000002 /* CodexPermissionTransitionTests.swift */,
+				D8628E020000000000000002 /* CodexPermissionBoundaryTests.swift */,
 				850000000000000000000003 /* SessionIndexJSONLReaderTests.swift */,
 				850000000000000000000005 /* SessionIndexSnapshotLoaderTests.swift */,
 				850000000000000000000007 /* SessionIndexSyntheticCorpus.swift */,
@@ -9151,6 +9154,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				AAE06C3AEC68484DA33D42A1 /* CoalesceLatestPublisherDemandTests.swift in Sources */,
 				A9E040000000000000000002 /* CodexAppServerSessionTests.swift in Sources */,
 				C8711B000000000000000002 /* CodexCodeModeRolloutIdentityTests.swift in Sources */,
+				D8628E010000000000000001 /* CodexPermissionBoundaryTests.swift in Sources */,
 				D8628D1C000000000000001C /* CodexPermissionEvent.swift in Sources */,
 				D8628D130000000000000013 /* CodexPermissionPhase.swift in Sources */,
 				D8628D1F000000000000001F /* CodexPermissionRequest.swift in Sources */,
