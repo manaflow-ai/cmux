@@ -51,9 +51,27 @@ final class CmuxFeatureFlags {
 
     private static let overrideKeyPrefix = "cmux.flags.override."
 
-    // Order is load-bearing for the typed accessors below. A keyed lookup would
-    // repeat flag-key literals and violate the feature-flag lint's single
-    // evaluation-site rule.
+    // FLAG(key: sidebar-appkit-list-experiment, owner: lawrencecchen,
+    //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+    // Renders the workspace sidebar with the AppKit NSTableView list
+    // (virtualized rows, measured-once heights) instead of the SwiftUI
+    // LazyVStack. On by default after the remote rollout reached 100%.
+    static let appKitSidebarListFlag = CmuxFeatureFlagDefinition(
+        key: "sidebar-appkit-list-experiment",
+        title: String(
+            localized: "featureFlags.appKitSidebarList.title",
+            defaultValue: "Lawrence Sidebar"
+        ),
+        flagDescription: String(
+            localized: "featureFlags.appKitSidebarList.description",
+            defaultValue: "Renders the workspace sidebar with a native AppKit list and divider for smoother scrolling and resizing with many workspaces."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.appKitSidebarListDefault
+    )
+
+    // Order is load-bearing for the positional typed accessors below. Flags
+    // that need a stable public definition are declared independently and
+    // included here without repeating their key literal.
     static let allFlags: [CmuxFeatureFlagDefinition] = {
         [
             // FLAG(key: pro-upgrade-ui-enabled-release, owner: lawrencecchen,
@@ -153,23 +171,7 @@ final class CmuxFeatureFlags {
                 defaultWhenUnavailable: CmuxFeatureFlags.workspaceTodoControlsDefault
             ),
 
-            // FLAG(key: sidebar-appkit-list-experiment, owner: lawrencecchen,
-            //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
-            // Renders the workspace sidebar with the AppKit NSTableView list
-            // (virtualized rows, measured-once heights) instead of the SwiftUI
-            // LazyVStack. On by default after the remote rollout reached 100%.
-            CmuxFeatureFlagDefinition(
-                key: "sidebar-appkit-list-experiment",
-                title: String(
-                    localized: "featureFlags.appKitSidebarList.title",
-                    defaultValue: "Lawrence Sidebar"
-                ),
-                flagDescription: String(
-                    localized: "featureFlags.appKitSidebarList.description",
-                    defaultValue: "Renders the workspace sidebar with a native AppKit list and divider for smoother scrolling and resizing with many workspaces."
-                ),
-                defaultWhenUnavailable: CmuxFeatureFlags.appKitSidebarListDefault
-            ),
+            CmuxFeatureFlags.appKitSidebarListFlag,
         ]
     }()
 
@@ -198,7 +200,7 @@ final class CmuxFeatureFlags {
     }
 
     var isAppKitSidebarListEnabled: Bool {
-        effectiveValue(for: Self.allFlags[6])
+        effectiveValue(for: Self.appKitSidebarListFlag)
     }
 
     @ObservationIgnored

@@ -50,21 +50,32 @@ final class SidebarRowChecklistFieldBridge: NSObject, NSTextFieldDelegate {
     }
 
     func controlTextDidEndEditing(_ obj: Notification) {
-        guard !committed else { return }
-        committed = true
         let text = (obj.object as? NSTextField)?.stringValue ?? ""
-        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            onCancel()
-        } else {
-            onCommit(text)
-            if let onEndEditingCommit {
-                onEndEditingCommit()
-                // Add-field sessions persist across focus losses (the field
-                // stays armed, legacy parity) — re-open the latch so the
-                // NEXT focus/type/click-away commit is not silently dropped.
-                // Edit-field bridges never set onEndEditingCommit and stay
-                // latched (their session ends with the commit).
-                committed = false
+        deferredEndEditingAction(text: text)?()
+    }
+
+    /// Claims the field's pending focus-loss result synchronously, then
+    /// returns its model mutation for the caller to run after UI teardown.
+    func deferredEndEditingAction(text: String) -> (@MainActor () -> Void)? {
+        guard !committed else { return nil }
+        committed = true
+        let onCommit = self.onCommit
+        let onCancel = self.onCancel
+        let onEndEditingCommit = self.onEndEditingCommit
+        return { [weak self] in
+            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                onCancel()
+            } else {
+                onCommit(text)
+                if let onEndEditingCommit {
+                    onEndEditingCommit()
+                    // Add-field sessions persist across focus losses (the field
+                    // stays armed, legacy parity) — re-open the latch so the
+                    // NEXT focus/type/click-away commit is not silently dropped.
+                    // Edit-field bridges never set onEndEditingCommit and stay
+                    // latched (their session ends with the commit).
+                    self?.committed = false
+                }
             }
         }
     }
@@ -77,4 +88,3 @@ final class SidebarRowChecklistFieldBridge: NSObject, NSTextFieldDelegate {
         editor.enclosingScrollView?.drawsBackground = false
     }
 }
-

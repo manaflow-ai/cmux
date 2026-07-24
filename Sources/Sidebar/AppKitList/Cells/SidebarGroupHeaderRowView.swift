@@ -94,8 +94,24 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        suspendPresentation()
         model = nil
         hintPill.resetForReuse()
+    }
+
+    func suspendPresentation() {
+        actions = nil
+        contextMenuDidOpen = nil
+        contextMenuDidClose = nil
+        contextMenuVisible = false
+    }
+
+    func configurePresentation(model: SidebarGroupHeaderRowModel) {
+        suspendPresentation()
+        guard self.model != model else { return }
+        self.model = model
+        applyModel(model)
+        needsLayout = true
     }
 
     // MARK: Configure
@@ -107,13 +123,14 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         contextMenuDidOpen: @escaping () -> Void,
         contextMenuDidClose: @escaping () -> Void
     ) {
+        let requiresFullApply = actions == nil
         let previous = self.model
         self.actions = actions
         self.contextMenuDidOpen = contextMenuDidOpen
         self.contextMenuDidClose = contextMenuDidClose
         let hoverChanged = self.isPointerHovering != isPointerHovering
         self.isPointerHovering = isPointerHovering
-        guard previous != model || hoverChanged else { return }
+        guard requiresFullApply || previous != model || hoverChanged else { return }
         self.model = model
         applyModel(model)
         needsLayout = true
@@ -429,9 +446,23 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     }
 
     private func trackedMenu() -> NSMenu {
-        let menu = NSMenu()
+        let menu = SidebarRowTrackedMenu()
         menu.autoenablesItems = false
-        menu.delegate = self
+        // Keep the matching close callback alive if this row retires while
+        // AppKit is still tracking its menu.
+        let didOpen = contextMenuDidOpen
+        let didClose = contextMenuDidClose
+        menu.onOpen = { [weak self] in
+            self?.contextMenuVisible = true
+            self?.updatePlusVisibility()
+            didOpen?()
+        }
+        menu.onClose = { [weak self] in
+            self?.contextMenuVisible = false
+            self?.updatePlusVisibility()
+            didClose?()
+        }
+        menu.delegate = menu
         return menu
     }
 
@@ -530,20 +561,6 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             action: actions.onDelete
         ))
         return menu
-    }
-}
-
-extension SidebarGroupHeaderTableCellView: NSMenuDelegate {
-    func menuWillOpen(_ menu: NSMenu) {
-        contextMenuVisible = true
-        updatePlusVisibility()
-        contextMenuDidOpen?()
-    }
-
-    func menuDidClose(_ menu: NSMenu) {
-        contextMenuVisible = false
-        updatePlusVisibility()
-        contextMenuDidClose?()
     }
 }
 
