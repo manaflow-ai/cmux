@@ -759,12 +759,14 @@ fn run_attach(args: Args) -> anyhow::Result<()> {
     let remote = RemoteSession::connect(&socket_path)?;
     let surface_only = if let Some(reference) = args.surface.as_deref() {
         let tree = remote.refresh_tree()?;
-        let surface = tree.resolve_surface(reference).ok_or_else(|| {
-            anyhow::anyhow!("unknown terminal {reference:?}; use `cmux-tui ids` to list surfaces")
-        })?;
+        let messages = &localization::catalog().attach;
+        let surface = tree
+            .resolve_surface(reference)
+            .map_err(|_| anyhow::anyhow!(messages.ambiguous_terminal(reference)))?
+            .ok_or_else(|| anyhow::anyhow!(messages.unknown_terminal(reference)))?;
         let tab = tree.surface(surface).expect("resolved surface must remain in the snapshot");
         if tab.kind != SurfaceKind::Pty {
-            anyhow::bail!("surface {reference:?} is a browser, not a terminal");
+            anyhow::bail!(messages.browser_not_terminal(reference));
         }
         Some(surface)
     } else {

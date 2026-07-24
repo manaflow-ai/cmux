@@ -18,6 +18,9 @@ pub struct TreeView {
     pub active_workspace: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AmbiguousSurfaceReference;
+
 #[derive(Clone)]
 pub struct WorkspaceView {
     pub id: WorkspaceId,
@@ -118,7 +121,10 @@ impl TreeView {
 
     /// Resolve either the numeric protocol id or the short id shown by the
     /// TUI and CLI.
-    pub fn resolve_surface(&self, reference: &str) -> Option<SurfaceId> {
+    pub fn resolve_surface(
+        &self,
+        reference: &str,
+    ) -> Result<Option<SurfaceId>, AmbiguousSurfaceReference> {
         let tabs = || {
             self.workspaces
                 .iter()
@@ -126,10 +132,16 @@ impl TreeView {
                 .flat_map(|screen| screen.panes.iter())
                 .flat_map(|pane| pane.tabs.iter())
         };
-        tabs().find(|tab| tab.short_id == reference).map(|tab| tab.surface).or_else(|| {
-            let numeric = reference.parse::<SurfaceId>().ok()?;
-            tabs().find(|tab| tab.surface == numeric).map(|tab| tab.surface)
-        })
+        let short = tabs().find(|tab| tab.short_id == reference).map(|tab| tab.surface);
+        let numeric = reference
+            .parse::<SurfaceId>()
+            .ok()
+            .and_then(|numeric| tabs().find(|tab| tab.surface == numeric).map(|tab| tab.surface));
+        match (short, numeric) {
+            (Some(short), Some(numeric)) if short != numeric => Err(AmbiguousSurfaceReference),
+            (Some(surface), _) | (_, Some(surface)) => Ok(Some(surface)),
+            (None, None) => Ok(None),
+        }
     }
 
     /// Select the workspace, screen, pane, and tab containing a surface.
@@ -533,11 +545,39 @@ mod tests {
             }]
         }));
 
-        assert_eq!(tree.resolve_surface("bbb005"), Some(5));
-        assert_eq!(tree.resolve_surface("4"), Some(4));
+        assert_eq!(tree.resolve_surface("bbb005"), Ok(Some(5)));
+        assert_eq!(tree.resolve_surface("4"), Ok(Some(4)));
         assert!(tree.select_surface(5));
         assert_eq!(tree.active_surface(), Some(5));
         assert!(!tree.select_surface(99));
+    }
+
+    #[test]
+    fn numeric_surface_reference_fails_closed_when_it_is_also_another_short_id() {
+        let mut tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "active": true,
+                "screens": [{
+                    "id": 2,
+                    "active": true,
+                    "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "active_tab": 0,
+                        "tabs": [
+                            {"surface": 10, "short_id": "ten010"},
+                            {"surface": 36, "short_id": "000010"}
+                        ]
+                    }]
+                }]
+            }]
+        }));
+        tree.workspaces[0].screens[0].panes[0].tabs[1].short_id = "000010".to_string();
+
+        assert_eq!(tree.resolve_surface("000010"), Err(AmbiguousSurfaceReference));
+        assert_eq!(tree.resolve_surface("10"), Ok(Some(10)));
     }
 
     #[test]

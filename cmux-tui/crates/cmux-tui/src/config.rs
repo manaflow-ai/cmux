@@ -811,6 +811,21 @@ impl Default for Browser {
     }
 }
 
+/// A validated zero-based index for the ten directly selectable tabs and
+/// screens. Its private field prevents unregistered numbered actions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ActionIndex(u8);
+
+impl ActionIndex {
+    pub const fn new(value: u8) -> Option<Self> {
+        if value <= 9 { Some(Self(value)) } else { None }
+    }
+
+    pub const fn get(self) -> u8 {
+        self.0
+    }
+}
+
 /// Every prefix-key action, so bindings are configurable end to end.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Action {
@@ -820,7 +835,7 @@ pub enum Action {
     NewPaneSmart,
     NextTab,
     PrevTab,
-    SelectTab(u8),
+    SelectTab(ActionIndex),
     SplitRight,
     SplitDown,
     CloseTab,
@@ -831,7 +846,7 @@ pub enum Action {
     CloseScreen,
     PrevScreen,
     NextScreen,
-    SelectScreen(u8),
+    SelectScreen(ActionIndex),
     NewScreen,
     PrevWorkspace,
     NextWorkspace,
@@ -885,7 +900,7 @@ macro_rules! action_definition {
 /// The canonical action catalog. Presentation surfaces derive their labels
 /// and ordering from this list instead of maintaining parallel registries.
 pub fn action_definitions() -> &'static [ActionDefinition] {
-    static DEFINITIONS: &[ActionDefinition] = &[
+    static DEFINITIONS: [ActionDefinition; 63] = [
         action_definition!(
             Action::SendPrefix,
             "send-prefix",
@@ -902,16 +917,66 @@ pub fn action_definitions() -> &'static [ActionDefinition] {
         action_definition!(Action::NewPaneSmart, "new-pane-smart", "New pane", "新しいペイン"),
         action_definition!(Action::NextTab, "next-tab", "Next tab", "次のタブ"),
         action_definition!(Action::PrevTab, "prev-tab", "Previous tab", "前のタブ"),
-        action_definition!(Action::SelectTab(0), "select-tab-0", "Select tab 0", "タブ 0 を選択"),
-        action_definition!(Action::SelectTab(1), "select-tab-1", "Select tab 1", "タブ 1 を選択"),
-        action_definition!(Action::SelectTab(2), "select-tab-2", "Select tab 2", "タブ 2 を選択"),
-        action_definition!(Action::SelectTab(3), "select-tab-3", "Select tab 3", "タブ 3 を選択"),
-        action_definition!(Action::SelectTab(4), "select-tab-4", "Select tab 4", "タブ 4 を選択"),
-        action_definition!(Action::SelectTab(5), "select-tab-5", "Select tab 5", "タブ 5 を選択"),
-        action_definition!(Action::SelectTab(6), "select-tab-6", "Select tab 6", "タブ 6 を選択"),
-        action_definition!(Action::SelectTab(7), "select-tab-7", "Select tab 7", "タブ 7 を選択"),
-        action_definition!(Action::SelectTab(8), "select-tab-8", "Select tab 8", "タブ 8 を選択"),
-        action_definition!(Action::SelectTab(9), "select-tab-9", "Select tab 9", "タブ 9 を選択"),
+        action_definition!(
+            Action::select_tab(0).unwrap(),
+            "select-tab-0",
+            "Select tab 0",
+            "タブ 0 を選択"
+        ),
+        action_definition!(
+            Action::select_tab(1).unwrap(),
+            "select-tab-1",
+            "Select tab 1",
+            "タブ 1 を選択"
+        ),
+        action_definition!(
+            Action::select_tab(2).unwrap(),
+            "select-tab-2",
+            "Select tab 2",
+            "タブ 2 を選択"
+        ),
+        action_definition!(
+            Action::select_tab(3).unwrap(),
+            "select-tab-3",
+            "Select tab 3",
+            "タブ 3 を選択"
+        ),
+        action_definition!(
+            Action::select_tab(4).unwrap(),
+            "select-tab-4",
+            "Select tab 4",
+            "タブ 4 を選択"
+        ),
+        action_definition!(
+            Action::select_tab(5).unwrap(),
+            "select-tab-5",
+            "Select tab 5",
+            "タブ 5 を選択"
+        ),
+        action_definition!(
+            Action::select_tab(6).unwrap(),
+            "select-tab-6",
+            "Select tab 6",
+            "タブ 6 を選択"
+        ),
+        action_definition!(
+            Action::select_tab(7).unwrap(),
+            "select-tab-7",
+            "Select tab 7",
+            "タブ 7 を選択"
+        ),
+        action_definition!(
+            Action::select_tab(8).unwrap(),
+            "select-tab-8",
+            "Select tab 8",
+            "タブ 8 を選択"
+        ),
+        action_definition!(
+            Action::select_tab(9).unwrap(),
+            "select-tab-9",
+            "Select tab 9",
+            "タブ 9 を選択"
+        ),
         action_definition!(Action::SplitRight, "split-right", "Split right", "右に分割"),
         action_definition!(Action::SplitDown, "split-down", "Split down", "下に分割"),
         action_definition!(Action::CloseTab, "close-tab", "Close tab", "タブを閉じる"),
@@ -938,61 +1003,61 @@ pub fn action_definitions() -> &'static [ActionDefinition] {
         action_definition!(Action::PrevScreen, "prev-screen", "Previous screen", "前のスクリーン"),
         action_definition!(Action::NextScreen, "next-screen", "Next screen", "次のスクリーン"),
         action_definition!(
-            Action::SelectScreen(0),
+            Action::select_screen(0).unwrap(),
             "select-screen-0",
             "Select screen 0",
             "スクリーン 0 を選択"
         ),
         action_definition!(
-            Action::SelectScreen(1),
+            Action::select_screen(1).unwrap(),
             "select-screen-1",
             "Select screen 1",
             "スクリーン 1 を選択"
         ),
         action_definition!(
-            Action::SelectScreen(2),
+            Action::select_screen(2).unwrap(),
             "select-screen-2",
             "Select screen 2",
             "スクリーン 2 を選択"
         ),
         action_definition!(
-            Action::SelectScreen(3),
+            Action::select_screen(3).unwrap(),
             "select-screen-3",
             "Select screen 3",
             "スクリーン 3 を選択"
         ),
         action_definition!(
-            Action::SelectScreen(4),
+            Action::select_screen(4).unwrap(),
             "select-screen-4",
             "Select screen 4",
             "スクリーン 4 を選択"
         ),
         action_definition!(
-            Action::SelectScreen(5),
+            Action::select_screen(5).unwrap(),
             "select-screen-5",
             "Select screen 5",
             "スクリーン 5 を選択"
         ),
         action_definition!(
-            Action::SelectScreen(6),
+            Action::select_screen(6).unwrap(),
             "select-screen-6",
             "Select screen 6",
             "スクリーン 6 を選択"
         ),
         action_definition!(
-            Action::SelectScreen(7),
+            Action::select_screen(7).unwrap(),
             "select-screen-7",
             "Select screen 7",
             "スクリーン 7 を選択"
         ),
         action_definition!(
-            Action::SelectScreen(8),
+            Action::select_screen(8).unwrap(),
             "select-screen-8",
             "Select screen 8",
             "スクリーン 8 を選択"
         ),
         action_definition!(
-            Action::SelectScreen(9),
+            Action::select_screen(9).unwrap(),
             "select-screen-9",
             "Select screen 9",
             "スクリーン 9 を選択"
@@ -1105,27 +1170,87 @@ pub fn action_definitions() -> &'static [ActionDefinition] {
         ),
         action_definition!(Action::Detach, "detach", "Detach", "デタッチ"),
     ];
-    DEFINITIONS
+    &DEFINITIONS
 }
 
 impl Action {
     pub fn definition(self) -> &'static ActionDefinition {
-        action_definitions()
-            .iter()
-            .find(|definition| definition.action == self)
-            .expect("every executable action must be registered")
+        let index = match self {
+            Action::SendPrefix => 0,
+            Action::NewTab => 1,
+            Action::NewBrowserTab => 2,
+            Action::NewPaneSmart => 3,
+            Action::NextTab => 4,
+            Action::PrevTab => 5,
+            Action::SelectTab(index) => 6 + index.get() as usize,
+            Action::SplitRight => 16,
+            Action::SplitDown => 17,
+            Action::CloseTab => 18,
+            Action::ClosePane => 19,
+            Action::RenameTab => 20,
+            Action::RenameScreen => 21,
+            Action::RenameWorkspace => 22,
+            Action::CloseScreen => 23,
+            Action::PrevScreen => 24,
+            Action::NextScreen => 25,
+            Action::SelectScreen(index) => 26 + index.get() as usize,
+            Action::NewScreen => 36,
+            Action::PrevWorkspace => 37,
+            Action::NextWorkspace => 38,
+            Action::NewWorkspace => 39,
+            Action::CloseWorkspace => 40,
+            Action::ToggleSidebar => 41,
+            Action::ToggleSidebarCompact => 42,
+            Action::ToggleSidebarView => 43,
+            Action::FocusSidebar => 44,
+            Action::FocusLeft => 45,
+            Action::FocusRight => 46,
+            Action::FocusUp => 47,
+            Action::FocusDown => 48,
+            Action::FocusNextPane => 49,
+            Action::SwapPanePrev => 50,
+            Action::SwapPaneNext => 51,
+            Action::ZoomPane => 52,
+            Action::ResizeGrow => 53,
+            Action::ResizeShrink => 54,
+            Action::ScrollUp => 55,
+            Action::ScrollDown => 56,
+            Action::BrowserBack => 57,
+            Action::BrowserForward => 58,
+            Action::BrowserReload => 59,
+            Action::BrowserEditUrl => 60,
+            Action::ShowShortcuts => 61,
+            Action::Detach => 62,
+        };
+        let definition = &action_definitions()[index];
+        debug_assert_eq!(definition.action, self);
+        definition
+    }
+
+    pub const fn select_screen(number: u8) -> Option<Self> {
+        match ActionIndex::new(number) {
+            Some(index) => Some(Self::SelectScreen(index)),
+            None => None,
+        }
+    }
+
+    pub const fn select_tab(number: u8) -> Option<Self> {
+        match ActionIndex::new(number) {
+            Some(index) => Some(Self::SelectTab(index)),
+            None => None,
+        }
     }
 
     pub fn screen_index(&self) -> Option<usize> {
         match self {
-            Action::SelectScreen(number @ 0..=9) => Some(*number as usize),
+            Action::SelectScreen(number) => Some(number.get() as usize),
             _ => None,
         }
     }
 
     pub fn tab_index(&self) -> Option<usize> {
         match self {
-            Action::SelectTab(number @ 0..=9) => Some(*number as usize),
+            Action::SelectTab(number) => Some(number.get() as usize),
             _ => None,
         }
     }
@@ -1229,16 +1354,16 @@ impl Default for Keys {
                 alt(KeyCode::Char('['), Action::PrevScreen),
                 bind(KeyCode::Char('n'), Action::NextScreen),
                 alt(KeyCode::Char(']'), Action::NextScreen),
-                bind(KeyCode::Char('1'), Action::SelectScreen(1)),
-                bind(KeyCode::Char('2'), Action::SelectScreen(2)),
-                bind(KeyCode::Char('3'), Action::SelectScreen(3)),
-                bind(KeyCode::Char('4'), Action::SelectScreen(4)),
-                bind(KeyCode::Char('5'), Action::SelectScreen(5)),
-                bind(KeyCode::Char('6'), Action::SelectScreen(6)),
-                bind(KeyCode::Char('7'), Action::SelectScreen(7)),
-                bind(KeyCode::Char('8'), Action::SelectScreen(8)),
-                bind(KeyCode::Char('9'), Action::SelectScreen(9)),
-                bind(KeyCode::Char('0'), Action::SelectScreen(0)),
+                bind(KeyCode::Char('1'), Action::select_screen(1).unwrap()),
+                bind(KeyCode::Char('2'), Action::select_screen(2).unwrap()),
+                bind(KeyCode::Char('3'), Action::select_screen(3).unwrap()),
+                bind(KeyCode::Char('4'), Action::select_screen(4).unwrap()),
+                bind(KeyCode::Char('5'), Action::select_screen(5).unwrap()),
+                bind(KeyCode::Char('6'), Action::select_screen(6).unwrap()),
+                bind(KeyCode::Char('7'), Action::select_screen(7).unwrap()),
+                bind(KeyCode::Char('8'), Action::select_screen(8).unwrap()),
+                bind(KeyCode::Char('9'), Action::select_screen(9).unwrap()),
+                bind(KeyCode::Char('0'), Action::select_screen(0).unwrap()),
                 bind(KeyCode::Char('c'), Action::NewScreen),
                 bind(KeyCode::Char('('), Action::PrevWorkspace),
                 alt(KeyCode::Char('{'), Action::PrevWorkspace),
@@ -2672,9 +2797,9 @@ mod tests {
 
     #[test]
     fn tab_selection_actions_use_zero_based_indexes() {
-        assert_eq!(Action::SelectTab(0).tab_index(), Some(0));
-        assert_eq!(Action::SelectTab(9).tab_index(), Some(9));
-        assert_eq!(Action::SelectTab(10).tab_index(), None);
+        assert_eq!(Action::select_tab(0).unwrap().tab_index(), Some(0));
+        assert_eq!(Action::select_tab(9).unwrap().tab_index(), Some(9));
+        assert!(Action::select_tab(10).is_none());
     }
 
     #[test]
@@ -2794,7 +2919,7 @@ mod tests {
         assert_eq!(config.keys.action_for(&KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)), None);
         assert_eq!(
             config.keys.action_for(&KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
-            Some(Action::SelectTab(0))
+            Action::select_tab(0)
         );
         assert_eq!(
             config.keys.action_for(&KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE)),
@@ -3020,7 +3145,7 @@ mod tests {
     #[test]
     fn select_screen_action_names_round_trip_and_parse() {
         for number in 0..=9 {
-            let action = Action::SelectScreen(number);
+            let action = Action::select_screen(number).unwrap();
             let name = format!("select-screen-{number}");
             assert_eq!(action.definition().config_key, name);
             assert!(action_definitions().iter().any(|definition| definition.action == action));
@@ -3047,9 +3172,10 @@ mod tests {
             );
         }
 
-        assert_eq!(Action::SelectScreen(0).screen_index(), Some(0));
-        assert_eq!(Action::SelectScreen(1).screen_index(), Some(1));
-        assert_eq!(Action::SelectScreen(9).screen_index(), Some(9));
+        assert_eq!(Action::select_screen(0).unwrap().screen_index(), Some(0));
+        assert_eq!(Action::select_screen(1).unwrap().screen_index(), Some(1));
+        assert_eq!(Action::select_screen(9).unwrap().screen_index(), Some(9));
+        assert!(Action::select_screen(10).is_none());
     }
 
     #[test]
@@ -3121,6 +3247,7 @@ mod tests {
             assert!(keys.insert(definition.config_key), "duplicate key: {}", definition.config_key);
             assert!(!definition.label_en.is_empty());
             assert!(!definition.label_ja.is_empty());
+            assert_eq!(definition.action.definition(), definition);
         }
         for (_, action) in Keys::default().bindings {
             assert!(actions.contains(&action), "default binding is not registered: {action:?}");

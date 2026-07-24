@@ -45,7 +45,9 @@ impl ScrollbarStyle {
             if state == ScrollbarState::Idle { self.thumb_fg } else { self.thumb_active_fg };
         let style = base.fg(color);
         for row in thumb_y..thumb_y.saturating_add(thumb_height).min(track.height) {
-            buffer[(track.x, track.y + row)].set_symbol(glyph).set_style(style);
+            if let Some(cell) = buffer.cell_mut((track.x, track.y + row)) {
+                cell.set_symbol(glyph).set_style(style);
+            }
         }
     }
 }
@@ -148,5 +150,17 @@ mod tests {
         style.draw_thumb(&mut buffer, track, (2, 1), Style::default(), ScrollbarState::Expanded);
         assert_eq!(buffer[(0, 2)].symbol(), "▐");
         assert_eq!(buffer[(0, 2)].fg, chrome.scrollbar_thumb_active_fg);
+    }
+
+    #[test]
+    fn shared_style_clips_a_stale_track_to_the_current_buffer() {
+        let style = ScrollbarStyle::from_chrome(ChromeTheme::dark());
+        let mut buffer = Buffer::empty(ratatui::layout::Rect::new(0, 0, 2, 2));
+        let stale_track = Rect { x: 1, y: 1, width: 1, height: 4 };
+
+        style.draw_thumb(&mut buffer, stale_track, (0, 4), Style::default(), ScrollbarState::Idle);
+
+        assert_eq!(buffer[(1, 1)].symbol(), "▕");
+        assert_eq!(buffer[(0, 0)].symbol(), " ");
     }
 }

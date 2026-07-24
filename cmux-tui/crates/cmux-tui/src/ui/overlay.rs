@@ -287,7 +287,11 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
 
 pub fn draw_shortcut_help(app: &mut App, frame: &mut Frame) {
     let screen = frame.area();
-    if screen.width < 24 || screen.height < 7 || app.shortcut_help.is_none() {
+    if app.shortcut_help.is_none() {
+        return;
+    }
+    if screen.width < 24 || screen.height < 7 {
+        app.shortcut_help = None;
         return;
     }
     let catalog = catalog();

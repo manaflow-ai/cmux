@@ -40,6 +40,30 @@ pub(crate) struct ShortcutMessages {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub(crate) struct AttachMessages {
+    unknown_terminal_prefix: &'static str,
+    unknown_terminal_suffix: &'static str,
+    ambiguous_terminal_prefix: &'static str,
+    ambiguous_terminal_suffix: &'static str,
+    browser_terminal_prefix: &'static str,
+    browser_terminal_suffix: &'static str,
+}
+
+impl AttachMessages {
+    pub fn unknown_terminal(&self, reference: &str) -> String {
+        format!("{}{reference:?}{}", self.unknown_terminal_prefix, self.unknown_terminal_suffix)
+    }
+
+    pub fn ambiguous_terminal(&self, reference: &str) -> String {
+        format!("{}{reference:?}{}", self.ambiguous_terminal_prefix, self.ambiguous_terminal_suffix)
+    }
+
+    pub fn browser_not_terminal(&self, reference: &str) -> String {
+        format!("{}{reference:?}{}", self.browser_terminal_prefix, self.browser_terminal_suffix)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct SidebarMessages {
     pub machines: &'static str,
     pub workspaces: &'static str,
@@ -155,6 +179,7 @@ pub(crate) struct Catalog {
     pub foreign_viewport: ForeignViewportMessages,
     pub menu: MenuMessages,
     pub shortcuts: ShortcutMessages,
+    pub attach: AttachMessages,
     pub sidebar: SidebarMessages,
 }
 
@@ -188,6 +213,14 @@ static ENGLISH: Catalog = Catalog {
         title: "Keyboard shortcuts",
         close_button: "Esc close",
         footer: "↑/↓ or wheel scroll · Esc or ? close",
+    },
+    attach: AttachMessages {
+        unknown_terminal_prefix: "unknown terminal ",
+        unknown_terminal_suffix: "; use `cmux-tui ids` to list surfaces",
+        ambiguous_terminal_prefix: "ambiguous terminal reference ",
+        ambiguous_terminal_suffix: "; use an unambiguous id from `cmux-tui ids`",
+        browser_terminal_prefix: "surface ",
+        browser_terminal_suffix: " is a browser, not a terminal",
     },
     sidebar: SidebarMessages {
         machines: "machines",
@@ -283,6 +316,14 @@ static JAPANESE: Catalog = Catalog {
         title: "キーボードショートカット",
         close_button: "Esc 閉じる",
         footer: "↑/↓ またはホイールでスクロール · Esc または ? で閉じる",
+    },
+    attach: AttachMessages {
+        unknown_terminal_prefix: "ターミナル ",
+        unknown_terminal_suffix: " が見つかりません。`cmux-tui ids` でサーフェス一覧を確認してください",
+        ambiguous_terminal_prefix: "ターミナル参照 ",
+        ambiguous_terminal_suffix: " は曖昧です。`cmux-tui ids` に表示される一意の ID を使用してください",
+        browser_terminal_prefix: "サーフェス ",
+        browser_terminal_suffix: " はブラウザであり、ターミナルではありません",
     },
     sidebar: SidebarMessages {
         machines: "マシン",
@@ -388,6 +429,18 @@ mod tests {
         assert_eq!(JAPANESE.shortcuts.title, "キーボードショートカット");
         assert_eq!(ENGLISH.shortcuts.close_button, "Esc close");
         assert_eq!(JAPANESE.shortcuts.close_button, "Esc 閉じる");
+        assert_eq!(
+            ENGLISH.attach.unknown_terminal("missing"),
+            "unknown terminal \"missing\"; use `cmux-tui ids` to list surfaces"
+        );
+        assert_eq!(
+            JAPANESE.attach.ambiguous_terminal("000010"),
+            "ターミナル参照 \"000010\" は曖昧です。`cmux-tui ids` に表示される一意の ID を使用してください"
+        );
+        assert_eq!(
+            JAPANESE.attach.browser_not_terminal("browser"),
+            "サーフェス \"browser\" はブラウザであり、ターミナルではありません"
+        );
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_provider_disconnected,
             "マシンプロバイダーから切断されました。再接続しています"

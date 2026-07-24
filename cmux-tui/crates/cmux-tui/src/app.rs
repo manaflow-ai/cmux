@@ -128,6 +128,7 @@ pub enum AppEvent {
 struct SessionEventSender {
     tx: SyncSender<AppEvent>,
     generation: Option<u64>,
+    surface_filter: Option<SurfaceId>,
     stop: Arc<AtomicBool>,
 }
 
@@ -137,13 +138,45 @@ enum SessionTrySendError {
 }
 
 impl SessionEventSender {
-    fn scoped(tx: SyncSender<AppEvent>, generation: u64, stop: Arc<AtomicBool>) -> Self {
-        Self { tx, generation: Some(generation), stop }
+    fn scoped(
+        tx: SyncSender<AppEvent>,
+        generation: u64,
+        surface_filter: Option<SurfaceId>,
+        stop: Arc<AtomicBool>,
+    ) -> Self {
+        Self { tx, generation: Some(generation), surface_filter, stop }
     }
 
     #[cfg(test)]
     fn unscoped(tx: SyncSender<AppEvent>) -> Self {
-        Self { tx, generation: None, stop: Arc::new(AtomicBool::new(false)) }
+        Self { tx, generation: None, surface_filter: None, stop: Arc::new(AtomicBool::new(false)) }
+    }
+
+    #[cfg(test)]
+    fn filtered(tx: SyncSender<AppEvent>, surface: SurfaceId) -> Self {
+        Self {
+            tx,
+            generation: None,
+            surface_filter: Some(surface),
+            stop: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    fn accepts_mux_event(&self, event: &MuxEvent) -> bool {
+        let Some(filter) = self.surface_filter else { return true };
+        match event {
+            MuxEvent::SurfaceOutput(surface)
+            | MuxEvent::SurfaceExited(surface)
+            | MuxEvent::Bell(surface) => *surface == filter,
+            MuxEvent::SurfaceResized { surface, .. }
+            | MuxEvent::SurfaceResizeFailed { surface, .. }
+            | MuxEvent::TitleChanged { surface, .. }
+            | MuxEvent::ScrollChanged { surface, .. } => *surface == filter,
+            MuxEvent::Notification(notification) => {
+                notification.surface.is_none_or(|surface| surface == filter)
+            }
+            _ => true,
+        }
     }
 
     fn wrap(&self, event: AppEvent) -> AppEvent {
@@ -321,6 +354,9 @@ fn forward_mux_event(
     tx: &SessionEventSender,
     mux_titles: &MuxTitleIngress,
 ) -> ForwardMuxOutcome {
+    if !tx.accepts_mux_event(&event) {
+        return ForwardMuxOutcome::Continue;
+    }
     match event {
         MuxEvent::TitleChanged { surface, title } => {
             if !mux_titles.push(surface, title) {
@@ -347,8 +383,9 @@ fn start_ordered_session(
     operations: PtyInputSender,
     app_events: SyncSender<AppEvent>,
     generation: u64,
+    surface_filter: Option<SurfaceId>,
 ) -> anyhow::Result<(OrderedSession, SessionEventWorker, Arc<MuxTitleIngress>, Arc<AtomicU64>)> {
-    start_ordered_session_inner(inner, operations, app_events, generation, false)
+    start_ordered_session_inner(inner, operations, app_events, generation, surface_filter, false)
 }
 
 fn prepare_ordered_session(
@@ -356,8 +393,9 @@ fn prepare_ordered_session(
     operations: PtyInputSender,
     app_events: SyncSender<AppEvent>,
     generation: u64,
+    surface_filter: Option<SurfaceId>,
 ) -> anyhow::Result<(OrderedSession, SessionEventWorker, Arc<MuxTitleIngress>, Arc<AtomicU64>)> {
-    start_ordered_session_inner(inner, operations, app_events, generation, true)
+    start_ordered_session_inner(inner, operations, app_events, generation, surface_filter, true)
 }
 
 fn start_ordered_session_inner(
@@ -365,11 +403,12 @@ fn start_ordered_session_inner(
     operations: PtyInputSender,
     app_events: SyncSender<AppEvent>,
     generation: u64,
+    surface_filter: Option<SurfaceId>,
     paused: bool,
 ) -> anyhow::Result<(OrderedSession, SessionEventWorker, Arc<MuxTitleIngress>, Arc<AtomicU64>)> {
     let stop = Arc::new(AtomicBool::new(false));
     let start = Arc::new(AtomicBool::new(!paused));
-    let events = SessionEventSender::scoped(app_events, generation, stop.clone());
+    let events = SessionEventSender::scoped(app_events, generation, surface_filter, stop.clone());
     let session = OrderedSession::new_with_event_sender(inner, operations, events.clone());
     let mux_titles = Arc::new(MuxTitleIngress::default());
     let mux_recovery_generation = Arc::new(AtomicU64::new(0));
@@ -3507,6 +3546,7 @@ struct MachineSessionPreparation {
     default_colors: cmux_tui_core::DefaultColors,
     generation: u64,
     pty_input: PtyInputSender,
+    surface_filter: Option<SurfaceId>,
 }
 
 struct PreparedMachineSession {
@@ -3828,6 +3868,7 @@ fn prepare_machine_session(
         preparation.pty_input,
         app_events,
         preparation.generation,
+        preparation.surface_filter,
     )?;
     let tree = session.tree();
     Ok(PreparedMachineSession {
@@ -4030,7 +4071,13 @@ pub fn run_with_machine_updates(
     })?;
     let session_generation = 1;
     let (session, session_event_worker, mux_titles, mux_recovery_generation) =
-        start_ordered_session(session, pty_input.sender(), tx.clone(), session_generation)?;
+        start_ordered_session(
+            session,
+            pty_input.sender(),
+            tx.clone(),
+            session_generation,
+            surface_only,
+        )?;
     let stdout_lock = Arc::new(Mutex::new(()));
     let machine_action_worker = machine_controller
         .map(|controller| MachineActionWorker::spawn(controller, tx.clone()))
@@ -4509,6 +4556,7 @@ impl App {
             default_colors: self.default_colors,
             generation: self.session_generation.wrapping_add(1).max(1),
             pty_input: self.pty_input.sender(),
+            surface_filter: self.surface_only,
         };
         match worker.perform(request, preparation) {
             Ok(()) => self.machine_action_in_flight = true,
@@ -4926,6 +4974,9 @@ impl App {
     }
 
     fn apply_session_completion(&mut self, completion: SessionCompletion) {
+        if self.surface_only.is_some() {
+            return;
+        }
         match completion.action {
             SessionCompletionAction::SurfaceCreated { surface } => {
                 self.select_created_surface(surface);
@@ -10459,10 +10510,37 @@ impl App {
     }
 
     fn menu_item(&self, action: MenuAction) -> MenuItem {
-        keyboard_action_for_menu(action)
+        self.menu_action_matches_keyboard_target(action)
+            .then(|| keyboard_action_for_menu(action))
+            .flatten()
             .and_then(|bound| self.config.keys.shortcut_label(bound))
             .map(|shortcut| MenuItem::ActionWithShortcut { action, shortcut })
             .unwrap_or(MenuItem::Action(action))
+    }
+
+    fn menu_action_matches_keyboard_target(&self, action: MenuAction) -> bool {
+        match action {
+            MenuAction::RenameWorkspace(workspace) | MenuAction::CloseWorkspace(workspace) => {
+                self.tree.active_workspace().is_some_and(|active| active.id == workspace)
+            }
+            MenuAction::RenameScreen(screen) | MenuAction::CloseScreen(screen) => {
+                self.tree.active_screen().is_some_and(|active| active.id == screen)
+            }
+            MenuAction::BrowserBack(pane)
+            | MenuAction::BrowserForward(pane)
+            | MenuAction::BrowserReload(pane)
+            | MenuAction::BrowserEditUrl(pane)
+            | MenuAction::RenameTab(pane)
+            | MenuAction::NewPaneSmart(pane)
+            | MenuAction::NewTab(pane)
+            | MenuAction::NewBrowserTab(pane)
+            | MenuAction::SplitRight(pane)
+            | MenuAction::SplitDown(pane)
+            | MenuAction::CloseTab(pane)
+            | MenuAction::ClosePane(pane)
+            | MenuAction::TogglePaneZoom { pane, .. } => self.active_pane() == Some(pane),
+            _ => true,
+        }
     }
 
     fn menu_group(&self, actions: impl IntoIterator<Item = MenuAction>) -> Vec<MenuItem> {
@@ -11208,6 +11286,66 @@ mod tests {
         }));
         app.activate_menu(MenuAction::ShowShortcuts).unwrap();
         assert!(app.shortcut_help.is_some());
+
+        let mut inactive_workspace = app.tree.workspaces[0].clone();
+        inactive_workspace.id = 14;
+        app.tree.workspaces.push(inactive_workspace);
+        app.hits.clear();
+        app.hits.push((
+            Rect { x: 2, y: 6, width: 10, height: 1 },
+            super::Hit::Workspace { index: 1, id: 14 },
+        ));
+        app.open_context_menu(3, 6);
+        let items = &app.menu.as_ref().unwrap().levels[0].items;
+        assert_eq!(
+            items
+                .iter()
+                .find(|item| item.action() == Some(MenuAction::CloseWorkspace(14)))
+                .and_then(MenuItem::shortcut),
+            None
+        );
+
+        let mut inactive_screen = app.tree.active_screen().unwrap().clone();
+        inactive_screen.id = 13;
+        app.tree.workspaces[0].screens.push(inactive_screen);
+        app.hits.clear();
+        app.hits.push((
+            Rect { x: 30, y: 30, width: 10, height: 1 },
+            super::Hit::ScreenEntry { index: 1, id: 13 },
+        ));
+        app.open_context_menu(30, 30);
+        let items = &app.menu.as_ref().unwrap().levels[0].items;
+        assert_eq!(
+            items
+                .iter()
+                .find(|item| item.action() == Some(MenuAction::CloseScreen(13)))
+                .and_then(MenuItem::shortcut),
+            None
+        );
+
+        let mut inactive_pane = app.tree.active_screen().unwrap().panes[0].clone();
+        inactive_pane.id = 12;
+        inactive_pane.tabs[0].surface = 51;
+        app.tree.workspaces[0].screens[0].panes.push(inactive_pane);
+        app.pane_areas.push(PaneArea {
+            pane: 12,
+            surface: 51,
+            rect: Rect { x: 20, y: 25, width: 80, height: 10 },
+            bar: None,
+            omnibar: None,
+            content: Rect { x: 20, y: 25, width: 80, height: 10 },
+            track: None,
+        });
+        app.hits.clear();
+        app.open_context_menu(30, 26);
+        let items = &app.menu.as_ref().unwrap().levels[0].items;
+        assert_eq!(
+            items
+                .iter()
+                .find(|item| item.action() == Some(MenuAction::ClosePane(12)))
+                .and_then(MenuItem::shortcut),
+            None
+        );
     }
 
     #[test]
@@ -11303,6 +11441,18 @@ mod tests {
 
         app.shortcut_help.as_mut().unwrap().rect = Rect { x: 60, y: 10, width: 10, height: 10 };
         assert!(!app.browser_graphic_occluded(browser_rect));
+    }
+
+    #[test]
+    fn shortcut_help_closes_when_the_terminal_cannot_render_it() {
+        let mux = Mux::new("shortcut-help-small-terminal-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.shortcut_help = Some(ShortcutHelp::default());
+        let mut terminal = Terminal::new(TestBackend::new(23, 6)).unwrap();
+
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        assert!(app.shortcut_help.is_none());
     }
 
     #[test]
@@ -11496,6 +11646,25 @@ mod tests {
         assert_eq!(area.content, app.content_area);
         assert!(area.bar.is_none());
         assert!(area.track.is_none());
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn single_surface_status_overlays_the_terminal_without_a_status_bar() {
+        let (mux, surface) = test_mux("single-surface-status-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.surface_only = Some(surface.id);
+        app.status_message = Some("isolated attach error".to_string());
+        app.sync_layout((40, 8));
+
+        let mut terminal = Terminal::new(TestBackend::new(40, 8)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rendered = buffer_text(terminal.backend().buffer());
+
+        assert!(rendered.contains("isolated attach error"), "{rendered}");
+        assert!(!rendered.contains("screens"), "{rendered}");
+        assert_eq!(terminal.backend().buffer()[(0, 7)].fg, ratatui::style::Color::Red);
 
         mux.close_surface(surface.id).unwrap();
     }
@@ -13756,6 +13925,34 @@ mod tests {
     }
 
     #[test]
+    fn single_surface_mux_forwarder_drops_unrelated_output_and_titles() {
+        let (tx, rx) = std::sync::mpsc::sync_channel(4);
+        let tx = SessionEventSender::filtered(tx, 41);
+        let titles = MuxTitleIngress::default();
+
+        assert!(matches!(
+            forward_mux_event(
+                MuxEvent::TitleChanged { surface: 42, title: "other".into() },
+                &tx,
+                &titles,
+            ),
+            ForwardMuxOutcome::Continue
+        ));
+        assert!(matches!(
+            forward_mux_event(MuxEvent::SurfaceOutput(42), &tx, &titles),
+            ForwardMuxOutcome::Continue
+        ));
+        assert!(rx.try_recv().is_err());
+        assert!(titles.take_dirty().is_empty());
+
+        assert!(matches!(
+            forward_mux_event(MuxEvent::SurfaceOutput(41), &tx, &titles),
+            ForwardMuxOutcome::Continue
+        ));
+        assert!(matches!(rx.try_recv().unwrap(), AppEvent::Mux(MuxEvent::SurfaceOutput(41))));
+    }
+
+    #[test]
     fn title_wake_waits_for_app_capacity_without_triggering_recovery() {
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
         tx.send(AppEvent::Mux(MuxEvent::Bell(1))).unwrap();
@@ -14910,6 +15107,25 @@ mod tests {
         assert!(app.pending_session_completions.is_empty());
         assert_eq!(app.tree.active_surface(), Some(created_surface));
         assert_eq!(app.omnibar.as_ref().map(|state| state.surface), Some(created_surface));
+    }
+
+    #[test]
+    fn single_surface_client_ignores_creation_completion_selection() {
+        let mux = Mux::new("single-surface-completion-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let created_surface = 41;
+        let attached_surface = 42;
+        app.surface_only = Some(attached_surface);
+        app.tree = browser_completion_tree(created_surface, attached_surface);
+        app.pane_areas.push(browser_completion_area(attached_surface));
+
+        app.apply_session_completion(SessionCompletion {
+            mutation_generation: 4,
+            action: SessionCompletionAction::BrowserTabCreated { surface: created_surface },
+        });
+
+        assert_eq!(app.tree.active_surface(), Some(attached_surface));
+        assert!(app.omnibar.is_none());
     }
 
     #[test]
@@ -17164,6 +17380,7 @@ mod tests {
             default_colors: cmux_tui_core::DefaultColors::default(),
             generation: 2,
             pty_input: dispatcher.sender(),
+            surface_filter: None,
         }
     }
 
@@ -17403,6 +17620,7 @@ mod tests {
             pty_input.sender(),
             app.app_events.clone(),
             2,
+            None,
         )
         .unwrap();
         let tree = session.tree();
@@ -17541,7 +17759,8 @@ mod tests {
         let pty_input = PtyInputDispatcher::spawn(|_| {}).unwrap();
         let (events, _receiver) = std::sync::mpsc::sync_channel(4_096);
         let (_session, mut worker, _, _) =
-            start_ordered_session(Session::Local(mux), pty_input.sender(), events, 7).unwrap();
+            start_ordered_session(Session::Local(mux), pty_input.sender(), events, 7, None)
+                .unwrap();
 
         worker.stop_and_join();
 
@@ -17553,9 +17772,14 @@ mod tests {
         let mux = Mux::new("prepared-machine-session-events", SurfaceOptions::default());
         let pty_input = PtyInputDispatcher::spawn(|_| {}).unwrap();
         let (events, receiver) = std::sync::mpsc::sync_channel(4_096);
-        let (_session, mut worker, _, _) =
-            prepare_ordered_session(Session::Local(mux.clone()), pty_input.sender(), events, 7)
-                .unwrap();
+        let (_session, mut worker, _, _) = prepare_ordered_session(
+            Session::Local(mux.clone()),
+            pty_input.sender(),
+            events,
+            7,
+            None,
+        )
+        .unwrap();
 
         mux.new_workspace(None, None).unwrap();
         assert!(matches!(

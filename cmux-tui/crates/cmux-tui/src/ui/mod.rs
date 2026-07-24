@@ -35,6 +35,9 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     if area.height == 0 {
         return;
     }
+    if app.shortcut_help.is_some() && (area.width < 24 || area.height < 7) {
+        app.shortcut_help = None;
+    }
 
     app.hits.clear();
     if app.machine_sidebar_width > 0 {
@@ -43,7 +46,9 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     let sidebar_input_cursor = (app.sidebar_width > 0).then(|| sidebar::draw(app, frame)).flatten();
 
     let pane_cursors = pane::draw_all(app, frame);
-    if !app.is_surface_only() {
+    if app.is_surface_only() {
+        draw_surface_status(app, frame);
+    } else {
         draw_status_bar(app, frame);
     }
     overlay::draw_toast(app, frame);
@@ -61,6 +66,23 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     {
         frame.set_cursor_position(Position::new(x, y));
     }
+}
+
+/// Single-surface clients keep the full terminal grid and overlay transient
+/// notices on its last row using foreground styling only.
+fn draw_surface_status(app: &App, frame: &mut Frame) {
+    let Some(message) = app.status_message.as_deref() else { return };
+    let area = frame.area();
+    if area.width == 0 {
+        return;
+    }
+    frame.buffer_mut().set_stringn(
+        0,
+        area.height - 1,
+        message,
+        area.width as usize,
+        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+    );
 }
 
 /// Status bar: the active workspace's screens, one clickable segment per
