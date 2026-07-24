@@ -175,6 +175,9 @@ actor TestIrohConnection: CmxIrohConnection,
         let firstClose = closeCalls.isEmpty
         closeCalls.append((errorCode, reason))
         closeContinuation.yield((errorCode, reason))
+        if firstClose {
+            pathEventContinuation.finish()
+        }
         if firstClose, reportsClosureToWaiters {
             let waiters = closeWaiters
             closeWaiters.removeAll()

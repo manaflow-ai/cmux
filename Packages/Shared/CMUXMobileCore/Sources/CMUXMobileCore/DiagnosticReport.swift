@@ -256,12 +256,13 @@ public extension DiagnosticEvent {
         return c
     }
 
-    /// Redacted path class carried by ``DiagnosticEventCode/selectedPathChanged``.
+    /// Redacted path class carried by a selected-path or path-lifecycle event.
     var diagnosticPathKind: DiagnosticPathKind? {
-        guard code == .selectedPathChanged, let a else {
+        guard code == .selectedPathChanged || code == .transportPathEvent,
+              let rawValue = code == .transportPathEvent ? b : a else {
             return nil
         }
-        return DiagnosticPathKind(rawValue: a)
+        return DiagnosticPathKind(rawValue: rawValue)
     }
 
     /// Privacy-safe pool transition carried by
@@ -282,7 +283,10 @@ public extension DiagnosticEvent {
     /// Positive process-local session correlation ID. This value is not stable
     /// across app launches or devices.
     var diagnosticSessionID: Int? {
-        guard code == .transportSessionLifecycle || code == .sessionClosed,
+        guard code == .transportSessionLifecycle
+                || code == .sessionClosed
+                || code == .transportCloseAttribution
+                || code == .transportPathEvent,
               let c,
               c > 0 else { return nil }
         return c
@@ -344,6 +348,7 @@ public extension DiagnosticEventCode {
              .endpointFailed,
              .relayPolicyRefreshFailed,
              .sessionClosed,
+             .transportCloseAttribution,
              .routeUnavailable,
              .discoveryFailed,
              .admissionFailed,

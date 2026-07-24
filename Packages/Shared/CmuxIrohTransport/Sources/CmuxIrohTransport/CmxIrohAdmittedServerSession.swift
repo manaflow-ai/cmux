@@ -61,4 +61,14 @@ public struct CmxIrohAdmittedServerSession: Sendable {
             failure: failure
         )
     }
+
+    /// Returns the classified terminal cause for the shared QUIC connection.
+    public func closeAttribution() async -> CmxIrohConnectionCloseAttribution {
+        await session.closeAttribution()
+    }
+
+    /// Observes redacted lifecycle events for paths on the shared connection.
+    public func observedPathEvents() async -> AsyncStream<CmxIrohConnectionPathEvent> {
+        await session.observedPathEvents()
+    }
 }

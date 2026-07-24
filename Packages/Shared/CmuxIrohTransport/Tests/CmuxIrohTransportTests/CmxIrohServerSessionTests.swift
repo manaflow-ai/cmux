@@ -39,6 +39,10 @@ struct CmxIrohServerSessionTests {
             kind: .selected,
             pathKind: .direct
         ))
+        for _ in 0 ..< 1_000 {
+            if await log.processedCount() >= 1 { break }
+            await Task.yield()
+        }
         await connection.close(errorCode: 93, reason: "remote_peer_closed")
         recorder.record(await admitted.closeAttribution())
 
@@ -46,7 +50,7 @@ struct CmxIrohServerSessionTests {
             if await log.processedCount() >= 2 { break }
             await Task.yield()
         }
-        pathTask.cancel()
+        await pathTask.value
         let events = await log.snapshot().events
         #expect(events.map(\.code) == [
             .transportPathEvent,

@@ -228,6 +228,17 @@ extension MobileHostIrohRuntime {
                     b: Int(CmxTransportSessionPurpose.foregroundControl.rawValue),
                     c: diagnosticSessionID
                 ))
+                let connectionDiagnostics = CmxIrohConnectionDiagnosticRecorder(
+                    diagnosticLog: diagnosticLog,
+                    sessionID: diagnosticSessionID
+                )
+                let pathEvents = await session.observedPathEvents()
+                let pathEventTask = Task {
+                    for await event in pathEvents {
+                        guard !Task.isCancelled else { return }
+                        connectionDiagnostics.record(event)
+                    }
+                }
                 let eventWriter = MobileHostIrohServerEventWriter(
                     session: session
                 )
@@ -260,6 +271,8 @@ extension MobileHostIrohRuntime {
                 )
                 let observedExit = await connectionSupervisor.run()
                 let exit = await session.connectionExit(resolving: observedExit)
+                await pathEventTask.value
+                connectionDiagnostics.record(await session.closeAttribution())
                 diagnosticLog.record(DiagnosticEvent(
                     .transportSessionLifecycle,
                     a: exit.lifecycle.rawValue,

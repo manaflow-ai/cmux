@@ -1,10 +1,53 @@
 import CMUXMobileCore
+import IrohLib
 import Testing
 
 @testable import CmuxIrohTransport
 
 @Suite
 struct CmxIrohConnectionDiagnosticRecorderTests {
+    @Test
+    func mapsIrohPathEventsToRedactedKinds() {
+        let events = [
+            CmxIrohConnectionPathEvent(.opened(
+                id: "private",
+                remoteAddr: "192.168.1.10:443",
+                localAddr: "192.168.1.2:5000"
+            )),
+            CmxIrohConnectionPathEvent(.closed(
+                id: "direct",
+                remoteAddr: "8.8.8.8:443",
+                localAddr: "192.168.1.2:5001",
+                lastStats: PathStatsRecord(
+                    rttMs: 0,
+                    udpTxDatagrams: 0,
+                    udpTxBytes: 0,
+                    udpRxDatagrams: 0,
+                    udpRxBytes: 0,
+                    cwnd: 0,
+                    congestionEvents: 0,
+                    lostPackets: 0,
+                    lostBytes: 0,
+                    currentMtu: 0
+                )
+            )),
+            CmxIrohConnectionPathEvent(.selected(
+                id: "relay",
+                remoteAddr: "https://relay.example",
+                localAddr: "https://relay.example"
+            )),
+            CmxIrohConnectionPathEvent(.lagged(missed: 3)),
+        ]
+
+        #expect(events.map(\.kind) == [.opened, .closed, .selected, .lagged])
+        #expect(events.map(\.pathKind) == [
+            .privateNetwork,
+            .direct,
+            .relay,
+            .unknown,
+        ])
+    }
+
     @Test
     func mapsPathEventsAndClampsApplicationErrorCode() async {
         let log = DiagnosticLog(capacity: 8)
