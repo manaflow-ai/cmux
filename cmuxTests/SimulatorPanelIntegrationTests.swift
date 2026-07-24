@@ -617,6 +617,7 @@ struct SimulatorPanelIntegrationTests {
             return
         }
         #expect(payload["simulator_id"] == .string(device.id))
+        #expect(payload["state"] == .string(SimulatorDeviceState.booted.rawValue))
         #expect(await client.discoveryCount == 1)
         #expect(await client.activationCount == 1)
     }
