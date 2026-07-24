@@ -79,6 +79,27 @@ import Testing
         #expect(renderedImage(in: view) === firstImage)
     }
 
+    @Test func reusableIconsShareRenderedImageAcrossViews() throws {
+        let appearance = try #require(NSAppearance(named: .aqua))
+        let request = CmuxResolvedIconRequest(
+            source: .systemSymbol(name: "folder.fill", accessibilityDescription: nil),
+            size: NSSize(width: 16, height: 16),
+            tintColor: .secondaryLabelColor,
+            symbolWeight: .regular
+        )
+        let firstView = CmuxResolvedIconImageView(frame: NSRect(x: 0, y: 0, width: 16, height: 16))
+        firstView.appearance = appearance
+        firstView.apply(request)
+        let firstImage = try #require(renderedImage(in: firstView))
+
+        let secondView = CmuxResolvedIconImageView(frame: NSRect(x: 0, y: 0, width: 16, height: 16))
+        secondView.appearance = appearance
+        secondView.apply(request)
+        let secondImage = try #require(renderedImage(in: secondView))
+
+        #expect(secondImage === firstImage)
+    }
+
     @Test func imageViewRerendersWhenImagePixelsChangeInPlace() throws {
         let view = CmuxResolvedIconImageView(frame: NSRect(x: 0, y: 0, width: 16, height: 16))
         view.appearance = NSAppearance(named: .aqua)

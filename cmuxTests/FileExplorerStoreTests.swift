@@ -114,6 +114,19 @@ private final class DeferredListFileExplorerProvider: FileExplorerProvider {
     }
 }
 
+private final class CountingFileExplorerOutlineView: NSOutlineView {
+    private(set) var reloadItemCallCount = 0
+
+    override func reloadItem(_ item: Any?, reloadChildren: Bool) {
+        reloadItemCallCount += 1
+        super.reloadItem(item, reloadChildren: reloadChildren)
+    }
+
+    func resetReloadItemCallCount() {
+        reloadItemCallCount = 0
+    }
+}
+
 // MARK: - Store Tests
 
 /// The store's `@Published` state is driven by unstructured `Task { ... }` calls that
@@ -164,6 +177,38 @@ struct FileExplorerStoreTests {
     }
 
     // MARK: - Basic loading
+
+    @Test
+    func unchangedTreeDoesNotReloadLoadedDirectories() {
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let directory = FileExplorerNode(name: "Sources", path: "/project/Sources", isDirectory: true)
+        directory.children = [
+            FileExplorerNode(name: "App.swift", path: "/project/Sources/App.swift", isDirectory: false),
+        ]
+        store.rootPath = "/project"
+        store.rootNodes = [directory]
+        store.expand(node: directory)
+
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files"))
+        outlineView.addTableColumn(column)
+        outlineView.outlineTableColumn = column
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+
+        coordinator.reloadIfNeeded()
+        outlineView.resetReloadItemCallCount()
+        coordinator.reloadIfNeeded()
+
+        #expect(outlineView.reloadItemCallCount == 0)
+    }
 
     @Test
     func testLoadRootPopulatesNodes() async throws {
