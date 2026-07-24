@@ -1717,28 +1717,47 @@ impl Mux {
         drop(sizing);
     }
 
+    #[cfg(test)]
     pub fn remove_size_client(&self, client: u64) {
+        self.remove_size_client_from_attached_surfaces(client, []);
+    }
+
+    pub(crate) fn remove_size_client_from_attached_surfaces(
+        &self,
+        client: u64,
+        attached_surfaces: impl IntoIterator<Item = SurfaceId>,
+    ) {
         let mut sizing = self.client_sizing.lock().unwrap();
         let attached_clients = self.control_clients.attached_client_ids_by_surface();
-        for viewers in sizing.surfaces.values_mut() {
-            viewers.remove(&client);
+        let mut affected = attached_surfaces.into_iter().collect::<HashSet<_>>();
+        for (surface, viewers) in &mut sizing.surfaces {
+            if viewers.remove(&client).is_some() {
+                affected.insert(*surface);
+            }
         }
         sizing.surfaces.retain(|_, viewers| !viewers.is_empty());
-        sizing.report_order.retain(|(_, reporter), _| *reporter != client);
-        for policy in sizing.policies.values_mut() {
-            if policy.exclusive_client == Some(client) {
+        sizing.report_order.retain(|(surface, reporter), _| {
+            if *reporter != client {
+                return true;
+            }
+            affected.insert(*surface);
+            false
+        });
+        for (surface, policy) in &mut sizing.policies {
+            let changed = if policy.exclusive_client == Some(client) {
                 policy.exclusive_client = None;
                 policy.excluded_clients.clear();
+                true
             } else {
-                policy.excluded_clients.remove(&client);
+                policy.excluded_clients.remove(&client)
+            };
+            if changed {
+                affected.insert(*surface);
             }
         }
         sizing.policies.retain(|_, policy| {
             policy.exclusive_client.is_some() || !policy.excluded_clients.is_empty()
         });
-        // A disconnected client may have been an unreported attachment that
-        // suppressed fallback on any one terminal, so reconcile each terminal.
-        let affected = sizing.surfaces.keys().copied().collect::<Vec<_>>();
         let effective = sizing.effective_sizes(affected, &attached_clients);
         for (surface, (cols, rows)) in effective {
             let _ = self.resize_surface(surface, cols, rows);
@@ -1780,21 +1799,15 @@ impl Mux {
         if !known {
             return None;
         }
-        let changed = if participating {
-            let Some(policy) = sizing.policies.get_mut(&surface) else {
-                return Some(false);
-            };
-            policy.excluded_clients.remove(&client)
-        } else {
-            sizing.policies.entry(surface).or_default().excluded_clients.insert(client)
-        };
-        if !changed {
+        if sizing.client_participates(surface, client) == participating {
             return Some(false);
         }
-        let policy = sizing
-            .policies
-            .get_mut(&surface)
-            .expect("changed sizing participation must have a surface policy");
+        let policy = sizing.policies.entry(surface).or_default();
+        if participating {
+            policy.excluded_clients.remove(&client);
+        } else {
+            policy.excluded_clients.insert(client);
+        }
         policy.exclusive_client = None;
         if policy.excluded_clients.is_empty() {
             sizing.policies.remove(&surface);

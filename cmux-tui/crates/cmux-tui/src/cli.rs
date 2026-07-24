@@ -833,11 +833,15 @@ fn build_set_client_sizing(flags: &FlagMap) -> Result<Value, UsageError> {
         "false" => false,
         _ => return Err(UsageError("--enabled must be true or false".to_string())),
     };
-    Ok(json!({
+    let mut value = json!({
         "surface": flags.required_u64("surface")?,
-        "client": flags.required_u64("client")?,
         "enabled": enabled,
-    }))
+    });
+    flags.insert_optional_u64(&mut value, "client")?;
+    if !enabled && value.get("client").is_none() {
+        return Err(UsageError("--client is required when disabling sizing".to_string()));
+    }
+    Ok(value)
 }
 
 fn build_surface(flags: &FlagMap) -> Result<Value, UsageError> {

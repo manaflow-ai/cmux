@@ -1741,7 +1741,7 @@ fn disconnect_client(mux: &Mux, client: u64, send_detached: bool) -> bool {
     let record = {
         let _lifecycle = mux.lock_client_sizing_lifecycle();
         let Some(record) = mux.control_clients.remove(client) else { return false };
-        mux.remove_size_client(client);
+        mux.remove_size_client_from_attached_surfaces(client, record.attached.keys().copied());
         record
     };
     if send_detached {
