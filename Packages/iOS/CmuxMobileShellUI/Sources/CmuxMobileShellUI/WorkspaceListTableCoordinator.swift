@@ -10,13 +10,13 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     UITableViewDragDelegate, UITableViewDropDelegate
 {
     private enum HeightKind: Hashable {
-        case workspaceUniform(changesChipIdentity: String?)
+        case workspaceUniform(changesChipIdentity: WorkspaceChangesChipHeightKey?)
         case workspaceWrapped(
             id: MobileWorkspacePreview.ID,
             name: String,
             isSelected: Bool,
             isIndented: Bool,
-            changesChipIdentity: String?
+            changesChipIdentity: WorkspaceChangesChipHeightKey?
         )
         case groupHeader
         case groupFooter
@@ -40,7 +40,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private var previousConfiguration: WorkspaceListTable?
     private var dataSource: UITableViewDiffableDataSource<Int, WorkspaceListTableItem>?
     private let sizingCell = UITableViewCell(style: .default, reuseIdentifier: nil)
-    private var heightCache: [HeightCacheKey: CGFloat] = [:]
+    private var heightCache = WorkspaceListRowHeightCache<HeightCacheKey>()
     private var configuredItemsByID: [String: WorkspaceListTableItem]
 
     init(configuration: WorkspaceListTable) {
@@ -120,6 +120,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             }
         }
         if structureChanged {
+            heightCache.retainRowIDs(Set(next.items.map(\.id)))
             configuredItemsByID = Dictionary(
                 next.items.map { ($0.id, $0) },
                 uniquingKeysWith: { first, _ in first }
@@ -254,7 +255,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         if case .groupFooter = item { return 16 }
 
         let key = heightCacheKey(for: item, tableView: tableView)
-        if let cached = heightCache[key] { return cached }
+        if let cached = heightCache.height(for: key) { return cached }
 
         configure(sizingCell, for: item)
         let width = max(tableView.bounds.width, 1)
@@ -269,7 +270,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         ).height
         let scale = tableView.window?.screen.scale ?? UIScreen.main.scale
         let exact = max(1, ceil(measured * scale) / scale)
-        heightCache[key] = exact
+        heightCache.insert(exact, for: key, rowID: item.id)
         return exact
     }
 
@@ -629,23 +630,22 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         )
     }
 
-    /// Separates clean, passive-chip, and interactive-chip measurements and
-    /// includes count text because it can wrap differently at narrow widths.
+    /// Separates chip modes and bounded digit-count widths that may wrap.
     private func workspaceChangesChipHeightIdentity(
         id: MobileWorkspacePreview.ID
-    ) -> String? {
+    ) -> WorkspaceChangesChipHeightKey? {
         guard configuration.workspaceChangesCapable,
               let workspace = configuration.workspacesByID[id],
               let chip = configuration.workspaceChangeChipsByWorkspaceID[
                   workspace.rpcWorkspaceID.rawValue
               ],
               chip.filesChanged > 0 else { return nil }
-        return [
-            String(chip.filesChanged),
-            String(chip.additions),
-            String(chip.deletions),
-            configuration.openWorkspaceChanges == nil ? "passive" : "interactive",
-        ].joined(separator: ":")
+        return WorkspaceChangesChipHeightKey(
+            filesChanged: chip.filesChanged,
+            additions: chip.additions,
+            deletions: chip.deletions,
+            isInteractive: configuration.openWorkspaceChanges != nil
+        )
     }
 
     /// Whether a workspace row's changes chip differs between configurations,

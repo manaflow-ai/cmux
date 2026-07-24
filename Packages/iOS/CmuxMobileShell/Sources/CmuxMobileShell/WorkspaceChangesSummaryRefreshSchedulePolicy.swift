@@ -45,6 +45,11 @@ struct WorkspaceChangesSummaryRefreshSchedulePolicy: Sendable {
         return drainPendingRequest()
     }
 
+    /// Removes deleted workspaces from the pending refresh scope.
+    mutating func retainWorkspaces(in workspaceSet: WorkspaceChangesSummaryWorkspaceSet) {
+        pendingScope = workspaceSet.scope(retaining: pendingScope)
+    }
+
     /// Clears all pending and in-flight bookkeeping at a connection boundary.
     mutating func reset() {
         isDebouncePending = false

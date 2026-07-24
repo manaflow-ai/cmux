@@ -87,4 +87,74 @@ import Testing
             "workspace-b": fetchedAt.addingTimeInterval(15),
         ])
     }
+
+    @Test func eachCompletedBatchReceivesItsOwnFreshReuseWindow() {
+        let policy = WorkspaceChangesSummaryFetchPolicy(reuseWindow: 15)
+        let firstCompletion = Date(timeIntervalSince1970: 1_010)
+        let secondCompletion = Date(timeIntervalSince1970: 1_025)
+
+        let firstExpiry = policy.freshUntilAfterSuccessfulFetch(
+            workspaceIDs: ["workspace-a"],
+            fetchedAt: firstCompletion
+        )
+        let secondExpiry = policy.freshUntilAfterSuccessfulFetch(
+            workspaceIDs: ["workspace-b"],
+            fetchedAt: secondCompletion
+        )
+
+        #expect(firstExpiry["workspace-a"] == firstCompletion.addingTimeInterval(15))
+        #expect(secondExpiry["workspace-b"] == secondCompletion.addingTimeInterval(15))
+    }
+
+    @Test func trailingRefreshDelayHasAPositiveFiveSecondFloor() {
+        let policy = WorkspaceChangesSummaryFetchPolicy(
+            minimumTrailingRefreshDelay: 5
+        )
+        let now = Date(timeIntervalSince1970: 1_000)
+
+        #expect(policy.trailingRefreshDelay(
+            deadline: now.addingTimeInterval(-20),
+            now: now
+        ) == 5)
+        #expect(policy.trailingRefreshDelay(deadline: now, now: now) == 5)
+        #expect(policy.trailingRefreshDelay(
+            deadline: now.addingTimeInterval(12),
+            now: now
+        ) == 12)
+    }
+
+    @Test func foregroundWorkspaceSetPrunesBatchesMapsAndChips() {
+        let workspaceSet = WorkspaceChangesSummaryWorkspaceSet(
+            workspaceIDs: ["workspace-kept"]
+        )
+        let candidates = workspaceSet.workspaceIDs(
+            retaining: ["workspace-removed", "workspace-kept"]
+        )
+        let fetchedAt = workspaceSet.values(retaining: [
+            "workspace-removed": Date(timeIntervalSince1970: 1),
+            "workspace-kept": Date(timeIntervalSince1970: 2),
+        ])
+        let chips = workspaceSet.values(retaining: [
+            "workspace-removed": MobileWorkspaceChangesChip(
+                filesChanged: 1,
+                additions: 2,
+                deletions: 3
+            ),
+            "workspace-kept": MobileWorkspaceChangesChip(
+                filesChanged: 4,
+                additions: 5,
+                deletions: 6
+            ),
+        ])
+        let batches = WorkspaceChangesSummaryFetchPolicy().batches(
+            workspaceIDs: candidates,
+            fetchedAtByWorkspaceID: [:],
+            now: Date(timeIntervalSince1970: 3),
+            force: false
+        )
+
+        #expect(batches == [["workspace-kept"]])
+        #expect(Set(fetchedAt.keys) == ["workspace-kept"])
+        #expect(Set(chips.keys) == ["workspace-kept"])
+    }
 }

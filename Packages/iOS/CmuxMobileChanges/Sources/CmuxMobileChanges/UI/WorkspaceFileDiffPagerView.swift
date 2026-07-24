@@ -5,8 +5,10 @@ public struct WorkspaceFileDiffPagerView: View {
     private let files: [ChangedFileItem]
     private let cachedPresentations: [String: FileDiffPresentation]
     private let actions: WorkspaceFileDiffPagerActions
+    private let mountPolicy = DiffPagerMountPolicy()
     @State private var selection: Int
     @State private var fontSize: Double
+    @State private var scrollRowIDsByPath: [String: String] = [:]
 
     /// Creates a file diff pager.
     /// - Parameters:
@@ -79,18 +81,34 @@ public struct WorkspaceFileDiffPagerView: View {
                 let fontSizeChanged: @MainActor @Sendable (Double) -> Void = {
                     fontSize = $0
                 }
-                FileDiffPageView(
-                    fileIndex: index,
-                    file: file,
-                    initialPresentation: cachedPresentations[file.path],
-                    fontSize: fontSize,
-                    onFontSizeChanged: fontSizeChanged,
-                    onPersistFontSize: actions.onPersistFontSize,
-                    onLoad: actions.onLoad,
-                    onLoadCurrentLines: actions.onLoadCurrentLines,
-                    onCopy: actions.onCopy,
-                    inlinePreview: index == selection ? actions.inlinePreview : nil
-                )
+                Group {
+                    if mountPolicy.shouldMount(
+                        pageIndex: index,
+                        selectedIndex: selection
+                    ) {
+                        let scrollRowIDChanged: @MainActor @Sendable (String?) -> Void = {
+                            guard let rowID = $0 else { return }
+                            scrollRowIDsByPath[file.path] = rowID
+                        }
+                        FileDiffPageView(
+                            fileIndex: index,
+                            file: file,
+                            initialPresentation: cachedPresentations[file.path],
+                            initialScrollRowID: scrollRowIDsByPath[file.path],
+                            fontSize: fontSize,
+                            onFontSizeChanged: fontSizeChanged,
+                            onScrollRowIDChanged: scrollRowIDChanged,
+                            onPersistFontSize: actions.onPersistFontSize,
+                            onLoad: actions.onLoad,
+                            onLoadCurrentLines: actions.onLoadCurrentLines,
+                            onCopy: actions.onCopy,
+                            inlinePreview: index == selection ? actions.inlinePreview : nil
+                        )
+                    } else {
+                        Color.clear
+                            .accessibilityHidden(true)
+                    }
+                }
                 .tag(index)
             }
         }

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 @testable import CmuxGit
@@ -110,6 +111,39 @@ import Testing
 
         #expect(result.standardOutputWasTruncated)
         #expect(clock.now - start < .seconds(4))
+    }
+
+    @Test func hardDeadlineReapsDescendantHoldingStandardOutputAfterLeaderExit() throws {
+        let pidFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-descendant-\(UUID().uuidString).pid")
+        defer { try? FileManager.default.removeItem(at: pidFile) }
+        let runner = SystemWorkspaceChangesGitRunner(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            boundedCommandWallTimeLimit: 0.1
+        )
+        let clock = ContinuousClock()
+        let start = clock.now
+
+        let result = try runner.run(
+            arguments: [
+                "-c",
+                "exec sleep 60 & echo $! > \(pidFile.path)",
+            ],
+            in: FileManager.default.temporaryDirectory,
+            maximumOutputByteCount: 1_024
+        )
+
+        let descendantPID = try #require(pid_t(
+            String(contentsOf: pidFile, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+        errno = 0
+        let probeResult = Darwin.kill(descendantPID, 0)
+
+        #expect(result.standardOutputWasTruncated)
+        #expect(clock.now - start < .seconds(4))
+        #expect(probeResult == -1)
+        #expect(errno == ESRCH)
     }
 
     @Test func aggregateUntrackedBudgetSkipsUnreadableRemainder() throws {

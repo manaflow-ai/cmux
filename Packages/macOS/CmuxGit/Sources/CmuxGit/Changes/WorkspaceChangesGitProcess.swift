@@ -3,10 +3,9 @@ import Foundation
 
 /// Owns one suspended, child-led Git process group and its hard deadline.
 ///
-/// This low-level POSIX bridge closes the output descriptor from deadline
-/// callbacks and reaps only after a bounded `SIGTERM`/`SIGKILL` escalation.
-// Safety: all mutable state shared by callbacks and the reader is protected by `stateLock`.
-final class WorkspaceChangesGitProcess: @unchecked Sendable {
+/// This low-level POSIX bridge polls a nonblocking output descriptor, drives
+/// group-wide `SIGTERM`/`SIGKILL` escalation, and reaps the process-group leader.
+final class WorkspaceChangesGitProcess {
     struct ReadResult: Sendable {
         let wasTruncated: Bool
     }
@@ -18,24 +17,15 @@ final class WorkspaceChangesGitProcess: @unchecked Sendable {
     }
 
     private static let terminationGrace: TimeInterval = 2
-    private static let exitMargin: TimeInterval = 1
+    private static let pollIntervalMilliseconds: Int32 = 50
 
     private let processIdentifier: pid_t
     private let hardDeadline: DispatchTime
-    // Synchronizes short process-source/timer callbacks with the blocking reader; actor hops cannot close the descriptor synchronously.
-    private let stateLock = NSLock()
-    private let exitSignal = DispatchSemaphore(value: 0)
-    private let escalationSignal = DispatchSemaphore(value: 0)
     private var readFileDescriptor: Int32
-    private var didExit = false
     private var didStartTermination = false
-    private var didEscalate = false
     private var timedOut = false
     private var terminationStartedAt: DispatchTime?
     private var reapedStatus: (exitCode: Int32, wasSignaled: Bool)?
-    private var deadlineTimer: (any DispatchSourceTimer)?
-    private var killTimer: (any DispatchSourceTimer)?
-    private var exitSource: (any DispatchSourceProcess)?
 
     private init(
         processIdentifier: pid_t,
@@ -45,14 +35,9 @@ final class WorkspaceChangesGitProcess: @unchecked Sendable {
         self.processIdentifier = processIdentifier
         self.readFileDescriptor = readFileDescriptor
         hardDeadline = .now() + wallTimeLimit
-        installExitSource()
-        installDeadlineTimer()
     }
 
     deinit {
-        deadlineTimer?.cancel()
-        killTimer?.cancel()
-        exitSource?.cancel()
         closeReadEnd()
     }
 
@@ -148,6 +133,16 @@ final class WorkspaceChangesGitProcess: @unchecked Sendable {
 
         Darwin.close(outputFDs[1])
         outputFDs[1] = -1
+        let descriptorFlags = Darwin.fcntl(outputFDs[0], F_GETFL)
+        guard descriptorFlags >= 0,
+              Darwin.fcntl(outputFDs[0], F_SETFL, descriptorFlags | O_NONBLOCK) == 0
+        else {
+            let savedErrno = errno
+            _ = Darwin.killpg(spawnedPID, SIGKILL)
+            var status: Int32 = 0
+            _ = Darwin.waitpid(spawnedPID, &status, 0)
+            throw POSIXError(.init(rawValue: savedErrno) ?? .EIO)
+        }
         let process = WorkspaceChangesGitProcess(
             processIdentifier: spawnedPID,
             readFileDescriptor: outputFDs[0],
@@ -167,14 +162,43 @@ final class WorkspaceChangesGitProcess: @unchecked Sendable {
         chunkByteCount: Int,
         consume: (Data) throws -> Void
     ) throws -> ReadResult {
-        let descriptor = stateLock.withLock { readFileDescriptor }
+        let descriptor = readFileDescriptor
         guard descriptor >= 0 else {
             return ReadResult(wasTruncated: true)
         }
         var consumedByteCount: Int64 = 0
         var wasTruncated = false
         var buffer = [UInt8](repeating: 0, count: chunkByteCount)
-        while !Task.isCancelled {
+        while true {
+            updateProcessGroupLifecycle()
+            if Task.isCancelled {
+                wasTruncated = true
+                beginTermination(isDeadline: false)
+            }
+
+            var descriptorState = pollfd(
+                fd: descriptor,
+                events: Int16(POLLIN | POLLHUP | POLLERR),
+                revents: 0
+            )
+            let pollResult = Darwin.poll(
+                &descriptorState,
+                1,
+                nextPollTimeoutMilliseconds()
+            )
+            if pollResult == 0 {
+                continue
+            }
+            if pollResult < 0 {
+                if errno == EINTR { continue }
+                wasTruncated = true
+                break
+            }
+            if descriptorState.revents & Int16(POLLNVAL) != 0 {
+                wasTruncated = true
+                break
+            }
+
             let remaining = maximumByteCount - consumedByteCount
             let probeLimit = remaining == Int64.max ? remaining : remaining + 1
             let requestedCount = remaining > 0
@@ -201,14 +225,12 @@ final class WorkspaceChangesGitProcess: @unchecked Sendable {
                 }
             } else if count == 0 {
                 break
-            } else if errno == EINTR {
+            } else if errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK {
                 continue
             } else {
+                wasTruncated = true
                 break
             }
-        }
-        if Task.isCancelled {
-            wasTruncated = true
         }
         closeReadEnd()
         return ReadResult(wasTruncated: wasTruncated)
@@ -219,165 +241,101 @@ final class WorkspaceChangesGitProcess: @unchecked Sendable {
     }
 
     func finish() -> Exit {
-        let initialTerminationStart = stateLock.withLock { terminationStartedAt }
-        let absoluteExitBound = (initialTerminationStart ?? hardDeadline)
-            + Self.terminationGrace
-            + Self.exitMargin
-        _ = exitSignal.wait(timeout: absoluteExitBound)
-
-        let terminationStart = stateLock.withLock { terminationStartedAt }
-        if let terminationStart {
-            _ = escalationSignal.wait(
-                timeout: terminationStart
-                    + Self.terminationGrace
-                    + Self.exitMargin
-            )
-        }
-
-        let exited = stateLock.withLock { didExit }
-        if !exited {
-            forceKill()
-            _ = exitSignal.wait(timeout: .now() + Self.exitMargin)
-        }
-        let status = stateLock.withLock { reapedStatus } ?? reapExitedLeader()
-        let outcome = stateLock.withLock {
-            (
-                timedOut: timedOut,
-                didStartTermination: didStartTermination
-            )
-        }
-        let sources = stateLock.withLock {
-            let sources = (deadlineTimer, killTimer, exitSource)
-            deadlineTimer = nil
-            killTimer = nil
-            exitSource = nil
-            return sources
-        }
-        sources.0?.cancel()
-        sources.1?.cancel()
-        sources.2?.cancel()
         closeReadEnd()
+        while true {
+            updateProcessGroupLifecycle()
+            if reapedStatus != nil, !isProcessGroupAlive() {
+                break
+            }
+            _ = Darwin.poll(nil, 0, nextPollTimeoutMilliseconds())
+        }
+        let status = reapedStatus ?? (128 + SIGKILL, true)
         return Exit(
             exitCode: status.exitCode,
-            timedOut: outcome.timedOut,
-            wasSignaled: status.wasSignaled || outcome.didStartTermination
+            timedOut: timedOut,
+            wasSignaled: status.wasSignaled || didStartTermination
         )
     }
 
-    private func installExitSource() {
-        let source = DispatchSource.makeProcessSource(
-            identifier: processIdentifier,
-            eventMask: .exit,
-            queue: .global(qos: .utility)
-        )
-        source.setEventHandler { [weak self] in
-            guard let self else { return }
-            stateLock.withLock {
-                didExit = true
-            }
-            let status = reapExitedLeader()
-            let processGroupIsGone = isProcessGroupGone()
-            let shouldEndEscalationWait = stateLock.withLock {
-                reapedStatus = status
-                guard processGroupIsGone, didStartTermination, !didEscalate else {
-                    return false
-                }
-                didEscalate = true
-                killTimer?.cancel()
-                killTimer = nil
-                return true
-            }
-            if shouldEndEscalationWait {
-                escalationSignal.signal()
-            }
-            exitSignal.signal()
+    private func updateProcessGroupLifecycle() {
+        reapLeaderIfExited()
+        let now = DispatchTime.now()
+        if now >= hardDeadline, isProcessGroupAlive() {
+            beginTermination(isDeadline: true)
         }
-        exitSource = source
-        source.resume()
-    }
-
-    private func installDeadlineTimer() {
-        // A one-shot source is required because a synchronous pipe read needs an out-of-band deadline.
-        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
-        timer.schedule(deadline: hardDeadline)
-        timer.setEventHandler { [weak self] in
-            self?.beginTermination(isDeadline: true)
-        }
-        deadlineTimer = timer
-        timer.resume()
+        guard let terminationStartedAt,
+              now >= terminationStartedAt + Self.terminationGrace,
+              isProcessGroupAlive() else { return }
+        _ = Darwin.killpg(processIdentifier, SIGKILL)
     }
 
     private func beginTermination(isDeadline: Bool) {
-        let shouldStart = stateLock.withLock { () -> Bool in
-            guard !didExit else { return false }
-            if isDeadline {
-                timedOut = true
-            }
-            guard !didStartTermination else { return false }
+        if isDeadline {
+            timedOut = true
+        }
+        guard isProcessGroupAlive() else { return }
+        if !didStartTermination {
             didStartTermination = true
             terminationStartedAt = .now()
-            return true
         }
-        closeReadEnd()
-        guard shouldStart else { return }
-        _ = Darwin.kill(-processIdentifier, SIGTERM)
-
-        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
-        timer.schedule(deadline: .now() + Self.terminationGrace)
-        timer.setEventHandler { [weak self] in
-            self?.forceKill()
-        }
-        stateLock.withLock {
-            killTimer = timer
-        }
-        timer.resume()
+        _ = Darwin.killpg(processIdentifier, SIGTERM)
     }
 
-    private func forceKill() {
-        let shouldSignal = stateLock.withLock { () -> Bool in
-            guard !didEscalate else { return false }
-            didEscalate = true
-            return true
-        }
-        guard shouldSignal else { return }
-        _ = Darwin.kill(-processIdentifier, SIGKILL)
-        escalationSignal.signal()
-    }
-
-    private func isProcessGroupGone() -> Bool {
-        guard Darwin.kill(-processIdentifier, 0) == -1 else { return false }
-        return errno == ESRCH
+    private func isProcessGroupAlive() -> Bool {
+        guard Darwin.killpg(processIdentifier, 0) == -1 else { return true }
+        return errno != ESRCH
     }
 
     private func closeReadEnd() {
-        let descriptor = stateLock.withLock { () -> Int32 in
-            let descriptor = readFileDescriptor
-            readFileDescriptor = -1
-            return descriptor
-        }
+        let descriptor = readFileDescriptor
+        readFileDescriptor = -1
         if descriptor >= 0 {
             Darwin.close(descriptor)
         }
     }
 
-    private func reapExitedLeader() -> (exitCode: Int32, wasSignaled: Bool) {
+    private func reapLeaderIfExited() {
+        guard reapedStatus == nil else { return }
         var status: Int32 = 0
-        let mayBlock = stateLock.withLock { didExit }
-        let options = mayBlock ? 0 : WNOHANG
         while true {
-            let result = Darwin.waitpid(processIdentifier, &status, options)
+            let result = Darwin.waitpid(processIdentifier, &status, WNOHANG)
             if result == processIdentifier {
-                let signal = status & 0x7f
-                if signal == 0 {
-                    return ((status >> 8) & 0xff, false)
-                }
-                return (128 + signal, true)
+                reapedStatus = Self.exitStatus(from: status)
+                return
             }
-            if result == -1, errno == EINTR {
-                continue
-            }
-            return (128 + SIGKILL, true)
+            if result == -1, errno == EINTR { continue }
+            return
         }
+    }
+
+    private func nextPollTimeoutMilliseconds() -> Int32 {
+        let now = DispatchTime.now()
+        let nextBoundary: DispatchTime
+        if let terminationStartedAt,
+           now < terminationStartedAt + Self.terminationGrace {
+            nextBoundary = terminationStartedAt + Self.terminationGrace
+        } else {
+            nextBoundary = hardDeadline
+        }
+        guard nextBoundary > now else {
+            return Self.pollIntervalMilliseconds
+        }
+        let remainingNanoseconds = nextBoundary.uptimeNanoseconds - now.uptimeNanoseconds
+        let remainingMilliseconds = max(
+            1,
+            Int32(min(remainingNanoseconds / 1_000_000, UInt64(Int32.max)))
+        )
+        return min(Self.pollIntervalMilliseconds, remainingMilliseconds)
+    }
+
+    private static func exitStatus(
+        from status: Int32
+    ) -> (exitCode: Int32, wasSignaled: Bool) {
+        let signal = status & 0x7f
+        if signal == 0 {
+            return ((status >> 8) & 0xff, false)
+        }
+        return (128 + signal, true)
     }
 
     private static func throwIfPOSIXError(_ result: Int32) throws {

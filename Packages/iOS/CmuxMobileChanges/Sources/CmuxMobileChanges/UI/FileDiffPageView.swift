@@ -7,12 +7,14 @@ public struct FileDiffPageView: View {
     let file: ChangedFileItem
     let fontSize: Double
     let onFontSizeChanged: @MainActor @Sendable (Double) -> Void
+    let onScrollRowIDChanged: @MainActor @Sendable (String?) -> Void
     let onPersistFontSize: @MainActor @Sendable (Double) -> Void
     let onLoad: @MainActor @Sendable (String, Bool, Int?) async throws -> FileDiffPresentation
     let onLoadCurrentLines: @MainActor @Sendable (String) async throws -> DiffExpansionCurrentFile
     let onCopy: @MainActor @Sendable (String) -> Void
     let inlinePreview: (@MainActor @Sendable (_ index: Int, _ revision: FileDiffPreviewRevision) -> AnyView)?
     @State var loadState: FileDiffLoadState = .loading
+    @State var scrollRowID: String?
     @State private var magnificationStart: Double?
     @State var previewRevision: FileDiffPreviewRevision = .current
     @State var expansionState = DiffExpansionState()
@@ -110,6 +112,11 @@ public struct FileDiffPageView: View {
                         )
                     }
                 }
+                .scrollTargetLayout()
+            }
+            .scrollPosition(id: $scrollRowID, anchor: .top)
+            .onChange(of: scrollRowID) {
+                onScrollRowIDChanged(scrollRowID)
             }
             .refreshable { await load(forceRefresh: true) }
             .simultaneousGesture(magnifyGesture)

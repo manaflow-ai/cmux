@@ -118,4 +118,23 @@ import Testing
         #expect(additionalPass == nil)
         #expect(!policy.isFetchInFlight)
     }
+
+    @Test func deletedWorkspaceIsRemovedFromPendingRefreshScope() throws {
+        var policy = WorkspaceChangesSummaryRefreshSchedulePolicy()
+        _ = policy.schedule(
+            scope: .workspaceDelta(["workspace-removed", "workspace-kept"]),
+            force: false
+        )
+
+        policy.retainWorkspaces(in: WorkspaceChangesSummaryWorkspaceSet(
+            workspaceIDs: ["workspace-kept"]
+        ))
+        let pendingRequest = policy.beginFetchAfterDebounce()
+        let request = try #require(pendingRequest)
+
+        #expect(
+            request.scope.workspaceIDs(fullSnapshotWorkspaceIDs: [])
+                == ["workspace-kept"]
+        )
+    }
 }

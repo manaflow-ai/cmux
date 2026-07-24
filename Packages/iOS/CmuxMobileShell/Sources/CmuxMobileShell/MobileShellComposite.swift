@@ -8147,6 +8147,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
         setForegroundWorkspaceState(
             workspaces: remoteWorkspaces, groups: groups, merge: mergeExistingWorkspaces)
+        reconcileWorkspaceChangesSummaryStateWithForeground()
         let changesSummaryWorkspaceIDs = changesSummaryRefreshScope.workspaceIDs(
             fullSnapshotWorkspaceIDs: response.workspaces.map(\.id)
         )

@@ -4,11 +4,18 @@ internal import Foundation
 struct WorkspaceChangesSummaryFetchPolicy: Sendable {
     let maximumBatchSize: Int
     let reuseWindow: TimeInterval
+    let minimumTrailingRefreshDelay: TimeInterval
 
-    init(maximumBatchSize: Int = 64, reuseWindow: TimeInterval = 15) {
+    init(
+        maximumBatchSize: Int = 64,
+        reuseWindow: TimeInterval = 15,
+        minimumTrailingRefreshDelay: TimeInterval = 5
+    ) {
         precondition(maximumBatchSize > 0)
+        precondition(minimumTrailingRefreshDelay > 0)
         self.maximumBatchSize = maximumBatchSize
         self.reuseWindow = reuseWindow
+        self.minimumTrailingRefreshDelay = minimumTrailingRefreshDelay
     }
 
     func batches(
@@ -68,5 +75,9 @@ struct WorkspaceChangesSummaryFetchPolicy: Sendable {
             guard !workspaceID.isEmpty else { return }
             expiries[workspaceID] = expiry
         }
+    }
+
+    func trailingRefreshDelay(deadline: Date, now: Date) -> TimeInterval {
+        max(minimumTrailingRefreshDelay, deadline.timeIntervalSince(now))
     }
 }

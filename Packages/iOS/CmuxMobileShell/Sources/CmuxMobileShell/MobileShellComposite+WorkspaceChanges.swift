@@ -57,9 +57,13 @@ extension MobileShellComposite {
             )
             return
         }
+        let foregroundWorkspaceSet = pruneWorkspaceChangesSummaryStateToForeground()
+        let retainedWorkspaceIDs = foregroundWorkspaceSet.workspaceIDs(
+            retaining: workspaceIDs
+        )
         let now = runtime?.now() ?? Date()
         let plan = workspaceChangesSummaryFetchPolicy.plan(
-            workspaceIDs: workspaceIDs,
+            workspaceIDs: retainedWorkspaceIDs,
             fetchedAtByWorkspaceID: workspaceChangesSummaryFetchedAtByWorkspaceID,
             now: now,
             force: force
@@ -90,9 +94,13 @@ extension MobileShellComposite {
                 let data = try await client.sendRequest(request)
                 let response = try MobileWorkspaceChangesSummariesResponse.decode(data)
                 guard remoteClient === client, connectionState == .connected else { return }
+                let batchFetchedAt = runtime?.now() ?? Date()
+                let currentWorkspaceSet = pruneWorkspaceChangesSummaryStateToForeground()
+                let retainedBatch = currentWorkspaceSet.workspaceIDs(retaining: batch)
 
                 var chips = workspaceChangeChipsByWorkspaceID
-                for summary in response.summaries where !summary.workspaceID.isEmpty {
+                for summary in response.summaries
+                    where currentWorkspaceSet.contains(summary.workspaceID) {
                     if summary.isRepository, summary.filesChanged > 0 {
                         chips[summary.workspaceID] = MobileWorkspaceChangesChip(
                             filesChanged: summary.filesChanged,
@@ -107,16 +115,16 @@ extension MobileShellComposite {
                 MobileDebugLog.anchormux(
                     "changes.summary ok requested=\(batch.count) summaries=\(response.summaries.count) chips=\(chips.count) sample=\(chips.keys.sorted().first.map { String($0.prefix(8)) } ?? "-") reqSample=\(batch.first.map { String($0.prefix(8)) } ?? "-")"
                 )
-                for workspaceID in batch {
-                    workspaceChangesSummaryFetchedAtByWorkspaceID[workspaceID] = now
+                for workspaceID in retainedBatch {
+                    workspaceChangesSummaryFetchedAtByWorkspaceID[workspaceID] = batchFetchedAt
                     workspaceChangesSummaryTrailingExpiryByWorkspaceID
                         .removeValue(forKey: workspaceID)
                 }
                 armWorkspaceChangesSummaryTrailingRefresh(
                     freshUntilByWorkspaceID: workspaceChangesSummaryFetchPolicy
                         .freshUntilAfterSuccessfulFetch(
-                            workspaceIDs: batch,
-                            fetchedAt: now
+                            workspaceIDs: retainedBatch,
+                            fetchedAt: batchFetchedAt
                         )
                 )
             } catch {
@@ -203,11 +211,14 @@ extension MobileShellComposite {
               remoteClient != nil else { return }
         let requestedScope: WorkspaceChangesSummaryRefreshScope
         if let explicitWorkspaceIDs {
-            guard explicitWorkspaceIDs.contains(where: { !$0.isEmpty }) else {
+            let retainedWorkspaceIDs = WorkspaceChangesSummaryWorkspaceSet(
+                workspaceIDs: foregroundWorkspaceChangesIDs
+            ).workspaceIDs(retaining: explicitWorkspaceIDs)
+            guard !retainedWorkspaceIDs.isEmpty else {
                 MobileDebugLog.anchormux("changes.schedule skip: no foreground workspace ids")
                 return
             }
-            requestedScope = .workspaceDelta(explicitWorkspaceIDs)
+            requestedScope = .workspaceDelta(retainedWorkspaceIDs)
         } else {
             guard !foregroundWorkspaceChangesIDs.isEmpty else {
                 MobileDebugLog.anchormux("changes.schedule skip: no foreground workspace ids")
@@ -243,24 +254,7 @@ extension MobileShellComposite {
         }
     }
 
-    func resetWorkspaceChangesState() {
-        workspaceChangesSummaryDebounceTask?.cancel()
-        workspaceChangesSummaryDebounceTask = nil
-        workspaceChangesSummaryDebounceTaskID = nil
-        workspaceChangesSummaryFetchTask?.cancel()
-        workspaceChangesSummaryFetchTask = nil
-        workspaceChangesSummaryFetchTaskID = nil
-        workspaceChangesSummaryTrailingTask?.cancel()
-        workspaceChangesSummaryTrailingTask = nil
-        workspaceChangesSummaryTrailingTaskID = nil
-        workspaceChangesSummaryTrailingDeadline = nil
-        workspaceChangesSummaryTrailingExpiryByWorkspaceID = [:]
-        workspaceChangesSummaryRefreshSchedulePolicy.reset()
-        workspaceChangesSummaryFetchedAtByWorkspaceID = [:]
-        setWorkspaceChangeChipsByWorkspaceID([:])
-    }
-
-    private var foregroundWorkspaceChangesIDs: [String] {
+    var foregroundWorkspaceChangesIDs: [String] {
         workspaces.compactMap { workspace in
             guard workspace.macDeviceID == nil || workspace.macDeviceID == foregroundMacDeviceID else {
                 return nil
@@ -328,7 +322,9 @@ extension MobileShellComposite {
     private func armWorkspaceChangesSummaryTrailingRefresh(
         freshUntilByWorkspaceID: [String: Date]
     ) {
-        for (workspaceID, expiry) in freshUntilByWorkspaceID {
+        let workspaceSet = pruneWorkspaceChangesSummaryStateToForeground()
+        for (workspaceID, expiry) in freshUntilByWorkspaceID
+            where workspaceSet.contains(workspaceID) {
             let existing = workspaceChangesSummaryTrailingExpiryByWorkspaceID[workspaceID]
             workspaceChangesSummaryTrailingExpiryByWorkspaceID[workspaceID] =
                 existing.map { min($0, expiry) } ?? expiry
@@ -336,7 +332,8 @@ extension MobileShellComposite {
         rescheduleWorkspaceChangesSummaryTrailingTask()
     }
 
-    private func rescheduleWorkspaceChangesSummaryTrailingTask() {
+    func rescheduleWorkspaceChangesSummaryTrailingTask() {
+        _ = pruneWorkspaceChangesSummaryStateToForeground()
         guard let deadline =
             workspaceChangesSummaryTrailingExpiryByWorkspaceID.values.min()
         else {
@@ -358,9 +355,12 @@ extension MobileShellComposite {
         workspaceChangesSummaryTrailingTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let now = self.runtime?.now() ?? Date()
-            let delayMilliseconds = Int64(
-                max(0, deadline.timeIntervalSince(now) * 1_000)
-            )
+            let delayMilliseconds = Int64(ceil(
+                self.workspaceChangesSummaryFetchPolicy.trailingRefreshDelay(
+                    deadline: deadline,
+                    now: now
+                ) * 1_000
+            ))
             // A bounded, cancellable delay intentionally fires at the earliest cache expiry.
             try? await ContinuousClock().sleep(
                 for: .milliseconds(delayMilliseconds)

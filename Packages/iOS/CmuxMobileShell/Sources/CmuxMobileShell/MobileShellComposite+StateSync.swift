@@ -54,6 +54,7 @@ extension MobileShellComposite {
         }
         let result: MobileSyncApplyResult
         let changesSummaryRefreshScope: WorkspaceChangesSummaryRefreshScope
+        let removedWorkspaceIDs: [String]
         switch header.collection {
         case .workspaces:
             guard let delta = try? JSONDecoder().decode(
@@ -67,6 +68,7 @@ extension MobileShellComposite {
             }
             result = stateSyncMirror.workspaces.apply(delta: delta)
             changesSummaryRefreshScope = .workspaceDelta(delta.records.map(\.id))
+            removedWorkspaceIDs = delta.removedIDs
         case .groups:
             guard let delta = try? JSONDecoder().decode(
                 MobileSyncDeltaEvent<GroupSyncRecord>.self, from: payload
@@ -76,6 +78,7 @@ extension MobileShellComposite {
             }
             result = stateSyncMirror.groups.apply(delta: delta)
             changesSummaryRefreshScope = .groupOnlyDelta
+            removedWorkspaceIDs = []
         default:
             // A newer Mac may sync collections this build does not know; they
             // are simply not mirrored here.
@@ -83,6 +86,7 @@ extension MobileShellComposite {
         }
         switch result {
         case .applied:
+            evictWorkspaceChangesSummaryState(workspaceIDs: removedWorkspaceIDs)
             applyStateSyncProjection(
                 changesSummaryRefreshScope: changesSummaryRefreshScope
             )
@@ -247,6 +251,9 @@ extension MobileShellComposite {
             stateSyncAuthorityClientID = ObjectIdentifier(client)
             switch result {
             case .applied:
+                evictWorkspaceChangesSummaryState(
+                    workspaceIDs: response.workspaces?.removedIDs ?? []
+                )
                 let changesSummaryRefreshScope: WorkspaceChangesSummaryRefreshScope =
                     response.workspaces?.mode == .snapshot
                         ? .fullSnapshot

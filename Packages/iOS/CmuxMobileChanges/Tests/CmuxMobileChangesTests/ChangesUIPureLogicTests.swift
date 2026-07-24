@@ -1,6 +1,7 @@
-import CmuxMobileChanges
 import SwiftUI
 import Testing
+
+@testable import CmuxMobileChanges
 
 @Suite struct ChangesUIPureLogicTests {
     @Test @MainActor
@@ -231,6 +232,16 @@ import Testing
         #expect(cache.presentations["file-0"] != nil)
         #expect(cache.presentations["file-1"] == nil)
         #expect(cache.presentations["file-7"] != nil)
+    }
+
+    @Test func diffPagerMountsOnlySelectedPageAndImmediateNeighbors() {
+        let policy = DiffPagerMountPolicy()
+
+        #expect(policy.mountedIndices(selectedIndex: 0, pageCount: 20) == [0, 1])
+        #expect(policy.mountedIndices(selectedIndex: 10, pageCount: 20) == [9, 10, 11])
+        #expect(policy.mountedIndices(selectedIndex: 19, pageCount: 20) == [18, 19])
+        #expect(policy.shouldMount(pageIndex: 11, selectedIndex: 10))
+        #expect(!policy.shouldMount(pageIndex: 12, selectedIndex: 10))
     }
 
     @Test func loadedListStateSurfacesOnlyTruncatedSnapshots() {
