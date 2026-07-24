@@ -25,8 +25,13 @@ final class MobileWorkspaceListObserver {
     private var groupsCancellable: AnyCancellable?
     private var notificationsCancellable: AnyCancellable?
     private var unreadIndicatorsCancellable: AnyCancellable?
-    private var perWorkspaceCancellables: [UUID: AnyCancellable] = [:]
+    private struct WorkspaceCancellableEntry {
+        let objectID: ObjectIdentifier
+        let cancellable: AnyCancellable
+    }
+    private var perWorkspaceCancellables: [UUID: WorkspaceCancellableEntry] = [:]
     private struct DescriptionProjectionCacheEntry {
+        let objectID: ObjectIdentifier
         let signature: Int
     }
     private var descriptionProjectionCache: [UUID: DescriptionProjectionCacheEntry] = [:]
@@ -226,9 +231,23 @@ final class MobileWorkspaceListObserver {
     }
 
     private func refreshPerWorkspaceSubscriptions(tabs: [Workspace]) {
-        let currentIDs = Set(tabs.map(\.id))
-        // Drop subscriptions for workspaces that vanished.
-        for id in perWorkspaceCancellables.keys where !currentIDs.contains(id) {
+        let currentObjectIDsByWorkspaceID = Dictionary(
+            uniqueKeysWithValues: tabs.map { ($0.id, ObjectIdentifier($0)) }
+        )
+        // Drop subscriptions for workspaces that vanished or were replaced by
+        // restored workspace objects with the same durable id.
+        let staleWorkspaceIDs = perWorkspaceCancellables.compactMap { id, entry in
+            currentObjectIDsByWorkspaceID[id] == entry.objectID ? nil : id
+        }
+        for id in staleWorkspaceIDs {
+            perWorkspaceCancellables.removeValue(forKey: id)
+            descriptionProjectionCache.removeValue(forKey: id)
+            MobileStateSyncHost.shared.invalidateDescriptionProjection(workspaceID: id)
+        }
+        let removedCachedProjectionIDs = descriptionProjectionCache.keys.filter {
+            currentObjectIDsByWorkspaceID[$0] == nil
+        }
+        for id in removedCachedProjectionIDs {
             perWorkspaceCancellables.removeValue(forKey: id)
             descriptionProjectionCache.removeValue(forKey: id)
         }
@@ -283,9 +302,12 @@ final class MobileWorkspaceListObserver {
             ]
             let merged = Publishers.MergeMany(publishers)
                 .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
-            perWorkspaceCancellables[workspace.id] = merged.sink { [weak self] _ in
-                self?.emitIfNeeded(force: false)
-            }
+            perWorkspaceCancellables[workspace.id] = WorkspaceCancellableEntry(
+                objectID: ObjectIdentifier(workspace),
+                cancellable: merged.sink { [weak self] _ in
+                    self?.emitIfNeeded(force: false)
+                }
+            )
         }
     }
 
@@ -344,12 +366,15 @@ final class MobileWorkspaceListObserver {
     private func cachedDescriptionSignature(
         for workspace: Workspace
     ) -> Int {
-        if let cached = descriptionProjectionCache[workspace.id] {
+        let objectID = ObjectIdentifier(workspace)
+        if let cached = descriptionProjectionCache[workspace.id],
+           cached.objectID == objectID {
             return cached.signature
         }
         let projection = MobileWorkspaceMetadataLimits.projectedCustomDescription(workspace.customDescription)
         let signature = Self.descriptionSignature(for: projection)
         descriptionProjectionCache[workspace.id] = DescriptionProjectionCacheEntry(
+            objectID: objectID,
             signature: signature
         )
         return signature

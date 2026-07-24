@@ -84,6 +84,8 @@ extension TerminalController {
         // list so the iOS client can fold contiguous same-group workspaces under a
         // collapsible header that mirrors the Mac sidebar.
         var groups: [[String: Any]] = []
+        var descriptionBudget = MobileWorkspaceMetadataLimits
+            .customDescriptionsAggregateMaxJSONEscapedUTF8Bytes
         if scopeToSingleWindow {
             guard let tabManager = resolvedTabManager ?? v2ResolveTabManager(params: params) else {
                 return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
@@ -110,7 +112,8 @@ extension TerminalController {
                     workspace: workspace,
                     windowID: v2ResolveWindowId(tabManager: tabManager),
                     isSelected: workspace.id == tabManager.selectedTabId,
-                    requestedTerminalID: requestedTerminalID
+                    requestedTerminalID: requestedTerminalID,
+                    descriptionBudget: &descriptionBudget
                 )
             }
             if let requestedTerminalID,
@@ -154,7 +157,8 @@ extension TerminalController {
                             workspace: workspace,
                             windowID: summary.windowId,
                             isSelected: workspace.id == selectedWorkspaceID,
-                            requestedTerminalID: requestedTerminalID
+                            requestedTerminalID: requestedTerminalID,
+                            descriptionBudget: &descriptionBudget
                         )
                     )
                 }
@@ -191,6 +195,7 @@ extension TerminalController {
         windowID: UUID? = nil,
         isSelected: Bool,
         requestedTerminalID: UUID?,
+        descriptionBudget: inout Int,
         notificationStore: TerminalNotificationStore? = nil
     ) -> [String: Any] {
         let terminals = mobileTerminalPanels(in: workspace).compactMap { terminal -> [String: Any]? in
@@ -213,7 +218,10 @@ extension TerminalController {
         let store = notificationStore ?? AppDelegate.shared?.notificationStore
         let latestNotification = store?.latestNotification(forTabId: workspace.id)
         let preview = Self.mobileWorkspacePreview(latestNotification: latestNotification)
-        let description = MobileWorkspaceMetadataLimits.projectedCustomDescription(workspace.customDescription)
+        let description = MobileWorkspaceMetadataLimits.projection(
+            MobileWorkspaceMetadataLimits.projectedCustomDescription(workspace.customDescription),
+            constrainedToJSONEscapedUTF8Budget: &descriptionBudget
+        )
         return [
             "id": workspace.id.uuidString,
             "window_id": v2OrNull(windowID?.uuidString),

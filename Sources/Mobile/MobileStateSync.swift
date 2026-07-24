@@ -31,6 +31,7 @@ final class MobileStateSyncHost {
     private var previewCache: [UUID: PreviewCacheEntry] = [:]
 
     private struct DescriptionProjectionCacheEntry {
+        let objectID: ObjectIdentifier
         let revision: UInt64
         let projection: MobileWorkspaceDescriptionProjection
     }
@@ -119,6 +120,9 @@ final class MobileStateSyncHost {
         var seenWorkspaceIDs: Set<UUID> = []
         var seenGroupIDs: Set<UUID> = []
         var liveWorkspaceIDs: Set<UUID> = []
+        var liveWorkspaceObjectIDs: [UUID: ObjectIdentifier] = [:]
+        var descriptionBudget = MobileWorkspaceMetadataLimits
+            .customDescriptionsAggregateMaxJSONEscapedUTF8Bytes
 
         for summary in app.listMainWindowSummaries() {
             guard seenWindowIDs.insert(summary.windowId).inserted else { continue }
@@ -137,6 +141,7 @@ final class MobileStateSyncHost {
             }
             for workspace in windowTabManager.tabs where seenWorkspaceIDs.insert(workspace.id).inserted {
                 liveWorkspaceIDs.insert(workspace.id)
+                liveWorkspaceObjectIDs[workspace.id] = ObjectIdentifier(workspace)
                 workspaceRows.append(
                     workspaceRow(
                         workspace: workspace,
@@ -144,13 +149,16 @@ final class MobileStateSyncHost {
                         isSelected: workspace.id == selectedWorkspaceID,
                         sortIndex: workspaceRows.count,
                         controller: controller,
-                        notificationStore: notificationStore
+                        notificationStore: notificationStore,
+                        descriptionBudget: &descriptionBudget
                     )
                 )
             }
         }
         previewCache = previewCache.filter { liveWorkspaceIDs.contains($0.key) }
-        descriptionProjectionCache = descriptionProjectionCache.filter { liveWorkspaceIDs.contains($0.key) }
+        descriptionProjectionCache = descriptionProjectionCache.filter { entry in
+            liveWorkspaceObjectIDs[entry.key] == entry.value.objectID
+        }
         return (workspaceRows, groupRows)
     }
 
@@ -160,7 +168,8 @@ final class MobileStateSyncHost {
         isSelected: Bool,
         sortIndex: Int,
         controller: TerminalController,
-        notificationStore: TerminalNotificationStore?
+        notificationStore: TerminalNotificationStore?,
+        descriptionBudget: inout Int
     ) -> WorkspaceSyncRecord {
         let terminals = controller.mobileTerminalPanels(in: workspace).map { terminal -> WorkspaceSyncRecord.Terminal in
             let terminalDirectory = workspace.effectivePanelDirectory(
@@ -178,7 +187,10 @@ final class MobileStateSyncHost {
         }
         let latestNotification = notificationStore?.latestNotification(forTabId: workspace.id)
         let preview = cachedPreview(workspaceID: workspace.id, latestNotification: latestNotification)
-        let description = cachedDescriptionProjection(for: workspace)
+        let description = MobileWorkspaceMetadataLimits.projection(
+            cachedDescriptionProjection(for: workspace),
+            constrainedToJSONEscapedUTF8Budget: &descriptionBudget
+        )
         return WorkspaceSyncRecord(
             id: workspace.id.uuidString,
             windowID: windowID.uuidString,
@@ -228,12 +240,15 @@ final class MobileStateSyncHost {
     }
 
     private func cachedDescriptionProjection(for workspace: Workspace) -> MobileWorkspaceDescriptionProjection {
+        let objectID = ObjectIdentifier(workspace)
         if let cached = descriptionProjectionCache[workspace.id],
+           cached.objectID == objectID,
            cached.revision == workspace.customDescriptionRevision {
             return cached.projection
         }
         let projection = MobileWorkspaceMetadataLimits.projectedCustomDescription(workspace.customDescription)
         descriptionProjectionCache[workspace.id] = DescriptionProjectionCacheEntry(
+            objectID: objectID,
             revision: workspace.customDescriptionRevision,
             projection: projection
         )

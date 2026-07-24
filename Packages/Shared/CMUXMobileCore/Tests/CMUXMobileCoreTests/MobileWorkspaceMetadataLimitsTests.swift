@@ -48,4 +48,41 @@ import Testing
         #expect(projected.value == nil)
         #expect(projected.isTruncated)
     }
+
+    @Test func descriptionProjectionConsumesAggregateJSONEscapedBudget() {
+        var budget = MobileWorkspaceMetadataLimits.jsonEscapedUTF8ByteCount("ok")
+
+        let first = MobileWorkspaceMetadataLimits.projection(
+            MobileWorkspaceDescriptionProjection(value: "ok", isTruncated: false),
+            constrainedToJSONEscapedUTF8Budget: &budget
+        )
+        let second = MobileWorkspaceMetadataLimits.projection(
+            MobileWorkspaceDescriptionProjection(value: "later", isTruncated: false),
+            constrainedToJSONEscapedUTF8Budget: &budget
+        )
+
+        #expect(first.value == "ok")
+        #expect(!first.isTruncated)
+        #expect(second.value == nil)
+        #expect(second.isTruncated)
+        #expect(budget == 0)
+    }
+
+    @Test func descriptionProjectionTruncatesByAggregateJSONEscapedBudget() {
+        let value = "a\"b"
+        var budget = MobileWorkspaceMetadataLimits.jsonEscapedUTF8ByteCount("a\"")
+
+        let projected = MobileWorkspaceMetadataLimits.projection(
+            MobileWorkspaceDescriptionProjection(value: value, isTruncated: false),
+            constrainedToJSONEscapedUTF8Budget: &budget
+        )
+
+        #expect(projected.value == "a\"")
+        #expect(projected.isTruncated)
+        #expect(budget == 0)
+        #expect(
+            MobileWorkspaceMetadataLimits.jsonEscapedUTF8ByteCount(projected.value ?? "")
+                <= MobileWorkspaceMetadataLimits.jsonEscapedUTF8ByteCount("a\"")
+        )
+    }
 }

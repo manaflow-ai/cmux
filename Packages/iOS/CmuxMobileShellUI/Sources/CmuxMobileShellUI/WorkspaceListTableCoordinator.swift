@@ -60,7 +60,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             UITableViewCell.self,
             forCellReuseIdentifier: Self.cellReuseIdentifier
         )
-        dataSource = UITableViewDiffableDataSource<Int, WorkspaceListTableItem>(
+        let dataSource = WorkspaceListTableDataSource(
             tableView: tableView
         ) { [weak self] tableView, indexPath, item in
             guard let self else { return UITableViewCell() }
@@ -71,6 +71,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             self.configure(cell, for: self.configuredItemsByID[item.id] ?? item)
             return cell
         }
+        dataSource.coordinator = self
+        self.dataSource = dataSource
         tableView.layoutMetricsDidChange = { [weak self, weak tableView] in
             guard let self, let tableView else { return }
             self.heightCache.removeAll(keepingCapacity: true)
@@ -402,6 +404,18 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         }
     }
 
+    fileprivate func canEditRow(at indexPath: IndexPath) -> Bool {
+        guard let workspace = workspace(at: indexPath) else { return false }
+        return (workspace.actionCapabilities.supportsReadStateActions && configuration.setUnread != nil)
+            || (workspace.actionCapabilities.supportsCloseActions
+                && configuration.requestWorkspaceClose != nil)
+    }
+
+    fileprivate func canMoveRow(at indexPath: IndexPath) -> Bool {
+        guard let item = dataSource?.itemIdentifier(for: indexPath) else { return false }
+        return configuration.enablesReorder && configuration.moveRows != nil && isMovable(item)
+    }
+
     private func configure(_ cell: UITableViewCell, for item: WorkspaceListTableItem) {
         cell.backgroundColor = .clear
         cell.contentView.backgroundColor = .clear
@@ -718,6 +732,20 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             || (previous.ungroupWorkspaceGroup != nil) != (next.ungroupWorkspaceGroup != nil)
             || (previous.deleteWorkspaceGroup != nil) != (next.deleteWorkspaceGroup != nil)
             || (previous.toggleGroupCollapsed != nil) != (next.toggleGroupCollapsed != nil)
+    }
+}
+
+private final class WorkspaceListTableDataSource:
+    UITableViewDiffableDataSource<Int, WorkspaceListTableItem>
+{
+    weak var coordinator: WorkspaceListTableCoordinator?
+
+    override func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
+        coordinator?.canEditRow(at: indexPath) ?? false
+    }
+
+    override func tableView(_ tableView: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
+        coordinator?.canMoveRow(at: indexPath) ?? false
     }
 }
 #endif

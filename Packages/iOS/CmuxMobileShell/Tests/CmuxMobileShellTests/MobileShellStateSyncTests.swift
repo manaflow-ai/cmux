@@ -97,11 +97,22 @@ private func workspaceUpdatedEventFrame() throws -> Data {
     return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
 }
 
+private let workspaceRowActionCapabilities = [
+    "events.v1",
+    "terminal.render_grid.v1",
+    "terminal.replay.v1",
+    "workspace.actions.v1",
+    "workspace.metadata.v1",
+    "workspace.read_state.v1",
+    "workspace.close.v1",
+]
+
 @MainActor
 struct MobileShellStateSyncTests {
     @Test func negotiationAppliesSnapshotAndSuppressesLegacyRefetch() async throws {
         let firstWorkspaceID = UUID().uuidString
         let router = LivenessHostRouter()
+        await router.setCapabilities(workspaceRowActionCapabilities)
         await router.scriptSyncFetchResult(
             jsonData: try syncSnapshotResultData(
                 epoch: "epoch-1",
@@ -135,6 +146,10 @@ struct MobileShellStateSyncTests {
         #expect(customizedWorkspace.customDescription == "Release validation")
         #expect(customizedWorkspace.customDescriptionIsTruncated)
         #expect(customizedWorkspace.customColorHex == "#1565C0")
+        #expect(customizedWorkspace.actionCapabilities.supportsWorkspaceActions)
+        #expect(customizedWorkspace.actionCapabilities.supportsWorkspaceMetadata)
+        #expect(customizedWorkspace.actionCapabilities.supportsReadStateActions)
+        #expect(customizedWorkspace.actionCapabilities.supportsCloseActions)
 
         // A workspace.updated push must no longer trigger the legacy full-list
         // refetch while v2 owns the list.
