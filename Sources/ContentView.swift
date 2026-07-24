@@ -6685,6 +6685,7 @@ struct ContentView: View {
         snapshot.setBool(CommandPaletteContextKeys.workspaceMinimalModeEnabled, currentIsMinimalMode)
         snapshot.setBool(CommandPaletteContextKeys.sidebarMatchTerminalBackground, sidebarMatchTerminalBackground)
         snapshot.setBool(CommandPaletteContextKeys.browserDisabled, BrowserAvailabilitySettings.isDisabled())
+        snapshot.setBool(CommandPaletteContextKeys.workspaceShareActive, WorkspaceShareService.shared.isSharing)
         if let auth = AppDelegate.shared?.auth {
             snapshot.setBool(CommandPaletteContextKeys.authSignedIn, auth.coordinator.isAuthenticated)
             snapshot.setBool(CommandPaletteContextKeys.proUpgradeEnabled, CmuxFeatureFlags.shared.isProUpgradeUIEnabled)
@@ -7232,6 +7233,24 @@ struct ContentView: View {
         )
         contributions.append(contentsOf: Self.commandPaletteSettingsToggleCommandContributions())
 
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.shareWorkspace",
+                title: constant(String(localized: "command.shareWorkspace.title", defaultValue: "Share Workspace…")),
+                subtitle: workspaceSubtitle,
+                keywords: ["share", "workspace", "multiplayer", "collaborate", "invite", "live"],
+                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.stopSharingWorkspace",
+                title: constant(String(localized: "command.stopSharingWorkspace.title", defaultValue: "Stop Sharing Workspace")),
+                subtitle: workspaceSubtitle,
+                keywords: ["share", "stop", "workspace", "multiplayer", "end"],
+                when: { $0.bool(CommandPaletteContextKeys.workspaceShareActive) }
+            )
+        )
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.renameWorkspace",
@@ -8321,6 +8340,43 @@ struct ContentView: View {
         }
         registerSettingsToggleCommandHandlers(&registry)
 
+        registry.register(commandId: "palette.shareWorkspace") {
+            guard let workspace = tabManager.selectedWorkspace else {
+                NSSound.beep()
+                return
+            }
+            Task { @MainActor in
+                do {
+                    let url = try await WorkspaceShareService.shared.startSharing(workspace: workspace)
+                    let alert = NSAlert()
+                    alert.messageText = String(
+                        localized: "share.started.title",
+                        defaultValue: "Workspace share started"
+                    )
+                    alert.informativeText = String(
+                        format: String(
+                            localized: "share.started.message",
+                            defaultValue: "Share link copied to the clipboard:\n%@"
+                        ),
+                        url.absoluteString
+                    )
+                    alert.addButton(withTitle: String(localized: "share.started.ok", defaultValue: "OK"))
+                    _ = alert.runCmuxModal()
+                } catch {
+                    let alert = NSAlert()
+                    alert.messageText = String(
+                        localized: "share.failed.title",
+                        defaultValue: "Could not start workspace share"
+                    )
+                    alert.informativeText = WorkspaceShareService.startErrorDescription(error)
+                    alert.addButton(withTitle: String(localized: "share.failed.ok", defaultValue: "OK"))
+                    _ = alert.runCmuxModal()
+                }
+            }
+        }
+        registry.register(commandId: "palette.stopSharingWorkspace") {
+            WorkspaceShareService.shared.stopSharing()
+        }
         registry.register(commandId: "palette.renameWorkspace") {
             beginRenameWorkspaceFlow()
         }

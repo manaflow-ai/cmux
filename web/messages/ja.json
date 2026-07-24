@@ -4665,5 +4665,36 @@
         "action": "プランを管理"
       }
     }
+  },
+  "share": {
+    "status": {
+      "connecting": "接続中…",
+      "pending": "{host}の承認を待っています…",
+      "pendingDetail": "ホストが各閲覧者を承認する必要があります。",
+      "denied": "ホストが閲覧リクエストを拒否しました。",
+      "ended": "この共有は終了しました。"
+    },
+    "hostFallback": "ホスト",
+    "pane": {
+      "browser": "ブラウザ",
+      "textbox": "テキストボックス",
+      "other": "ペイン",
+      "placeholder": "このペインはミラーリングされていません。"
+    },
+    "chat": {
+      "title": "チャット",
+      "empty": "まだメッセージはありません。/ キーでカーソル位置からチャットできます。",
+      "inputPlaceholder": "メッセージを送信…",
+      "justNow": "たった今",
+      "minutesAgo": "{minutes}分前",
+      "hoursAgo": "{hours}時間前"
+    },
+    "cursorChat": {
+      "placeholder": "メッセージを入力…"
+    },
+    "unavailable": {
+      "title": "共有は利用できません",
+      "description": "このデプロイでは、ワークスペース共有が設定されていません。"
+    }
   }
 }

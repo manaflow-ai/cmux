@@ -4755,5 +4755,36 @@
         "action": "Manage plan"
       }
     }
+  },
+  "share": {
+    "status": {
+      "connecting": "Connecting…",
+      "pending": "Waiting for {host} to let you in…",
+      "pendingDetail": "The host has to approve each viewer.",
+      "denied": "The host declined your request to view this share.",
+      "ended": "This share has ended."
+    },
+    "hostFallback": "the host",
+    "pane": {
+      "browser": "Browser",
+      "textbox": "Textbox",
+      "other": "Pane",
+      "placeholder": "This pane is not mirrored."
+    },
+    "chat": {
+      "title": "Chat",
+      "empty": "No messages yet. Press / to chat at your cursor.",
+      "inputPlaceholder": "Send a message…",
+      "justNow": "just now",
+      "minutesAgo": "{minutes}m ago",
+      "hoursAgo": "{hours}h ago"
+    },
+    "cursorChat": {
+      "placeholder": "Say something…"
+    },
+    "unavailable": {
+      "title": "Sharing unavailable",
+      "description": "Workspace sharing is not configured on this deployment."
+    }
   }
 }

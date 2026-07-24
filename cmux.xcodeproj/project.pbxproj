@@ -2169,6 +2169,12 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		EE30D6000000000000000002 /* WorkspaceRemoteSessionHostAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE30D6000000000000000001 /* WorkspaceRemoteSessionHostAdapter.swift */; };
 		44FF9EFEEF762BE6CF158E42 /* WorkspaceRemoteTmuxNonInteractiveCloseRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92CA6F2F239631988B2FB0C8 /* WorkspaceRemoteTmuxNonInteractiveCloseRoute.swift */; };
 		619D509BC9B1EA946CBD6A8A /* WorkspaceRuntimeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9960CC3992F3C44489E7627C /* WorkspaceRuntimeSettings.swift */; };
+		5A4E000000000000000000B2 /* WorkspaceShareLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A4E000000000000000000A2 /* WorkspaceShareLayout.swift */; };
+		5A4E000000000000000000B1 /* WorkspaceShareModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A4E000000000000000000A1 /* WorkspaceShareModels.swift */; };
+		5A4E000000000000000000B5 /* WorkspaceShareOverlayController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A4E000000000000000000A5 /* WorkspaceShareOverlayController.swift */; };
+		5A4E000000000000000000B6 /* WorkspaceShareProtocolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A4E000000000000000000A6 /* WorkspaceShareProtocolTests.swift */; };
+		5A4E000000000000000000B4 /* WorkspaceShareService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A4E000000000000000000A4 /* WorkspaceShareService.swift */; };
+		5A4E000000000000000000B3 /* WorkspaceShareSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A4E000000000000000000A3 /* WorkspaceShareSocket.swift */; };
 		6799A0016799A0016799A001 /* WorkspaceSidebarAgentRuntimeObservationModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6799A0026799A0026799A002 /* WorkspaceSidebarAgentRuntimeObservationModel.swift */; };
 		5659B0015659B0015659B001 /* WorkspaceSidebarLogEntryLimitProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5659B0025659B0025659B002 /* WorkspaceSidebarLogEntryLimitProvider.swift */; };
 		5659A0015659A0015659A001 /* WorkspaceSidebarObservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5659A0025659A0025659A002 /* WorkspaceSidebarObservation.swift */; };
@@ -4350,6 +4356,12 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		EE30D6000000000000000001 /* WorkspaceRemoteSessionHostAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRemoteSessionHostAdapter.swift; sourceTree = "<group>"; };
 		92CA6F2F239631988B2FB0C8 /* WorkspaceRemoteTmuxNonInteractiveCloseRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRemoteTmuxNonInteractiveCloseRoute.swift; sourceTree = "<group>"; };
 		9960CC3992F3C44489E7627C /* WorkspaceRuntimeSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/WorkspaceRuntimeSettings.swift; sourceTree = "<group>"; };
+		5A4E000000000000000000A2 /* WorkspaceShareLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceShareLayout.swift; sourceTree = "<group>"; };
+		5A4E000000000000000000A1 /* WorkspaceShareModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceShareModels.swift; sourceTree = "<group>"; };
+		5A4E000000000000000000A5 /* WorkspaceShareOverlayController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceShareOverlayController.swift; sourceTree = "<group>"; };
+		5A4E000000000000000000A6 /* WorkspaceShareProtocolTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceShareProtocolTests.swift; sourceTree = "<group>"; };
+		5A4E000000000000000000A4 /* WorkspaceShareService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceShareService.swift; sourceTree = "<group>"; };
+		5A4E000000000000000000A3 /* WorkspaceShareSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceShareSocket.swift; sourceTree = "<group>"; };
 		6799A0026799A0026799A002 /* WorkspaceSidebarAgentRuntimeObservationModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarAgentRuntimeObservationModel.swift; sourceTree = "<group>"; };
 		5659B0025659B0025659B002 /* WorkspaceSidebarLogEntryLimitProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarLogEntryLimitProvider.swift; sourceTree = "<group>"; };
 		5659A0025659A0025659A002 /* WorkspaceSidebarObservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarObservation.swift; sourceTree = "<group>"; };
@@ -4606,6 +4618,19 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			);
 			name = AgentChat;
 			path = AgentChat;
+			sourceTree = "<group>";
+		};
+		5A4E000000000000000000C1 /* Share */ = {
+			isa = PBXGroup;
+			children = (
+				5A4E000000000000000000A1 /* WorkspaceShareModels.swift */,
+				5A4E000000000000000000A2 /* WorkspaceShareLayout.swift */,
+				5A4E000000000000000000A3 /* WorkspaceShareSocket.swift */,
+				5A4E000000000000000000A4 /* WorkspaceShareService.swift */,
+				5A4E000000000000000000A5 /* WorkspaceShareOverlayController.swift */,
+			);
+			name = Share;
+			path = Share;
 			sourceTree = "<group>";
 		};
 		59065015952E1B5BE5E23519 /* Mobile */ = {
@@ -5995,6 +6020,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				8054A0040000000000000004 /* TerminalController+BrowserAutomationRecovery.swift */,
 				C57B00050000000000000002 /* CmuxExtensionSidebarSelection+CustomSidebarName.swift */,
 				59065015952E1B5BE5E23519 /* Mobile */,
+				5A4E000000000000000000C1 /* Share */,
 				31B04B98376C9BA8B9E44DCB /* TerminalViewportUITestRecorder.swift */,
 			);
 			path = Sources;
@@ -6491,6 +6517,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C06552030000000000000002 /* TabManagerTitleUpdateStalenessTests.swift */,
 				C06552020000000000000002 /* TabManagerTitleUpdateTests.swift */,
 				42092CDB2109E250F7F2A76E /* TabManagerUnitTests.swift */,
+				5A4E000000000000000000A6 /* WorkspaceShareProtocolTests.swift */,
 				AB12CD340000000000000002 /* WorkspaceTodoNotificationRegressionTests.swift */,
 				DCE71A0F7E02A07A155241E4 /* SidebarWorkspaceRowStatusGlyphRemovalTests.swift */,
 				9C5C9824B98FFC44A2C44F47 /* WorkspaceTodoSnapshotTests.swift */,
@@ -8535,6 +8562,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				EE30D6000000000000000002 /* WorkspaceRemoteSessionHostAdapter.swift in Sources */,
 				44FF9EFEEF762BE6CF158E42 /* WorkspaceRemoteTmuxNonInteractiveCloseRoute.swift in Sources */,
 				619D509BC9B1EA946CBD6A8A /* WorkspaceRuntimeSettings.swift in Sources */,
+				5A4E000000000000000000B2 /* WorkspaceShareLayout.swift in Sources */,
+				5A4E000000000000000000B1 /* WorkspaceShareModels.swift in Sources */,
+				5A4E000000000000000000B5 /* WorkspaceShareOverlayController.swift in Sources */,
+				5A4E000000000000000000B4 /* WorkspaceShareService.swift in Sources */,
+				5A4E000000000000000000B3 /* WorkspaceShareSocket.swift in Sources */,
 				6799A0016799A0016799A001 /* WorkspaceSidebarAgentRuntimeObservationModel.swift in Sources */,
 				5659B0015659B0015659B001 /* WorkspaceSidebarLogEntryLimitProvider.swift in Sources */,
 				5659A0015659A0015659A001 /* WorkspaceSidebarObservation.swift in Sources */,
@@ -9286,6 +9318,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F6100000A1B2C3D4E5F60718 /* WorkspaceRemoteConnectionTests.swift in Sources */,
 				7277A0017277A0017277A001 /* WorkspaceRemoteDirectoryProvenanceTests.swift in Sources */,
 				F6357300A1B2C3D4E5F60718 /* WorkspaceRemoteReconnectPolicyTests.swift in Sources */,
+				5A4E000000000000000000B6 /* WorkspaceShareProtocolTests.swift in Sources */,
 				5659A0035659A0035659A003 /* WorkspaceSidebarObservationTests.swift in Sources */,
 				A1F4B4A6F4F043FCB3288A3D /* WorkspaceSidebarProcessTitleObservationTests.swift in Sources */,
 				6B524A0CB34FD46A771335AB /* WorkspaceSplitStartupCommandTests.swift in Sources */,
