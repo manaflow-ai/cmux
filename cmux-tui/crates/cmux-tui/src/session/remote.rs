@@ -2280,6 +2280,101 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn attach_deadline_advances_while_a_large_initial_frame_is_arriving() {
+        let (client, server) = UnixStream::pair().unwrap();
+        let (release_tx, release_rx) = channel();
+        let peer = std::thread::spawn(move || {
+            let mut peer = BufReader::new(server);
+            for expected_command in ["identify", "set-client-info", "subscribe"] {
+                let mut line = String::new();
+                peer.read_line(&mut line).unwrap();
+                let request: Value = serde_json::from_str(&line).unwrap();
+                assert_eq!(request["cmd"], expected_command);
+                let data = if expected_command == "identify" {
+                    json!({"app": "cmux-tui", "protocol": SUPPORTED_PROTOCOL_VERSION})
+                } else {
+                    Value::Null
+                };
+                writeln!(
+                    peer.get_mut(),
+                    "{}",
+                    json!({"id": request["id"], "ok": true, "data": data})
+                )
+                .unwrap();
+            }
+
+            let mut line = String::new();
+            peer.read_line(&mut line).unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["cmd"], "attach-surface");
+            let frame = json!({
+                "event": "vt-state",
+                "surface": 7,
+                "cols": 80,
+                "rows": 24,
+                "data": "",
+                "kitty_image_aliases": [],
+            })
+            .to_string();
+            let first = frame.len() / 3;
+            let second = frame.len() * 2 / 3;
+            for (index, fragment) in [
+                &frame.as_bytes()[..first],
+                &frame.as_bytes()[first..second],
+                &frame.as_bytes()[second..],
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                peer.get_mut().write_all(fragment).unwrap();
+                peer.get_mut().flush().unwrap();
+                if index < 2 {
+                    std::thread::sleep(Duration::from_millis(150));
+                }
+            }
+            peer.get_mut().write_all(b"\n").unwrap();
+            writeln!(peer.get_mut(), "{}", json!({"id": request["id"], "ok": true, "data": null}))
+                .unwrap();
+            release_rx.recv().unwrap();
+        });
+        let session = RemoteSession::connect_stream(Box::new(client)).unwrap();
+
+        let started = Instant::now();
+        let surface =
+            session.try_ensure_surface_with_kind(7, SurfaceKind::Pty, None).unwrap().unwrap();
+
+        assert_eq!(surface.id, 7);
+        assert!(
+            started.elapsed() > REMOTE_ATTACH_IDLE_TIMEOUT,
+            "attach completed before exercising the progress-aware deadline"
+        );
+        assert!(!session.shutdown.load(Ordering::Acquire));
+        release_tx.send(()).unwrap();
+        peer.join().unwrap();
+    }
+
+    #[test]
+    fn timed_out_attach_closes_transport_and_removes_local_mirror() {
+        let closed = Arc::new(AtomicBool::new(false));
+        let session = test_session(Box::new(CloseTrackingWriter { closed: closed.clone() }));
+
+        let error = session
+            .try_ensure_surface_with_kind(7, SurfaceKind::Pty, None)
+            .err()
+            .expect("silent attach must time out");
+
+        assert!(matches!(
+            error.downcast_ref::<RemoteRequestError>(),
+            Some(RemoteRequestError::Timeout)
+        ));
+        assert!(!session.has_surface(7));
+        assert!(session.pending.lock().unwrap().is_empty());
+        assert!(session.shutdown.load(Ordering::Acquire));
+        assert!(closed.load(Ordering::Acquire));
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn eof_cancels_a_pending_request_without_waiting_for_the_request_timeout() {
         let (client, server) = UnixStream::pair().unwrap();
         let peer = std::thread::spawn(move || {

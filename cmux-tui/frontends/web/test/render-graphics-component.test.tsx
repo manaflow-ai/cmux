@@ -1,5 +1,5 @@
 import { render, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RenderGraphicPlacement } from "cmux/browser";
 import { RenderGraphics } from "../src/components/RenderGraphics";
 import {
@@ -42,7 +42,57 @@ function placement(
   };
 }
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 describe("RenderGraphics canvas resource policy", () => {
+  it.each(["onerror", "onmessageerror"] as const)(
+    "falls back to local decoding after worker %s",
+    async (failureCallback) => {
+      class FailingWorker {
+        onmessage: ((event: MessageEvent) => void) | null = null;
+        onerror: ((event: ErrorEvent) => void) | null = null;
+        onmessageerror: ((event: MessageEvent) => void) | null = null;
+
+        postMessage(): void {
+          setTimeout(() => {
+            if (failureCallback === "onerror") {
+              this.onerror?.(new ErrorEvent("error"));
+            } else {
+              this.onmessageerror?.(new MessageEvent("messageerror"));
+            }
+          }, 0);
+        }
+
+        terminate(): void {}
+      }
+      vi.stubGlobal("Worker", FailingWorker);
+      const graphics: RenderGraphicsModel = {
+        generation: 1,
+        images: [{
+          id: 1,
+          generation: 1,
+          width: 1,
+          height: 1,
+          format: "rgba",
+          data: "AAAAAA==",
+        }],
+        placements: [placement(1, 1, 1)],
+      };
+
+      const { container } = render(
+        <RenderGraphics graphics={graphics}>
+          <div>terminal</div>
+        </RenderGraphics>,
+      );
+
+      await waitFor(() => {
+        expect(container.querySelectorAll("[data-graphic-placement]")).toHaveLength(1);
+      });
+    },
+  );
+
   it("decodes asynchronously and bounds aggregate backing for repeated large placements", async () => {
     const width = 1_000;
     const height = 1_000;

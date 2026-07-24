@@ -5228,16 +5228,20 @@ mod tests {
         terminal.vt_write(RED_IMAGE_41);
         terminal.vt_write(GREEN_IMAGE_42);
         let mut render_state = RenderState::new().unwrap();
-        let mut client = render_protocol_client(&mut terminal, &mut render_state);
-
-        terminal.vt_write(b"\x1b_Ga=T,t=d,f=24,i=41,p=7,s=1,v=1,c=1,r=1,q=2;AAD/\x1b\\");
-        let frame = render_protocol_frame(&mut terminal, &mut render_state);
+        let mut frame = render_protocol_frame(&mut terminal, &mut render_state);
+        let mut client = RenderClientState::new(Arc::new(RenderService::new()), &frame);
+        let graphics = Arc::make_mut(&mut frame.frame.kitty_graphics);
+        graphics.generation += 1;
+        let image = graphics.images.iter_mut().find(|image| image.id == 41).unwrap();
+        image.generation += 1;
+        image.data = Arc::<[u8]>::from([0, 0, 255]);
         let delta = client.delta_json(1, &frame);
         let images = delta["graphics"]["images"].as_array().unwrap();
 
         assert_eq!(images.len(), 1, "{delta:#}");
         assert_eq!(images[0]["id"], 41);
         assert_eq!(images[0]["data"], "AAD/");
+        assert!(delta["graphics"].get("placements").is_none(), "{delta:#}");
     }
 
     #[test]

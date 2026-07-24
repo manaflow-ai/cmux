@@ -847,6 +847,18 @@ mod tests {
         assert!(!kitty_probe_succeeded(b"\x1b_Gi=31;EINVAL\x1b\\"));
     }
 
+    #[test]
+    fn existing_base64_graphic_payload_is_borrowed() {
+        let encoded: Arc<str> = Arc::from("AAAAAA==");
+        let data = GraphicData::Base64(encoded.clone());
+
+        let Cow::Borrowed(borrowed) = data.base64() else {
+            panic!("existing base64 payload was copied");
+        };
+        assert_eq!(borrowed, encoded.as_ref());
+        assert_eq!(borrowed.as_ptr(), encoded.as_ptr());
+    }
+
     fn image(
         surface: SurfaceId,
         image_id: u32,

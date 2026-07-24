@@ -572,6 +572,17 @@ test("attachSurface render mode yields Kitty pixels and placements with render e
         placements: [{ ...renderGraphics.placements[0], viewport_col: 1 }],
       },
     });
+    transport.emit({
+      event: "render-delta",
+      surface: 7,
+      cursor: { x: 0, y: 0, style: "bar", blink: false, visible: false, color: null },
+      full: false,
+      rows: [],
+      graphics: {
+        generation: 5,
+        images: [{ ...renderGraphics.images[0], generation: 3 }],
+      },
+    });
   });
   const client = new CmuxClient({
     transport: main,
@@ -615,6 +626,17 @@ test("attachSurface render mode yields Kitty pixels and placements with render e
       generation: 4,
       removed_image_ids: [99],
       placements: [{ ...renderGraphics.placements[0], viewport_col: 1 }],
+    },
+  });
+  assert.deepEqual(await stream.next(), {
+    event: "render-delta",
+    surface: 7,
+    cursor: { x: 0, y: 0, style: "bar", blink: false, visible: false, color: null },
+    full: false,
+    rows: [],
+    graphics: {
+      generation: 5,
+      images: [{ ...renderGraphics.images[0], generation: 3 }],
     },
   });
   stream.close();

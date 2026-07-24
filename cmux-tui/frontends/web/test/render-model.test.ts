@@ -169,6 +169,23 @@ describe("render model", () => {
     expect(replaced.graphics.placements[0]?.viewport_col).toBe(3);
   });
 
+  it("preserves placements for image-only graphics deltas", () => {
+    const initial = applySnapshot(snapshot());
+    const replaced = applyDelta(initial, delta({
+      graphics: {
+        generation: 5,
+        images: [{
+          ...graphics.images![0],
+          generation: 3,
+          data: "AAD//w==",
+        }],
+      },
+    }));
+
+    expect(replaced.graphics.images[0]).toMatchObject({ generation: 3, data: "AAD//w==" });
+    expect(replaced.graphics.placements).toBe(initial.graphics.placements);
+  });
+
   it("removes images and placements only when a graphics update says they are gone", () => {
     const initial = applySnapshot(snapshot());
     const textOnly = applyDelta(initial, delta({ rows: [row(0, "text")] }));

@@ -9,6 +9,7 @@ import type {
   RenderAttachEvent,
   RenderDeltaEvent,
   RenderGraphics,
+  RenderGraphicsDelta,
   RenderStateEvent,
   Tree,
   TreeDeltaEvent,
@@ -224,6 +225,11 @@ const renderGraphics: RenderGraphics = {
     z: 0,
   }],
 };
+const imageOnlyRenderGraphics: RenderGraphicsDelta = {
+  generation: 5,
+  images: renderGraphics.images,
+};
+void imageOnlyRenderGraphics;
 
 const renderState: RenderStateEvent = {
   event: "render-state",
