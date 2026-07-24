@@ -328,6 +328,19 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 ')"\n'
                 'assert "$ready"\n'
             ),
+            "comment-separated-bun.ts": (
+                "Bun/* runtime */.sleep(1)\n"
+                "expect(done).toBe(true)\n"
+            ),
+            "comment-separated-global-timeout.ts": (
+                "globalThis/* native */.setTimeout(resolve, 1)\n"
+                "expect(done).toBe(true)\n"
+            ),
+            "regex-comment-marker-before-sleep.ts": (
+                "const pattern = /[/*]/\n"
+                "Bun.sleep(1)\n"
+                "expect(done).toBe(true)\n"
+            ),
         }
 
         result = self.run_checker(fixtures)
@@ -365,6 +378,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "shell-arithmetic-before-sleep.sh",
                     "continued-assert-substitution.sh",
                     "continued-assert-backtick.sh",
+                    "regex-comment-marker-before-sleep.ts",
                 )
                 else 1
             )
@@ -705,6 +719,29 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "    import time\n"
                     "time.sleep(0.01)\n"
                     "assert finished\n"
+                ),
+                "global-branch-order.py": (
+                    "def check(flag):\n"
+                    "    global clock\n"
+                    "    if flag:\n"
+                    "        import fake_clock as clock\n"
+                    "    else:\n"
+                    "        import time as clock\n"
+                    "    clock.sleep(0.01)\n"
+                    "    assert finished\n"
+                ),
+                "nonlocal-branch-order.py": (
+                    "def outer(flag):\n"
+                    "    import time as clock\n"
+                    "    def check():\n"
+                    "        nonlocal clock\n"
+                    "        if flag:\n"
+                    "            import fake_clock as clock\n"
+                    "        else:\n"
+                    "            import time as clock\n"
+                    "        clock.sleep(0.01)\n"
+                    "        assert finished\n"
+                    "    check()\n"
                 ),
             }
         )
