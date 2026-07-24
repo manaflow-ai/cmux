@@ -20,13 +20,104 @@ private func codexCommandExecutableIndex(_ parts: [String]) -> Int? {
     let first = (parts[0] as NSString).lastPathComponent
     guard first == "env" else { return 0 }
     var index = 1
-    while index < parts.count, isEnvironmentAssignment(parts[index]) {
-        index += 1
+    var parsesOptions = true
+    while index < parts.count {
+        let part = parts[index]
+        if parsesOptions {
+            if part == "--" {
+                parsesOptions = false
+                index += 1
+                continue
+            }
+            if isEnvironmentAssignment(part) {
+                // BSD env stops recognizing options at its first assignment.
+                parsesOptions = false
+                index += 1
+                continue
+            }
+            if part.hasPrefix("--") {
+                guard let consumed = environmentLongOptionLength(
+                    part,
+                    hasFollowingArgument: index + 1 < parts.count
+                ) else {
+                    return nil
+                }
+                index += consumed
+                continue
+            }
+            if part.hasPrefix("-"), part != "-" {
+                guard let consumed = environmentShortOptionLength(
+                    part,
+                    hasFollowingArgument: index + 1 < parts.count
+                ) else {
+                    return nil
+                }
+                index += consumed
+                continue
+            }
+        }
+        if isEnvironmentAssignment(part) {
+            index += 1
+            continue
+        }
+        return index
     }
-    if index < parts.count, parts[index] == "--" {
-        index += 1
+    return nil
+}
+
+/// Number of argv elements consumed by a supported `env` long option.
+///
+/// Unknown options and split-string fail closed because their values can
+/// contain the real utility, making a later `codex` token ambiguous.
+private func environmentLongOptionLength(
+    _ value: String,
+    hasFollowingArgument: Bool
+) -> Int? {
+    switch value {
+    case "--ignore-environment", "--debug":
+        return 1
+    case "--unset", "--chdir":
+        return hasFollowingArgument ? 2 : nil
+    case let option where option.hasPrefix("--unset=")
+        || option.hasPrefix("--chdir="):
+        return 1
+    case "--null", "--split-string":
+        return nil
+    case let option where option.hasPrefix("--split-string="):
+        return nil
+    default:
+        return nil
     }
-    return index < parts.count ? index : nil
+}
+
+/// Number of argv elements consumed by supported BSD `env` short options.
+///
+/// `-i` and `-v` may be clustered. `-C`, `-P`, and `-u` accept either an
+/// attached value or the following argv element. `-0` cannot be combined with
+/// a utility, and `-S` can inject the utility from inside its split string, so
+/// both intentionally fail closed.
+private func environmentShortOptionLength(
+    _ value: String,
+    hasFollowingArgument: Bool
+) -> Int? {
+    let options = Array(value.dropFirst())
+    guard !options.isEmpty else { return nil }
+    var index = 0
+    while index < options.count {
+        switch options[index] {
+        case "i", "v":
+            index += 1
+        case "C", "P", "u":
+            return index + 1 < options.count
+                ? 1
+                : (hasFollowingArgument ? 2 : nil)
+        case "0", "S":
+            return nil
+        default:
+            return nil
+        }
+    }
+    return 1
 }
 
 private func isEnvironmentAssignment(_ value: String) -> Bool {
