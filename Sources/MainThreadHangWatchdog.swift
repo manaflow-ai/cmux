@@ -89,8 +89,8 @@ final class MainThreadHangWatchdog: @unchecked Sendable {
             guard let self else { return }
             let timestamp = ProcessInfo.processInfo.systemUptime
             monitorQueue.async { [self] in
-                state.recordHeartbeat(at: timestamp)
-                heartbeatQueued = false
+                self.state.recordHeartbeat(at: timestamp)
+                self.heartbeatQueued = false
             }
         }
     }
@@ -132,7 +132,7 @@ final class MainThreadHangWatchdog: @unchecked Sendable {
                     [.posixPermissions: 0o600],
                     ofItemAtPath: sampleURL.path
                 )
-                activeSamples.removeValue(forKey: identifier)
+                self.activeSamples.removeValue(forKey: identifier)
             }
         }
 
