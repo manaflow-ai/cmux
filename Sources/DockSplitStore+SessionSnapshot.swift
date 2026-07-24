@@ -41,11 +41,13 @@ extension DockSplitStore {
                 )
             }
         let persistedPanelIds = Set(panelSnapshots.map(\.id))
-        let sourceWorkspaceIdsByPanelId = Dictionary(uniqueKeysWithValues: panelSnapshots.compactMap {
-            panel in
-            guard let transfer = detachedSurfaceTransfersByPanelId[panel.id] else { return nil }
-            return (panel.id, transfer.sessionRestoreWorkspaceId)
-        })
+        let sourceWorkspaceIdsByPanelId: [UUID: UUID] = Dictionary(
+            uniqueKeysWithValues: panelSnapshots.compactMap {
+                panel in
+                guard let transfer = detachedSurfaceTransfersByPanelId[panel.id] else { return nil }
+                return (panel.id, transfer.sessionRestoreWorkspaceId)
+            }
+        )
         let layout = layoutCodec.pruned(
             rawLayout,
             keeping: persistedPanelIds
@@ -329,7 +331,7 @@ extension DockSplitStore {
         let expectedSessionId = resumeBinding?.isAgentHookBinding == true
             ? resumeBinding?.checkpointId
             : restorableAgent?.sessionId
-        let relevantObservation = observation.flatMap { entry in
+        let relevantObservation: RestorableAgentSessionIndex.Entry? = observation.flatMap { entry in
             guard entry.snapshot.kind == expectedKind, entry.snapshot.sessionId == expectedSessionId else {
                 return nil
             }
