@@ -81,6 +81,7 @@ actor ShareSocket {
     private let initialEndpoint: Endpoint
     private let refreshEndpoint: @Sendable () async throws -> Endpoint
     private let lifecycle: WorkspaceShareSessionLifecycle
+    private let manualTeardownGracePeriod: Duration
     nonisolated private let outboundValidator =
         WorkspaceShareOutboundMessageValidator()
     nonisolated private let connectionAdmission =
@@ -111,7 +112,8 @@ actor ShareSocket {
         lifecycle: WorkspaceShareSessionLifecycle = WorkspaceShareSessionLifecycle(),
         maximumPendingMessages: Int = 256,
         maximumPendingBytes: Int = 4 * 1_024 * 1_024,
-        maximumBufferedEvents: Int = 512
+        maximumBufferedEvents: Int = 512,
+        manualTeardownGracePeriod: Duration = .milliseconds(100)
     ) {
         let eventPair = AsyncStream.makeStream(
             of: Event.self,
@@ -136,6 +138,7 @@ actor ShareSocket {
         self.initialEndpoint = endpoint
         self.refreshEndpoint = refresh
         self.lifecycle = lifecycle
+        self.manualTeardownGracePeriod = manualTeardownGracePeriod
     }
 
     func start() {
@@ -362,6 +365,21 @@ actor ShareSocket {
         let finalPriority:
             WorkspaceShareOutboundMailbox<PendingOutbound>.Priority =
                 connectionNeedsHandshake ? .handshake : priority
+        var manualTeardownTimeoutTask: Task<Void, Never>?
+        if connection == nil {
+            let gracePeriod = manualTeardownGracePeriod
+            manualTeardownTimeoutTask = Task { [weak self] in
+                do {
+                    try await Task.sleep(for: gracePeriod)
+                } catch {
+                    return
+                }
+                await self?.stop()
+            }
+        }
+        defer {
+            manualTeardownTimeoutTask?.cancel()
+        }
         _ = await withCheckedContinuation { continuation in
             let accepted = admit(
                 outbound,
