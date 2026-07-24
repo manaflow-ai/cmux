@@ -2793,6 +2793,46 @@ mod tests {
     }
 
     #[test]
+    fn persisted_runtime_metadata_keeps_dialable_iroh_hints() {
+        let directory = tempfile::tempdir().unwrap();
+        let node_id = "a".repeat(64);
+        let mut iroh_route = Url::parse(&format!("iroh://{node_id}")).unwrap();
+        iroh_route
+            .query_pairs_mut()
+            .append_pair(
+                "relay_url",
+                "https://persist-user:persist-password@relay.example/private?token=persist-token",
+            )
+            .append_pair("direct_addrs", "127.0.0.1:7777")
+            .append_pair("ticket", "drop-me");
+        let info = DaemonRuntimeInfo {
+            session: "persist-iroh-routing".into(),
+            state_dir: directory.path().into(),
+            link_socket: directory.path().join("link.sock"),
+            admin_socket: directory.path().join("admin.sock"),
+            daemon_fingerprint: "public-fingerprint".into(),
+            routes: vec![iroh_route.to_string()],
+            direct_websocket: None,
+            iroh_node_id: Some(node_id.clone()),
+            replaceable_sidecar: false,
+        };
+
+        persist_runtime_info(directory.path(), &info).unwrap();
+
+        let persisted = fs::read_to_string(directory.path().join("runtime.json")).unwrap();
+        for secret in ["persist-user", "persist-password", "persist-token", "drop-me"] {
+            assert!(!persisted.contains(secret), "runtime metadata leaked {secret:?}: {persisted}");
+        }
+        let persisted: DaemonRuntimeInfo = serde_json::from_str(&persisted).unwrap();
+        let route = Url::parse(&persisted.routes[0]).unwrap();
+        let routing = route.query_pairs().into_owned().collect::<BTreeMap<_, _>>();
+        assert_eq!(route.host_str(), Some(node_id.as_str()));
+        assert_eq!(routing["relay_url"], "https://relay.example/");
+        assert_eq!(routing["direct_addrs"], "127.0.0.1:7777");
+        assert!(!routing.contains_key("ticket"));
+    }
+
+    #[test]
     fn persisted_runtime_metadata_rejects_malformed_routes_without_echoing_them() {
         let directory = tempfile::tempdir().unwrap();
         let info = DaemonRuntimeInfo {
