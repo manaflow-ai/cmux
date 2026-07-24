@@ -510,6 +510,10 @@ enum CLIProcessRunner {
         process.standardInput = stdinPipe
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
+        let finished = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in
+            finished.signal()
+        }
 
         let boundedMaxOutputBytes = max(1, maxOutputBytes)
         var stdoutData = Data()
@@ -706,7 +710,10 @@ enum CLIProcessRunner {
         try? stderrPipe.fileHandleForReading.close()
         if process.isRunning {
             kill(process.processIdentifier, SIGKILL)
-            process.waitUntilExit()
+            // SIGKILL can remain pending while a process is stuck in
+            // uninterruptible kernel I/O. Bound the reap so one bad app server
+            // cannot extend the caller's advertised timeout indefinitely.
+            _ = finished.wait(timeout: .now() + 0.5)
         }
 
         let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
