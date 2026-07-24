@@ -440,12 +440,15 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
 
             let windowDock = appDelegate.windowDock(forWindowId: windowId)
             let dockPanels = (0..<12).map { _ in
+                var configTemplate = CmuxSurfaceConfigTemplate()
+                configTemplate.fontSizeLineage = TerminalFontSizeLineage(
+                    basePoints: 20,
+                    isExplicitOverride: true
+                )
                 let panel = TerminalPanel(
                     workspaceId: windowDock.workspaceId,
+                    configTemplate: configTemplate,
                     runtimeSpawnPolicy: .pacedSessionRestore
-                )
-                panel.surface.recordCurrentFontSizeLineage(
-                    TerminalFontSizeLineage(basePoints: 20, isExplicitOverride: true)
                 )
                 windowDock.panels[panel.id] = panel
                 return panel
@@ -498,17 +501,18 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             }
 
             let windowDock = appDelegate.windowDock(forWindowId: windowId)
+            @MainActor
             func dormantPanel(id: UUID, basePoints: Float32 = 20) -> TerminalPanel {
+                var configTemplate = CmuxSurfaceConfigTemplate()
+                configTemplate.fontSizeLineage = TerminalFontSizeLineage(
+                    basePoints: basePoints,
+                    isExplicitOverride: true
+                )
                 let panel = TerminalPanel(
                     id: id,
                     workspaceId: windowDock.workspaceId,
+                    configTemplate: configTemplate,
                     runtimeSpawnPolicy: .pacedSessionRestore
-                )
-                panel.surface.recordCurrentFontSizeLineage(
-                    TerminalFontSizeLineage(
-                        basePoints: basePoints,
-                        isExplicitOverride: true
-                    )
                 )
                 windowDock.panels[panel.id] = panel
                 return panel
@@ -633,22 +637,27 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                 return
             }
 
+            var inheritanceSourceConfig = CmuxSurfaceConfigTemplate()
+            inheritanceSourceConfig.fontSizeLineage = TerminalFontSizeLineage(
+                basePoints: 20,
+                isExplicitOverride: true
+            )
             let inheritanceSource = TerminalPanel(
                 id: UUID(uuidString: "00000000-0000-4000-8000-000000000101")!,
                 workspaceId: workspace.id,
+                configTemplate: inheritanceSourceConfig,
                 runtimeSpawnPolicy: .pacedSessionRestore
-            )
-            inheritanceSource.surface.recordCurrentFontSizeLineage(
-                TerminalFontSizeLineage(
-                    basePoints: 20,
-                    isExplicitOverride: true
-                )
             )
             workspace.panels[inheritanceSource.id] = inheritanceSource
             workspace.rememberTerminalConfigInheritanceSource(
                 inheritanceSource
             )
             for suffix in 102...112 {
+                var configTemplate = CmuxSurfaceConfigTemplate()
+                configTemplate.fontSizeLineage = TerminalFontSizeLineage(
+                    basePoints: 20,
+                    isExplicitOverride: true
+                )
                 let panel = TerminalPanel(
                     id: UUID(
                         uuidString: String(
@@ -657,13 +666,8 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                         )
                     )!,
                     workspaceId: workspace.id,
+                    configTemplate: configTemplate,
                     runtimeSpawnPolicy: .pacedSessionRestore
-                )
-                panel.surface.recordCurrentFontSizeLineage(
-                    TerminalFontSizeLineage(
-                        basePoints: 20,
-                        isExplicitOverride: true
-                    )
                 )
                 workspace.panels[panel.id] = panel
             }
@@ -738,27 +742,27 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                 }
 
                 let windowDock = appDelegate.windowDock(forWindowId: windowId)
+                var maximumConfig = CmuxSurfaceConfigTemplate()
+                maximumConfig.fontSizeLineage = TerminalFontSizeLineage(
+                    basePoints: TerminalFontSizePolicy.maximumRuntimePoints,
+                    isExplicitOverride: true
+                )
                 let maximumPanel = TerminalPanel(
                     workspaceId: windowDock.workspaceId,
+                    configTemplate: maximumConfig,
                     runtimeSpawnPolicy: .pacedSessionRestore
-                )
-                maximumPanel.surface.recordCurrentFontSizeLineage(
-                    TerminalFontSizeLineage(
-                        basePoints: TerminalFontSizePolicy.maximumRuntimePoints,
-                        isExplicitOverride: true
-                    )
                 )
                 windowDock.panels[maximumPanel.id] = maximumPanel
 
+                var minimumConfig = CmuxSurfaceConfigTemplate()
+                minimumConfig.fontSizeLineage = TerminalFontSizeLineage(
+                    basePoints: TerminalFontSizePolicy.minimumRuntimePoints,
+                    isExplicitOverride: true
+                )
                 let minimumPanel = TerminalPanel(
                     workspaceId: windowDock.workspaceId,
+                    configTemplate: minimumConfig,
                     runtimeSpawnPolicy: .pacedSessionRestore
-                )
-                minimumPanel.surface.recordCurrentFontSizeLineage(
-                    TerminalFontSizeLineage(
-                        basePoints: TerminalFontSizePolicy.minimumRuntimePoints,
-                        isExplicitOverride: true
-                    )
                 )
                 windowDock.panels[minimumPanel.id] = minimumPanel
 
