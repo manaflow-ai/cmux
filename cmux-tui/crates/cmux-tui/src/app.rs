@@ -12748,6 +12748,46 @@ mod tests {
     }
 
     #[test]
+    fn deferred_terminal_press_fails_closed_when_live_mouse_ownership_changes() {
+        let (mux, surface) = test_mux("deferred-mouse-ownership-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_visible = false;
+        app.sync_layout((40, 15));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let content = app.pane_areas[0].content;
+        let press = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 4,
+            row: content.y + 2,
+            modifiers: KeyModifiers::NONE,
+        };
+
+        app.pointer_route_phase = PointerRoutePhase::DrawPending;
+        app.handle(AppEvent::Input(Event::Mouse(press))).unwrap();
+        assert_eq!(app.deferred_input.len(), 1);
+        assert!(app.drag.is_none());
+        assert!(app.selection.is_none());
+
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1000h\x1b[?1006h"));
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
+        app.replay_deferred_input().unwrap();
+
+        assert!(app.deferred_input.is_empty());
+        assert!(
+            app.drag.is_none(),
+            "a press rendered for selection must not become PTY mouse input after mode changes"
+        );
+        assert!(app.selection.is_none());
+        assert!(app.encode_buf.is_empty());
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn rejected_input_shows_an_error_without_disconnecting() {
         let mux = Mux::new("oversized-input-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -16523,6 +16563,47 @@ mod tests {
             }) if *event == pointer
         ));
         assert_eq!(app.deferred_input.back().map(|input| input.sequence), Some(2));
+    }
+
+    #[test]
+    fn captured_release_ignores_destination_changes_and_clears_ownership() {
+        let (mux, surface) = test_mux("captured-release-destination-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        let pane = app.tree.active_screen().unwrap().active_pane;
+        let content = Rect { x: 2, y: 3, width: 20, height: 8 };
+        app.pane_areas.push(PaneArea {
+            pane,
+            surface: surface.id,
+            rect: Rect { x: 1, y: 2, width: 23, height: 10 },
+            bar: Some(Rect { x: 1, y: 2, width: 23, height: 1 }),
+            omnibar: None,
+            content,
+            track: None,
+        });
+        app.rendered_terminal_bounds.insert(surface.id, content);
+        app.selection = Some(Selection { surface: surface.id, anchor: (1, 1), head: (3, 2) });
+        app.drag = Some(Drag::Select { content, auto_scroll: None, col: 3 });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        let release = MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: content.x + 3,
+            row: content.y + 2,
+            modifiers: KeyModifiers::NONE,
+        };
+
+        app.defer_input(Event::Mouse(release));
+        assert_eq!(
+            app.deferred_input.front().and_then(|input| input.destination),
+            Some(surface.id)
+        );
+        app.pane_areas.clear();
+        app.replay_deferred_input().unwrap();
+
+        assert!(app.deferred_input.is_empty());
+        assert!(app.drag.is_none(), "the release must reach its established selection capture");
+        assert!(app.active_pointer_buttons.is_empty());
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]

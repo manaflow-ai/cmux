@@ -546,6 +546,20 @@ mod tests {
         }
     }
 
+    fn release_event(surface: SurfaceId) -> BrowserInputEvent {
+        BrowserInputEvent {
+            surface_id: surface,
+            surface: SurfaceHandle::RemoteBrowserUnsupported,
+            kind: BrowserInputKind::Mouse {
+                event_type: "mouseReleased",
+                x: 0.0,
+                y: 0.0,
+                button: Some("left"),
+                click_count: Some(1),
+            },
+        }
+    }
+
     fn resize_event(surface: SurfaceId, cols: u16) -> BrowserInputEvent {
         BrowserInputEvent {
             surface_id: surface,
@@ -603,6 +617,21 @@ mod tests {
         assert!(
             !dispatcher.enqueue(reload_event(1)),
             "a full queue must report the drop, not swallow it as accepted"
+        );
+    }
+
+    #[test]
+    fn full_queue_retains_the_release_after_its_accepted_press() {
+        let (dispatcher, blocked) = BrowserInputDispatcher::blocked(1);
+        assert!(dispatcher.enqueue(click_event(7)));
+        assert!(
+            dispatcher.enqueue(release_event(7)),
+            "a saturated ordinary lane must retain the release that closes its accepted press"
+        );
+        assert_eq!(
+            blocked.drain_mouse_lifetimes(),
+            vec![("mousePressed", false), ("mouseReleased", false)],
+            "the retained release must keep its enqueue order behind the accepted press"
         );
     }
 
