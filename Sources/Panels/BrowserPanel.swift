@@ -1,6 +1,7 @@
 import Foundation
 import CmuxCore
 import CmuxBrowser
+import CmuxTestSupport
 import CmuxFoundation
 import CmuxSettings
 import Combine
@@ -523,7 +524,12 @@ enum BrowserLinkOpenSettings {
         for rawPattern in externalOpenPatterns(defaults: defaults) {
             guard let (isRegex, value) = parseExternalPattern(rawPattern) else { continue }
             if isRegex {
-                guard let regex = try? NSRegularExpression(pattern: value, options: [.caseInsensitive]) else { continue }
+                guard let regex = try? NSRegularExpression(pattern: value, options: [.caseInsensitive]) else {
+#if DEBUG
+                    cmuxDebugLog("browser.externalOpen.invalidRegex skipped pattern=\(value)")
+#endif
+                    continue
+                }
                 let range = NSRange(target.startIndex..<target.endIndex, in: target)
                 if regex.firstMatch(in: target, options: [], range: range) != nil {
                     return true
@@ -534,6 +540,17 @@ enum BrowserLinkOpenSettings {
         }
 
         return false
+    }
+
+    /// True when a link open should bypass the embedded browser entirely and
+    /// go to the system browser — for example hosts behind managed-browser
+    /// attestation checks that an embedded web view cannot pass. Restricted
+    /// to web schemes; other schemes have their own external-open routing.
+    static func linkEscapesToSystemBrowser(_ url: URL, defaults: UserDefaults = .standard) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+            return false
+        }
+        return shouldOpenExternally(url, defaults: defaults)
     }
 
     /// Check whether a hostname matches the configured whitelist.
@@ -1133,12 +1150,22 @@ private func browserPresentExternalNavigationFailure(
 }
 
 @discardableResult
-private func browserOpenExternalNavigationURL(
+func browserOpenExternalNavigationURL(
     _ url: URL,
     source: String,
     webView: WKWebView,
     presentAlert: BrowserAlertPresenter = browserPresentAlert
 ) -> Bool {
+#if DEBUG
+    // UI tests observe external-open routing through the capture sink; a
+    // configured sink intercepts the open so CI never launches a real browser.
+    if UITestCaptureSink().appendLineIfConfigured(
+        envKey: "CMUX_UI_TEST_CAPTURE_EXTERNAL_OPEN_PATH",
+        line: "\(source) \(url.absoluteString)"
+    ) {
+        return true
+    }
+#endif
     let opened = NSWorkspace.shared.open(url)
     if !opened {
         browserPresentExternalNavigationFailure(for: url, in: webView, presentAlert: presentAlert)
@@ -6458,8 +6485,20 @@ extension BrowserPanel {
         webView.goForward()
     }
 
-    /// Open a link in a new browser surface in the same pane
+    /// Open a link in a new browser surface in the same pane. This is the
+    /// user-link-action entry (context menus); links matching the
+    /// external-open rules route to the system browser, same as a plain
+    /// click on them would. The request variant below stays rule-free: it
+    /// also serves programmatic popup-to-tab routing (window.open, form
+    /// posts), which must never escape without an explicit link activation.
     func openLinkInNewTab(url: URL, bypassInsecureHTTPHostOnce: String? = nil) {
+        if BrowserLinkOpenSettings.linkEscapesToSystemBrowser(url) {
+#if DEBUG
+            cmuxDebugLog("browser.newTab.open.external panel=\(id.uuidString.prefix(5)) reason=externalOpenRule")
+#endif
+            browserOpenExternalNavigationURL(url, source: "newTab.escape", webView: webView)
+            return
+        }
         openLinkInNewTab(
             request: URLRequest(url: url),
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
@@ -8628,6 +8667,27 @@ private class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
                 loadFallbackRequest: { [requestNavigation] request in
                     requestNavigation?(request, .currentTab)
                 },
+                presentAlert: presentAlert
+            )
+            return nil
+        }
+
+        // target=_blank link clicks matching the external-open rules go to
+        // the system browser instead of an embedded popup. Only explicit
+        // link activations escape: form posts must keep their request body,
+        // scripted window.open popups must not reach the system browser
+        // without a click, and downloads stay on the embedded download path.
+        if let url = navigationAction.request.url,
+           navigationAction.navigationType == .linkActivated,
+           !navigationAction.shouldPerformDownload,
+           BrowserLinkOpenSettings.linkEscapesToSystemBrowser(url) {
+#if DEBUG
+            cmuxDebugLog("browser.nav.createWebView.action kind=escapeToSystemBrowser url=\(browserNavigationDebugURL(url))")
+#endif
+            browserOpenExternalNavigationURL(
+                url,
+                source: "uiDelegate.escape",
+                webView: webView,
                 presentAlert: presentAlert
             )
             return nil

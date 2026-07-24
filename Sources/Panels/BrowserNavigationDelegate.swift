@@ -311,6 +311,36 @@ import WebKit
         )
 #endif
 
+        // Links matching the user's external-open rules leave the embedded
+        // browser on click (for example hosts behind managed-browser checks).
+        // This runs before the insecure-HTTP gate so a matching http:// link
+        // escapes instead of hitting the embedded interstitial. Downloads
+        // keep the download flow, and script-driven navigations stay
+        // embedded (only explicit link activations escape).
+        if let url = navigationAction.request.url,
+           navigationAction.navigationType == .linkActivated,
+           navigationAction.targetFrame?.isMainFrame != false,
+           !navigationAction.shouldPerformDownload,
+           BrowserLinkOpenSettings.linkEscapesToSystemBrowser(url) {
+#if DEBUG
+            cmuxDebugLog("browser.nav.decidePolicy.action kind=escapeToSystemBrowser url=\(browserNavigationDebugURL(url))")
+#endif
+            clearAttemptedRequest(discardPendingBypasses: true)
+            let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
+            decisionHandler(.cancel)
+            let opened = browserOpenExternalNavigationURL(
+                url,
+                source: "navDelegate.escape",
+                webView: webView,
+                presentAlert: presentAlert
+            )
+            // Like the neighboring policy-cancel branches, only a successful
+            // handoff reports the cancellation: reporting a failed open would
+            // mark a discarded pane restored with nothing showing the page.
+            if opened { reportTerminalCancellation() }
+            return
+        }
+
         if let url = navigationAction.request.url,
            shouldOpenCheckoutInSystemBrowser(navigationAction, url: url) {
             clearAttemptedRequest(discardPendingBypasses: true)

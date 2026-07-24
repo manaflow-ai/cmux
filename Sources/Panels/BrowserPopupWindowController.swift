@@ -437,6 +437,24 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
             return nil
         }
 
+        // target=_blank clicks inside a popup obey the external-open rules
+        // like every other explicit link activation; without this they would
+        // route back into an embedded cmux context.
+        if let url = navigationAction.request.url,
+           navigationAction.navigationType == .linkActivated,
+           !navigationAction.shouldPerformDownload,
+           BrowserLinkOpenSettings.linkEscapesToSystemBrowser(url) {
+            #if DEBUG
+            cmuxDebugLog("popup.ui.escapeToSystemBrowser url=\(browserNavigationDebugURL(url))")
+            #endif
+            browserOpenExternalNavigationURL(
+                url,
+                source: "popupUIDelegate.escape",
+                webView: webView
+            )
+            return nil
+        }
+
         let isScriptedPopup = browserNavigationShouldCreatePopup(
             navigationType: navigationAction.navigationType,
             modifierFlags: navigationAction.modifierFlags,
@@ -676,6 +694,27 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
                 return
             }
             decisionHandler(.allow)
+            return
+        }
+
+        // Explicit link clicks matching the external-open rules leave the
+        // popup for the system browser — same policy as the main browser's
+        // navigation delegate: link activations only, never downloads, and
+        // ahead of the insecure-HTTP gate so a matching http:// link escapes
+        // instead of hitting the embedded interstitial.
+        if navigationAction.navigationType == .linkActivated,
+           !navigationAction.shouldPerformDownload,
+           BrowserLinkOpenSettings.linkEscapesToSystemBrowser(url) {
+            #if DEBUG
+            cmuxDebugLog("popup.nav.escapeToSystemBrowser url=\(browserNavigationDebugURL(url))")
+            #endif
+            clearAttemptedRequest(discardPendingBypasses: true)
+            decisionHandler(.cancel)
+            browserOpenExternalNavigationURL(
+                url,
+                source: "popupNavDelegate.escape",
+                webView: webView
+            )
             return
         }
 
