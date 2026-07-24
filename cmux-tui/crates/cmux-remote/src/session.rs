@@ -1181,6 +1181,66 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn tunnel_delivery_window_backpressures_until_ack() {
+        let limits = SessionLimits::default();
+        let (sender_link, peer_link) = test_support::pair(128 * 1024);
+        let sender = ReliableSession::new(SessionId([19; 16]), Arc::new(sender_link), limits);
+        let peer = ReliableSession::new(SessionId([19; 16]), Arc::new(peer_link), limits);
+        let payload = Bytes::from(vec![0; MAX_FRAME_PAYLOAD]);
+
+        for expected_sequence in 1..=5 {
+            assert_eq!(
+                sender
+                    .send_with_replay_backpressure(
+                        Lane::Tunnel,
+                        7,
+                        payload.clone(),
+                        FrameFlags::empty(),
+                    )
+                    .await
+                    .unwrap(),
+                expected_sequence
+            );
+            assert_eq!(peer.receive().await.unwrap().unwrap().sequence, expected_sequence);
+        }
+
+        let blocked = tokio::spawn({
+            let sender = sender.clone();
+            let payload = payload.clone();
+            async move {
+                sender
+                    .send_with_replay_backpressure(
+                        Lane::Tunnel,
+                        7,
+                        payload,
+                        FrameFlags::empty(),
+                    )
+                    .await
+            }
+        });
+        tokio::task::yield_now().await;
+        assert!(
+            !blocked.is_finished(),
+            "unacknowledged tunnel bytes escaped the delivery window"
+        );
+
+        let receive_acks = tokio::spawn({
+            let sender = sender.clone();
+            async move { sender.receive().await }
+        });
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(1), blocked)
+                .await
+                .expect("tunnel send remained blocked after its delivery acknowledgement")
+                .unwrap()
+                .unwrap(),
+            6
+        );
+        receive_acks.abort();
+        assert_eq!(peer.receive().await.unwrap().unwrap().sequence, 6);
+    }
+
+    #[tokio::test]
     async fn queue_admission_failure_rolls_back_sequence_and_replay() {
         let limits = SessionLimits { queued_bytes_per_lane: 512, ..SessionLimits::default() };
         let (sender_link, peer_link) = test_support::pair(128 * 1024);
