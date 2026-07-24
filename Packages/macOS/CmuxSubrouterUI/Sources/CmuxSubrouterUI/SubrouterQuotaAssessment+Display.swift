@@ -2,18 +2,6 @@ internal import Foundation
 public import CmuxSubrouter
 
 extension SubrouterQuotaAssessment {
-    /// The localized chip text, or `nil` when the account is not limited.
-    public var chipText: String? {
-        switch self {
-        case .ok:
-            return nil
-        case .tempCooked:
-            return String(localized: "subrouter.quota.tempCooked", defaultValue: "Cooling down")
-        case .cooked:
-            return String(localized: "subrouter.quota.cooked", defaultValue: "Cooked")
-        }
-    }
-
     /// A localized one-line detail (which window saturated and when it
     /// resets), or `nil` when the account is not limited.
     public var detailText: String? {

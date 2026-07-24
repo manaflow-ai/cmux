@@ -70,9 +70,15 @@ public struct AgentsPanelView: View {
                         actionsForAccount: { account in
                             rowActions(account: account, configuration: configuration)
                         },
-                        onAddAccount: terminalAction(
-                            configuration.isRemoteEndpoint ? nil : .addAccount(provider: provider)
-                        )
+                        // Remote mode still offers add: the login chains
+                        // into the upload that lands it on the watched
+                        // server's pool.
+                        onAddAccount: terminalAction(.addAccount(
+                            provider: provider,
+                            serverName: configuration.isRemoteEndpoint
+                                ? (configuration.serverName ?? configuration.endpoint.baseURL.host())
+                                : nil
+                        ))
                     )
                 }
                 if snapshot.daemonState.isHealthy && snapshot.usageStatuses.isEmpty {
@@ -151,7 +157,7 @@ public struct AgentsPanelView: View {
     }
 
     /// The zero-accounts state: explanatory text, plus one-click add
-    /// buttons when the host can open terminals against the local `sr`.
+    /// buttons when the host can open terminals.
     @ViewBuilder
     private func emptyAccountsState(configuration: SubrouterConfiguration) -> some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -161,20 +167,23 @@ public struct AgentsPanelView: View {
             ))
             .font(.system(size: 10))
             .foregroundStyle(.tertiary)
-            if !configuration.isRemoteEndpoint {
-                HStack(spacing: 6) {
-                    ForEach([SubrouterProvider.codex, .claude], id: \.rawValue) { provider in
-                        if let action = terminalAction(.addAccount(provider: provider)) {
-                            Button(action: action) {
-                                Text(String(
-                                    localized: "subrouter.provider.addAccount",
-                                    defaultValue: "Add \(provider.displayName) account"
-                                ))
-                                .font(.system(size: 10))
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.mini)
+            HStack(spacing: 6) {
+                ForEach([SubrouterProvider.codex, .claude], id: \.rawValue) { provider in
+                    if let action = terminalAction(.addAccount(
+                        provider: provider,
+                        serverName: configuration.isRemoteEndpoint
+                            ? (configuration.serverName ?? configuration.endpoint.baseURL.host())
+                            : nil
+                    )) {
+                        Button(action: action) {
+                            Text(String(
+                                localized: "subrouter.provider.addAccount",
+                                defaultValue: "Add \(provider.displayName) account"
+                            ))
+                            .font(.system(size: 10))
                         }
+                        .buttonStyle(.bordered)
+                        .controlSize(.mini)
                     }
                 }
             }

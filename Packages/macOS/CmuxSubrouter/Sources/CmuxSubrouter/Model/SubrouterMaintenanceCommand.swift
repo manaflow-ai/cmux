@@ -5,12 +5,22 @@
 public enum SubrouterMaintenanceCommand {
     /// The command that starts an interactive add-account login for the
     /// provider, or `nil` when the provider has no add verb.
-    public static func addAccount(provider: SubrouterProvider) -> String? {
+    ///
+    /// With a `serverName`, the login chains into the upload that puts the
+    /// new account on that server's pool (`sr server sync` for Codex,
+    /// `sr claude push` for Claude profiles) — the panel may be watching a
+    /// remote server, where a purely local login would never appear.
+    public static func addAccount(
+        provider: SubrouterProvider,
+        serverName: String? = nil
+    ) -> String? {
         switch provider {
         case .codex:
-            return "sr add"
+            guard let serverName else { return "sr add" }
+            return "sr add && sr server sync \(shellQuoted(serverName)) --yes"
         case .claude:
-            return "sr claude add"
+            guard serverName != nil else { return "sr claude add" }
+            return "sr claude add && sr claude push"
         default:
             return nil
         }

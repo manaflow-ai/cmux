@@ -80,6 +80,13 @@ extension SubrouterUsageWindow {
         return String(localized: "subrouter.window.resetsIn", defaultValue: "resets in \(spanText)")
     }
 
+    /// The bare countdown duration (`2d 4h`) for tight trailing slots, or
+    /// `nil` when the daemon reported no reset time.
+    public var shortResetText: String? {
+        guard resetAfterSeconds > 0 else { return nil }
+        return Self.durationText(seconds: resetAfterSeconds)
+    }
+
     /// Formats a duration the way `sr` does: `2d 4h`, `3h 12m`, `<1m`.
     static func durationText(seconds: Int64) -> String {
         guard seconds > 0 else {

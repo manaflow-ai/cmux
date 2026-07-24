@@ -13,8 +13,16 @@ public struct SubrouterTerminalRequest: Sendable, Equatable {
     public let runsImmediately: Bool
 
     /// The add-account request for a provider, or `nil` when unsupported.
-    public static func addAccount(provider: SubrouterProvider) -> SubrouterTerminalRequest? {
-        guard let command = SubrouterMaintenanceCommand.addAccount(provider: provider) else {
+    /// Pass `serverName` when the panel follows a remote server so the new
+    /// login is also uploaded to that server's pool.
+    public static func addAccount(
+        provider: SubrouterProvider,
+        serverName: String? = nil
+    ) -> SubrouterTerminalRequest? {
+        guard let command = SubrouterMaintenanceCommand.addAccount(
+            provider: provider,
+            serverName: serverName
+        ) else {
             return nil
         }
         return SubrouterTerminalRequest(

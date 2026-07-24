@@ -122,7 +122,7 @@ public struct SubrouterAccountRowView: View {
         } else if isAuthExpired {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 8))
-                .foregroundStyle(.orange)
+                .foregroundStyle(.tertiary)
                 .help(String(
                     localized: "subrouter.account.authInvalid",
                     defaultValue: "Sign-in expired"
@@ -136,11 +136,10 @@ public struct SubrouterAccountRowView: View {
     }
 
     /// The trailing summary: a pending spinner, the hover-revealed Switch
-    /// button, a cooked chip when the account is quota-limited, or the
-    /// constraining window's mini gauge.
+    /// button, or the uniform gauge summary (percent, or reset countdown
+    /// once the account is exhausted).
     @ViewBuilder
     private var trailingSummary: some View {
-        let assessment = account.quotaAssessment
         if isSwitchPending {
             ProgressView()
                 .controlSize(.small)
@@ -161,25 +160,12 @@ public struct SubrouterAccountRowView: View {
             } else {
                 button
             }
-        } else if let chip = assessment.chipText {
-            Text(chip)
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(chipColor(for: assessment))
-                .padding(.horizontal, 4)
-                .padding(.vertical, 1)
-                .background(chipColor(for: assessment).opacity(0.15), in: Capsule())
-        } else if let window = account.constrainingWindow {
-            miniGauge(for: window)
-            Text(String(
-                localized: "subrouter.usage.percentUsed",
-                defaultValue: "\(Int(window.clampedUsedPercent.rounded()))%"
-            ))
-            .font(.system(size: 9, weight: .semibold).monospacedDigit())
-            .foregroundStyle(SubrouterPalette.usageAccent(for: window.clampedUsedPercent))
+        } else if account.constrainingWindow != nil {
+            SubrouterUsageSummaryView(account: account)
         } else if account.errorDescription?.isEmpty == false && !isAuthExpired {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 8))
-                .foregroundStyle(.orange)
+                .foregroundStyle(.tertiary)
                 .help(account.errorDescription ?? "")
         }
     }
@@ -241,7 +227,7 @@ public struct SubrouterAccountRowView: View {
                     systemImage: "exclamationmark.triangle"
                 )
                 .font(.system(size: 9))
-                .foregroundStyle(.orange)
+                .foregroundStyle(.secondary)
                 .help(errorDescription)
             }
         }
@@ -286,26 +272,6 @@ public struct SubrouterAccountRowView: View {
     }
 
     // MARK: Shared bits
-
-    private func miniGauge(for window: SubrouterUsageWindow) -> some View {
-        ZStack(alignment: .leading) {
-            Capsule()
-                .fill(Color.primary.opacity(0.08))
-            Capsule()
-                .fill(SubrouterPalette.usageFill(for: window.clampedUsedPercent))
-                .frame(width: max(2, 44 * window.clampedUsedPercent / 100))
-        }
-        .frame(width: 44, height: 4)
-        .accessibilityHidden(true)
-    }
-
-    private func chipColor(for assessment: SubrouterQuotaAssessment) -> Color {
-        switch assessment {
-        case .cooked: return .red
-        case .tempCooked: return .orange
-        case .ok: return .secondary
-        }
-    }
 
     private var accessibilityHeaderLabel: String {
         var parts = [account.displayName]

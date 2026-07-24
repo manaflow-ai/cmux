@@ -21,6 +21,23 @@ import Testing
         )
     }
 
+    @Test func remoteAddChainsTheServerUpload() {
+        #expect(
+            SubrouterMaintenanceCommand.addAccount(provider: .codex, serverName: "cmux-mac-mini")
+                == "sr add && sr server sync 'cmux-mac-mini' --yes"
+        )
+        #expect(
+            SubrouterMaintenanceCommand.addAccount(provider: .claude, serverName: "cmux-mac-mini")
+                == "sr claude add && sr claude push"
+        )
+        #expect(
+            SubrouterMaintenanceCommand.addAccount(
+                provider: SubrouterProvider(rawValue: "gemini"),
+                serverName: "cmux-mac-mini"
+            ) == nil
+        )
+    }
+
     @Test func quotesHostileAccountIDs() {
         // A profile name with quotes/metacharacters must stay one shell word.
         #expect(SubrouterMaintenanceCommand.shellQuoted("a'b; rm -rf ~") == "'a'\\''b; rm -rf ~'")

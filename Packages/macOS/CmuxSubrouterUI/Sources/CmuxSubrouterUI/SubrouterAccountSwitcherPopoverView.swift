@@ -106,20 +106,25 @@ struct SubrouterPopoverAccountRow: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            Circle()
-                .fill(account.isActive ? Color.green : Color.primary.opacity(0.15))
-                .frame(width: 5, height: 5)
-                .accessibilityHidden(true)
+            if account.isActive {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(SubrouterPalette.accentGradient)
+                    .frame(width: 9)
+                    .accessibilityHidden(true)
+            } else {
+                Circle()
+                    .fill(Color.primary.opacity(0.15))
+                    .frame(width: 5, height: 5)
+                    .frame(width: 9)
+                    .accessibilityHidden(true)
+            }
             Text(account.displayName)
                 .font(.system(size: 10, weight: account.isActive ? .semibold : .regular))
                 .lineLimit(1)
                 .truncationMode(.middle)
-            if let chip = account.quotaAssessment.chipText {
-                Text(chip)
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundStyle(.orange)
-            }
             Spacer(minLength: 4)
+            SubrouterUsageSummaryView(account: account)
             if isSwitchPending {
                 ProgressView()
                     .controlSize(.small)
