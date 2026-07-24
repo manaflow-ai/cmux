@@ -18,8 +18,8 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use cmux_tui_core::{
     BrowserSource, BrowserStatus, Direction, MuxEvent, Node, PairingChallenge, PaneId, Rect,
-    SplitDir, SplitEdge, SplitId, SurfaceId, SurfaceKind, WorkspaceId, exact_split_for_pane_edge,
-    layout_screen, split_sides, zellij_default_pane_layout,
+    SplitDir, SplitEdge, SplitId, SurfaceId, SurfaceKind, WorkspaceId, ZoomMode,
+    exact_split_for_pane_edge, layout_screen, split_sides, zellij_default_pane_layout,
 };
 use crossterm::ExecutableCommand;
 use crossterm::event::{
@@ -1874,7 +1874,12 @@ impl OrderedSession {
     }
 
     pub fn zoom_pane(&self, pane: Option<PaneId>) {
-        self.enqueue("zoom pane", move |session| session.zoom_pane(pane));
+        self.enqueue("zoom pane", move |session| session.zoom_pane(pane, ZoomMode::Toggle));
+    }
+
+    pub fn set_pane_zoom(&self, pane: PaneId, zoomed: bool) {
+        let mode = if zoomed { ZoomMode::On } else { ZoomMode::Off };
+        self.enqueue("set pane zoom", move |session| session.zoom_pane(Some(pane), mode));
     }
 
     pub fn split(
@@ -8277,11 +8282,11 @@ impl App {
 
     fn activate_menu(&mut self, action: MenuAction) -> anyhow::Result<()> {
         match action {
-            MenuAction::TogglePaneZoom { pane, .. } => {
+            MenuAction::TogglePaneZoom { pane, zoomed } => {
                 if self.active_pane() != Some(pane) {
                     self.focus_pane_after_input(pane);
                 }
-                self.run_action_for_pane(Action::ZoomPane, Some(pane))?;
+                self.session.set_pane_zoom(pane, !zoomed);
                 return Ok(());
             }
             MenuAction::NewPaneSmart(pane) => {
@@ -10782,7 +10787,9 @@ impl App {
                     self.menu_group([MenuAction::TogglePaneZoom { pane: area.pane, zoomed }]),
                 );
             }
-            if let Some(clients) = client_menu_item(&self.clients, area.surface) {
+            if self.surface_only.is_none()
+                && let Some(clients) = client_menu_item(&self.clients, area.surface)
+            {
                 groups.push(vec![clients]);
             }
             groups.push(self.menu_group(self.global_menu_actions()));

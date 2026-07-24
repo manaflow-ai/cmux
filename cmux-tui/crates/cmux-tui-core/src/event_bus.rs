@@ -88,15 +88,14 @@ impl MuxEventBroadcaster {
     ) {
         let mut subscribers = self.subscribers.lock().unwrap();
         subscribers.retain_mut(|subscriber| {
-            if subscriber.mailbox.upgrade().is_none() {
-                return false;
-            }
+            let Some(mailbox) = subscriber.mailbox.upgrade() else { return false };
             if let MuxEventFilter::SurfaceSession(scope) = &mut subscriber.filter
                 && scope.surface == surface
             {
                 scope.workspace = workspace;
                 scope.screen = screen;
                 scope.pane = pane;
+                return mailbox.push(MuxEvent::TreeChanged);
             }
             true
         });
@@ -155,9 +154,9 @@ impl SurfaceSessionScope {
             | MuxEvent::ClientChanged { .. }
             | MuxEvent::ClientDetached(_)
             | MuxEvent::ClientListInvalidated
+            | MuxEvent::TreeChanged
             | MuxEvent::TreeSelectionChanged => false,
-            MuxEvent::TreeChanged
-            | MuxEvent::Status(_)
+            MuxEvent::Status(_)
             | MuxEvent::ConfigReloadRequested
             | MuxEvent::WindowTitleRequested(_)
             | MuxEvent::FrontendProjectionChanged { .. }
@@ -169,10 +168,20 @@ impl SurfaceSessionScope {
     }
 
     fn accepts_tree_delta(&mut self, delta: &TreeDelta) -> bool {
-        let relevant = delta.surface == Some(self.surface)
-            || delta.pane == Some(self.pane)
-            || delta.screen == Some(self.screen)
-            || delta.workspace == self.workspace;
+        let relevant = match delta.kind {
+            TreeDeltaKind::TabAdded | TreeDeltaKind::TabClosed | TreeDeltaKind::TabRenamed => {
+                delta.surface == Some(self.surface)
+            }
+            TreeDeltaKind::PaneClosed => delta.pane == Some(self.pane),
+            TreeDeltaKind::ScreenClosed => delta.screen == Some(self.screen),
+            TreeDeltaKind::WorkspaceClosed => delta.workspace == self.workspace,
+            TreeDeltaKind::WorkspaceAdded
+            | TreeDeltaKind::WorkspaceRenamed
+            | TreeDeltaKind::WorkspaceMoved
+            | TreeDeltaKind::ScreenAdded
+            | TreeDeltaKind::ScreenRenamed
+            | TreeDeltaKind::PaneAdded => false,
+        };
         if delta.surface == Some(self.surface) && delta.kind == TreeDeltaKind::TabAdded {
             self.workspace = delta.workspace;
             if let Some(screen) = delta.screen {

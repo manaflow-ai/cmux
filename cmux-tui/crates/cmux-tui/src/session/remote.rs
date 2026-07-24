@@ -436,6 +436,7 @@ pub struct RemoteSession {
     event_surface_filter: AtomicU64,
     subscription_recovery: Mutex<SubscriptionRecoveryState>,
     subscribers: MuxEventBroadcaster,
+    primed_subscription: Mutex<Option<MuxEventReceiver>>,
     frame_logs: Mutex<HashMap<SurfaceId, Vec<String>>>,
     surface_overflow_recovery: Mutex<HashMap<SurfaceId, SurfaceOverflowRecovery>>,
     capabilities: Mutex<HashSet<String>>,
@@ -602,6 +603,7 @@ impl RemoteSession {
             event_surface_filter: AtomicU64::new(0),
             subscription_recovery: Mutex::new(SubscriptionRecoveryState::default()),
             subscribers: MuxEventBroadcaster::default(),
+            primed_subscription: Mutex::new(None),
             frame_logs: Mutex::new(HashMap::new()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
             capabilities: Mutex::new(HashSet::new()),
@@ -648,7 +650,11 @@ impl RemoteSession {
         }
         self.request(client_info)?;
         if subscribe {
-            self.request(self.subscription_request())?;
+            self.prime_local_subscription();
+            if let Err(error) = self.request(self.subscription_request()) {
+                self.primed_subscription.lock().unwrap().take();
+                return Err(error);
+            }
             self.subscription_started.store(true, Ordering::Release);
         }
         Ok(())
@@ -691,7 +697,17 @@ impl RemoteSession {
     }
 
     pub fn subscribe(&self) -> MuxEventReceiver {
-        self.subscribers.subscribe()
+        self.primed_subscription
+            .lock()
+            .unwrap()
+            .take()
+            .unwrap_or_else(|| self.subscribers.subscribe())
+    }
+
+    fn prime_local_subscription(&self) {
+        let receiver = self.subscribers.subscribe();
+        let previous = self.primed_subscription.lock().unwrap().replace(receiver);
+        debug_assert!(previous.is_none(), "event receiver must be consumed before re-priming");
     }
 
     /// Limit this connection to events that can affect one attached terminal.
@@ -709,7 +725,9 @@ impl RemoteSession {
             anyhow::bail!("event subscription already started");
         }
         self.event_surface_filter.store(surface, Ordering::Release);
+        self.prime_local_subscription();
         if let Err(error) = self.request(self.subscription_request()) {
+            self.primed_subscription.lock().unwrap().take();
             self.event_surface_filter.store(0, Ordering::Release);
             self.subscription_started.store(false, Ordering::Release);
             return Err(error);
@@ -1710,6 +1728,7 @@ fn test_session_with_provider_context(
         event_surface_filter: AtomicU64::new(0),
         subscription_recovery: Mutex::new(SubscriptionRecoveryState::default()),
         subscribers: MuxEventBroadcaster::default(),
+        primed_subscription: Mutex::new(None),
         frame_logs: Mutex::new(HashMap::new()),
         surface_overflow_recovery: Mutex::new(HashMap::new()),
         capabilities: Mutex::new(capabilities),
@@ -2037,6 +2056,7 @@ mod tests {
             event_surface_filter: AtomicU64::new(0),
             subscription_recovery: Mutex::new(SubscriptionRecoveryState::default()),
             subscribers: MuxEventBroadcaster::default(),
+            primed_subscription: Mutex::new(None),
             frame_logs: Mutex::new(HashMap::new()),
             surface_overflow_recovery: Mutex::new(HashMap::new()),
             capabilities: Mutex::new(capabilities),
