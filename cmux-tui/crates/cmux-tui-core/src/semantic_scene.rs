@@ -127,6 +127,9 @@ pub struct SemanticSceneAttachmentOptions {
     pub terminal: SemanticSceneTerminalIdentity,
     pub presentation: SemanticScenePresentationIdentity,
     pub capture: SemanticSceneCaptureOptions,
+    /// Whether every scene must carry the exact canonical viewport text captured
+    /// under the same terminal lock as its encoded pixels.
+    pub include_accessibility: bool,
     /// Initial visual IME marked text. It is never written to the PTY.
     pub preedit: Option<SemanticScenePreedit>,
     pub event_capacity: usize,
@@ -162,11 +165,20 @@ impl SemanticSceneAttachmentOptions {
             terminal,
             presentation,
             capture: SemanticSceneCaptureOptions::default(),
+            include_accessibility: false,
             preedit: None,
             event_capacity: SEMANTIC_SCENE_EVENT_CAPACITY,
             consumer_wake: None,
         }
     }
+}
+
+/// Bounded canonical viewport semantics captured atomically with one scene.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SemanticSceneAccessibility {
+    pub columns: u16,
+    pub rows: u16,
+    pub text: Arc<str>,
 }
 
 /// A typed semantic capture failure delivered before the attachment closes.
@@ -273,6 +285,7 @@ pub struct SemanticSceneFrame {
     pub presentation: SemanticScenePresentationIdentity,
     pub presentation_sequence: u64,
     pub canonical_kind: SceneSectionKind,
+    pub accessibility: Option<Arc<SemanticSceneAccessibility>>,
     encoded: EncodedRenderScene,
 }
 
@@ -577,6 +590,7 @@ struct SemanticSceneTap {
     terminal: SemanticSceneTerminalIdentity,
     presentation: SemanticScenePresentationIdentity,
     capture: SemanticSceneCaptureOptions,
+    include_accessibility: bool,
     delivered_content_sequence: u64,
     next_presentation_sequence: u64,
     needs_full: bool,
@@ -626,8 +640,12 @@ impl SemanticSceneHub {
         content_sequence: u64,
         options: SemanticSceneAttachmentOptions,
         wake: SyncSender<u64>,
+        accessibility: Option<Arc<SemanticSceneAccessibility>>,
     ) -> Result<SemanticSceneAttachment, SemanticSceneAttachError> {
         Self::validate_attachment(actual_terminal, content_sequence, &options)?;
+        if options.include_accessibility && accessibility.is_none() {
+            return Err(SemanticSceneAttachError::Capture(SemanticSceneFailure::Internal));
+        }
         let capture_started = Instant::now();
 
         let mut encoder = RenderSceneEncoder::new()
@@ -656,6 +674,7 @@ impl SemanticSceneHub {
             presentation: options.presentation,
             presentation_sequence,
             canonical_kind: SceneSectionKind::Full,
+            accessibility: options.include_accessibility.then(|| accessibility.clone()).flatten(),
             encoded,
         };
         let (sender, receiver) = sync_channel(options.event_capacity);
@@ -673,6 +692,7 @@ impl SemanticSceneHub {
             terminal: options.terminal,
             presentation: options.presentation,
             capture: options.capture,
+            include_accessibility: options.include_accessibility,
             delivered_content_sequence: content_sequence,
             next_presentation_sequence: 2,
             needs_full: false,
@@ -691,6 +711,7 @@ impl SemanticSceneHub {
         terminal: &mut Terminal,
         actual_terminal: SemanticSceneTerminalIdentity,
         content_sequence: u64,
+        accessibility: Option<Arc<SemanticSceneAccessibility>>,
     ) -> bool {
         if self.attachments.is_empty() {
             return false;
@@ -724,6 +745,10 @@ impl SemanticSceneHub {
                 return true;
             }
             worked = true;
+
+            if attachment.include_accessibility && accessibility.is_none() {
+                return Self::fail_attachment(attachment, SemanticSceneFailure::Internal, false);
+            }
 
             if !attachment.lifecycle.reserve_event_slot() {
                 // A stalled worker still owns every bounded slot. The receive path wakes this
@@ -798,6 +823,10 @@ impl SemanticSceneHub {
                 presentation: attachment.presentation,
                 presentation_sequence: attachment.next_presentation_sequence,
                 canonical_kind,
+                accessibility: attachment
+                    .include_accessibility
+                    .then(|| accessibility.clone())
+                    .flatten(),
                 encoded,
             };
             encoded_scenes = encoded_scenes.saturating_add(1);
@@ -837,6 +866,15 @@ impl SemanticSceneHub {
 
     pub(crate) fn attachment_count(&self) -> usize {
         self.attachments.len()
+    }
+
+    pub(crate) fn accessibility_capture_context_locked(
+        &self,
+    ) -> Option<(SemanticScenePresentationIdentity, bool)> {
+        self.attachments
+            .iter()
+            .find(|attachment| attachment.include_accessibility)
+            .map(|attachment| (attachment.presentation, attachment.capture.focused))
     }
 
     #[cfg(test)]
@@ -970,6 +1008,7 @@ mod tests {
                 1,
                 attachment_options(identity, PresentationId::new()),
                 wake.clone(),
+                None,
             )
             .unwrap();
         let steady = hub
@@ -979,13 +1018,14 @@ mod tests {
                 1,
                 attachment_options(identity, PresentationId::new()),
                 wake,
+                None,
             )
             .unwrap();
 
         const MUTATIONS: u64 = 1_024;
         for sequence in 2..=MUTATIONS + 1 {
             terminal.vt_write(format!("{sequence:04} renderer saturation\r\n").as_bytes());
-            assert!(hub.capture_locked(&mut terminal, identity, sequence));
+            assert!(hub.capture_locked(&mut terminal, identity, sequence, None));
             let SemanticSceneEvent::Scene(frame) = steady.events.try_recv().unwrap() else {
                 panic!("steady attachment failed during saturation")
             };

@@ -1738,12 +1738,15 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		CBAD00000000000000000124 /* TerminalBackendFrontendEventRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAD00000000000000000224 /* TerminalBackendFrontendEventRouter.swift */; };
 		CBAD00000000000000000107 /* TerminalBackendMutationOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAD00000000000000000207 /* TerminalBackendMutationOutcome.swift */; };
 		CBAD00000000000000000108 /* TerminalBackendMutationQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAD00000000000000000208 /* TerminalBackendMutationQueue.swift */; };
+		5CE100000000000000000003 /* TerminalBackendNativeBrowserRuntimeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CE100000000000000000001 /* TerminalBackendNativeBrowserRuntimeCoordinator.swift */; };
 		CBAD00000000000000000109 /* TerminalBackendPresentationDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAD00000000000000000209 /* TerminalBackendPresentationDescriptor.swift */; };
 		CBAD00000000000000000110 /* TerminalBackendPresentationLease.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAD00000000000000000210 /* TerminalBackendPresentationLease.swift */; };
 		CBAD00000000000000000111 /* TerminalBackendPresentationMount.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAD00000000000000000211 /* TerminalBackendPresentationMount.swift */; };
 		CBAD00000000000000000112 /* TerminalBackendPresentationRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAD00000000000000000212 /* TerminalBackendPresentationRegistry.swift */; };
 		CBAD00000000000000000113 /* TerminalBackendQueuedMutation.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAD00000000000000000213 /* TerminalBackendQueuedMutation.swift */; };
 		CBAD00000000000000000114 /* TerminalBackendReconnectPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAD00000000000000000214 /* TerminalBackendReconnectPolicy.swift */; };
+		5CE100000000000000000006 /* TerminalBackendRemoteTmuxSurfaceBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CE100000000000000000005 /* TerminalBackendRemoteTmuxSurfaceBridge.swift */; };
+		5CE100000000000000000004 /* TerminalBackendRemoteTmuxSurfaceRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CE100000000000000000002 /* TerminalBackendRemoteTmuxSurfaceRegistry.swift */; };
 		CBAD00000000000000000121 /* TerminalBackendRenderConfigSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAD00000000000000000221 /* TerminalBackendRenderConfigSource.swift */; };
 		CBAD00000000000000000199 /* TerminalBackendRenderDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAD00000000000000000299 /* TerminalBackendRenderDiagnostics.swift */; };
 		CBAD00000000000000000115 /* TerminalBackendRendererAttachment.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAD00000000000000000215 /* TerminalBackendRendererAttachment.swift */; };
@@ -3822,12 +3825,15 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		CBAD00000000000000000224 /* TerminalBackendFrontendEventRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendFrontendEventRouter.swift; sourceTree = "<group>"; };
 		CBAD00000000000000000207 /* TerminalBackendMutationOutcome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendMutationOutcome.swift; sourceTree = "<group>"; };
 		CBAD00000000000000000208 /* TerminalBackendMutationQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendMutationQueue.swift; sourceTree = "<group>"; };
+		5CE100000000000000000001 /* TerminalBackendNativeBrowserRuntimeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendNativeBrowserRuntimeCoordinator.swift; sourceTree = "<group>"; };
 		CBAD00000000000000000209 /* TerminalBackendPresentationDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendPresentationDescriptor.swift; sourceTree = "<group>"; };
 		CBAD00000000000000000210 /* TerminalBackendPresentationLease.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendPresentationLease.swift; sourceTree = "<group>"; };
 		CBAD00000000000000000211 /* TerminalBackendPresentationMount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendPresentationMount.swift; sourceTree = "<group>"; };
 		CBAD00000000000000000212 /* TerminalBackendPresentationRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendPresentationRegistry.swift; sourceTree = "<group>"; };
 		CBAD00000000000000000213 /* TerminalBackendQueuedMutation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendQueuedMutation.swift; sourceTree = "<group>"; };
 		CBAD00000000000000000214 /* TerminalBackendReconnectPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendReconnectPolicy.swift; sourceTree = "<group>"; };
+		5CE100000000000000000005 /* TerminalBackendRemoteTmuxSurfaceBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendRemoteTmuxSurfaceBridge.swift; sourceTree = "<group>"; };
+		5CE100000000000000000002 /* TerminalBackendRemoteTmuxSurfaceRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendRemoteTmuxSurfaceRegistry.swift; sourceTree = "<group>"; };
 		CBAD00000000000000000221 /* TerminalBackendRenderConfigSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendRenderConfigSource.swift; sourceTree = "<group>"; };
 		CBAD00000000000000000299 /* TerminalBackendRenderDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendRenderDiagnostics.swift; sourceTree = "<group>"; };
 		CBAD00000000000000000215 /* TerminalBackendRendererAttachment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBackendRendererAttachment.swift; sourceTree = "<group>"; };
@@ -4563,6 +4569,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CBAC00000000000000000014 /* TerminalBackendServiceStatusCommand.swift */,
 				CBAC00000000000000000010 /* TerminalBackendServiceUnregistrationCommand.swift */,
 				C7C100040000000000000001 /* TerminalClientComposition.swift */,
+				5CE100000000000000000001 /* TerminalBackendNativeBrowserRuntimeCoordinator.swift */,
+				5CE100000000000000000002 /* TerminalBackendRemoteTmuxSurfaceRegistry.swift */,
+				5CE100000000000000000005 /* TerminalBackendRemoteTmuxSurfaceBridge.swift */,
 				C7C100020000000000000001 /* TerminalPanelCreating.swift */,
 				C7C100010000000000000001 /* TerminalPanelCreationRequest.swift */,
 				A11CE0030000000000000001 /* AboutLicenseContent.swift */,
@@ -7993,12 +8002,15 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CBAD00000000000000000124 /* TerminalBackendFrontendEventRouter.swift in Sources */,
 				CBAD00000000000000000107 /* TerminalBackendMutationOutcome.swift in Sources */,
 				CBAD00000000000000000108 /* TerminalBackendMutationQueue.swift in Sources */,
+				5CE100000000000000000003 /* TerminalBackendNativeBrowserRuntimeCoordinator.swift in Sources */,
 				CBAD00000000000000000109 /* TerminalBackendPresentationDescriptor.swift in Sources */,
 				CBAD00000000000000000110 /* TerminalBackendPresentationLease.swift in Sources */,
 				CBAD00000000000000000111 /* TerminalBackendPresentationMount.swift in Sources */,
 				CBAD00000000000000000112 /* TerminalBackendPresentationRegistry.swift in Sources */,
 				CBAD00000000000000000113 /* TerminalBackendQueuedMutation.swift in Sources */,
 				CBAD00000000000000000114 /* TerminalBackendReconnectPolicy.swift in Sources */,
+				5CE100000000000000000006 /* TerminalBackendRemoteTmuxSurfaceBridge.swift in Sources */,
+				5CE100000000000000000004 /* TerminalBackendRemoteTmuxSurfaceRegistry.swift in Sources */,
 				CBAD00000000000000000121 /* TerminalBackendRenderConfigSource.swift in Sources */,
 				CBAD00000000000000000199 /* TerminalBackendRenderDiagnostics.swift in Sources */,
 				CBAD00000000000000000115 /* TerminalBackendRendererAttachment.swift in Sources */,

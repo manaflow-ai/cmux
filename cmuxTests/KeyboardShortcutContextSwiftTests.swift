@@ -136,7 +136,10 @@ private final class ZoomRouteRecordingTabManager: TabManager {
     init(browserResult: Bool?, textPreviewResult: Bool?) {
         self.browserResult = browserResult
         self.textPreviewResult = textPreviewResult
-        super.init(autoWelcomeIfNeeded: false)
+        super.init(
+            autoWelcomeIfNeeded: false,
+            terminalClientComposition: .embedded()
+        )
     }
 
     override func performFocusedBrowserZoom(_ action: (BrowserPanel) -> Bool) -> Bool? {

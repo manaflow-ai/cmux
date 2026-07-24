@@ -2207,7 +2207,7 @@ fn renderer_semantic_scene(frame: &SemanticSceneFrame) -> RendererSemanticScene 
     }
 }
 
-fn resolved_custom_shader_count(config: &[u8]) -> anyhow::Result<u32> {
+pub(crate) fn resolved_custom_shader_count(config: &[u8]) -> anyhow::Result<u32> {
     let text = std::str::from_utf8(config)
         .map_err(|error| anyhow::anyhow!("resolved renderer config is not UTF-8: {error}"))?;
     let count = text

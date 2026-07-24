@@ -12,7 +12,7 @@ SIGN_IDENTITY="${CMUX_TERMINAL_RENDERER_SIGN_IDENTITY:--}"
 SHOULD_SIGN=1
 ENTITLEMENTS_PATH="$REPO_ROOT/Resources/cmux-terminal-backend.entitlements"
 SIGNING_IDENTIFIER="com.cmuxterm.cmux-terminal-renderer"
-ZIG_BIN="${ZIG:-/opt/homebrew/opt/zig@0.15/bin/zig}"
+ZIG_BIN="${ZIG:-${CMUX_ZIG:-/opt/homebrew/opt/zig@0.15/bin/zig}}"
 
 usage() {
   echo "Usage: ./scripts/build-terminal-renderer.sh --output <path> [--configuration debug|release] [--architectures \"arm64 x86_64\"] [--sign-identity <identity> | --skip-signing] [--entitlements <path>]"

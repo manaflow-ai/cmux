@@ -256,6 +256,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
     private var compositor: TerminalRenderCompositorView?
     private var mount: TerminalBackendPresentationMount?
     private var attachedPresentation: TerminalExternalPresentation?
+    private var resolvedRenderConfigPublisherID: UUID?
     private var currentWorkspaceID: UUID
     private let diagnosticsWorkspaceContext: TerminalBackendRenderDiagnosticsWorkspaceContext
     private var currentViewport: TerminalExternalViewport?
@@ -343,6 +344,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         diagnosticsWorkspaceContext.update(presentation.workspaceID)
         detached = false
         bindingReconcileRequested = binding == nil
+        publishResolvedRenderConfig()
         let mount = presentationRegistry.register(surfaceID: presentation.surfaceID)
         self.mount = mount
         mount.onHostMounted = { [weak self] in
@@ -1313,40 +1315,12 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
             backendDefaults: backendDefaultConfig,
             presentationOverrides: presentationConfigOverrides
         )
+        publishResolvedRenderConfig()
         guard canPresent else { return }
-        if backendPresentationOpen {
-            guard let binding, let viewport = currentViewport, let receiver else {
-                rendererReconfigureNeeded = true
-                return
-            }
-            let descriptor = TerminalBackendPresentationDescriptor(
-                presentationID: presentationID,
-                endpoint: receiver.endpoint,
-                viewport: viewport,
-                focused: focused,
-                visible: false,
-                preedit: preedit,
-                pixelFormat: pixelFormat,
-                colorSpace: colorSpace,
-                resolvedConfigRevision: resolvedConfigRevision,
-                resolvedConfig: resolvedConfig
-            )
-            do {
-                _ = try await client.apply(
-                    .visibility(false),
-                    requestID: UUID(),
-                    to: binding,
-                    presentation: descriptor
-                )
-            } catch {
-                // Keep receiving from the old endpoint. Destroying it without
-                // the worker's quiescence acknowledgement would strand leases.
-                return
-            }
-        }
-        backendPresentationOpen = false
-        await rotateReceiverAfterQuiescenceProof()
-        refreshFrontendEventRoute()
+        // cmuxd replaces an attached renderer with a strictly newer
+        // presentation generation. Keep the authenticated receiver and visible
+        // presentation alive so a config reload cannot introduce a teardown
+        // gap; the receiver and compositor fences reject every older frame.
         rendererReconfigureNeeded = true
         scheduleDrain()
     }
@@ -1635,6 +1609,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
             continuation.finish()
         }
         accessibilityContinuations.removeAll()
+        withdrawResolvedRenderConfig()
         let receiverRetirement = beginReceiverRotation()
         if let mount {
             presentationRegistry.unregister(mount)
@@ -1671,6 +1646,39 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
             }
             return quiesced && retired
         }
+    }
+
+    private func publishResolvedRenderConfig() {
+        guard let surfaceID = attachedPresentation?.surfaceID,
+              resolvedConfigRevision > 0,
+              !resolvedConfig.isEmpty else { return }
+        let snapshot = TerminalBackendRenderConfigSnapshot(
+            revision: resolvedConfigRevision,
+            data: resolvedConfig
+        )
+        if let publisherID = resolvedRenderConfigPublisherID {
+            presentationRegistry.updateResolvedRenderConfig(
+                surfaceID: surfaceID,
+                publisherID: publisherID,
+                snapshot: snapshot
+            )
+        } else {
+            resolvedRenderConfigPublisherID =
+                presentationRegistry.beginResolvedRenderConfigPublication(
+                    surfaceID: surfaceID,
+                    snapshot: snapshot
+                )
+        }
+    }
+
+    private func withdrawResolvedRenderConfig() {
+        guard let publisherID = resolvedRenderConfigPublisherID,
+              let surfaceID = attachedPresentation?.surfaceID else { return }
+        resolvedRenderConfigPublisherID = nil
+        presentationRegistry.endResolvedRenderConfigPublication(
+            surfaceID: surfaceID,
+            publisherID: publisherID
+        )
     }
 
     private func markUnavailable() {

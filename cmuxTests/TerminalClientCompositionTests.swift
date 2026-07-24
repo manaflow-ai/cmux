@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCore
 import CmuxTerminal
 import CmuxTerminalBackend
 import CmuxTerminalBackendService
@@ -66,6 +67,67 @@ struct TerminalClientCompositionTests {
         #expect(composition.mobileTerminalDataPlane.profile == .embeddedGhostty)
     }
 
+    @Test @MainActor
+    func resolvedRenderConfigPublicationIsSurfaceScopedAndGenerationFenced() async throws {
+        let registry = TerminalBackendPresentationRegistry()
+        let surfaceID = UUID()
+        let unrelatedSurfaceID = UUID()
+        var iterator = registry.resolvedRenderConfigUpdates(
+            surfaceID: surfaceID
+        ).makeAsyncIterator()
+
+        let initialEvent = await iterator.next()
+        #expect(initialEvent == .unavailable)
+
+        let first = TerminalBackendRenderConfigSnapshot(
+            revision: 7,
+            data: Data("font-family = Menlo\n".utf8)
+        )
+        let firstPublisher = registry.beginResolvedRenderConfigPublication(
+            surfaceID: surfaceID,
+            snapshot: first
+        )
+        let firstEvent = await iterator.next()
+        #expect(firstEvent == .available(first))
+        #expect(registry.resolvedRenderConfig(surfaceID: surfaceID) == first)
+        #expect(
+            registry.resolvedRenderConfig(surfaceID: unrelatedSurfaceID) == nil
+        )
+
+        let replacement = TerminalBackendRenderConfigSnapshot(
+            revision: 11,
+            data: Data("font-family = Iosevka\nfont-size = 17\n".utf8)
+        )
+        let replacementPublisher =
+            registry.beginResolvedRenderConfigPublication(
+                surfaceID: surfaceID,
+                snapshot: replacement
+            )
+        let replacementEvent = await iterator.next()
+        #expect(replacementEvent == .available(replacement))
+
+        registry.updateResolvedRenderConfig(
+            surfaceID: surfaceID,
+            publisherID: firstPublisher,
+            snapshot: first
+        )
+        registry.endResolvedRenderConfigPublication(
+            surfaceID: surfaceID,
+            publisherID: firstPublisher
+        )
+        #expect(
+            registry.resolvedRenderConfig(surfaceID: surfaceID) == replacement
+        )
+
+        registry.endResolvedRenderConfigPublication(
+            surfaceID: surfaceID,
+            publisherID: replacementPublisher
+        )
+        let finalEvent = await iterator.next()
+        #expect(finalEvent == .unavailable)
+        #expect(registry.resolvedRenderConfig(surfaceID: surfaceID) == nil)
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func rendererDetachRetryIsWokenByReconnectWithoutPolling() async throws {
         let client = RecordingPersistentTerminalBackendClient(detachFailures: 1)
@@ -93,7 +155,11 @@ struct TerminalClientCompositionTests {
     func rendererFrameReleaseRetryIsWokenByReconnectWithoutPolling() async throws {
         let client = RecordingPersistentTerminalBackendClient(releaseFailures: 1)
         let frame = try Self.makeRenderDiagnosticsFrame(sequence: 17)
-        let release = TerminalRenderFrameRelease(frame: frame)
+        let release = TerminalRenderFrameRelease(
+            metadata: frame.metadata,
+            surfaceID: frame.surface.identifier,
+            workerIdentity: frame.workerIdentity
+        )
         let retry = Task {
             await returnRendererFrameLease(client: client, release: release)
         }
@@ -146,12 +212,18 @@ struct TerminalClientCompositionTests {
         )
         var ledger = TerminalBackendRendererWorkerExitLedger()
 
-        #expect(ledger.register(old) == .installed)
-        #expect(ledger.register(current) == .installed)
-        #expect(ledger.register(current) == .existing)
-        #expect(ledger.register(stale) == .conflict(current))
-        #expect(!ledger.markExited(stale))
-        #expect(ledger.markExited(old))
+        let oldRegistration = ledger.register(old)
+        let currentRegistration = ledger.register(current)
+        let duplicateRegistration = ledger.register(current)
+        let staleRegistration = ledger.register(stale)
+        #expect(oldRegistration == .installed)
+        #expect(currentRegistration == .installed)
+        #expect(duplicateRegistration == .existing)
+        #expect(staleRegistration == .conflict(current))
+        let markedStaleExited = ledger.markExited(stale)
+        #expect(!markedStaleExited)
+        let markedOldExited = ledger.markExited(old)
+        #expect(markedOldExited)
         #expect(ledger.hasExited(oldEpoch) == true)
         #expect(ledger.hasExited(currentEpoch) == false)
     }
@@ -172,8 +244,10 @@ struct TerminalClientCompositionTests {
                     startTimeMicroseconds: 1
                 )
             )
-            #expect(ledger.register(identity) == .installed)
-            #expect(ledger.markExited(identity))
+            let registration = ledger.register(identity)
+            let markedExited = ledger.markExited(identity)
+            #expect(registration == .installed)
+            #expect(markedExited)
         }
         #expect(ledger.entryCount <= TerminalBackendRendererWorkerExitLedger
             .maximumRetainedExitedEntries)
@@ -1570,6 +1644,11 @@ struct TerminalClientCompositionTests {
         #expect(initialString.contains("font-family = Fira Code"))
         #expect(initialString.contains("custom-shader = /tmp/old.glsl"))
         #expect(initialString.hasSuffix("font-size = 17\n"))
+        let publishedInitial = try #require(
+            registry.resolvedRenderConfig(surfaceID: surfaceID)
+        )
+        #expect(publishedInitial.revision == initial.presentation?.resolvedConfigRevision)
+        #expect(publishedInitial.data == initialConfig)
 
         serializedConfig = Data("""
             font-family = Iosevka
@@ -1583,15 +1662,21 @@ struct TerminalClientCompositionTests {
         let updated = try #require(updatedMutations.last)
         let updatedConfig = try #require(updated.presentation?.resolvedConfig)
         let updatedString = try #require(String(data: updatedConfig, encoding: .utf8))
-        #expect(updated.mutation == .resize(viewport))
+        #expect(updated.mutation == .visibility(true))
         #expect(updated.presentation?.resolvedConfigRevision != initial.presentation?.resolvedConfigRevision)
         #expect(updatedString.contains("font-family = Iosevka"))
         #expect(updatedString.contains("custom-shader = /tmp/new.glsl"))
         #expect(updatedString.hasSuffix("font-size = 17\n"))
-        #expect(updatedMutations.allSatisfy { mutation in
-            if case .resize = mutation.mutation { return true }
-            return false
-        })
+        #expect(updatedMutations.map(\.mutation) == [
+            .resize(viewport),
+            .visibility(true),
+        ])
+        #expect(updatedMutations.allSatisfy { $0.presentation?.visible == true })
+        let publishedUpdate = try #require(
+            registry.resolvedRenderConfig(surfaceID: surfaceID)
+        )
+        #expect(publishedUpdate.revision == updated.presentation?.resolvedConfigRevision)
+        #expect(publishedUpdate.data == updatedConfig)
     }
 
     @Test
@@ -1663,13 +1748,16 @@ struct TerminalClientCompositionTests {
         )
         var queue = TerminalBackendMutationQueue(capacity: 5)
 
-        #expect(queue.append(queued(1, .focus(true))))
-        #expect(queue.append(queued(2, .resize(firstViewport))))
-        #expect(queue.append(queued(3, .focus(false))))
-        #expect(queue.append(queued(4, .input(.namedKey("Enter")))))
-        #expect(queue.append(queued(5, .focus(true))))
-        #expect(queue.append(queued(6, .focus(false))))
-        #expect(queue.append(queued(7, .resize(finalViewport))))
+        let admitted = [
+            queue.append(queued(1, .focus(true))),
+            queue.append(queued(2, .resize(firstViewport))),
+            queue.append(queued(3, .focus(false))),
+            queue.append(queued(4, .input(.namedKey("Enter")))),
+            queue.append(queued(5, .focus(true))),
+            queue.append(queued(6, .focus(false))),
+            queue.append(queued(7, .resize(finalViewport))),
+        ]
+        #expect(admitted.allSatisfy { $0 })
 
         var drained: [TerminalBackendQueuedMutation] = []
         while let mutation = queue.removeFirst() {
@@ -1724,8 +1812,14 @@ struct TerminalClientCompositionTests {
             #expect(queue.count == 4)
         }
 
-        #expect(!queue.append(queued(50_000, .input(.namedKey("Enter")))))
-        #expect(queue.append(queued(50_001, .focus(true))))
+        let acceptedBarrier = queue.append(
+            queued(50_000, .input(.namedKey("Enter")))
+        )
+        let acceptedConvergentState = queue.append(
+            queued(50_001, .focus(true))
+        )
+        #expect(!acceptedBarrier)
+        #expect(acceptedConvergentState)
         var mutations: [TerminalExternalRuntimeMutation] = []
         while let queued = queue.removeFirst() {
             mutations.append(queued.mutation)
@@ -2465,10 +2559,11 @@ struct TerminalClientCompositionTests {
 
     @MainActor
     private func makeLaunchResolver() -> TerminalSurfaceLaunchResolver {
-        let dependencies = GhosttyApp.terminalSurfaceRuntimeDependencies
+        let dependencies = GhosttyApp.terminalSurfaceLaunchDependencies
         return TerminalSurfaceLaunchResolver(
-            engine: dependencies.engine,
-            spawnPolicyProvider: dependencies.spawnPolicy,
+            userGhosttyShellIntegrationMode:
+                dependencies.userGhosttyShellIntegrationMode,
+            spawnPolicyProvider: dependencies.spawnPolicyProvider,
             runtimeFilesystem: TerminalSurfaceRuntimeFilesystem(
                 claudeCommandShimTemporaryDirectory: URL(fileURLWithPath: NSTemporaryDirectory()),
                 installClaudeCommandShim: { _, _, _ in nil },
@@ -4393,7 +4488,9 @@ private actor AccessibilityRuntimeBackendClient: TerminalBackendClient {
     }
 }
 
-private actor RecordingPersistentTerminalBackendClient: TerminalBackendClient {
+private actor RecordingPersistentTerminalBackendClient:
+    TerminalBackendClient,
+    TerminalBackendTopologyMutating {
     private let suspendEnsures: Bool
     private let suspendUXReads: Bool
     private let failFirstMutation: Bool
@@ -4674,6 +4771,220 @@ private actor RecordingPersistentTerminalBackendClient: TerminalBackendClient {
         for key in satisfied {
             waiters.removeValue(forKey: key)?.forEach { $0.resume() }
         }
+    }
+}
+
+extension RecordingPersistentTerminalBackendClient {
+    func rejectTopologyMutation<T>() throws -> T {
+        throw BackendProtocolError.connectionClosed
+    }
+
+    func createWorkspace(
+        requestID: UUID,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        name: String?,
+        launch: BackendTerminalLaunch,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func createTerminalTab(
+        requestID: UUID,
+        surfaceID: SurfaceID,
+        in paneID: CmuxTerminalBackend.PaneID,
+        launch: BackendTerminalLaunch,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func createBrowserWorkspace(
+        requestID: UUID,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        name: String?,
+        url: URL,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func createBrowserTab(
+        requestID: UUID,
+        surfaceID: SurfaceID,
+        in paneID: CmuxTerminalBackend.PaneID,
+        url: URL,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func splitBrowserPane(
+        requestID: UUID,
+        surfaceID: SurfaceID,
+        _ paneID: CmuxTerminalBackend.PaneID,
+        direction: BackendSplitDirection,
+        initialRatio: Float,
+        url: URL,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func materializeTerminal(
+        requestID: UUID,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        launch: BackendTerminalLaunch,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func respawnTerminal(
+        requestID: UUID,
+        surfaceID: SurfaceID,
+        launch: BackendTerminalLaunch,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func newExternalWorkspace(
+        requestID: UUID,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        columns: UInt16,
+        rows: UInt16,
+        noReflow: Bool,
+        provenance: CanonicalExternalTerminalProvenance,
+        producerSource: BackendRemoteTmuxProducerSource
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func materializeExternalTerminal(
+        requestID: UUID,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        columns: UInt16,
+        rows: UInt16,
+        noReflow: Bool,
+        provenance: CanonicalExternalTerminalProvenance
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func splitPane(
+        requestID: UUID,
+        surfaceID: SurfaceID,
+        _ paneID: CmuxTerminalBackend.PaneID,
+        direction: BackendSplitDirection,
+        initialRatio: Float,
+        launch: BackendTerminalLaunch,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func splitTab(
+        requestID: UUID,
+        _ surfaceID: SurfaceID,
+        around paneID: CmuxTerminalBackend.PaneID,
+        direction: BackendSplitDirection,
+        initialRatio: Float
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func closePane(
+        requestID: UUID,
+        _ paneID: CmuxTerminalBackend.PaneID
+    ) async throws -> BackendTopologyMutationReceipt {
+        try rejectTopologyMutation()
+    }
+
+    func closeSurface(
+        requestID: UUID,
+        _ surfaceID: SurfaceID
+    ) async throws -> BackendTopologyMutationReceipt {
+        try rejectTopologyMutation()
+    }
+
+    func closeWorkspace(
+        requestID: UUID,
+        _ workspaceID: WorkspaceID
+    ) async throws -> BackendTopologyMutationReceipt {
+        try rejectTopologyMutation()
+    }
+
+    func renameWorkspace(
+        requestID: UUID,
+        _ workspaceID: WorkspaceID,
+        name: String
+    ) async throws -> BackendTopologyMutationReceipt {
+        try rejectTopologyMutation()
+    }
+
+    func renameSurface(
+        requestID: UUID,
+        _ surfaceID: SurfaceID,
+        name: String
+    ) async throws -> BackendTopologyMutationReceipt {
+        try rejectTopologyMutation()
+    }
+
+    func moveTab(
+        requestID: UUID,
+        _ surfaceID: SurfaceID,
+        to paneID: CmuxTerminalBackend.PaneID,
+        index: Int
+    ) async throws -> BackendTopologyMutationReceipt {
+        try rejectTopologyMutation()
+    }
+
+    func reorderTabs(
+        requestID: UUID,
+        in paneID: CmuxTerminalBackend.PaneID,
+        surfaceIDs: [SurfaceID]
+    ) async throws -> BackendTopologyMutationReceipt {
+        try rejectTopologyMutation()
+    }
+
+    func reorderWorkspaces(
+        requestID: UUID,
+        _ workspaceIDs: [WorkspaceID]
+    ) async throws -> BackendTopologyMutationReceipt {
+        try rejectTopologyMutation()
+    }
+
+    func moveTabToNewWorkspace(
+        requestID: UUID,
+        _ surfaceID: SurfaceID,
+        workspaceID: WorkspaceID,
+        name: String?,
+        index: Int?
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func setSplitRatio(
+        requestID: UUID,
+        around paneID: CmuxTerminalBackend.PaneID,
+        direction: BackendSplitDirection,
+        ratio: Float
+    ) async throws -> BackendTopologyMutationReceipt {
+        try rejectTopologyMutation()
     }
 }
 

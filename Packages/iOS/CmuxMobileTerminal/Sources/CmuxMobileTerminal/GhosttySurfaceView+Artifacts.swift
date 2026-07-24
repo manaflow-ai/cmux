@@ -10,6 +10,9 @@ extension GhosttySurfaceView {
     /// (visible grid only, not scrollback) via libghostty.
     public static let visibleTerminalSnapshot: @MainActor () async -> String = {
         registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
+        registeredHostSurfaceViews = registeredHostSurfaceViews.filter {
+            $0.value.value != nil
+        }
         // Collect the main-actor state + surface pointers first, then read the
         // viewport text on the serial output queue. `ghostty_surface_read_text`
         // takes the same surface lock as `process_output` (which runs off-main);
@@ -20,6 +23,20 @@ extension GhosttySurfaceView {
         // the surface's display-link deadline so this diagnostic path does not
         // add a sleeping timer task or block the main actor.
         var pending: [VisibleSnapshotRequest] = []
+        var sections: [String] = []
+        for view in registeredHostSurfaceViews.values.compactMap(\.value) {
+            guard view.usesSemanticSceneRenderer,
+                  view.window != nil,
+                  !view.isHidden,
+                  view.alpha > 0.01,
+                  let accessibility = view.semanticSceneAccessibility else {
+                continue
+            }
+            sections.append(
+                "===== visible terminal · grid=\(accessibility.columns)x\(accessibility.rows) · font=\(Int(view.liveFontSize)) =====\n"
+                    + accessibility.text
+            )
+        }
         for view in registeredSurfaceViews.values.compactMap(\.value) {
             guard view.window != nil, !view.isHidden, view.alpha > 0.01,
                   let surface = view.surface else { continue }
@@ -32,10 +49,9 @@ extension GhosttySurfaceView {
                 generation: view.surfaceGeneration
             ))
         }
-        if pending.isEmpty {
+        if pending.isEmpty, sections.isEmpty {
             return "===== visible terminal: (no on-screen surface) ====="
         }
-        var sections: [String] = []
         for item in pending {
             guard let section = await item.view.visibleSnapshotSection(
                 surface: item.surface,
@@ -54,6 +70,13 @@ extension GhosttySurfaceView {
     /// artifact tap hit-testing on iOS.
     @MainActor
     public func visibleTextForArtifactHitTesting() async -> (text: String, columns: Int)? {
+        if usesSemanticSceneRenderer {
+            guard let semanticSceneAccessibility else { return nil }
+            return (
+                text: semanticSceneAccessibility.text,
+                columns: semanticSceneAccessibility.columns
+            )
+        }
         guard let surface,
               !renderPipelineRecoveryPaused else {
             return nil

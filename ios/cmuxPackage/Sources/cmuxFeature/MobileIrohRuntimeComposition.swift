@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
 public import CmuxIrohTransport
+import CmuxMobileRPC
 import CmuxMobileShell
 import CmuxMobileTransport
 import CryptoKit
@@ -487,6 +488,38 @@ public final class MobileIrohRuntimeComposition:
             priority: priority
         )
         return MobileIrohTerminalLane(stream: stream)
+    }
+
+    /// Opens the canonical full-first semantic scene for one iOS presentation.
+    public func openTerminalSceneLane(
+        for request: CmxByteTransportRequest,
+        scene: MobileTerminalSceneRequest,
+        priority: Int32 = 0
+    ) async throws -> MobileIrohTerminalSceneLane {
+        guard let surfaceID = UUID(uuidString: scene.surfaceID) else {
+            throw MobileIrohTerminalSceneLaneError.invalidSurfaceID
+        }
+        let resourceID = try CmxIrohResourceID(
+            "terminal:\(surfaceID.uuidString.lowercased())"
+        )
+        let laneRequest = try CmxIrohTerminalSceneLaneRequest(
+            resourceID: resourceID,
+            presentationID: scene.presentationID,
+            presentationGeneration: scene.presentationGeneration,
+            width: scene.width,
+            height: scene.height,
+            contentScale: scene.contentScale
+        )
+        let stream = try await openBidirectionalLane(
+            for: request,
+            lane: .terminalScene(laneRequest),
+            priority: priority
+        )
+        return MobileIrohTerminalSceneLane(
+            stream: stream,
+            presentationID: scene.presentationID,
+            presentationGeneration: scene.presentationGeneration
+        )
     }
 
     /// Starts the one server-event byte stream on the pooled admitted connection.

@@ -138,7 +138,7 @@ public actor CmxIrohClientSession {
         priority: Int32
     ) async throws -> CmxIrohBidirectionalStream {
         switch lane {
-        case .terminal, .artifact:
+        case .terminal, .terminalScene, .artifact:
             break
         case .control, .serverEvents:
             throw CmxIrohClientSessionError.invalidOutgoingLane

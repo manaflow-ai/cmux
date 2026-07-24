@@ -405,7 +405,7 @@ final class RemoteTmuxController {
         let mirror = RemoteTmuxSessionMirror(
             host: host,
             sessionName: sessionName,
-            seededSessionId: sessionId,
+            seededSessionId: sessionID,
             connection: connection,
             tabManager: tabManager,
             workspace: workspace,

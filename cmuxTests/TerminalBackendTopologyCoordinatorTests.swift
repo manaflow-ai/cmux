@@ -2286,16 +2286,19 @@ struct TerminalBackendTopologyCoordinatorTests {
 
     @Test
     func structuralProjectionPlanScalesToOneThousandDormantWorkspaces() throws {
-        let workspaces = (0..<1_000).map { index in
-            makeWorkspace(
+        var workspaces: [CanonicalWorkspace] = []
+        workspaces.reserveCapacity(1_000)
+        for index in 0..<1_000 {
+            let ordinal = UInt64(index + 1)
+            workspaces.append(makeWorkspace(
                 workspaceID: UUID(),
-                workspaceName: "workspace \(index)",
-                workspaceNumber: UInt64(index + 1),
-                screenNumber: UInt64(index + 1),
-                paneNumber: UInt64(index + 1),
-                firstSurfaceNumber: UInt64(index + 1),
+                workspaceName: "workspace " + String(index),
+                workspaceNumber: ordinal,
+                screenNumber: ordinal,
+                paneNumber: ordinal,
+                firstSurfaceNumber: ordinal,
                 surfaceIDs: [UUID()]
-            )
+            ))
         }
         let topology = try CanonicalTopology(workspaces: workspaces)
 
@@ -2309,15 +2312,18 @@ struct TerminalBackendTopologyCoordinatorTests {
 
     @Test
     func supersededStructuralProjectionStopsBeforeScanningTheTopology() async throws {
-        let workspaces = (0..<1_000).map { index in
-            makeWorkspace(
+        var workspaces: [CanonicalWorkspace] = []
+        workspaces.reserveCapacity(1_000)
+        for index in 0..<1_000 {
+            let ordinal = UInt64(index + 1)
+            workspaces.append(makeWorkspace(
                 workspaceID: UUID(),
-                workspaceNumber: UInt64(index + 1),
-                screenNumber: UInt64(index + 1),
-                paneNumber: UInt64(index + 1),
-                firstSurfaceNumber: UInt64(index + 1),
+                workspaceNumber: ordinal,
+                screenNumber: ordinal,
+                paneNumber: ordinal,
+                firstSurfaceNumber: ordinal,
                 surfaceIDs: [UUID()]
-            )
+            ))
         }
         let topology = try CanonicalTopology(workspaces: workspaces)
         let gate = ProjectionPlanCancellationGate()
@@ -2337,9 +2343,10 @@ struct TerminalBackendTopologyCoordinatorTests {
     @Test @MainActor
     func everyUnsupportedMutationReportsAndReturnsFalse() {
         var failures: [String] = []
-        let coordinator = TerminalBackendTopologyMutationCoordinator {
-            failures.append($0)
-        }
+        let coordinator = TerminalBackendTopologyMutationCoordinator(
+            mutator: RejectingTopologyMutator(),
+            failureReporter: { failures.append($0) }
+        )
         let unsupported = Set(TerminalBackendTopologyMutation.allCases)
             .subtracting(TerminalBackendTopologyMutationCoordinator.supportedMutations)
 

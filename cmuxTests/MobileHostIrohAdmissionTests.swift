@@ -308,6 +308,76 @@ extension MobileHostAuthorizationTests {
         #expect(buffer.isEmpty)
     }
 
+    @Test func testSemanticSceneInputFramingPreservesArbitraryBytes() throws {
+        var buffer = Data([0, 0, 0, 4, 0, 0x1b, 0xff, 0x0d])
+        #expect(
+            try MobileHostIrohApplicationLaneRouter.decodeTerminalInputDataFrames(
+                from: &buffer
+            ) == [Data([0, 0x1b, 0xff, 0x0d])]
+        )
+        #expect(buffer.isEmpty)
+    }
+
+    @Test func semanticSceneBridgeRejectsInvalidFirstSceneBeforeYieldingConfiguration()
+        async throws {
+        let surfaceID = UUID(uuidString: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")!
+        let presentationID = UUID(uuidString: "11111111-2222-4333-8444-555555555555")!
+        let codec = CmxIrohTerminalSceneEnvelopeCodec()
+        let endpoint = ScriptedMobileSceneEndpoint(chunks: [
+            codec.encode(.scene(try CmxIrohTerminalSceneFrame(
+                terminalID: surfaceID,
+                terminalEpoch: 7,
+                contentSequence: 30,
+                presentationID: presentationID,
+                presentationGeneration: 3,
+                presentationSequence: 1,
+                kind: .delta,
+                payload: Data([0xca, 0xfe])
+            ))),
+        ])
+        let session = RecordingMobileSceneSession()
+        let plane = PersistentMobileTerminalDataPlane(
+            sessionFactory: { _, _ in throw MobileTerminalDataPlaneError.unavailable },
+            sceneSessionFactory: { _, clientUUID, _, _ in
+                MobileBackendTerminalSceneAttachment(
+                    clientUUID: clientUUID,
+                    session: session,
+                    endpoint: endpoint
+                )
+            },
+            rendererConfigurationProvider: { _ in
+                MobileTerminalRendererConfiguration(
+                    revision: 1,
+                    data: Data("font-size = 13\n".utf8)
+                )
+            },
+            maximumPendingReplayCount: 1,
+            pendingReplayTTL: .seconds(30),
+            pendingSleep: { _ in }
+        )
+        let request = try CmxIrohTerminalSceneLaneRequest(
+            resourceID: CmxIrohResourceID("terminal:\(surfaceID.uuidString)"),
+            presentationID: presentationID,
+            presentationGeneration: 3,
+            width: 1_170,
+            height: 2_532,
+            contentScale: 3
+        )
+        let lane = try await plane.openSceneLane(surfaceID: surfaceID, request: request)
+        var iterator = try await lane.envelopes().makeAsyncIterator()
+
+        await #expect(
+            throws: CmxIrohTerminalSceneStreamValidator.ValidationError.missingFullScene
+        ) {
+            _ = try await iterator.next()
+        }
+        await waitForMobileSceneCloseCount(
+            1,
+            endpoint: endpoint,
+            session: session
+        )
+    }
+
     @Test func persistentReplayHandoffsAreBoundedAndExpire() async throws {
         let factory = RecordingMobileCompatibilitySessionFactory(
             sequences: [10, 20, 30]
@@ -323,6 +393,7 @@ extension MobileHostAuthorizationTests {
                 try await sleeper.sleep(duration)
             }
         )
+        #expect(plane.profile == .backendCompatibility)
 
         _ = try await plane.replay(surfaceID: UUID())
         _ = try await plane.replay(surfaceID: UUID())
@@ -917,13 +988,53 @@ private actor RecordingMobileCompatibilitySession:
     func closeCount() -> Int { closes }
 }
 
+private actor RecordingMobileSceneSession: MobileBackendTerminalSceneSession {
+    private var inputs: [Data] = []
+    private var closes = 0
+
+    func sendInput(_ data: Data) async throws {
+        inputs.append(data)
+    }
+
+    func close() async {
+        closes += 1
+    }
+
+    func sentInputs() -> [Data] { inputs }
+    func closeCount() -> Int { closes }
+}
+
+private actor ScriptedMobileSceneEndpoint: MobileBackendTerminalSceneEndpoint {
+    private var chunks: [Data]
+    private var closes = 0
+
+    init(chunks: [Data]) {
+        self.chunks = chunks
+    }
+
+    func receive(maximumByteCount: Int) async throws -> Data? {
+        guard !chunks.isEmpty else { return nil }
+        let first = chunks.removeFirst()
+        guard first.count > maximumByteCount else { return first }
+        chunks.insert(Data(first.dropFirst(maximumByteCount)), at: 0)
+        return Data(first.prefix(maximumByteCount))
+    }
+
+    func closeEndpoint() async {
+        closes += 1
+    }
+
+    func closeCount() -> Int { closes }
+}
+
 private actor ManualMobileCompatibilitySleep {
     private var waiters: [UUID: CheckedContinuation<Void, any Error>] = [:]
 
     func sleep(_: Duration) async throws {
         let id = UUID()
         try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, any Error>) in
                 if Task.isCancelled {
                     continuation.resume(throwing: CancellationError())
                 } else {
@@ -982,4 +1093,20 @@ private func waitForMobileCompatibilityCloseCount(
         await Task.yield()
     }
     Issue.record("timed out waiting for \(count) closed compatibility sessions")
+}
+
+@MainActor
+private func waitForMobileSceneCloseCount(
+    _ count: Int,
+    endpoint: ScriptedMobileSceneEndpoint,
+    session: RecordingMobileSceneSession
+) async {
+    for _ in 0 ..< 100 {
+        if await endpoint.closeCount() == count,
+           await session.closeCount() == count {
+            return
+        }
+        await Task.yield()
+    }
+    Issue.record("timed out waiting for \(count) closed semantic scene sessions")
 }

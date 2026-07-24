@@ -21,7 +21,8 @@ extension TabManager {
             if source == .auto, tabs[index].effectiveCustomTitleSource == .user {
                 return false
             }
-            return mutationCoordinator.requestRenameWorkspace(tabId, name: trimmed)
+            mutationCoordinator.requestRenameWorkspace(tabId, name: trimmed)
+            return true
         }
         let previousDisplayTitle = resolvedWorkspaceDisplayTitle(for: tabs[index])
             .trimmingCharacters(in: .whitespacesAndNewlines)

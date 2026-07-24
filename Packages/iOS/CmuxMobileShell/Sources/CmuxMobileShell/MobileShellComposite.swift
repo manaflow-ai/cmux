@@ -86,6 +86,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     private static let terminalBytesCapability = "terminal.bytes.v1"
+    static let terminalSemanticSceneCapability = "terminal.semantic_scene.v1"
     static let terminalReplayCapability = "terminal.replay.v1"
     static let maxTerminalReplayBarrierDroppedOutputBeforeFailOpen: UInt64 = 256
     static let workspaceActionsCapability = "workspace.actions.v1"
@@ -143,6 +144,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 restartTerminalLanesForMountedSurfaces()
             } else {
                 deactivateAllTerminalLanes()
+                deactivateAllTerminalScenes()
             }
             // Intentional teardown (sign-out, forget, switch) must not look like
             // a network outage: swallow this edge and reset the throttle so a
@@ -814,6 +816,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalOutputStreamTokensBySurfaceID: [String: UUID]
     var terminalOutputQueuesBySurfaceID: [String: TerminalOutputDeliveryQueue]
     let terminalLaneCoordinator: MobileTerminalLaneCoordinator?
+    let terminalSceneCoordinator: MobileTerminalSceneCoordinator?
+    var terminalSemanticScenesDisabledForConnection: Bool
+    var terminalSceneLifecycleID: UUID
     var terminalLaneOutputReadySurfaceIDs: Set<String>
     var terminalLaneLifecycleID: UUID
     var terminalScrollQueueTokensBySurfaceID: [String: UUID]
@@ -1043,6 +1048,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } else {
             self.terminalLaneCoordinator = nil
         }
+        if let terminalSceneProvider = runtime?.terminalSceneProvider {
+            self.terminalSceneCoordinator = MobileTerminalSceneCoordinator(
+                provider: terminalSceneProvider
+            )
+        } else {
+            self.terminalSceneCoordinator = nil
+        }
+        self.terminalSemanticScenesDisabledForConnection = false
+        self.terminalSceneLifecycleID = UUID()
         self.terminalLaneOutputReadySurfaceIDs = []
         self.terminalLaneLifecycleID = UUID()
         self.terminalScrollQueueTokensBySurfaceID = [:]
@@ -1073,6 +1087,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         teardownSecondaryMacSubscriptions()
         let terminalLaneCoordinator = terminalLaneCoordinator
         Task { await terminalLaneCoordinator?.deactivateAll() }
+        let terminalSceneCoordinator = terminalSceneCoordinator
+        Task { await terminalSceneCoordinator?.deactivateAll() }
         if let remoteClient {
             Task { await remoteClient.disconnect() }
         }
@@ -4862,24 +4878,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         await submitTerminalRawInput(text, workspaceID: workspaceID, terminalID: terminalID)
     }
 
-    /// Raw-bytes overload. The libghostty render path on iOS uses this
-    /// for input that may include binary sequences (mouse reports,
-    /// kitty keyboard, IME byte streams). The wire RPC encodes bytes
-    /// as the UTF-8-stringified payload of `mobile.terminal.input`,
-    /// then the Mac decodes back to Data. If we ever need true binary
-    /// fidelity (paste of mid-codepoint bytes, etc.), upgrade the
-    /// `input` param to a base64 field.
+    /// Raw-bytes overload used by the terminal input bridge. Semantic-scene
+    /// lanes preserve these bytes exactly; older lanes retain their UTF-8-only
+    /// compatibility behavior.
     public func submitTerminalRawInput(_ data: Data, surfaceID: String) async {
         guard !data.isEmpty else { return }
-        guard let text = String(data: data, encoding: .utf8) else {
-            return
-        }
         let workspaceCandidate = workspaces.first(where: { workspace in
             workspace.terminals.contains(where: { $0.id.rawValue == surfaceID })
         })
         guard let workspace = workspaceCandidate else { return }
         let terminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
-        await submitTerminalRawInput(text, workspaceID: workspace.id, terminalID: terminalID)
+        await submitTerminalRawInput(data, workspaceID: workspace.id, terminalID: terminalID)
     }
 
     private func submitTerminalRawInput(
@@ -4889,7 +4898,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) async {
         guard !text.isEmpty else { return }
         guard remoteClient != nil else { return }
-        await sendRemoteTerminalInput(text, workspaceID: workspaceID, terminalID: terminalID)
+        await sendRemoteTerminalInput(
+            Data(text.utf8),
+            fallbackText: text,
+            workspaceID: workspaceID,
+            terminalID: terminalID
+        )
+    }
+
+    private func submitTerminalRawInput(
+        _ data: Data,
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID
+    ) async {
+        guard !data.isEmpty else { return }
+        guard remoteClient != nil else { return }
+        await sendRemoteTerminalInput(
+            data,
+            fallbackText: String(data: data, encoding: .utf8),
+            workspaceID: workspaceID,
+            terminalID: terminalID
+        )
     }
 
     private func drainRawTerminalInputBuffer() async {
@@ -4920,6 +4949,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         connectionAttemptGeneration = generation
         connectionGeneration = generation
+        terminalSemanticScenesDisabledForConnection = false
         diagnosticLog?.record(DiagnosticEvent(.connect))
         cancelRemoteOperationTasks()
         rawTerminalInputBuffer.clear()
@@ -5532,6 +5562,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalScrollbackPrefetchStatesBySurfaceID = [:]
         terminalOutputTransport = .rawBytes
         deactivateAllTerminalLanes()
+        deactivateAllTerminalScenes()
         supportedHostCapabilities = []
         clearMacUpdateHint()
         terminalSubscriptionRefreshTask?.cancel()
@@ -6117,6 +6148,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID
     ) async {
+        await sendRemoteTerminalInput(
+            Data(text.utf8),
+            fallbackText: text,
+            workspaceID: workspaceID,
+            terminalID: terminalID
+        )
+    }
+
+    private func sendRemoteTerminalInput(
+        _ data: Data,
+        fallbackText text: String?,
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID
+    ) async {
         guard let client = remoteClient else {
             #if DEBUG
             mobileShellLog.info("skip remote terminal input remoteClient=0")
@@ -6124,6 +6169,35 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         let generation = connectionGeneration
+        if let terminalSceneCoordinator {
+            switch await terminalSceneCoordinator.sendInput(
+                data,
+                surfaceID: terminalID.rawValue
+            ) {
+            case .queued, .sent:
+                return
+            case .failed:
+                mobileShellLog.error(
+                    "semantic terminal input failed surface=\(terminalID.rawValue, privacy: .public)"
+                )
+                return
+            case .unavailable:
+                // A negotiated semantic presentation never writes through the
+                // compatibility lane. Before its scene entry exists, dropping
+                // input is safer than mutating terminal state the user cannot
+                // yet see.
+                if usesTerminalSemanticScenes {
+                    return
+                }
+                break
+            }
+        }
+        guard let text else {
+            mobileShellLog.error(
+                "legacy terminal input cannot carry non-UTF-8 bytes surface=\(terminalID.rawValue, privacy: .public)"
+            )
+            return
+        }
         if let terminalLaneCoordinator {
             switch await terminalLaneCoordinator.sendInput(
                 text,

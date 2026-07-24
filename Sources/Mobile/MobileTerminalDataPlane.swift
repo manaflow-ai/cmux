@@ -1,23 +1,31 @@
 import CmuxTerminalBackend
 import CmuxTerminalBackendService
+import CmuxIrohTransport
 import Foundation
 
 enum MobileTerminalDataPlaneProfile: Equatable, Sendable {
     case embeddedGhostty
     case backendCompatibility
+    case backendSemanticScene
 
     nonisolated var terminalFidelity: String {
         switch self {
         case .embeddedGhostty: "render_grid"
         case .backendCompatibility: "noncanonical_byte_stream"
+        case .backendSemanticScene: "semantic_scene"
         }
     }
 
     nonisolated var compatibilityCapability: String? {
         switch self {
         case .embeddedGhostty: nil
-        case .backendCompatibility: "terminal.byte_stream.compat.v1"
+        case .backendCompatibility, .backendSemanticScene:
+            "terminal.byte_stream.compat.v1"
         }
+    }
+
+    nonisolated var semanticSceneCapability: String? {
+        self == .backendSemanticScene ? "terminal.semantic_scene.v1" : nil
     }
 }
 
@@ -58,6 +66,12 @@ protocol MobileTerminalDataPlaneLane: Sendable {
     func close() async
 }
 
+protocol MobileTerminalSceneDataPlaneLane: Sendable {
+    func envelopes() async throws -> AsyncThrowingStream<CmxIrohTerminalSceneEnvelope, any Error>
+    func sendInput(_ data: Data) async throws
+    func close() async
+}
+
 protocol MobileTerminalDataPlane: Sendable {
     nonisolated var profile: MobileTerminalDataPlaneProfile { get }
     func replay(surfaceID: UUID) async throws -> MobileTerminalDataPlaneReplay
@@ -65,6 +79,19 @@ protocol MobileTerminalDataPlane: Sendable {
         surfaceID: UUID,
         cursor: UInt64?
     ) async throws -> any MobileTerminalDataPlaneLane
+    func openSceneLane(
+        surfaceID: UUID,
+        request: CmxIrohTerminalSceneLaneRequest
+    ) async throws -> any MobileTerminalSceneDataPlaneLane
+}
+
+extension MobileTerminalDataPlane {
+    func openSceneLane(
+        surfaceID _: UUID,
+        request _: CmxIrohTerminalSceneLaneRequest
+    ) async throws -> any MobileTerminalSceneDataPlaneLane {
+        throw MobileTerminalDataPlaneError.unavailable
+    }
 }
 
 /// Persistent-mode fail-closed default for tests and incomplete composition.
@@ -281,6 +308,35 @@ struct MobileBackendTerminalCompatibilityAttachment: Sendable {
     let snapshot: BackendTerminalCompatibilitySnapshot
 }
 
+protocol MobileBackendTerminalSceneSession: Sendable {
+    func sendInput(_ data: Data) async throws
+    func close() async
+}
+
+extension BackendTerminalSceneSession: MobileBackendTerminalSceneSession {}
+
+protocol MobileBackendTerminalSceneEndpoint: Sendable {
+    func receive(maximumByteCount: Int) async throws -> Data?
+    func closeEndpoint() async
+}
+
+extension BackendTerminalSceneEndpointTransport: MobileBackendTerminalSceneEndpoint {
+    func closeEndpoint() async {
+        close()
+    }
+}
+
+struct MobileBackendTerminalSceneAttachment: Sendable {
+    let clientUUID: UUID
+    let session: any MobileBackendTerminalSceneSession
+    let endpoint: any MobileBackendTerminalSceneEndpoint
+}
+
+struct MobileTerminalRendererConfiguration: Equatable, Sendable {
+    let revision: UInt64
+    let data: Data
+}
+
 /// Backend-mode owner of replay-to-Iroh handoff sessions.
 ///
 /// `replay` leaves its exact cmuxd attach connection pending. `openLane`
@@ -294,6 +350,18 @@ actor PersistentMobileTerminalDataPlane: MobileTerminalDataPlane {
     typealias ReadinessProvider = @Sendable () async throws -> BackendServiceBootstrapResult
     typealias SessionFactory = @Sendable (_ surfaceID: UUID, _ clientUUID: UUID) async throws ->
         MobileBackendTerminalCompatibilityAttachment
+    typealias SceneSessionFactory = @Sendable (
+        _ surfaceID: UUID,
+        _ clientUUID: UUID,
+        _ request: CmxIrohTerminalSceneLaneRequest,
+        _ rendererConfiguration: MobileTerminalRendererConfiguration
+    ) async throws -> MobileBackendTerminalSceneAttachment
+    typealias RendererConfigurationProvider =
+        @MainActor @Sendable (_ surfaceID: UUID) ->
+            MobileTerminalRendererConfiguration?
+    typealias RendererConfigurationUpdatesProvider =
+        @MainActor @Sendable (_ surfaceID: UUID) ->
+            AsyncStream<MobileTerminalRendererConfiguration?>
     typealias ClientUUIDProvider = @Sendable () -> UUID
     typealias PendingSleep = @Sendable (Duration) async throws -> Void
 
@@ -313,6 +381,8 @@ actor PersistentMobileTerminalDataPlane: MobileTerminalDataPlane {
     /// next frame, bounding retention to a few MiB plus transient base64 decode.
     static let maximumBufferedEventsPerCompatibilityStage = 2
     static let maximumBufferedFramesPerLane = 2
+    /// Configuration plus one scene/accessibility pair, with one replacement slot.
+    static let maximumBufferedSceneEnvelopesPerLane = 4
 
     private struct ReservedAttachment: Sendable {
         let attachment: MobileBackendTerminalCompatibilityAttachment
@@ -325,8 +395,12 @@ actor PersistentMobileTerminalDataPlane: MobileTerminalDataPlane {
         let reservedAttachment: ReservedAttachment
     }
 
-    nonisolated let profile = MobileTerminalDataPlaneProfile.backendCompatibility
+    nonisolated let profile: MobileTerminalDataPlaneProfile
     private let sessionFactory: SessionFactory
+    private let sceneSessionFactory: SceneSessionFactory?
+    private let rendererConfigurationProvider: RendererConfigurationProvider?
+    private let rendererConfigurationUpdatesProvider:
+        RendererConfigurationUpdatesProvider?
     private let maximumPendingReplayCount: Int
     private let maximumPendingReplayBytes: Int
     private let pendingReplayTTL: Duration
@@ -345,6 +419,9 @@ actor PersistentMobileTerminalDataPlane: MobileTerminalDataPlane {
         processInstanceUUID: UUID,
         inputAuthority: any BackendTerminalCompatibilityInputAuthority =
             UnavailableMobileTerminalInputAuthority(),
+        rendererConfigurationProvider: RendererConfigurationProvider? = nil,
+        rendererConfigurationUpdatesProvider:
+            RendererConfigurationUpdatesProvider? = nil,
         clientUUIDProvider: @escaping ClientUUIDProvider = { UUID() },
         maximumPendingReplayCount: Int = defaultMaximumPendingReplayCount,
         maximumPendingReplayBytes: Int = defaultMaximumPendingReplayBytes,
@@ -353,6 +430,63 @@ actor PersistentMobileTerminalDataPlane: MobileTerminalDataPlane {
             try await Task.sleep(for: duration)
         }
     ) {
+        let sceneFactory: SceneSessionFactory?
+        if rendererConfigurationProvider == nil {
+            sceneFactory = nil
+        } else {
+            sceneFactory = {
+                @Sendable surfaceID, clientUUID, request, rendererConfiguration in
+                let readiness: BackendServiceReadiness
+                switch try await readinessProvider() {
+                case .ready(let value):
+                    readiness = value
+                case .disabled, .requiresApproval, .missingBundleItem,
+                     .serviceNotFound, .backendUnavailable:
+                    throw MobileTerminalDataPlaneError.unavailable
+                }
+                guard let registrationIdentity = BackendClientRegistrationIdentity(
+                    clientUUID: clientUUID,
+                    processInstanceUUID: processInstanceUUID
+                ) else {
+                    throw MobileTerminalDataPlaneError.unavailable
+                }
+                let expectedPeer = readiness.peerIdentity
+                let session = BackendTerminalSceneSession(
+                    transport: UnixBackendTransport(path: socketPath),
+                    expectation: BackendCanonicalSessionExpectation(
+                        session: readiness.session,
+                        authority: readiness.authority,
+                        processID: readiness.processID,
+                        peerIdentity: expectedPeer
+                    ),
+                    registrationIdentity: registrationIdentity,
+                    inputAuthority: inputAuthority
+                )
+                do {
+                    let receipt = try await session.attach(
+                        surfaceID: SurfaceID(rawValue: surfaceID),
+                        presentationID: PresentationID(
+                            rawValue: request.presentationID
+                        ),
+                        presentationGeneration: request.presentationGeneration,
+                        rendererConfig: rendererConfiguration.data
+                    )
+                    let endpoint = BackendTerminalSceneEndpointTransport(
+                        receipt: receipt,
+                        expectedPeer: expectedPeer
+                    )
+                    try await endpoint.connect()
+                    return MobileBackendTerminalSceneAttachment(
+                        clientUUID: clientUUID,
+                        session: session,
+                        endpoint: endpoint
+                    )
+                } catch {
+                    await session.close()
+                    throw error
+                }
+            }
+        }
         self.init(
             sessionFactory: { surfaceID, clientUUID in
                 let readiness: BackendServiceReadiness
@@ -397,6 +531,10 @@ actor PersistentMobileTerminalDataPlane: MobileTerminalDataPlane {
                     throw error
                 }
             },
+            sceneSessionFactory: sceneFactory,
+            rendererConfigurationProvider: rendererConfigurationProvider,
+            rendererConfigurationUpdatesProvider:
+                rendererConfigurationUpdatesProvider,
             maximumPendingReplayCount: maximumPendingReplayCount,
             maximumPendingReplayBytes: maximumPendingReplayBytes,
             pendingReplayTTL: pendingReplayTTL,
@@ -407,6 +545,10 @@ actor PersistentMobileTerminalDataPlane: MobileTerminalDataPlane {
 
     init(
         sessionFactory: @escaping SessionFactory,
+        sceneSessionFactory: SceneSessionFactory? = nil,
+        rendererConfigurationProvider: RendererConfigurationProvider? = nil,
+        rendererConfigurationUpdatesProvider:
+            RendererConfigurationUpdatesProvider? = nil,
         maximumPendingReplayCount: Int,
         maximumPendingReplayBytes: Int = defaultMaximumPendingReplayBytes,
         pendingReplayTTL: Duration,
@@ -416,6 +558,14 @@ actor PersistentMobileTerminalDataPlane: MobileTerminalDataPlane {
         precondition(maximumPendingReplayCount > 0)
         precondition(maximumPendingReplayBytes > 0)
         self.sessionFactory = sessionFactory
+        self.sceneSessionFactory = sceneSessionFactory
+        self.rendererConfigurationProvider = rendererConfigurationProvider
+        self.rendererConfigurationUpdatesProvider =
+            rendererConfigurationUpdatesProvider
+        self.profile = sceneSessionFactory != nil
+            && rendererConfigurationProvider != nil
+            ? .backendSemanticScene
+            : .backendCompatibility
         self.maximumPendingReplayCount = maximumPendingReplayCount
         self.maximumPendingReplayBytes = maximumPendingReplayBytes
         self.pendingReplayTTL = pendingReplayTTL
@@ -464,6 +614,81 @@ actor PersistentMobileTerminalDataPlane: MobileTerminalDataPlane {
             )
             throw error
         }
+    }
+
+    func openSceneLane(
+        surfaceID: UUID,
+        request: CmxIrohTerminalSceneLaneRequest
+    ) async throws -> any MobileTerminalSceneDataPlaneLane {
+        guard let sceneSessionFactory,
+              let rendererConfigurationProvider,
+              Self.sceneResourceSurfaceID(request.resourceID) == surfaceID,
+              let rendererConfiguration = await rendererConfigurationProvider(
+                  surfaceID
+              ),
+              rendererConfiguration.revision > 0,
+              !rendererConfiguration.data.isEmpty else {
+            throw MobileTerminalDataPlaneError.unavailable
+        }
+        let rendererConfigurationUpdates =
+            await rendererConfigurationUpdatesProvider?(surfaceID)
+
+        for _ in 0 ..< Self.maximumClientUUIDAllocationAttempts {
+            let clientUUID = clientUUIDProvider()
+            guard !clientUUID.isNil,
+                  clientUUIDReservationTokens[clientUUID] == nil else {
+                continue
+            }
+            let reservationToken = UUID()
+            clientUUIDReservationTokens[clientUUID] = reservationToken
+            do {
+                let attachment = try await sceneSessionFactory(
+                    surfaceID,
+                    clientUUID,
+                    request,
+                    rendererConfiguration
+                )
+                guard attachment.clientUUID == clientUUID else {
+                    await attachment.endpoint.closeEndpoint()
+                    await attachment.session.close()
+                    releaseClientUUID(
+                        clientUUID,
+                        reservationToken: reservationToken
+                    )
+                    throw MobileTerminalDataPlaneError.unavailable
+                }
+                return PersistentMobileTerminalSceneDataPlaneLane(
+                    attachment: attachment,
+                    request: request,
+                    rendererConfiguration: rendererConfiguration,
+                    rendererConfigurationUpdates:
+                        rendererConfigurationUpdates,
+                    onClose: { [weak self] in
+                        await self?.releaseClientUUID(
+                            clientUUID,
+                            reservationToken: reservationToken
+                        )
+                    }
+                )
+            } catch {
+                releaseClientUUID(
+                    clientUUID,
+                    reservationToken: reservationToken
+                )
+                throw error
+            }
+        }
+        throw MobileTerminalDataPlaneError.unavailable
+    }
+
+    private nonisolated static func sceneResourceSurfaceID(
+        _ resourceID: CmxIrohResourceID
+    ) -> UUID? {
+        let value = resourceID.value
+        let rawID = value.hasPrefix("terminal:")
+            ? String(value.dropFirst("terminal:".count))
+            : value
+        return UUID(uuidString: rawID)
     }
 
     func closePendingReplays() async {
@@ -624,6 +849,167 @@ actor PersistentMobileTerminalDataPlane: MobileTerminalDataPlane {
             snapshotFormat: "cmuxd.compatibility.vt",
             fidelity: BackendTerminalCompatibilitySnapshot.fidelity
         )
+    }
+}
+
+private actor PersistentMobileTerminalSceneDataPlaneLane:
+    MobileTerminalSceneDataPlaneLane {
+    private enum LaneError: Error {
+        case unexpectedConfiguration
+        case missingFullScene
+        case rendererConfigurationChanged
+    }
+
+    private let session: any MobileBackendTerminalSceneSession
+    private let endpoint: any MobileBackendTerminalSceneEndpoint
+    private let stream:
+        AsyncThrowingStream<CmxIrohTerminalSceneEnvelope, any Error>
+    private let onClose: @Sendable () async -> Void
+    private var producer: Task<Void, Never>?
+    private var envelopesClaimed = false
+
+    init(
+        attachment: MobileBackendTerminalSceneAttachment,
+        request: CmxIrohTerminalSceneLaneRequest,
+        rendererConfiguration: MobileTerminalRendererConfiguration,
+        rendererConfigurationUpdates:
+            AsyncStream<MobileTerminalRendererConfiguration?>?,
+        onClose: @escaping @Sendable () async -> Void
+    ) {
+        session = attachment.session
+        endpoint = attachment.endpoint
+        self.onClose = onClose
+        let pair = AsyncThrowingStream<
+            CmxIrohTerminalSceneEnvelope,
+            any Error
+        >.makeStream(bufferingPolicy: .bufferingOldest(
+            PersistentMobileTerminalDataPlane.maximumBufferedSceneEnvelopesPerLane
+        ))
+        stream = pair.stream
+        let session = attachment.session
+        let endpoint = attachment.endpoint
+        producer = Task {
+            do {
+                try await withThrowingTaskGroup(of: Void.self) { group in
+                    group.addTask {
+                        var decoder = CmxIrohTerminalSceneEnvelopeDecoder()
+                        var validator = CmxIrohTerminalSceneStreamValidator(
+                            presentationID: request.presentationID,
+                            presentationGeneration: request.presentationGeneration
+                        )
+                        var configured = false
+                        while !Task.isCancelled,
+                              let chunk = try await endpoint.receive(
+                                  maximumByteCount: 64 * 1_024
+                              ) {
+                            for envelope in try decoder.append(chunk) {
+                                if !configured {
+                                    guard case let .scene(scene) = envelope else {
+                                        throw LaneError.unexpectedConfiguration
+                                    }
+                                    let configuration =
+                                        try CmxIrohTerminalSceneConfiguration(
+                                            terminalID: scene.terminalID,
+                                            terminalEpoch: scene.terminalEpoch,
+                                            presentationID: request.presentationID,
+                                            presentationGeneration:
+                                                request.presentationGeneration,
+                                            rendererConfigRevision:
+                                                rendererConfiguration.revision,
+                                            width: request.width,
+                                            height: request.height,
+                                            contentScale: request.contentScale,
+                                            rendererConfig:
+                                                rendererConfiguration.data
+                                        )
+                                    let configurationEnvelope =
+                                        CmxIrohTerminalSceneEnvelope
+                                            .configuration(configuration)
+                                    try validator.accept(
+                                        configurationEnvelope
+                                    )
+                                    try validator.accept(envelope)
+                                    try Self.yield(configurationEnvelope, to: pair.continuation)
+                                    try Self.yield(envelope, to: pair.continuation)
+                                    configured = true
+                                    continue
+                                }
+                                try validator.accept(envelope)
+                                try Self.yield(envelope, to: pair.continuation)
+                            }
+                        }
+                        try decoder.finish()
+                        guard validator.isReady else {
+                            throw LaneError.missingFullScene
+                        }
+                    }
+                    if let rendererConfigurationUpdates {
+                        group.addTask {
+                            for await update in rendererConfigurationUpdates {
+                                try Task.checkCancellation()
+                                guard let update,
+                                      update == rendererConfiguration else {
+                                    await endpoint.closeEndpoint()
+                                    throw LaneError.rendererConfigurationChanged
+                                }
+                            }
+                        }
+                    }
+                    _ = try await group.next()
+                    group.cancelAll()
+                }
+                pair.continuation.finish()
+            } catch is CancellationError {
+                pair.continuation.finish()
+            } catch {
+                pair.continuation.finish(throwing: error)
+            }
+            await endpoint.closeEndpoint()
+            await session.close()
+            await onClose()
+        }
+    }
+
+    deinit { producer?.cancel() }
+
+    func envelopes() async throws
+        -> AsyncThrowingStream<CmxIrohTerminalSceneEnvelope, any Error> {
+        guard !envelopesClaimed else {
+            throw MobileTerminalDataPlaneError.streamAlreadyClaimed
+        }
+        envelopesClaimed = true
+        return stream
+    }
+
+    func sendInput(_ data: Data) async throws {
+        try await session.sendInput(data)
+    }
+
+    func close() async {
+        let producer = self.producer
+        self.producer = nil
+        producer?.cancel()
+        await producer?.value
+    }
+
+    private nonisolated static func yield(
+        _ envelope: CmxIrohTerminalSceneEnvelope,
+        to continuation:
+            AsyncThrowingStream<
+                CmxIrohTerminalSceneEnvelope,
+                any Error
+            >.Continuation
+    ) throws {
+        switch continuation.yield(envelope) {
+        case .enqueued:
+            return
+        case .dropped:
+            throw MobileTerminalDataPlaneError.streamOverflow
+        case .terminated:
+            throw CancellationError()
+        @unknown default:
+            throw MobileTerminalDataPlaneError.unavailable
+        }
     }
 }
 

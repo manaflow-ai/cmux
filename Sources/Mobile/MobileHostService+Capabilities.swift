@@ -55,6 +55,13 @@ extension MobileHostService {
             if let compatibilityCapability = profile.compatibilityCapability {
                 capabilities.append(compatibilityCapability)
             }
+        case .backendSemanticScene:
+            if let compatibilityCapability = profile.compatibilityCapability {
+                capabilities.append(compatibilityCapability)
+            }
+            if let semanticSceneCapability = profile.semanticSceneCapability {
+                capabilities.append(semanticSceneCapability)
+            }
         }
         #if DEBUG
         // Lets a dev Mac impersonate an older host while dogfooding the iOS update hint.

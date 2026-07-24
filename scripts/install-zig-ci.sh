@@ -47,6 +47,34 @@ zig_has_required_version() {
   [ -f "$zig_lib_dir/compiler/build_runner.zig" ] || return 1
 }
 
+use_homebrew_patched_zig_if_available() {
+  if [ "$(uname -s)" != "Darwin" ] || [ "${ZIG_FORCE_LOCAL_INSTALL:-0}" = "1" ]; then
+    return 0
+  fi
+  command -v brew >/dev/null 2>&1 || return 0
+
+  local brew_prefix=""
+  if brew_prefix="$(brew --prefix zig@0.15 2>/dev/null)" \
+    && zig_has_required_version "${brew_prefix}/bin/zig"; then
+    echo "using Homebrew patched zig ${ZIG_REQUIRED} at ${brew_prefix}/bin/zig"
+    publish_zig_for_later_steps "${brew_prefix}/bin/zig"
+    exit 0
+  fi
+
+  echo "Installing Homebrew patched zig@0.15 for Xcode 26 compatibility"
+  if brew install zig@0.15 >/dev/null; then
+    brew_prefix="$(brew --prefix zig@0.15)"
+    if zig_has_required_version "${brew_prefix}/bin/zig"; then
+      publish_zig_for_later_steps "${brew_prefix}/bin/zig"
+      "${brew_prefix}/bin/zig" version
+      exit 0
+    fi
+    echo "Homebrew zig@0.15 did not provide zig ${ZIG_REQUIRED}; falling back to verified upstream Zig" >&2
+  else
+    echo "Homebrew zig@0.15 install failed; falling back to verified upstream Zig" >&2
+  fi
+}
+
 use_existing_zig_if_available() {
   if [ "${ZIG_FORCE_LOCAL_INSTALL:-0}" = "1" ]; then
     return 0
@@ -70,6 +98,7 @@ use_existing_zig_if_available() {
   done
 }
 
+use_homebrew_patched_zig_if_available
 use_existing_zig_if_available
 
 case "$(uname -s)" in
