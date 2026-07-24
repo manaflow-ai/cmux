@@ -4989,6 +4989,48 @@ mod tests {
     }
 
     #[test]
+    fn unsized_attach_preserves_newer_explicit_creation_default() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
+        let reporter_writer = test_writer();
+        let reporter = mux.control_clients.register(ClientTransport::Unix, reporter_writer.clone());
+        let reporter_stream = reporter_writer.start_stream(&json!({"event": "reporter"})).unwrap();
+        let reporter_stream_id = reporter_stream.id;
+        let reporter_attach =
+            mark_client_attached(&mux, reporter, surface.id, reporter_stream, Some((80, 24)))
+                .unwrap();
+        commit_client_attach(
+            &mux,
+            reporter,
+            surface.id,
+            reporter_stream_id,
+            reporter_attach.client_changed,
+            reporter_attach.size_rollback,
+        )
+        .unwrap();
+
+        assert_eq!(mux.new_workspace(None, Some((120, 40))).unwrap().size(), (120, 40));
+
+        let blocker_writer = test_writer();
+        let blocker = mux.control_clients.register(ClientTransport::Unix, blocker_writer.clone());
+        let blocker_stream = blocker_writer.start_stream(&json!({"event": "blocker"})).unwrap();
+        let blocker_stream_id = blocker_stream.id;
+        let blocker_attach =
+            mark_client_attached(&mux, blocker, surface.id, blocker_stream, None).unwrap();
+        commit_client_attach(
+            &mux,
+            blocker,
+            surface.id,
+            blocker_stream_id,
+            blocker_attach.client_changed,
+            blocker_attach.size_rollback,
+        )
+        .unwrap();
+
+        assert_eq!(mux.new_workspace(None, None).unwrap().size(), (120, 40));
+    }
+
+    #[test]
     fn final_stream_detach_restores_excluded_report_fallback() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((100, 40))).unwrap();
