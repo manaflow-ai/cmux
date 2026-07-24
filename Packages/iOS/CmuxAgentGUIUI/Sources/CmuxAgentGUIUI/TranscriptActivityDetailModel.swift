@@ -2,13 +2,12 @@ import CmuxAgentGUIProjection
 import CmuxAgentReplica
 import Foundation
 
-struct TranscriptActivityDetailModel: Equatable {
+struct TranscriptActivityDetailModel: Equatable, Identifiable {
     struct Section: Equatable, Identifiable {
+        let id: String
         let label: Label
         let value: String
         let isCode: Bool
-
-        var id: String { "\(label.rawValue):\(value)" }
     }
 
     enum Label: String, Equatable {
@@ -31,16 +30,20 @@ struct TranscriptActivityDetailModel: Equatable {
         case diagnostic
     }
 
+    let id: TranscriptRowID
+    let kind: TranscriptActivityKind
     let title: String
     let sections: [Section]
 
     init(item: TranscriptActivityItem) {
-        title = item.summary
+        id = item.id
+        kind = item.kind
+        title = Self.title(for: item)
         guard let payload = item.sourceEntry?.content.payload else {
-            sections = [Section(label: .summary, value: item.summary, isCode: false)]
+            sections = Self.compact([Self.text(.summary, item.summary)], fallback: title)
             return
         }
-        sections = Self.sections(payload: payload, fallback: item.summary)
+        sections = Self.sections(payload: payload, fallback: title)
     }
 
     private static func sections(payload: EntryPayload, fallback: String) -> [Section] {
@@ -112,7 +115,7 @@ struct TranscriptActivityDetailModel: Equatable {
                 text(.summary, value.summary),
                 text(.metadata, value.rawKind),
             ], fallback: fallback)
-            if value.summary == nil, let rawJSON = value.rawJSON {
+            if nonempty(value.summary) == nil, let rawJSON = value.rawJSON {
                 if let diagnostic = code(.diagnostic, rawJSON) {
                     sections.append(diagnostic)
                 }
@@ -123,17 +126,44 @@ struct TranscriptActivityDetailModel: Equatable {
 
     private static func compact(_ candidates: [Section?], fallback: String) -> [Section] {
         let sections = candidates.compactMap(\.self)
-        return sections.isEmpty ? [text(.summary, fallback)!] : sections
+        let resolved = sections.isEmpty ? [fallbackSection(fallback)] : sections
+        return resolved.enumerated().map { index, section in
+            Section(
+                id: "\(index):\(section.label.rawValue)",
+                label: section.label,
+                value: section.value,
+                isCode: section.isCode
+            )
+        }
     }
 
     private static func text(_ label: Label, _ value: String?) -> Section? {
         guard let value = nonempty(value) else { return nil }
-        return Section(label: label, value: value, isCode: false)
+        return Section(id: label.rawValue, label: label, value: value, isCode: false)
     }
 
     private static func code(_ label: Label, _ value: String?) -> Section? {
         guard let value = nonempty(value) else { return nil }
-        return Section(label: label, value: value, isCode: true)
+        return Section(id: label.rawValue, label: label, value: value, isCode: true)
+    }
+
+    private static func fallbackSection(_ fallback: String) -> Section {
+        Section(
+            id: Label.summary.rawValue,
+            label: .summary,
+            value: nonempty(fallback) ?? fallbackTitle(),
+            isCode: false
+        )
+    }
+
+    private static func title(for item: TranscriptActivityItem) -> String {
+        nonempty(item.summary)
+            ?? nonempty(AgentGUIL10n.activityKind(item.kind))
+            ?? fallbackTitle()
+    }
+
+    private static func fallbackTitle() -> String {
+        AgentGUIL10n.string("agent.activity.details.title", defaultValue: "Activity")
     }
 
     private static func nonempty(_ value: String?) -> String? {

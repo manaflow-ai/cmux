@@ -6,6 +6,7 @@ public import SwiftUI
 /// Sheet content showing the ordered activity timeline for one completed turn.
 public struct TranscriptActivityTimelineView: View {
     private let details: TranscriptActivityDetails
+    private let models: [TranscriptActivityDetailModel]
     private let theme: AgentGUITheme
 
     /// Creates a turn activity timeline.
@@ -14,6 +15,7 @@ public struct TranscriptActivityTimelineView: View {
     ///   - terminalTheme: Current terminal theme used to derive the transcript palette.
     public init(details: TranscriptActivityDetails, terminalTheme: TerminalTheme) {
         self.details = details
+        models = details.summary.items.map(TranscriptActivityDetailModel.init(item:))
         theme = AgentGUITheme(terminalTheme: terminalTheme)
     }
 
@@ -26,10 +28,9 @@ public struct TranscriptActivityTimelineView: View {
                         .foregroundStyle(Color(theme.dimForeground))
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Divider()
-                    ForEach(details.summary.items) { item in
+                    ForEach(models) { model in
                         AgentActivityDetailItemView(
-                            model: TranscriptActivityDetailModel(item: item),
-                            kind: item.kind,
+                            model: model,
                             theme: theme
                         )
                     }
@@ -49,7 +50,6 @@ public struct TranscriptActivityTimelineView: View {
 
 private struct AgentActivityDetailItemView: View {
     let model: TranscriptActivityDetailModel
-    let kind: TranscriptActivityKind
     let theme: AgentGUITheme
 
     var body: some View {
@@ -75,7 +75,7 @@ private struct AgentActivityDetailItemView: View {
     }
 
     private var symbol: String {
-        switch kind {
+        switch model.kind {
         case .assistant: "text.bubble"
         case .thought: "brain"
         case .command: "terminal"

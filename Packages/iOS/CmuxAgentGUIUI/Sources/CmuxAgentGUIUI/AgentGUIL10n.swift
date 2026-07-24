@@ -22,14 +22,17 @@ enum AgentGUIL10n {
     }
 
     static func activityKind(_ kind: String) -> String {
-        switch kind.lowercased() {
+        let trimmed = kind.trimmingCharacters(in: .whitespacesAndNewlines)
+        return switch trimmed.lowercased() {
         case "command": string("agent.activity.command", defaultValue: "Command")
         case "tool": string("agent.activity.tool", defaultValue: "Tool")
         case "file": string("agent.activity.file", defaultValue: "File")
         case "question": string("agent.activity.question", defaultValue: "Question")
         case "permission": string("agent.activity.permission", defaultValue: "Permission")
         case "thought": string("agent.activity.thought", defaultValue: "Thought")
-        default: kind
+        default: trimmed.isEmpty
+            ? string("agent.activity.details.title", defaultValue: "Activity")
+            : trimmed
         }
     }
 
@@ -44,7 +47,7 @@ enum AgentGUIL10n {
         case .permission: string("agent.activity.permission", defaultValue: "Permission")
         case .status: string("agent.activity.status", defaultValue: "Status")
         case .attachment: string("agent.activity.attachment", defaultValue: "Attachment")
-        case .unknown(let rawKind): rawKind
+        case .unknown(let rawKind): activityKind(rawKind)
         }
     }
 
