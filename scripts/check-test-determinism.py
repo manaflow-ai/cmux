@@ -546,6 +546,66 @@ def _python_import_bindings(
     return bindings, module_aliases, function_aliases, wildcard_import
 
 
+def _python_assignment_target_names(
+    line: str,
+    candidates: set[str],
+) -> set[str]:
+    """Return bare names bound by top-level assignment targets on one line."""
+
+    def target_names(fragment: str) -> set[str]:
+        target = fragment.strip()
+        while (
+            len(target) >= 2
+            and (target[0], target[-1]) in (("(", ")"), ("[", "]"))
+        ):
+            target = target[1:-1].strip()
+
+        depth = 0
+        part_start = 0
+        parts: list[str] = []
+        annotation = -1
+        for index, char in enumerate(target):
+            if char in "([{":
+                depth += 1
+            elif char in ")]}":
+                depth = max(0, depth - 1)
+            elif char == "," and depth == 0:
+                parts.append(target[part_start:index])
+                part_start = index + 1
+            elif char == ":" and depth == 0 and annotation < 0:
+                annotation = index
+        if parts:
+            parts.append(target[part_start:])
+            return set().union(*(target_names(part) for part in parts))
+        if annotation >= 0:
+            target = target[:annotation].rstrip()
+        target = target.lstrip("*").rstrip("+-*/%@&|^<> ")
+        return {target} if target in candidates else set()
+
+    bindings: set[str] = set()
+    depth = 0
+    target_start = 0
+    for index, char in enumerate(line):
+        if char in "([{":
+            depth += 1
+            continue
+        if char in ")]}":
+            depth = max(0, depth - 1)
+            continue
+        if char == ";" and depth == 0:
+            target_start = index + 1
+            continue
+        if char != "=" or depth != 0:
+            continue
+        previous = line[index - 1] if index else ""
+        following = line[index + 1] if index + 1 < len(line) else ""
+        if previous in "<>!=" or following == "=":
+            continue
+        bindings.update(target_names(line[target_start:index]))
+        target_start = index + 1
+    return bindings
+
+
 def _python_shadowed_names(line: str, candidates: set[str]) -> set[str]:
     """Return conservatively rebound Python sleep module/function names."""
     shadowed = {
@@ -553,22 +613,7 @@ def _python_shadowed_names(line: str, candidates: set[str]) -> set[str]:
         for match in _PYTHON_WALRUS_TARGET.finditer(line)
         if match.group("name") in candidates
     }
-    stripped = line.lstrip()
-    if not stripped.startswith(
-        ("if ", "while ", "assert ", "return ", "def ", "class ")
-    ):
-        for index, char in enumerate(line):
-            if char != "=":
-                continue
-            previous = line[index - 1] if index else ""
-            following = line[index + 1] if index + 1 < len(line) else ""
-            if previous in "<>!=" or following == "=":
-                continue
-            target_names = set(
-                re.findall(r"\b[A-Za-z_]\w*\b", line[:index])
-            )
-            shadowed.update(target_names & candidates)
-            break
+    shadowed.update(_python_assignment_target_names(line, candidates))
 
     for_target = _PYTHON_FOR_TARGET.search(line)
     if for_target:
