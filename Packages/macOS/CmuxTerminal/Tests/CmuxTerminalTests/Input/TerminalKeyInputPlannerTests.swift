@@ -67,16 +67,27 @@ import Testing
         #expect(!plan.forwardsPhysicalKey)
     }
 
-    @Test func committedPreeditTextAndCommandRemainOrdered() {
+    @Test func committedPreeditTextDoesNotReplayDelegatedCommand() {
         let actions = planner.actions(for: snapshot(
             hadMarkedText: true,
             textInputCommandPerformed: true,
-            committedText: ["한"],
-            translatedText: nil
+            committedText: ["é"],
+            translatedText: nil,
+            rawText: "\u{000A}"
+        ))
+
+        #expect(actions == [.sendCommittedText("é")])
+    }
+
+    @Test func committedPreeditTextReplaysNavigationKey() {
+        let actions = planner.actions(for: snapshot(
+            hadMarkedText: true,
+            committedText: ["é"],
+            translatedText: "\u{F703}"
         ))
 
         #expect(actions == [
-            .sendCommittedText("한"),
+            .sendCommittedText("é"),
             .sendKey(text: nil, composing: false),
         ])
     }
