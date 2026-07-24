@@ -367,7 +367,7 @@ extension CMUXCLI {
                     "error": iosScreenshotBatchTimeoutMessage(),
                 ]
             }
-            let result = SimulatorOwnedCommandRunner.run(
+            let result = runSimulatorOwnedCommandSynchronously(
                 executable: "/usr/bin/xcrun",
                 arguments: ["simctl", "io", simulatorID, "screenshot", destination.path],
                 currentDirectory: FileManager.default.currentDirectoryPath,
@@ -409,6 +409,44 @@ extension CMUXCLI {
                 defaultValue: "One or more iOS Simulator screenshots failed"
             ))
         }
+    }
+
+    private func runSimulatorOwnedCommandSynchronously(
+        executable: String,
+        arguments: [String],
+        currentDirectory: String,
+        timeout: TimeInterval,
+        outputLimit: Int = 64 * 1_024
+    ) -> SimulatorOwnedCommandResult {
+        let resultBox = IOSScreenshotCommandResultBox()
+        let finished = DispatchSemaphore(value: 0)
+        let runner = simulatorOwnedCommandRunner
+        let task = Task.detached {
+            let result = await runner.run(
+                executable: executable,
+                arguments: arguments,
+                currentDirectory: currentDirectory,
+                timeout: timeout,
+                outputLimit: outputLimit
+            )
+            resultBox.set(result)
+            finished.signal()
+        }
+
+        guard finished.wait(timeout: .now() + max(0, timeout) + 2) == .success,
+              let result = resultBox.get() else {
+            task.cancel()
+            _ = finished.wait(timeout: .now() + 1)
+            return SimulatorOwnedCommandResult(
+                status: 124,
+                standardError: String(
+                    localized: "simulator.failure.commandTimedOut",
+                    defaultValue: "The Simulator command timed out."
+                ),
+                timedOut: true
+            )
+        }
+        return result
     }
 
     private func iosContextPayload(
@@ -693,4 +731,17 @@ extension CMUXCLI {
         return ["workspace_id": workspaceID]
     }
 
+}
+
+private final class IOSScreenshotCommandResultBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var result: SimulatorOwnedCommandResult?
+
+    func set(_ result: SimulatorOwnedCommandResult) {
+        lock.withLock { self.result = result }
+    }
+
+    func get() -> SimulatorOwnedCommandResult? {
+        lock.withLock { result }
+    }
 }

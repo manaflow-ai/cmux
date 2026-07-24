@@ -165,12 +165,12 @@ struct SimulatorBoundedCommandRunnerTests {
         #expect(errno == ESRCH)
     }
 
-    @Test("The synchronous CLI bridge bounds timeout and kills descendants")
-    func synchronousBridgeOwnsTimedOutDescendants() async throws {
+    @Test("The public runner bounds timeout and kills descendants")
+    func publicRunnerOwnsTimedOutDescendants() async throws {
         let marker = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-owned-command-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: marker) }
-        let result = SimulatorOwnedCommandRunner.run(
+        let result = await SimulatorOwnedCommandRunner().run(
             executable: "/bin/sh",
             arguments: [
                 "-c",
