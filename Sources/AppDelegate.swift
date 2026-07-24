@@ -33,6 +33,15 @@ private enum CmuxThemeNotifications {
     static let reloadConfig = Notification.Name("com.cmuxterm.themes.reload-config")
 }
 
+enum MacSentryStartupPolicy {
+    static func shouldStart(
+        telemetryEnabled: Bool,
+        isRunningUnderXCTest: Bool
+    ) -> Bool {
+        telemetryEnabled && !isRunningUnderXCTest
+    }
+}
+
 private struct WorkspaceGroupNewWorkspaceTarget {
     let groupId: UUID
     let referenceWorkspaceId: UUID
@@ -1265,6 +1274,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let env = ProcessInfo.processInfo.environment
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
+        let shouldStartSentry = MacSentryStartupPolicy.shouldStart(
+            telemetryEnabled: telemetryEnabled,
+            isRunningUnderXCTest: isRunningUnderXCTest
+        )
         StartupBreadcrumbLog.append(
             "appDelegate.didFinish.begin",
             fields: [
@@ -1357,7 +1370,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #endif
 
-        if telemetryEnabled {
+        if shouldStartSentry {
             // Pre-warm locale before Sentry to avoid a startup data race.
             // Locale initialization (os.locale.ensureLocale / NSLocale._preferredLanguages)
             // on the main thread can race with Sentry's background init thread
