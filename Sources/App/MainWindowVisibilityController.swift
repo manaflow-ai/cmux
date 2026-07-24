@@ -33,6 +33,19 @@ final class MainWindowVisibilityController {
         case afterWindowOrdering
     }
 
+    /// Snapshot of the owning main-window context at focus time.
+    struct WindowAvailability {
+        let isAvailable: Bool
+        let windowId: UUID?
+        let workspaceId: UUID?
+
+        static let unidentifiedAvailable = WindowAvailability(
+            isAvailable: true,
+            windowId: nil,
+            workspaceId: nil
+        )
+    }
+
     @MainActor
     struct WindowOperations {
         var isVisible: @MainActor (NSWindow) -> Bool
@@ -84,6 +97,7 @@ final class MainWindowVisibilityController {
     @MainActor
     struct Dependencies {
         var isActivationSuppressed: @MainActor () -> Bool
+        var windowAvailability: @MainActor (NSWindow) -> WindowAvailability
         var setActiveMainWindow: @MainActor (NSWindow) -> Void
         var isApplicationActive: @MainActor () -> Bool
         var isApplicationHidden: @MainActor () -> Bool
@@ -92,10 +106,14 @@ final class MainWindowVisibilityController {
         var hideApplication: @MainActor () -> Void
         var unhideApplication: @MainActor () -> Void
         var activateRunningApplication: @MainActor (NSApplication.ActivationOptions) -> Void
+        var recordBreadcrumb: @MainActor (String, [String: Any]) -> Void
         var windowOperations: WindowOperations
 
         init(
             isActivationSuppressed: @escaping @MainActor () -> Bool,
+            windowAvailability: @escaping @MainActor (NSWindow) -> WindowAvailability = { _ in
+                .unidentifiedAvailable
+            },
             setActiveMainWindow: @escaping @MainActor (NSWindow) -> Void,
             isApplicationActive: @escaping @MainActor () -> Bool = { NSApp.isActive },
             isApplicationHidden: @escaping @MainActor () -> Bool = { NSApp.isHidden },
@@ -106,9 +124,13 @@ final class MainWindowVisibilityController {
             activateRunningApplication: @escaping @MainActor (NSApplication.ActivationOptions) -> Void = {
                 NSRunningApplication.current.activate(options: $0)
             },
+            recordBreadcrumb: @escaping @MainActor (String, [String: Any]) -> Void = { message, data in
+                sentryBreadcrumb(message, category: "window", data: data)
+            },
             windowOperations: WindowOperations? = nil
         ) {
             self.isActivationSuppressed = isActivationSuppressed
+            self.windowAvailability = windowAvailability
             self.setActiveMainWindow = setActiveMainWindow
             self.isApplicationActive = isApplicationActive
             self.isApplicationHidden = isApplicationHidden
@@ -117,6 +139,7 @@ final class MainWindowVisibilityController {
             self.hideApplication = hideApplication
             self.unhideApplication = unhideApplication
             self.activateRunningApplication = activateRunningApplication
+            self.recordBreadcrumb = recordBreadcrumb
             self.windowOperations = windowOperations ?? WindowOperations.live
         }
     }
@@ -141,7 +164,25 @@ final class MainWindowVisibilityController {
         unhide: Bool = true,
         respectActivationSuppression: Bool = true
     ) -> Bool {
-        if respectActivationSuppression, dependencies.isActivationSuppressed() {
+        let suppressed = respectActivationSuppression && dependencies.isActivationSuppressed()
+        let availability = dependencies.windowAvailability(window)
+        let breadcrumbData = focusBreadcrumbData(
+            window,
+            reason: reason,
+            suppressed: suppressed,
+            availability: availability
+        )
+        dependencies.recordBreadcrumb("mainWindow.focus", breadcrumbData)
+
+        guard availability.isAvailable else {
+            var unavailableData = breadcrumbData
+            unavailableData["cause"] = "missing-context"
+            dependencies.recordBreadcrumb("mainWindow.focus.unavailable", unavailableData)
+            log("focus.unavailable", reason: reason, windows: [window])
+            return false
+        }
+
+        if suppressed {
             dependencies.setActiveMainWindow(window)
             log("focus.suppressed", reason: reason, windows: [window])
             return true
@@ -466,6 +507,32 @@ final class MainWindowVisibilityController {
 
     private func activationRequiringKeyTransfer(_ activation: Activation, makeKey: Bool) -> Activation {
         makeKey ? activation : .none
+    }
+
+    private func focusBreadcrumbData(
+        _ window: NSWindow,
+        reason: Reason,
+        suppressed: Bool,
+        availability: WindowAvailability
+    ) -> [String: Any] {
+        var data: [String: Any] = [
+            "reason": reason.rawValue,
+            "windowNumber": window.windowNumber,
+            "windowIdentifier": window.identifier?.rawValue ?? "<nil>",
+            "isVisible": window.isVisible,
+            "isMiniaturized": window.isMiniaturized,
+            "appActive": dependencies.isApplicationActive(),
+            "appHidden": dependencies.isApplicationHidden(),
+            "suppressed": suppressed,
+            "contextAvailable": availability.isAvailable
+        ]
+        if let windowId = availability.windowId {
+            data["windowId"] = windowId.uuidString
+        }
+        if let workspaceId = availability.workspaceId {
+            data["workspaceId"] = workspaceId.uuidString
+        }
+        return data
     }
 
     private func uniqueWindows(_ windows: [NSWindow]) -> [NSWindow] {
