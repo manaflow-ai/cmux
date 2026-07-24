@@ -53,6 +53,33 @@ struct MobileStateSyncFrameCodingTests {
         #expect(terminals?.first?["is_focused"] as? Bool == false)
     }
 
+    @Test func workspaceRecordDefaultsMissingDescriptionTruncatedFlagToFalse() throws {
+        let decoded = try MobileSyncFrameCoder().decode(
+            WorkspaceSyncRecord.self,
+            fromJSONString: """
+            {
+              "id": "ws-older",
+              "window_id": "win-1",
+              "title": "older",
+              "description": "Legacy state sync",
+              "current_directory": null,
+              "is_selected": false,
+              "is_pinned": false,
+              "group_id": null,
+              "preview": null,
+              "preview_at": null,
+              "last_activity_at": 1,
+              "has_unread": false,
+              "sort_index": 0,
+              "terminals": []
+            }
+            """
+        )
+
+        #expect(decoded.customDescription == "Legacy state sync")
+        #expect(!decoded.customDescriptionIsTruncated)
+    }
+
     @Test func deltaEventRoundTripsThroughJSONObject() throws {
         let event = MobileSyncDeltaEvent(
             epoch: "e1",

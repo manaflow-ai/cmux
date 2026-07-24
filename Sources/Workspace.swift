@@ -19,6 +19,7 @@ import CmuxCanvasUI
 import CmuxPanes
 import CmuxSidebar
 import CmuxNotifications
+import CMUXMobileCore
 import Combine
 import CryptoKit
 import Darwin
@@ -2138,7 +2139,16 @@ final class Workspace: Identifiable, ObservableObject {
     /// treated as `.user` so auto-naming never overwrites a title it
     /// cannot prove it owns.
     @Published var customTitleSource: CustomTitleSource?
-    @Published var customDescription: String?
+    @Published var customDescription: String? {
+        didSet {
+            mobileCustomDescriptionProjection = MobileWorkspaceMetadataLimits
+                .projectedCustomDescription(customDescription)
+        }
+    }
+    @Published var mobileCustomDescriptionProjection = MobileWorkspaceDescriptionProjection(
+        value: nil,
+        isTruncated: false
+    )
     @Published var isPinned: Bool = false
     /// Identifier of the WorkspaceGroup this workspace belongs to, or nil if ungrouped.
     /// The group entity itself lives in `TabManager.workspaceGroups`.

@@ -246,7 +246,7 @@ final class MobileWorkspaceListObserver {
                 workspace.$title.map { _ in () }.eraseToAnyPublisher(),
                 // Description and color are durable workspace identity shown in
                 // the phone sidebar. Mac-side edits must invalidate mobile rows.
-                workspace.$customDescription
+                workspace.$mobileCustomDescriptionProjection
                     .handleEvents(receiveOutput: { [weak self, workspaceID = workspace.id] _ in
                         self?.descriptionProjectionCache.removeValue(forKey: workspaceID)
                     })
@@ -346,9 +346,7 @@ final class MobileWorkspaceListObserver {
         if let cached = descriptionProjectionCache[workspace.id] {
             return cached.signature
         }
-        let projection = MobileWorkspaceMetadataLimits.projectedCustomDescription(
-            workspace.customDescription
-        )
+        let projection = workspace.mobileCustomDescriptionProjection
         let signature = Self.descriptionSignature(for: projection)
         descriptionProjectionCache[workspace.id] = DescriptionProjectionCacheEntry(
             signature: signature
@@ -360,9 +358,7 @@ final class MobileWorkspaceListObserver {
         var signatures: [UUID: Int] = [:]
         signatures.reserveCapacity(tabs.count)
         for workspace in tabs {
-            let projection = MobileWorkspaceMetadataLimits.projectedCustomDescription(
-                workspace.customDescription
-            )
+            let projection = workspace.mobileCustomDescriptionProjection
             signatures[workspace.id] = descriptionSignature(for: projection)
         }
         return signatures

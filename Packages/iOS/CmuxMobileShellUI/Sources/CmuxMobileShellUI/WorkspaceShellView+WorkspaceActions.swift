@@ -104,6 +104,18 @@ extension WorkspaceShellView {
                 )
             }
 
+            let descriptionMutationRequested = initialDraft.customDescription != submittedDraft.customDescription
+                && current.customDescription != submittedDraft.customDescription
+            if descriptionMutationRequested, workspace.customDescriptionIsTruncated {
+                return await failureResult(failure: WorkspaceCustomizationSaveFailure(
+                    title: Self.workspaceActionFailureTitle(action: .updateWorkspaceDescription),
+                    message: L10n.string(
+                        "mobile.workspace.customize.description.truncated",
+                        defaultValue: "This Mac description is longer than iPhone can edit. Change it on Mac to avoid losing text."
+                    )
+                ))
+            }
+
             if initialDraft.name != submittedDraft.name,
                current.name != submittedDraft.name {
                 attemptedMutation = true
@@ -125,17 +137,7 @@ extension WorkspaceShellView {
                     isPinned: landedDraft.isPinned
                 )
             }
-            if initialDraft.customDescription != submittedDraft.customDescription,
-               current.customDescription != submittedDraft.customDescription {
-                if workspace.customDescriptionIsTruncated {
-                    return .failure(failure: WorkspaceCustomizationSaveFailure(
-                        title: Self.workspaceActionFailureTitle(action: .updateWorkspaceDescription),
-                        message: L10n.string(
-                            "mobile.workspace.customize.description.truncated",
-                            defaultValue: "This Mac description is longer than iPhone can edit. Change it on Mac to avoid losing text."
-                        )
-                    ))
-                }
+            if descriptionMutationRequested {
                 attemptedMutation = true
                 let result = await store.setWorkspaceDescription(
                     id: id,

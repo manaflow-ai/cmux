@@ -147,6 +147,29 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         self.terminals = terminals
     }
 
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        windowID = try container.decodeIfPresent(String.self, forKey: .windowID)
+        title = try container.decode(String.self, forKey: .title)
+        customDescription = try container.decodeIfPresent(String.self, forKey: .customDescription)
+        customDescriptionIsTruncated = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .customDescriptionIsTruncated
+        ) ?? false
+        customColorHex = try container.decodeIfPresent(String.self, forKey: .customColorHex)
+        currentDirectory = try container.decodeIfPresent(String.self, forKey: .currentDirectory)
+        isSelected = try container.decode(Bool.self, forKey: .isSelected)
+        isPinned = try container.decode(Bool.self, forKey: .isPinned)
+        groupID = try container.decodeIfPresent(String.self, forKey: .groupID)
+        preview = try container.decodeIfPresent(String.self, forKey: .preview)
+        previewAt = try container.decodeIfPresent(Double.self, forKey: .previewAt)
+        lastActivityAt = try container.decode(Double.self, forKey: .lastActivityAt)
+        hasUnread = try container.decode(Bool.self, forKey: .hasUnread)
+        sortIndex = try container.decode(Int.self, forKey: .sortIndex)
+        terminals = try container.decode([Terminal].self, forKey: .terminals)
+    }
+
     private enum CodingKeys: String, CodingKey {
         case id
         case windowID = "window_id"
