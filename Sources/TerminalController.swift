@@ -6576,6 +6576,14 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
+            if let profileSelector, preferredProfileID != nil, ws.isRemoteWorkspace {
+                result = .err(
+                    code: "invalid_params",
+                    message: BrowserProfileAutomationError.profileUnavailableInRemoteWorkspace.description,
+                    data: ["profile": profileSelector]
+                )
+                return
+            }
             if let url,
                respectExternalOpenRules,
                preferredProfileID == nil,

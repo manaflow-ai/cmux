@@ -29491,6 +29491,23 @@
         }
       }
     },
+    "browser.profile.automation.error.profileUnavailableInRemoteWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser profiles cannot be selected when creating a browser pane in a remote workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートワークスペースでブラウザーペインを作成する場合、ブラウザープロファイルは選択できません"
+          }
+        }
+      }
+    },
     "browser.profile.automation.error.profileRenameFailed": {
       "extractionState": "manual",
       "localizations": {

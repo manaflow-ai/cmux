@@ -246,6 +246,13 @@ extension TerminalController: ControlPaneContext {
         guard let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
         }
+        if panelType == .browser, preferredBrowserProfileID != nil, ws.isRemoteWorkspace {
+            return .invalidBrowserProfile(
+                selector: inputs.profileRaw ?? "",
+                message: BrowserProfileAutomationError.profileUnavailableInRemoteWorkspace.description,
+                candidates: []
+            )
+        }
         if panelType == .terminal {
             let remoteTarget: RemoteTmuxControlPaneLocation?
             if let requestedSurfaceID = inputs.requestedSourceSurfaceID {

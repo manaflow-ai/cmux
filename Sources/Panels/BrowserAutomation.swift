@@ -74,6 +74,7 @@ enum BrowserProfileAutomationError: LocalizedError, CustomStringConvertible {
     case invalidProfileSelector
     case multipleProfileSelectors
     case profileRequiresBrowserPane
+    case profileUnavailableInRemoteWorkspace
     case profileNotFound(String)
     case ambiguousProfile(String, [BrowserProfileDefinition])
     case profileCreationFailed(String)
@@ -114,6 +115,11 @@ enum BrowserProfileAutomationError: LocalizedError, CustomStringConvertible {
             return String(
                 localized: "browser.profile.automation.error.profileRequiresBrowserPane",
                 defaultValue: "Browser profiles can only be used when creating a browser pane"
+            )
+        case .profileUnavailableInRemoteWorkspace:
+            return String(
+                localized: "browser.profile.automation.error.profileUnavailableInRemoteWorkspace",
+                defaultValue: "Browser profiles cannot be selected when creating a browser pane in a remote workspace"
             )
         case .profileNotFound(let query):
             return String.localizedStringWithFormat(
