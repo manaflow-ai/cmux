@@ -759,8 +759,6 @@ class _PythonDeferredBindingCollector(_PythonLocalBindingCollector):
         result = self.trusted_bindings.copy()
         for name in self.local_names:
             result[name] = _PYTHON_SHADOWED_BINDING
-        for name in self.global_names | self.nonlocal_names:
-            result.pop(name, None)
         return result
 
 
@@ -1794,7 +1792,9 @@ _SHELL_CONTROL_PREFIX = re.compile(
     r"(?:if|elif|while|until|then|do|else)\b"
 )
 _SHELL_ASSIGNMENT_START = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
-_SHELL_CASE_KEYWORD = re.compile(r"\b(?:case|in|esac)\b")
+_SHELL_CASE_TOKEN = re.compile(
+    r"[A-Za-z_][A-Za-z0-9_]*|;;|[;&|(){}]"
+)
 
 
 def _shell_case_state_after_prefix(
@@ -1804,14 +1804,31 @@ def _shell_case_state_after_prefix(
 ) -> tuple[bool, ...]:
     """Return nested case blocks and whether each has reached its ``in``."""
     state = list(initial_state)
-    for keyword in _SHELL_CASE_KEYWORD.finditer(line, 0, end):
-        token = keyword.group()
-        if token == "case":
+    command_position = True
+    for match in _SHELL_CASE_TOKEN.finditer(line, 0, end):
+        token = match.group()
+        if not token[0].isalnum() and match.start() > 0:
+            backslashes = len(
+                line[: match.start()]
+            ) - len(line[: match.start()].rstrip("\\"))
+            if backslashes % 2 == 1:
+                continue
+
+        if token == "case" and command_position:
             state.append(False)
         elif token == "in" and state and not state[-1]:
             state[-1] = True
-        elif token == "esac" and state:
+        elif token == "esac" and command_position and state:
             state.pop()
+        if token in ";&|(){}" or token == ";;":
+            command_position = True
+        elif (
+            command_position
+            and token in ("then", "do", "else", "elif")
+        ):
+            command_position = True
+        else:
+            command_position = False
     return tuple(state)
 
 
@@ -1867,21 +1884,37 @@ def _shell_assignment_word_end(line: str, start: int) -> Optional[int]:
         return None
 
     index = assignment.end()
-    quote: Optional[str] = None
+    quotes: list[Optional[str]] = [None]
     expansions: list[str] = []
     while index < len(line):
         char = line[index]
+        quote = quotes[-1]
         if quote == "'":
             if char == "'":
-                quote = None
+                quotes[-1] = None
             index += 1
             continue
-        if quote in ('"', "`"):
+        if quote == '"':
             if char == "\\":
                 index = min(len(line), index + 2)
                 continue
-            if char == quote:
-                quote = None
+            if char == '"':
+                quotes[-1] = None
+                index += 1
+                continue
+            if line.startswith("$(", index):
+                expansions.append(")")
+                quotes.append(None)
+                index += 2
+                continue
+            if line.startswith("${", index):
+                expansions.append("}")
+                quotes.append(None)
+                index += 2
+                continue
+            if char == "`":
+                expansions.append("`")
+                quotes.append(None)
                 index += 1
                 continue
             index += 1
@@ -1890,25 +1923,39 @@ def _shell_assignment_word_end(line: str, start: int) -> Optional[int]:
         if char == "\\":
             index = min(len(line), index + 2)
             continue
-        if char in ("'", '"', "`"):
-            quote = char
+        if char in ("'", '"'):
+            quotes[-1] = char
+            index += 1
+            continue
+        if char == "`":
+            if expansions and expansions[-1] == "`":
+                expansions.pop()
+                quotes.pop()
+            else:
+                expansions.append("`")
+                quotes.append(None)
             index += 1
             continue
         if line.startswith("$(", index):
             expansions.append(")")
+            quotes.append(None)
             index += 2
             continue
         if line.startswith("${", index):
             expansions.append("}")
+            quotes.append(None)
             index += 2
             continue
         if expansions:
             if char == expansions[-1]:
                 expansions.pop()
+                quotes.pop()
             elif char == "(" and expansions[-1] == ")":
                 expansions.append(")")
+                quotes.append(None)
             elif char == "{" and expansions[-1] == "}":
                 expansions.append("}")
+                quotes.append(None)
             index += 1
             continue
         if char.isspace() or char in ";&|()<>":
@@ -3242,7 +3289,13 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
     findings: list[Finding] = []
 
     for i, code in enumerate(code_lines):
-        if not code.strip():
+        if (
+            not code.strip()
+            and (
+                known_sleep_lines is None
+                or i not in known_sleep_lines
+            )
+        ):
             continue
         line_no = i + 1
         snippet = raw_lines[i].strip()
