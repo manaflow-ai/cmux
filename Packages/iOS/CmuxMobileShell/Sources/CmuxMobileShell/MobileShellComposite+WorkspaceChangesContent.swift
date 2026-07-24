@@ -144,15 +144,11 @@ extension MobileShellComposite {
             guard content.data.count <= Self.workspaceChangesExpansionByteLimit else {
                 throw DiffExpansionContentError.tooLarge
             }
-            let rawFingerprints: [String?] =
-                [statResponse.contentFingerprint] + content.fingerprints
-            let fingerprints: [String] = rawFingerprints
-                .compactMap { $0 }
-                .filter { !$0.isEmpty }
             let lines = try await Self.workspaceChangesLines(from: content.data)
             return DiffExpansionCurrentFile(
                 lines: lines,
-                contentFingerprints: fingerprints
+                contentFingerprints:
+                    [statResponse.contentFingerprint] + content.fingerprints
             )
         }
     }

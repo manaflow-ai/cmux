@@ -7,9 +7,8 @@ public struct DiffExpansionRevisionPolicy: Sendable {
 
     /// Compares a diff revision with fingerprints observed while fetching current lines.
     ///
-    /// Missing fingerprints preserve compatibility with older hosts. When the
-    /// diff has a fingerprint, every fingerprint supplied by a newer host must
-    /// match it.
+    /// An all-missing legacy workflow remains compatible. Once the diff has a
+    /// fingerprint, every stat and content response must carry the same token.
     ///
     /// - Parameters:
     ///   - diffContentFingerprint: Fingerprint attached to the loaded diff.
@@ -17,14 +16,15 @@ public struct DiffExpansionRevisionPolicy: Sendable {
     /// - Returns: Whether to use the fetched lines or reload the diff.
     public func decision(
         diffContentFingerprint: String?,
-        fetchedContentFingerprints: [String]
+        fetchedContentFingerprints: [String?]
     ) -> DiffExpansionRevisionDecision {
-        guard let expected = diffContentFingerprint?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !expected.isEmpty else {
+        guard let expected = diffContentFingerprint else {
             return .accept
         }
-        let observed = fetchedContentFingerprints.filter { !$0.isEmpty }
-        guard !observed.isEmpty else { return .accept }
-        return observed.allSatisfy { $0 == expected } ? .accept : .reloadDiff
+        guard !fetchedContentFingerprints.isEmpty,
+              fetchedContentFingerprints.allSatisfy({ $0 == expected }) else {
+            return .reloadDiff
+        }
+        return .accept
     }
 }

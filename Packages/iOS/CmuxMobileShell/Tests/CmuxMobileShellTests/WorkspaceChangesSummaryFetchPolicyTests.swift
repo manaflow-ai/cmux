@@ -53,4 +53,23 @@ import Testing
 
         #expect(batches == [["one", "two"], ["three"]])
     }
+
+    @Test func freshEntriesArmOneTrailingFetchAtEarliestExpiry() {
+        let policy = WorkspaceChangesSummaryFetchPolicy()
+        let now = Date(timeIntervalSince1970: 1_000)
+
+        let plan = policy.plan(
+            workspaceIDs: ["later", "earliest", "earliest"],
+            fetchedAtByWorkspaceID: [
+                "later": now.addingTimeInterval(-2),
+                "earliest": now.addingTimeInterval(-10),
+            ],
+            now: now,
+            force: false
+        )
+
+        #expect(plan.batches.isEmpty)
+        #expect(plan.freshUntilByWorkspaceID.count == 2)
+        #expect(plan.earliestFreshExpiry == now.addingTimeInterval(5))
+    }
 }

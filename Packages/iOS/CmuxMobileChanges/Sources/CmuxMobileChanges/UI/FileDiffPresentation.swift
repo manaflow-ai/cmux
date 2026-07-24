@@ -37,6 +37,28 @@ public struct FileDiffPresentation: Sendable, Equatable {
         )
     }
 
+    /// Builds an expansion projection that cooperatively stops when superseded.
+    nonisolated static func prepareOffMainCancellable(
+        document: FileDiffDocument,
+        expansionState: DiffExpansionState,
+        currentFileLines: [String],
+        fileKind: FileChangeKind
+    ) async -> FileDiffPresentation? {
+        guard !Task.isCancelled,
+              let rows = DiffRowSnapshot.cancellableRows(
+                  for: document,
+                  expansionState: expansionState,
+                  currentFileLines: currentFileLines,
+                  fileKind: fileKind
+              ),
+              !Task.isCancelled else { return nil }
+        return FileDiffPresentation(
+            document: document,
+            rows: rows,
+            maximumLineNumber: DiffRowSnapshot.maximumLineNumber(in: rows)
+        )
+    }
+
     static func make(
         document: FileDiffDocument,
         expansionState: DiffExpansionState,

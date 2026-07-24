@@ -138,6 +138,23 @@ import Testing
         }
     }
 
+    @Test func bracketedFilenameUsesLiteralPathspecSemantics() async throws {
+        let repo = try WorkspaceChangesGitRepositoryFixture()
+        try repo.write("file[1].txt", "before\n")
+        try repo.git(["--literal-pathspecs", "add", "--", "file[1].txt"])
+        try repo.commit("bracket baseline")
+        try repo.write("file[1].txt", "after\n")
+
+        let diff = try await WorkspaceChangesService().fileDiff(
+            forDirectory: repo.root.path,
+            path: "file[1].txt"
+        )
+
+        #expect(diff.path == "file[1].txt")
+        #expect(diff.unifiedDiff.contains("-before"))
+        #expect(diff.unifiedDiff.contains("+after"))
+    }
+
     @Test func fileDiffTruncatesMoreThanSixThousandLines() async throws {
         let repo = try WorkspaceChangesGitRepositoryFixture()
         let baseline = (0..<6_500).map { "old-\($0)" }.joined(separator: "\n") + "\n"

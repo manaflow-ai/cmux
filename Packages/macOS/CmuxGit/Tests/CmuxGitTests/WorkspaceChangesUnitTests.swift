@@ -116,6 +116,56 @@ import Testing
         #expect(await cache.summary(forRepoRoot: "/repo") == nil)
     }
 
+    @Test func forcedSummaryBypassesRepositoryRootCache() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-force-summary-\(UUID().uuidString)", isDirectory: true)
+        let markers = root.appendingPathComponent("markers", isDirectory: true)
+        try FileManager.default.createDirectory(at: markers, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let statusArguments = ["diff", "-M", "--name-status", "-z", "HEAD", "--"]
+        let runner = FakeWorkspaceChangesGitRunner(
+            results: [
+                ["rev-parse", "--show-toplevel"]:
+                    FakeWorkspaceChangesGitRunner.result("\(root.path)\n"),
+                ["symbolic-ref", "--quiet", "--short", "HEAD"]:
+                    FakeWorkspaceChangesGitRunner.result("main\n"),
+                ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]:
+                    FakeWorkspaceChangesGitRunner.result(exitCode: 1),
+                ["rev-parse", "--verify", "--quiet", "origin/main^{commit}"]:
+                    FakeWorkspaceChangesGitRunner.result(exitCode: 1),
+                ["rev-parse", "--verify", "--quiet", "origin/master^{commit}"]:
+                    FakeWorkspaceChangesGitRunner.result(exitCode: 1),
+                ["rev-parse", "--verify", "--quiet", "main^{commit}"]:
+                    FakeWorkspaceChangesGitRunner.result("abc\n"),
+                ["rev-parse", "--verify", "HEAD^{commit}"]:
+                    FakeWorkspaceChangesGitRunner.result("abc\n"),
+                statusArguments:
+                    FakeWorkspaceChangesGitRunner.result("M\0File.swift\0"),
+                ["diff", "-M", "--numstat", "-z", "HEAD", "--"]:
+                    FakeWorkspaceChangesGitRunner.result("1\t1\tFile.swift\0"),
+                ["ls-files", "--others", "--exclude-standard", "-z"]:
+                    FakeWorkspaceChangesGitRunner.result(),
+            ],
+            beforeRun: { arguments, _ in
+                guard arguments == statusArguments else { return }
+                try Data().write(
+                    to: markers.appendingPathComponent(UUID().uuidString)
+                )
+            }
+        )
+        let service = WorkspaceChangesService(runner: runner)
+
+        _ = await service.summary(forDirectory: root.path)
+        _ = await service.summary(forDirectory: root.path)
+        _ = await service.summary(forDirectory: root.path, force: true)
+
+        let captures = try FileManager.default.contentsOfDirectory(
+            at: markers,
+            includingPropertiesForKeys: nil
+        )
+        #expect(captures.count == 2)
+    }
+
     @Test func serviceUsesInjectedRunnerAndParsers() async {
         let root = "/tmp/cmux-fake-repo"
         let runner = FakeWorkspaceChangesGitRunner(results: [

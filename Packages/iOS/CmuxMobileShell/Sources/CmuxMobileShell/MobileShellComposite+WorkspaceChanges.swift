@@ -58,21 +58,34 @@ extension MobileShellComposite {
             return
         }
         let now = runtime?.now() ?? Date()
-        let batches = workspaceChangesSummaryFetchPolicy.batches(
+        let plan = workspaceChangesSummaryFetchPolicy.plan(
             workspaceIDs: workspaceIDs,
             fetchedAtByWorkspaceID: workspaceChangesSummaryFetchedAtByWorkspaceID,
             now: now,
             force: force
         )
+        armWorkspaceChangesSummaryTrailingRefresh(
+            freshUntilByWorkspaceID: plan.freshUntilByWorkspaceID
+        )
 
-        for batch in batches {
+        for batch in plan.batches {
             guard !Task.isCancelled,
                   remoteClient === client,
                   connectionState == .connected else { return }
             do {
+                guard let summaryRequest = MobileWorkspaceChangesSummaryRequest(
+                    workspaceIDs: batch,
+                    force: force
+                ) else { continue }
+                var params: [String: Any] = [
+                    "workspace_ids": summaryRequest.workspaceIDs,
+                ]
+                if summaryRequest.force {
+                    params["force"] = true
+                }
                 let request = try MobileCoreRPCClient.requestData(
                     method: "mobile.workspace.changes.summary",
-                    params: ["workspace_ids": batch]
+                    params: params
                 )
                 let data = try await client.sendRequest(request)
                 let response = try MobileWorkspaceChangesSummariesResponse.decode(data)
@@ -96,6 +109,8 @@ extension MobileShellComposite {
                 )
                 for workspaceID in batch {
                     workspaceChangesSummaryFetchedAtByWorkspaceID[workspaceID] = now
+                    workspaceChangesSummaryTrailingExpiryByWorkspaceID
+                        .removeValue(forKey: workspaceID)
                 }
             } catch {
                 MobileDebugLog.anchormux("changes.summary error \(error)")
@@ -103,6 +118,7 @@ extension MobileShellComposite {
                 _ = disconnectForAuthorizationFailureIfNeeded(error)
             }
         }
+        rescheduleWorkspaceChangesSummaryTrailingTask()
     }
 
     /// Fetches the changed-file list for one workspace.
@@ -227,6 +243,11 @@ extension MobileShellComposite {
         workspaceChangesSummaryFetchTask?.cancel()
         workspaceChangesSummaryFetchTask = nil
         workspaceChangesSummaryFetchTaskID = nil
+        workspaceChangesSummaryTrailingTask?.cancel()
+        workspaceChangesSummaryTrailingTask = nil
+        workspaceChangesSummaryTrailingTaskID = nil
+        workspaceChangesSummaryTrailingDeadline = nil
+        workspaceChangesSummaryTrailingExpiryByWorkspaceID = [:]
         workspaceChangesSummaryRefreshSchedulePolicy.reset()
         workspaceChangesSummaryFetchedAtByWorkspaceID = [:]
         setWorkspaceChangeChipsByWorkspaceID([:])
@@ -295,5 +316,73 @@ extension MobileShellComposite {
         guard workspaceChangesSummaryFetchTaskID == id else { return }
         workspaceChangesSummaryFetchTask = nil
         workspaceChangesSummaryFetchTaskID = nil
+    }
+
+    private func armWorkspaceChangesSummaryTrailingRefresh(
+        freshUntilByWorkspaceID: [String: Date]
+    ) {
+        for (workspaceID, expiry) in freshUntilByWorkspaceID {
+            let existing = workspaceChangesSummaryTrailingExpiryByWorkspaceID[workspaceID]
+            workspaceChangesSummaryTrailingExpiryByWorkspaceID[workspaceID] =
+                existing.map { min($0, expiry) } ?? expiry
+        }
+        rescheduleWorkspaceChangesSummaryTrailingTask()
+    }
+
+    private func rescheduleWorkspaceChangesSummaryTrailingTask() {
+        guard let deadline =
+            workspaceChangesSummaryTrailingExpiryByWorkspaceID.values.min()
+        else {
+            workspaceChangesSummaryTrailingTask?.cancel()
+            workspaceChangesSummaryTrailingTask = nil
+            workspaceChangesSummaryTrailingTaskID = nil
+            workspaceChangesSummaryTrailingDeadline = nil
+            return
+        }
+        if workspaceChangesSummaryTrailingTask != nil,
+           workspaceChangesSummaryTrailingDeadline == deadline {
+            return
+        }
+
+        workspaceChangesSummaryTrailingTask?.cancel()
+        let taskID = UUID()
+        workspaceChangesSummaryTrailingTaskID = taskID
+        workspaceChangesSummaryTrailingDeadline = deadline
+        workspaceChangesSummaryTrailingTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let now = self.runtime?.now() ?? Date()
+            let delayMilliseconds = Int64(
+                max(0, deadline.timeIntervalSince(now) * 1_000)
+            )
+            // A bounded, cancellable delay intentionally fires at the earliest cache expiry.
+            try? await ContinuousClock().sleep(
+                for: .milliseconds(delayMilliseconds)
+            )
+            guard !Task.isCancelled,
+                  self.workspaceChangesSummaryTrailingTaskID == taskID else {
+                return
+            }
+            self.fireWorkspaceChangesSummaryTrailingRefresh(deadline: deadline)
+        }
+    }
+
+    private func fireWorkspaceChangesSummaryTrailingRefresh(deadline: Date) {
+        workspaceChangesSummaryTrailingTask = nil
+        workspaceChangesSummaryTrailingTaskID = nil
+        workspaceChangesSummaryTrailingDeadline = nil
+        let dueWorkspaceIDs = workspaceChangesSummaryTrailingExpiryByWorkspaceID
+            .filter { $0.value <= deadline }
+            .map(\.key)
+            .sorted()
+        for workspaceID in dueWorkspaceIDs {
+            workspaceChangesSummaryTrailingExpiryByWorkspaceID
+                .removeValue(forKey: workspaceID)
+        }
+        rescheduleWorkspaceChangesSummaryTrailingTask()
+        guard !dueWorkspaceIDs.isEmpty else { return }
+        scheduleWorkspaceChangesSummaryRefresh(
+            workspaceIDs: dueWorkspaceIDs,
+            force: false
+        )
     }
 }

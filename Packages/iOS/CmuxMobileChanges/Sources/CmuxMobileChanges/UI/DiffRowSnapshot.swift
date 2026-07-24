@@ -55,6 +55,37 @@ struct DiffRowSnapshot: Identifiable, Sendable, Equatable {
         currentFileLines: [String]?,
         fileKind: FileChangeKind
     ) -> [DiffRowSnapshot] {
+        projectedRows(
+            for: document,
+            expansionState: expansionState,
+            currentFileLines: currentFileLines,
+            fileKind: fileKind,
+            checksCancellation: false
+        ) ?? []
+    }
+
+    static func cancellableRows(
+        for document: FileDiffDocument,
+        expansionState: DiffExpansionState,
+        currentFileLines: [String]?,
+        fileKind: FileChangeKind
+    ) -> [DiffRowSnapshot]? {
+        projectedRows(
+            for: document,
+            expansionState: expansionState,
+            currentFileLines: currentFileLines,
+            fileKind: fileKind,
+            checksCancellation: true
+        )
+    }
+
+    private static func projectedRows(
+        for document: FileDiffDocument,
+        expansionState: DiffExpansionState,
+        currentFileLines: [String]?,
+        fileKind: FileChangeKind,
+        checksCancellation: Bool
+    ) -> [DiffRowSnapshot]? {
         guard fileKind != .deleted, !document.isBinary else {
             return rows(for: document)
         }
@@ -68,14 +99,16 @@ struct DiffRowSnapshot: Identifiable, Sendable, Equatable {
         rows.reserveCapacity(document.lines.count + document.hunks.count + 1)
 
         for (hunkIndex, hunk) in document.hunks.enumerated() {
+            if checksCancellation, Task.isCancelled { return nil }
             let precedingGap = gapsByID[hunkIndex]
             if let precedingGap {
-                append(
+                guard append(
                     gap: precedingGap,
                     expansionState: expansionState,
                     currentFileLines: currentFileLines,
+                    checksCancellation: checksCancellation,
                     to: &rows
-                )
+                ) else { return nil }
             }
             let copyText = hunk.copyText
             rows.append(DiffRowSnapshot(
@@ -84,6 +117,7 @@ struct DiffRowSnapshot: Identifiable, Sendable, Equatable {
                 leadingHunkGap: hunkIndex > 0 && precedingGap == nil
             ))
             for (lineIndex, line) in hunk.lines.enumerated() {
+                if checksCancellation, Task.isCancelled { return nil }
                 rows.append(DiffRowSnapshot(
                     id: "l:\(hunkIndex):\(lineIndex)",
                     content: .line(line, hunkCopyText: copyText),
@@ -93,12 +127,13 @@ struct DiffRowSnapshot: Identifiable, Sendable, Equatable {
         }
         if !document.truncated,
            let trailingGap = gapsByID[document.hunks.count] {
-            append(
+            guard append(
                 gap: trailingGap,
                 expansionState: expansionState,
                 currentFileLines: currentFileLines,
+                checksCancellation: checksCancellation,
                 to: &rows
-            )
+            ) else { return nil }
         }
         return rows
     }
@@ -107,8 +142,9 @@ struct DiffRowSnapshot: Identifiable, Sendable, Equatable {
         gap: DiffGap,
         expansionState: DiffExpansionState,
         currentFileLines: [String]?,
+        checksCancellation: Bool,
         to rows: inout [DiffRowSnapshot]
-    ) {
+    ) -> Bool {
         guard let gapRange = gap.newLineRange else {
             rows.append(DiffRowSnapshot(
                 id: "g:\(gap.id):unknown",
@@ -118,13 +154,14 @@ struct DiffRowSnapshot: Identifiable, Sendable, Equatable {
                 )),
                 leadingHunkGap: false
             ))
-            return
+            return true
         }
 
         let revealedRanges = expansionState.revealedRanges(for: gap.id)
         let hiddenRanges = expansionState.hiddenRanges(in: gap)
         var cursor = gapRange.lowerBound
         while cursor < gapRange.upperBound {
+            if checksCancellation, Task.isCancelled { return false }
             if let hidden = hiddenRanges.first(where: { $0.contains(cursor) }) {
                 rows.append(DiffRowSnapshot(
                     id: "g:\(gap.id):\(hidden.lowerBound):\(hidden.upperBound)",
@@ -157,5 +194,6 @@ struct DiffRowSnapshot: Identifiable, Sendable, Equatable {
             ))
             cursor += 1
         }
+        return true
     }
 }

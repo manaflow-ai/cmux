@@ -10,12 +10,13 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     UITableViewDragDelegate, UITableViewDropDelegate
 {
     private enum HeightKind: Hashable {
-        case workspaceUniform
+        case workspaceUniform(changesChipIdentity: String?)
         case workspaceWrapped(
             id: MobileWorkspacePreview.ID,
             name: String,
             isSelected: Bool,
-            isIndented: Bool
+            isIndented: Bool,
+            changesChipIdentity: String?
         )
         case groupHeader
         case groupFooter
@@ -573,6 +574,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         let kind: HeightKind
         switch item {
         case .workspace(let id, _):
+            let changesChipIdentity = workspaceChangesChipHeightIdentity(id: id)
             if configuration.wrapWorkspaceTitles,
                let workspace = configuration.workspacesByID[id] {
                 kind = .workspaceWrapped(
@@ -580,10 +582,13 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                     name: workspace.name,
                     isSelected: configuration.navigationStyle == .sidebar
                         && configuration.selectedWorkspaceID == id,
-                    isIndented: item.isIndentedWorkspace
+                    isIndented: item.isIndentedWorkspace,
+                    changesChipIdentity: changesChipIdentity
                 )
             } else {
-                kind = .workspaceUniform
+                kind = .workspaceUniform(
+                    changesChipIdentity: changesChipIdentity
+                )
             }
         case .groupHeader:
             kind = .groupHeader
@@ -622,6 +627,25 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             previewLineLimit: configuration.previewLineLimit,
             profilePictureSizeInPixels: Int((configuration.profilePictureSize * scale).rounded())
         )
+    }
+
+    /// Separates clean, passive-chip, and interactive-chip measurements and
+    /// includes count text because it can wrap differently at narrow widths.
+    private func workspaceChangesChipHeightIdentity(
+        id: MobileWorkspacePreview.ID
+    ) -> String? {
+        guard configuration.workspaceChangesCapable,
+              let workspace = configuration.workspacesByID[id],
+              let chip = configuration.workspaceChangeChipsByWorkspaceID[
+                  workspace.rpcWorkspaceID.rawValue
+              ],
+              chip.filesChanged > 0 else { return nil }
+        return [
+            String(chip.filesChanged),
+            String(chip.additions),
+            String(chip.deletions),
+            configuration.openWorkspaceChanges == nil ? "passive" : "interactive",
+        ].joined(separator: ":")
     }
 
     /// Whether a workspace row's changes chip differs between configurations,

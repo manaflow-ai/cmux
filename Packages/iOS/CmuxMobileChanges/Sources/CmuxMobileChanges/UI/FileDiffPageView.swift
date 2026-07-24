@@ -15,17 +15,18 @@ public struct FileDiffPageView: View {
     @State var loadState: FileDiffLoadState = .loading
     @State private var magnificationStart: Double?
     @State var previewRevision: FileDiffPreviewRevision = .current
-    @State private var expansionState = DiffExpansionState()
-    @State private var currentFileLines: [String]?
-    @State private var pendingExpansionGapID: Int?
-    @State private var pendingExpansionDirection: DiffExpansionDirection?
-    @State private var failedExpansionGapID: Int?
-    @State private var failedExpansionDirection: DiffExpansionDirection?
-    @State private var expansionContentTooLarge = false
+    @State var expansionState = DiffExpansionState()
+    @State var currentFileLines: [String]?
+    @State var pendingExpansionGapID: Int?
+    @State var pendingExpansionDirection: DiffExpansionDirection?
+    @State var failedExpansionGapID: Int?
+    @State var failedExpansionDirection: DiffExpansionDirection?
+    @State var expansionContentTooLarge = false
+    @State var expansionTask: Task<Void, Never>?
     @State private var lineBudget = FileDiffContinuation.defaultLineBudget
-    @State private var continuationLoadState = FileDiffContinuationLoadState.idle
+    @State var continuationLoadState = FileDiffContinuationLoadState.idle
     @State private var reachedTransportCeiling = false
-    @State private var requestGeneration = FileDiffRequestGeneration()
+    @State var requestGeneration = FileDiffRequestGeneration()
     @Environment(\.colorScheme) private var colorScheme
     public var body: some View {
         content
@@ -33,6 +34,9 @@ public struct FileDiffPageView: View {
             .task(id: file.path) {
                 guard case .loading = loadState else { return }
                 await load(forceRefresh: false)
+            }
+            .onDisappear {
+                cancelExpansionTask()
             }
     }
     @ViewBuilder
@@ -144,166 +148,6 @@ public struct FileDiffPageView: View {
     private var theme: ChangesTheme {
         ChangesTheme(colorScheme: colorScheme)
     }
-    private func expansionRowStatus(for snapshot: DiffExpanderSnapshot) -> DiffExpansionRowStatus {
-        if expansionContentTooLarge { return .tooLarge }
-        if pendingExpansionGapID == snapshot.gap.id,
-           let pendingExpansionDirection {
-            return .loading(pendingExpansionDirection)
-        }
-        if failedExpansionGapID == snapshot.gap.id,
-           let failedExpansionDirection {
-            return .failed(failedExpansionDirection)
-        }
-        return .ready
-    }
-    @MainActor
-    private func expand(
-        _ snapshot: DiffExpanderSnapshot,
-        direction: DiffExpansionDirection
-    ) {
-        guard pendingExpansionGapID == nil, !expansionContentTooLarge else { return }
-        let generation = requestGeneration.begin()
-        continuationLoadState = .idle
-        if let currentFileLines {
-            Task {
-                await reveal(
-                    snapshot: snapshot,
-                    direction: direction,
-                    currentFileLines: currentFileLines,
-                    generation: generation
-                )
-            }
-            return
-        }
-        pendingExpansionGapID = snapshot.gap.id
-        pendingExpansionDirection = direction
-        failedExpansionGapID = nil
-        failedExpansionDirection = nil
-        Task {
-            await loadCurrentLinesAndExpand(
-                snapshot: snapshot,
-                direction: direction,
-                generation: generation
-            )
-        }
-    }
-
-    @MainActor
-    private func loadCurrentLinesAndExpand(
-        snapshot: DiffExpanderSnapshot,
-        direction: DiffExpansionDirection,
-        generation: UInt64
-    ) async {
-        do {
-            let currentFile = try await onLoadCurrentLines(file.path)
-            guard !Task.isCancelled,
-                  requestGeneration.isCurrent(generation) else { return }
-            guard case .loaded(let presentation) = loadState else { return }
-            let revisionDecision = DiffExpansionRevisionPolicy().decision(
-                diffContentFingerprint: presentation.document.contentFingerprint,
-                fetchedContentFingerprints: currentFile.contentFingerprints
-            )
-            guard revisionDecision == .accept else {
-                await load(forceRefresh: true)
-                return
-            }
-            await reveal(
-                snapshot: snapshot,
-                direction: direction,
-                currentFileLines: currentFile.lines,
-                generation: generation
-            )
-        } catch is CancellationError {
-            guard requestGeneration.isCurrent(generation),
-                  RecoverableCancellationErrorPolicy().shouldPublishFailure(
-                      taskIsCancelled: Task.isCancelled
-                  ) else { return }
-            pendingExpansionGapID = nil
-            pendingExpansionDirection = nil
-            failedExpansionGapID = snapshot.gap.id
-            failedExpansionDirection = direction
-        } catch DiffExpansionContentError.tooLarge {
-            guard !Task.isCancelled,
-                  requestGeneration.isCurrent(generation) else { return }
-            pendingExpansionGapID = nil
-            pendingExpansionDirection = nil
-            expansionContentTooLarge = true
-        } catch {
-            guard !Task.isCancelled,
-                  requestGeneration.isCurrent(generation) else { return }
-            pendingExpansionGapID = nil
-            pendingExpansionDirection = nil
-            failedExpansionGapID = snapshot.gap.id
-            failedExpansionDirection = direction
-        }
-    }
-
-    @MainActor
-    private func reveal(
-        snapshot: DiffExpanderSnapshot,
-        direction: DiffExpansionDirection,
-        currentFileLines: [String],
-        generation: UInt64
-    ) async {
-        guard requestGeneration.isCurrent(generation) else { return }
-        guard case .loaded(let presentation) = loadState else { return }
-        let document = presentation.document
-        var nextExpansionState = expansionState
-        if let gap = DiffGap.gaps(
-            for: document,
-            currentFileLineCount: currentFileLines.count
-        ).first(where: { $0.id == snapshot.gap.id }) {
-            nextExpansionState.reveal(
-                in: gap,
-                direction: direction,
-                preferredHiddenRange: snapshot.hiddenNewLineRange
-            )
-        }
-        await recomputePresentation(
-            for: document,
-            expansionState: nextExpansionState,
-            currentFileLines: currentFileLines,
-            generation: generation
-        )
-    }
-
-    @MainActor
-    private func resetExpansion() {
-        expansionState = DiffExpansionState()
-        currentFileLines = nil
-        pendingExpansionGapID = nil
-        pendingExpansionDirection = nil
-        failedExpansionGapID = nil
-        failedExpansionDirection = nil
-        expansionContentTooLarge = false
-    }
-
-    @MainActor
-    private func recomputePresentation(
-        for document: FileDiffDocument,
-        expansionState nextExpansionState: DiffExpansionState,
-        currentFileLines nextCurrentFileLines: [String],
-        generation: UInt64
-    ) async {
-        let presentation = await FileDiffPresentation.prepareOffMain(
-            document: document,
-            expansionState: nextExpansionState,
-            currentFileLines: nextCurrentFileLines,
-            fileKind: file.kind
-        )
-        guard !Task.isCancelled,
-              requestGeneration.isCurrent(generation),
-              case .loaded(let currentPresentation) = loadState,
-              currentPresentation.document == document else { return }
-        expansionState = nextExpansionState
-        currentFileLines = nextCurrentFileLines
-        pendingExpansionGapID = nil
-        pendingExpansionDirection = nil
-        failedExpansionGapID = nil
-        failedExpansionDirection = nil
-        loadState = .loaded(presentation)
-    }
-
     private var magnifyGesture: some Gesture {
         MagnifyGesture()
             .onChanged { value in
@@ -325,7 +169,7 @@ public struct FileDiffPageView: View {
     }
 
     @MainActor
-    private func load(forceRefresh: Bool) async {
+    func load(forceRefresh: Bool) async {
         let generation = requestGeneration.begin()
         resetExpansion()
         loadState = .loading

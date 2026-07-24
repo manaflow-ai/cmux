@@ -796,6 +796,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored var workspaceChangesSummaryDebounceTaskID: UUID?
     @ObservationIgnored var workspaceChangesSummaryFetchTask: Task<Void, Never>?
     @ObservationIgnored var workspaceChangesSummaryFetchTaskID: UUID?
+    @ObservationIgnored var workspaceChangesSummaryTrailingTask: Task<Void, Never>?
+    @ObservationIgnored var workspaceChangesSummaryTrailingTaskID: UUID?
+    @ObservationIgnored var workspaceChangesSummaryTrailingDeadline: Date?
+    @ObservationIgnored var workspaceChangesSummaryTrailingExpiryByWorkspaceID: [String: Date] = [:]
     @ObservationIgnored var workspaceChangesSummaryRefreshSchedulePolicy =
         WorkspaceChangesSummaryRefreshSchedulePolicy()
     @ObservationIgnored var workspaceChangesSummaryFetchedAtByWorkspaceID: [String: Date] = [:]
@@ -1187,6 +1191,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceListRefreshTask?.cancel()
         workspaceChangesSummaryDebounceTask?.cancel()
         workspaceChangesSummaryFetchTask?.cancel()
+        workspaceChangesSummaryTrailingTask?.cancel()
         pullToRefreshTask?.cancel()
         notificationFeedOpenTask?.cancel()
         teamScopeReconnectTask?.cancel()
@@ -5750,6 +5755,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceChangesSummaryFetchTask?.cancel()
         workspaceChangesSummaryFetchTask = nil
         workspaceChangesSummaryFetchTaskID = nil
+        workspaceChangesSummaryTrailingTask?.cancel()
+        workspaceChangesSummaryTrailingTask = nil
+        workspaceChangesSummaryTrailingTaskID = nil
+        workspaceChangesSummaryTrailingDeadline = nil
+        workspaceChangesSummaryTrailingExpiryByWorkspaceID = [:]
         workspaceChangesSummaryRefreshSchedulePolicy.reset()
         cancelAllTerminalReplayTasks()
     }

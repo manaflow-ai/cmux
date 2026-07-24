@@ -246,11 +246,19 @@ import Testing
         ) == .reloadDiff)
         #expect(policy.decision(
             diffContentFingerprint: nil,
-            fetchedContentFingerprints: ["10:1:3"]
+            fetchedContentFingerprints: [nil, nil]
         ) == .accept)
         #expect(policy.decision(
             diffContentFingerprint: "10:1:2",
             fetchedContentFingerprints: []
-        ) == .accept)
+        ) == .reloadDiff)
+        #expect(policy.decision(
+            diffContentFingerprint: "10:1:2",
+            fetchedContentFingerprints: ["10:1:2", nil]
+        ) == .reloadDiff)
+        #expect(policy.decision(
+            diffContentFingerprint: "",
+            fetchedContentFingerprints: [nil]
+        ) == .reloadDiff)
     }
 }

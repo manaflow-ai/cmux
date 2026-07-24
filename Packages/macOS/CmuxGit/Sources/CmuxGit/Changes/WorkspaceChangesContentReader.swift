@@ -4,7 +4,7 @@ internal import Foundation
 internal import UniformTypeIdentifiers
 
 /// Reads authorized content and derives fingerprints from the same filesystem metadata.
-struct WorkspaceChangesContentReader: Sendable {
+struct WorkspaceChangesContentReader: Sendable, WorkspaceChangesContentFingerprintReading {
     private let regularFileOpener = WorkspaceChangesRegularFileOpener()
 
     /// Reads artifact metadata and its size-and-mtime fingerprint.
@@ -79,7 +79,11 @@ struct WorkspaceChangesContentReader: Sendable {
         )
     }
 
-    /// Returns a fingerprint for a path that still exists, otherwise `nil`.
+    /// Returns a size-and-mtime fingerprint for an existing path.
+    ///
+    /// A same-size write that deliberately preserves modification time can
+    /// evade this inexpensive fingerprint. The diff capture accepts that
+    /// residual and uses pre/post comparison to reject observable mutations.
     func contentFingerprint(repoRoot: String, relativePath: String) -> String? {
         guard let openedFile = try? regularFileOpener.open(
             repoRoot: repoRoot,
@@ -87,14 +91,6 @@ struct WorkspaceChangesContentReader: Sendable {
         ) else { return nil }
         Darwin.close(openedFile.descriptor)
         return fingerprint(metadata: openedFile.metadata)
-    }
-
-    /// Resolves the fingerprint returned with a captured diff.
-    func fileDiffFingerprint(before: String?, after: String?) -> String? {
-        // A size-and-mtime fingerprint can still miss a metadata-preserving edit;
-        // the pre/post comparison intentionally accepts that residual.
-        guard before == after else { return "unstable:\(UUID().uuidString)" }
-        return after
     }
 
     /// Rejects chunks read while the opened file's identity or metadata changed.

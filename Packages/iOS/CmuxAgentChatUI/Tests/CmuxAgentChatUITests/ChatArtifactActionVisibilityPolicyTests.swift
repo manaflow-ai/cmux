@@ -66,7 +66,7 @@ struct ChatArtifactActionVisibilityPolicyTests {
             viewerHasFileActions: true,
             isTextFile: false,
             isImage: true
-        ).actions == [.share, .save, .copyImage])
+        ).actions == [.share, .save, .copyImage, .copyPath])
     }
 
     @Test

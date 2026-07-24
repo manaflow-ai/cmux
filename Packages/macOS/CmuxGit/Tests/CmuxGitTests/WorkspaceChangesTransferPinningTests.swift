@@ -34,15 +34,16 @@ import Testing
                 FakeWorkspaceChangesGitRunner.result("-\t-\tlarge.bin\0"),
             ["ls-files", "--others", "--exclude-standard", "-z"]:
                 FakeWorkspaceChangesGitRunner.result(),
-            ["cat-file", "-s", "\(baseOID):large.bin"]:
+            ["--literal-pathspecs", "cat-file", "-s", "\(baseOID):large.bin"]:
                 FakeWorkspaceChangesGitRunner.result("\(fileSize)\n"),
-            ["show", "\(baseOID):large.bin"]:
+            ["--literal-pathspecs", "show", "\(baseOID):large.bin"]:
                 WorkspaceChangesGitResult(output: payload, exitCode: 0),
         ]
         let runner = FakeWorkspaceChangesGitRunner(
             results: results,
             beforeRun: { arguments, _ in
-                guard arguments.first == "rev-parse" || arguments.first == "cat-file" else {
+                guard arguments.first == "rev-parse"
+                    || arguments.dropFirst().first == "cat-file" else {
                     return
                 }
                 let marker = commandLog.appendingPathComponent(UUID().uuidString)
@@ -83,6 +84,8 @@ import Testing
         #expect(offset == Int64(fileSize))
         #expect(Set(revParseCommands).count == revParseCommands.count)
         #expect(invocationCount(["rev-parse", "--show-toplevel"]) == 1)
-        #expect(invocationCount(["cat-file", "-s", "\(baseOID):large.bin"]) == 1)
+        #expect(invocationCount([
+            "--literal-pathspecs", "cat-file", "-s", "\(baseOID):large.bin",
+        ]) == 1)
     }
 }

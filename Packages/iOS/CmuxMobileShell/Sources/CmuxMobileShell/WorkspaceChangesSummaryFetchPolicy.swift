@@ -17,7 +17,22 @@ struct WorkspaceChangesSummaryFetchPolicy: Sendable {
         now: Date,
         force: Bool
     ) -> [[String]] {
+        plan(
+            workspaceIDs: workspaceIDs,
+            fetchedAtByWorkspaceID: fetchedAtByWorkspaceID,
+            now: now,
+            force: force
+        ).batches
+    }
+
+    func plan(
+        workspaceIDs: [String],
+        fetchedAtByWorkspaceID: [String: Date],
+        now: Date,
+        force: Bool
+    ) -> WorkspaceChangesSummaryFetchPlan {
         var seen: Set<String> = []
+        var freshUntilByWorkspaceID: [String: Date] = [:]
         let eligible = workspaceIDs.filter { workspaceID in
             guard !workspaceID.isEmpty, seen.insert(workspaceID).inserted else {
                 return false
@@ -25,7 +40,10 @@ struct WorkspaceChangesSummaryFetchPolicy: Sendable {
             guard !force, let fetchedAt = fetchedAtByWorkspaceID[workspaceID] else {
                 return true
             }
-            return now.timeIntervalSince(fetchedAt) >= reuseWindow
+            let expiresAt = fetchedAt.addingTimeInterval(reuseWindow)
+            guard now < expiresAt else { return true }
+            freshUntilByWorkspaceID[workspaceID] = expiresAt
+            return false
         }
 
         var result: [[String]] = []
@@ -35,6 +53,9 @@ struct WorkspaceChangesSummaryFetchPolicy: Sendable {
             result.append(Array(eligible[start..<end]))
             start = end
         }
-        return result
+        return WorkspaceChangesSummaryFetchPlan(
+            batches: result,
+            freshUntilByWorkspaceID: freshUntilByWorkspaceID
+        )
     }
 }

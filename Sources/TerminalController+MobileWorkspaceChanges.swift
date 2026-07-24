@@ -20,6 +20,7 @@ extension TerminalController {
                 data: nil
             )
         }
+        let force = params["force"] as? Bool ?? false
         let workspaceIDs = rawIDs.compactMap(UUID.init(uuidString:))
         guard workspaceIDs.count == rawIDs.count else {
             return .err(
@@ -50,7 +51,7 @@ extension TerminalController {
                 summary = cached
             } else {
                 summary = await MobileHostService.shared.workspaceChangesService
-                    .summary(forDirectory: directory)
+                    .summary(forDirectory: directory, force: force)
                 summariesByDirectory[directory] = summary
             }
             payloads.append(mobileWorkspaceChangesSummaryPayload(

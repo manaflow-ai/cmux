@@ -64,22 +64,6 @@ import Testing
         #expect(chunk.data == Data("after\n".utf8))
     }
 
-    @Test func preAndPostDiffFingerprintMismatchReturnsAnUnstableToken() throws {
-        let before = "stat:10:100"
-        let after = "stat:11:200"
-
-        let fingerprint = try #require(
-            WorkspaceChangesContentReader().fileDiffFingerprint(
-                before: before,
-                after: after
-            )
-        )
-
-        #expect(fingerprint.hasPrefix("unstable:"))
-        #expect(fingerprint != before)
-        #expect(fingerprint != after)
-    }
-
     @Test func postReadMetadataChangesFailWithRetryableError() {
         var baseline = Darwin.stat()
         baseline.st_dev = 10
@@ -125,14 +109,21 @@ import Testing
         }
     }
 
-    @Test func fileChangingWhileGitCapturesDiffReturnsAnUnstableFingerprint() async throws {
+    @Test func unstableDiffRetriesOnceThenFailsWithoutPublishing() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-atomic-fingerprint-\(UUID().uuidString)", isDirectory: true)
+        let diffMarkers = root.appendingPathComponent("diff-markers", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: diffMarkers,
+            withIntermediateDirectories: true
+        )
         defer { try? FileManager.default.removeItem(at: root) }
-        let fileURL = root.appendingPathComponent("changed.txt")
-        try Data("before\n".utf8).write(to: fileURL)
-        let diffArguments = ["diff", "-M", "--unified=3", "HEAD", "--", "changed.txt"]
+        try Data("before\n".utf8).write(to: root.appendingPathComponent("changed.txt"))
+        let diffArguments = [
+            "--literal-pathspecs", "diff", "-M", "--unified=3",
+            "HEAD", "--", "changed.txt",
+        ]
         let runner = FakeWorkspaceChangesGitRunner(
             results: [
                 ["rev-parse", "--show-toplevel"]: FakeWorkspaceChangesGitRunner.result("\(root.path)\n"),
@@ -158,24 +149,33 @@ import Testing
                 ),
             ],
             beforeRun: { arguments, _ in
-                if arguments == diffArguments {
-                    try Data("replacement\n".utf8).write(to: fileURL)
-                }
+                guard arguments == diffArguments else { return }
+                try Data().write(
+                    to: diffMarkers.appendingPathComponent(UUID().uuidString)
+                )
             }
         )
-
-        let diff = try await WorkspaceChangesService(runner: runner).fileDiff(
-            forDirectory: root.path,
-            path: "changed.txt"
-        )
-        let fingerprint = try #require(diff.contentFingerprint)
-        let fetchedFingerprint = WorkspaceChangesContentReader().contentFingerprint(
-            repoRoot: root.path,
-            relativePath: "changed.txt"
+        let fingerprintReader = SequencedWorkspaceChangesContentFingerprintReader([
+            "stat:7:1", "stat:12:2",
+            "stat:12:2", "stat:13:3",
+        ])
+        let service = WorkspaceChangesService(
+            runner: runner,
+            fingerprintReader: fingerprintReader
         )
 
-        #expect(fingerprint.hasPrefix("unstable:"))
-        #expect(fingerprint != fetchedFingerprint)
+        await #expect(throws: WorkspaceChangesServiceError.gitFailure) {
+            try await service.fileDiff(
+                forDirectory: root.path,
+                path: "changed.txt"
+            )
+        }
+        #expect(await fingerprintReader.readCount() == 4)
+        let diffCaptures = try FileManager.default.contentsOfDirectory(
+            at: diffMarkers,
+            includingPropertiesForKeys: nil
+        )
+        #expect(diffCaptures.count == 2)
     }
 
     @Test func renameOldPathIsAuthorizedOnlyAtBase() async throws {
@@ -306,7 +306,8 @@ import Testing
             ["diff", "-M", "--name-status", "-z", "HEAD", "--"]: FakeWorkspaceChangesGitRunner.result("M\0large.bin\0"),
             ["diff", "-M", "--numstat", "-z", "HEAD", "--"]: FakeWorkspaceChangesGitRunner.result("1\t1\tlarge.bin\0"),
             ["ls-files", "--others", "--exclude-standard", "-z"]: FakeWorkspaceChangesGitRunner.result(),
-            ["cat-file", "-s", "abc:large.bin"]: FakeWorkspaceChangesGitRunner.result("5\n"),
+            ["--literal-pathspecs", "cat-file", "-s", "abc:large.bin"]:
+                FakeWorkspaceChangesGitRunner.result("5\n"),
         ])
         let cache = WorkspaceChangesBaseContentCache(
             byteBudget: 4,

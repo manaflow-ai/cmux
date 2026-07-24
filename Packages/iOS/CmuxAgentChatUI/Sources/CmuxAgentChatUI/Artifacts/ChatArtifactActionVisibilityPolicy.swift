@@ -35,7 +35,7 @@ struct ChatArtifactActionVisibilityPolicy: Equatable {
             return
         }
         if isImage {
-            actions = Self.imageActions
+            actions = [.share, .save, .copyImage, .copyPath]
             return
         }
         actions = isTextFile

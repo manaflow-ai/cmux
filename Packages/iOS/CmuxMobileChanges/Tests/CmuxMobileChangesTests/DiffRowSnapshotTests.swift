@@ -81,6 +81,48 @@ import Testing
         #expect(state.hiddenRanges(in: gap).isEmpty)
     }
 
+    @Test func rapidStaleRevealIntentsAccumulateBeforeProjection() {
+        let gap = DiffGap(
+            id: 1,
+            placement: .inner,
+            newLineRange: 1..<351,
+            oldLineOffset: 0
+        )
+        let staleHiddenRange = 1..<351
+        var state = DiffExpansionState()
+
+        state.reveal(
+            in: gap,
+            direction: .down,
+            preferredHiddenRange: staleHiddenRange
+        )
+        state.reveal(
+            in: gap,
+            direction: .down,
+            preferredHiddenRange: staleHiddenRange
+        )
+
+        #expect(state.revealedRanges(for: gap.id) == [1..<201])
+        #expect(state.hiddenRanges(in: gap) == [201..<351])
+    }
+
+    @Test func cancelledExpansionProjectionStopsBeforePublishingRows() async {
+        let document = gapFixtureDocument()
+        let result = await Task {
+            withUnsafeCurrentTask { task in
+                task?.cancel()
+            }
+            return await FileDiffPresentation.prepareOffMainCancellable(
+                document: document,
+                expansionState: DiffExpansionState(),
+                currentFileLines: (1...50).map { "line \($0)" },
+                fileKind: .modified
+            )
+        }.value
+
+        #expect(result == nil)
+    }
+
     @Test func expansionFromBothEdgesKeepsCorrectOldAndNewGutters() throws {
         let document = gapFixtureDocument()
         let lines = (1...50).map { "line \($0)" }

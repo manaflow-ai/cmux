@@ -13,13 +13,14 @@ import Foundation
 /// let summary = await changes.summary(forDirectory: checkoutPath)
 /// ```
 public struct WorkspaceChangesService: Sendable {
-    private let runner: any WorkspaceChangesGitRunning
-    private let snapshotLoader: WorkspaceChangesSnapshotLoader
+    let runner: any WorkspaceChangesGitRunning
+    let snapshotLoader: WorkspaceChangesSnapshotLoader
     private let summaryCache: WorkspaceChangesSummaryCache
     private let authorizedPathCache: WorkspaceChangesAuthorizedPathCache
     private let baseContentCache: WorkspaceChangesBaseContentCache
-    private let pathValidator = WorkspaceChangesPathValidator()
+    let pathValidator = WorkspaceChangesPathValidator()
     private let contentReader = WorkspaceChangesContentReader()
+    let fingerprintReader: any WorkspaceChangesContentFingerprintReading
 
     /// Creates a production workspace-changes service.
     public init() {
@@ -29,19 +30,23 @@ public struct WorkspaceChangesService: Sendable {
         summaryCache = WorkspaceChangesSummaryCache()
         authorizedPathCache = WorkspaceChangesAuthorizedPathCache()
         baseContentCache = WorkspaceChangesBaseContentCache()
+        fingerprintReader = WorkspaceChangesContentReader()
     }
 
     init(
         runner: any WorkspaceChangesGitRunning,
         summaryCache: WorkspaceChangesSummaryCache = WorkspaceChangesSummaryCache(),
         authorizedPathCache: WorkspaceChangesAuthorizedPathCache = WorkspaceChangesAuthorizedPathCache(),
-        baseContentCache: WorkspaceChangesBaseContentCache = WorkspaceChangesBaseContentCache()
+        baseContentCache: WorkspaceChangesBaseContentCache = WorkspaceChangesBaseContentCache(),
+        fingerprintReader: any WorkspaceChangesContentFingerprintReading =
+            WorkspaceChangesContentReader()
     ) {
         self.runner = runner
         snapshotLoader = WorkspaceChangesSnapshotLoader(runner: runner)
         self.summaryCache = summaryCache
         self.authorizedPathCache = authorizedPathCache
         self.baseContentCache = baseContentCache
+        self.fingerprintReader = fingerprintReader
     }
 
     /// Reads aggregate changes for the repository enclosing `directory`.
@@ -50,13 +55,19 @@ public struct WorkspaceChangesService: Sendable {
     /// directory outside a repository, or a Git failure, returns
     /// ``WorkspaceChangesSummary/notARepository``.
     ///
-    /// - Parameter directory: An absolute workspace directory to inspect.
+    /// - Parameters:
+    ///   - directory: An absolute workspace directory to inspect.
+    ///   - force: Whether to bypass the repository-root summary cache.
     /// - Returns: Aggregate committed and working-tree changes.
-    public nonisolated func summary(forDirectory directory: String) async -> WorkspaceChangesSummary {
+    public nonisolated func summary(
+        forDirectory directory: String,
+        force: Bool = false
+    ) async -> WorkspaceChangesSummary {
         guard let scope = snapshotLoader.resolveScope(forDirectory: directory) else {
             return .notARepository
         }
-        if let cached = await summaryCache.summary(forRepoRoot: scope.repoRoot) {
+        if !force,
+           let cached = await summaryCache.summary(forRepoRoot: scope.repoRoot) {
             return cached
         }
         guard let snapshot = snapshotLoader.loadSnapshot(scope: scope) else {
@@ -90,87 +101,6 @@ public struct WorkspaceChangesService: Sendable {
             return .notARepository
         }
         return changedFilesValue(from: snapshot)
-    }
-
-    /// Reads a progressively bounded unified diff for one changed repository-relative path.
-    ///
-    /// Absolute paths and paths that escape the repository root lexically or
-    /// through symlinks are rejected before the path reaches Git. Output is
-    /// capped at 400 KiB or 6,000 lines at a complete-hunk boundary by
-    /// default. A requested line budget scales the byte budget proportionally,
-    /// up to the 1,000,000-line guard and 6 MiB response budget.
-    ///
-    /// - Parameters:
-    ///   - directory: An absolute workspace directory to inspect.
-    ///   - path: A repository-relative path from the current changes snapshot.
-    ///   - maxLines: Optional progressive line budget. Values are clamped to
-    ///     the default minimum and response abuse guard.
-    /// - Returns: The file's metadata and bounded unified diff.
-    /// - Throws: ``WorkspaceChangesServiceError`` when validation or Git fails.
-    public nonisolated func fileDiff(
-        forDirectory directory: String,
-        path: String,
-        maxLines: Int? = nil
-    ) async throws -> WorkspaceFileDiff {
-        guard let scope = snapshotLoader.resolveScope(forDirectory: directory) else {
-            throw WorkspaceChangesServiceError.notARepository
-        }
-        let normalizedPath = try pathValidator.validatedPath(path, repoRoot: scope.repoRoot)
-        guard let snapshot = snapshotLoader.loadSnapshot(scope: scope) else {
-            throw WorkspaceChangesServiceError.gitFailure
-        }
-        guard let file = snapshot.files.first(where: { $0.path == normalizedPath }) else {
-            throw WorkspaceChangesServiceError.fileNotChanged
-        }
-        if file.isBinary {
-            return fileDiffValue(
-                file: file,
-                unifiedDiff: "",
-                truncated: false,
-                totalLineCount: 0,
-                contentFingerprint: currentContentFingerprint(
-                    repoRoot: scope.repoRoot,
-                    path: normalizedPath
-                )
-            )
-        }
-
-        let arguments: [String]
-        let acceptedExitCodes: Set<Int32>
-        if file.status == .untracked {
-            arguments = ["diff", "--unified=3", "--no-index", "--", "/dev/null", normalizedPath]
-            acceptedExitCodes = [0, 1]
-        } else {
-            arguments = ["diff", "-M", "--unified=3", scope.diffBase, "--", normalizedPath]
-            acceptedExitCodes = [0]
-        }
-        let fingerprintBefore = currentContentFingerprint(
-            repoRoot: scope.repoRoot,
-            path: normalizedPath
-        )
-        let truncator = WorkspaceDiffTruncator(requestedMaximumLines: maxLines)
-        guard let result = run(
-            arguments,
-            repoRoot: scope.repoRoot,
-            maximumOutputByteCount: truncator.maximumInputBytes
-        ), acceptedExitCodes.contains(result.exitCode) || result.standardOutputWasTruncated else {
-            throw WorkspaceChangesServiceError.gitFailure
-        }
-        let fingerprintAfter = currentContentFingerprint(
-            repoRoot: scope.repoRoot,
-            path: normalizedPath
-        )
-        let bounded = truncator.truncate(String(decoding: result.output, as: UTF8.self))
-        return fileDiffValue(
-            file: file,
-            unifiedDiff: bounded.text,
-            truncated: bounded.truncated || result.standardOutputWasTruncated,
-            totalLineCount: result.standardOutputWasTruncated ? nil : bounded.totalLineCount,
-            contentFingerprint: contentReader.fileDiffFingerprint(
-                before: fingerprintBefore,
-                after: fingerprintAfter
-            )
-        )
     }
 
     /// Reads artifact-compatible metadata for an authorized changed file revision.
@@ -286,7 +216,7 @@ public struct WorkspaceChangesService: Sendable {
             let object = "\(scope.diffBaseCommitOID):\(normalizedPath)"
             let repoURL = URL(fileURLWithPath: authorization.scope.repoRoot, isDirectory: true)
             let sizeResult = try runner.run(
-                arguments: ["cat-file", "-s", object],
+                arguments: ["--literal-pathspecs", "cat-file", "-s", object],
                 in: repoURL
             )
             let sizeText = String(decoding: sizeResult.output, as: UTF8.self)
@@ -358,7 +288,7 @@ public struct WorkspaceChangesService: Sendable {
         let repoURL = URL(fileURLWithPath: scope.repoRoot, isDirectory: true)
         let fileURL = try await baseContentCache.fileURL(for: key) { destination in
             let result = try runner.run(
-                arguments: ["show", object],
+                arguments: ["--literal-pathspecs", "show", object],
                 in: repoURL,
                 writingOutputTo: destination,
                 maximumOutputByteCount: blobSize
@@ -372,22 +302,4 @@ public struct WorkspaceChangesService: Sendable {
         return (fileURL.deletingLastPathComponent().path, fileURL.lastPathComponent)
     }
 
-    private nonisolated func currentContentFingerprint(
-        repoRoot: String,
-        path: String
-    ) -> String? {
-        contentReader.contentFingerprint(repoRoot: repoRoot, relativePath: path)
-    }
-
-    private nonisolated func run(
-        _ arguments: [String],
-        repoRoot: String,
-        maximumOutputByteCount: Int
-    ) -> WorkspaceChangesGitResult? {
-        try? runner.run(
-            arguments: arguments,
-            in: URL(fileURLWithPath: repoRoot, isDirectory: true),
-            maximumOutputByteCount: maximumOutputByteCount
-        )
-    }
 }
