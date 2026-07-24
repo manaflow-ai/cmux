@@ -13838,61 +13838,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return true
         }
-        let increaseWorkspaceTerminalFontSizeMatches = matchConfiguredShortcut(
+        let workspaceTerminalFontSizeActions: [KeyboardShortcutSettings.Action] = [
+            .increaseWorkspaceTerminalFontSize,
+            .decreaseWorkspaceTerminalFontSize,
+            .resetWorkspaceTerminalFontSize,
+        ]
+        let workspaceTerminalFontSizeAction = preferredMatchingShortcutAction(
             event: event,
-            action: .increaseWorkspaceTerminalFontSize
-        )
-        let decreaseWorkspaceTerminalFontSizeMatches = matchConfiguredShortcut(
-            event: event,
-            action: .decreaseWorkspaceTerminalFontSize
+            actions: workspaceTerminalFontSizeActions
         )
         let equalizeSplitsMatches = matchConfiguredShortcut(event: event, action: .equalizeSplits)
-        let fontSizeActionMatches =
-            increaseWorkspaceTerminalFontSizeMatches || decreaseWorkspaceTerminalFontSizeMatches
-        let matchingFontSizeActionIsExplicit =
-            (
-                increaseWorkspaceTerminalFontSizeMatches
-                && KeyboardShortcutSettings.hasExplicitShortcutOverride(
-                    for: .increaseWorkspaceTerminalFontSize
-                )
-            )
-            || (
-                decreaseWorkspaceTerminalFontSizeMatches
-                && KeyboardShortcutSettings.hasExplicitShortcutOverride(
-                    for: .decreaseWorkspaceTerminalFontSize
-                )
-            )
         // These defaults are new. If their stroke was already assigned to any
         // explicit action that has not consumed the event earlier, keep routing
         // so that action's existing handler below retains upgrade precedence.
         let matchingExplicitActionShouldPreemptFontSizeDefault =
-            fontSizeActionMatches
-            && !matchingFontSizeActionIsExplicit
-            && KeyboardShortcutSettings.Action.allCases.contains { action in
-                guard action != .increaseWorkspaceTerminalFontSize,
-                      action != .decreaseWorkspaceTerminalFontSize,
-                      KeyboardShortcutSettings.hasExplicitShortcutOverride(for: action) else {
-                    return false
-                }
-                return matchConfiguredShortcut(event: event, action: action)
-            }
-        let matchingEqualizeActionIsExplicit =
-            equalizeSplitsMatches
-            && KeyboardShortcutSettings.hasExplicitShortcutOverride(for: .equalizeSplits)
+            workspaceTerminalFontSizeAction.map {
+                explicitShortcutOverrideShouldPreemptImplicitDefault(
+                    event: event,
+                    matchedAction: $0,
+                    actionFamily: workspaceTerminalFontSizeActions
+                )
+            } ?? false
         // Equalize moved to a previously free default. Preserve an older
         // explicit binding on that stroke until the user explicitly assigns
         // equalize there too.
         let matchingExplicitActionShouldPreemptEqualizeDefault =
             equalizeSplitsMatches
-            && !matchingEqualizeActionIsExplicit
-            && KeyboardShortcutSettings.Action.allCases.contains { action in
-                guard action != .equalizeSplits,
-                      KeyboardShortcutSettings.hasExplicitShortcutOverride(for: action) else {
-                    return false
-                }
-                return matchConfiguredShortcut(event: event, action: action)
-            }
-        if fontSizeActionMatches && !matchingExplicitActionShouldPreemptFontSizeDefault {
+            && explicitShortcutOverrideShouldPreemptImplicitDefault(
+                event: event,
+                matchedAction: .equalizeSplits,
+                actionFamily: [.equalizeSplits]
+            )
+        if let workspaceTerminalFontSizeAction,
+           !matchingExplicitActionShouldPreemptFontSizeDefault {
             let routedContext = preferredMainWindowContextForShortcutRouting(event: event)
             let routedManager = routedContext?.tabManager ?? tabManager
             let routedWindowDock = routedContext?.existingWindowDock()
@@ -13900,11 +13878,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let additionalTerminalPanels = routedWindowDock?.panels.values.compactMap {
                 $0 as? TerminalPanel
             } ?? []
-            let delta: Float32 = increaseWorkspaceTerminalFontSizeMatches ? 1 : -1
-            routedManager?.selectedWorkspace?.adjustTerminalFontSizes(
-                byRuntimePoints: delta,
-                additionalTerminalPanels: additionalTerminalPanels
-            )
+            if workspaceTerminalFontSizeAction == .resetWorkspaceTerminalFontSize {
+                routedManager?.selectedWorkspace?.resetTerminalFontSizes(
+                    additionalTerminalPanels: additionalTerminalPanels
+                )
+            } else {
+                let delta: Float32 =
+                    workspaceTerminalFontSizeAction == .increaseWorkspaceTerminalFontSize ? 1 : -1
+                routedManager?.selectedWorkspace?.adjustTerminalFontSizes(
+                    byRuntimePoints: delta,
+                    additionalTerminalPanels: additionalTerminalPanels
+                )
+            }
             return true
         }
         if equalizeSplitsMatches && !matchingExplicitActionShouldPreemptEqualizeDefault {
@@ -15622,12 +15607,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return matchesKeyboardShortcutEvent(event, action: action, shortcut: currentShortcut)
     }
 
+    private func preferredMatchingShortcutAction(
+        event: NSEvent,
+        actions: [KeyboardShortcutSettings.Action]
+    ) -> KeyboardShortcutSettings.Action? {
+        let matchingActions = actions.filter {
+            matchConfiguredShortcut(event: event, action: $0)
+        }
+        return matchingActions.first {
+            KeyboardShortcutSettings.hasExplicitShortcutOverride(for: $0)
+        } ?? matchingActions.first
+    }
+
+    private func explicitShortcutOverrideShouldPreemptImplicitDefault(
+        event: NSEvent,
+        matchedAction: KeyboardShortcutSettings.Action,
+        actionFamily: [KeyboardShortcutSettings.Action]
+    ) -> Bool {
+        guard !KeyboardShortcutSettings.hasExplicitShortcutOverride(for: matchedAction) else {
+            return false
+        }
+        return KeyboardShortcutSettings.Action.allCases.contains { action in
+            guard !actionFamily.contains(action),
+                  KeyboardShortcutSettings.hasExplicitShortcutOverride(for: action) else {
+                return false
+            }
+            return matchConfiguredShortcut(event: event, action: action)
+        }
+    }
+
     private func isMenuBackedShortcutAction(_ action: KeyboardShortcutSettings.Action) -> Bool {
         action != .showHideAllWindows
             && action != .globalSearch
             && action != .clearScreenKeepScrollback
             && action != .increaseWorkspaceTerminalFontSize
             && action != .decreaseWorkspaceTerminalFontSize
+            && action != .resetWorkspaceTerminalFontSize
             && action != .fileExplorerOpenSelection
             && action != .fileExplorerOpenSelectionFinderAlias
     }

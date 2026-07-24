@@ -303,6 +303,7 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "toggleSplitZoom", combos: [["⌘", "⇧", "↩"]], description: { en: "Toggle pane zoom", ja: "ペインズームを切り替え" } },
       { id: "increaseWorkspaceTerminalFontSize", combos: [["⌃", "⌘", "="]], description: { en: "Increase font size for every terminal in the selected workspace", ja: "選択中のワークスペース内の全ターミナルのフォントサイズを大きくする" } },
       { id: "decreaseWorkspaceTerminalFontSize", combos: [["⌃", "⌘", "-"]], description: { en: "Decrease font size for every terminal in the selected workspace", ja: "選択中のワークスペース内の全ターミナルのフォントサイズを小さくする" } },
+      { id: "resetWorkspaceTerminalFontSize", combos: [["⌃", "⌘", "0"]], description: { en: "Reset font size for every terminal in the selected workspace", ja: "選択中のワークスペース内の全ターミナルのフォントサイズをリセットする" } },
       { id: "equalizeSplits", combos: [["⌃", "⌘", "⇧", "="]], description: { en: "Equalize split sizes", ja: "分割サイズを均等にする" } },
     ],
   },

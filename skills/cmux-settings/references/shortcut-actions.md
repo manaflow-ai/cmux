@@ -62,6 +62,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.toggleSplitZoom`
 - `shortcuts.bindings.increaseWorkspaceTerminalFontSize`
 - `shortcuts.bindings.decreaseWorkspaceTerminalFontSize`
+- `shortcuts.bindings.resetWorkspaceTerminalFontSize`
 - `shortcuts.bindings.equalizeSplits`
 
 ## Canvas

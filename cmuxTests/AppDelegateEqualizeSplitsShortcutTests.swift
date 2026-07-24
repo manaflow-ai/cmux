@@ -317,6 +317,99 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
     }
 
+    func testConfiguredWorkspaceTerminalFontSizeResetRestoresEverySplit() {
+        withTemporaryShortcut(action: .resetWorkspaceTerminalFontSize) {
+            guard let appDelegate = AppDelegate.shared else {
+                XCTFail("Expected AppDelegate.shared")
+                return
+            }
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            guard let window = window(withId: windowId),
+                  let manager = appDelegate.tabManagerFor(windowId: windowId),
+                  let workspace = manager.selectedWorkspace,
+                  let firstPanelId = workspace.focusedPanelId,
+                  let firstPanel = workspace.terminalPanel(for: firstPanelId),
+                  let secondPanel = workspace.newTerminalSplit(
+                    from: firstPanelId,
+                    orientation: .horizontal
+                  ),
+                  let event = makeKeyDownEvent(
+                    key: "0",
+                    modifiers: [.command, .control],
+                    keyCode: 29,
+                    windowNumber: window.windowNumber
+                  ) else {
+                XCTFail("Expected two terminal splits and Cmd+Ctrl+0 event")
+                return
+            }
+
+            let windowDock = appDelegate.windowDock(forWindowId: windowId)
+            let dockPanel = TerminalPanel(
+                workspaceId: windowDock.workspaceId,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            windowDock.panels[dockPanel.id] = dockPanel
+
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            XCTAssertEqual(
+                workspace.adjustTerminalFontSizes(
+                    byRuntimePoints: -3,
+                    additionalTerminalPanels: [dockPanel]
+                ),
+                3
+            )
+            guard let inheritedWhileZoomedPanel = workspace.newTerminalSplit(
+                from: firstPanelId,
+                orientation: .vertical
+            ) else {
+                XCTFail("Expected a terminal created after workspace zoom")
+                return
+            }
+            let surfaces = [
+                firstPanel.surface,
+                secondPanel.surface,
+                inheritedWhileZoomedPanel.surface,
+                dockPanel.surface,
+            ]
+            for surface in surfaces {
+                XCTAssertTrue(
+                    surface.fontSizeLineageSnapshot()?.isExplicitOverride ?? false,
+                    "Expected every terminal to own the shrunken size before reset"
+                )
+            }
+
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            return
+#endif
+
+            let configuredRuntimePoints = Float32(
+                GhosttyConfig.load(
+                    globalFontMagnificationPercent: GlobalFontMagnification.storedPercent
+                ).fontSize
+            )
+            for surface in surfaces {
+                guard let resetLineage = surface.fontSizeLineageSnapshot() else {
+                    XCTFail("Expected reset font-size lineage")
+                    continue
+                }
+                let resetRuntimePoints = CmuxSurfaceConfigTemplate.runtimeFontSize(
+                    fromBasePoints: resetLineage.basePoints,
+                    percent: GlobalFontMagnification.storedPercent
+                )
+                XCTAssertEqual(resetRuntimePoints, configuredRuntimePoints, accuracy: 0.001)
+                XCTAssertFalse(resetLineage.isExplicitOverride)
+                XCTAssertNil(surface.sessionFontSizeOverrideBasePoints())
+            }
+        }
+    }
+
     func testPersistedLegacyEqualizeShortcutWinsOverNewFontSizeDefault() {
         withIsolatedShortcutFileStore {
             withDefaultShortcutFallback(action: .increaseWorkspaceTerminalFontSize) {
@@ -393,61 +486,74 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
     }
 
-    func testPersistedSplitShortcutWinsOverNewFontSizeDefault() {
+    func testPersistedSplitShortcutWinsOverNewFontSizeDefaults() {
         withIsolatedShortcutFileStore {
-            withDefaultShortcutFallback(action: .decreaseWorkspaceTerminalFontSize) {
-                withTemporaryShortcut(
-                    action: .splitRight,
-                    shortcut: StoredShortcut(
-                        key: "-",
-                        command: true,
-                        shift: false,
-                        option: false,
-                        control: true
-                    )
-                ) {
-                    guard let appDelegate = AppDelegate.shared else {
-                        XCTFail("Expected AppDelegate.shared")
-                        return
-                    }
+            let cases: [
+                (
+                    action: KeyboardShortcutSettings.Action,
+                    key: String,
+                    keyCode: UInt16
+                )
+            ] = [
+                (.decreaseWorkspaceTerminalFontSize, "-", 27),
+                (.resetWorkspaceTerminalFontSize, "0", 29),
+            ]
 
-                    let windowId = appDelegate.createMainWindow()
-                    defer { closeWindow(withId: windowId) }
+            for testCase in cases {
+                withDefaultShortcutFallback(action: testCase.action) {
+                    withTemporaryShortcut(
+                        action: .splitRight,
+                        shortcut: StoredShortcut(
+                            key: testCase.key,
+                            command: true,
+                            shift: false,
+                            option: false,
+                            control: true
+                        )
+                    ) {
+                        guard let appDelegate = AppDelegate.shared else {
+                            XCTFail("Expected AppDelegate.shared")
+                            return
+                        }
 
-                    guard let window = window(withId: windowId),
-                          let manager = appDelegate.tabManagerFor(windowId: windowId),
-                          let workspace = manager.selectedWorkspace,
-                          let firstPanelId = workspace.focusedPanelId,
-                          let firstPanel = workspace.terminalPanel(for: firstPanelId),
-                          let event = makeKeyDownEvent(
-                            key: "-",
-                            modifiers: [.command, .control],
-                            keyCode: 27,
-                            windowNumber: window.windowNumber
-                          ) else {
-                        XCTFail("Expected a terminal and Cmd+Ctrl+- event")
-                        return
-                    }
-                    let panelCountBefore = workspace.panels.count
+                        let windowId = appDelegate.createMainWindow()
+                        defer { closeWindow(withId: windowId) }
 
-                    window.makeKeyAndOrderFront(nil)
+                        guard let window = window(withId: windowId),
+                              let manager = appDelegate.tabManagerFor(windowId: windowId),
+                              let workspace = manager.selectedWorkspace,
+                              let firstPanelId = workspace.focusedPanelId,
+                              let firstPanel = workspace.terminalPanel(for: firstPanelId),
+                              let event = makeKeyDownEvent(
+                                key: testCase.key,
+                                modifiers: [.command, .control],
+                                keyCode: testCase.keyCode,
+                                windowNumber: window.windowNumber
+                              ) else {
+                            XCTFail("Expected a terminal and workspace font-size event")
+                            return
+                        }
+                        let panelCountBefore = workspace.panels.count
+
+                        window.makeKeyAndOrderFront(nil)
 #if DEBUG
-                    XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+                        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
 #else
-                    XCTFail("debugHandleCustomShortcut is only available in DEBUG")
-                    return
+                        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+                        return
 #endif
 
-                    XCTAssertEqual(workspace.panels.count, panelCountBefore + 1)
-                    XCTAssertEqual(
-                        shortcutRoutingSplitNodes(
-                            in: workspace.bonsplitController.treeSnapshot()
-                        ).count,
-                        1
-                    )
-                    XCTAssertFalse(
-                        firstPanel.surface.fontSizeLineageSnapshot()?.isExplicitOverride ?? false
-                    )
+                        XCTAssertEqual(workspace.panels.count, panelCountBefore + 1)
+                        XCTAssertEqual(
+                            shortcutRoutingSplitNodes(
+                                in: workspace.bonsplitController.treeSnapshot()
+                            ).count,
+                            1
+                        )
+                        XCTAssertFalse(
+                            firstPanel.surface.fontSizeLineageSnapshot()?.isExplicitOverride ?? false
+                        )
+                    }
                 }
             }
         }
@@ -519,6 +625,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             ] = [
                 (.increaseWorkspaceTerminalFontSize, "=", 24),
                 (.decreaseWorkspaceTerminalFontSize, "-", 27),
+                (.resetWorkspaceTerminalFontSize, "0", 29),
             ]
 
             for testCase in cases {

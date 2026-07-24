@@ -151,7 +151,7 @@ The spinner is compositor-driven (a Core Animation transform run by the render s
 
 ## Workspace terminal font size shortcuts
 
-Cmd+Ctrl+= and Cmd+Ctrl+- increase or decrease every terminal in the selected workspace by one point. Hidden, hibernated, and Dock terminals change with visible terminals, and newly created terminals inherit the adjusted workspace size. Rebind them with `shortcuts.bindings.increaseWorkspaceTerminalFontSize` and `shortcuts.bindings.decreaseWorkspaceTerminalFontSize`.
+Cmd+Ctrl+= and Cmd+Ctrl+- increase or decrease every terminal in the selected workspace by one point. Cmd+Ctrl+0 resets them to the current Ghostty font size. Hidden, hibernated, and Dock terminals change with visible terminals, and newly created terminals inherit the workspace size. Rebind them with `shortcuts.bindings.increaseWorkspaceTerminalFontSize`, `shortcuts.bindings.decreaseWorkspaceTerminalFontSize`, and `shortcuts.bindings.resetWorkspaceTerminalFontSize`.
 
 ## `terminal.textBoxSubmitActions`
 

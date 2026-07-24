@@ -135,6 +135,7 @@ enum KeyboardShortcutSettings {
         case splitDown, toggleSplitZoom
         case increaseWorkspaceTerminalFontSize
         case decreaseWorkspaceTerminalFontSize
+        case resetWorkspaceTerminalFontSize
         case equalizeSplits
         case splitBrowserRight
         case splitBrowserDown
@@ -279,6 +280,11 @@ enum KeyboardShortcutSettings {
                 return String(
                     localized: "shortcut.decreaseWorkspaceTerminalFontSize.label",
                     defaultValue: "Decrease Font Size for Workspace Terminals"
+                )
+            case .resetWorkspaceTerminalFontSize:
+                return String(
+                    localized: "shortcut.resetWorkspaceTerminalFontSize.label",
+                    defaultValue: "Reset Font Size for Workspace Terminals"
                 )
             case .equalizeSplits: return String(localized: "shortcut.equalizeSplits.label", defaultValue: "Equalize Splits")
             case .splitBrowserRight: return String(localized: "shortcut.splitBrowserRight.label", defaultValue: "Split Browser Right")
@@ -469,6 +475,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "=", command: true, shift: false, option: false, control: true)
             case .decreaseWorkspaceTerminalFontSize:
                 return StoredShortcut(key: "-", command: true, shift: false, option: false, control: true)
+            case .resetWorkspaceTerminalFontSize:
+                return StoredShortcut(key: "0", command: true, shift: false, option: false, control: true)
             case .equalizeSplits: return StoredShortcut(key: "=", command: true, shift: true, option: false, control: true)
             case .splitBrowserRight:
                 return StoredShortcut(key: "d", command: true, shift: false, option: true, control: false)

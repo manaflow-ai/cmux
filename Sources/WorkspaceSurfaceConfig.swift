@@ -74,6 +74,49 @@ extension Workspace {
     ) -> Int {
         guard deltaRuntimePoints.isFinite, deltaRuntimePoints != 0 else { return 0 }
 
+        let terminalPanels = terminalPanelsForFontSizeChange(
+            additionalTerminalPanels: additionalTerminalPanels
+        )
+        let configuredRuntimePoints = configuredTerminalRuntimeFontSize()
+        var adjustedCount = 0
+        for terminalPanel in terminalPanels where terminalPanel.surface.adjustFontSize(
+            byRuntimePoints: deltaRuntimePoints,
+            fallbackRuntimePoints: configuredRuntimePoints
+        ) {
+            adjustedCount += 1
+        }
+
+        refreshTerminalFontSizeInheritanceSource()
+        return adjustedCount
+    }
+
+    /// Resets every terminal owned by this workspace to current Ghostty config.
+    ///
+    /// - Parameter additionalTerminalPanels: Window-owned Dock terminals that
+    ///   belong to this workspace but are not stored in its panel collections.
+    /// - Returns: Number of live or durable terminal surfaces reset.
+    @discardableResult
+    func resetTerminalFontSizes(
+        additionalTerminalPanels: [TerminalPanel] = []
+    ) -> Int {
+        let terminalPanels = terminalPanelsForFontSizeChange(
+            additionalTerminalPanels: additionalTerminalPanels
+        )
+        let configuredRuntimePoints = configuredTerminalRuntimeFontSize()
+        var resetCount = 0
+        for terminalPanel in terminalPanels where terminalPanel.surface.resetFontSize(
+            toConfiguredRuntimePoints: configuredRuntimePoints
+        ) {
+            resetCount += 1
+        }
+
+        refreshTerminalFontSizeInheritanceSource()
+        return resetCount
+    }
+
+    private func terminalPanelsForFontSizeChange(
+        additionalTerminalPanels: [TerminalPanel]
+    ) -> [TerminalPanel] {
         var terminalPanels = panels.values.compactMap { $0 as? TerminalPanel }
         if let dock = _dockSplit {
             terminalPanels.append(contentsOf: dock.panels.values.compactMap { $0 as? TerminalPanel })
@@ -84,26 +127,22 @@ extension Workspace {
         terminalPanels.append(contentsOf: additionalTerminalPanels)
 
         var seenPanelIds: Set<UUID> = []
-        terminalPanels = terminalPanels
+        return terminalPanels
             .filter { seenPanelIds.insert($0.id).inserted }
             .sorted { $0.id.uuidString < $1.id.uuidString }
+    }
 
-        let configuredRuntimePoints = Float32(
+    private func configuredTerminalRuntimeFontSize() -> Float32 {
+        Float32(
             GhosttyConfig.load(
                 globalFontMagnificationPercent: GlobalFontMagnification.storedPercent
             ).fontSize
         )
-        var adjustedCount = 0
-        for terminalPanel in terminalPanels where terminalPanel.surface.adjustFontSize(
-            byRuntimePoints: deltaRuntimePoints,
-            fallbackRuntimePoints: configuredRuntimePoints
-        ) {
-            adjustedCount += 1
-        }
+    }
 
+    private func refreshTerminalFontSizeInheritanceSource() {
         if let rememberedTerminalPanel = lastRememberedTerminalPanelForConfigInheritance() {
             rememberTerminalConfigInheritanceSource(rememberedTerminalPanel)
         }
-        return adjustedCount
     }
 }

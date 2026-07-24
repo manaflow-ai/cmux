@@ -100,6 +100,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case increaseWorkspaceTerminalFontSize
     /// Decreases every terminal font size in the selected workspace.
     case decreaseWorkspaceTerminalFontSize
+    /// Resets every terminal font size in the selected workspace.
+    case resetWorkspaceTerminalFontSize
     case equalizeSplits
     case splitBrowserRight
     case splitBrowserDown
@@ -201,7 +203,8 @@ extension ShortcutAction {
             return .navigation
         case .focusLeft, .focusRight, .focusUp, .focusDown, .splitRight, .splitDown,
              .toggleSplitZoom, .increaseWorkspaceTerminalFontSize,
-             .decreaseWorkspaceTerminalFontSize, .equalizeSplits,
+             .decreaseWorkspaceTerminalFontSize, .resetWorkspaceTerminalFontSize,
+             .equalizeSplits,
              .splitBrowserRight, .splitBrowserDown,
              .toggleRightSidebar, .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias,
              .toggleCanvasLayout, .canvasRevealFocusedPane, .canvasOverview,
@@ -418,6 +421,11 @@ extension ShortcutAction {
             return String(
                 localized: "shortcut.decreaseWorkspaceTerminalFontSize.label",
                 defaultValue: "Decrease Font Size for Workspace Terminals"
+            )
+        case .resetWorkspaceTerminalFontSize:
+            return String(
+                localized: "shortcut.resetWorkspaceTerminalFontSize.label",
+                defaultValue: "Reset Font Size for Workspace Terminals"
             )
         case .equalizeSplits: return "Equalize Splits"
         case .splitBrowserRight: return "Split Browser Right"

@@ -77,6 +77,35 @@ import Testing
         #expect(lineage.isExplicitOverride)
     }
 
+    @Test func deferredSurfaceResetClearsOverrideAndFollowsConfiguredSize() throws {
+        var template = CmuxSurfaceConfigTemplate()
+        template.setFontSize(6, isExplicitOverride: true)
+        let surface = makeSurface(
+            configTemplate: template,
+            globalFontMagnificationPercent: 200
+        )
+
+        #expect(surface.resetFontSize(toConfiguredRuntimePoints: 24))
+
+        let lineage = try #require(surface.fontSizeLineageSnapshot())
+        #expect(lineage == TerminalFontSizeLineage(basePoints: 12, isExplicitOverride: false))
+        #expect(surface.sessionFontSizeOverrideBasePoints() == nil)
+        #expect(surface.runtimeCreationConfigTemplate().fontSizeLineage == nil)
+    }
+
+    @Test func deferredSurfaceCanZoomAgainAfterReset() throws {
+        var template = CmuxSurfaceConfigTemplate()
+        template.setFontSize(6, isExplicitOverride: true)
+        let surface = makeSurface(configTemplate: template)
+
+        #expect(surface.resetFontSize(toConfiguredRuntimePoints: 12))
+        #expect(surface.adjustFontSize(byRuntimePoints: -1, fallbackRuntimePoints: 12))
+
+        let lineage = try #require(surface.fontSizeLineageSnapshot())
+        #expect(lineage == TerminalFontSizeLineage(basePoints: 11, isExplicitOverride: true))
+        #expect(surface.runtimeCreationConfigTemplate().fontSizeLineage == lineage)
+    }
+
     @Test func staleRuntimePointerFallsBackToDurableLineageAdjustment() throws {
         var template = CmuxSurfaceConfigTemplate()
         template.setFontSize(12, isExplicitOverride: true)

@@ -188,6 +188,7 @@ void ghostty_surface_set_size(void) {}
 void ghostty_surface_size(void) {}
 void ghostty_surface_text(void) {}
 void ghostty_surface_text_input(void) {}
+void ghostty_surface_update_config(void) {}
 ghostty_string_s ghostty_surface_tty_name(void *surface) {
     (void)surface;
     if (cmux_test_tty_name == NULL) {

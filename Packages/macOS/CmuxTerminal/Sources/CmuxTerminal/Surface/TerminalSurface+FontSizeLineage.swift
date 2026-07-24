@@ -25,6 +25,7 @@ extension TerminalSurface {
             let verb = deltaRuntimePoints > 0 ? "increase_font_size" : "decrease_font_size"
             let action = "\(verb):\(abs(deltaRuntimePoints))"
             guard performExplicitInputBindingAction(action) else { return false }
+            followsConfiguredFontSize = false
             _ = fontSizeLineageSnapshot()
             return true
         }
@@ -50,6 +51,7 @@ extension TerminalSurface {
         let adjustedRuntimePoints = TerminalFontSizePolicy().clampedRuntimePoints(
             currentRuntimePoints + deltaRuntimePoints
         )
+        followsConfiguredFontSize = false
         recordCurrentFontSizeLineage(
             TerminalFontSizeLineage(
                 basePoints: CmuxSurfaceConfigTemplate.baseFontSize(
@@ -59,6 +61,47 @@ extension TerminalSurface {
                 isExplicitOverride: true
             )
         )
+        return true
+    }
+
+    /// Resets this terminal to the current configured runtime font size.
+    ///
+    /// A live surface first adopts the engine's current configuration as its
+    /// native reset baseline, then runs Ghostty's reset action. Suspended or
+    /// deferred surfaces clear their durable override so future runtimes keep
+    /// following terminal configuration.
+    ///
+    /// - Parameter configuredRuntimePoints: Current configured size after
+    ///   global magnification.
+    /// - Returns: Whether the live reset ran or durable lineage was updated.
+    @MainActor
+    @discardableResult
+    public func resetFontSize(toConfiguredRuntimePoints configuredRuntimePoints: Float32) -> Bool {
+        guard configuredRuntimePoints.isFinite, configuredRuntimePoints > 0 else { return false }
+
+        let targetRuntimePoints = TerminalFontSizePolicy().clampedRuntimePoints(
+            configuredRuntimePoints
+        )
+        let targetLineage = TerminalFontSizeLineage(
+            basePoints: CmuxSurfaceConfigTemplate.baseFontSize(
+                fromRuntimePoints: targetRuntimePoints,
+                percent: globalFontMagnificationPercent()
+            ),
+            isExplicitOverride: false
+        )
+
+        if let runtimeSurface = liveSurfaceForGhosttyAccess(reason: "fontSize.reset") {
+            guard let runtimeConfig = engine.runtimeConfig else { return false }
+            ghostty_surface_update_config(runtimeSurface, runtimeConfig)
+            guard performExplicitInputBindingAction("reset_font_size") else { return false }
+            followsConfiguredFontSize = true
+            recordCurrentFontSizeLineage(targetLineage)
+            _ = fontSizeLineageSnapshot()
+            return true
+        }
+
+        followsConfiguredFontSize = true
+        recordCurrentFontSizeLineage(targetLineage)
         return true
     }
 
@@ -110,6 +153,7 @@ extension TerminalSurface {
             fitState.rebase(to: runtimePoints)
             mobileViewportFontFitState = fitState
         }
+        followsConfiguredFontSize = !isExplicitOverride
 
         let lineage = TerminalFontSizeLineage(
             basePoints: CmuxSurfaceConfigTemplate.baseFontSize(
@@ -129,6 +173,9 @@ extension TerminalSurface {
     /// config when its own runtime is recreated.
     @MainActor
     func recordCurrentFontSizeLineage(_ lineage: TerminalFontSizeLineage) {
+        if lineage.isExplicitOverride {
+            followsConfiguredFontSize = false
+        }
         guard lastKnownFontSizeLineage != lineage else { return }
         lastKnownFontSizeLineage = lineage
         onFontSizeLineageChanged?(lineage)
@@ -143,8 +190,11 @@ extension TerminalSurface {
     @MainActor
     func runtimeCreationConfigTemplate() -> CmuxSurfaceConfigTemplate {
         var template = configTemplate ?? CmuxSurfaceConfigTemplate()
-        if lastKnownFontSizeLineage?.isExplicitOverride == false,
-           runtimeSurfaceGeneration > 0 {
+        if followsConfiguredFontSize
+            || (
+                lastKnownFontSizeLineage?.isExplicitOverride == false
+                    && runtimeSurfaceGeneration > 0
+            ) {
             template.fontSizeLineage = nil
         } else if let lastKnownFontSizeLineage {
             template.fontSizeLineage = lastKnownFontSizeLineage

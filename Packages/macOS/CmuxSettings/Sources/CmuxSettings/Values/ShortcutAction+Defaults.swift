@@ -95,6 +95,8 @@ extension ShortcutAction {
             return ShortcutStroke(key: "=", command: true, control: true)
         case .decreaseWorkspaceTerminalFontSize:
             return ShortcutStroke(key: "-", command: true, control: true)
+        case .resetWorkspaceTerminalFontSize:
+            return ShortcutStroke(key: "0", command: true, control: true)
         case .equalizeSplits: return ShortcutStroke(key: "=", command: true, shift: true, control: true)
         case .splitBrowserRight: return ShortcutStroke(key: "d", command: true, option: true)
         case .splitBrowserDown: return ShortcutStroke(key: "d", command: true, shift: true, option: true)
