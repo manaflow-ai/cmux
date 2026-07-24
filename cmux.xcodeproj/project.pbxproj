@@ -129,6 +129,7 @@
 		A9E050000000000000000002 /* AgentSessionWebRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E050000000000000000001 /* AgentSessionWebRendererTests.swift */; };
 		A9E02000000000000000000D /* AgentSessionWebTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E01000000000000000000D /* AgentSessionWebTheme.swift */; };
 		A9F200000000000000000014 /* AgentSessionWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000014 /* AgentSessionWebView.swift */; };
+		E8628A010000000000000001 /* AgentStatusCloseoutRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8628A020000000000000002 /* AgentStatusCloseoutRegressionTests.swift */; };
 		A8628B0C000000000000000C /* AgentStatusConfidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8628C0C000000000000000C /* AgentStatusConfidence.swift */; };
 		A8628B010000000000000001 /* AgentStatusEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8628C010000000000000001 /* AgentStatusEvidence.swift */; };
 		A8628B040000000000000004 /* AgentStatusHookEventSignal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8628C040000000000000004 /* AgentStatusHookEventSignal.swift */; };
@@ -2448,6 +2449,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A9E050000000000000000001 /* AgentSessionWebRendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionWebRendererTests.swift; sourceTree = "<group>"; };
 		A9E01000000000000000000D /* AgentSessionWebTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionWebTheme.swift; sourceTree = "<group>"; };
 		A9F100000000000000000014 /* AgentSessionWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionWebView.swift; sourceTree = "<group>"; };
+		E8628A020000000000000002 /* AgentStatusCloseoutRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatusCloseoutRegressionTests.swift; sourceTree = "<group>"; };
 		A8628C0C000000000000000C /* AgentStatusConfidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatus/AgentStatusConfidence.swift; sourceTree = "<group>"; };
 		A8628C010000000000000001 /* AgentStatusEvidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatus/AgentStatusEvidence.swift; sourceTree = "<group>"; };
 		A8628C040000000000000004 /* AgentStatusHookEventSignal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatus/AgentStatusHookEventSignal.swift; sourceTree = "<group>"; };
@@ -6695,6 +6697,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C9A57002C9A57002C9A57002 /* WorkspaceGroupTests.swift */,
 				C9A57402C9A57402C9A57402 /* WorkspaceGroupMoveToMenuStateTests.swift */,
 				FEED49850000000000000002 /* FeedEventClassificationTests.swift */,
+				E8628A020000000000000002 /* AgentStatusCloseoutRegressionTests.swift */,
 				A8628A020000000000000002 /* AgentStatusReconcilerTests.swift */,
 				A8628A040000000000000004 /* AgentStatusRuntimeGenerationTests.swift */,
 				A8628E020000000000000002 /* AgentStatusReconciliationRecoveryTests.swift */,
@@ -8731,6 +8734,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			files = (
 				D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */,
 				A76110010000000000000001 /* AgentHookNotificationPolicy.swift in Sources */,
+				E8628A010000000000000001 /* AgentStatusCloseoutRegressionTests.swift in Sources */,
 				A8628B0E000000000000000E /* AgentStatusPIDNamespace.swift in Sources */,
 				805500000000000000000004 /* BrowserValueTextFormatter.swift in Sources */,
 				D8628D060000000000000006 /* ClaudeHookSessionStore+CodexPermission.swift in Sources */,
