@@ -3,9 +3,9 @@ internal import Foundation
 
 extension SocketControlServer {
     /// Stops the listener: tears down the accept and path-monitor sources,
-    /// cancels any pending accept-source resume, shuts down and closes the
-    /// server socket, unlinks the socket path when the listener still owns
-    /// it, and releases the path lock.
+    /// cancels any pending startup retry or accept-source resume, shuts down
+    /// and closes the server socket, unlinks the socket path when the listener
+    /// still owns it, and releases the path lock.
     ///
     /// Synchronous on the main actor, where every caller already lives — the
     /// app's termination and updater-relaunch paths call it directly, so the
@@ -14,6 +14,8 @@ extension SocketControlServer {
         deactivateConnectionAuthorizations()
         acceptResumeTask?.cancel()
         acceptResumeTask = nil
+        startupRetryTask?.cancel()
+        startupRetryTask = nil
         let (
             sourceToCancel,
             sourceWasSuspended,

@@ -1,6 +1,5 @@
-/// Clock seam for the listener's recovery delays (today: the accept-source
-/// resume backoff), so tests can drive the delay with virtual time instead of
-/// waiting on the wall clock.
+/// Clock seam for listener startup and accept-source recovery delays, so tests
+/// can drive the delay with virtual time instead of waiting on the wall clock.
 ///
 /// Mirrors the `FileWatchClock`/`UpdateClock` precedent: one narrow sleep
 /// entry point, injected through the server initializer, defaulting to the
