@@ -85,6 +85,26 @@ pub struct CdpKeyEvent<'a> {
     pub text: Option<&'a str>,
 }
 
+fn key_event_params(event: CdpKeyEvent<'_>) -> Value {
+    let mut params = json!({
+        "type": event.event_type,
+        "key": event.key,
+        "modifiers": event.modifiers,
+    });
+    if !event.code.is_empty() {
+        params["code"] = json!(event.code);
+    }
+    if event.windows_virtual_key_code != 0 {
+        params["windowsVirtualKeyCode"] = json!(event.windows_virtual_key_code);
+        params["nativeVirtualKeyCode"] = json!(event.windows_virtual_key_code);
+    }
+    if let Some(text) = event.text {
+        params["text"] = json!(text);
+        params["unmodifiedText"] = json!(text);
+    }
+    params
+}
+
 fn cdp_debug() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var_os("CMUX_MUX_CDP_DEBUG").is_some())
@@ -586,19 +606,7 @@ impl CdpClient {
         session_id: &str,
         event: CdpKeyEvent<'_>,
     ) -> anyhow::Result<()> {
-        let mut params = json!({
-            "type": event.event_type,
-            "key": event.key,
-            "code": event.code,
-            "windowsVirtualKeyCode": event.windows_virtual_key_code,
-            "nativeVirtualKeyCode": event.windows_virtual_key_code,
-            "modifiers": event.modifiers,
-        });
-        if let Some(text) = event.text {
-            params["text"] = json!(text);
-            params["unmodifiedText"] = json!(text);
-        }
-        self.call("Input.dispatchKeyEvent", params, Some(session_id)).map(|_| ())
+        self.call("Input.dispatchKeyEvent", key_event_params(event), Some(session_id)).map(|_| ())
     }
 
     pub fn insert_text(&self, session_id: &str, text: &str) -> anyhow::Result<()> {
@@ -1021,6 +1029,25 @@ mod tests {
     use tungstenite::{Message, accept};
 
     use super::*;
+
+    #[test]
+    fn key_event_params_omit_unavailable_physical_identity() {
+        let params = key_event_params(CdpKeyEvent {
+            event_type: "keyDown",
+            key: "a",
+            code: "",
+            windows_virtual_key_code: 0,
+            modifiers: 2,
+            text: None,
+        });
+
+        assert_eq!(params["type"], "keyDown");
+        assert_eq!(params["key"], "a");
+        assert_eq!(params["modifiers"], 2);
+        assert!(params.get("code").is_none());
+        assert!(params.get("windowsVirtualKeyCode").is_none());
+        assert!(params.get("nativeVirtualKeyCode").is_none());
+    }
 
     #[test]
     fn screencast_frame_rejects_terminal_control_bytes() {

@@ -3966,7 +3966,7 @@ pub fn run_with_machine_updates(
         stdout.execute(EnableBracketedPaste)?;
         Ok(())
     })() {
-        let _ = restore_terminal(Some(&stdout_lock), host_keyboard_protocol);
+        let _ = restore_terminal(Some(&stdout_lock), &host_keyboard_protocol);
         return Err(e);
     }
 
@@ -3991,9 +3991,9 @@ pub fn run_with_machine_updates(
     // Restore the host terminal even if we panic mid-frame.
     let default_hook = std::panic::take_hook();
     let restore_lock = stdout_lock.clone();
-    let panic_keyboard_protocol = host_keyboard_protocol;
+    let panic_keyboard_protocol = host_keyboard_protocol.clone();
     std::panic::set_hook(Box::new(move |info| {
-        let _ = restore_terminal(Some(&restore_lock), panic_keyboard_protocol);
+        let _ = restore_terminal(Some(&restore_lock), &panic_keyboard_protocol);
         default_hook(info);
     }));
 
@@ -4001,7 +4001,7 @@ pub fn run_with_machine_updates(
     let mut terminal = match RatatuiTerminal::new(backend) {
         Ok(terminal) => terminal,
         Err(e) => {
-            let _ = restore_terminal(Some(&stdout_lock), host_keyboard_protocol);
+            let _ = restore_terminal(Some(&stdout_lock), &host_keyboard_protocol);
             return Err(e.into());
         }
     };
@@ -4116,7 +4116,7 @@ pub fn run_with_machine_updates(
             writer.shutdown(Duration::from_millis(200));
         }
         let _ = std::panic::take_hook();
-        let _ = restore_terminal(Some(&stdout_lock), host_keyboard_protocol);
+        let _ = restore_terminal(Some(&stdout_lock), &host_keyboard_protocol);
         return Err(error);
     }
 
@@ -4129,7 +4129,7 @@ pub fn run_with_machine_updates(
         writer.shutdown(Duration::from_millis(200));
     }
     let _ = std::panic::take_hook();
-    restore_terminal(Some(&stdout_lock), host_keyboard_protocol)?;
+    restore_terminal(Some(&stdout_lock), &host_keyboard_protocol)?;
     result?;
     let outcome = app
         .machine_ui
@@ -4139,10 +4139,36 @@ pub fn run_with_machine_updates(
     Ok(outcome)
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 struct HostKeyboardProtocolOwnership {
-    pushed: bool,
+    // Panic and normal cleanup share this claim. The stdout lock serializes
+    // restore attempts, and the first successful pop consumes ownership.
+    pushed: Arc<AtomicBool>,
     enhanced_input: bool,
+}
+
+impl Default for HostKeyboardProtocolOwnership {
+    fn default() -> Self {
+        Self { pushed: Arc::new(AtomicBool::new(false)), enhanced_input: false }
+    }
+}
+
+impl PartialEq for HostKeyboardProtocolOwnership {
+    fn eq(&self, other: &Self) -> bool {
+        self.is_pushed() == other.is_pushed() && self.enhanced_input == other.enhanced_input
+    }
+}
+
+impl Eq for HostKeyboardProtocolOwnership {}
+
+impl HostKeyboardProtocolOwnership {
+    fn pushed() -> Self {
+        Self { pushed: Arc::new(AtomicBool::new(true)), enhanced_input: false }
+    }
+
+    fn is_pushed(&self) -> bool {
+        self.pushed.load(Ordering::Acquire)
+    }
 }
 
 const HOST_KEYBOARD_FLAGS: KeyboardEnhancementFlags =
@@ -4163,7 +4189,7 @@ fn enable_host_keyboard_protocol(
 ) -> std::io::Result<HostKeyboardProtocolOwnership> {
     let result = stdout.execute(PushKeyboardEnhancementFlags(HOST_KEYBOARD_FLAGS));
     match result {
-        Ok(_) => Ok(HostKeyboardProtocolOwnership { pushed: true, enhanced_input: false }),
+        Ok(_) => Ok(HostKeyboardProtocolOwnership::pushed()),
         Err(error) if error.kind() == std::io::ErrorKind::Unsupported => {
             Ok(HostKeyboardProtocolOwnership::default())
         }
@@ -4184,7 +4210,7 @@ fn negotiate_host_keyboard_protocol_with(
     query: impl FnOnce() -> std::io::Result<Option<KeyboardEnhancementFlags>>,
 ) -> std::io::Result<()> {
     *ownership = enable_host_keyboard_protocol(stdout)?;
-    if !ownership.pushed {
+    if !ownership.is_pushed() {
         return Ok(());
     }
 
@@ -4193,24 +4219,27 @@ fn negotiate_host_keyboard_protocol_with(
         return Ok(());
     }
 
-    disable_host_keyboard_protocol(stdout, *ownership)?;
+    disable_host_keyboard_protocol(stdout, ownership)?;
     *ownership = HostKeyboardProtocolOwnership::default();
     Ok(())
 }
 
 fn disable_host_keyboard_protocol(
     stdout: &mut impl Write,
-    ownership: HostKeyboardProtocolOwnership,
+    ownership: &HostKeyboardProtocolOwnership,
 ) -> std::io::Result<()> {
-    if ownership.pushed {
-        stdout.execute(PopKeyboardEnhancementFlags)?;
+    if ownership.pushed.swap(false, Ordering::AcqRel)
+        && let Err(error) = stdout.execute(PopKeyboardEnhancementFlags)
+    {
+        ownership.pushed.store(true, Ordering::Release);
+        return Err(error);
     }
     Ok(())
 }
 
 fn restore_terminal(
     stdout_lock: Option<&Arc<Mutex<()>>>,
-    host_keyboard_protocol: HostKeyboardProtocolOwnership,
+    host_keyboard_protocol: &HostKeyboardProtocolOwnership,
 ) -> anyhow::Result<()> {
     let _guard = stdout_lock.map(|lock| lock.lock().unwrap());
     let mut stdout = std::io::stdout();
@@ -7786,6 +7815,9 @@ impl App {
             self.forward_key(input);
             return Ok(RenderAction::Draw);
         }
+        if action == Action::ClearHistory {
+            return Ok(self.run_clear_history_shortcut(input));
+        }
         self.run_action(action)
     }
 
@@ -10868,9 +10900,9 @@ fn browser_key_mapping(
 ) -> Option<(BrowserKey, &'static str, u32, Option<&'static str>)> {
     match code {
         KeyCode::Char(character) => {
-            let physical =
-                base_layout_key.unwrap_or_else(|| browser_unshifted_character(character));
-            let (code, vk) = browser_character_code(physical);
+            // Preserve the logical key without claiming a physical DOM code
+            // when the host did not report an authoritative base-layout key.
+            let (code, vk) = base_layout_key.map(browser_character_code).unwrap_or(("", 0));
             Some((BrowserKey::Character(character), code, vk, None))
         }
         KeyCode::Enter => Some((BrowserKey::Named("Enter"), "Enter", 13, Some("\r"))),
@@ -10887,34 +10919,6 @@ fn browser_key_mapping(
         KeyCode::PageDown => Some((BrowserKey::Named("PageDown"), "PageDown", 34, None)),
         KeyCode::Delete => Some((BrowserKey::Named("Delete"), "Delete", 46, None)),
         _ => None,
-    }
-}
-
-fn browser_unshifted_character(character: char) -> char {
-    match character {
-        'A'..='Z' => character.to_ascii_lowercase(),
-        '!' => '1',
-        '@' => '2',
-        '#' => '3',
-        '$' => '4',
-        '%' => '5',
-        '^' => '6',
-        '&' => '7',
-        '*' => '8',
-        '(' => '9',
-        ')' => '0',
-        '_' => '-',
-        '+' => '=',
-        '{' => '[',
-        '}' => ']',
-        '|' => '\\',
-        ':' => ';',
-        '"' => '\'',
-        '<' => ',',
-        '>' => '.',
-        '?' => '/',
-        '~' => '`',
-        _ => character,
     }
 }
 
@@ -11031,9 +11035,9 @@ mod tests {
         let mut ownership = super::HostKeyboardProtocolOwnership::default();
         negotiate_host_keyboard_protocol_with(&mut output, &mut ownership, || Ok(Some(accepted)))
             .unwrap();
-        assert!(ownership.pushed);
+        assert!(ownership.is_pushed());
         assert!(ownership.enhanced_input);
-        disable_host_keyboard_protocol(&mut output, ownership).unwrap();
+        disable_host_keyboard_protocol(&mut output, &ownership).unwrap();
 
         assert_eq!(output, b"\x1b[>29u\x1b[<1u");
     }
@@ -11044,8 +11048,8 @@ mod tests {
         let ownership = enable_host_keyboard_protocol(&mut output).unwrap();
         let panic_ownership = ownership.clone();
 
-        disable_host_keyboard_protocol(&mut output, panic_ownership).unwrap();
-        disable_host_keyboard_protocol(&mut output, ownership).unwrap();
+        disable_host_keyboard_protocol(&mut output, &panic_ownership).unwrap();
+        disable_host_keyboard_protocol(&mut output, &ownership).unwrap();
 
         assert_eq!(output, b"\x1b[>29u\x1b[<1u");
     }
@@ -11069,8 +11073,8 @@ mod tests {
 
         let mut output = UnsupportedWriter { writes: 0 };
         let ownership = enable_host_keyboard_protocol(&mut output).unwrap();
-        assert!(!ownership.pushed);
-        disable_host_keyboard_protocol(&mut output, ownership).unwrap();
+        assert!(!ownership.is_pushed());
+        disable_host_keyboard_protocol(&mut output, &ownership).unwrap();
         assert_eq!(output.writes, 1, "cleanup must not pop a stack entry cmux did not push");
     }
 
@@ -11141,7 +11145,7 @@ mod tests {
         .unwrap_err();
 
         assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe);
-        assert!(ownership.pushed);
+        assert!(ownership.is_pushed());
         assert!(!ownership.enhanced_input);
     }
 
