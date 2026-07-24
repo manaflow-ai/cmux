@@ -2072,7 +2072,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
-    func testDaemonBootstrapUploadUsesAbsoluteHomePathForScpDestination() throws {
+    func testDaemonBootstrapUploadUsesAbsoluteHomePathForRemoteDestination() throws {
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-remote-daemon-upload-\(UUID().uuidString)",
@@ -2106,10 +2106,11 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         // configureRemoteConnection enqueues its session transition as a main-actor Task.
         // Blocking the main actor here would stop that Task from ever being scheduled,
         // so the work being waited on could never happen. wait(for:) pumps the run loop.
-        let scpInvoked = expectation(description: "daemon upload invoked")
-        scpInvoked.assertForOverFulfill = false
+        let uploadInvoked = expectation(description: "daemon upload invoked")
+        uploadInvoked.assertForOverFulfill = false
         let lock = NSLock()
-        var scpDestination: String?
+        var uploadCommand: String?
+        var uploadDestination: String?
         let remoteProcessScript: RemoteProcessScript = { executable, arguments, _, _ in
             if executable == "/usr/bin/ssh" {
                 let command = arguments.last ?? ""
@@ -2128,14 +2129,25 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 if command.contains("mkdir -p") {
                     return (status: 0, stdout: "", stderr: "")
                 }
+                // The daemon upload streams the binary through an ssh exec channel into `cat >`
+                // rather than shelling out to scp, so the remote path this test is about arrives
+                // inside the command and the destination host is its own argument.
+                if command.contains("cat > ") {
+                    lock.lock()
+                    uploadCommand = command
+                    uploadDestination = arguments.dropLast().last
+                    lock.unlock()
+                    uploadInvoked.fulfill()
+                    return (status: 1, stdout: "", stderr: "intentional stop after upload destination capture")
+                }
                 return (status: 0, stdout: "", stderr: "")
             }
             if executable == "/usr/bin/scp" {
-                lock.lock()
-                scpDestination = arguments.last
-                lock.unlock()
-                scpInvoked.fulfill()
-                return (status: 1, stdout: "", stderr: "intentional stop after upload destination capture")
+                // Discriminating, not defensive: if the upload ever goes back to scp this test
+                // should say so rather than quietly waiting out its budget, which is exactly how
+                // it failed when the transport moved and the stub did not.
+                XCTFail("daemon upload used scp; it is expected to stream over the ssh exec channel")
+                return (status: 1, stdout: "", stderr: "unexpected scp")
             }
             XCTFail("unexpected executable \(executable)")
             return (status: 1, stdout: "", stderr: "unexpected executable")
@@ -2160,19 +2172,24 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.configureRemoteConnection(config, autoConnect: true)
 
-        wait(for: [scpInvoked], timeout: 2.0)
+        wait(for: [uploadInvoked], timeout: 2.0)
         lock.lock()
-        let capturedDestination = scpDestination
+        let capturedCommand = uploadCommand
+        let capturedDestination = uploadDestination
         lock.unlock()
-        let destination = try XCTUnwrap(capturedDestination)
+        // The property under test is unchanged — the daemon lands on an absolute path under the
+        // remote HOME rather than a relative one — but it now lives in the remote command instead
+        // of an scp destination, so assert it there.
+        let command = try XCTUnwrap(capturedCommand)
         XCTAssertTrue(
-            destination.hasPrefix("test@hpc.example:/home/test/.cmux/bin/cmuxd-remote/"),
-            "expected scp to target an absolute path under remote HOME, got \(destination)"
+            command.contains("/home/test/.cmux/bin/cmuxd-remote/"),
+            "expected the upload to target an absolute path under remote HOME, got \(command)"
         )
         XCTAssertTrue(
-            destination.contains("/linux-amd64/cmuxd-remote.tmp-"),
-            "expected daemon platform temp path in \(destination)"
+            command.contains("/linux-amd64/cmuxd-remote.tmp-"),
+            "expected daemon platform temp path in \(command)"
         )
+        XCTAssertEqual(try XCTUnwrap(capturedDestination), "test@hpc.example")
     }
 
     @MainActor
@@ -2196,10 +2213,12 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         // Expectation rather than a semaphore, for the reason above: blocking the main
         // actor would starve the session transition this test is waiting on.
-        let scpInvoked = expectation(description: "daemon upload invoked")
-        scpInvoked.assertForOverFulfill = false
+        let uploadInvoked = expectation(description: "daemon upload invoked")
+        uploadInvoked.assertForOverFulfill = false
         let lock = NSLock()
-        var scpDestination: String?
+        var uploadCommand: String?
+        var helloCountBeforeUpload = 0
+        var helloCount = 0
         let remoteProcessScript: RemoteProcessScript = { executable, arguments, _, _ in
             let executableName = URL(fileURLWithPath: executable).lastPathComponent
             if executable == "/usr/bin/ssh" {
@@ -2217,6 +2236,9 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                     )
                 }
                 if remoteDaemonServeCommand(command) {
+                    lock.lock()
+                    helloCount += 1
+                    lock.unlock()
                     return (
                         status: 0,
                         stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"old","capabilities":["proxy.stream.push"]}}"# + "\n",
@@ -2226,14 +2248,23 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 if command.contains("mkdir -p") {
                     return (status: 0, stdout: "", stderr: "")
                 }
+                // The upload streams over the ssh exec channel into `cat >`, not scp. Recording how
+                // many hellos preceded it is what keeps this test about a *reinstall*: an upload
+                // before any hello would be a first install and would not exercise the
+                // missing-capability path this test is named for.
+                if command.contains("cat > ") {
+                    lock.lock()
+                    uploadCommand = command
+                    helloCountBeforeUpload = helloCount
+                    lock.unlock()
+                    uploadInvoked.fulfill()
+                    return (status: 1, stdout: "", stderr: "intentional stop after capability reinstall")
+                }
                 return (status: 0, stdout: "", stderr: "")
             }
             if executable == "/usr/bin/scp" {
-                lock.lock()
-                scpDestination = arguments.last
-                lock.unlock()
-                scpInvoked.fulfill()
-                return (status: 1, stdout: "", stderr: "intentional stop after capability reinstall")
+                XCTFail("daemon upload used scp; it is expected to stream over the ssh exec channel")
+                return (status: 1, stdout: "", stderr: "unexpected scp")
             }
             if executableName == "go" {
                 if let outputFlagIndex = arguments.firstIndex(of: "-o"),
@@ -2272,14 +2303,22 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.configureRemoteConnection(config, autoConnect: true)
 
-        wait(for: [scpInvoked], timeout: 2.0)
+        wait(for: [uploadInvoked], timeout: 2.0)
         lock.lock()
-        let capturedDestination = scpDestination
+        let capturedCommand = uploadCommand
+        let capturedHelloCount = helloCountBeforeUpload
         lock.unlock()
-        let destination = try XCTUnwrap(capturedDestination)
+        let command = try XCTUnwrap(capturedCommand)
         XCTAssertTrue(
-            destination.hasPrefix("test@hpc.example:/home/test/.cmux/bin/cmuxd-remote/"),
-            "expected missing pty.session to reinstall the old daemon, got \(destination)"
+            command.contains("/home/test/.cmux/bin/cmuxd-remote/"),
+            "expected missing pty.session to reinstall the old daemon, got \(command)"
+        )
+        // Without this the test would also pass on a plain first install, which is not what it is
+        // named for: the reinstall is only meaningful once a hello has reported the old capabilities.
+        XCTAssertGreaterThan(
+            capturedHelloCount,
+            0,
+            "expected the reinstall to follow a capability hello, not to be a first install"
         )
     }
 
