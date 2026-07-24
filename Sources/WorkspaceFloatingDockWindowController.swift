@@ -812,6 +812,11 @@ private final class WorkspaceFloatingDockPanel: NSPanel {
         }
         super.setFrame(resolvedFrame, display: flag)
     }
+
+    override func setFrameOrigin(_ point: NSPoint) {
+        guard !presentsStashedWindow || sizeAuthority == .explicitMutation else { return }
+        super.setFrameOrigin(point)
+    }
 }
 
 /// Floating Dock controls should work on the first click even when another
@@ -842,7 +847,12 @@ private final class WorkspaceFloatingDockStashOverlayView: NSView {
         }
         let trackingArea = NSTrackingArea(
             rect: .zero,
-            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            options: [
+                .mouseEnteredAndExited,
+                .activeAlways,
+                .inVisibleRect,
+                .enabledDuringMouseDrag,
+            ],
             owner: self,
             userInfo: nil
         )
