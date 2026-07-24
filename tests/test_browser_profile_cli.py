@@ -187,6 +187,16 @@ def main() -> int:
             if len(state.calls) != calls_before_terminal_profile:
                 raise AssertionError("new-pane sent a browser profile for a terminal pane")
 
+            calls_before_missing_profile = len(state.calls)
+            assert_cli_fails(
+                cli,
+                socket_path,
+                ["new-pane", "--type", "browser", "--profile"],
+                "--profile requires a non-empty profile name or UUID",
+            )
+            if len(state.calls) != calls_before_missing_profile:
+                raise AssertionError("new-pane sent a profile request without a selector")
+
             run_cli(cli, socket_path, ["browser", "open", "https://example.com"])
             assert_last_call(state, "browser.open_split", None)
 
