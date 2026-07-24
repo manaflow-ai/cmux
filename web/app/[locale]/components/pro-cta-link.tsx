@@ -5,7 +5,10 @@ import {
   pricingActionClassName,
   type PricingActionSize,
 } from "../../components/pricing-shared";
-import { CheckoutSpinner, useCheckoutRedirect } from "../../components/checkout-navigation";
+import {
+  CheckoutPendingContent,
+  useCheckoutRedirect,
+} from "../../components/checkout-navigation";
 import {
   isClientConfigFlagEnabled,
   useClientConfigFlag,
@@ -53,14 +56,14 @@ export function ProCtaLink({
         start(href, event);
       }}
       aria-busy={pending}
-      className={pricingActionClassName("primary", size)}
+      className={`${pricingActionClassName("primary", size)} relative`}
       style={{
         color: "var(--background)",
         textDecoration: "none",
         pointerEvents: pending ? "none" : undefined,
       }}
     >
-      {pending ? <CheckoutSpinner /> : children}
+      <CheckoutPendingContent pending={pending}>{children}</CheckoutPendingContent>
     </a>
   );
 }
