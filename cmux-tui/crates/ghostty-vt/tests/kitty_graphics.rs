@@ -1,4 +1,4 @@
-use ghostty_vt::{Callbacks, KittyImageFormat, RenderState, Terminal};
+use ghostty_vt::{Callbacks, Error, KittyImageFormat, RenderState, Terminal};
 
 const PNG_1X1_RED: &str = concat!(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAA",
@@ -393,6 +393,142 @@ fn anonymous_transmission_after_replay_uses_an_unoccupied_image_id() {
         .find(|image| image.id != FIRST_AUTOMATIC_ID && image.id != 7)
         .expect("anonymous image must use an unoccupied ID");
     assert_eq!(&*anonymous.data, &[0, 0, 255]);
+}
+
+#[test]
+fn bounded_replay_uses_the_full_cap_for_a_large_visible_image() {
+    let mut source = terminal();
+    let pixels = vec![127; 80 * 40 * 3];
+    source.vt_write(b"visible image");
+    source
+        .vt_write(&kitty("a=T,t=d,f=24,i=93,p=1,s=80,v=40,c=10,r=4,q=2", &encode_base64(&pixels)));
+    let full = source.vt_replay().unwrap();
+    assert!(
+        encode_base64(&pixels).len() > full.bytes.len() / 2,
+        "fixture must exceed the old half-budget"
+    );
+
+    let bounded = source.vt_replay_bounded(full.bytes.len()).unwrap();
+    assert!(bounded.bytes.len() <= full.bytes.len());
+    let mut mirror = terminal();
+    mirror.vt_write(&bounded.bytes);
+    mirror.restore_kitty_image_aliases(&bounded.kitty_image_aliases).unwrap();
+
+    let snapshot = mirror.kitty_graphics_snapshot().unwrap();
+    assert_eq!(&*snapshot.image(93).expect("visible image must fit the total cap").data, &pixels);
+    assert_eq!(snapshot.placements.len(), 1);
+}
+
+#[test]
+fn bounded_replay_prioritizes_a_visible_image_over_an_older_unplaced_image() {
+    let pixels = vec![64; 600 * 3];
+    let mut visible_only = terminal();
+    visible_only.vt_write(b"same text");
+    visible_only
+        .vt_write(&kitty("a=T,t=d,f=24,i=95,p=1,s=600,v=1,c=10,r=1,q=2", &encode_base64(&pixels)));
+    let budget = visible_only.vt_replay().unwrap().bytes.len();
+
+    let mut source = terminal();
+    source.vt_write(b"same text");
+    source.vt_write(&kitty("a=t,t=d,f=24,i=94,s=600,v=1,q=2", &encode_base64(&pixels)));
+    source
+        .vt_write(&kitty("a=T,t=d,f=24,i=95,p=1,s=600,v=1,c=10,r=1,q=2", &encode_base64(&pixels)));
+
+    let replay = source.vt_replay_bounded(budget).unwrap();
+    assert!(replay.bytes.len() <= budget);
+    let mut mirror = terminal();
+    mirror.vt_write(&replay.bytes);
+    mirror.restore_kitty_image_aliases(&replay.kitty_image_aliases).unwrap();
+    let snapshot = mirror.kitty_graphics_snapshot().unwrap();
+
+    assert!(snapshot.image(95).is_some(), "visible image was starved by an unplaced image");
+    assert!(snapshot.placements.iter().any(|placement| placement.image_id == 95));
+    assert!(snapshot.image(94).is_none(), "tight replay unexpectedly retained both images");
+}
+
+fn visible_placement_signature(terminal: &mut Terminal) -> Vec<(u32, i32, u32, u32, u32)> {
+    terminal
+        .kitty_graphics_snapshot()
+        .unwrap()
+        .placements
+        .iter()
+        .filter(|placement| placement.viewport_visible)
+        .map(|placement| {
+            (
+                placement.image_id,
+                placement.viewport_row,
+                placement.grid_rows,
+                placement.source_y,
+                placement.source_height,
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn replay_preserves_scrollback_placements_before_and_after_resize() {
+    let mut source = Terminal::new(12, 4, 100, Callbacks::default()).unwrap();
+    source.resize(12, 4, 10, 20).unwrap();
+    source.vt_write(&kitty("a=t,t=d,f=24,i=96,s=1,v=1,q=2", "/wAA"));
+    source.vt_write(&kitty("a=t,t=d,f=24,i=97,s=1,v=1,q=2", "AP8A"));
+    source.vt_write(&kitty("a=p,i=96,p=1,c=1,r=2,q=2", ""));
+    source.vt_write(b"row-0\r\nrow-1\r\n");
+    source.vt_write(&kitty("a=p,i=97,p=2,c=1,r=3,q=2", ""));
+    for row in 2..=3 {
+        source.vt_write(format!("row-{row}\r\n").as_bytes());
+    }
+    source.vt_write(b"tail");
+    let source_bottom = source.kitty_graphics_snapshot().unwrap();
+    assert!(
+        source_bottom
+            .placements
+            .iter()
+            .any(|placement| placement.image_id == 96 && !placement.viewport_visible)
+    );
+    assert!(
+        source_bottom.placements.iter().any(|placement| {
+            placement.image_id == 97 && placement.viewport_visible && placement.viewport_row < 0
+        }),
+        "fixture placements: {:?}",
+        source_bottom.placements
+    );
+
+    let replay = source.vt_replay().unwrap();
+    let mut mirror = Terminal::new(12, 4, 100, Callbacks::default()).unwrap();
+    mirror.resize(12, 4, 10, 20).unwrap();
+    mirror.vt_write(&replay.bytes);
+    mirror.restore_kitty_image_aliases(&replay.kitty_image_aliases).unwrap();
+    assert_eq!(
+        mirror
+            .kitty_graphics_snapshot()
+            .unwrap()
+            .placements
+            .iter()
+            .map(|placement| placement.image_id)
+            .collect::<Vec<_>>(),
+        vec![96, 97],
+        "byte replay must retain fully and partially offscreen placements"
+    );
+
+    source.scroll_delta(-3);
+    mirror.scroll_delta(-3);
+    assert_eq!(visible_placement_signature(&mut mirror), visible_placement_signature(&mut source));
+
+    source.resize(12, 6, 10, 20).unwrap();
+    mirror.resize(12, 6, 10, 20).unwrap();
+    source.scroll_to_bottom();
+    mirror.scroll_to_bottom();
+    source.scroll_delta(-3);
+    mirror.scroll_delta(-3);
+    assert_eq!(visible_placement_signature(&mut mirror), visible_placement_signature(&mut source));
+}
+
+#[test]
+fn bounded_replay_reports_an_inflight_prefix_that_cannot_fit() {
+    let mut source = terminal();
+    source.vt_write(&kitty("a=t,t=d,f=24,i=98,s=1,v=2,m=1,q=2", "////"));
+
+    assert_eq!(source.vt_replay_bounded(16), Err(Error::OutOfSpace));
 }
 
 #[test]
