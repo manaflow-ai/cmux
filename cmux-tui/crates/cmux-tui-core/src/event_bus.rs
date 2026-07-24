@@ -559,6 +559,26 @@ mod tests {
     }
 
     #[test]
+    fn surface_session_subscription_filters_unscoped_tree_invalidations() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let events = broadcaster.subscribe_surface_session(7, 1, 2, 3);
+
+        broadcaster.emit(MuxEvent::TreeChanged);
+        broadcaster.emit(MuxEvent::TreeDelta(TreeDelta {
+            kind: TreeDeltaKind::TabAdded,
+            workspace: 1,
+            screen: Some(2),
+            pane: Some(4),
+            surface: Some(8),
+            index: Some(0),
+            entity: serde_json::json!({}),
+            workspace_revision: None,
+        }));
+
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
     fn surface_session_subscription_tracks_the_target_tab_path_after_a_move() {
         let broadcaster = MuxEventBroadcaster::default();
         let events = broadcaster.subscribe_surface_session(7, 1, 2, 3);

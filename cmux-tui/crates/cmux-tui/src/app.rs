@@ -11236,7 +11236,7 @@ mod tests {
 
     use cmux_tui_core::{
         BrowserStatus, Direction, Mux, MuxEvent, Node, Rect, SplitDir, SurfaceId, SurfaceKind,
-        SurfaceOptions, layout_screen,
+        SurfaceOptions, ZoomMode, layout_screen,
     };
     use crossterm::event::{
         Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
@@ -11545,6 +11545,60 @@ mod tests {
         }
         assert_eq!(zoomed_pane, Some(first_pane));
         assert_eq!(active_pane, first_pane);
+    }
+
+    #[test]
+    fn pane_context_maximize_preserves_its_explicit_intent_after_remote_state_changes() {
+        let (mux, first) = test_mux("context-maximize-intent-test", None);
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.split(first_pane, SplitDir::Right, Some((40, 24))).unwrap();
+        let second_pane = mux.with_state(|state| state.pane_of(second.id).unwrap());
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+
+        let menu_intent = MenuAction::TogglePaneZoom { pane: second_pane, zoomed: false };
+        mux.zoom_pane(Some(second_pane), ZoomMode::On).unwrap();
+        app.activate_menu(menu_intent).unwrap();
+        while app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
+            app.handle(event).unwrap();
+        }
+
+        let zoomed_pane = app.session.tree().active_screen().unwrap().zoomed_pane;
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+        assert_eq!(zoomed_pane, Some(second_pane));
+    }
+
+    #[test]
+    fn surface_only_context_menu_omits_client_management() {
+        let (mux, surface) = test_mux("surface-only-context-clients-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.surface_only = Some(surface.id);
+        app.sidebar_visible = false;
+        app.clients = vec![ClientInfo {
+            client: 7,
+            transport: "unix".to_string(),
+            name: Some("peer".to_string()),
+            kind: Some("tui".to_string()),
+            connected_seconds: 1,
+            attached: vec![surface.id],
+            sizes: vec![ClientSizeInfo { surface: surface.id, cols: Some(80), rows: Some(24) }],
+            is_self: false,
+            size_participating: true,
+        }];
+        app.replace_tree(app.session.tree());
+        app.sync_layout((120, 30));
+        let content = app.pane_areas[0].content;
+
+        app.open_context_menu(content.x, content.y);
+
+        assert!(!app.menu.as_ref().unwrap().levels[0].items.iter().any(|item| {
+            matches!(item, MenuItem::Submenu { label, .. } if label.starts_with("Connected clients"))
+        }));
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]

@@ -2480,6 +2480,20 @@ mod tests {
     }
 
     #[test]
+    fn surface_event_scope_retains_events_until_the_first_local_receiver_starts() {
+        let (session, _requests) = recording_acknowledging_session();
+
+        session.scope_events_to_surface(7).unwrap();
+        session.handle_line(json!({"event": "surface-exited", "surface": 7}));
+        let events = session.subscribe();
+
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::SurfaceExited(7))
+        ));
+    }
+
+    #[test]
     fn surface_event_scope_rejects_servers_without_source_filtering() {
         let session = test_session(Box::new(UnexpectedWriteWriter));
 
