@@ -1,5 +1,6 @@
 import AppKit
 import CmuxAppKitSupportUI
+import QuartzCore
 
 struct WorkspaceFloatingDockStashItem: Equatable, Identifiable {
     let id: UUID
@@ -17,14 +18,20 @@ enum WorkspaceFloatingDockStashLayout {
     static let trayWidth: CGFloat = 280
     static let trayRowHeight: CGFloat = 42
     static let maximumTrayRows = 7
+    static let restingVisibleFraction: CGFloat = 0.5
 
-    static func railFrame(visibleScreenFrame: CGRect, itemCount: Int) -> CGRect? {
+    static func railFrame(
+        visibleScreenFrame: CGRect,
+        itemCount: Int,
+        isRevealed: Bool = false
+    ) -> CGRect? {
         guard itemCount > 0 else { return nil }
         let directCount = min(itemCount, directItemLimit)
         let slotCount = directCount + (itemCount > directItemLimit ? 1 : 0)
         let height = railPadding * 2 + CGFloat(slotCount) * slotHeight
+        let visibleWidth = isRevealed ? railWidth : railWidth * restingVisibleFraction
         return CGRect(
-            x: visibleScreenFrame.maxX - railWidth,
+            x: visibleScreenFrame.maxX - visibleWidth,
             y: visibleScreenFrame.minY + screenBottomInset,
             width: railWidth,
             height: height
@@ -81,6 +88,8 @@ final class WorkspaceFloatingDockStashController {
     private var items: [WorkspaceFloatingDockStashItem] = []
     private var onRestore: ((UUID) -> Void)?
     private var isTrayVisible = false
+    private var isPointerOverRail = false
+    private var isRailRevealed = false
     private var parentObservers: [NSObjectProtocol] = []
 
     init(parentWindow: NSWindow) {
@@ -97,6 +106,11 @@ final class WorkspaceFloatingDockStashController {
         railGlass.changesTintWithWindowKeyState = false
         trayGlass.changesTintWithWindowKeyState = false
         applyGlass()
+        railView.onHoverChange = { [weak self] isHovering in
+            guard let self else { return }
+            self.isPointerOverRail = isHovering
+            self.setRailRevealed(isHovering || self.isTrayVisible)
+        }
 
         let center = NotificationCenter.default
         for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
@@ -191,19 +205,43 @@ final class WorkspaceFloatingDockStashController {
         isTrayVisible = visible
         guard visible, !items.isEmpty else {
             detachAndOrderOut(trayPanel)
+            setRailRevealed(isPointerOverRail)
             return
         }
+        setRailRevealed(true)
         reposition()
         attachAndOrderFront(trayPanel)
     }
 
-    private func reposition() {
+    private func setRailRevealed(_ revealed: Bool) {
+        guard revealed != isRailRevealed else { return }
+        isRailRevealed = revealed
+        reposition(animated: true)
+    }
+
+    private func reposition(animated: Bool = false) {
         guard let screenFrame = visibleScreenFrame(),
               let railFrame = WorkspaceFloatingDockStashLayout.railFrame(
                 visibleScreenFrame: screenFrame,
-                itemCount: items.count
+                itemCount: items.count,
+                isRevealed: isRailRevealed
               ) else { return }
-        railPanel.setFrame(railFrame, display: railPanel.isVisible)
+        if animated,
+           railPanel.isVisible,
+           !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.16
+                context.timingFunction = CAMediaTimingFunction(
+                    controlPoints: 0.0,
+                    0.0,
+                    0.2,
+                    1.0
+                )
+                railPanel.animator().setFrame(railFrame, display: true)
+            }
+        } else {
+            railPanel.setFrame(railFrame, display: railPanel.isVisible)
+        }
         railView.frame = NSRect(origin: .zero, size: railFrame.size)
         railView.needsLayout = true
         railView.layoutSubtreeIfNeeded()
@@ -221,6 +259,8 @@ final class WorkspaceFloatingDockStashController {
 
     private func hide() {
         isTrayVisible = false
+        isPointerOverRail = false
+        isRailRevealed = false
         detachAndOrderOut(trayPanel)
         detachAndOrderOut(railPanel)
     }
@@ -285,6 +325,8 @@ private final class WorkspaceFloatingDockStashRailView: NSView {
     private let stack = NSStackView()
     private var itemButtons: [UUID: NSButton] = [:]
     private weak var overflowButton: NSButton?
+    private var hoverTrackingArea: NSTrackingArea?
+    var onHoverChange: ((Bool) -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -309,6 +351,29 @@ private final class WorkspaceFloatingDockStashRailView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
+        }
+        let trackingArea = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        hoverTrackingArea = trackingArea
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        onHoverChange?(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        onHoverChange?(false)
     }
 
     func update(

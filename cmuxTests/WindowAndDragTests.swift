@@ -3335,7 +3335,10 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         ))
 
         XCTAssertEqual(rail.width, WorkspaceFloatingDockStashLayout.railWidth)
-        XCTAssertEqual(rail.maxX, screen.maxX)
+        XCTAssertEqual(
+            rail.maxX,
+            screen.maxX + WorkspaceFloatingDockStashLayout.railWidth / 2
+        )
         XCTAssertEqual(
             rail.height,
             WorkspaceFloatingDockStashLayout.railPadding * 2
@@ -3369,6 +3372,14 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
             screen.intersection(rail).width,
             WorkspaceFloatingDockStashLayout.railWidth / 2
         )
+
+        let revealedRail = try XCTUnwrap(WorkspaceFloatingDockStashLayout.railFrame(
+            visibleScreenFrame: screen,
+            itemCount: 1,
+            isRevealed: true
+        ))
+        XCTAssertEqual(revealedRail.minX, screen.maxX - WorkspaceFloatingDockStashLayout.railWidth)
+        XCTAssertEqual(revealedRail.maxX, screen.maxX)
     }
 
     func testWorkspaceFloatingDockStashAnimationKeepsBonsplitWindowSize() {
