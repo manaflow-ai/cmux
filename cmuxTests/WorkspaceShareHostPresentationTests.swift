@@ -321,6 +321,57 @@ struct WorkspaceShareSocketRequestTests {
         #expect(socket.send(.chat(text: "after overflow", bubble: nil)) == .backpressured)
         await socket.stop()
     }
+
+    @Test("Critical backpressure joins an existing reconnect instead of ending the share")
+    func criticalBackpressureDuringReconnectRemainsRecoverable() async {
+        let lifecycle = WorkspaceShareSessionLifecycle(
+            clockSleep: { _ in
+                try await Task.sleep(for: .seconds(60))
+            },
+            randomUnitInterval: { 0 }
+        )
+        let socket = ShareSocket(
+            endpoint: ShareSocket.Endpoint(
+                wsUrl: "ws://127.0.0.1:1/connect",
+                token: "valid-token"
+            ),
+            refresh: {
+                ShareSocket.Endpoint(
+                    wsUrl: "ws://127.0.0.1:1/connect",
+                    token: "valid-token"
+                )
+            },
+            lifecycle: lifecycle
+        )
+
+        await socket.start()
+        #expect(await waitForReconnect(lifecycle))
+        #expect(await socket.reconnectAfterOutboundBackpressure())
+        await socket.stop()
+    }
+
+    private func waitForReconnect(
+        _ lifecycle: WorkspaceShareSessionLifecycle
+    ) async -> Bool {
+        let states = await lifecycle.states()
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await state in states {
+                    if case .reconnecting = state {
+                        return true
+                    }
+                }
+                return false
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(2))
+                return false
+            }
+            let didReconnect = await group.next() ?? false
+            group.cancelAll()
+            return didReconnect
+        }
+    }
 }
 
 private actor DelayedShareSessionAPI: ShareSessionAPIProviding {
