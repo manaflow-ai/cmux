@@ -2,7 +2,10 @@ use std::ffi::OsString;
 use std::sync::Arc;
 use std::time::Duration;
 
-use cmux_remote::provider::{ConnectRequest, RelayClientConfig, RelayProvider, TransportProvider};
+use cmux_remote::link::LinkError;
+use cmux_remote::provider::{
+    ConnectRequest, ProviderError, RelayClientConfig, RelayProvider, TransportProvider,
+};
 use cmux_remote_protocol::{LanePolicy, SessionId};
 use rcgen::{
     BasicConstraints, CertificateParams, CertifiedIssuer, DistinguishedName, DnType,
@@ -119,7 +122,8 @@ async fn relay_wss_preserves_tls_hostname_failure_without_credentials() {
         .await
     {
         Ok(_) => panic!("relay WSS accepted a certificate for the wrong hostname"),
-        Err(error) => error.to_string(),
+        Err(ProviderError::Link(LinkError::Transport(message))) => message,
+        Err(error) => panic!("relay WSS carrier failure used the wrong error category: {error}"),
     };
     server.await.unwrap();
 

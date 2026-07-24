@@ -1291,6 +1291,7 @@ mod tests {
 
     use bytes::Bytes;
     use cmux_remote_protocol::{Lane, LanePolicy, SessionId};
+    use tokio::io::AsyncWriteExt;
     use tokio::net::TcpListener;
     use tokio::sync::oneshot;
     use tokio_tungstenite::accept_hdr_async;
@@ -1475,6 +1476,65 @@ mod tests {
         registration.abort();
         assert!(registration.await.unwrap_err().is_cancelled());
         assert!(server.await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn daemon_registration_retries_transient_initial_carrier_failure() {
+        use crate::identity::AuthDatabase;
+        use crate::session::SessionLimits;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint =
+            Url::parse(&format!("relay+ws://{}", listener.local_addr().unwrap())).unwrap();
+        let server = tokio::spawn(async move {
+            let (mut failed, _) = listener.accept().await.unwrap();
+            failed
+                .write_all(
+                    b"HTTP/1.1 500 Internal Server Error\r\n\
+                      Content-Length: 0\r\n\
+                      Connection: close\r\n\r\n",
+                )
+                .await
+                .unwrap();
+            failed.shutdown().await.unwrap();
+
+            let (stream, _) = tokio::time::timeout(Duration::from_secs(2), listener.accept())
+                .await
+                .expect("relay daemon did not retry its initial carrier failure")
+                .unwrap();
+            let (mut socket, authorization) = accept_with_authorization(stream).await;
+            assert_eq!(authorization, "Bearer registration-ticket");
+            assert!(matches!(
+                receive_test_control(&mut socket).await,
+                RelayControl::Register { .. }
+            ));
+            send_test_control(&mut socket, &RelayControl::Registered { lease_seconds: 30 }).await;
+            while socket.next().await.is_some() {}
+        });
+
+        let directory = tempfile::tempdir().unwrap();
+        let auth =
+            AuthDatabase::load_or_create(directory.path(), "relay-startup-retry", true).unwrap();
+        let (daemon, _clients) = RemoteDaemon::new(auth, SessionLimits::default());
+        let registration = tokio::time::timeout(
+            Duration::from_secs(2),
+            register_relay_daemon(
+                daemon,
+                RelayDaemonConfig {
+                    endpoint,
+                    slot: "startup-retry-slot".into(),
+                    ticket: "registration-ticket".into(),
+                    maximum_frame_bytes: 65_535,
+                    control_timeout: Duration::from_secs(1),
+                },
+            ),
+        )
+        .await
+        .expect("relay registration did not become ready")
+        .expect("transient initial carrier failure stopped relay registration");
+
+        registration.shutdown().await;
+        server.await.unwrap();
     }
 
     #[tokio::test]

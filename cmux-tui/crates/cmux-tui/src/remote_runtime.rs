@@ -1425,6 +1425,42 @@ mod tests {
         }
     }
 
+    struct TransientStartupProvider {
+        calls: Arc<AtomicUsize>,
+        unix_path: PathBuf,
+        unix: UnixProvider,
+    }
+
+    #[async_trait]
+    impl TransportProvider for TransientStartupProvider {
+        fn name(&self) -> &'static str {
+            "transient-startup"
+        }
+
+        fn schemes(&self) -> &'static [&'static str] {
+            &["transient-startup"]
+        }
+
+        fn supported_client_auth(&self) -> SupportedClientAuthModes {
+            SupportedClientAuthModes::DeviceOrCarrier
+        }
+
+        async fn connect(
+            &self,
+            mut request: ConnectRequest,
+        ) -> Result<Arc<dyn LinkGroup>, ProviderError> {
+            if self.calls.fetch_add(1, Ordering::AcqRel) == 0 {
+                return Err(ProviderError::Link(cmux_remote::link::LinkError::Transport(
+                    "transient startup carrier failure".into(),
+                )));
+            }
+            let mut endpoint = Url::parse("unix:///").unwrap();
+            endpoint.set_path(self.unix_path.to_str().unwrap());
+            request.endpoint = endpoint;
+            self.unix.connect(request).await
+        }
+    }
+
     #[derive(Default)]
     struct FakeReconnectRouteAttempt {
         requests: std::sync::Mutex<Vec<ConnectRequest>>,
@@ -2072,6 +2108,79 @@ mod tests {
                 }),
             ]
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn initial_client_connection_retries_transient_carrier_failure() {
+        use cmux_remote::daemon::RemoteDaemon;
+
+        let directory = tempfile::tempdir().unwrap();
+        let daemon_auth =
+            AuthDatabase::load_or_create(directory.path().join("daemon"), "startup-retry", true)
+                .unwrap();
+        let (daemon, _clients) = RemoteDaemon::new(daemon_auth, SessionLimits::default());
+        let unix_path = directory.path().join("daemon.sock");
+        let server = serve_unix(daemon, &unix_path, MAX_CARRIER_FRAME_BYTES).await.unwrap();
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut providers = cmux_remote::provider::ProviderRegistry::default();
+        providers
+            .register(Arc::new(TransientStartupProvider {
+                calls: calls.clone(),
+                unix_path,
+                unix: UnixProvider::new(MAX_CARRIER_FRAME_BYTES),
+            }))
+            .unwrap();
+        let providers = Arc::new(providers);
+        let route = ResolvedRouteCandidate::resolve(
+            Url::parse("transient-startup://daemon").unwrap(),
+            BTreeMap::new(),
+            &providers,
+        )
+        .unwrap();
+        let ssh = SshProviderConfig::default();
+        let options = ClientRuntimeOptions {
+            routes: vec![route],
+            providers,
+            identity: StaticIdentity::generate().unwrap(),
+            expected_daemon: None,
+            auth: ClientAuthMode::Carrier,
+            device_name: "startup-retry-test".into(),
+            session: SessionId([22; 16]),
+            lane_policy: LanePolicy::Single,
+            reconnect: ReconnectPolicy {
+                initial_delay: Duration::from_millis(1),
+                maximum_delay: Duration::from_millis(1),
+                attempt_timeout: Duration::from_secs(1),
+                full_jitter: false,
+                heartbeat_interval: None,
+                heartbeat_timeout: Duration::from_secs(1),
+                maximum_attempts: Some(2),
+            },
+            startup_timeout: Duration::from_secs(2),
+            state_dir: directory.path().join("client"),
+            local_socket: None,
+            ssh,
+            ssh_bootstrap: SshBootstrapOptions {
+                auto_install: false,
+                upgrade: false,
+                attempt_timeout: Duration::from_secs(1),
+            },
+        };
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+
+        let (connection, _) = tokio::time::timeout(
+            Duration::from_secs(2),
+            connect_first_available(&options, shutdown_rx),
+        )
+        .await
+        .expect("initial client connection retry timed out")
+        .expect("transient initial carrier failure stopped the client");
+
+        assert_eq!(calls.load(Ordering::Acquire), 2);
+        connection.close().await.unwrap();
+        server.shutdown().await;
     }
 
     #[tokio::test]
