@@ -14,6 +14,8 @@ use crate::{Result, check};
 static NEXT_TERMINAL_ID: AtomicU64 = AtomicU64::new(1);
 const VT_REPLAY_ESTIMATED_BYTES_PER_CELL: u64 = 32;
 const DEFAULT_KITTY_IMAGE_STORAGE_LIMIT: u64 = MAX_KITTY_IMAGE_BYTES as u64;
+const DEFAULT_KITTY_IMAGE_COUNT_LIMIT: u64 = 4_096;
+const DEFAULT_KITTY_PLACEMENT_COUNT_LIMIT: u64 = 16_384;
 const KITTY_REPLAY_CHUNK: usize = 4096;
 
 /// Terminal state replay plus Kitty aliases that cannot share one APC command.
@@ -1111,6 +1113,36 @@ impl Terminal {
         self.get(sys::GHOSTTY_TERMINAL_DATA_KITTY_IMAGE_STORAGE_LIMIT)
     }
 
+    /// Set the active terminal's maximum number of stored Kitty images.
+    pub fn set_kitty_image_count_limit(&mut self, count: u64) -> Result<()> {
+        check(unsafe {
+            sys::ghostty_terminal_set(
+                self.raw,
+                sys::GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_COUNT_LIMIT,
+                (&count as *const u64).cast(),
+            )
+        })
+    }
+
+    pub fn kitty_image_count_limit(&self) -> Result<u64> {
+        self.get(sys::GHOSTTY_TERMINAL_DATA_KITTY_IMAGE_COUNT_LIMIT)
+    }
+
+    /// Set the active terminal's maximum number of Kitty placements.
+    pub fn set_kitty_placement_count_limit(&mut self, count: u64) -> Result<()> {
+        check(unsafe {
+            sys::ghostty_terminal_set(
+                self.raw,
+                sys::GHOSTTY_TERMINAL_OPT_KITTY_PLACEMENT_COUNT_LIMIT,
+                (&count as *const u64).cast(),
+            )
+        })
+    }
+
+    pub fn kitty_placement_count_limit(&self) -> Result<u64> {
+        self.get(sys::GHOSTTY_TERMINAL_DATA_KITTY_PLACEMENT_COUNT_LIMIT)
+    }
+
     /// Whether file, temporary-file, or shared-memory image media are enabled.
     ///
     /// cmux enables only direct (`t=d`) payloads, so this is `(false, false,
@@ -1639,13 +1671,16 @@ impl Terminal {
 }
 
 fn configure_kitty_graphics(raw: sys::GhosttyTerminal) -> Result<()> {
-    check(unsafe {
-        sys::ghostty_terminal_set(
-            raw,
-            sys::GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_STORAGE_LIMIT,
-            (&DEFAULT_KITTY_IMAGE_STORAGE_LIMIT as *const u64).cast(),
-        )
-    })?;
+    for (option, limit) in [
+        (sys::GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_STORAGE_LIMIT, &DEFAULT_KITTY_IMAGE_STORAGE_LIMIT),
+        (sys::GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_COUNT_LIMIT, &DEFAULT_KITTY_IMAGE_COUNT_LIMIT),
+        (
+            sys::GHOSTTY_TERMINAL_OPT_KITTY_PLACEMENT_COUNT_LIMIT,
+            &DEFAULT_KITTY_PLACEMENT_COUNT_LIMIT,
+        ),
+    ] {
+        check(unsafe { sys::ghostty_terminal_set(raw, option, (limit as *const u64).cast()) })?;
+    }
     let disabled = false;
     for option in [
         sys::GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_MEDIUM_FILE,

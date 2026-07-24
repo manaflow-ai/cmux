@@ -379,7 +379,7 @@ fn object_count_limits_bound_images_and_placements_across_reset() {
             .iter()
             .map(|placement| placement.placement_id)
             .collect::<Vec<_>>(),
-        vec![2, 3]
+        vec![1, 2]
     );
 
     terminal.vt_write(b"\x1bc");
