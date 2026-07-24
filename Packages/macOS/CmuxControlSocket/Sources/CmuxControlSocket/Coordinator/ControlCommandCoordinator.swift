@@ -161,6 +161,19 @@ public final class ControlCommandCoordinator {
         handles.ensureRef(kind: kind, uuid: uuid)
     }
 
+    /// Returns the `kind:N` ref already minted for an identifier, without
+    /// minting a new one. Read-only counterpart of ``ensureRef(kind:uuid:)``
+    /// for callers (e.g. sidebar render projections) that must not allocate
+    /// handles as a side effect.
+    ///
+    /// - Parameters:
+    ///   - kind: The handle kind.
+    ///   - uuid: The identifier to look up.
+    /// - Returns: The existing ref, or `nil` if none has been minted.
+    public func existingRef(kind: ControlHandleKind, uuid: UUID) -> String? {
+        handles.existingRef(kind: kind, uuid: uuid)
+    }
+
     /// Resolves a previously-minted `kind:N` ref back to its identifier.
     ///
     /// - Parameter ref: The ref string.

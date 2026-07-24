@@ -23,6 +23,21 @@ struct ControlHandleRegistryTests {
         #expect(registry.ensureRef(kind: .pane, uuid: UUID()) == "pane:2")
     }
 
+    @Test func existingRefPeeksWithoutMinting() {
+        var registry = ControlHandleRegistry()
+        let a = UUID()
+        let b = UUID()
+        // Peeking never mints, so an unseen identity has no ref...
+        #expect(registry.existingRef(kind: .workspace, uuid: a) == nil)
+        // ...and peeking did not consume the first ordinal.
+        #expect(registry.ensureRef(kind: .workspace, uuid: a) == "workspace:1")
+        // Once minted, the peek returns the same ref.
+        #expect(registry.existingRef(kind: .workspace, uuid: a) == "workspace:1")
+        // A peek for a still-unseen identity stays nil and leaves ordinals intact.
+        #expect(registry.existingRef(kind: .workspace, uuid: b) == nil)
+        #expect(registry.ensureRef(kind: .workspace, uuid: b) == "workspace:2")
+    }
+
     @Test func workspaceGroupRefsUseTheWireRawValue() {
         var registry = ControlHandleRegistry()
         #expect(registry.ensureRef(kind: .workspaceGroup, uuid: UUID()) == "workspace_group:1")

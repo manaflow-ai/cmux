@@ -10546,11 +10546,13 @@ struct VerticalTabsSidebar: View, Equatable {
     /// itself, so it respects the sidebar snapshot-boundary rule.
     private func customSidebarDataContext(now: Date) -> [String: SwiftValue] {
         let selectedId = tabManager.selectedTabId
+        let workspaceRefs = TerminalController.shared.v2WorkspaceRefsIfPresent(for: tabManager.tabs.map(\.id))
         let workspaces = tabManager.tabs.enumerated().map { index, workspace in
             workspace.customSidebarWorkspaceSnapshot(
                 index: index,
                 selectedId: selectedId,
-                unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id)
+                unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id),
+                ref: workspaceRefs[workspace.id]
             )
         }
         let selectedWorkspace = tabManager.tabs.first { $0.id == selectedId }

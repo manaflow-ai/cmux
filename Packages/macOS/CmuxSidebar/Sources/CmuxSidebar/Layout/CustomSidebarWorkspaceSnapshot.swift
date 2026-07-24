@@ -42,6 +42,10 @@ public struct CustomSidebarWorkspaceSnapshot: Sendable, Equatable {
 
     /// The workspace identifier, projected to `workspaces[i].id`.
     public let id: UUID
+    /// The stable control-socket handle (e.g. `workspace:16`, the same ref the
+    /// `cmux` CLI accepts), projected to `workspaces[i].ref`. Omitted when the
+    /// app has not resolved a handle for this workspace.
+    public let ref: String?
     /// The display title (custom title falling back to the live title).
     public let title: String
     /// Whether this workspace is the selected one (`workspaces[i].selected`).
@@ -88,6 +92,7 @@ public struct CustomSidebarWorkspaceSnapshot: Sendable, Equatable {
     /// Creates a workspace snapshot from already-resolved leaf values.
     public init(
         id: UUID,
+        ref: String? = nil,
         title: String,
         isSelected: Bool,
         isPinned: Bool,
@@ -109,6 +114,7 @@ public struct CustomSidebarWorkspaceSnapshot: Sendable, Equatable {
         remote: Remote?
     ) {
         self.id = id
+        self.ref = ref
         self.title = title
         self.isSelected = isSelected
         self.isPinned = isPinned

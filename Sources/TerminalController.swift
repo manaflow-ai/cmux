@@ -3482,6 +3482,24 @@ class TerminalController {
         return refs
     }
 
+    /// Read-only counterpart of ``v2WorkspaceRefs(for:)``: returns only the
+    /// workspace refs already minted, without allocating handles. Ids without
+    /// an existing ref are omitted. Safe to call from render projections (e.g.
+    /// the custom-sidebar data context) where minting a handle as a render side
+    /// effect would let CLI handle allocation depend on SwiftUI evaluation
+    /// order; the app already mints workspace refs eagerly via
+    /// ``v2RefreshKnownRefs()``.
+    func v2WorkspaceRefsIfPresent(for ids: [UUID]) -> [UUID: String] {
+        var refs: [UUID: String] = [:]
+        refs.reserveCapacity(ids.count)
+        for id in ids {
+            if let ref = controlCommandCoordinator.existingRef(kind: .workspace, uuid: id) {
+                refs[id] = ref
+            }
+        }
+        return refs
+    }
+
     func v2WorkspacePaneAndSurfaceRefs(
         workspaceId: UUID,
         paneId: UUID?,
