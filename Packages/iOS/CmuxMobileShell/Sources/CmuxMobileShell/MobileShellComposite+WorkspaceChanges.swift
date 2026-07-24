@@ -192,48 +192,42 @@ extension MobileShellComposite {
             }
             requestedScope = .fullSnapshot
         }
-        workspaceChangesSummaryPendingRefreshScope =
-            workspaceChangesSummaryPendingRefreshScope.coalesced(with: requestedScope)
-        guard workspaceChangesSummaryPendingRefreshScope != .groupOnlyDelta else {
-            MobileDebugLog.anchormux("changes.schedule skip: no foreground workspace ids")
-            return
-        }
+        let shouldRestartDebounce = workspaceChangesSummaryRefreshSchedulePolicy.schedule(
+            scope: requestedScope,
+            force: force
+        )
+        guard shouldRestartDebounce else { return }
 
-        workspaceChangesSummaryRefreshForce = workspaceChangesSummaryRefreshForce || force
-        workspaceChangesSummaryRefreshTask?.cancel()
+        workspaceChangesSummaryDebounceTask?.cancel()
         let taskID = UUID()
-        workspaceChangesSummaryRefreshTaskID = taskID
-        workspaceChangesSummaryRefreshTask = Task { @MainActor [weak self] in
+        workspaceChangesSummaryDebounceTaskID = taskID
+        workspaceChangesSummaryDebounceTask = Task { @MainActor [weak self] in
             // A bounded, cancellable delay is the intended event/list debounce.
             try? await ContinuousClock().sleep(for: .milliseconds(250))
             guard !Task.isCancelled,
                   let self,
-                  self.workspaceChangesSummaryRefreshTaskID == taskID else { return }
-            let pendingScope = self.workspaceChangesSummaryPendingRefreshScope
-            self.workspaceChangesSummaryPendingRefreshScope = .groupOnlyDelta
-            let shouldForce = self.workspaceChangesSummaryRefreshForce
-            self.workspaceChangesSummaryRefreshForce = false
-            let workspaceIDs = pendingScope.workspaceIDs(
-                fullSnapshotWorkspaceIDs: self.foregroundWorkspaceChangesIDs
-            )
-            guard !workspaceIDs.isEmpty else {
-                self.clearWorkspaceChangesSummaryRefreshTask(id: taskID)
+                  self.workspaceChangesSummaryDebounceTaskID == taskID else { return }
+            self.clearWorkspaceChangesSummaryDebounceTask(id: taskID)
+            guard let request =
+                self.workspaceChangesSummaryRefreshSchedulePolicy.beginFetchAfterDebounce()
+            else {
                 return
             }
-            await self.fetchWorkspaceChangesSummaries(
-                workspaceIDs: workspaceIDs,
-                force: shouldForce
+            self.startWorkspaceChangesSummaryFetch(
+                scope: request.scope,
+                force: request.force
             )
-            self.clearWorkspaceChangesSummaryRefreshTask(id: taskID)
         }
     }
 
     func resetWorkspaceChangesState() {
-        workspaceChangesSummaryRefreshTask?.cancel()
-        workspaceChangesSummaryRefreshTask = nil
-        workspaceChangesSummaryRefreshTaskID = nil
-        workspaceChangesSummaryRefreshForce = false
-        workspaceChangesSummaryPendingRefreshScope = .groupOnlyDelta
+        workspaceChangesSummaryDebounceTask?.cancel()
+        workspaceChangesSummaryDebounceTask = nil
+        workspaceChangesSummaryDebounceTaskID = nil
+        workspaceChangesSummaryFetchTask?.cancel()
+        workspaceChangesSummaryFetchTask = nil
+        workspaceChangesSummaryFetchTaskID = nil
+        workspaceChangesSummaryRefreshSchedulePolicy.reset()
         workspaceChangesSummaryFetchedAtByWorkspaceID = [:]
         setWorkspaceChangeChipsByWorkspaceID([:])
     }
@@ -257,9 +251,49 @@ extension MobileShellComposite {
         return remoteClient
     }
 
-    private func clearWorkspaceChangesSummaryRefreshTask(id: UUID) {
-        guard workspaceChangesSummaryRefreshTaskID == id else { return }
-        workspaceChangesSummaryRefreshTask = nil
-        workspaceChangesSummaryRefreshTaskID = nil
+    private func startWorkspaceChangesSummaryFetch(
+        scope initialScope: WorkspaceChangesSummaryRefreshScope,
+        force initialForce: Bool
+    ) {
+        guard workspaceChangesSummaryFetchTask == nil else { return }
+        let taskID = UUID()
+        workspaceChangesSummaryFetchTaskID = taskID
+        workspaceChangesSummaryFetchTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            var scope = initialScope
+            var force = initialForce
+            while true {
+                let workspaceIDs = scope.workspaceIDs(
+                    fullSnapshotWorkspaceIDs: self.foregroundWorkspaceChangesIDs
+                )
+                if !workspaceIDs.isEmpty {
+                    await self.fetchWorkspaceChangesSummaries(
+                        workspaceIDs: workspaceIDs,
+                        force: force
+                    )
+                }
+                guard self.workspaceChangesSummaryFetchTaskID == taskID else { return }
+                guard let trailingRequest =
+                    self.workspaceChangesSummaryRefreshSchedulePolicy.fetchCompleted()
+                else {
+                    self.clearWorkspaceChangesSummaryFetchTask(id: taskID)
+                    return
+                }
+                scope = trailingRequest.scope
+                force = trailingRequest.force
+            }
+        }
+    }
+
+    private func clearWorkspaceChangesSummaryDebounceTask(id: UUID) {
+        guard workspaceChangesSummaryDebounceTaskID == id else { return }
+        workspaceChangesSummaryDebounceTask = nil
+        workspaceChangesSummaryDebounceTaskID = nil
+    }
+
+    private func clearWorkspaceChangesSummaryFetchTask(id: UUID) {
+        guard workspaceChangesSummaryFetchTaskID == id else { return }
+        workspaceChangesSummaryFetchTask = nil
+        workspaceChangesSummaryFetchTaskID = nil
     }
 }

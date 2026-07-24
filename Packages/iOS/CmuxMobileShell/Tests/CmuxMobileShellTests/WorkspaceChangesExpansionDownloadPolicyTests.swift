@@ -1,4 +1,5 @@
 import CmuxMobileChanges
+import Foundation
 import Testing
 
 @testable import CmuxMobileShell
@@ -53,6 +54,19 @@ import Testing
                 nextChunkByteCount: 0,
                 receivedChunkCount: policy.maximumChunkCount + 1
             )
+        }
+    }
+
+    @Test func currentLineMaterializationRejectsMoreThanTwoHundredThousandLines() async {
+        let data = Data(
+            String(
+                repeating: "line\n",
+                count: MobileShellComposite.workspaceChangesExpansionLineLimit + 1
+            ).utf8
+        )
+
+        await #expect(throws: DiffExpansionContentError.tooLarge) {
+            try await MobileShellComposite.workspaceChangesLines(from: data)
         }
     }
 }

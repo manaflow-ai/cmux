@@ -147,11 +147,12 @@ import Testing
         ])
     }
 
-    @Test func changedFilesCapsListButKeepsFullTotals() async {
+    @Test func streamedSnapshotCapsFarLargerInputButKeepsFullTotals() async {
         let root = "/tmp/cmux-fake-large-repo"
-        let paths = (0..<501).map { String(format: "File-%03d.swift", $0) }
-        let statuses = paths.map { "M\0\($0)\0" }.joined()
-        let numstat = paths.map { "1\t2\t\($0)\0" }.joined()
+        let paths = (0..<2_000).map { String(format: "File-%04d.swift", $0) }
+        let reversePaths = paths.reversed()
+        let statuses = reversePaths.map { "M\0\($0)\0" }.joined()
+        let numstat = reversePaths.map { "1\t2\t\($0)\0" }.joined()
         let runner = FakeWorkspaceChangesGitRunner(results: [
             ["rev-parse", "--show-toplevel"]: FakeWorkspaceChangesGitRunner.result("\(root)\n"),
             ["symbolic-ref", "--quiet", "--short", "HEAD"]: FakeWorkspaceChangesGitRunner.result("main\n"),
@@ -168,9 +169,11 @@ import Testing
         let files = await WorkspaceChangesService(runner: runner).changedFiles(forDirectory: root)
 
         #expect(files.files.count == 500)
-        #expect(files.filesChanged == 501)
-        #expect(files.additions == 501)
-        #expect(files.deletions == 1_002)
+        #expect(files.files.first?.path == "File-0000.swift")
+        #expect(files.files.last?.path == "File-0499.swift")
+        #expect(files.filesChanged == 2_000)
+        #expect(files.additions == 2_000)
+        #expect(files.deletions == 4_000)
         #expect(files.truncated)
     }
 

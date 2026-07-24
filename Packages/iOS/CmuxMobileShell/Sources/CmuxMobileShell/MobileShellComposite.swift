@@ -792,11 +792,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var createWorkspaceTaskSpec: MobileWorkspaceCreateSpec?
     private var createTerminalTask: Task<Void, Never>?
     private var workspaceListRefreshTask: Task<Void, Never>?
-    @ObservationIgnored var workspaceChangesSummaryRefreshTask: Task<Void, Never>?
-    @ObservationIgnored var workspaceChangesSummaryRefreshTaskID: UUID?
-    @ObservationIgnored var workspaceChangesSummaryRefreshForce = false
-    @ObservationIgnored var workspaceChangesSummaryPendingRefreshScope =
-        WorkspaceChangesSummaryRefreshScope.groupOnlyDelta
+    @ObservationIgnored var workspaceChangesSummaryDebounceTask: Task<Void, Never>?
+    @ObservationIgnored var workspaceChangesSummaryDebounceTaskID: UUID?
+    @ObservationIgnored var workspaceChangesSummaryFetchTask: Task<Void, Never>?
+    @ObservationIgnored var workspaceChangesSummaryFetchTaskID: UUID?
+    @ObservationIgnored var workspaceChangesSummaryRefreshSchedulePolicy =
+        WorkspaceChangesSummaryRefreshSchedulePolicy()
     @ObservationIgnored var workspaceChangesSummaryFetchedAtByWorkspaceID: [String: Date] = [:]
     @ObservationIgnored let workspaceChangesSummaryFetchPolicy = WorkspaceChangesSummaryFetchPolicy()
     /// Mobile state sync v2 (docs/mobile-state-sync-v2.md): full-record mirror
@@ -1184,7 +1185,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         createWorkspaceTask?.cancel()
         createTerminalTask?.cancel()
         workspaceListRefreshTask?.cancel()
-        workspaceChangesSummaryRefreshTask?.cancel()
+        workspaceChangesSummaryDebounceTask?.cancel()
+        workspaceChangesSummaryFetchTask?.cancel()
         pullToRefreshTask?.cancel()
         notificationFeedOpenTask?.cancel()
         teamScopeReconnectTask?.cancel()
@@ -5742,11 +5744,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceListRefreshTask = nil
         pullToRefreshTask?.cancel()
         pullToRefreshTask = nil
-        workspaceChangesSummaryRefreshTask?.cancel()
-        workspaceChangesSummaryRefreshTask = nil
-        workspaceChangesSummaryRefreshTaskID = nil
-        workspaceChangesSummaryRefreshForce = false
-        workspaceChangesSummaryPendingRefreshScope = .groupOnlyDelta
+        workspaceChangesSummaryDebounceTask?.cancel()
+        workspaceChangesSummaryDebounceTask = nil
+        workspaceChangesSummaryDebounceTaskID = nil
+        workspaceChangesSummaryFetchTask?.cancel()
+        workspaceChangesSummaryFetchTask = nil
+        workspaceChangesSummaryFetchTaskID = nil
+        workspaceChangesSummaryRefreshSchedulePolicy.reset()
         cancelAllTerminalReplayTasks()
     }
 

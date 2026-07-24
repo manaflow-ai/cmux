@@ -7,6 +7,8 @@ internal import CmuxMobileRPC
 extension MobileShellComposite {
     /// Maximum current-file size accepted by the unchanged-line expander.
     private static let workspaceChangesExpansionByteLimit: Int64 = 5 * 1_024 * 1_024
+    /// Maximum decoded lines accepted by the unchanged-line expander.
+    nonisolated static let workspaceChangesExpansionLineLimit = 200_000
 
     /// Reads artifact-compatible metadata for a changed file revision.
     ///
@@ -147,8 +149,9 @@ extension MobileShellComposite {
             let fingerprints: [String] = rawFingerprints
                 .compactMap { $0 }
                 .filter { !$0.isEmpty }
+            let lines = try await Self.workspaceChangesLines(from: content.data)
             return DiffExpansionCurrentFile(
-                lines: Self.workspaceChangesLines(from: content.data),
+                lines: lines,
                 contentFingerprints: fingerprints
             )
         }
@@ -312,13 +315,23 @@ extension MobileShellComposite {
         }
     }
 
-    private nonisolated static func workspaceChangesLines(from data: Data) -> [String] {
+    nonisolated static func workspaceChangesLines(from data: Data) async throws -> [String] {
         guard !data.isEmpty else { return [] }
-        let text = String(data: data, encoding: .utf8)
-            ?? String(decoding: data, as: UTF8.self)
-        var lines = text.components(separatedBy: "\n")
-        if text.hasSuffix("\n") {
-            lines.removeLast()
+
+        var lines: [String] = []
+        var lineStart = data.startIndex
+        for index in data.indices where data[index] == 0x0A {
+            guard lines.count < workspaceChangesExpansionLineLimit else {
+                throw DiffExpansionContentError.tooLarge
+            }
+            lines.append(String(decoding: data[lineStart..<index], as: UTF8.self))
+            lineStart = data.index(after: index)
+        }
+        if lineStart < data.endIndex {
+            guard lines.count < workspaceChangesExpansionLineLimit else {
+                throw DiffExpansionContentError.tooLarge
+            }
+            lines.append(String(decoding: data[lineStart..<data.endIndex], as: UTF8.self))
         }
         return lines
     }

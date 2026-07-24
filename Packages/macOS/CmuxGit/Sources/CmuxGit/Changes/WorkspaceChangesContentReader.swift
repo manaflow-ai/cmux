@@ -62,6 +62,11 @@ struct WorkspaceChangesContentReader: Sendable {
         let clampedOffset = min(max(offset, 0), totalSize)
         try handle.seek(toOffset: UInt64(clampedOffset))
         let data = try handle.read(upToCount: max(0, length)) ?? Data()
+        var postReadMetadata = Darwin.stat()
+        guard Darwin.fstat(descriptor, &postReadMetadata) == 0 else {
+            throw WorkspaceChangesServiceError.gitFailure
+        }
+        try validateStableMetadata(before: metadata, after: postReadMetadata)
         let artifactChunk = ChatArtifactChunk(
             data: data,
             offset: clampedOffset,
@@ -90,6 +95,19 @@ struct WorkspaceChangesContentReader: Sendable {
         // the pre/post comparison intentionally accepts that residual.
         guard before == after else { return "unstable:\(UUID().uuidString)" }
         return after
+    }
+
+    /// Rejects chunks read while the opened file's identity or metadata changed.
+    func validateStableMetadata(before: Darwin.stat, after: Darwin.stat) throws {
+        guard before.st_dev == after.st_dev,
+              before.st_ino == after.st_ino,
+              before.st_size == after.st_size,
+              before.st_mtimespec.tv_sec == after.st_mtimespec.tv_sec,
+              before.st_mtimespec.tv_nsec == after.st_mtimespec.tv_nsec,
+              before.st_ctimespec.tv_sec == after.st_ctimespec.tv_sec,
+              before.st_ctimespec.tv_nsec == after.st_ctimespec.tv_nsec else {
+            throw WorkspaceChangesServiceError.gitFailure
+        }
     }
 
     private func fingerprint(metadata: Darwin.stat) -> String {

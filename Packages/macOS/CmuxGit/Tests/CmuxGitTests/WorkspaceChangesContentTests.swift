@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import Darwin
 import Foundation
 import Testing
 
@@ -77,6 +78,51 @@ import Testing
         #expect(fingerprint.hasPrefix("unstable:"))
         #expect(fingerprint != before)
         #expect(fingerprint != after)
+    }
+
+    @Test func postReadMetadataChangesFailWithRetryableError() {
+        var baseline = Darwin.stat()
+        baseline.st_dev = 10
+        baseline.st_ino = 20
+        baseline.st_size = 30
+        baseline.st_mtimespec.tv_sec = 40
+        baseline.st_mtimespec.tv_nsec = 50
+        baseline.st_ctimespec.tv_sec = 60
+        baseline.st_ctimespec.tv_nsec = 70
+        let reader = WorkspaceChangesContentReader()
+
+        var changedDevice = baseline
+        changedDevice.st_dev += 1
+        #expect(throws: WorkspaceChangesServiceError.gitFailure) {
+            try reader.validateStableMetadata(before: baseline, after: changedDevice)
+        }
+
+        var changedInode = baseline
+        changedInode.st_ino += 1
+        #expect(throws: WorkspaceChangesServiceError.gitFailure) {
+            try reader.validateStableMetadata(before: baseline, after: changedInode)
+        }
+
+        var changedSize = baseline
+        changedSize.st_size += 1
+        #expect(throws: WorkspaceChangesServiceError.gitFailure) {
+            try reader.validateStableMetadata(before: baseline, after: changedSize)
+        }
+
+        var changedModificationTime = baseline
+        changedModificationTime.st_mtimespec.tv_nsec += 1
+        #expect(throws: WorkspaceChangesServiceError.gitFailure) {
+            try reader.validateStableMetadata(
+                before: baseline,
+                after: changedModificationTime
+            )
+        }
+
+        var changedStatusTime = baseline
+        changedStatusTime.st_ctimespec.tv_nsec += 1
+        #expect(throws: WorkspaceChangesServiceError.gitFailure) {
+            try reader.validateStableMetadata(before: baseline, after: changedStatusTime)
+        }
     }
 
     @Test func fileChangingWhileGitCapturesDiffReturnsAnUnstableFingerprint() async throws {

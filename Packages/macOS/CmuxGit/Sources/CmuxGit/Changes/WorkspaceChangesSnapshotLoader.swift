@@ -77,26 +77,56 @@ struct WorkspaceChangesSnapshotLoader: Sendable {
             maximumOutputByteCount: Self.maximumSnapshotCommandOutputByteCount
         ), succeededOrTruncated(untrackedResult) else { return nil }
 
-        let statsByPath = Dictionary(
-            uniqueKeysWithValues: parser.numstatEntries(from: numstatResult.output).map { ($0.path, $0) }
+        var cappedSelection = WorkspaceChangesCappedFileSelection(
+            maximumCount: Self.maximumFileCount
         )
-        let trackedFiles = parser.nameStatusEntries(from: statusResult.output).map { entry in
-            let stat = statsByPath[entry.path]
-            return WorkspaceChangedFile(
+        var trackedFileCount = 0
+        parser.forEachNameStatusEntry(from: statusResult.output) { entry in
+            trackedFileCount += 1
+            cappedSelection.consider(WorkspaceChangedFile(
                 path: entry.path,
                 oldPath: entry.oldPath,
                 status: entry.status,
-                additions: stat?.additions ?? 0,
-                deletions: stat?.deletions ?? 0,
-                isBinary: stat?.isBinary ?? false
-            )
+                additions: 0,
+                deletions: 0,
+                isBinary: false
+            ))
         }
-        let trackedByPath = Dictionary(uniqueKeysWithValues: trackedFiles.map { ($0.path, $0) })
-        let allPaths = Set(trackedByPath.keys).union(parser.untrackedPaths(from: untrackedResult.output))
-        let cappedPaths = allPaths.sorted().prefix(Self.maximumFileCount)
-        let cappedUntrackedPaths = cappedPaths.filter { trackedByPath[$0] == nil }
+
+        var untrackedFileCount = 0
+        parser.forEachUntrackedPath(from: untrackedResult.output) { path in
+            untrackedFileCount += 1
+            cappedSelection.consider(WorkspaceChangedFile(
+                path: path,
+                oldPath: nil,
+                status: .untracked,
+                additions: 0,
+                deletions: 0,
+                isBinary: false
+            ))
+        }
+
+        let cappedFiles = cappedSelection.files
+        let cappedTrackedPaths = Set(
+            cappedFiles.lazy.filter { $0.status != .untracked }.map(\.path)
+        )
+        var trackedAdditions = 0
+        var trackedDeletions = 0
+        var statsByPath: [String: WorkspaceChangesParser.NumstatEntry] = [:]
+        statsByPath.reserveCapacity(cappedTrackedPaths.count)
+        parser.forEachNumstatEntry(from: numstatResult.output) { entry in
+            trackedAdditions += entry.additions
+            trackedDeletions += entry.deletions
+            if cappedTrackedPaths.contains(entry.path) {
+                statsByPath[entry.path] = entry
+            }
+        }
+
+        let cappedUntrackedPaths = cappedFiles.compactMap { file in
+            file.status == .untracked ? file.path : nil
+        }
         guard let inspectedUntrackedFiles = untrackedInspector.inspect(
-            paths: Array(cappedUntrackedPaths),
+            paths: cappedUntrackedPaths,
             repoRoot: scope.repoRoot
         ) else {
             return nil
@@ -105,26 +135,38 @@ struct WorkspaceChangesSnapshotLoader: Sendable {
             uniqueKeysWithValues: inspectedUntrackedFiles.map { ($0.path, $0) }
         )
         var files: [WorkspaceChangedFile] = []
-        files.reserveCapacity(cappedPaths.count)
-        for path in cappedPaths {
-            if let tracked = trackedByPath[path] {
-                files.append(tracked)
-            } else if let untracked = untrackedByPath[path] {
-                files.append(untracked)
+        files.reserveCapacity(cappedFiles.count)
+        for cappedFile in cappedFiles {
+            if cappedFile.status == .untracked {
+                if let untracked = untrackedByPath[cappedFile.path] {
+                    files.append(untracked)
+                } else {
+                    return nil
+                }
             } else {
-                return nil
+                let stat = statsByPath[cappedFile.path]
+                files.append(WorkspaceChangedFile(
+                    path: cappedFile.path,
+                    oldPath: cappedFile.oldPath,
+                    status: cappedFile.status,
+                    additions: stat?.additions ?? 0,
+                    deletions: stat?.deletions ?? 0,
+                    isBinary: stat?.isBinary ?? false
+                ))
             }
         }
 
+        let totalFileCount = trackedFileCount + untrackedFileCount
         let untrackedFiles = files.filter { $0.status == .untracked }
         return WorkspaceChangesSnapshot(
             scope: scope,
             files: files,
-            totalFileCount: allPaths.count,
-            additions: trackedFiles.reduce(0) { $0 + $1.additions }
+            totalFileCount: totalFileCount,
+            additions: trackedAdditions
                 + untrackedFiles.reduce(0) { $0 + $1.additions },
-            deletions: trackedFiles.reduce(0) { $0 + $1.deletions },
-            truncated: statusResult.standardOutputWasTruncated
+            deletions: trackedDeletions,
+            truncated: totalFileCount > files.count
+                || statusResult.standardOutputWasTruncated
                 || numstatResult.standardOutputWasTruncated
                 || untrackedResult.standardOutputWasTruncated
         )

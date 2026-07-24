@@ -49,4 +49,44 @@ import Testing
                 == ["workspace-a", "workspace-b"]
         )
     }
+
+    @Test func midFlightDeltasDoNotRestartDebounceAndDrainInOneTrailingPass() throws {
+        var policy = WorkspaceChangesSummaryRefreshSchedulePolicy()
+        let startsDebounce = policy.schedule(
+            scope: .workspaceDelta(["workspace-a"]),
+            force: false
+        )
+        let firstRequest = policy.beginFetchAfterDebounce()
+        let firstPass = try #require(firstRequest)
+
+        #expect(startsDebounce)
+        #expect(
+            firstPass.scope.workspaceIDs(fullSnapshotWorkspaceIDs: [])
+                == ["workspace-a"]
+        )
+        #expect(policy.isFetchInFlight)
+        let restartsForFirstDelta = policy.schedule(
+            scope: .workspaceDelta(["workspace-b"]),
+            force: false
+        )
+        let restartsForSecondDelta = policy.schedule(
+            scope: .workspaceDelta(["workspace-c"]),
+            force: true
+        )
+        #expect(!restartsForFirstDelta)
+        #expect(!restartsForSecondDelta)
+        #expect(!policy.isDebouncePending)
+        #expect(policy.isFetchInFlight)
+
+        let trailingRequest = policy.fetchCompleted()
+        let trailingPass = try #require(trailingRequest)
+        #expect(
+            trailingPass.scope.workspaceIDs(fullSnapshotWorkspaceIDs: [])
+                == ["workspace-b", "workspace-c"]
+        )
+        #expect(trailingPass.force)
+        let additionalPass = policy.fetchCompleted()
+        #expect(additionalPass == nil)
+        #expect(!policy.isFetchInFlight)
+    }
 }
