@@ -10598,7 +10598,7 @@ mod tests {
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput, Drag, FocusTarget,
         ForwardMuxOutcome, MachineActionWorker, MenuAction, MenuItem, MuxTitleIngress,
         OrderedSession, PaneArea, PaneEdge, PaneFocusHistory, PendingSessionMutation,
-        PendingSessionMutationState, PromptTarget, PtyFailureIngress, PtyMousePressResult,
+        PendingSessionMutationState, Prompt, PromptTarget, PtyFailureIngress, PtyMousePressResult,
         RailKind, RenderAction, Selection, SessionCompletion, SessionCompletionAction,
         SessionEventSender, SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState,
         SurfaceResizeDecision, SurfaceResizeOwnership, WorkspaceRailSelection,
@@ -13175,6 +13175,33 @@ mod tests {
     }
 
     #[test]
+    fn retained_pointer_attach_waits_for_a_fresh_rendered_route() {
+        let mux = Mux::new("stale-pointer-attach-route-test", SurfaceOptions::default());
+        let (mut app, _events) = test_app_with_events(Session::Local(mux));
+        let stale_surface = 77;
+        app.pane_areas.push(browser_completion_area(stale_surface));
+        app.retain_pointer_motion(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 9,
+            row: 3,
+            modifiers: KeyModifiers::NONE,
+        });
+
+        app.handle(AppEvent::RemoteTreeUpdated {
+            refresh_sequence: 1,
+            routing_generation: 0,
+            result: Ok(TreeView::default()),
+        })
+        .unwrap();
+        app.retry_pending_surface_attach();
+
+        assert!(
+            !app.session.has_pending_mutations(),
+            "a stale frame must not choose a surface to attach"
+        );
+    }
+
+    #[test]
     fn retained_pointer_motion_retry_skips_a_rate_limited_deferred_surface() {
         let mux = Mux::new("missing-mirror-pointer-starvation-test", SurfaceOptions::default());
         let (mut app, events) = test_app_with_events(Session::Local(mux));
@@ -14083,6 +14110,43 @@ mod tests {
     }
 
     #[test]
+    fn pointer_only_mutations_do_not_mint_destination_intent() {
+        let mux = Mux::new("pointer-only-destination-intent-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        app.session.operations.enqueue_session_mutation(
+            "block pointer-only mutations",
+            false,
+            move || {
+                started_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+                Ok(())
+            },
+        );
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        app.session.set_cell_pixel_size(12, 24);
+        app.session.apply_config(Config::default());
+        app.session.zoom_pane(None);
+        app.session.set_split_ratio(1, 0.5);
+        app.session.swap_pane(1, 2);
+        app.session.move_workspace(1, 0);
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('x'),
+            KeyModifiers::NONE,
+        ))))
+        .unwrap();
+        let destination_intent = app.deferred_input.front().and_then(|input| input.routing_intent);
+        release_tx.send(()).unwrap();
+
+        assert_eq!(
+            destination_intent, None,
+            "pointer-only mutations must not authorize keyboard retargeting"
+        );
+    }
+
+    #[test]
     fn split_drag_updates_the_coalescing_lane_while_a_ratio_is_pending() {
         let mux = Mux::new("pending-split-drag-test", SurfaceOptions::default());
         let (mut app, _events) = test_app_with_events(Session::Local(mux));
@@ -14195,6 +14259,28 @@ mod tests {
 
         assert_eq!(app.hover, Some((14, 6)));
         assert_eq!(app.status_message, None);
+    }
+
+    #[test]
+    fn replay_batches_non_pointer_draws_before_the_next_render_boundary() {
+        let mux = Mux::new("batched-non-pointer-replay-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.prompt = Some(Prompt::new("Rename", String::new(), PromptTarget::Surface(77)));
+        for character in ['a', 'b', 'c'] {
+            app.defer_input(Event::Key(KeyEvent::new(
+                KeyCode::Char(character),
+                KeyModifiers::NONE,
+            )));
+        }
+
+        let action = app.replay_deferred_input().unwrap();
+
+        assert_eq!(action, RenderAction::Draw);
+        assert_eq!(app.prompt.as_ref().unwrap().input.as_str(), "abc");
+        assert!(
+            app.deferred_input.is_empty(),
+            "one replay batch should consume consecutive non-pointer draws"
+        );
     }
 
     #[test]
