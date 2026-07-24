@@ -23,7 +23,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/pricing", lastModified: "2026-07-01", changeFrequency: "monthly" as const, priority: 0.9, locales: fallbackContentLocales },
     { path: "/enterprise", lastModified: "2026-07-04", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/blog", lastModified: "2026-07-23", changeFrequency: "weekly" as const, priority: 0.8 },
-    { path: "/blog/claude-code-best-worktree-manager", lastModified: "2026-07-23", changeFrequency: "monthly" as const, priority: 0.7 },
+    { path: "/blog/claude-code-best-worktree-manager", lastModified: "2026-07-23", changeFrequency: "monthly" as const, priority: 0.7, locales: fallbackContentLocales },
     { path: "/blog/cmux-fork", lastModified: "2026-07-15", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/blog/cmux-home", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/blog/cmux-history", lastModified: "2026-06-02", changeFrequency: "monthly" as const, priority: 0.7 },

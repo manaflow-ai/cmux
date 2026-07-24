@@ -117,6 +117,7 @@ export const agentReadablePages = [
   {
     path: "/blog/claude-code-best-worktree-manager",
     title: "Superrepos and Why Claude Code Is the Best Worktree Manager",
+    locales: fallbackContentLocales,
   },
   { path: "/blog/cmux-fork", title: "Introducing cmux Fork" },
   { path: "/blog/cmux-home", title: "cmux home" },

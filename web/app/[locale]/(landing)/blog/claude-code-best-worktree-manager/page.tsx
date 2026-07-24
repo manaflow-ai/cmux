@@ -1,5 +1,6 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
+import { fallbackContentLocales } from "@/i18n/locale-availability";
 import { buildAlternates, openGraphDefaults, twitterSummary } from "@/i18n/seo";
 import { blogPostSeoCopy } from "@/i18n/audited-seo";
 import { Link } from "@/i18n/navigation";
@@ -16,17 +17,6 @@ const superrepoTree = `~/my-superrepo/
 └── worktrees/
     └── [worktree-name]/
         └── origin-[n]/`;
-
-const agentsExample = `You are working in cmux-hq. Tasks may involve:
-- manaflow-ai/cmux
-- manaflow-ai/cmux-browser
-- manaflow-ai/subrouter
-
-When the user asks for a new task:
-1. Decide which repositories the task needs.
-2. Create matching worktrees in worktrees/[task]/[repo].
-3. Read each worktree's AGENTS.md.
-4. Start its setup scripts immediately, then continue the task.`;
 
 const launchCommand = `cd ~/fun/cmux-hq
 codex --yolo "fix subrouter xyz issues, might relate to cmux in xyz way"`;
@@ -50,7 +40,11 @@ export async function generateMetadata({
   const keywords = Array.isArray(rawKeywords)
     ? rawKeywords.filter((keyword): keyword is string => typeof keyword === "string")
     : [];
-  const alternates = buildAlternates(locale, "/blog/claude-code-best-worktree-manager");
+  const alternates = buildAlternates(
+    locale,
+    "/blog/claude-code-best-worktree-manager",
+    fallbackContentLocales,
+  );
   const { title, description } = blogPostSeoCopy(
     locale,
     "claudeCodeBestWorktreeManager",
@@ -113,7 +107,7 @@ export default function ClaudeCodeBestWorktreeManagerPage() {
           code: (chunks) => <code>{chunks}</code>,
         })}
       </p>
-      <CodeBlock title="AGENTS.md">{agentsExample}</CodeBlock>
+      <CodeBlock title="AGENTS.md">{t("agentsExample")}</CodeBlock>
 
       <h2>{t("agentTitle")}</h2>
       <p>

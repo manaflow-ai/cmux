@@ -23,6 +23,7 @@ export const blogPosts = [
     summary:
       "A lot of people have asked why cmux doesn't have a worktree manager yet. The best manager can choose a worktree, second checkout, sandbox, VM, or GPU cluster.",
     author: lawrenceChen,
+    locales: fallbackContentLocales,
   },
   {
     slug: "cmux-fork",
