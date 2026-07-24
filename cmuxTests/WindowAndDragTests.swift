@@ -3327,74 +3327,46 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         )
     }
 
-    func testWorkspaceFloatingDockStashLayoutBoundsDirectItemsAndOverflow() throws {
+    func testWorkspaceFloatingDockStashKeepsHalfActualWindowVisibleAndRevealsOnHover() {
         let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
-        let rail = try XCTUnwrap(WorkspaceFloatingDockStashLayout.railFrame(
+        let window = CGRect(x: 240, y: 180, width: 620, height: 420)
+        let resting = WorkspaceFloatingDockStashLayout.stashedWindowFrame(
+            windowFrame: window,
             visibleScreenFrame: screen,
-            itemCount: 32
-        ))
-
-        XCTAssertEqual(rail.width, WorkspaceFloatingDockStashLayout.railWidth)
-        XCTAssertEqual(
-            rail.maxX,
-            screen.maxX + WorkspaceFloatingDockStashLayout.railWidth / 2
+            isHovered: false
         )
-        XCTAssertEqual(
-            rail.height,
-            WorkspaceFloatingDockStashLayout.railPadding * 2
-                + CGFloat(WorkspaceFloatingDockStashLayout.directItemLimit + 1)
-                    * WorkspaceFloatingDockStashLayout.slotHeight
-        )
-
-        let tray = WorkspaceFloatingDockStashLayout.trayFrame(
+        let hovered = WorkspaceFloatingDockStashLayout.stashedWindowFrame(
+            windowFrame: window,
             visibleScreenFrame: screen,
-            railFrame: rail,
-            itemCount: 32
+            isHovered: true
         )
-        XCTAssertLessThanOrEqual(tray.maxY, screen.maxY)
-        XCTAssertGreaterThanOrEqual(tray.minY, screen.minY)
+
+        XCTAssertEqual(resting.size, window.size)
         XCTAssertEqual(
-            tray.height,
-            WorkspaceFloatingDockStashLayout.railPadding * 2
-                + CGFloat(WorkspaceFloatingDockStashLayout.maximumTrayRows)
-                    * WorkspaceFloatingDockStashLayout.trayRowHeight
+            screen.intersection(resting).width,
+            window.width * WorkspaceFloatingDockStashLayout.restingVisibleFraction
         )
-    }
-
-    func testWorkspaceFloatingDockStashRailRestsHalfOutsideScreen() throws {
-        let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
-        let rail = try XCTUnwrap(WorkspaceFloatingDockStashLayout.railFrame(
-            visibleScreenFrame: screen,
-            itemCount: 1
-        ))
-
         XCTAssertEqual(
-            screen.intersection(rail).width,
-            WorkspaceFloatingDockStashLayout.railWidth / 2
+            screen.intersection(hovered).width,
+            screen.intersection(resting).width
+                + WorkspaceFloatingDockStashLayout.hoverRevealDistance
         )
-
-        let revealedRail = try XCTUnwrap(WorkspaceFloatingDockStashLayout.railFrame(
-            visibleScreenFrame: screen,
-            itemCount: 1,
-            isRevealed: true
-        ))
-        XCTAssertEqual(revealedRail.minX, screen.maxX - WorkspaceFloatingDockStashLayout.railWidth)
-        XCTAssertEqual(revealedRail.maxX, screen.maxX)
+        XCTAssertEqual(resting.minY, window.minY)
+        XCTAssertEqual(hovered.minY, window.minY)
     }
 
     func testWorkspaceFloatingDockStashAnimationKeepsBonsplitWindowSize() {
         let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
         let window = CGRect(x: 240, y: 180, width: 620, height: 420)
-        let target = CGRect(x: 1412, y: 24, width: 28, height: 40)
 
-        let stashed = WorkspaceFloatingDockStashLayout.offscreenWindowFrame(
+        let stashed = WorkspaceFloatingDockStashLayout.stashedWindowFrame(
             windowFrame: window,
-            targetFrame: target,
-            visibleScreenFrame: screen
+            visibleScreenFrame: screen,
+            isHovered: false
         )
 
         XCTAssertEqual(stashed.size, window.size)
-        XCTAssertEqual(stashed.minX, screen.maxX - 12)
+        XCTAssertEqual(stashed.midX, screen.maxX)
         XCTAssertGreaterThanOrEqual(stashed.minY, screen.minY)
         XCTAssertLessThanOrEqual(stashed.maxY, screen.maxY)
     }

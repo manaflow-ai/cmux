@@ -5,15 +5,12 @@ import AppKit
 final class WorkspaceFloatingDockPresenter {
     private weak var parentWindow: NSWindow?
     private weak var tabManager: TabManager?
-    private let stashController: WorkspaceFloatingDockStashController
     private var controllers: [UUID: WorkspaceFloatingDockWindowController] = [:]
-    private var pendingRestoreAnimationFrames: [UUID: CGRect] = [:]
     private var lastActiveDockId: UUID?
 
     init(parentWindow: NSWindow, tabManager: TabManager) {
         self.parentWindow = parentWindow
         self.tabManager = tabManager
-        stashController = WorkspaceFloatingDockStashController(parentWindow: parentWindow)
     }
 
     func refresh(
@@ -61,6 +58,19 @@ final class WorkspaceFloatingDockPresenter {
                                 focus: false
                             )
                         },
+                        onRestoreRequest: { [weak self, weak workspace] dockId in
+                            guard let self,
+                                  let workspace,
+                                  let tabManager = self.tabManager,
+                                  let dock = workspace.floatingDock(id: dockId) else { return }
+                            _ = AppDelegate.shared?.setWorkspaceFloatingDockStashed(
+                                dock,
+                                in: workspace,
+                                tabManager: tabManager,
+                                stashed: false,
+                                focus: true
+                            )
+                        },
                         onBecomeKey: { [weak self] dockId in
                             self?.lastActiveDockId = dockId
                         }
@@ -77,26 +87,26 @@ final class WorkspaceFloatingDockPresenter {
                     }
                 }
                 guard !dock.isStashed else {
-                    // Keep the native window, SwiftUI host, and Bonsplit tree
-                    // alive. The stash rail is only a restore handle.
-                    controller.hide()
+                    controller.showStashed(
+                        visibleScreenFrame: visibleScreenFrame(),
+                        animated: false
+                    )
                     continue
                 }
-                controller.show(
-                    focus: focusDockId == dock.id,
-                    animatedFrom: pendingRestoreAnimationFrames.removeValue(forKey: dock.id),
-                    visibleScreenFrame: stashController.visibleScreenFrame()
-                )
+                controller.show(focus: focusDockId == dock.id)
             }
+            workspaceDocks
+                .filter(\.isStashed)
+                .sorted {
+                    ($0.stashedAt ?? 0) < ($1.stashedAt ?? 0)
+                }
+                .forEach { controllers[$0.id]?.orderStashedWindowFront() }
         }
-        updateStashRail(for: selectedWorkspace)
     }
 
     func teardown() {
         controllers.values.forEach { $0.teardown() }
         controllers.removeAll()
-        stashController.teardown()
-        pendingRestoreAnimationFrames.removeAll()
     }
 
     func animateStash(_ dock: WorkspaceFloatingDock) {
@@ -105,30 +115,15 @@ final class WorkspaceFloatingDockPresenter {
             refresh()
             return
         }
-        updateStashRail(for: workspace)
         guard let controller = controllers[dock.id],
-              let targetFrame = stashController.animationTargetFrame(for: dock.id),
-              let visibleScreenFrame = stashController.visibleScreenFrame() else {
+              let visibleScreenFrame = visibleScreenFrame() else {
             refresh()
             return
         }
         controller.stash(
-            toward: targetFrame,
             visibleScreenFrame: visibleScreenFrame
         ) { [weak self] in
             self?.refresh()
-        }
-    }
-
-    func prepareRestoreAnimation(for dockId: UUID) {
-        prepareRestoreAnimations(for: [dockId])
-    }
-
-    func prepareRestoreAnimations(for dockIds: [UUID]) {
-        updateStashRail(for: tabManager?.selectedWorkspace)
-        for dockId in dockIds {
-            guard let sourceFrame = stashController.animationTargetFrame(for: dockId) else { continue }
-            pendingRestoreAnimationFrames[dockId] = sourceFrame
         }
     }
 
@@ -138,7 +133,6 @@ final class WorkspaceFloatingDockPresenter {
 
     @discardableResult
     func reconcileScreenConfiguration() -> Bool {
-        stashController.reconcileScreenConfiguration()
         return controllers.values.reduce(true) { reconciled, controller in
             controller.reconcileScreenConfiguration() && reconciled
         }
@@ -150,7 +144,6 @@ final class WorkspaceFloatingDockPresenter {
 
     func owns(window: NSWindow) -> Bool {
         controllers.values.contains { $0.window === window }
-            || stashController.owns(window: window)
     }
 
     func dockId(owning window: NSWindow?) -> UUID? {
@@ -170,10 +163,7 @@ final class WorkspaceFloatingDockPresenter {
     }
 
     func focus(_ dock: WorkspaceFloatingDock) {
-        controllers[dock.id]?.show(
-            focus: true,
-            visibleScreenFrame: stashController.visibleScreenFrame()
-        )
+        controllers[dock.id]?.show(focus: true)
     }
 
     func updateTint(for dock: WorkspaceFloatingDock) {
@@ -206,45 +196,7 @@ final class WorkspaceFloatingDockPresenter {
         return workspace.floatingDocks.last(where: { $0.id != dockId && !$0.isStashed })?.id
     }
 
-    private func updateStashRail(for workspace: Workspace?) {
-        let items = workspace?.floatingDocks
-            .filter(\.isStashed)
-            .map(stashItem(for:)) ?? []
-        stashController.update(items: items) { [weak self, weak workspace] dockId in
-            guard let self,
-                  let workspace,
-                  let tabManager = self.tabManager,
-                  let dock = workspace.floatingDock(id: dockId) else { return }
-            _ = AppDelegate.shared?.setWorkspaceFloatingDockStashed(
-                dock,
-                in: workspace,
-                tabManager: tabManager,
-                stashed: false,
-                focus: true
-            )
-        }
-    }
-
-    private func stashItem(for dock: WorkspaceFloatingDock) -> WorkspaceFloatingDockStashItem {
-        let panel = dock.store.focusedPanelId.flatMap { dock.store.panels[$0] }
-            ?? dock.store.panels.values.first
-        let symbolName: String
-        if panel === dock.notePanel {
-            symbolName = "note.text"
-        } else if let displayIcon = panel?.displayIcon {
-            symbolName = displayIcon
-        } else {
-            symbolName = switch panel?.panelType {
-            case .terminal: "terminal"
-            case .browser: "globe"
-            default: "macwindow"
-            }
-        }
-        return WorkspaceFloatingDockStashItem(
-            id: dock.id,
-            title: dock.title,
-            symbolName: symbolName,
-            stashedAt: dock.stashedAt ?? 0
-        )
+    private func visibleScreenFrame() -> CGRect? {
+        parentWindow?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
     }
 }
