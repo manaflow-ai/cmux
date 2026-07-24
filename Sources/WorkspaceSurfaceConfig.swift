@@ -79,14 +79,20 @@ extension Workspace {
         )
         let configuredRuntimePoints = configuredTerminalRuntimeFontSize()
         var adjustedCount = 0
-        for terminalPanel in terminalPanels where terminalPanel.surface.adjustFontSize(
-            byRuntimePoints: deltaRuntimePoints,
-            fallbackRuntimePoints: configuredRuntimePoints
-        ) {
-            adjustedCount += 1
+        var adjustedTerminalPanels: [TerminalPanel] = []
+        for terminalPanel in terminalPanels {
+            if terminalPanel.surface.adjustFontSize(
+                byRuntimePoints: deltaRuntimePoints,
+                fallbackRuntimePoints: configuredRuntimePoints
+            ) {
+                adjustedCount += 1
+                adjustedTerminalPanels.append(terminalPanel)
+            }
         }
 
-        refreshTerminalFontSizeInheritanceSource()
+        refreshTerminalFontSizeInheritanceSource(
+            changedTerminalPanels: adjustedTerminalPanels
+        )
         return adjustedCount
     }
 
@@ -104,13 +110,19 @@ extension Workspace {
         )
         let configuredRuntimePoints = configuredTerminalRuntimeFontSize()
         var resetCount = 0
-        for terminalPanel in terminalPanels where terminalPanel.surface.resetFontSize(
-            toConfiguredRuntimePoints: configuredRuntimePoints
-        ) {
-            resetCount += 1
+        var resetTerminalPanels: [TerminalPanel] = []
+        for terminalPanel in terminalPanels {
+            if terminalPanel.surface.resetFontSize(
+                toConfiguredRuntimePoints: configuredRuntimePoints
+            ) {
+                resetCount += 1
+                resetTerminalPanels.append(terminalPanel)
+            }
         }
 
-        refreshTerminalFontSizeInheritanceSource()
+        refreshTerminalFontSizeInheritanceSource(
+            changedTerminalPanels: resetTerminalPanels
+        )
         return resetCount
     }
 
@@ -140,9 +152,17 @@ extension Workspace {
         )
     }
 
-    private func refreshTerminalFontSizeInheritanceSource() {
-        if let rememberedTerminalPanel = lastRememberedTerminalPanelForConfigInheritance() {
-            rememberTerminalConfigInheritanceSource(rememberedTerminalPanel)
+    private func refreshTerminalFontSizeInheritanceSource(
+        changedTerminalPanels: [TerminalPanel]
+    ) {
+        if let mainTerminalPanel =
+            lastRememberedTerminalPanelForConfigInheritance()
+                ?? terminalPanelForConfigInheritance() {
+            rememberTerminalConfigInheritanceSource(mainTerminalPanel)
+            return
+        }
+        if let fallbackTerminalPanel = changedTerminalPanels.first {
+            rememberTerminalFontSizeLineageForConfigInheritance(fallbackTerminalPanel)
         }
     }
 }

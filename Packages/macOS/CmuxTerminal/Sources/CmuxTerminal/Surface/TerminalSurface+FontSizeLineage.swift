@@ -34,7 +34,8 @@ extension TerminalSurface {
         let currentRuntimePoints: Float32
         // After one native lifetime, non-explicit lineage is descendant-only;
         // this surface itself follows the current configured fallback.
-        if let lineage = lastKnownFontSizeLineage,
+        if !followsConfiguredFontSize,
+           let lineage = lastKnownFontSizeLineage,
            lineage.isExplicitOverride || runtimeSurfaceGeneration == 0 {
             currentRuntimePoints = CmuxSurfaceConfigTemplate.runtimeFontSize(
                 fromBasePoints: lineage.basePoints,
@@ -92,7 +93,25 @@ extension TerminalSurface {
 
         if let runtimeSurface = liveSurfaceForGhosttyAccess(reason: "fontSize.reset") {
             guard let runtimeConfig = engine.runtimeConfig else { return false }
-            ghostty_surface_update_config(runtimeSurface, runtimeConfig)
+            // Surface updates replace Ghostty's full derived config, so restore
+            // any creation-only override before changing the reset baseline.
+            guard let resetConfig = ghostty_config_clone(runtimeConfig) else { return false }
+            defer { ghostty_config_free(resetConfig) }
+            if runtimeWaitAfterCommand {
+                let directive = "wait-after-command = true"
+                directive.withCString { contents in
+                    "/__cmux_font_reset__/config".withCString { path in
+                        ghostty_config_load_string(
+                            resetConfig,
+                            contents,
+                            UInt(directive.utf8.count),
+                            path
+                        )
+                    }
+                }
+            }
+            ghostty_config_finalize(resetConfig)
+            ghostty_surface_update_config(runtimeSurface, resetConfig)
             guard performExplicitInputBindingAction("reset_font_size") else { return false }
             followsConfiguredFontSize = true
             recordCurrentFontSizeLineage(targetLineage)

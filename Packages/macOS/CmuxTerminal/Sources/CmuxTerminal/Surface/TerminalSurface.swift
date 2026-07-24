@@ -153,6 +153,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var lastKnownFontSizeLineage: TerminalFontSizeLineage?
     /// Whether runtime creation should ignore inherited lineage and follow current config.
     var followsConfiguredFontSize: Bool
+    /// Whether surface creation forced Ghostty's per-surface wait-after-command override.
+    var runtimeWaitAfterCommand: Bool
     let workingDirectory: String?
 
     /// The command to run instead of the default shell, if any.
@@ -479,6 +481,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.configTemplate = configTemplate
         self.lastKnownFontSizeLineage = configTemplate?.fontSizeLineage
         self.followsConfiguredFontSize = configTemplate?.fontSizeLineage == nil
+        self.runtimeWaitAfterCommand = configTemplate?.waitAfterCommand ?? false
         self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.portOrdinal = portOrdinal
         self.initialCommand = initialCommand.flatMap {
