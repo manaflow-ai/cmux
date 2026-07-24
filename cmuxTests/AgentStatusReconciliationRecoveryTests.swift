@@ -13,6 +13,7 @@ import Testing
 @Suite("Agent status reconciliation recovery")
 struct AgentStatusReconciliationRecoveryTests {
     private let now = Date(timeIntervalSince1970: 10_000)
+    private let permissionMachine = CodexPermissionTransitionMachine()
 
     @Test func promptIdleWithoutRecencyDegradesHonestly() {
         let resolution = AgentStatusReconciler().resolve(
@@ -281,19 +282,19 @@ struct AgentStatusReconciliationRecoveryTests {
         )
         let firstTool = CodexPermissionSignalIdentity(turnID: "turn-1", requestID: "call-1")
         let secondTool = CodexPermissionSignalIdentity(turnID: "turn-1", requestID: "call-2")
-        let firstStarted = CodexPermissionTransitionMachine.reduce(
+        let firstStarted = permissionMachine.reduce(
             current: nil,
             event: .toolStarted,
             identity: firstTool,
             runtime: runtime
         )
-        let secondStarted = CodexPermissionTransitionMachine.reduce(
+        let secondStarted = permissionMachine.reduce(
             current: firstStarted.state,
             event: .toolStarted,
             identity: secondTool,
             runtime: runtime
         )
-        let permission = CodexPermissionTransitionMachine.reduce(
+        let permission = permissionMachine.reduce(
             current: secondStarted.state,
             event: .permissionRequested,
             identity: CodexPermissionSignalIdentity(turnID: "turn-1", requestID: nil),
@@ -302,7 +303,7 @@ struct AgentStatusReconciliationRecoveryTests {
 
         #expect(permission.state.identity.requestID == nil)
 
-        let unrelatedCompletion = CodexPermissionTransitionMachine.reduce(
+        let unrelatedCompletion = permissionMachine.reduce(
             current: permission.state,
             event: .toolCompleted,
             identity: secondTool,

@@ -1,11 +1,22 @@
 import Foundation
 
 /// Pure ordering rules shared by every CLI lane that observes a Codex approval.
-struct CodexPermissionTransitionMachine {
-    private static let maximumResolvedIdentities = 16
-    private static let maximumStartedIdentities = 16
+struct CodexPermissionTransitionMachine: Sendable {
+    private let maximumResolvedIdentities: Int
+    private let maximumStartedIdentities: Int
+    private let maximumTrackedRequests: Int
 
-    static func reduce(
+    init(
+        maximumResolvedIdentities: Int = 16,
+        maximumStartedIdentities: Int = 16,
+        maximumTrackedRequests: Int = 16
+    ) {
+        self.maximumResolvedIdentities = max(1, maximumResolvedIdentities)
+        self.maximumStartedIdentities = max(1, maximumStartedIdentities)
+        self.maximumTrackedRequests = max(1, maximumTrackedRequests)
+    }
+
+    func reduce(
         current: CodexPermissionState?,
         event: CodexPermissionEvent,
         identity: CodexPermissionSignalIdentity,
@@ -43,7 +54,31 @@ struct CodexPermissionTransitionMachine {
         }
     }
 
-    private static func acceptNeedsInput(
+    /// Marks every current request as older than a causal prompt or Stop boundary.
+    func crossOrderingBoundary(
+        current: CodexPermissionState?,
+        runtime: CodexPermissionRuntimeGeneration,
+        revision: UInt64
+    ) -> CodexPermissionState? {
+        guard let current, current.runtime.matches(runtime) else { return nil }
+        let requests = current.normalizedTrackedRequests.map { request in
+            var request = request
+            request.blocksInput = false
+            return request
+        }
+        return CodexPermissionState(
+            phase: .resumed,
+            identity: current.identity,
+            runtime: runtime,
+            revision: revision,
+            notificationID: current.notificationID,
+            resolvedIdentities: current.resolvedIdentities,
+            startedIdentities: current.startedIdentities ?? [],
+            trackedRequests: requests
+        )
+    }
+
+    private func acceptNeedsInput(
         current: CodexPermissionState?,
         identity: CodexPermissionSignalIdentity,
         runtime: CodexPermissionRuntimeGeneration,
@@ -54,22 +89,53 @@ struct CodexPermissionTransitionMachine {
             in: current?.startedIdentities ?? [],
             excluding: current?.resolvedIdentities ?? []
         )
+        var requests = current?.normalizedTrackedRequests ?? []
         if let current {
             if current.resolvedIdentities.contains(where: { $0.exactlyMatches(identity) })
                 || (current.phase == .resumed && current.identity.exactlyMatches(identity)) {
                 return CodexPermissionTransition(state: current, effect: .none, accepted: false)
             }
-            if current.phase == .needsInput, current.identity.exactlyMatches(identity) {
-                return reprojectNeedsInput(current, notificationID: notificationID)
+            if let requestIndex = requests.firstIndex(where: {
+                $0.identity.exactlyMatches(identity)
+            }) {
+                guard requests[requestIndex].blocksInput else {
+                    return CodexPermissionTransition(state: current, effect: .none, accepted: false)
+                }
+                return reprojectNeedsInput(
+                    current,
+                    requests: requests,
+                    requestIndex: requestIndex,
+                    notificationID: notificationID
+                )
             }
             if !identity.isScoped {
-                if current.phase == .needsInput, !current.identity.isScoped {
-                    return reprojectNeedsInput(current, notificationID: notificationID)
+                if let requestIndex = requests.firstIndex(where: {
+                    $0.blocksInput && !$0.identity.isScoped
+                }) {
+                    return reprojectNeedsInput(
+                        current,
+                        requests: requests,
+                        requestIndex: requestIndex,
+                        notificationID: notificationID
+                    )
                 }
                 return CodexPermissionTransition(state: current, effect: .none, accepted: false)
             }
         }
 
+        guard appendTrackedRequest(
+            CodexPermissionRequest(
+                identity: identity,
+                notificationID: notificationID,
+                blocksInput: true
+            ),
+            to: &requests
+        ) else {
+            if let current {
+                return CodexPermissionTransition(state: current, effect: .none, accepted: false)
+            }
+            return ignoredTransition(current: nil, identity: identity, runtime: runtime)
+        }
         let state = CodexPermissionState(
             phase: .needsInput,
             identity: identity,
@@ -77,21 +143,32 @@ struct CodexPermissionTransitionMachine {
             revision: nextRevision(after: current, watermark: revisionWatermark),
             notificationID: notificationID,
             resolvedIdentities: current?.resolvedIdentities ?? [],
-            startedIdentities: current?.startedIdentities ?? []
+            startedIdentities: current?.startedIdentities ?? [],
+            trackedRequests: requests
         )
         return CodexPermissionTransition(state: state, effect: .projectNeedsInput, accepted: true)
     }
 
-    private static func reprojectNeedsInput(
+    private func reprojectNeedsInput(
         _ current: CodexPermissionState,
+        requests: [CodexPermissionRequest],
+        requestIndex: Int,
         notificationID: UUID?
     ) -> CodexPermissionTransition {
+        var requests = requests
+        if requests[requestIndex].notificationID == nil {
+            requests[requestIndex].notificationID = notificationID
+        }
+        let request = requests[requestIndex]
         var state = current
-        if state.notificationID == nil { state.notificationID = notificationID }
+        state.phase = .needsInput
+        state.identity = request.identity
+        state.notificationID = request.notificationID
+        state.trackedRequests = requests
         return CodexPermissionTransition(state: state, effect: .projectNeedsInput, accepted: true)
     }
 
-    private static func acceptToolStarted(
+    private func acceptToolStarted(
         current: CodexPermissionState?,
         identity: CodexPermissionSignalIdentity,
         runtime: CodexPermissionRuntimeGeneration,
@@ -102,21 +179,22 @@ struct CodexPermissionTransitionMachine {
         }
         var started = current?.startedIdentities ?? []
         appendBounded(identity, to: &started, maximumCount: maximumStartedIdentities)
-        let preservesPendingPermission = current?.phase == .needsInput
-        let currentIdentity = current?.identity ?? identity
+        let requests = current?.normalizedTrackedRequests ?? []
+        let pendingRequest = requests.last(where: \.blocksInput)
         let state = CodexPermissionState(
-            phase: preservesPendingPermission ? .needsInput : .toolStarted,
-            identity: preservesPendingPermission ? currentIdentity : identity,
+            phase: pendingRequest == nil ? .toolStarted : .needsInput,
+            identity: pendingRequest?.identity ?? identity,
             runtime: runtime,
             revision: nextRevision(after: current, watermark: revisionWatermark),
-            notificationID: current?.notificationID,
+            notificationID: pendingRequest?.notificationID ?? current?.notificationID,
             resolvedIdentities: current?.resolvedIdentities ?? [],
-            startedIdentities: started
+            startedIdentities: started,
+            trackedRequests: requests
         )
         return CodexPermissionTransition(state: state, effect: .none, accepted: true)
     }
 
-    private static func acceptToolCompleted(
+    private func acceptToolCompleted(
         current: CodexPermissionState?,
         identity: CodexPermissionSignalIdentity,
         runtime: CodexPermissionRuntimeGeneration,
@@ -132,28 +210,45 @@ struct CodexPermissionTransitionMachine {
 
         var resolved = current?.resolvedIdentities ?? []
         appendBounded(identity, to: &resolved, maximumCount: maximumResolvedIdentities)
-        let resolvesPendingPermission = current?.phase == .needsInput
-            && current?.identity.exactlyMatches(identity) == true
-        let preservesDifferentPermission = current?.phase == .needsInput
-            && !resolvesPendingPermission
-        let currentIdentity = current?.identity ?? identity
+        var requests = current?.normalizedTrackedRequests ?? []
+        let resolvedRequest: CodexPermissionRequest? = {
+            guard let index = requests.firstIndex(where: {
+                $0.identity.exactlyMatches(identity)
+            }) else {
+                return nil
+            }
+            return requests.remove(at: index)
+        }()
+        let pendingRequest = requests.last(where: \.blocksInput)
+        let resolvesFinalBlockingRequest = resolvedRequest?.blocksInput == true
+            && pendingRequest == nil
+        let effect: CodexPermissionTransitionEffect
+        if resolvesFinalBlockingRequest {
+            effect = .resolveNeedsInput
+        } else if resolvedRequest != nil {
+            effect = .resolvePermission
+        } else {
+            effect = .none
+        }
         let state = CodexPermissionState(
-            phase: preservesDifferentPermission ? .needsInput : .resumed,
-            identity: preservesDifferentPermission ? currentIdentity : identity,
+            phase: pendingRequest == nil ? .resumed : .needsInput,
+            identity: pendingRequest?.identity ?? identity,
             runtime: runtime,
             revision: nextRevision(after: current, watermark: revisionWatermark),
-            notificationID: current?.notificationID,
+            notificationID: pendingRequest?.notificationID ?? resolvedRequest?.notificationID,
             resolvedIdentities: resolved,
-            startedIdentities: current?.startedIdentities ?? []
+            startedIdentities: current?.startedIdentities ?? [],
+            trackedRequests: requests
         )
         return CodexPermissionTransition(
             state: state,
-            effect: resolvesPendingPermission ? .resolveNeedsInput : .none,
-            accepted: true
+            effect: effect,
+            accepted: true,
+            resolvedNotificationID: resolvedRequest?.notificationID
         )
     }
 
-    private static func ignoredTransition(
+    private func ignoredTransition(
         current: CodexPermissionState?,
         identity: CodexPermissionSignalIdentity,
         runtime: CodexPermissionRuntimeGeneration
@@ -170,7 +265,7 @@ struct CodexPermissionTransitionMachine {
         return CodexPermissionTransition(state: ignored, effect: .none, accepted: false)
     }
 
-    private static func appendBounded(
+    private func appendBounded(
         _ identity: CodexPermissionSignalIdentity,
         to identities: inout [CodexPermissionSignalIdentity],
         maximumCount: Int
@@ -182,7 +277,21 @@ struct CodexPermissionTransitionMachine {
         }
     }
 
-    private static func nextRevision(
+    private func appendTrackedRequest(
+        _ request: CodexPermissionRequest,
+        to requests: inout [CodexPermissionRequest]
+    ) -> Bool {
+        requests.removeAll { $0.identity.exactlyMatches(request.identity) }
+        while requests.count >= maximumTrackedRequests,
+              let nonblockingIndex = requests.firstIndex(where: { !$0.blocksInput }) {
+            requests.remove(at: nonblockingIndex)
+        }
+        guard requests.count < maximumTrackedRequests else { return false }
+        requests.append(request)
+        return true
+    }
+
+    private func nextRevision(
         after current: CodexPermissionState?,
         watermark: UInt64?
     ) -> UInt64 {

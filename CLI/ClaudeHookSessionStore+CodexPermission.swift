@@ -39,7 +39,7 @@ extension ClaudeHookSessionStore {
                     return nil
                 }
             }
-            let transition = CodexPermissionTransitionMachine.reduce(
+            let transition = CodexPermissionTransitionMachine().reduce(
                 current: record.codexPermissionState,
                 event: .permissionRequested,
                 identity: identity,
@@ -152,7 +152,7 @@ extension ClaudeHookSessionStore {
                   codexPermissionRuntimeIsCurrent(record: record, incoming: runtime) else {
                 return nil
             }
-            let transition = CodexPermissionTransitionMachine.reduce(
+            let transition = CodexPermissionTransitionMachine().reduce(
                 current: record.codexPermissionState,
                 event: event,
                 identity: codexPermissionIdentity(turnId: turnId, requestId: requestId),
@@ -210,8 +210,11 @@ extension ClaudeHookSessionStore {
                 return false
             }
             let reportedIdentity = codexPermissionIdentity(turnId: turnId, requestId: requestId)
-            if current.identity.exactlyMatches(reportedIdentity)
-                || (!current.identity.isScoped && !reportedIdentity.isScoped) {
+            let blockingRequests = current.normalizedTrackedRequests.filter(\.blocksInput)
+            if blockingRequests.contains(where: {
+                $0.identity.exactlyMatches(reportedIdentity)
+                    || (!$0.identity.isScoped && !reportedIdentity.isScoped)
+            }) {
                 return true
             }
             let identity = reportedIdentity
@@ -219,7 +222,9 @@ extension ClaudeHookSessionStore {
                     in: current.startedIdentities ?? [],
                     excluding: current.resolvedIdentities
                 )
-            return current.identity.exactlyMatches(identity)
+            return blockingRequests.contains {
+                $0.identity.exactlyMatches(identity)
+            }
         }
     }
 

@@ -874,13 +874,6 @@ final class ClaudeHookSessionStore {
                 updateRuntimeStatus: true,
                 now: now
             )
-            if !onlyIfNeedsInput {
-                record.codexPermissionRevision = max(
-                    record.codexPermissionRevision ?? 0,
-                    record.codexPermissionState?.revision ?? 0
-                )
-                record.codexPermissionState = nil
-            }
             state.sessions[normalized] = record
             return true
         }
@@ -1073,8 +1066,19 @@ final class ClaudeHookSessionStore {
         record.activePromptTurnId = nil
         record.activePromptTurnIds = nil
         record.lastPromptTurnId = nil
-        record.codexPermissionState = nil
-        record.codexPermissionRevision = resetsPermissionRevision ? nil : revisionWatermark
+        if resetsPermissionRevision {
+            record.codexPermissionState = nil
+            record.codexPermissionRevision = nil
+        } else {
+            record.codexPermissionRevision = revisionWatermark
+            if let current = record.codexPermissionState {
+                record.codexPermissionState = CodexPermissionTransitionMachine().crossOrderingBoundary(
+                    current: current,
+                    runtime: current.runtime,
+                    revision: revisionWatermark
+                )
+            }
+        }
     }
 
     private func markPromptTurnActive(_ turnId: String, on record: inout ClaudeHookSessionRecord) {
@@ -25038,6 +25042,18 @@ struct CMUXCLI {
         }
     }
 
+    private func dismissCodexPermissionNotifications(
+        _ notificationIDs: [UUID],
+        client: SocketClient
+    ) {
+        for notificationID in Set(notificationIDs) {
+            _ = try? client.sendV2(
+                method: "notification.dismiss",
+                params: ["id": notificationID.uuidString]
+            )
+        }
+    }
+
     private func runAgentHibernation(
         commandArgs: [String],
         client: SocketClient,
@@ -31009,6 +31025,12 @@ export default CMUXSessionRestore;
             let codexRuntimeStatusOrdering = def.name == "codex" && !sessionId.isEmpty && !suppressVisibleMutations
                 ? try? store.advanceCodexRuntimeStatusOrdering(sessionId: sessionId, pid: pid)
                 : nil
+            if let codexRuntimeStatusOrdering {
+                dismissCodexPermissionNotifications(
+                    codexRuntimeStatusOrdering.notificationIDs,
+                    client: client
+                )
+            }
             if let pid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
                     "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
@@ -31147,21 +31169,31 @@ export default CMUXSessionRestore;
             default:
                 transition = nil
             }
-            guard transition?.effect == .resolveNeedsInput else { break }
-            setAgentLifecycle(
-                client: client,
-                key: def.statusKey,
-                lifecycle: .running,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                onlyIfNeedsInput: true,
-                runtimePIDKey: pidKey,
-                runtimePID: transition?.state.runtime.pid,
-                runtimeGeneration: transition?.state.runtime,
-                revision: transition?.state.revision,
-                notificationID: transition?.state.notificationID,
-                clearNotificationsIfResumed: true
-            )
+            guard let transition else { break }
+            switch transition.effect {
+            case .resolveNeedsInput:
+                setAgentLifecycle(
+                    client: client,
+                    key: def.statusKey,
+                    lifecycle: .running,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    onlyIfNeedsInput: true,
+                    runtimePIDKey: pidKey,
+                    runtimePID: transition.state.runtime.pid,
+                    runtimeGeneration: transition.state.runtime,
+                    revision: transition.state.revision,
+                    notificationID: transition.resolvedNotificationID,
+                    clearNotificationsIfResumed: true
+                )
+            case .resolvePermission:
+                dismissCodexPermissionNotifications(
+                    [transition.resolvedNotificationID].compactMap { $0 },
+                    client: client
+                )
+            case .none, .projectNeedsInput:
+                break
+            }
 
         case .stop:
             if def.name == "codex", !sessionId.isEmpty {
@@ -31352,6 +31384,12 @@ export default CMUXSessionRestore;
             let codexRuntimeStatusOrdering = def.name == "codex" && !sessionId.isEmpty && !suppressVisibleMutations
                 ? try? store.advanceCodexRuntimeStatusOrdering(sessionId: sessionId, pid: pid)
                 : nil
+            if let codexRuntimeStatusOrdering {
+                dismissCodexPermissionNotifications(
+                    codexRuntimeStatusOrdering.notificationIDs,
+                    client: client
+                )
+            }
             if let pid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
                     "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
@@ -31817,8 +31855,14 @@ export default CMUXSessionRestore;
                 suppressAgentStatusFeedSignal = true
                 guard let latest = try? store.lookup(sessionId: sessionId),
                       let latestPermission = latest.codexPermissionState,
-                      latestPermission.phase == .resumed,
                       latestPermission.runtime.matches(accepted.state.runtime) else {
+                    return true
+                }
+                guard latestPermission.phase == .resumed else {
+                    dismissCodexPermissionNotifications(
+                        [accepted.state.notificationID].compactMap { $0 },
+                        client: client
+                    )
                     return true
                 }
                 try? store.clearNotificationEmission(sessionId: sessionId)
@@ -31833,7 +31877,7 @@ export default CMUXSessionRestore;
                     runtimePID: latestPermission.runtime.pid,
                     runtimeGeneration: latestPermission.runtime,
                     revision: latestPermission.revision,
-                    notificationID: latestPermission.notificationID,
+                    notificationID: accepted.state.notificationID,
                     clearNotificationsIfResumed: true
                 )
                 return true
@@ -34294,31 +34338,45 @@ export default CMUXSessionRestore;
                         launchCommand: mapped.launchCommand
                     )
                 }
-                if let transition, transition.effect == .resolveNeedsInput {
-                    eventDict["workspace_id"] = mapped.workspaceId
-                    eventDict["surface_id"] = mapped.surfaceId
-                    eventDict[FeedEventClassifier.agentStatusSignalField] = "running"
-                    eventDict[FeedEventClassifier.agentStatusRevisionField] = transition.state.revision
-                    FeedEventClassifier.attachAgentRuntimeGeneration(
-                        to: &eventDict,
-                        pidStartSeconds: transition.state.runtime.pidStartSeconds,
-                        pidStartMicroseconds: transition.state.runtime.pidStartMicroseconds
-                    )
-                    func publishResolution(using lifecycleClient: SocketClient) {
-                        setAgentLifecycle(
-                            client: lifecycleClient,
-                            key: "codex",
-                            lifecycle: .running,
-                            workspaceId: mapped.workspaceId,
-                            surfaceId: mapped.surfaceId,
-                            onlyIfNeedsInput: true,
-                            runtimePIDKey: "codex.\(sessionId)",
-                            runtimePID: transition.state.runtime.pid,
-                            runtimeGeneration: transition.state.runtime,
-                            revision: transition.state.revision,
-                            notificationID: transition.state.notificationID,
-                            clearNotificationsIfResumed: true
+                if let transition,
+                   transition.effect == .resolveNeedsInput
+                    || transition.effect == .resolvePermission {
+                    if transition.effect == .resolveNeedsInput {
+                        eventDict["workspace_id"] = mapped.workspaceId
+                        eventDict["surface_id"] = mapped.surfaceId
+                        eventDict[FeedEventClassifier.agentStatusSignalField] = "running"
+                        eventDict[FeedEventClassifier.agentStatusRevisionField] = transition.state.revision
+                        FeedEventClassifier.attachAgentRuntimeGeneration(
+                            to: &eventDict,
+                            pidStartSeconds: transition.state.runtime.pidStartSeconds,
+                            pidStartMicroseconds: transition.state.runtime.pidStartMicroseconds
                         )
+                    }
+                    func publishResolution(using lifecycleClient: SocketClient) {
+                        switch transition.effect {
+                        case .resolveNeedsInput:
+                            setAgentLifecycle(
+                                client: lifecycleClient,
+                                key: "codex",
+                                lifecycle: .running,
+                                workspaceId: mapped.workspaceId,
+                                surfaceId: mapped.surfaceId,
+                                onlyIfNeedsInput: true,
+                                runtimePIDKey: "codex.\(sessionId)",
+                                runtimePID: transition.state.runtime.pid,
+                                runtimeGeneration: transition.state.runtime,
+                                revision: transition.state.revision,
+                                notificationID: transition.resolvedNotificationID,
+                                clearNotificationsIfResumed: true
+                            )
+                        case .resolvePermission:
+                            dismissCodexPermissionNotifications(
+                                [transition.resolvedNotificationID].compactMap { $0 },
+                                client: lifecycleClient
+                            )
+                        case .none, .projectNeedsInput:
+                            break
+                        }
                     }
                     if let client {
                         publishResolution(using: client)

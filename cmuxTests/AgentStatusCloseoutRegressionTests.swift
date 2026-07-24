@@ -10,6 +10,8 @@ import Testing
 
 @Suite("Agent status closeout regressions")
 struct AgentStatusCloseoutRegressionTests {
+    private let permissionMachine = CodexPermissionTransitionMachine()
+
     @Test("Codex permission revisions remain monotonic across prompt turns")
     @MainActor
     func codexPermissionRevisionSurvivesPromptTurnReset() {
@@ -23,19 +25,19 @@ struct AgentStatusCloseoutRegressionTests {
             requestID: "call-1"
         )
         let sessionID = "monotonic-revision-session"
-        let firstPermission = CodexPermissionTransitionMachine.reduce(
+        let firstPermission = permissionMachine.reduce(
             current: nil,
             event: .permissionRequested,
             identity: firstIdentity,
             runtime: runtime
         )
-        let firstCompletion = CodexPermissionTransitionMachine.reduce(
+        let firstCompletion = permissionMachine.reduce(
             current: firstPermission.state,
             event: .toolCompleted,
             identity: firstIdentity,
             runtime: runtime
         )
-        let secondPermission = CodexPermissionTransitionMachine.reduce(
+        let secondPermission = permissionMachine.reduce(
             current: nil,
             event: .permissionRequested,
             identity: CodexPermissionSignalIdentity(
@@ -89,7 +91,7 @@ struct AgentStatusCloseoutRegressionTests {
             turnID: "turn-1",
             requestID: "call-1"
         )
-        let firstPermission = CodexPermissionTransitionMachine.reduce(
+        let firstPermission = permissionMachine.reduce(
             current: nil,
             event: .permissionRequested,
             identity: identity,
@@ -97,7 +99,7 @@ struct AgentStatusCloseoutRegressionTests {
         )
         #expect(firstPermission.state.revision == 1)
 
-        let replacementPermission = CodexPermissionTransitionMachine.reduce(
+        let replacementPermission = permissionMachine.reduce(
             current: nil,
             event: .permissionRequested,
             identity: identity,
@@ -166,22 +168,23 @@ struct AgentStatusCloseoutRegressionTests {
             requestID: "call-2"
         )
         let olderNotificationID = UUID()
-        let older = CodexPermissionTransitionMachine.reduce(
+        let newerNotificationID = UUID()
+        let older = permissionMachine.reduce(
             current: nil,
             event: .permissionRequested,
             identity: olderIdentity,
             runtime: runtime,
             notificationID: olderNotificationID
         )
-        let newer = CodexPermissionTransitionMachine.reduce(
+        let newer = permissionMachine.reduce(
             current: older.state,
             event: .permissionRequested,
             identity: newerIdentity,
             runtime: runtime,
-            notificationID: UUID()
+            notificationID: newerNotificationID
         )
 
-        let newerCompleted = CodexPermissionTransitionMachine.reduce(
+        let newerCompleted = permissionMachine.reduce(
             current: newer.state,
             event: .toolCompleted,
             identity: newerIdentity,
@@ -191,6 +194,102 @@ struct AgentStatusCloseoutRegressionTests {
         #expect(newerCompleted.state.phase == .needsInput)
         #expect(newerCompleted.state.identity == olderIdentity)
         #expect(newerCompleted.state.notificationID == olderNotificationID)
+        #expect(newerCompleted.effect == .resolvePermission)
+        #expect(newerCompleted.resolvedNotificationID == newerNotificationID)
+    }
+
+    @Test("A prompt boundary preserves completed Codex permission tombstones")
+    func completedCodexPermissionTombstoneSurvivesPromptBoundary() throws {
+        let runtime = CodexPermissionRuntimeGeneration(
+            pid: 4_242,
+            pidStartSeconds: 10,
+            pidStartMicroseconds: 20
+        )
+        let identity = CodexPermissionSignalIdentity(
+            turnID: nil,
+            requestID: "call-1"
+        )
+        let requested = permissionMachine.reduce(
+            current: nil,
+            event: .permissionRequested,
+            identity: identity,
+            runtime: runtime
+        )
+        let completed = permissionMachine.reduce(
+            current: requested.state,
+            event: .toolCompleted,
+            identity: identity,
+            runtime: runtime
+        )
+        let boundary = try #require(permissionMachine.crossOrderingBoundary(
+            current: completed.state,
+            runtime: runtime,
+            revision: completed.state.revision + 1
+        ))
+        let replayed = permissionMachine.reduce(
+            current: boundary,
+            event: .permissionRequested,
+            identity: identity,
+            runtime: runtime,
+            revisionWatermark: boundary.revision
+        )
+
+        #expect(boundary.resolvedIdentities.contains(identity))
+        #expect(replayed.accepted == false)
+        #expect(replayed.state.revision == boundary.revision)
+    }
+
+    @Test("A prompt boundary preserves pending Codex notification identity")
+    func pendingCodexPermissionSurvivesPromptBoundaryForExactDismissal() throws {
+        let runtime = CodexPermissionRuntimeGeneration(
+            pid: 4_242,
+            pidStartSeconds: 10,
+            pidStartMicroseconds: 20
+        )
+        let identity = CodexPermissionSignalIdentity(
+            turnID: nil,
+            requestID: "call-1"
+        )
+        let notificationID = UUID()
+        let requested = permissionMachine.reduce(
+            current: nil,
+            event: .permissionRequested,
+            identity: identity,
+            runtime: runtime,
+            notificationID: notificationID
+        )
+        let boundary = try #require(permissionMachine.crossOrderingBoundary(
+            current: requested.state,
+            runtime: runtime,
+            revision: requested.state.revision + 1
+        ))
+        let replayed = permissionMachine.reduce(
+            current: boundary,
+            event: .permissionRequested,
+            identity: identity,
+            runtime: runtime,
+            revisionWatermark: boundary.revision
+        )
+        let completed = permissionMachine.reduce(
+            current: boundary,
+            event: .toolCompleted,
+            identity: identity,
+            runtime: runtime,
+            revisionWatermark: boundary.revision
+        )
+
+        #expect(boundary.phase == .resumed)
+        #expect(boundary.normalizedTrackedRequests == [
+            CodexPermissionRequest(
+                identity: identity,
+                notificationID: notificationID,
+                blocksInput: false
+            ),
+        ])
+        #expect(replayed.accepted == false)
+        #expect(completed.effect == .resolvePermission)
+        #expect(completed.resolvedNotificationID == notificationID)
+        #expect(completed.state.phase == .resumed)
     }
 }
 

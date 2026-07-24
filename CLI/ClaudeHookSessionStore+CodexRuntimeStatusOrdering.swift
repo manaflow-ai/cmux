@@ -5,7 +5,11 @@ extension ClaudeHookSessionStore {
     func advanceCodexRuntimeStatusOrdering(
         sessionId: String,
         pid: Int?
-    ) throws -> (runtime: CodexPermissionRuntimeGeneration, revision: UInt64)? {
+    ) throws -> (
+        runtime: CodexPermissionRuntimeGeneration,
+        revision: UInt64,
+        notificationIDs: [UUID]
+    )? {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return nil }
         return try withLockedState { state in
@@ -14,17 +18,29 @@ extension ClaudeHookSessionStore {
                   codexPermissionRuntimeIsCurrent(record: record, incoming: runtime) else {
                 return nil
             }
-            let watermark = max(
+            let startsNewRuntime = record.codexPermissionState.map {
+                !$0.runtime.matches(runtime)
+            } ?? false
+            let watermark = startsNewRuntime ? 0 : max(
                 record.codexPermissionRevision ?? 0,
                 record.codexPermissionState?.revision ?? 0
             )
             guard watermark < UInt64.max else { return nil }
             let revision = watermark + 1
+            let notificationIDs = record.codexPermissionState?
+                .normalizedTrackedRequests
+                .filter(\.blocksInput)
+                .compactMap(\.notificationID) ?? []
             record.codexPermissionRevision = revision
-            record.codexPermissionState = nil
+            record.codexPermissionState = startsNewRuntime ? nil :
+                CodexPermissionTransitionMachine().crossOrderingBoundary(
+                    current: record.codexPermissionState,
+                    runtime: runtime,
+                    revision: revision
+                )
             record.updatedAt = Date.now.timeIntervalSince1970
             state.sessions[normalized] = record
-            return (runtime, revision)
+            return (runtime, revision, notificationIDs)
         }
     }
 }

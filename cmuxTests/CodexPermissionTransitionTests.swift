@@ -11,6 +11,7 @@ import Testing
 
 @Suite("Codex permission transitions")
 struct CodexPermissionTransitionTests {
+    private let permissionMachine = CodexPermissionTransitionMachine()
     private let runtime = CodexPermissionRuntimeGeneration(
         pid: 4_242,
         pidStartSeconds: 10,
@@ -20,21 +21,21 @@ struct CodexPermissionTransitionTests {
     @Test func notificationIdentityPersistsUntilTheExactPermissionResolves() throws {
         let identity = CodexPermissionSignalIdentity(turnID: "turn-id", requestID: "call-id")
         let notificationID = UUID()
-        let requested = CodexPermissionTransitionMachine.reduce(
+        let requested = permissionMachine.reduce(
             current: nil,
             event: .permissionRequested,
             identity: identity,
             runtime: runtime,
             notificationID: notificationID
         )
-        let duplicate = CodexPermissionTransitionMachine.reduce(
+        let duplicate = permissionMachine.reduce(
             current: requested.state,
             event: .permissionRequested,
             identity: identity,
             runtime: runtime,
             notificationID: UUID()
         )
-        let migrated = CodexPermissionTransitionMachine.reduce(
+        let migrated = permissionMachine.reduce(
             current: CodexPermissionState(
                 phase: .needsInput,
                 identity: identity,
@@ -45,7 +46,7 @@ struct CodexPermissionTransitionTests {
             runtime: runtime,
             notificationID: notificationID
         )
-        let resumed = CodexPermissionTransitionMachine.reduce(
+        let resumed = permissionMachine.reduce(
             current: duplicate.state,
             event: .toolCompleted,
             identity: identity,
@@ -65,13 +66,13 @@ struct CodexPermissionTransitionTests {
 
     @Test func resumedTombstoneRejectsReorderedPermissionForSameRequest() {
         let identity = CodexPermissionSignalIdentity(turnID: "turn-1", requestID: "call-1")
-        let resumed = CodexPermissionTransitionMachine.reduce(
+        let resumed = permissionMachine.reduce(
             current: nil,
             event: .toolCompleted,
             identity: identity,
             runtime: runtime
         )
-        let reorderedPermission = CodexPermissionTransitionMachine.reduce(
+        let reorderedPermission = permissionMachine.reduce(
             current: resumed.state,
             event: .permissionRequested,
             identity: identity,
@@ -90,7 +91,7 @@ struct CodexPermissionTransitionTests {
             identity: CodexPermissionSignalIdentity(turnID: "turn-1", requestID: "call-1"),
             runtime: runtime
         )
-        let newerPermission = CodexPermissionTransitionMachine.reduce(
+        let newerPermission = permissionMachine.reduce(
             current: resolved,
             event: .permissionRequested,
             identity: CodexPermissionSignalIdentity(turnID: "turn-1", requestID: "call-2"),
@@ -108,19 +109,19 @@ struct CodexPermissionTransitionTests {
             identity: CodexPermissionSignalIdentity(turnID: "turn-2", requestID: "call-new"),
             runtime: runtime
         )
-        let staleScopedResume = CodexPermissionTransitionMachine.reduce(
+        let staleScopedResume = permissionMachine.reduce(
             current: pending,
             event: .toolCompleted,
             identity: CodexPermissionSignalIdentity(turnID: "turn-2", requestID: "call-old"),
             runtime: runtime
         )
-        let unscopedResume = CodexPermissionTransitionMachine.reduce(
+        let unscopedResume = permissionMachine.reduce(
             current: pending,
             event: .toolCompleted,
             identity: CodexPermissionSignalIdentity(turnID: nil, requestID: nil),
             runtime: runtime
         )
-        let exactResume = CodexPermissionTransitionMachine.reduce(
+        let exactResume = permissionMachine.reduce(
             current: pending,
             event: .toolCompleted,
             identity: pending.identity,
@@ -147,7 +148,7 @@ struct CodexPermissionTransitionTests {
             pidStartSeconds: 99,
             pidStartMicroseconds: 1
         )
-        let transition = CodexPermissionTransitionMachine.reduce(
+        let transition = permissionMachine.reduce(
             current: pending,
             event: .toolCompleted,
             identity: pending.identity,
@@ -166,7 +167,7 @@ struct CodexPermissionTransitionTests {
             runtime: runtime
         )
 
-        let started = CodexPermissionTransitionMachine.reduce(
+        let started = permissionMachine.reduce(
             current: pending,
             event: .toolStarted,
             identity: identity,
@@ -182,26 +183,26 @@ struct CodexPermissionTransitionTests {
     @Test func requestWithoutToolIDCorrelatesToOnlyActiveStartInSameTurn() {
         let first = CodexPermissionSignalIdentity(turnID: "turn-4", requestID: "call-1")
         let second = CodexPermissionSignalIdentity(turnID: "turn-4", requestID: "call-2")
-        let firstStarted = CodexPermissionTransitionMachine.reduce(
+        let firstStarted = permissionMachine.reduce(
             current: nil,
             event: .toolStarted,
             identity: first,
             runtime: runtime
         )
-        let firstCompleted = CodexPermissionTransitionMachine.reduce(
+        let firstCompleted = permissionMachine.reduce(
             current: firstStarted.state,
             event: .toolCompleted,
             identity: first,
             runtime: runtime
         )
-        let secondStarted = CodexPermissionTransitionMachine.reduce(
+        let secondStarted = permissionMachine.reduce(
             current: firstCompleted.state,
             event: .toolStarted,
             identity: second,
             runtime: runtime
         )
 
-        let requested = CodexPermissionTransitionMachine.reduce(
+        let requested = permissionMachine.reduce(
             current: secondStarted.state,
             event: .permissionRequested,
             identity: CodexPermissionSignalIdentity(turnID: "turn-4", requestID: nil),
@@ -215,20 +216,20 @@ struct CodexPermissionTransitionTests {
 
     @Test func matchingToolCompletionResolvesCorrelatedPermission() {
         let tool = CodexPermissionSignalIdentity(turnID: "turn-5", requestID: "call-1")
-        let started = CodexPermissionTransitionMachine.reduce(
+        let started = permissionMachine.reduce(
             current: nil,
             event: .toolStarted,
             identity: tool,
             runtime: runtime
         )
-        let requested = CodexPermissionTransitionMachine.reduce(
+        let requested = permissionMachine.reduce(
             current: started.state,
             event: .permissionRequested,
             identity: CodexPermissionSignalIdentity(turnID: "turn-5", requestID: nil),
             runtime: runtime
         )
 
-        let completed = CodexPermissionTransitionMachine.reduce(
+        let completed = permissionMachine.reduce(
             current: requested.state,
             event: .toolCompleted,
             identity: tool,
@@ -243,32 +244,32 @@ struct CodexPermissionTransitionTests {
     @Test func lateCompletionCannotClearNewerPermission() {
         let oldTool = CodexPermissionSignalIdentity(turnID: "turn-6", requestID: "call-old")
         let newTool = CodexPermissionSignalIdentity(turnID: "turn-6", requestID: "call-new")
-        let oldStarted = CodexPermissionTransitionMachine.reduce(
+        let oldStarted = permissionMachine.reduce(
             current: nil,
             event: .toolStarted,
             identity: oldTool,
             runtime: runtime
         )
-        let oldRequested = CodexPermissionTransitionMachine.reduce(
+        let oldRequested = permissionMachine.reduce(
             current: oldStarted.state,
             event: .permissionRequested,
             identity: oldTool,
             runtime: runtime
         )
-        let newStarted = CodexPermissionTransitionMachine.reduce(
+        let newStarted = permissionMachine.reduce(
             current: oldRequested.state,
             event: .toolStarted,
             identity: newTool,
             runtime: runtime
         )
-        let newRequested = CodexPermissionTransitionMachine.reduce(
+        let newRequested = permissionMachine.reduce(
             current: newStarted.state,
             event: .permissionRequested,
             identity: newTool,
             runtime: runtime
         )
 
-        let oldCompletedLate = CodexPermissionTransitionMachine.reduce(
+        let oldCompletedLate = permissionMachine.reduce(
             current: newRequested.state,
             event: .toolCompleted,
             identity: oldTool,
@@ -276,27 +277,27 @@ struct CodexPermissionTransitionTests {
         )
 
         #expect(oldCompletedLate.accepted)
-        #expect(oldCompletedLate.effect == .none)
+        #expect(oldCompletedLate.effect == .resolvePermission)
         #expect(oldCompletedLate.state.phase == .needsInput)
         #expect(oldCompletedLate.state.identity == newTool)
     }
 
     @Test func completionBeforePermissionTombstonesCorrelatedRequest() {
         let tool = CodexPermissionSignalIdentity(turnID: "turn-7", requestID: "call-1")
-        let started = CodexPermissionTransitionMachine.reduce(
+        let started = permissionMachine.reduce(
             current: nil,
             event: .toolStarted,
             identity: tool,
             runtime: runtime
         )
-        let completed = CodexPermissionTransitionMachine.reduce(
+        let completed = permissionMachine.reduce(
             current: started.state,
             event: .toolCompleted,
             identity: tool,
             runtime: runtime
         )
 
-        let permissionArrivedLate = CodexPermissionTransitionMachine.reduce(
+        let permissionArrivedLate = permissionMachine.reduce(
             current: completed.state,
             event: .permissionRequested,
             identity: tool,
