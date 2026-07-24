@@ -61,18 +61,10 @@ struct RemoteTmuxSessionRenameTitleTests {
     @Test func remoteRenameRefreshesSelectedWindowTitle() {
         let (mirror, workspace, manager) = makeMirror(sessionName: "old", title: "old")
         manager.selectedTabId = workspace.id
-        let window = NSWindow(
+        let window = TestWindow.make(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
+            styleMask: [.titled]
         )
-        // A programmatically created NSWindow is released-when-closed by default, so the `close()`
-        // below would drop a reference ARC still owns; the freed object is then over-released when the
-        // main actor's autorelease pool drains, killing the whole test host and every verdict still
-        // pending in it. Measured: 8 of 8 host deaths in this file landed on the two tests here that
-        // create a window.
-        window.isReleasedWhenClosed = false
         manager.window = window
         defer {
             manager.window = nil
@@ -115,18 +107,10 @@ struct RemoteTmuxSessionRenameTitleTests {
         destinationManager.attachWorkspace(movedWorkspace, select: true)
         #expect(workspace.owningTabManager === destinationManager)
 
-        let window = NSWindow(
+        let window = TestWindow.make(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
+            styleMask: [.titled]
         )
-        // A programmatically created NSWindow is released-when-closed by default, so the `close()`
-        // below would drop a reference ARC still owns; the freed object is then over-released when the
-        // main actor's autorelease pool drains, killing the whole test host and every verdict still
-        // pending in it. Measured: 8 of 8 host deaths in this file landed on the two tests here that
-        // create a window.
-        window.isReleasedWhenClosed = false
         destinationManager.window = window
         defer {
             destinationManager.window = nil

@@ -252,6 +252,11 @@ jobs:
       - name: Validate test determinism gate
         run: python3 scripts/check-test-determinism.py --strict
 
+      - name: Validate only the sanctioned factory constructs a test window
+        run: |
+          python3 scripts/lint-test-window-construction.py --self-test
+          python3 scripts/lint-test-window-construction.py
+
       - name: Validate no test window frees itself on close
         run: python3 scripts/lint-test-window-release.py
 
@@ -967,6 +972,22 @@ jobs:
               exit 1
             fi
           fi
+
+      - name: Validate no compiled test file constructs a window
+        if: always()
+        run: |
+          set -euo pipefail
+          # The source half of this check runs on the guard job. This half reads the object files the
+          # run above already produced, where the compiler has resolved every alias, subclass,
+          # wrapper type and cross-file factory — so a construction reduces to whether the file
+          # references NSWindow's designated initializer. It is the half that catches a window the
+          # source scan cannot see.
+          OBJECTS=$(find "$CMUX_DERIVED_DATA_PATH" -type d -path '*cmuxTests.build/Objects-normal*' -print -quit 2>/dev/null || true)
+          if [ -z "$OBJECTS" ]; then
+            echo "no cmuxTests object files under $CMUX_DERIVED_DATA_PATH; nothing to check"
+            exit 0
+          fi
+          python3 scripts/lint-test-window-construction.py --objects "$OBJECTS"
 
       - name: Keep the unit test evidence
         if: always()

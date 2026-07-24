@@ -8,23 +8,16 @@ memory — SIGSEGV in `objc_release` under `objc_autoreleasePoolPop`, inside the
 the host dies mid-run xcodebuild relaunches it and prints a summary covering only the last
 launch, so every verdict still pending in the dead host is lost and the run can read as a pass.
 
-Six pull requests have now fixed this one file at a time, each finding it again in a suite
-nobody had run headless. Nothing fails when a new window goes in without the flag, so the next
-suite to grow one starts the cycle over.
+Two rules, because the two cases carry different risk.
 
-Two rules, because the two cases are not equally dangerous:
+A window that is closed, or that is returned to a caller who may close it, has to set the flag.
+That case has no baseline and no exception list.
 
-  A window that is closed, or that escapes to a caller who may close it, MUST set the flag.
-  There is no baseline for this and no exception list — it is the crash.
+A window that is only ever built and abandoned cannot double-release. Those are listed in a
+baseline, which may shrink and never grow. They are still worth fixing, since an ordered-front
+window that is never closed leaves its appearance animation running.
 
-  A window that is only ever built and abandoned cannot double-release, so those are counted
-  in a baseline the check reads. A count may shrink but never grow. They are still worth
-  fixing: an ordered-front window that is never closed leaks its appearance animation, which
-  is what wedges a suite rather than crashing it.
-
-The first rule is deliberately not satisfiable by the baseline. An earlier version of this
-check counted both kinds together, and its baseline absorbed all eighteen closed-without-flag
-sites — it reported OK over the exact bug it was written for.
+The baseline covers only the second case, so it can never absorb a closed window.
 
 Usage:
   scripts/lint-test-window-release.py            # check; exit 1 on a violation
