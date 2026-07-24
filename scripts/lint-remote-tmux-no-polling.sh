@@ -53,6 +53,7 @@ ALLOW=(
   "Sources/RemoteTmuxController.swift:awaitNewWorkspace|Deadline arm racing the new-workspace signal"
   "Sources/RemoteTmuxControlConnection+PaneSubscriptions.swift:queryWithTimeout|Deadline arm racing the reply for this command number"
   "Sources/RemoteTmuxControlConnection.swift:detachThenStop|Backstop for a stream that has stopped answering; tmux's own %exit ends the wait and cancels it"
+  "Sources/RemoteTmuxSessionMirror+OutputRouting.swift:schedulePaneSeedDeliveryDeadline|Deadline arm on a pane's readiness wait: the task is cancelled when the surface becomes ready, and on expiry the seed is drained or gracefully deferred rather than retried"
   "Sources/RemoteTmuxViewConnection.swift:scheduleBringupRetry|Bounded backoff. The bringup it retries failed WITHOUT producing an edge to wait on, which is the whole reason it exists"
 )
 
