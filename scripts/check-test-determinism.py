@@ -50,7 +50,7 @@ import json
 import pathlib
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Iterable, Optional
 
 # ---------------------------------------------------------------------------
@@ -245,7 +245,9 @@ _SHELL_BARE_SLEEP = re.compile(
     (?:!\s*)?
     (?:(?:if|elif|while|until|then|do|else)\b\s*)?
     (?:!\s*)?
+    (?:[A-Za-z_][A-Za-z0-9_]*=[^\s;&|()]*\s+)*
     (?:time(?:\s+-p)?\s+)?
+    (?:[A-Za-z_][A-Za-z0-9_]*=[^\s;&|()]*\s+)*
     sleep (?=\s|$)
   | ^\s* [^;&|()]+ (?:\|[^;&|()]+)* \) \s* sleep (?=\s|$)
     """
@@ -556,21 +558,22 @@ def _javascript_real_sleep_positions(
     return positions
 
 
-def _sleep_call_end_lines(
+def _sleep_call_end_positions(
     masked_lines: list[str],
     positions: dict[int, set[int]],
-) -> dict[int, int]:
-    """Map each sleep-token line to the end of its balanced call."""
-    end_lines: dict[int, int] = {}
+) -> dict[int, list[tuple[int, int]]]:
+    """Map each sleep-token line to balanced call-ending line/columns."""
+    end_positions: dict[int, list[tuple[int, int]]] = {}
     for start_line, columns in positions.items():
         for column in columns:
             depth = 0
             call_started = False
-            call_end = start_line
+            call_end = (start_line, len(masked_lines[start_line]))
             for line_index in range(start_line, len(masked_lines)):
                 line = masked_lines[line_index]
                 start_column = column if line_index == start_line else 0
-                for char in line[start_column:]:
+                for char_index in range(start_column, len(line)):
+                    char = line[char_index]
                     if not call_started:
                         if char == "(":
                             call_started = True
@@ -581,20 +584,153 @@ def _sleep_call_end_lines(
                     elif char == ")":
                         depth -= 1
                         if depth == 0:
-                            call_end = line_index
+                            call_end = (line_index, char_index + 1)
                             break
                 if call_started and depth == 0:
                     break
-            end_lines[start_line] = max(
-                end_lines.get(start_line, start_line),
-                call_end,
-            )
-    return end_lines
+            end_positions.setdefault(start_line, []).append(call_end)
+    return end_positions
 
 
 _PYTHON_MODULE_BINDING = "module"
 _PYTHON_FUNCTION_BINDING = "function"
 _PYTHON_SHADOWED_BINDING = "shadowed"
+
+
+class _PythonLocalBindingCollector(ast.NodeVisitor):
+    """Collect compile-time locals without descending into nested scopes."""
+
+    def __init__(self) -> None:
+        self.local_names: set[str] = set()
+        self.global_names: set[str] = set()
+        self.nonlocal_names: set[str] = set()
+
+    def visit_Name(self, node: ast.Name) -> None:
+        if isinstance(node.ctx, (ast.Store, ast.Del)):
+            self.local_names.add(node.id)
+
+    def visit_Global(self, node: ast.Global) -> None:
+        self.global_names.update(node.names)
+
+    def visit_Nonlocal(self, node: ast.Nonlocal) -> None:
+        self.nonlocal_names.update(node.names)
+
+    def visit_Import(self, node: ast.Import) -> None:
+        for alias in node.names:
+            self.local_names.add(
+                alias.asname or alias.name.split(".", maxsplit=1)[0]
+            )
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        for alias in node.names:
+            if alias.name != "*":
+                self.local_names.add(alias.asname or alias.name)
+
+    def _visit_function_signature(
+        self,
+        node: ast.FunctionDef | ast.AsyncFunctionDef,
+    ) -> None:
+        self.local_names.add(node.name)
+        for decorator in node.decorator_list:
+            self.visit(decorator)
+        for default in node.args.defaults:
+            self.visit(default)
+        for default in node.args.kw_defaults:
+            if default is not None:
+                self.visit(default)
+        if node.returns is not None:
+            self.visit(node.returns)
+        for argument in (
+            list(node.args.posonlyargs)
+            + list(node.args.args)
+            + list(node.args.kwonlyargs)
+        ):
+            if argument.annotation is not None:
+                self.visit(argument.annotation)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._visit_function_signature(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self._visit_function_signature(node)
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        for default in node.args.defaults:
+            self.visit(default)
+        for default in node.args.kw_defaults:
+            if default is not None:
+                self.visit(default)
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        self.local_names.add(node.name)
+        for decorator in node.decorator_list:
+            self.visit(decorator)
+        for base in node.bases:
+            self.visit(base)
+        for keyword in node.keywords:
+            self.visit(keyword.value)
+
+    def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
+        if node.name is not None:
+            self.local_names.add(node.name)
+        if node.type is not None:
+            self.visit(node.type)
+        for statement in node.body:
+            self.visit(statement)
+
+    def visit_match_case(self, node: ast.match_case) -> None:
+        for child in ast.walk(node.pattern):
+            if isinstance(child, ast.MatchAs) and child.name is not None:
+                self.local_names.add(child.name)
+            elif isinstance(child, ast.MatchStar) and child.name is not None:
+                self.local_names.add(child.name)
+            elif (
+                isinstance(child, ast.MatchMapping)
+                and child.rest is not None
+            ):
+                self.local_names.add(child.rest)
+        if node.guard is not None:
+            self.visit(node.guard)
+        for statement in node.body:
+            self.visit(statement)
+
+    def _visit_comprehension(
+        self,
+        generators: list[ast.comprehension],
+        values: list[ast.expr],
+    ) -> None:
+        for generator in generators:
+            self.visit(generator.iter)
+            for condition in generator.ifs:
+                self.visit(condition)
+        for value in values:
+            self.visit(value)
+
+    def visit_ListComp(self, node: ast.ListComp) -> None:
+        self._visit_comprehension(node.generators, [node.elt])
+
+    def visit_SetComp(self, node: ast.SetComp) -> None:
+        self._visit_comprehension(node.generators, [node.elt])
+
+    def visit_GeneratorExp(self, node: ast.GeneratorExp) -> None:
+        self._visit_comprehension(node.generators, [node.elt])
+
+    def visit_DictComp(self, node: ast.DictComp) -> None:
+        self._visit_comprehension(node.generators, [node.key, node.value])
+
+
+def _python_function_bindings(
+    body: list[ast.stmt],
+) -> tuple[set[str], set[str], set[str]]:
+    collector = _PythonLocalBindingCollector()
+    for statement in body:
+        collector.visit(statement)
+    local_names = (
+        collector.local_names
+        - collector.global_names
+        - collector.nonlocal_names
+    )
+    return local_names, collector.global_names, collector.nonlocal_names
 
 
 @dataclass
@@ -604,6 +740,8 @@ class _PythonScope:
     kind: str
     parent: Optional["_PythonScope"]
     bindings: dict[str, str]
+    global_names: set[str] = field(default_factory=set)
+    nonlocal_names: set[str] = field(default_factory=set)
 
 
 class _PythonSleepVisitor(ast.NodeVisitor):
@@ -626,6 +764,13 @@ class _PythonSleepVisitor(ast.NodeVisitor):
     def _resolve(self, name: str) -> Optional[str]:
         scope: Optional[_PythonScope] = self.scope
         while scope is not None:
+            if name in scope.global_names:
+                return self.module_scope.bindings.get(name)
+            if name in scope.nonlocal_names:
+                scope = scope.parent
+                while scope is not None and scope.kind == "class":
+                    scope = scope.parent
+                continue
             binding = scope.bindings.get(name)
             if binding is not None:
                 return binding
@@ -633,6 +778,16 @@ class _PythonSleepVisitor(ast.NodeVisitor):
         return None
 
     def _bind(self, name: str, binding: str = _PYTHON_SHADOWED_BINDING) -> None:
+        if name in self.scope.global_names:
+            self.module_scope.bindings[name] = binding
+            return
+        if name in self.scope.nonlocal_names:
+            scope = self.scope.parent
+            while scope is not None:
+                if scope.kind != "class" and name in scope.bindings:
+                    scope.bindings[name] = binding
+                    return
+                scope = scope.parent
         self.scope.bindings[name] = binding
 
     def _bind_target(self, target: ast.expr) -> None:
@@ -733,7 +888,19 @@ class _PythonSleepVisitor(ast.NodeVisitor):
         self._bind(node.name)
         parent = self._lexical_parent()
         previous_scope = self.scope
-        self.scope = _PythonScope("function", parent, {})
+        local_names, global_names, nonlocal_names = (
+            _python_function_bindings(node.body)
+        )
+        self.scope = _PythonScope(
+            "function",
+            parent,
+            {
+                name: _PYTHON_SHADOWED_BINDING
+                for name in local_names
+            },
+            global_names,
+            nonlocal_names,
+        )
         for argument in self._argument_nodes(node.args):
             self._bind(argument.arg)
         for statement in node.body:
@@ -750,7 +917,16 @@ class _PythonSleepVisitor(ast.NodeVisitor):
         self._visit_argument_expressions(node.args)
         parent = self._lexical_parent()
         previous_scope = self.scope
-        self.scope = _PythonScope("function", parent, {})
+        collector = _PythonLocalBindingCollector()
+        collector.visit(node.body)
+        self.scope = _PythonScope(
+            "function",
+            parent,
+            {
+                name: _PYTHON_SHADOWED_BINDING
+                for name in collector.local_names
+            },
+        )
         for argument in self._argument_nodes(node.args):
             self._bind(argument.arg)
         self.visit(node.body)
@@ -1480,6 +1656,14 @@ def _mask_javascript_regex_literals(line: str) -> str:
         while previous >= 0 and line[previous].isspace():
             previous -= 1
         can_start = previous < 0 or line[previous] in _JS_REGEX_PREFIX_CHARS
+        if (
+            can_start
+            and previous >= 0
+            and line[previous] == "<"
+            and index + 1 < len(line)
+            and (line[index + 1].isalpha() or line[index + 1] == ">")
+        ):
+            can_start = False
         if not can_start and previous >= 0 and (
             line[previous].isalnum() or line[previous] in "_$"
         ):
@@ -1763,7 +1947,9 @@ def detect_sleep_then_assert(
     path_suffix: str,
     known_sleep_lines: Optional[set[int]] = None,
     known_sleep_positions: Optional[dict[int, set[int]]] = None,
-    known_sleep_end_lines: Optional[dict[int, int]] = None,
+    known_sleep_end_positions: Optional[
+        dict[int, list[tuple[int, int]]]
+    ] = None,
     assertion_enclosed_sleep_positions: Optional[dict[int, set[int]]] = None,
 ) -> bool:
     """Sleep on lines[idx] followed by an assertion within 3 non-blank lines."""
@@ -1816,25 +2002,32 @@ def detect_sleep_then_assert(
             elif ";" not in between:
                 return True
 
-    seen = 0
-    search_after = (
-        known_sleep_end_lines.get(idx, idx)
-        if known_sleep_end_lines is not None
-        else idx
+    end_positions = (
+        known_sleep_end_positions.get(idx, [])
+        if known_sleep_end_positions is not None
+        else [(idx, len(line))]
     )
-    for j in range(search_after + 1, len(lines)):
-        nxt = masked_lines[j]
-        if not nxt.strip():
-            continue
-        seen += 1
-        if seen > 3:
-            break
-        # If we run into a loop header right after the sleep, the following
-        # assert is inside a poll, not gated solely by the sleep.
-        if _LOOP_HEADER.search(nxt):
-            return False
-        if _is_assertion_line(nxt):
+    for end_line, end_column in end_positions:
+        closing_line_tail = masked_lines[end_line][end_column:]
+        if _is_assertion_line(closing_line_tail):
             return True
+        if _LOOP_HEADER.search(closing_line_tail):
+            continue
+
+        seen = 0
+        for j in range(end_line + 1, len(lines)):
+            nxt = masked_lines[j]
+            if not nxt.strip():
+                continue
+            seen += 1
+            if seen > 3:
+                break
+            # If we run into a loop header right after the sleep, the
+            # following assert is inside a poll, not gated solely by the sleep.
+            if _LOOP_HEADER.search(nxt):
+                break
+            if _is_assertion_line(nxt):
+                return True
     return False
 
 
@@ -1876,7 +2069,9 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
         _mask_noncode(raw_lines, suffix) if has_sleep_candidate else code_lines
     )
     known_sleep_positions: Optional[dict[int, set[int]]] = None
-    known_sleep_end_lines: Optional[dict[int, int]] = None
+    known_sleep_end_positions: Optional[
+        dict[int, list[tuple[int, int]]]
+    ] = None
     assertion_enclosed_sleep_positions: Optional[dict[int, set[int]]] = None
     known_sleep_lines: Optional[set[int]] = None
     if suffix == ".py" and has_sleep_candidate:
@@ -1901,7 +2096,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
             )
         )
     if known_sleep_positions is not None and suffix != ".sh":
-        known_sleep_end_lines = _sleep_call_end_lines(
+        known_sleep_end_positions = _sleep_call_end_positions(
             masked_lines,
             known_sleep_positions,
         )
@@ -1937,7 +2132,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
                 suffix,
                 known_sleep_lines,
                 known_sleep_positions,
-                known_sleep_end_lines,
+                known_sleep_end_positions,
                 assertion_enclosed_sleep_positions,
             )
         ):
