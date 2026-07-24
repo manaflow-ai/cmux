@@ -1783,6 +1783,29 @@ mod tests {
         }
     }
 
+    struct TerminalProbeDuringWrite {
+        written: Arc<Mutex<Vec<u8>>>,
+        surface: Weak<Surface>,
+    }
+
+    impl Write for TerminalProbeDuringWrite {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            let Some(surface) = self.surface.upgrade() else {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "surface was dropped",
+                ));
+            };
+            surface.with_terminal(|_| ());
+            self.written.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
     #[test]
     fn attach_colors_preserve_same_valued_authored_palette_override() {
         let color = Rgb { r: 0x44, g: 0x55, b: 0x66 };
@@ -2061,6 +2084,37 @@ mod tests {
     }
 
     #[test]
+    fn clear_history_fallback_releases_terminal_before_pty_write() {
+        let mux = Mux::new_for_test("clear-history-write-lock", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let written = Arc::new(Mutex::new(Vec::new()));
+        *surface.as_pty().unwrap().writer.lock().unwrap() = Box::new(TerminalProbeDuringWrite {
+            written: written.clone(),
+            surface: Arc::downgrade(&surface),
+        });
+        surface.with_terminal(|term| term.vt_write(b"\x1b[?1049h\x1b[>1u"));
+        let input = KeyInput {
+            key: ghostty_vt::sys::GHOSTTY_KEY_K,
+            mods: ghostty_vt::Mods::SUPER,
+            unshifted_codepoint: 'k' as u32,
+            action: Some(ghostty_vt::KeyAction::Press),
+            ..Default::default()
+        };
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+
+        std::thread::spawn(move || {
+            let _ = finished_tx.send(surface.clear_history_or_encode_key(Some(&input)));
+        });
+        finished_rx
+            .recv_timeout(Duration::from_millis(250))
+            .expect("alternate-screen fallback blocked terminal updates during the PTY write")
+            .unwrap();
+
+        assert_eq!(&*written.lock().unwrap(), b"\x1b[107;9u");
+    }
+
+    #[test]
     fn clear_history_erases_rows_scrolled_by_prompt_aware_screen_clear() {
         let mux = Mux::new_for_test("clear-prompt-history", SurfaceOptions::default());
         let surface =
@@ -2152,6 +2206,38 @@ mod tests {
             assert_eq!(term.viewport_text().unwrap(), before);
         });
         assert_eq!(&*writer.0.lock().unwrap(), b"\x1b[13u");
+    }
+
+    #[test]
+    fn clear_history_waits_after_fragmented_kitty_enter() {
+        let input = b"\x1b[13;9u";
+        for split in 1..input.len() {
+            let mux = Mux::new_for_test("clear-fragmented-kitty-enter", SurfaceOptions::default());
+            let surface =
+                Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux))
+                    .unwrap();
+            let writer = CapturingWriter::default();
+            *surface.as_pty().unwrap().writer.lock().unwrap() = Box::new(writer.clone());
+            let before = surface
+                .with_terminal(|term| {
+                    for line in 0..40 {
+                        term.vt_write(format!("history-{line}\r\n").as_bytes());
+                    }
+                    term.vt_write(b"\x1b]133;A\x07prompt> \x1b]133;B\x07sleep 1");
+                    term.viewport_text().unwrap()
+                })
+                .unwrap();
+
+            surface.write_bytes(&input[..split]).unwrap();
+            surface.write_bytes(&input[split..]).unwrap();
+            surface.clear_history().unwrap();
+
+            surface.with_terminal(|term| {
+                assert_eq!(term.history_rows(), 0, "split {split}");
+                assert_eq!(term.viewport_text().unwrap(), before, "split {split}");
+            });
+            assert_eq!(&*writer.0.lock().unwrap(), input, "split {split}");
+        }
     }
 
     #[test]
@@ -2289,6 +2375,38 @@ mod tests {
             assert!(term.viewport_text().unwrap().trim().is_empty());
         });
         assert_eq!(&*writer.0.lock().unwrap(), b"\x1b[200~first\nsecond\x1b[201~\x0c");
+    }
+
+    #[test]
+    fn clear_history_keeps_prompt_redraw_ready_after_fragmented_bracketed_paste() {
+        let input = b"\x1b[200~first\nsecond\x1b[201~";
+        let mut expected = input.to_vec();
+        expected.push(b'\x0c');
+        for split in 1..input.len() {
+            let mux =
+                Mux::new_for_test("clear-fragmented-bracketed-paste", SurfaceOptions::default());
+            let surface =
+                Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux))
+                    .unwrap();
+            let writer = CapturingWriter::default();
+            *surface.as_pty().unwrap().writer.lock().unwrap() = Box::new(writer.clone());
+            surface.with_terminal(|term| {
+                for line in 0..40 {
+                    term.vt_write(format!("history-{line}\r\n").as_bytes());
+                }
+                term.vt_write(b"\x1b]133;A\x07prompt> \x1b]133;B\x07first\nsecond");
+            });
+
+            surface.write_bytes(&input[..split]).unwrap();
+            surface.write_bytes(&input[split..]).unwrap();
+            surface.clear_history().unwrap();
+
+            surface.with_terminal(|term| {
+                assert_eq!(term.history_rows(), 0, "split {split}");
+                assert!(term.viewport_text().unwrap().trim().is_empty(), "split {split}");
+            });
+            assert_eq!(&*writer.0.lock().unwrap(), &expected, "split {split}");
+        }
     }
 
     #[test]
