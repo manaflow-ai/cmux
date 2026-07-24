@@ -42,6 +42,19 @@ import Testing
         #expect(plan.forwardsPhysicalKey)
     }
 
+    @Test func composingC0IsSuppressedBeforeAppKitCommandReplay() {
+        let plan = planner.plan(for: snapshot(
+            hasMarkedText: true,
+            textInputConsumed: true,
+            textInputCommandPerformed: true,
+            translatedText: nil,
+            rawText: "\u{0008}"
+        ))
+
+        #expect(plan.actions.isEmpty)
+        #expect(!plan.forwardsPhysicalKey)
+    }
+
     @Test func committedTextDoesNotOwnNativeKeyRelease() {
         let plan = planner.plan(for: snapshot(
             hadMarkedText: true,
