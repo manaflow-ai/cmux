@@ -3,6 +3,10 @@ public import AppKit
 /// AppKit image view that re-renders its icon when the window or effective appearance changes.
 @MainActor
 public final class CmuxResolvedIconImageView: NSView {
+    private static let renderedImageCacheLimit = 128
+    private static var renderedImageCache: [ReusableRenderKey: NSImage] = [:]
+    private static var renderedImageCacheOrder: [ReusableRenderKey] = []
+
     private let imageView = NSImageView(frame: .zero)
     private let renderer = CmuxResolvedIconRenderer()
     private var request: CmuxResolvedIconRequest?
@@ -60,12 +64,24 @@ public final class CmuxResolvedIconImageView: NSView {
         let nextKey = RenderKey(request: request, appearance: effectiveAppearance)
         guard force || renderKey != nextKey else { return }
         guard force || blankRenderKey?.shouldSkipBlankRetry(for: nextKey) != true else { return }
+        if let reusableKey = nextKey.reusableKey,
+           let cachedImage = Self.renderedImageCache[reusableKey] {
+            renderKey = nextKey
+            lastVisibleRenderKey = nextKey
+            blankRenderKey = nil
+            imageView.image = cachedImage
+            imageView.contentTintColor = nil
+            return
+        }
         switch renderer.render(for: request, appearance: effectiveAppearance) {
         case .success(let image):
             renderKey = nextKey
             lastVisibleRenderKey = nextKey
             blankRenderKey = nil
             imageView.image = image
+            if let reusableKey = nextKey.reusableKey {
+                Self.cache(image, for: reusableKey)
+            }
         case .failure(.sourceUnavailable):
             renderKey = nextKey
             lastVisibleRenderKey = nil
@@ -81,6 +97,17 @@ public final class CmuxResolvedIconImageView: NSView {
             }
         }
         imageView.contentTintColor = nil
+    }
+
+    private static func cache(_ image: NSImage, for key: ReusableRenderKey) {
+        guard renderedImageCache[key] == nil else { return }
+        if renderedImageCache.count >= renderedImageCacheLimit,
+           let oldestKey = renderedImageCacheOrder.first {
+            renderedImageCacheOrder.removeFirst()
+            renderedImageCache.removeValue(forKey: oldestKey)
+        }
+        renderedImageCache[key] = image
+        renderedImageCacheOrder.append(key)
     }
 
     private func updateAccessibilityDescription(_ description: String?) {
@@ -133,6 +160,19 @@ public final class CmuxResolvedIconImageView: NSView {
             canReuseRenderedImage && other.canReuseRenderedImage && matchesRequestAndAppearance(other)
         }
 
+        var reusableKey: ReusableRenderKey? {
+            guard canReuseRenderedImage else { return nil }
+            return ReusableRenderKey(
+                source: source,
+                width: width,
+                height: height,
+                tint: tint,
+                symbolWeight: symbolWeight,
+                appearanceName: appearanceName,
+                appearanceIdentity: appearanceIdentity
+            )
+        }
+
         private static func colorsEqual(_ lhs: NSColor?, _ rhs: NSColor?) -> Bool {
             switch (lhs, rhs) {
             case (.none, .none):
@@ -144,7 +184,7 @@ public final class CmuxResolvedIconImageView: NSView {
             }
         }
 
-        private enum SourceKey: Equatable {
+        fileprivate enum SourceKey: Hashable {
             case systemSymbol(name: String, accessibilityDescription: String?)
             case asset(name: String, bundle: ObjectIdentifier)
             case image(ObjectIdentifier)
@@ -169,5 +209,15 @@ public final class CmuxResolvedIconImageView: NSView {
                 }
             }
         }
+    }
+
+    private struct ReusableRenderKey: Hashable {
+        let source: RenderKey.SourceKey
+        let width: CGFloat
+        let height: CGFloat
+        let tint: NSColor?
+        let symbolWeight: CGFloat
+        let appearanceName: NSAppearance.Name
+        let appearanceIdentity: ObjectIdentifier
     }
 }

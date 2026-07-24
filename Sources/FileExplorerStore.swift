@@ -174,9 +174,24 @@ final class FileExplorerNode: Identifiable {
     let name: String
     let path: String
     let isDirectory: Bool
-    var children: [FileExplorerNode]?
-    var isLoading: Bool = false
-    var error: String?
+    var children: [FileExplorerNode]? {
+        didSet { presentationRevision &+= 1 }
+    }
+    var isLoading: Bool = false {
+        didSet {
+            if isLoading != oldValue {
+                presentationRevision &+= 1
+            }
+        }
+    }
+    var error: String? {
+        didSet {
+            if error != oldValue {
+                presentationRevision &+= 1
+            }
+        }
+    }
+    private(set) var presentationRevision = 0
 
     init(name: String, path: String, isDirectory: Bool) {
         self.id = path
@@ -1024,7 +1039,7 @@ final class FileExplorerStore: ObservableObject {
 
     @MainActor
     private func loadChildren(for parentNode: FileExplorerNode?, at path: String, silent: Bool = false) async {
-        guard let provider else { return }
+        guard !Task.isCancelled, let provider else { return }
 
         if !silent {
             loadingPaths.insert(path)
