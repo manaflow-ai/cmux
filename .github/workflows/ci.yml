@@ -157,6 +157,9 @@ jobs:
       - name: Validate TestFlight notes generator
         run: python3 tests/test_ios_testflight_notes.py
 
+      - name: Validate CMUX INTERNAL main-push path filter
+        run: python3 tests/test_ios_testflight_main_push_filter.py
+
       - name: Validate external TestFlight group assignment helper
         run: python3 tests/test_ios_testflight_external_distribution.py
 
@@ -946,8 +949,11 @@ jobs:
           # Both harnesses have to be counted. swift-testing prints a line per test; XCTest prints
           # none of those and only reports "Executed N tests" — a shard of XCTest suites therefore
           # looks empty if you count swift-testing lines alone.
+          # `|| true` on both: this step runs under `set -euo pipefail`, so a log with no match makes
+          # grep exit 1 and aborts the step before the "no tests executed" error below can print —
+          # turning the exact case this check exists to catch into an unexplained failure.
           SWIFT_TESTS=$(grep -c "✔ Test \|✘ Test " "$TEST_OUTPUT" || true)
-          XCTESTS=$(grep -oE "Executed [0-9]+ test" "$TEST_OUTPUT" | grep -oE "[0-9]+" | sort -rn | head -1)
+          XCTESTS=$(grep -oE "Executed [0-9]+ test" "$TEST_OUTPUT" | grep -oE "[0-9]+" | sort -rn | head -1 || true)
           TESTS_SEEN=$(( ${SWIFT_TESTS:-0} + ${XCTESTS:-0} ))
           if [ "$TESTS_SEEN" -eq 0 ]; then
             echo "::error::no tests executed for this shard; its selectors matched nothing"
@@ -967,7 +973,7 @@ jobs:
 
       - name: Keep the unit test evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-unit-shard-${{ matrix.shard }}-output
           # Without this, "which test failed on CI" is unanswerable after the fact: the job log is a
