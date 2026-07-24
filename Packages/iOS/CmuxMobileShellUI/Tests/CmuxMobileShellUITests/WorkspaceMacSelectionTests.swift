@@ -254,7 +254,7 @@ import Testing
         await waitForSwitchStart()
 
         #expect(view.currentMacTitlePickerSelection == .machine("mac-b"))
-        _ = view.handleMacTitlePickerSelection(.all)
+        view.handleMacTitlePickerSelection(.all)
         await waitForCancelStart()
 
         #expect(requestedSwitches == ["mac-b"])
