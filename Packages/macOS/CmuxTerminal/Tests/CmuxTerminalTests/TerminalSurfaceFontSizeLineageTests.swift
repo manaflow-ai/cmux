@@ -4,9 +4,6 @@ import GhosttyKit
 import Testing
 @testable import CmuxTerminal
 
-@_silgen_name("cmux_test_ghostty_surface_last_update_wait_after_command")
-private func surfaceLastUpdateWaitsAfterCommand(_ surface: ghostty_surface_t) -> Bool
-
 @_silgen_name("cmux_test_ghostty_surface_was_updated")
 private func surfaceWasUpdated(_ surface: ghostty_surface_t) -> Bool
 
@@ -126,13 +123,12 @@ private func surfaceWasUpdated(_ surface: ghostty_surface_t) -> Bool
         )
     }
 
-    @Test func liveResetPreservesPerSurfaceWaitAfterCommand() throws {
+    @Test func liveResetDoesNotReloadFullSurfaceConfig() throws {
         let runtimeConfig = try #require(ghostty_config_new())
         defer { ghostty_config_free(runtimeConfig) }
 
         var template = CmuxSurfaceConfigTemplate()
         template.setFontSize(6, isExplicitOverride: true)
-        template.waitAfterCommand = true
         let registry = FakeSurfaceRegistry()
         let surface = makeSurface(
             configTemplate: template,
@@ -148,8 +144,7 @@ private func surfaceWasUpdated(_ surface: ghostty_surface_t) -> Bool
         }
 
         #expect(surface.resetFontSize(toConfiguredRuntimePoints: 12))
-        #expect(surfaceWasUpdated(runtimeSurface))
-        #expect(surfaceLastUpdateWaitsAfterCommand(runtimeSurface))
+        #expect(!surfaceWasUpdated(runtimeSurface))
     }
 
     @Test func staleRuntimePointerFallsBackToDurableLineageAdjustment() throws {

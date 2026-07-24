@@ -238,6 +238,22 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
                 XCTAssertEqual(afterRuntimePoints, expectedRuntimePoints, accuracy: 0.001)
                 XCTAssertTrue(afterLineage.isExplicitOverride)
             }
+
+            guard let sourceDockLineage = dockPanel.surface.fontSizeLineageSnapshot(),
+                  let dockPane = windowDock.bonsplitController.allPaneIds.first,
+                  let inheritedDockPanelId = windowDock.newSurface(
+                    kind: .terminal,
+                    inPane: dockPane,
+                    focus: false
+                  ),
+                  let inheritedDockPanel = windowDock.panels[inheritedDockPanelId] as? TerminalPanel else {
+                XCTFail("Expected a new Dock terminal after workspace font-size adjustment")
+                return
+            }
+            XCTAssertEqual(
+                inheritedDockPanel.surface.fontSizeLineageSnapshot(),
+                sourceDockLineage
+            )
         }
     }
 
