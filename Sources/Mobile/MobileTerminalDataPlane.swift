@@ -315,10 +315,21 @@ protocol MobileBackendTerminalSceneSession: Sendable {
 
 extension BackendTerminalSceneSession: MobileBackendTerminalSceneSession {}
 
+protocol MobileBackendTerminalSceneEndpoint: Sendable {
+    func receive(maximumByteCount: Int) async throws -> Data?
+    func closeEndpoint() async
+}
+
+extension BackendTerminalSceneEndpointTransport: MobileBackendTerminalSceneEndpoint {
+    func closeEndpoint() async {
+        close()
+    }
+}
+
 struct MobileBackendTerminalSceneAttachment: Sendable {
     let clientUUID: UUID
     let session: any MobileBackendTerminalSceneSession
-    let endpoint: BackendTerminalSceneEndpointTransport
+    let endpoint: any MobileBackendTerminalSceneEndpoint
 }
 
 struct MobileTerminalRendererConfiguration: Equatable, Sendable {
@@ -638,7 +649,7 @@ actor PersistentMobileTerminalDataPlane: MobileTerminalDataPlane {
                     rendererConfiguration
                 )
                 guard attachment.clientUUID == clientUUID else {
-                    await attachment.endpoint.close()
+                    await attachment.endpoint.closeEndpoint()
                     await attachment.session.close()
                     releaseClientUUID(
                         clientUUID,
@@ -850,7 +861,7 @@ private actor PersistentMobileTerminalSceneDataPlaneLane:
     }
 
     private let session: any MobileBackendTerminalSceneSession
-    private let endpoint: BackendTerminalSceneEndpointTransport
+    private let endpoint: any MobileBackendTerminalSceneEndpoint
     private let stream:
         AsyncThrowingStream<CmxIrohTerminalSceneEnvelope, any Error>
     private let onClose: @Sendable () async -> Void
@@ -888,7 +899,9 @@ private actor PersistentMobileTerminalSceneDataPlaneLane:
                         )
                         var configured = false
                         while !Task.isCancelled,
-                              let chunk = try await endpoint.receive() {
+                              let chunk = try await endpoint.receive(
+                                  maximumByteCount: 64 * 1_024
+                              ) {
                             for envelope in try decoder.append(chunk) {
                                 if !configured {
                                     guard case let .scene(scene) = envelope else {
@@ -915,11 +928,11 @@ private actor PersistentMobileTerminalSceneDataPlaneLane:
                                     try validator.accept(
                                         configurationEnvelope
                                     )
-                                    try Self.yield(
-                                        configurationEnvelope,
-                                        to: pair.continuation
-                                    )
+                                    try validator.accept(envelope)
+                                    try Self.yield(configurationEnvelope, to: pair.continuation)
+                                    try Self.yield(envelope, to: pair.continuation)
                                     configured = true
+                                    continue
                                 }
                                 try validator.accept(envelope)
                                 try Self.yield(envelope, to: pair.continuation)
@@ -936,7 +949,7 @@ private actor PersistentMobileTerminalSceneDataPlaneLane:
                                 try Task.checkCancellation()
                                 guard let update,
                                       update == rendererConfiguration else {
-                                    await endpoint.close()
+                                    await endpoint.closeEndpoint()
                                     throw LaneError.rendererConfigurationChanged
                                 }
                             }
@@ -951,7 +964,7 @@ private actor PersistentMobileTerminalSceneDataPlaneLane:
             } catch {
                 pair.continuation.finish(throwing: error)
             }
-            await endpoint.close()
+            await endpoint.closeEndpoint()
             await session.close()
             await onClose()
         }
