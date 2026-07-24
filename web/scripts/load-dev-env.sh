@@ -20,6 +20,12 @@ cmux_existing_db_password_set="${CMUX_DB_PASSWORD+x}"
 cmux_existing_db_password="${CMUX_DB_PASSWORD-}"
 cmux_existing_db_name_set="${CMUX_DB_NAME+x}"
 cmux_existing_db_name="${CMUX_DB_NAME-}"
+cmux_existing_freestyle_snapshot_set="${FREESTYLE_SANDBOX_SNAPSHOT+x}"
+cmux_existing_freestyle_snapshot="${FREESTYLE_SANDBOX_SNAPSHOT-}"
+cmux_existing_e2b_template_set="${E2B_CMUXD_WS_TEMPLATE+x}"
+cmux_existing_e2b_template="${E2B_CMUXD_WS_TEMPLATE-}"
+cmux_existing_daytona_snapshot_set="${DAYTONA_SANDBOX_SNAPSHOT+x}"
+cmux_existing_daytona_snapshot="${DAYTONA_SANDBOX_SNAPSHOT-}"
 
 cmux_extra_secret_file="${CMUXTERM_EXTRA_ENV_FILE:-${CMUX_WEB_EXTRA_ENV_FILE:-}}"
 if [[ -z "$cmux_extra_secret_file" && -f "$HOME/.secrets/cmux.env" ]]; then
@@ -56,6 +62,19 @@ set +a
 if ! grep -q '^STACK_SUPER_SECRET_ADMIN_KEY=' "$cmux_secret_file"; then
   unset STACK_SUPER_SECRET_ADMIN_KEY
 fi
+
+# Vercel intentionally redacts sensitive values when an environment is pulled.
+# Recover the staging relay signer from a chmod-600 local file so downloaded
+# environments cannot silently start a web server that never publishes Iroh.
+cmux_relay_policy_key_file="${CMUX_RELAY_POLICY_PRIVATE_KEY_FILE:-$HOME/.secrets/cmux-staging-relay-policy-2026-08.pem}"
+if [[ -z "${CMUX_RELAY_POLICY_PRIVATE_KEY_PEM:-}" && -f "$cmux_relay_policy_key_file" ]]; then
+  # The key id and private key are one cryptographic identity. A Vercel pull can
+  # leave the old, non-secret key id populated while redacting the private key;
+  # retaining that id would advertise a signer different from the local PEM.
+  export CMUX_RELAY_POLICY_KEY_ID="${CMUX_RELAY_POLICY_LOCAL_KEY_ID:-cmux-staging-relay-policy-2026-08}"
+  export CMUX_RELAY_POLICY_PRIVATE_KEY_PEM="$(< "$cmux_relay_policy_key_file")"
+fi
+
 if [[ "$cmux_nounset_was_enabled" == "1" ]]; then
   set -u
 fi
@@ -67,6 +86,9 @@ if [[ -n "$cmux_existing_db_port_set" ]]; then export CMUX_DB_PORT="$cmux_existi
 if [[ -n "$cmux_existing_db_user_set" ]]; then export CMUX_DB_USER="$cmux_existing_db_user"; fi
 if [[ -n "$cmux_existing_db_password_set" ]]; then export CMUX_DB_PASSWORD="$cmux_existing_db_password"; fi
 if [[ -n "$cmux_existing_db_name_set" ]]; then export CMUX_DB_NAME="$cmux_existing_db_name"; fi
+if [[ -n "$cmux_existing_freestyle_snapshot_set" ]]; then export FREESTYLE_SANDBOX_SNAPSHOT="$cmux_existing_freestyle_snapshot"; fi
+if [[ -n "$cmux_existing_e2b_template_set" ]]; then export E2B_CMUXD_WS_TEMPLATE="$cmux_existing_e2b_template"; fi
+if [[ -n "$cmux_existing_daytona_snapshot_set" ]]; then export DAYTONA_SANDBOX_SNAPSHOT="$cmux_existing_daytona_snapshot"; fi
 
 cmux_port="${CMUX_PORT:-${PORT:-3777}}"
 if [[ ! "$cmux_port" =~ ^[0-9]+$ ]]; then
@@ -103,6 +125,7 @@ fi
 export RESEND_API_KEY="${RESEND_API_KEY:-cmux-local-dev}"
 export CMUX_FEEDBACK_FROM_EMAIL="${CMUX_FEEDBACK_FROM_EMAIL:-dev@example.invalid}"
 export CMUX_FEEDBACK_RATE_LIMIT_ID="${CMUX_FEEDBACK_RATE_LIMIT_ID:-cmux-feedback-local}"
+export CMUX_CLIENT_CONFIG_RATE_LIMIT_ID="${CMUX_CLIENT_CONFIG_RATE_LIMIT_ID:-cmux-client-config-local}"
 export CMUX_PUSH_RATE_LIMIT_ID="${CMUX_PUSH_RATE_LIMIT_ID:-cmux-push-local}"
 
 export CMUX_WEB_SECRET_ENV_FILE="$cmux_secret_file"

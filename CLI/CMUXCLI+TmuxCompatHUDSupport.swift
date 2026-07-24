@@ -149,6 +149,6 @@ extension CMUXCLI {
               let data = "[cmux] \(message)\n".data(using: .utf8) else {
             return
         }
-        FileHandle.standardError.write(data)
+        cliWriteStderr(data)
     }
 }

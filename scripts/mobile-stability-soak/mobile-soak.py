@@ -137,11 +137,20 @@ def selected_route(routes):
     raise RuntimeError("attach ticket has no routes")
 
 
+# The soak drives the dev simulator build, which (since the pairing scheme went
+# channel-specific in CmxPairingURLScheme) registers `cmux-ios-dev` in its
+# CFBundleURLSchemes rather than the release `cmux-ios`. `simctl openurl` routes
+# by the registered scheme, so an attach link minted here must use the dev
+# scheme to reach the tagged dev app instead of failing or opening an installed
+# release/beta build. Override only when soaking a release build.
+ATTACH_URL_SCHEME = os.environ.get("MOBILE_ATTACH_URL_SCHEME", "cmux-ios-dev").strip()
+
+
 def attach_url_for_ticket(ticket):
     encoded = base64.urlsafe_b64encode(
         json.dumps(ticket, separators=(",", ":")).encode("utf-8")
     ).decode("ascii").rstrip("=")
-    return f"cmux-ios://attach?v={ticket.get('version', 1)}&payload={encoded}"
+    return f"{ATTACH_URL_SCHEME}://attach?v={ticket.get('version', 1)}&payload={encoded}"
 
 
 def ticket_from_payload(payload, attach_url):
@@ -180,7 +189,10 @@ def create_ticket(workspace_id=None):
             "created_at": time.monotonic(),
         }
 
-    params = {"ttl_seconds": ticket_ttl_seconds}
+    params = {
+        "ttl_seconds": ticket_ttl_seconds,
+        "target": "simulator_injection",
+    }
     if workspace_id:
         params["workspace_id"] = workspace_id
     payload = cmux_rpc("mobile.attach_ticket.create", params)

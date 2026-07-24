@@ -19,7 +19,7 @@ Use this instead of guessing whether the current run is tagged.
 
 ## Shape
 
-The package implementation lives in `Packages/CMUXDebugLog/Sources/CMUXDebugLog/DebugEventLog.swift`, and the app shim lives in `Sources/App/DebugLogging.swift`.
+The package implementation lives in `Packages/macOS/CMUXDebugLog/Sources/CMUXDebugLog/DebugEventLog.swift`, and the app shim lives in `Sources/App/DebugLogging.swift`.
 
 Call sites use:
 

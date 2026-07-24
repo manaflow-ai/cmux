@@ -7,18 +7,18 @@ struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
     @MainActor
     final class TargetBridge {
         fileprivate weak var view: SidebarBonsplitTabWorkspaceDropView?
-        fileprivate var targets: [SidebarDropPlanner.WorkspaceDropTarget] = []
+        fileprivate var targets = SidebarDropPlanner.OrderedWorkspaceDropTargets([])
 
         func updateTargets(_ targets: [SidebarDropPlanner.WorkspaceDropTarget]) {
-            self.targets = targets
-            guard !targets.isEmpty else { return }
+            self.targets = SidebarDropPlanner.OrderedWorkspaceDropTargets(targets)
+            guard !self.targets.isEmpty else { return }
             DispatchQueue.main.async { [weak view] in
                 view?.performPendingDropIfPossible()
             }
         }
 
         func clearTargets() {
-            targets = []
+            targets = SidebarDropPlanner.OrderedWorkspaceDropTargets([])
         }
     }
 
@@ -130,8 +130,8 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
     private var isRequestingWorkspaceDropTargets = false
     private var workspaceDropTargetRequestId: UInt64 = 0
     private var pendingDrop: PendingDrop?
-    private var targets: [SidebarDropPlanner.WorkspaceDropTarget] {
-        targetBridge?.targets ?? []
+    private var targets: SidebarDropPlanner.OrderedWorkspaceDropTargets {
+        targetBridge?.targets ?? SidebarDropPlanner.OrderedWorkspaceDropTargets([])
     }
 
     override var isFlipped: Bool { true }
@@ -237,7 +237,7 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
             setDropIndicator(nil)
         }
 
-        guard let action = SidebarDropPlanner.workspaceAction(for: pendingDrop.point, targets: targets),
+        guard let action = SidebarDropPlanner().workspaceAction(for: pendingDrop.point, targets: targets),
               canPerformAction(action, pendingDrop.transfer) else {
 #if DEBUG
             dlog("sidebar.workspaceDropOverlay.performPending moved=0 reason=notAccepted")
@@ -397,7 +397,7 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
     }
 
     private func action(for sender: any NSDraggingInfo) -> SidebarDropPlanner.WorkspaceDropAction? {
-        SidebarDropPlanner.workspaceAction(for: localPoint(sender), targets: targets)
+        SidebarDropPlanner().workspaceAction(for: localPoint(sender), targets: targets)
     }
 
     private func shouldCaptureHitTest() -> Bool {

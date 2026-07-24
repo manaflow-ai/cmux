@@ -25,6 +25,7 @@ import {
 } from "./auth";
 import { MAX_SUBSCRIBE_AGE_MS, TeamPresence } from "./do";
 import { parseHeartbeat, readBoundedJson } from "./validate";
+import { MAX_PAIRED_MAC_BACKUP_BYTES, normalizeClientScope, parsePairedMacBackup } from "./syncPairedMacs";
 
 export { TeamPresence };
 
@@ -81,6 +82,34 @@ export default {
       return json(result);
     }
 
+    if (url.pathname === "/v1/sync/paired-macs") {
+      // The per-user saved-host backup. Both directions are scoped to the
+      // verified user (passed to the DO, never client input):
+      //   POST  back up the caller's saved-host list (upsert/delete ops)
+      //   GET   read it back (the sign-in restore path on a fresh install)
+      const team = await resolveTeamOr403(request, env);
+      if (!team.ok) return team.response;
+      const rawClientScope = request.headers.get("x-cmux-client-scope");
+      const trimmedClientScope = rawClientScope?.trim() ?? "";
+      if (trimmedClientScope && normalizeClientScope(trimmedClientScope) === null) {
+        return json({ error: "invalid_client_scope" }, 400);
+      }
+      const clientScope = trimmedClientScope || null;
+      if (request.method === "GET") {
+        return json(await team.stub.listPairedMacs(team.teamId, team.user.id, clientScope));
+      }
+      if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+      // A full backup reconcile can far exceed the 16 KiB heartbeat cap, so size
+      // the bound to the declared paired-Mac limits instead of dropping it.
+      const body = await readBoundedJson(request, MAX_PAIRED_MAC_BACKUP_BYTES);
+      if (!body.ok) return json({ error: "invalid_request" }, body.status);
+      const parsed = parsePairedMacBackup(body.value);
+      if (!parsed.ok) return json({ error: parsed.error }, 400);
+      const result = await team.stub.backupPairedMacs(team.teamId, team.user.id, parsed.ops, clientScope);
+      if (!result.ok) return json({ error: result.error }, result.status);
+      return json(result);
+    }
+
     if (url.pathname === "/v1/presence/snapshot") {
       if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405);
       const team = await resolveTeamOr403(request, env);
@@ -107,6 +136,10 @@ export default {
       const headers = new Headers(request.headers);
       headers.set("x-presence-team-id", team.teamId);
       headers.set("x-presence-expires-at", String(Math.floor(expiresAt)));
+      // Forward the verified user id so the DO can scope the per-user
+      // `pairedMacs` backup collection to its owner. Set from the verified value
+      // only, never passed through from the client.
+      headers.set("x-presence-user-id", team.user.id);
       return team.stub.fetch(new Request(request.url, { method: "GET", headers }));
     }
 

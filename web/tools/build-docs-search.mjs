@@ -5,9 +5,11 @@ import { fileURLToPath } from "node:url";
 import * as ts from "typescript";
 import {
   flatNavItems,
+  hasNavItemContent,
   navItems,
+  navItemsForLocale,
 } from "../app/[locale]/components/docs-nav-items";
-import { changelogMedia } from "../app/[locale]/docs/changelog/changelog-media";
+import { changelogMedia } from "../app/[locale]/(landing)/docs/changelog/changelog-media";
 import { routing } from "../i18n/routing";
 
 const projectRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -16,6 +18,10 @@ const siteDir = path.join(projectRoot, ".pagefind-site");
 const outputDir = path.join(projectRoot, "public", "pagefind");
 const rawMessagesCache = new Map();
 const mergedMessagesCache = new Map();
+
+function docsSearchChannel() {
+  return process.env.CMUX_DOCS_CHANNEL === "nightly" ? "nightly" : "release";
+}
 
 const searchAliases = {
   apiReference: [
@@ -52,15 +58,16 @@ const docsPageMessageKeys = {
   apiReference: "api",
 };
 
-export function docsSearchRoutes() {
-  const links = flatNavItems(navItems);
+export function docsSearchRoutes(channel = docsSearchChannel()) {
   return routing.locales.flatMap((locale) =>
-    links.map((navItem) => ({
-      locale,
-      navItem,
-      href: navItem.href,
-      path: localizedDocsPath(locale, navItem.href),
-    })),
+    flatNavItems(navItemsForLocale(locale, channel))
+      .filter((navItem) => hasNavItemContent(navItem, locale))
+      .map((navItem) => ({
+        locale,
+        navItem,
+        href: navItem.href,
+        path: localizedDocsPath(locale, navItem.href),
+      })),
   );
 }
 
@@ -74,7 +81,7 @@ async function main() {
   await rm(outputDir, { force: true, recursive: true });
   await mkdir(siteDir, { recursive: true });
 
-  const pages = await docsSearchPages();
+  const pages = await docsSearchPages(docsSearchChannel());
 
   try {
     await Promise.all(pages.map(writePageHtml));
@@ -88,10 +95,10 @@ async function main() {
   }
 }
 
-export async function docsSearchPages() {
+export async function docsSearchPages(channel = docsSearchChannel()) {
   const contentByHref = await docsContentByHref();
   const changelogText = await changelogSearchText();
-  const routes = docsSearchRoutes();
+  const routes = docsSearchRoutes(channel);
   const pages = [];
 
   for (const route of routes) {
@@ -250,7 +257,7 @@ function deepMerge(base, override) {
 
 function docsPageSourcePath(href) {
   const docsPath = href.replace(/^\//, "");
-  return path.join(projectRoot, "app", "[locale]", docsPath, "page.tsx");
+  return path.join(projectRoot, "app", "[locale]", "(landing)", docsPath, "page.tsx");
 }
 
 async function docsContentByHref() {

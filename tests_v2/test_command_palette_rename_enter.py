@@ -86,7 +86,11 @@ def main():
         )
 
         client.simulate_type(rename_to)
-        time.sleep(0.1)
+        _wait_until(
+            lambda: int((_rename_input_selection(client, window_id) or {}).get("text_length") or 0) >= len(rename_to),
+            timeout_s=3.0,
+            message="rename input did not receive full typed text",
+        )
 
         client.simulate_shortcut("enter")
         _wait_until(

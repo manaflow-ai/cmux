@@ -1,0 +1,31 @@
+name: Deploy docs channels
+
+on:
+  push:
+    branches: [main]
+    paths: ["web/**", "CHANGELOG.md"]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  nightly:
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/docs-deploy-reusable.yml
+    with:
+      channel: nightly
+    secrets:
+      vercel_org_id: ${{ secrets.VERCEL_ORG_ID }}
+      vercel_project_id: ${{ secrets.VERCEL_NIGHTLY_DOCS_PROJECT_ID }}
+      vercel_token: ${{ secrets.VERCEL_TOKEN }}
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    uses: ./.github/workflows/docs-deploy-reusable.yml
+    with:
+      channel: release
+    secrets:
+      vercel_org_id: ${{ secrets.VERCEL_ORG_ID }}
+      vercel_project_id: ${{ secrets.VERCEL_RELEASE_DOCS_PROJECT_ID }}
+      vercel_token: ${{ secrets.VERCEL_TOKEN }}

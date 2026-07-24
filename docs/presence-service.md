@@ -160,7 +160,7 @@ the first production deploy and dogfood.
   tag, best-effort, never disturbs the Mac. Every beat carries the full
   current attach-route set, a route change triggers one immediate
   out-of-cadence beat, and a clean quit sends a goodbye.
-- **iOS** (`Packages/CmuxMobileShell/Sources/CmuxMobileShell/PresenceClient.swift`):
+- **iOS** (`Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/PresenceClient.swift`):
   typed WebSocket subscribe client. `MobileShellComposite` owns the
   subscription (starts on sign-in, blanks and stops on sign-out, backoff
   reconnect with snapshot-first resync), reduces frames into `PresenceMap`,

@@ -26,7 +26,9 @@ The sidebar layout, top to bottom:
 
 ## Creating a group
 
-### From the keyboard (`⌘⇧G`)
+### From the keyboard (`⌃⌘G` or `⌘⇧G`)
+
+Press `⌃⌘G` to create a new empty workspace group. cmux inserts a fresh anchor workspace as the group header and auto-names it `Group 1`, `Group 2`, … (rename anytime via the header context menu).
 
 Select two or more workspaces in the sidebar, press `⌘⇧G`. A fresh anchor workspace is inserted above the selection; all selected workspaces become children. The group is auto-named `Group 1`, `Group 2`, … (rename anytime via the header context menu). `⌘⇧G` collides with React Grab's default; the group handler only consumes the chord when there is an explicit sidebar multi-selection of at least two workspaces, so React Grab still fires in single-selection and browser/terminal contexts. Rebind in Settings → Keyboard if you'd rather the two not share a key.
 
@@ -34,11 +36,11 @@ Single-tab groups are not created from the shortcut. Use the workspace context m
 
 ### From a workspace context menu
 
-Right-click any workspace in the sidebar, choose **New Group from Workspace** (or **New Group from Selection** when multiple workspaces are selected). Same auto-naming behavior as the shortcut.
+Right-click any workspace in the sidebar, choose **New Empty Workspace Group** for an anchor-only group, **New Group from Workspace** for a group containing that workspace, or **New Group from Selection** when multiple workspaces are selected. The blank area below the sidebar list also offers **New Empty Workspace Group**. Same auto-naming behavior as the shortcuts.
 
 ### From the group header context menu
 
-Right-click an existing group's header for: **Rename Group…**, **Pin / Unpin Group**, **Edit Group Config…** (opens `~/.config/cmux/cmux.json`), **Open Workspace Groups Docs**, **Ungroup (Keep Workspaces)**, **Delete Group (Close Workspaces)**. Delete is destructive and prompts for confirmation; ungroup keeps the workspaces and just removes the container.
+Right-click an existing group's header for: **Rename Group…**, **Pin / Unpin Group**, **Edit Group Config…** (opens `~/.config/cmux/cmux.json`), **Open Workspace Groups Docs**, **Ungroup Workspaces**, **Delete Group**. Ungroup Workspaces keeps the workspaces and removes only the group container. Delete Group closes the group header workspace and every workspace inside the group; if the group contains child workspaces, it prompts for confirmation first.
 
 ### From the `+` button on a group header
 
@@ -56,7 +58,8 @@ All group operations are scriptable via `cmux workspace-group <subcommand>`. The
 cmux workspace-group list [--json]
 cmux workspace-group create --name "manaflow" [--cwd ~/projects/manaflow] [--from <id>,<id>]
 cmux workspace-group ungroup <group-id>
-cmux workspace-group delete  <group-id>   # destructive: closes every member workspace
+cmux workspace-group delete <group-id>                         # dissolve; keep workspaces
+cmux workspace-group delete <group-id> --close-workspaces      # explicitly destructive
 cmux workspace-group rename <group-id> --name "new name"
 cmux workspace-group collapse <group-id>
 cmux workspace-group expand <group-id>
@@ -68,14 +71,16 @@ cmux workspace-group set-anchor --group <group-id> --workspace <workspace-id>
 cmux workspace-group new-workspace <group-id> [--placement afterCurrent|top|end]
 ```
 
-`create` returns a group handle (`workspace_group:N` by default). Pass `--json` for the full structured payload.
+`create` returns a group handle (`workspace_group:N` by default). Omitting `--from` creates an anchor-only group; existing workspaces are never inferred from selection or caller context. Pass `--json` for the full structured payload.
+
+`delete` dissolves the group and keeps its workspaces by default. Pass `--close-workspaces` only when you intend to close every member workspace and terminate its processes. The response reports whether the group was dissolved or its workspaces were closed, including the affected count.
 
 ### Examples
 
-Group the three currently selected workspaces under a name:
+Group two explicitly chosen workspaces under a name:
 
 ```bash
-cmux workspace-group create --name manaflow
+cmux workspace-group create --name manaflow --from workspace:1,workspace:2
 ```
 
 Spin up a new workspace inside an existing group (e.g. wired to a worktree script):

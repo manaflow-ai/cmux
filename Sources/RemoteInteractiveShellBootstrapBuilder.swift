@@ -1,15 +1,19 @@
+import CmuxFoundation
 import Foundation
 
 enum RemoteInteractiveShellBootstrapBuilder {
     static func script(
         remoteRelayPort: Int,
         shellFeatures: String,
+        initialCommand: String? = nil,
         terminfoSource: String? = nil,
         bundledZshIntegration: String? = nil,
         bundledBashIntegration: String? = nil,
-        bundledFishIntegration: String? = nil
+        bundledFishIntegration: String? = nil,
+        terminalProfile: WorkspaceRemoteTerminalProfile = .shell
     ) -> String {
         let shellStateDir = shellStateDirForRemoteRelayPort(remoteRelayPort)
+        let initialCommandBootstrap = RemoteInitialCommandBootstrap(command: initialCommand)
         let commonShellExportLines = commonShellLines(
             remoteRelayPort: remoteRelayPort,
             shellStateDir: shellStateDir,
@@ -24,6 +28,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
         bashShellLines.append(
             #"if [ "${CMUX_SHELL_INTEGRATION:-1}" != "0" ] && [ -r "${CMUX_SHELL_INTEGRATION_DIR}/cmux-bash-integration.bash" ]; then . "${CMUX_SHELL_INTEGRATION_DIR}/cmux-bash-integration.bash"; fi"#
         )
+        bashShellLines.append(contentsOf: initialCommandBootstrap.posixInteractiveShellLines)
         let zshBootstrap = RemoteRelayZshBootstrap(shellStateDir: shellStateDir)
         let relayWarmupLines = relayWarmupLines(remoteRelayPort: remoteRelayPort)
 
@@ -32,6 +37,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
             "cmux_shell_dir=\"\(shellStateDir)\"",
             "mkdir -p \"$cmux_shell_dir\"",
         ]
+        outerLines.append(contentsOf: initialCommandBootstrap.preparationLines)
         if let bundledZshIntegration {
             outerLines += [
                 "cat > \"$cmux_shell_dir/cmux-zsh-integration.zsh\" <<'CMUXCMUXZSH'",
@@ -57,6 +63,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
         outerLines.append(contentsOf: commonShellExportLines)
         outerLines += [
             "CMUX_LOGIN_SHELL=\"${SHELL:-/bin/zsh}\"",
+            "if [ -z \"${CMUX_PERSISTENT_PTY_EXEC_HELPER:-}\" ] || [ ! -x \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" ]; then exit 126; fi",
             "case \"${CMUX_LOGIN_SHELL##*/}\" in",
             "  zsh)",
             "    cat > \"$cmux_shell_dir/.zshenv\" <<'CMUXZSHENV'",
@@ -76,7 +83,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
             "CMUXZSHRC",
             "    cat > \"$cmux_shell_dir/.zlogin\" <<'CMUXZSHLOGIN'",
         ]
-        outerLines.append(contentsOf: zshBootstrap.zshLoginLines)
+        outerLines.append(contentsOf: zshBootstrap.zshLoginLines + initialCommandBootstrap.posixInteractiveShellLines)
         outerLines += [
             "CMUXZSHLOGIN",
             "    chmod 600 \"$cmux_shell_dir/.zshenv\" \"$cmux_shell_dir/.zprofile\" \"$cmux_shell_dir/.zshrc\" \"$cmux_shell_dir/.zlogin\" >/dev/null 2>&1 || true",
@@ -85,7 +92,12 @@ enum RemoteInteractiveShellBootstrapBuilder {
         outerLines += [
             "    export CMUX_REAL_ZDOTDIR=\"${ZDOTDIR:-$HOME}\"",
             "    export ZDOTDIR=\"$cmux_shell_dir\"",
-            "    exec \"$CMUX_LOGIN_SHELL\" -il",
+            terminalLaunchLine(
+                profile: terminalProfile,
+                indentation: "    ",
+                directShellCommand: "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" -il",
+                tmuxShellCommand: "export CMUX_REAL_ZDOTDIR=\"${CMUX_REAL_ZDOTDIR:-${ZDOTDIR:-$HOME}}\"; export ZDOTDIR=\"\(shellStateDir)\"; exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"${SHELL:-/bin/zsh}\" \"${SHELL:-/bin/zsh}\" -il"
+            ),
             "    ;;",
             "  bash)",
             "    cat > \"$cmux_shell_dir/.bashrc\" <<'CMUXBASHRC'",
@@ -106,26 +118,63 @@ enum RemoteInteractiveShellBootstrapBuilder {
         ]
         outerLines.append(contentsOf: relayWarmupLines.map { "    " + $0 })
         outerLines += [
-            "    exec \"$CMUX_LOGIN_SHELL\" --rcfile \"$cmux_shell_dir/.bashrc\" -i",
+            terminalLaunchLine(
+                profile: terminalProfile,
+                indentation: "    ",
+                directShellCommand: "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" --rcfile \"$cmux_shell_dir/.bashrc\" -i",
+                tmuxShellCommand: "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"${SHELL:-/bin/bash}\" \"${SHELL:-/bin/bash}\" --rcfile \"\(shellStateDir)/.bashrc\" -i"
+            ),
             "    ;;",
             "  fish)",
         ]
         outerLines.append(contentsOf: relayWarmupLines.map { "    " + $0 })
+        var fishInitCommands = ["source \"$CMUX_FISH_INTEGRATION_FILE\""]
+        if let initialCommand = initialCommandBootstrap.fishInteractiveShellCommand {
+            fishInitCommands.append(initialCommand)
+        }
+        let fishInitCommand = shellQuote(fishInitCommands.joined(separator: "; "))
         outerLines += [
             "    export CMUX_FISH_INTEGRATION_FILE=\"$cmux_shell_dir/fish/config.fish\"",
             "    export CMUX_FISH_USER_CONFIG_ALREADY_LOADED=1",
-            "    exec \"$CMUX_LOGIN_SHELL\" -il --init-command 'source \"$CMUX_FISH_INTEGRATION_FILE\"'",
+            terminalLaunchLine(
+                profile: terminalProfile,
+                indentation: "    ",
+                directShellCommand: "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" -il --init-command \(fishInitCommand)",
+                tmuxShellCommand: "export CMUX_FISH_INTEGRATION_FILE=\"\(shellStateDir)/fish/config.fish\"; export CMUX_FISH_USER_CONFIG_ALREADY_LOADED=1; exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"${SHELL:-/bin/fish}\" \"${SHELL:-/bin/fish}\" -il --init-command \(fishInitCommand)"
+            ),
             "    ;;",
             "  *)",
         ]
         outerLines.append(contentsOf: relayWarmupLines)
+        outerLines.append(contentsOf: initialCommandBootstrap.fallbackShellLines)
         outerLines += [
-            "exec \"$CMUX_LOGIN_SHELL\" -i",
+            terminalLaunchLine(
+                profile: terminalProfile,
+                indentation: "",
+                directShellCommand: "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" -i",
+                tmuxShellCommand: "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"${SHELL:-/bin/sh}\" \"${SHELL:-/bin/sh}\" -i"
+            ),
             ";;",
             "esac",
         ]
 
         return outerLines.joined(separator: "\n")
+    }
+
+    private static func terminalLaunchLine(
+        profile: WorkspaceRemoteTerminalProfile,
+        indentation: String,
+        directShellCommand: String,
+        tmuxShellCommand: String
+    ) -> String {
+        guard let sessionName = profile.tmuxSessionName else {
+            return indentation + directShellCommand
+        }
+        let command = RemoteTmuxSessionCommandBuilder(
+            sessionName: sessionName,
+            shellCommand: tmuxShellCommand
+        ).remoteShellCommand
+        return indentation + "exec " + command
     }
 
     static func shellFeatures(
@@ -181,6 +230,9 @@ enum RemoteInteractiveShellBootstrapBuilder {
         lines.append(contentsOf: shellExportLines(shellFeatures: shellFeatures))
         lines.append("export PATH=\"$HOME/.cmux/bin:$PATH\"")
         lines.append("export CMUX_BUNDLED_CLI_PATH=\"$HOME/.cmux/bin/cmux\"")
+        lines.append(
+            "export CMUX_PERSISTENT_PTY_EXEC_HELPER=\"${CMUX_PERSISTENT_PTY_EXEC_HELPER:-$CMUX_BUNDLED_CLI_PATH}\""
+        )
         lines.append("export CMUX_SHELL_INTEGRATION_DIR=\"\(shellStateDir)\"")
         if let relaySocket {
             lines.append("export CMUX_SOCKET_PATH=\(relaySocket)")
@@ -200,29 +252,69 @@ enum RemoteInteractiveShellBootstrapBuilder {
         return lines
     }
 
-    private static func terminalSetupLines(terminfoSource: String?) -> [String] {
-        var lines: [String] = [
+    static func terminalSetupLines(terminfoSource: String?) -> [String] {
+        let trimmedTerminfoSource = terminfoSource?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmedTerminfoSource, !trimmedTerminfoSource.isEmpty else {
+            // Without a bundled terminfo to install we can only probe what the
+            // remote already has and fall back to a universally-present entry.
+            return [
+                "cmux_term='xterm-256color'",
+                "if command -v infocmp >/dev/null 2>&1 && infocmp xterm-ghostty >/dev/null 2>&1; then",
+                "  cmux_term='xterm-ghostty'",
+                "fi",
+                "export TERM=\"$cmux_term\"",
+            ]
+        }
+        // Install the bundled xterm-ghostty terminfo *synchronously*, before
+        // deciding TERM, so a full-screen TUI (e.g. Claude Code) never starts
+        // against a TERM whose terminfo entry is missing or half-written.
+        //
+        // The previous design deferred `tic` to a background job and decided
+        // TERM up front, so the first shell on a host without the entry got
+        // xterm-256color while a later pass could select xterm-ghostty mid-write
+        // and garble output (#6352). Here we compile into a private temp
+        // directory on the same filesystem as ~/.terminfo, then move each
+        // compiled entry into place with an atomic rename, so a concurrent reader
+        // in another cmux ssh session sharing $HOME never observes a partially
+        // written database. The temp directory comes from `mktemp` when present,
+        // otherwise a per-process `$$` directory (unique among live processes) so
+        // the atomic-rename path applies even without `mktemp` — no branch ever
+        // compiles terminfo directly into ~/.terminfo.
+        return [
             "cmux_term='xterm-256color'",
             "if command -v infocmp >/dev/null 2>&1 && infocmp xterm-ghostty >/dev/null 2>&1; then",
             "  cmux_term='xterm-ghostty'",
+            "elif command -v tic >/dev/null 2>&1; then",
+            "  mkdir -p \"$HOME/.terminfo\" 2>/dev/null",
+            "  cmux_ti_tmp=$(mktemp -d \"$HOME/.terminfo.cmux.XXXXXX\" 2>/dev/null) || cmux_ti_tmp=''",
+            "  if [ -z \"$cmux_ti_tmp\" ]; then",
+            "    cmux_ti_tmp=\"$HOME/.terminfo.cmux.$$\"",
+            "    rm -rf \"$cmux_ti_tmp\" 2>/dev/null",
+            "    mkdir \"$cmux_ti_tmp\" 2>/dev/null || cmux_ti_tmp=''",
+            "  fi",
+            "  {",
+            "    cat <<'CMUXTERMINFO'",
+            trimmedTerminfoSource,
+            "CMUXTERMINFO",
+            "  } | {",
+            "    if [ -n \"$cmux_ti_tmp\" ] && tic -x -o \"$cmux_ti_tmp\" - >/dev/null 2>&1; then",
+            "      find \"$cmux_ti_tmp\" -type f 2>/dev/null | while IFS= read -r cmux_ti_file; do",
+            "        cmux_ti_rel=${cmux_ti_file#\"$cmux_ti_tmp\"/}",
+            "        cmux_ti_dest=\"$HOME/.terminfo/$cmux_ti_rel\"",
+            "        mkdir -p \"$(dirname \"$cmux_ti_dest\")\" 2>/dev/null",
+            "        mv -f \"$cmux_ti_file\" \"$cmux_ti_dest\" 2>/dev/null || cp -f \"$cmux_ti_file\" \"$cmux_ti_dest\" 2>/dev/null",
+            "      done",
+            "    fi",
+            "  }",
+            "  [ -n \"$cmux_ti_tmp\" ] && rm -rf \"$cmux_ti_tmp\" 2>/dev/null",
+            "  if infocmp xterm-ghostty >/dev/null 2>&1; then",
+            "    cmux_term='xterm-ghostty'",
+            "  fi",
+            "  unset cmux_ti_tmp cmux_ti_file cmux_ti_rel cmux_ti_dest 2>/dev/null || true",
             "fi",
             "export TERM=\"$cmux_term\"",
         ]
-        guard let terminfoSource else { return lines }
-        let trimmedTerminfoSource = terminfoSource.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedTerminfoSource.isEmpty else { return lines }
-        lines += [
-            "if [ \"$cmux_term\" != 'xterm-ghostty' ]; then",
-            "  (",
-            "    command -v tic >/dev/null 2>&1 || exit 0",
-            "    mkdir -p \"$HOME/.terminfo\" 2>/dev/null || exit 0",
-            "    cat <<'CMUXTERMINFO' | tic -x - >/dev/null 2>&1",
-            trimmedTerminfoSource,
-            "CMUXTERMINFO",
-            "  ) </dev/null >/dev/null 2>&1 &",
-            "fi",
-        ]
-        return lines
     }
 
     private static func shellExportLines(shellFeatures: String) -> [String] {

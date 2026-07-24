@@ -1,0 +1,652 @@
+import Foundation
+import CMUXMobileCore
+import CmuxAuthRuntime
+import CmuxMobileShell
+import CmuxMobileShellModel
+import CmuxMobileSupport
+import CmuxMobileWorkspace
+import SwiftUI
+#if os(iOS)
+@preconcurrency import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
+
+struct CMUXMobileRootView: View {
+    private static let startupRestoringGateSeconds: Double = 6
+
+    @Bindable var store: CMUXMobileShellStore
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(AuthCoordinator.self) private var authManager
+    @Environment(\.dogfoodAttachPreparation) private var dogfoodAttachPreparation
+    private let signOutHook: MobileSignOutHook
+    private let startupConnectionCoordinator: MobileStartupConnectionCoordinator
+    #if os(iOS)
+    @Environment(MobilePushCoordinator.self) private var pushCoordinator
+    /// Persists the last durable milestone in first-run onboarding.
+    @Bindable private var onboardingStore: MobileOnboardingStore
+    @State private var isAwaitingOnboardingReconnectStart = false
+    #endif
+    @State private var pendingAttachURL: String?
+    @State private var didAuthenticateWithAttachTicket = false
+    @State private var didExceedStartupRestoringGate = false
+    @State private var isShowingAddDeviceSheet = false
+    @State private var pairingPresentation: PairingPresentation = .manual
+    #if os(iOS)
+    @State private var addDeviceSheetDetent: PresentationDetent = .large
+    #endif
+    /// The app's one tailnet detector, built at the composition root and
+    /// injected through the environment so pairing, the disconnected shell,
+    /// and future setup-help surfaces share the same signal. Re-evaluates on
+    /// connectivity changes by itself; the scene-phase handler below covers
+    /// foreground returns. `nil` when unwired (previews), which shows no
+    /// Tailscale guidance.
+    @Environment(\.tailscaleStatusMonitor) private var tailscaleStatusMonitor
+
+    #if os(iOS)
+    init(
+        store: CMUXMobileShellStore,
+        onboardingStore: MobileOnboardingStore,
+        signOutHook: MobileSignOutHook,
+        startupConnectionCoordinator: MobileStartupConnectionCoordinator
+    ) {
+        self.store = store
+        self.onboardingStore = onboardingStore
+        self.signOutHook = signOutHook
+        self.startupConnectionCoordinator = startupConnectionCoordinator
+    }
+    #else
+    init(
+        store: CMUXMobileShellStore,
+        signOutHook: MobileSignOutHook,
+        startupConnectionCoordinator: MobileStartupConnectionCoordinator
+    ) {
+        self.store = store
+        self.signOutHook = signOutHook
+        self.startupConnectionCoordinator = startupConnectionCoordinator
+    }
+    #endif
+
+    private var shouldShowTerminalLayoutPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.terminalLayoutPreviewEnabled
+        #else
+        return false
+        #endif
+    }
+
+    private var shouldShowWorkspaceListLayoutPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.workspaceListLayoutPreviewEnabled
+        #else
+        return false
+        #endif
+    }
+
+    private var shouldShowStreamingChatPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.streamingChatPreviewEnabled
+        #else
+        return false
+        #endif
+    }
+
+    private var shouldShowOnboardingPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.onboardingPreviewEnabled
+        #else
+        return false
+        #endif
+    }
+
+    @ViewBuilder private var streamingChatPreview: some View {
+        #if os(iOS) && DEBUG
+        StreamingChatPreviewView()
+        #else
+        EmptyView()
+        #endif
+    }
+
+    @ViewBuilder private var terminalLayoutPreview: some View {
+        #if os(iOS) && DEBUG
+        TerminalLayoutPreviewView()
+        #else
+        EmptyView()
+        #endif
+    }
+
+    @ViewBuilder private var workspaceListLayoutPreview: some View {
+        #if os(iOS) && DEBUG
+        WorkspaceListLayoutPreviewView()
+        #else
+        EmptyView()
+        #endif
+    }
+
+    var body: some View {
+        rootContent
+        .sheet(isPresented: addDeviceSheetBinding) {
+            pairingSheet
+        }
+        .animation(.snappy(duration: 0.18), value: isAuthenticated)
+        .animation(.snappy(duration: 0.18), value: store.phase)
+        .onAppear {
+            syncShellAuthentication(isAuthenticated)
+            store.resumeForegroundRefresh()
+            #if os(iOS)
+            pushCoordinator.bind(store: store)
+            #endif
+            // If the view mounts already authenticated (cached session, or a
+            // mock/fixture launch), `onChange(of: isAuthenticated)` never fires,
+            // so kick off the stored-Mac reconnect here too. Without this the
+            // workspace list's initial-connection status could never resolve
+            // because nothing updates `didFinishStoredMacReconnectAttempt`.
+            reconnectStoredMacIfNeeded()
+        }
+        #if os(iOS)
+        // A notification tap can arrive before the workspace (or terminal) it
+        // targets is loaded (cold launch, or attach still in flight); re-apply
+        // the parked deep link as the lists fill in. The version counter is a
+        // cheap change signal: it bumps on any workspace or terminal list
+        // mutation without allocating ID arrays on every body evaluation.
+        .onChange(of: store.workspaceTopologyVersion) { _, _ in
+            pushCoordinator.workspacesDidChange()
+        }
+        #endif
+        .onChange(of: authManager.resolvedTeamID) { _, _ in
+            // The effective team can change because the user selected one or
+            // because launch-time team loading resolved the cached account's
+            // default. Re-scope both transitions so a reconnect that began with
+            // no team is superseded by exactly one current-team attempt.
+            store.currentTeamDidChange()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { store.suspendForegroundRefresh(); return }
+            store.resumeForegroundRefresh()
+            // The user may have toggled Tailscale while we were backgrounded.
+            tailscaleStatusMonitor?.refresh()
+            // Re-check the Stack session on resume so one that died while
+            // backgrounded routes to the sign-in page instead of waiting for a
+            // failed connect to surface a confusing host-side message.
+            Task { await authManager.revalidateSession() }
+        }
+        .onOpenURL { url in
+            let rawURL = url.absoluteString
+            if MobileRootAuthGate.isAttachURL(url) {
+                connectAttachURL(rawURL)
+                return
+            }
+
+            guard isAuthenticated else {
+                pendingAttachURL = rawURL
+                return
+            }
+            Task {
+                await store.connectPairingURL(rawURL)
+            }
+        }
+        .onChange(of: isAuthenticated) { _, isAuthenticated in
+            syncShellAuthentication(isAuthenticated)
+            guard isAuthenticated else {
+                startupConnectionCoordinator.reset()
+                return
+            }
+            if consumePendingURLIfReady() {
+                return
+            }
+            reconnectStoredMacIfNeeded()
+        }
+        .onChange(of: authManager.isRestoringSession) { _, isRestoringSession in
+            syncShellAuthentication(isAuthenticated, isRestoringSession: isRestoringSession)
+            guard !isRestoringSession else { return }
+            if consumePendingURLIfReady() {
+                return
+            }
+            reconnectStoredMacIfNeeded()
+        }
+        .onChange(of: store.connectionState) { _, connectionState in
+            if connectionState == .connected {
+                isShowingAddDeviceSheet = false
+            } else {
+                clearAttachTicketAuthenticationIfNeeded()
+            }
+        }
+        #if os(iOS)
+        .onChange(of: store.isReconnectingStoredMac) { _, isReconnecting in
+            if isReconnecting {
+                isAwaitingOnboardingReconnectStart = false
+            }
+        }
+        #endif
+        .onChange(of: store.hasActiveUnexpiredAttachTicket) { _, hasActiveUnexpiredAttachTicket in
+            if !hasActiveUnexpiredAttachTicket {
+                clearAttachTicketAuthenticationIfNeeded()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var rootContent: some View {
+        if shouldShowHideComputersVerifier {
+            hideComputersVerifier
+        } else if shouldShowAgentChatDemoPreview {
+            agentChatDemoPreview
+        } else if shouldShowTerminalLayoutPreview {
+            terminalLayoutPreview
+        } else if shouldShowWorkspaceListLayoutPreview {
+            workspaceListLayoutPreview
+        } else if shouldShowStreamingChatPreview {
+            streamingChatPreview
+        } else if shouldShowOnboardingPreview {
+            onboardingPreview
+        } else if shouldShowOnboarding {
+            onboardingFlow
+        } else if !isAuthenticated {
+            SignInView()
+        } else if store.connectionState != .connected && shouldShowRestoringStoredMac {
+            RestoringStoredMacWorkspaceShell(
+                store: store,
+                signOut: signOut,
+                showAddDevice: showAddDevice,
+                showPairingScanner: showPairingScanner,
+                reconnectStoredMac: reconnectStoredMacIfNeeded
+            )
+        } else if MobileAuthenticatedShellPresentation.resolve(
+            connectionState: store.connectionState,
+            hasKnownPairedMac: store.hasKnownPairedMac,
+            hasHiddenComputers: store.hasHiddenComputers
+        ) == .disconnected {
+            // ONLY when there are no saved Macs at all: the add-device flow (it
+            // auto-presents the pairing sheet since there is nothing to list).
+            DisconnectedWorkspaceShellView(
+                hasKnownPairedMac: store.hasKnownPairedMac,
+                showAddDevice: showAddDevice,
+                showPairingScanner: showPairingScanner,
+                signOut: signOut,
+                setupHelpHighlight: disconnectedSetupHelpHighlight,
+                store: store
+            )
+        } else {
+            // Connected, OR we have saved Macs and are auto-connecting in the
+            // background: always show the integrated cross-Mac workspace list, so
+            // the user never sees a "Your Macs" picker screen. The list renders
+            // whatever workspaces have aggregated (foreground + live secondary
+            // subscriptions); the foreground connection is established without any
+            // tap. Opening a workspace attaches its Mac on demand.
+            WorkspaceShellView(
+                store: store,
+                signOut: signOut,
+                showAddDevice: showAddDevice,
+                showPairingScanner: showPairingScanner
+            )
+        }
+    }
+
+    private var addDeviceSheetBinding: Binding<Bool> {
+        Binding(
+            get: { isShowingAddDeviceSheet },
+            set: { isPresented in
+                if isPresented {
+                    showAddDevice()
+                } else {
+                    dismissAddDeviceSheet()
+                }
+            }
+        )
+    }
+
+    @ViewBuilder
+    private var pairingSheet: some View {
+        PairingView(
+            pairingCode: $store.pairingCode,
+            initialPresentation: pairingPresentation,
+            connectionError: store.connectionError,
+            connectionErrorGuidance: store.connectionErrorGuidance,
+            versionWarning: store.pairingVersionWarning,
+            connectPairingCode: {
+                await store.connectPairingInput()
+            },
+            acceptVersionWarning: {
+                let result = await store.acceptPairingVersionWarning()
+                clearAttachTicketAuthentication(after: result)
+                if result == .connected {
+                    dismissAddDeviceSheet()
+                }
+            },
+            connectManualHost: { name, host, port in
+                await store.connectManualHost(name: name, host: host, port: port)
+            },
+            cancelPairing: cancelPairing,
+            cancel: dismissAddDeviceSheet
+        )
+        #if os(iOS)
+        .presentationDetents([.medium, .large], selection: $addDeviceSheetDetent)
+        .presentationDragIndicator(.visible)
+        #endif
+    }
+
+    /// Which setup gate the disconnected screen's "Trouble connecting?" help marks
+    /// as the user's current step. When the host rejected this device on
+    /// authorization grounds (a different cmux account, or a token it could not
+    /// verify), the account gate wins, since retrying cannot fix it. Otherwise a
+    /// returning device whose stored Mac just failed to reconnect has a known
+    /// paired Mac, so its recovery path is "wake the Mac"; a device that has never
+    /// paired is guided to install and pair. `connectionRequiresReauth` is the
+    /// store's existing public signal for that auth rejection; this only reads it.
+    private var disconnectedSetupHelpHighlight: MobileSetupGuidanceState {
+        MobileSetupGuidancePolicy.state(
+            isSignedIn: isAuthenticated,
+            hasKnownPairedMac: store.hasKnownPairedMac,
+            hasAccountMismatch: store.connectionRequiresReauth
+        )
+    }
+
+    /// Whether first-run onboarding has an unfinished durable milestone.
+    private var shouldShowOnboarding: Bool {
+        #if os(iOS)
+        return onboardingStore.progress.shouldShowOnboarding
+        #else
+        return false
+        #endif
+    }
+
+    @ViewBuilder
+    private var onboardingFlow: some View {
+        #if os(iOS)
+        OnboardingFlowView(
+            initialStage: initialOnboardingStage,
+            context: .firstRun,
+            isAuthenticated: isAuthenticated,
+            connectionPhase: onboardingConnectionPhase,
+            onReachedConnection: markOnboardingReadyToConnect,
+            onSkip: completeOnboarding,
+            onRetryConnection: retryAutomaticConnection,
+            onStartFallbackPairing: showOnboardingPairingScanner,
+            onComplete: completeOnboarding
+        )
+        #else
+        EmptyView()
+        #endif
+    }
+
+    @ViewBuilder
+    private var onboardingPreview: some View {
+        #if os(iOS) && DEBUG
+        OnboardingFlowView(
+            initialStage: initialOnboardingStage,
+            context: .preview,
+            isAuthenticated: true,
+            connectionPhase: UITestConfig.onboardingConnectionFallbackEnabled
+                ? .fallback
+                : .searching,
+            onReachedConnection: markOnboardingReadyToConnect,
+            onSkip: completeOnboarding,
+            onRetryConnection: {},
+            onStartFallbackPairing: showOnboardingPairingScanner,
+            onComplete: completeOnboarding
+        )
+        #else
+        EmptyView()
+        #endif
+    }
+
+    #if os(iOS)
+    private var initialOnboardingStage: OnboardingStage {
+        onboardingStore.progress == .connect ? .connect : .agents
+    }
+
+    private var onboardingConnectionPhase: OnboardingConnectionPhase {
+        OnboardingConnectionPhase(
+            isMacReady: store.connectionState == .connected,
+            isSearching: isAwaitingOnboardingReconnectStart || store.isReconnectingStoredMac,
+            didFinishSearch: store.didFinishStoredMacReconnectAttempt
+        )
+    }
+
+    private func markOnboardingReadyToConnect() {
+        onboardingStore.markReadyToConnect()
+        guard isAuthenticated, store.connectionState != .connected else { return }
+        let stackUserID = authManager.currentUser?.id
+        isAwaitingOnboardingReconnectStart = true
+        Task {
+            defer { isAwaitingOnboardingReconnectStart = false }
+            _ = await store.retryActiveMacReconnect(stackUserID: stackUserID)
+        }
+    }
+
+    private func completeOnboarding() {
+        onboardingStore.markComplete()
+    }
+    #endif
+
+    private var isAuthenticated: Bool {
+        MobileRootAuthGate.isAuthenticated(
+            stackAuthenticated: authManager.isAuthenticated,
+            attachTicketAuthenticated: hasActiveAttachTicketAuthentication
+        )
+    }
+
+    private var shouldShowRestoringStoredMac: Bool {
+        !didExceedStartupRestoringGate
+            && store.workspaceListConnectionStatus != .connected
+            && MobileRootAuthGate.shouldShowRestoringStoredMac(
+            authenticated: isAuthenticated,
+            connectionState: store.connectionState,
+            isReconnectingStoredMac: store.isReconnectingStoredMac,
+            hasKnownPairedMac: store.hasKnownPairedMac,
+            pairedMacHintUndetermined: store.pairedMacHintUndetermined,
+            didFinishStoredMacReconnectAttempt: store.didFinishStoredMacReconnectAttempt
+        )
+    }
+
+    private var hasActiveAttachTicketAuthentication: Bool {
+        didAuthenticateWithAttachTicket && store.hasActiveUnexpiredAttachTicket
+    }
+
+    private func syncShellAuthentication(
+        _ isAuthenticated: Bool,
+        isRestoringSession: Bool? = nil
+    ) {
+        MobileRootAuthGate.syncShellAuthentication(
+            stackAuthenticated: isAuthenticated,
+            isRestoringSession: isRestoringSession ?? authManager.isRestoringSession,
+            store: store
+        )
+    }
+
+    /// Starts the stored-Mac reconnect when authenticated, unless a UITest attach
+    /// URL took over. Called from both initial `onAppear` (covers a mount that is
+    /// already authenticated) and `onChange(of: isAuthenticated)` (covers a
+    /// sign-in that completes after mount) so the restoring gate always resolves
+    /// even when the auth state never transitions while this view is mounted.
+    private func reconnectStoredMacIfNeeded() {
+        guard isAuthenticated, !authManager.isRestoringSession else { return }
+        let startedUITestAttachURL = connectUITestAttachURLIfNeeded()
+        guard !startedUITestAttachURL,
+              MobileRootAuthGate.shouldReconnectStoredMac(
+                stackAuthenticated: authManager.isAuthenticated,
+                attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
+                isRestoringSession: authManager.isRestoringSession,
+                connectionState: store.connectionState
+              ) else { return }
+        guard let startupAttempt = startupConnectionCoordinator.claimStoredReconnect() else { return }
+        let stackUserID = authManager.currentUser?.id
+        didExceedStartupRestoringGate = false
+        let restoringGateDeadline = Task { @MainActor in
+            try? await ContinuousClock().sleep(
+                for: .seconds(Self.startupRestoringGateSeconds)
+            )
+            guard !Task.isCancelled, store.connectionState != .connected else { return }
+            didExceedStartupRestoringGate = true
+        }
+        Task {
+            defer { restoringGateDeadline.cancel() }
+            _ = await store.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
+            startupConnectionCoordinator.finishStoredReconnect(startupAttempt)
+        }
+    }
+
+    /// A user retry intentionally supersedes any startup attempt that is still
+    /// winding down after the restoring deadline exposed the fallback UI.
+    private func retryAutomaticConnection() {
+        let stackUserID = authManager.currentUser?.id
+        Task {
+            _ = await store.retryActiveMacReconnect(stackUserID: stackUserID)
+        }
+    }
+
+    private func showAddDevice() {
+        presentAddDevice(.manual)
+    }
+
+    private func showPairingScanner() {
+        presentAddDevice(.scanner(entry: .settingsReplay))
+    }
+
+    private func showOnboardingPairingScanner() {
+        presentAddDevice(.scanner(entry: .onboardingFallback))
+    }
+
+    private func presentAddDevice(_ presentation: PairingPresentation) {
+        if isShowingAddDeviceSheet {
+            guard pairingPresentation != presentation else { return }
+            pairingPresentation = presentation
+            return
+        }
+        pairingPresentation = presentation
+        #if os(iOS)
+        addDeviceSheetDetent = .large
+        #endif
+        isShowingAddDeviceSheet = true
+    }
+
+    private func connectAttachURL(_ rawURL: String) {
+        guard !authManager.isRestoringSession else {
+            pendingAttachURL = rawURL
+            return
+        }
+        didAuthenticateWithAttachTicket = true
+        syncShellAuthentication(true)
+        Task {
+            let result = await store.connectPairingURLResult(rawURL)
+            if result == .needsUserApproval {
+                showAddDevice()
+            }
+            clearAttachTicketAuthentication(after: result)
+            if result == .failed, store.connectionState != .connected {
+                reconnectStoredMacIfNeeded()
+            }
+        }
+    }
+
+    @discardableResult
+    private func consumePendingURLIfReady() -> Bool {
+        guard let rawURL = pendingAttachURL else { return false }
+        if isRawAttachURL(rawURL) {
+            guard !authManager.isRestoringSession else { return false }
+            pendingAttachURL = nil
+            connectAttachURL(rawURL)
+            return true
+        }
+        guard isAuthenticated else { return false }
+        pendingAttachURL = nil
+        Task {
+            await store.connectPairingURL(rawURL)
+            if store.connectionState != .connected {
+                reconnectStoredMacIfNeeded()
+            }
+        }
+        return true
+    }
+
+    private func isRawAttachURL(_ rawURL: String) -> Bool {
+        guard let url = URL(string: rawURL) else { return false }
+        return MobileRootAuthGate.isAttachURL(url)
+    }
+
+    private func cancelPairing() {
+        store.cancelPairing()
+        clearAttachTicketAuthenticationIfNeeded()
+    }
+
+    private func dismissAddDeviceSheet() {
+        isShowingAddDeviceSheet = false
+        pairingPresentation = .manual
+        if store.pairingVersionWarning != nil {
+            cancelPairing()
+        } else {
+            clearAttachTicketAuthenticationIfNeeded()
+        }
+    }
+
+    private func clearAttachTicketAuthentication(after result: MobilePairingURLConnectionResult) {
+        guard MobileRootAuthGate.shouldClearAttachTicketAuthentication(
+            pairingResult: result,
+            connectionState: store.connectionState,
+            hasActiveUnexpiredTicket: store.hasActiveUnexpiredAttachTicket
+        ) else { return }
+        didAuthenticateWithAttachTicket = false
+        syncShellAuthentication(authManager.isAuthenticated)
+    }
+
+    private func clearAttachTicketAuthenticationIfNeeded() {
+        guard didAuthenticateWithAttachTicket,
+              store.connectionState != .connected || !store.hasActiveUnexpiredAttachTicket else {
+            return
+        }
+        didAuthenticateWithAttachTicket = false
+        syncShellAuthentication(authManager.isAuthenticated)
+    }
+
+    private func signOut() {
+        Task {
+            // Local shell teardown first so the whole UI lands signed out
+            // immediately; authManager.signOut clears the local session up
+            // front and only then runs its bounded best-effort server teardown
+            // (push-token DELETE, Stack session revocation).
+            didAuthenticateWithAttachTicket = false
+            didExceedStartupRestoringGate = false
+            startupConnectionCoordinator.reset()
+            store.signOut()
+            let serverTeardown = signOutHook.begin()
+            await authManager.signOut(onSignedOut: serverTeardown)
+        }
+    }
+
+    @discardableResult
+    private func connectUITestAttachURLIfNeeded() -> Bool {
+        #if DEBUG
+        // Auto-pair when an attach URL is supplied at launch. Two sources:
+        //   - CMUX_DOGFOOD_ATTACH_URL (UITestConfig.dogfoodAttachURL): NOT gated on
+        //     mock data, so it fires against the real backend. The dev-launch
+        //     tooling (scripts/mobile-dev-launch.sh, scripts/dev-setup.sh) signs in
+        //     for real (CMUX_UITEST_STACK_* with CMUX_UITEST_MOCK_DATA=0) and wants
+        //     the phone to auto-pair to the freshly built Mac dev app. With mock
+        //     off, UITestConfig.attachURL is always nil, so this dedicated accessor
+        //     is what un-breaks real-backend auto-pair.
+        //   - CMUX_UITEST_ATTACH_URL (UITestConfig.attachURL): gated on mock data,
+        //     kept intact for the XCUITest harness.
+        // No-op unless one of those env vars is set, so normal launches are
+        // unaffected.
+        guard isAuthenticated,
+              let attachURL = UITestConfig.dogfoodAttachURL ?? UITestConfig.attachURL else {
+            return false
+        }
+        // The configured launch route owns startup even after it is consumed.
+        // Returning true for repeated lifecycle callbacks prevents a saved-Mac
+        // restore from silently racing or replacing that explicit route.
+        guard let startupAttempt = startupConnectionCoordinator.claimInjectedAttach() else {
+            return true
+        }
+        Task {
+            await dogfoodAttachPreparation.run {
+                await store.connectPairingURL(attachURL)
+            }
+            startupConnectionCoordinator.finishInjectedAttach(startupAttempt)
+        }
+        return true
+        #else
+        return false
+        #endif
+    }
+}

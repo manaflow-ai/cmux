@@ -28,3 +28,32 @@ export const DOWNLOAD_CONFIRMATION_PATH = "/download/confirmation";
 export const DOWNLOAD_INTENT_PARAM = "dl";
 
 export const DOWNLOAD_CONFIRMATION_HREF = `${DOWNLOAD_CONFIRMATION_PATH}?${DOWNLOAD_INTENT_PARAM}=1`;
+
+/**
+ * Platforms shown in the Download button's platform picker, besides macOS
+ * (which is the button's primary action) and iOS (which links out to the
+ * Founders Edition). These have no build yet, so picking one opens the
+ * waitlist dialog.
+ */
+export const WAITLIST_PLATFORMS = ["linux", "android", "windows"] as const;
+
+export type WaitlistPlatform = (typeof WAITLIST_PLATFORMS)[number];
+
+/**
+ * What a waitlist signup is for: a specific platform (from the platform menu)
+ * or `"any"` (the generic "Join waitlist" entry points, which record interest
+ * across every unreleased platform).
+ */
+export type WaitlistTarget = WaitlistPlatform | "any";
+
+/**
+ * PostHog Early Access Feature flag keys (project 244066, stage "concept")
+ * backing each platform waitlist. Joining enrolls the identified person in the
+ * matching feature, so signups show up as that feature's enrollees in PostHog
+ * rather than only as a raw event.
+ */
+export const WAITLIST_EARLY_ACCESS_FLAGS: Record<WaitlistPlatform, string> = {
+  linux: "cmux-for-linux",
+  android: "cmux-for-android",
+  windows: "cmux-for-windows",
+};

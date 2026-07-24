@@ -17,6 +17,7 @@ This is an internal planning note for cmux skills and customization surfaces. Ke
 - `actions` in `cmux.json`: reusable action IDs for Command Palette, shortcuts, tab bar buttons, and plus-button menus.
 - `ui.newWorkspace.action`: replaces the plus-button click.
 - `ui.newWorkspace.contextMenu`: controls the plus-button right-click menu. `ui.newWorkspace.rightClick` is accepted as an alias, but public examples should use `contextMenu`.
+- `ui.newWorkspace.menuSectionOrder`: controls whether custom plus-button menu entries or built-in Cloud VM actions appear first.
 - `ui.surfaceTabBar.buttons`: replaces the visible tab bar button list. Built-ins must be included explicitly if they should remain visible.
 - `commands`: reusable shell commands and workspace layouts for worktrees, multiple checkouts, local services, browser previews, and SSH setups.
 - Config precedence: project-local actions and commands override global entries with the same ID or name. Global app preferences stay in `~/.config/cmux/cmux.json`.

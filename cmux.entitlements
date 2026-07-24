@@ -10,6 +10,10 @@
 	<true/>
 	<key>com.apple.developer.web-browser.public-key-credential</key>
 	<true/>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>7WLXT3NR37.com.cmuxterm.app</string>
+	</array>
 	<key>com.apple.security.device.camera</key>
 	<true/>
 	<key>com.apple.security.device.audio-input</key>

@@ -10,14 +10,77 @@ extension Workspace {
     private static let managedSubagentEnvironmentKey = "CMUX_AGENT_MANAGED_SUBAGENT"
     private static let truthyStartupEnvironmentValues: Set<String> = ["1", "true", "yes", "on", "enabled"]
 
+    var agentPIDs: [String: pid_t] {
+        get { sidebarAgentRuntimeObservation.agentPIDs }
+        set { sidebarAgentRuntimeObservation.setAgentPIDs(newValue) }
+    }
+
+    var agentPIDProcessIdentitiesByKey: [String: AgentPIDProcessIdentity] {
+        get { sidebarAgentRuntimeObservation.agentPIDProcessIdentitiesByKey }
+        set { sidebarAgentRuntimeObservation.setAgentPIDProcessIdentitiesByKey(newValue) }
+    }
+
+    var agentPIDPanelIdsByKey: [String: UUID] {
+        get { sidebarAgentRuntimeObservation.agentPIDPanelIdsByKey }
+        set { sidebarAgentRuntimeObservation.setAgentPIDPanelIdsByKey(newValue) }
+    }
+
+    var agentPIDKeysByPanelId: [UUID: Set<String>] {
+        get { sidebarAgentRuntimeObservation.agentPIDKeysByPanelId }
+        set { sidebarAgentRuntimeObservation.setAgentPIDKeysByPanelId(newValue) }
+    }
+
+    var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] {
+        get { sidebarAgentRuntimeObservation.agentLifecycleStatesByPanelId }
+        set { sidebarAgentRuntimeObservation.setAgentLifecycleStatesByPanelId(newValue) }
+    }
+
+    /// Returns exact-session runtime identities that still match their recorded process generation.
+    func confirmedRuntimeAgentProcessIdentities(
+        for agent: SessionRestorableAgentSnapshot,
+        panelId: UUID,
+        currentProcessIdentity: (Int) -> AgentPIDProcessIdentity?
+    ) -> Set<AgentPIDProcessIdentity> {
+        confirmedRuntimeAgentProcessIdentities(
+            kind: agent.kind,
+            sessionId: agent.sessionId,
+            panelId: panelId,
+            currentProcessIdentity: currentProcessIdentity
+        )
+    }
+
+    /// Returns exact-session runtime identities that still match their recorded process generation.
+    func confirmedRuntimeAgentProcessIdentities(
+        kind: RestorableAgentKind,
+        sessionId: String,
+        panelId: UUID,
+        currentProcessIdentity: (Int) -> AgentPIDProcessIdentity?
+    ) -> Set<AgentPIDProcessIdentity> {
+        // Claude's `claude_code` key identifies only a panel, not a session, so it
+        // cannot prove that a live process supersedes this cached session generation.
+        guard kind != .claude else { return [] }
+        let key = "\(kind.rawValue).\(sessionId)"
+        guard agentPIDKeysByPanelId[panelId]?.contains(key) == true,
+              let pid = agentPIDs[key],
+              pid > 0,
+              let recordedIdentity = agentPIDProcessIdentitiesByKey[key],
+              recordedIdentity.pid == pid,
+              currentProcessIdentity(Int(pid)) == recordedIdentity else {
+            return []
+        }
+        return [recordedIdentity]
+    }
+
     func agentRuntimeState(forPanelId panelId: UUID) -> DetachedAgentRuntimeState? {
         let pidKeys = agentPIDKeysByPanelId[panelId] ?? []
 
         var agentPIDsForPanel: [String: pid_t] = [:]
+        var agentPIDIdentitiesForPanel: [String: AgentPIDProcessIdentity] = [:]
         var statusEntriesForPanel: [String: SidebarStatusEntry] = [:]
         for key in pidKeys {
             if let pid = agentPIDs[key] {
                 agentPIDsForPanel[key] = pid
+                agentPIDIdentitiesForPanel[key] = agentPIDProcessIdentitiesByKey[key]
             }
             let statusKey = agentStatusKey(forAgentPIDKey: key)
             if let statusEntry = statusEntries[statusKey] {
@@ -29,11 +92,12 @@ extension Workspace {
             panelId: panelId,
             statusEntries: statusEntriesForPanel,
             agentPIDs: agentPIDsForPanel,
+            agentPIDProcessIdentities: agentPIDIdentitiesForPanel,
             agentPIDKeys: pidKeys
         )
     }
 
-    private func agentStatusKey(forAgentPIDKey key: String) -> String {
+    func agentStatusKey(forAgentPIDKey key: String) -> String {
         if statusEntries[key] != nil {
             return key
         }
@@ -94,23 +158,100 @@ extension Workspace {
         }
         return didChange
     }
-
     @discardableResult
     func recordAgentPID(key: String, pid: pid_t, panelId: UUID?, refreshPorts: Bool = true) -> Bool {
+        let previous = (
+            panelId: agentPIDPanelIdsByKey[key],
+            pid: agentPIDs[key],
+            identity: agentPIDProcessIdentitiesByKey[key]
+        )
         var didClearOtherStructuredAgentRuntime = false
-        if let panelId {
-            didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(onPanel: panelId, keeping: key)
-        }
+        if let panelId { didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(onPanel: panelId, keeping: key) }
+        let processIdentity = Self.agentPIDProcessIdentity(pid: pid)
         agentPIDs[key] = pid
-        if let panelId {
-            recordAgentPIDOwnership(key: key, panelId: panelId)
-        } else {
-            removeAgentPIDOwnership(key: key)
+        agentPIDProcessIdentitiesByKey[key] = processIdentity
+        if let panelId { recordAgentPIDOwnership(key: key, panelId: panelId) } else { removeAgentPIDOwnership(key: key) }
+        if previous.pid != pid || previous.panelId != panelId || previous.identity != processIdentity {
+            for changedPanelId in (previous.panelId == panelId ? [panelId] : [previous.panelId, panelId]).compactMap({ $0 }) {
+                AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId)
+            }
         }
+        if refreshPorts { refreshTrackedAgentPorts() }
+        return didClearOtherStructuredAgentRuntime
+    }
+
+    @discardableResult
+    func clearStaleAgentPIDs(refreshPorts: Bool = true) -> Bool {
+        var didChange = false
+        for (key, pid) in agentPIDs where !isRecordedAgentPIDLive(key: key, pid: pid) {
+            if clearAgentPID(key: key, clearStatus: true, refreshPorts: false) {
+                didChange = true
+            }
+        }
+        if didChange {
+            if refreshPorts { refreshTrackedAgentPorts() }
+            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id)
+        }
+        return didChange
+    }
+
+    @discardableResult
+    func clearStaleAgentPIDs(panelId: UUID, refreshPorts: Bool = true) -> Bool {
+        let keys = agentPIDKeysByPanelId[panelId] ?? []
+        var didChange = false
+        for key in keys {
+            guard let pid = agentPIDs[key] else {
+                if clearAgentPID(key: key, panelId: panelId, clearStatus: true, refreshPorts: false) {
+                    didChange = true
+                }
+                continue
+            }
+            if !isRecordedAgentPIDLive(key: key, pid: pid),
+               clearAgentPID(key: key, panelId: panelId, clearStatus: true, refreshPorts: false) {
+                didChange = true
+            }
+        }
+        if didChange {
+            if refreshPorts { refreshTrackedAgentPorts() }
+            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
+        }
+        return didChange
+    }
+
+    func clearAllAgentPIDs(refreshPorts: Bool = true) {
+        agentPIDs.removeAll()
+        agentPIDProcessIdentitiesByKey.removeAll()
+        agentPIDPanelIdsByKey.removeAll()
+        agentPIDKeysByPanelId.removeAll()
         if refreshPorts {
             refreshTrackedAgentPorts()
+        } else {
+            agentListeningPorts.removeAll()
+            recomputeListeningPorts()
+            PortScanner.shared.unregisterAgentWorkspace(workspaceId: id)
         }
-        return didClearOtherStructuredAgentRuntime
+    }
+
+    private func isRecordedAgentPIDLive(key: String, pid: pid_t) -> Bool {
+        guard pid > 0,
+              let recordedIdentity = agentPIDProcessIdentitiesByKey[key],
+              let currentIdentity = Self.agentPIDProcessIdentity(pid: pid) else {
+            return false
+        }
+        return currentIdentity == recordedIdentity
+    }
+
+    static func agentPIDProcessIdentity(pid: pid_t) -> AgentPIDProcessIdentity? {
+        guard pid > 0 else { return nil }
+        var info = proc_bsdinfo()
+        let expectedSize = MemoryLayout<proc_bsdinfo>.stride
+        let size = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(expectedSize))
+        guard size == expectedSize else { return nil }
+        return AgentPIDProcessIdentity(
+            pid: pid,
+            startSeconds: Int64(info.pbi_start_tvsec),
+            startMicroseconds: Int64(info.pbi_start_tvusec)
+        )
     }
 
     func suppressesRawTerminalNotification(panelId: UUID?) -> Bool {
@@ -138,69 +279,6 @@ extension Workspace {
         return Self.truthyStartupEnvironmentValues.contains(rawValue)
     }
 
-    func sidebarStatusEntriesVisibleForDisplay() -> [SidebarStatusEntry] {
-        let visibleStructuredStatusKeys = visibleStructuredAgentStatusKeysByPanel()
-        return statusEntries.values.filter { entry in
-            shouldDisplaySidebarStatusEntry(entry, visibleStructuredStatusKeys: visibleStructuredStatusKeys)
-        }
-    }
-
-    private func shouldDisplaySidebarStatusEntry(
-        _ entry: SidebarStatusEntry,
-        visibleStructuredStatusKeys: Set<String>
-    ) -> Bool {
-        guard Self.structuredAgentHookStatusKeys.contains(entry.key) else {
-            return true
-        }
-        return visibleStructuredStatusKeys.contains(entry.key)
-    }
-
-    private func visibleStructuredAgentStatusKeysByPanel() -> Set<String> {
-        var statusKeysByPanelId: [UUID: Set<String>] = [:]
-        for (key, panelId) in agentPIDPanelIdsByKey
-        where panels[panelId] != nil {
-            let statusKey = agentStatusKey(forAgentPIDKey: key)
-            guard Self.structuredAgentHookStatusKeys.contains(statusKey),
-                  statusEntries[statusKey] != nil else {
-                continue
-            }
-            statusKeysByPanelId[panelId, default: []].insert(statusKey)
-        }
-        var visibleStatusKeys = Set<String>()
-        for statusKeys in statusKeysByPanelId.values {
-            let winningEntry = statusKeys.compactMap { statusEntries[$0] }.max {
-                isSidebarStatusEntryLessCurrent($0, than: $1)
-            }
-            if let winningEntry {
-                visibleStatusKeys.insert(winningEntry.key)
-            }
-        }
-
-        for key in agentPIDs.keys where agentPIDPanelIdsByKey[key] == nil {
-            let statusKey = agentStatusKey(forAgentPIDKey: key)
-            guard Self.structuredAgentHookStatusKeys.contains(statusKey),
-                  statusEntries[statusKey] != nil else {
-                continue
-            }
-            visibleStatusKeys.insert(statusKey)
-        }
-
-        return visibleStatusKeys
-    }
-
-    private func isSidebarStatusEntryLessCurrent(
-        _ lhs: SidebarStatusEntry,
-        than rhs: SidebarStatusEntry
-    ) -> Bool {
-        if lhs.timestamp != rhs.timestamp {
-            return lhs.timestamp < rhs.timestamp
-        }
-        if lhs.priority != rhs.priority {
-            return lhs.priority < rhs.priority
-        }
-        return lhs.key > rhs.key
-    }
-
     private func isStructuredAgentHookPIDKey(_ key: String) -> Bool {
         Self.structuredAgentHookStatusKeys.contains(agentStatusKey(forAgentPIDKey: key))
     }
@@ -222,10 +300,14 @@ extension Workspace {
         if agentPIDs.removeValue(forKey: key) != nil {
             didChange = true
         }
+        if agentPIDProcessIdentitiesByKey.removeValue(forKey: key) != nil {
+            didChange = true
+        }
         if ownedPanelId != nil {
             removeAgentPIDOwnership(key: key)
             didChange = true
         }
+        if let changedPanelId = ownedPanelId ?? panelId, didChange { AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId) }
         if let lifecyclePanelId = ownedPanelId ?? panelId {
             let lifecycleStatusKey = agentStatusKey(forAgentPIDKey: key)
             if clearAgentLifecycle(key: lifecycleStatusKey, panelId: lifecyclePanelId) {
@@ -243,11 +325,35 @@ extension Workspace {
         return didChange
     }
 
+    /// Clears a panel's restored agent snapshot and resume metadata.
+    func clearRestoredAgentSnapshot(panelId: UUID) {
+        restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
+        restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
+        restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
+    }
+
     func refreshTrackedAgentPorts() {
-        agentListeningPorts.removeAll(keepingCapacity: false)
-        let remainingAgentPIDs = Set(agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
-        PortScanner.shared.refreshAgentPorts(workspaceId: id, agentPIDs: remainingAgentPIDs)
-        recomputeListeningPorts()
+        // Preserve the published snapshot until PortScanner reconciles the new
+        // process tree; eagerly clearing here made every PID refresh flicker.
+        let remainingAgentRoots = Set(agentPIDs.compactMap { key, pid -> AgentPortRootIdentity? in
+            guard pid > 0 else { return nil }
+            return AgentPortRootIdentity(
+                pid: Int(pid),
+                processIdentity: agentPIDProcessIdentitiesByKey[key]
+            )
+        })
+        PortScanner.shared.refreshAgentPorts(workspaceId: id, agentRoots: remainingAgentRoots)
+    }
+
+    func recomputeListeningPorts() {
+        let unique = Set(surfaceListeningPorts.values.flatMap { $0 })
+            .union(agentListeningPorts)
+            .union(remoteDetectedPorts)
+            .union(remoteForwardedPorts)
+        let next = unique.sorted()
+        if listeningPorts != next {
+            listeningPorts = next
+        }
     }
 
     @discardableResult
@@ -273,6 +379,9 @@ extension Workspace {
         var didAdoptAgentPID = false
         for (key, pid) in runtimeState.agentPIDs {
             recordAgentPID(key: key, pid: pid, panelId: runtimeState.panelId, refreshPorts: false)
+            if let recordedIdentity = runtimeState.agentPIDProcessIdentities[key] {
+                agentPIDProcessIdentitiesByKey[key] = recordedIdentity
+            }
             didAdoptAgentPID = true
         }
         for key in runtimeState.agentPIDKeys where runtimeState.agentPIDs[key] == nil {
@@ -307,6 +416,7 @@ extension Workspace {
         let transferredRemoteCleanupConfiguration = transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
         panelSubscriptions.removeValue(forKey: panelId)?.cancel()
         discardAgentSessionPanelSubscription(panelId: panelId, panel: panel)
+        discardBrowserPanelSubscription(panelId: panelId, panel: panel)
         removeBrowserOpenTabSuggestionIfNeeded(panel: panel, panelId: panelId)
         if cleanupControllerSurfaceState {
             TerminalController.shared.cleanupSurfaceState(surfaceIds: [panelId, tabId?.uuid].compactMap { $0 })
@@ -315,21 +425,41 @@ extension Workspace {
             panel?.close()
         }
 
-        panels.removeValue(forKey: panelId)
-        untrackRemoteTerminalSurface(panelId)
-        pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
-        if let tabId {
-            surfaceIdToPanelId.removeValue(forKey: tabId)
-        } else {
-            surfaceIdToPanelId = surfaceIdToPanelId.filter { $0.value != panelId }
+        let shouldPreserveRemoteDisconnectOnClose =
+            origin == "tab_close" ||
+            origin == "pane_close"
+        if shouldPreserveRemoteDisconnectOnClose,
+           panel is TerminalPanel {
+            markRemoteTerminalSessionClosingIfLast(surfaceId: panelId)
+        }
+        let shouldRefreshRemoteDisconnectPlaceholder =
+            shouldPreserveRemoteDisconnectOnClose &&
+            remoteDisconnectPlaceholderPanelIds.remove(panelId) != nil &&
+            panels.count == 1
+        cancelPendingRemoteDisconnectReplacement(surfaceId: panelId)
+        if shouldRefreshRemoteDisconnectPlaceholder,
+           let remoteConfiguration {
+            rememberPendingRemoteDisconnectReplacement(
+                surfaceId: panelId,
+                configuration: remoteConfiguration
+            )
         }
 
+        panels.removeValue(forKey: panelId)
+        untrackRemoteTerminalSurface(panelId)
+        discardRemoteDirectoryTrustState(panelId: panelId)
+        pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
+        removeSurfaceMappings(forPanelId: panelId)
+
         panelDirectories.removeValue(forKey: panelId)
+        panelDirectoryDisplayLabels.removeValue(forKey: panelId)
         panelGitBranches.removeValue(forKey: panelId)
         panelPullRequests.removeValue(forKey: panelId)
         panelTitles.removeValue(forKey: panelId)
         panelCustomTitles.removeValue(forKey: panelId)
+        panelCustomTitleSources.removeValue(forKey: panelId)
         pinnedPanelIds.remove(panelId)
+        pinMutationTokensByPanelId.removeValue(forKey: panelId)
         manualUnreadPanelIds.remove(panelId)
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelShellActivityStates.removeValue(forKey: panelId)
@@ -344,20 +474,16 @@ extension Workspace {
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeValue(forKey: panelId)
 #endif
         discardAgentRuntimeState(closedAgentRuntimeState)
-        restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
-        restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
+        clearRestoredAgentSnapshot(panelId: panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
-        terminalInheritanceFontPointsByPanelId.removeValue(forKey: panelId)
-        if lastTerminalConfigInheritancePanelId == panelId {
-            lastTerminalConfigInheritancePanelId = nil
-        }
+        removeTerminalConfigInheritanceSource(panelId: panelId)
         if clearSurfaceNotifications {
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
         }
 
         if requestTransferredRemoteCleanup, let transferredRemoteCleanupConfiguration {
-            Self.requestSSHControlMasterCleanupIfNeeded(configuration: transferredRemoteCleanupConfiguration)
+            requestSSHControlMasterCleanupIfNeeded(configuration: transferredRemoteCleanupConfiguration)
         }
         return transferredRemoteCleanupConfiguration
     }

@@ -3,16 +3,12 @@
 import { useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import {
+  localizedShortcutText,
   shortcutCategories,
   shortcutSequences,
-  type LocalizedText,
   type Shortcut,
   type ShortcutSequence,
 } from "../../data/cmux-shortcuts";
-
-function localizedText(text: LocalizedText, locale: string) {
-  return locale.startsWith("ja") ? text.ja : text.en;
-}
 
 function normalize(s: string) {
   return s.toLowerCase().replace(/\s+/g, " ").trim();
@@ -69,8 +65,8 @@ function ShortcutRow({
   locale: string;
   sequenceSeparator: string;
 }) {
-  const description = localizedText(shortcut.description, locale);
-  const note = shortcut.note ? localizedText(shortcut.note, locale) : undefined;
+  const description = localizedShortcutText(shortcut.description, locale);
+  const note = shortcut.note ? localizedShortcutText(shortcut.note, locale) : undefined;
   const sequences = shortcutSequences(shortcut);
 
   return (
@@ -110,8 +106,8 @@ export function KeyboardShortcuts() {
       ...cat,
       shortcuts: cat.shortcuts.filter((shortcut) => {
         const catTitle = t(`cat.${cat.titleKey}`);
-        const description = localizedText(shortcut.description, locale);
-        const note = shortcut.note ? localizedText(shortcut.note, locale) : "";
+        const description = localizedShortcutText(shortcut.description, locale);
+        const note = shortcut.note ? localizedShortcutText(shortcut.note, locale) : "";
         const combos = shortcutSequences(shortcut)
           .map((sequence) => sequenceToText(sequence, sequenceSeparator))
           .join(" ");

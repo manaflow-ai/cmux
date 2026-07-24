@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxClientConfig
 import CmuxMobileAnalytics
 import CmuxMobileShellModel
 import Foundation
@@ -27,6 +28,16 @@ import UIKit
 public struct MobileAnalyticsComposition {
     /// The shared, injected analytics emitter.
     public let emitter: any AnalyticsEmitting
+    /// The typed feature-flag/config loader for Swift callers.
+    public let clientConfig: any ClientConfigLoading
+    /// The per-install anonymous id used for analytics and feature flag evaluation.
+    public let anonymousID: String
+    /// The default mobile evaluation context sent to `/api/client-config`.
+    public let clientConfigContext: ClientConfigEvaluationContext
+    /// A request for anonymous mobile flag evaluation.
+    public var anonymousClientConfigRequest: ClientConfigRequest {
+        ClientConfigRequest(distinctId: anonymousID, context: clientConfigContext)
+    }
     /// The session store + sessionizer the app shell drives on foreground/background.
     public let sessionStore: AnalyticsSessionStore
     /// The 30-minute-window sessionizer used with ``sessionStore``.
@@ -40,22 +51,29 @@ public struct MobileAnalyticsComposition {
     ///   - tokenProvider: The auth token source (production: `AuthCoordinator`).
     ///   - defaults: Persistence for the opt-out flag, the anonymous client id,
     ///     and sessionization. Defaults to `.standard`; inject a suite in tests.
+    ///   - consent: The telemetry opt-out gate. Defaults to the same
+    ///     `UserDefaults`-backed provider used before; the app composition root
+    ///     injects its crash-reporting provider so both systems read the same
+    ///     gate instance.
     ///   - session: The URLSession used by the uploader. Defaults to a
     ///     short-timeout session (see ``analyticsSession()``) so a hung analytics
     ///     request cannot keep the emitter's consumer pinned in `upload` for long;
     ///     pass an explicit session in tests.
-    public init(
+    @MainActor public init(
         apiBaseURL: String,
         tokenProvider: any TokenProviding,
         defaults: UserDefaults = .standard,
+        consent: (any AnalyticsConsentProviding)? = nil,
         session: URLSession? = nil
     ) {
+        let networkSession = session ?? Self.analyticsSession()
+        let uploadSession = session ?? Self.analyticsSession()
         let uploader = HTTPAnalyticsUploader(
             apiBaseURL: apiBaseURL,
             tokenProvider: AnalyticsTokenProviderBridge(tokenProvider: tokenProvider),
-            session: session ?? Self.analyticsSession()
+            session: uploadSession
         )
-        let consent = UserDefaultsAnalyticsConsentProvider(defaults: defaults)
+        let consent = consent ?? UserDefaultsAnalyticsConsentProvider(defaults: defaults)
         // Resolve the per-install id once, here, at the single point that owns
         // analytics. This composition is built before the app shell, so reading
         // the id is also what *mints* it on a fresh install — which is exactly why
@@ -73,6 +91,13 @@ public struct MobileAnalyticsComposition {
             emitter.capture("ios_app_first_launch", ["client_id": .string(anonymousID)])
         }
         self.emitter = emitter
+        self.clientConfig = HTTPClientConfigLoader(apiBaseURL: apiBaseURL, session: networkSession)
+        self.anonymousID = anonymousID
+        self.clientConfigContext = ClientConfigEvaluationContext(
+            personProperties: Self.clientConfigDeviceProperties(anonymousID: anonymousID),
+            anonDistinctId: anonymousID,
+            evaluationContexts: ["mobile"]
+        )
         self.sessionStore = AnalyticsSessionStore(defaults: defaults)
     }
 
@@ -91,9 +116,30 @@ public struct MobileAnalyticsComposition {
 
     /// The static device/app super-properties merged onto every event. Sizes and
     /// enums only — no identifiers beyond the anonymous install id.
-    private static func deviceSuperProperties(anonymousID: String) -> [String: AnalyticsValue] {
+    @MainActor private static func deviceSuperProperties(anonymousID: String) -> [String: AnalyticsValue] {
         let info = Bundle.main.infoDictionary
         var props: [String: AnalyticsValue] = ["client_id": .string(anonymousID)]
+        if let version = info?["CFBundleShortVersionString"] as? String {
+            props["app_version"] = .string(version)
+        }
+        if let build = info?["CFBundleVersion"] as? String {
+            props["build_number"] = .string(build)
+        }
+        #if canImport(UIKit)
+        props["os_version"] = .string(UIDevice.current.systemVersion)
+        props["device_model"] = .string(UIDevice.current.model)
+        #endif
+        return props
+    }
+
+    @MainActor private static func clientConfigDeviceProperties(
+        anonymousID: String
+    ) -> [String: ClientConfigJSONValue] {
+        let info = Bundle.main.infoDictionary
+        var props: [String: ClientConfigJSONValue] = [
+            "client_id": .string(anonymousID),
+            "platform": .string("ios"),
+        ]
         if let version = info?["CFBundleShortVersionString"] as? String {
             props["app_version"] = .string(version)
         }

@@ -1,5 +1,8 @@
-import XCTest
+import Testing
+import AppKit
+import CmuxUpdater
 import CoreGraphics
+import SwiftUI
 import Bonsplit
 
 #if canImport(cmux_DEV)
@@ -8,13 +11,289 @@ import Bonsplit
 @testable import cmux
 #endif
 
-final class WorkspaceContentViewVisibilityTests: XCTestCase {
+@Suite(.serialized)
+final class WorkspaceContentViewVisibilityTests {
+    private final class MinimalModeBodyProbeCounts {
+        var contentViewBody = 0
+        var workspaceContentBody = 0
+        var verticalTabsSidebarBody = 0
+
+        func reset() {
+            contentViewBody = 0
+            workspaceContentBody = 0
+            verticalTabsSidebarBody = 0
+        }
+    }
+
+    private static var repoRoot: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
+
+    private static func sourceText(_ relativePath: String) throws -> String {
+        try String(
+            contentsOf: repoRoot.appendingPathComponent(relativePath),
+            encoding: .utf8
+        )
+    }
+
+    private static func restoreFocusTarget(
+        workspaceId: UUID = UUID(),
+        panelId: UUID = UUID(),
+        intent: PanelFocusIntent = .panel
+    ) -> CommandPaletteRestoreFocusTarget {
+        CommandPaletteRestoreFocusTarget(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            intent: intent
+        )
+    }
+
+    @Test
+    func contentViewDoesNotKeepLegacyWorkItemStateForCoalescedReleases() throws {
+        let source = try Self.sourceText("Sources/ContentView.swift")
+        let legacyState = [
+            "sidebarResizerCursorReleaseWorkItem",
+            "commandPaletteRestoreTimeoutWorkItem",
+        ].filter(source.contains)
+        #expect(
+            legacyState.isEmpty,
+            """
+            ContentView must not keep the legacy DispatchWorkItem state properties that \
+            previously let queued closures retain prior work-item state:
+            \(legacyState.joined(separator: "\n"))
+            """
+        )
+        #expect(
+            source.contains("scheduleSidebarResizerCursorRelease(delay: .milliseconds(50))"),
+            """
+            Sidebar resizer hover exit must keep a short deferred cursor-release window so \
+            mouse-down and drag-start callbacks can establish resize state before the cursor \
+            can be reset.
+            """
+        )
+    }
+
+    @Test
+    @MainActor
+    func sidebarResizerCursorReleaseSchedulerCancelsReplacedDelayedRelease() async {
+        let clock = SidebarTestManualClock()
+        let scheduler = SidebarResizerCursorReleaseScheduler(clock: clock)
+        let releaseEvents = AsyncStream<Bool>.makeStream()
+        defer { releaseEvents.continuation.finish() }
+        var releaseIterator = releaseEvents.stream.makeAsyncIterator()
+        var releases: [Bool] = []
+
+        scheduler.schedule(force: false, delay: .zero) { force in
+            releases.append(force)
+            releaseEvents.continuation.yield(force)
+        }
+        #expect(releases.isEmpty)
+        let immediateRelease = await releaseIterator.next()
+        #expect(immediateRelease == false)
+        #expect(releases == [false])
+        releases.removeAll()
+
+        scheduler.schedule(force: false, delay: .milliseconds(200)) { force in
+            releases.append(force)
+            releaseEvents.continuation.yield(force)
+        }
+        await clock.waitUntilSleeping(for: .milliseconds(200))
+        scheduler.schedule(force: true, delay: .milliseconds(10)) { force in
+            releases.append(force)
+            releaseEvents.continuation.yield(force)
+        }
+        await clock.waitUntilSleeping(for: .milliseconds(10))
+
+        clock.advance(by: .milliseconds(10))
+        let replacementRelease = await releaseIterator.next()
+        #expect(replacementRelease == true)
+        #expect(releases == [true])
+
+        await clock.waitUntilIdle()
+        clock.advance(by: .milliseconds(190))
+        scheduler.schedule(force: true, delay: .zero) { force in
+            releases.append(force)
+            releaseEvents.continuation.yield(force)
+        }
+        let sentinelRelease = await releaseIterator.next()
+        #expect(sentinelRelease == true)
+        #expect(releases == [true, true])
+    }
+
+    @Test
+    @MainActor
+    func commandPaletteFocusRestoreCoordinatorClearsOnlyStaleTargets() {
+        let coordinator = CommandPaletteFocusRestoreCoordinator()
+        let firstTarget = Self.restoreFocusTarget()
+        let secondTarget = Self.restoreFocusTarget()
+
+        coordinator.request(target: firstTarget)
+        #expect(coordinator.pendingTarget?.workspaceId == firstTarget.workspaceId)
+
+        #expect(
+            !coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
+                selectedWorkspaceId: nil,
+                focusedPanelId: nil,
+                targetPanelExists: true
+            )
+        )
+        #expect(
+            !coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
+                selectedWorkspaceId: firstTarget.workspaceId,
+                focusedPanelId: firstTarget.panelId,
+                targetPanelExists: true
+            )
+        )
+        #expect(coordinator.pendingTarget?.workspaceId == firstTarget.workspaceId)
+
+        coordinator.request(target: firstTarget)
+        #expect(
+            coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
+                selectedWorkspaceId: secondTarget.workspaceId,
+                focusedPanelId: firstTarget.panelId,
+                targetPanelExists: true
+            )
+        )
+        #expect(coordinator.pendingTarget == nil)
+
+        coordinator.request(target: firstTarget)
+        #expect(
+            coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
+                selectedWorkspaceId: firstTarget.workspaceId,
+                focusedPanelId: secondTarget.panelId,
+                targetPanelExists: true
+            )
+        )
+        #expect(coordinator.pendingTarget == nil)
+
+        coordinator.request(target: firstTarget)
+        #expect(
+            coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
+                selectedWorkspaceId: firstTarget.workspaceId,
+                focusedPanelId: firstTarget.panelId,
+                targetPanelExists: false
+            )
+        )
+        #expect(coordinator.pendingTarget == nil)
+
+        coordinator.request(target: secondTarget)
+        #expect(coordinator.pendingTarget?.workspaceId == secondTarget.workspaceId)
+
+        #expect(coordinator.claimRestoreAttempt())
+        #expect(!coordinator.claimRestoreAttempt())
+        coordinator.finishRestoreAttempt()
+
+        for _ in 0..<4 {
+            #expect(coordinator.claimRestoreAttempt())
+            #expect(coordinator.pendingTarget?.workspaceId == secondTarget.workspaceId)
+            coordinator.finishRestoreAttempt()
+        }
+        #expect(!coordinator.claimRestoreAttempt())
+        #expect(coordinator.pendingTarget?.workspaceId == nil)
+
+        coordinator.request(target: secondTarget)
+        #expect(coordinator.claimRestoreAttempt())
+
+        coordinator.clear()
+        #expect(coordinator.pendingTarget?.workspaceId == nil)
+    }
+
+    @Test
+    @MainActor
+    func testMinimalModeToggleDoesNotReevaluateChromeHeavyBodies() async throws {
+        _ = NSApplication.shared
+
+        let suiteName = "WorkspaceContentViewVisibilityTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        defaults.set(
+            WorkspacePresentationModeSettings.Mode.standard.rawValue,
+            forKey: WorkspacePresentationModeSettings.modeKey
+        )
+
+        let tabManager = TabManager()
+        for _ in 0..<6 {
+            tabManager.addWorkspace(autoWelcomeIfNeeded: false)
+        }
+        let notificationStore = TerminalNotificationStore.shared
+        let counts = MinimalModeBodyProbeCounts()
+        let root = ContentView(updateViewModel: UpdateStateModel(), windowId: UUID())
+            .environmentObject(tabManager)
+            .environmentObject(notificationStore)
+            .environmentObject(notificationStore.sidebarUnread)
+            .environmentObject(SidebarState())
+            .environmentObject(SidebarSelectionState())
+            .environmentObject(FileExplorerState())
+            .environmentObject(CmuxConfigStore())
+            .environment(
+                \.minimalModeInvalidationProbe,
+                MinimalModeInvalidationProbe(
+                    contentViewBody: { counts.contentViewBody += 1 },
+                    workspaceContentBody: { counts.workspaceContentBody += 1 },
+                    verticalTabsSidebarBody: { counts.verticalTabsSidebarBody += 1 }
+                )
+            )
+            .defaultAppStorage(defaults)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = MainWindowHostingView(rootView: root)
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        await Self.drainMainRunLoop(for: window)
+        #expect(counts.contentViewBody > 0)
+        #expect(counts.workspaceContentBody > 0)
+        #expect(counts.verticalTabsSidebarBody > 0)
+
+        counts.reset()
+        defaults.set(
+            WorkspacePresentationModeSettings.Mode.minimal.rawValue,
+            forKey: WorkspacePresentationModeSettings.modeKey
+        )
+        await Self.drainMainRunLoop(for: window)
+
+        #expect(
+            counts.contentViewBody == 0,
+            "Minimal-mode toggles must not re-evaluate the whole ContentView body."
+        )
+        #expect(
+            counts.workspaceContentBody == 0,
+            "Minimal-mode toggles must not re-evaluate WorkspaceContentView/Bonsplit content."
+        )
+        #expect(
+            counts.verticalTabsSidebarBody == 0,
+            "Minimal-mode toggles must not rebuild the vertical sidebar render context."
+        )
+    }
+
+    @MainActor
+    private static func drainMainRunLoop(for window: NSWindow, iterations: Int = 20) async {
+        for _ in 0..<iterations {
+            window.contentView?.layoutSubtreeIfNeeded()
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
+            await Task.yield()
+        }
+    }
+
+    @Test
     func testNonSelectedNonRetiringWorkspaceIsFullyHidden() {
-        XCTAssertEqual(
-            MountedWorkspacePresentationPolicy.resolve(
+        #expect(
+            MountedWorkspacePresentation.resolve(
                 isSelectedWorkspace: false,
                 isRetiringWorkspace: false
-            ),
+            ) ==
             MountedWorkspacePresentation(
                 isRenderedVisible: false,
                 isPanelVisible: false,
@@ -23,12 +302,13 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
         )
     }
 
+    @Test
     func testRetiringWorkspaceStaysPanelVisibleDuringHandoff() {
-        XCTAssertEqual(
-            MountedWorkspacePresentationPolicy.resolve(
+        #expect(
+            MountedWorkspacePresentation.resolve(
                 isSelectedWorkspace: false,
                 isRetiringWorkspace: true
-            ),
+            ) ==
             MountedWorkspacePresentation(
                 isRenderedVisible: true,
                 isPanelVisible: true,
@@ -37,46 +317,100 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
         )
     }
 
+    @Test
     func testPanelVisibleInUIReturnsFalseWhenWorkspaceHidden() {
-        XCTAssertFalse(
-            WorkspaceContentView.panelVisibleInUI(
+        #expect(
+            !WorkspaceContentView.panelVisibleInUI(
                 isWorkspaceVisible: false,
+                paneHasSelectedTab: true,
                 isSelectedInPane: true,
                 isFocused: true
             )
         )
     }
 
+    @Test
     func testPanelVisibleInUIReturnsTrueForSelectedPanel() {
-        XCTAssertTrue(
+        #expect(
             WorkspaceContentView.panelVisibleInUI(
                 isWorkspaceVisible: true,
+                paneHasSelectedTab: true,
                 isSelectedInPane: true,
                 isFocused: false
             )
         )
     }
 
+    @Test
     func testPanelVisibleInUIReturnsTrueForFocusedPanelDuringTransientSelectionGap() {
-        XCTAssertTrue(
+        #expect(
             WorkspaceContentView.panelVisibleInUI(
                 isWorkspaceVisible: true,
+                paneHasSelectedTab: false,
                 isSelectedInPane: false,
                 isFocused: true
             )
         )
     }
 
-    func testPanelVisibleInUIReturnsFalseWhenNeitherSelectedNorFocused() {
-        XCTAssertFalse(
-            WorkspaceContentView.panelVisibleInUI(
+    @Test
+    func testPanelVisibleInUIReturnsFalseForStaleFocusedPanelWhenAnotherTabIsSelected() {
+        #expect(
+            !WorkspaceContentView.panelVisibleInUI(
                 isWorkspaceVisible: true,
+                paneHasSelectedTab: true,
+                isSelectedInPane: false,
+                isFocused: true
+            )
+        )
+    }
+
+    @Test
+    func testPanelVisibleInUIReturnsFalseWhenNeitherSelectedNorFocused() {
+        #expect(
+            !WorkspaceContentView.panelVisibleInUI(
+                isWorkspaceVisible: true,
+                paneHasSelectedTab: false,
                 isSelectedInPane: false,
                 isFocused: false
             )
         )
     }
 
+    @Test
+    func testRenderedVisiblePanelPolicyPrefersSelectedTabOverStaleFocusedPanel() {
+        let paneId = UUID()
+        let selectedPanelId = UUID()
+        let staleFocusedPanelId = UUID()
+
+        #expect(
+            WorkspacePanelVisibilityPolicy.visiblePanelIdForRenderedPane(
+                paneId: paneId,
+                selectedPanelId: selectedPanelId,
+                firstPanelId: selectedPanelId,
+                focusedPanelId: staleFocusedPanelId,
+                focusedPanelPaneId: paneId
+            ) == selectedPanelId
+        )
+    }
+
+    @Test
+    func testRenderedVisiblePanelPolicyFallsBackToFocusedPanelOnlyDuringSelectionGap() {
+        let paneId = UUID()
+        let focusedPanelId = UUID()
+
+        #expect(
+            WorkspacePanelVisibilityPolicy.visiblePanelIdForRenderedPane(
+                paneId: paneId,
+                selectedPanelId: nil,
+                firstPanelId: UUID(),
+                focusedPanelId: focusedPanelId,
+                focusedPanelPaneId: paneId
+            ) == focusedPanelId
+        )
+    }
+
+    @Test
     func testTmuxWorkspacePaneOverlayRectReturnsMatchingPaneFrame() {
         let paneID = PaneID(id: UUID())
         let snapshot = LayoutSnapshot(
@@ -93,17 +427,18 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
             timestamp: 0
         )
 
-        XCTAssertEqual(
+        #expect(
             WorkspaceContentView.tmuxWorkspacePaneOverlayRect(
                 layoutSnapshot: snapshot,
                 paneId: paneID
-            ),
-            CGRect(x: 677.5, y: 30, width: 500, height: 290)
+            ) ==
+            CGRect(x: 677.5, y: 28, width: 500, height: 292)
         )
     }
 
+    @Test
     @MainActor
-    func testTmuxWorkspacePaneUnreadRectsIncludeFocusedReadIndicator() {
+    func testTmuxWorkspacePaneUnreadRectsIncludeFocusedReadIndicator() throws {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = TabManager()
         let store = TerminalNotificationStore.shared
@@ -123,13 +458,10 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
             appDelegate.notificationStore = originalNotificationStore
         }
 
-        guard let workspace = manager.selectedWorkspace,
-              let panelId = workspace.focusedPanelId,
-              let surfaceId = workspace.surfaceIdFromPanelId(panelId),
-              let paneId = workspace.paneId(forPanelId: panelId) else {
-            XCTFail("Expected selected workspace geometry")
-            return
-        }
+        let workspace = try #require(manager.selectedWorkspace, "Expected selected workspace geometry")
+        let panelId = try #require(workspace.focusedPanelId, "Expected selected workspace geometry")
+        let surfaceId = try #require(workspace.surfaceIdFromPanelId(panelId), "Expected selected workspace geometry")
+        let paneId = try #require(workspace.paneId(forPanelId: panelId), "Expected selected workspace geometry")
 
         store.setFocusedReadIndicator(forTabId: workspace.id, surfaceId: panelId)
 
@@ -147,13 +479,13 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
             timestamp: 0
         )
 
-        XCTAssertEqual(
+        #expect(
             WorkspaceContentView.tmuxWorkspacePaneUnreadRects(
                 workspace: workspace,
                 notificationStore: store,
                 layoutSnapshot: snapshot
-            ),
-            [CGRect(x: 677.5, y: 30, width: 500, height: 290)]
+            ) ==
+            [CGRect(x: 677.5, y: 28, width: 500, height: 292)]
         )
     }
 }

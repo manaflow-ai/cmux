@@ -19,10 +19,14 @@ extension TerminalController {
         scrollbackLines: Int = TerminalController.mobileReplayScrollbackLineBudget
     ) -> MobileTerminalRenderGridFrame? {
         guard surfaceID == terminalPanel.id else { return nil }
-        return terminalPanel.surface.mobileRenderGridFrame(
+        let renderCapture = MobileTerminalByteTee.shared.nextRenderCaptureIdentity(surfaceID: surfaceID)
+        guard let frame = terminalPanel.surface.mobileRenderGridFrame(
             stateSeq: seq,
+            renderEpoch: renderCapture.epoch,
+            renderRevision: renderCapture.revision,
             scrollbackLines: scrollbackLines
-        )?.frame
+        )?.frame else { return nil }
+        return MobileTerminalRenderObserver.shared.decorateReplayFrame(frame)
     }
 
     func mobileTerminalScrollResponsePayload(

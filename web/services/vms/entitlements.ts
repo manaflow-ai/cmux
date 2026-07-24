@@ -1,5 +1,6 @@
 import type { AuthedUser } from "./auth";
 import type { BillingCustomerType } from "./billingGateway";
+import { PRO_PLAN_ID, TEAM_PLAN_ID } from "../billing/pro";
 
 export type VmEntitlements = {
   readonly planId: string;
@@ -44,7 +45,7 @@ export function resolveVmEntitlements(
     planId,
     billingCustomerType: billing.billingCustomerType,
     billingTeamId: billing.billingTeamId,
-    maxActiveVms: activeVmLimitForPlan(planId, env),
+    maxActiveVms: maxActiveVmsForPlan(planId, env),
   };
 }
 
@@ -106,6 +107,57 @@ function resolveBillingContext(
     billingTeamId: user.billingTeamId,
     billingPlanId: user.userBillingPlanId,
   };
+}
+
+export function maxActiveVmsForPlan(
+  planId: string | null | undefined,
+  env: Record<string, string | undefined> = process.env,
+): number {
+  return activeVmLimitForPlan(normalizedPlanId(planId ?? ""), env);
+}
+
+/** A paid Cloud VM plan is Pro or Team; everything else (free) is not. */
+export function isPaidVmPlan(planId: string): boolean {
+  const normalized = normalizedPlanId(planId);
+  return normalized === PRO_PLAN_ID || normalized === TEAM_PLAN_ID;
+}
+
+/**
+ * Whether Cloud VM provisioning is gated behind a paid plan. Ships dark: the
+ * gate is OFF unless CMUX_VM_REQUIRE_PRO is explicitly truthy, so free users
+ * keep provisioning until product flips the env to launch (mirrors the
+ * CMUX_VM_CREATE_ENABLED opt-out convention, inverted to opt-in).
+ */
+export function isVmProGateEnforced(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  return isVmRequireProFlag(env.CMUX_VM_REQUIRE_PRO);
+}
+
+/**
+ * True when the caller's plan may NOT provision Cloud VMs: the gate is
+ * enforced and the plan is not paid. Management verbs (list/rm/exec/ssh/
+ * attach) must NOT consult this — only provisioning entry points.
+ */
+export function isVmProGateBlocked(
+  entitlements: Pick<VmEntitlements, "planId">,
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  return isVmProGateEnforced(env) && !isPaidVmPlan(entitlements.planId);
+}
+
+function isVmRequireProFlag(value: string | undefined): boolean {
+  if (value === undefined) return false;
+  switch (value.trim().toLowerCase()) {
+    case "1":
+    case "true":
+    case "yes":
+    case "on":
+    case "enabled":
+      return true;
+    default:
+      return false;
+  }
 }
 
 function activeVmLimitForPlan(planId: string, env: Record<string, string | undefined>): number {

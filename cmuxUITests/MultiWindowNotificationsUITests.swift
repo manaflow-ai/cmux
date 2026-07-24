@@ -3,9 +3,9 @@ import Foundation
 import CoreGraphics
 
 final class MultiWindowNotificationsUITests: XCTestCase {
-    private var dataPath = ""
-    private var socketPath = ""
-    private var launchTag = ""
+    var dataPath = ""
+    var socketPath = ""
+    var launchTag = ""
 
     override func setUp() {
         super.setUp()
@@ -21,6 +21,10 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         try? FileManager.default.removeItem(atPath: dataPath)
         try? FileManager.default.removeItem(atPath: socketPath)
         super.tearDown()
+    }
+
+    func testNotificationsPopoverShowsWorkspaceAsHeadline() {
+        runNotificationsPopoverShowsWorkspaceAsHeadline()
     }
 
     func testNotificationsRouteToCorrectWindow() {
@@ -379,7 +383,10 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         let notifyStdout = readTrimmedFile(atPath: commandStdoutPath) ?? ""
         let notifyStderr = readTrimmedFile(atPath: commandStderrPath) ?? ""
 
-        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        // `waitForCommandCompletionWhileBackgrounded` above only returns once the
+        // bundled `cmux notify` command has finished while the app stayed
+        // backgrounded, so assert the no-foreground invariant at that causal
+        // point rather than polling a fixed wall-clock window.
         XCTAssertFalse(
             app.state == .runningForeground,
             "Expected cmux to remain in background after bundled `cmux notify`. state=\(app.state.rawValue) stderr=\(notifyStderr)"
@@ -651,13 +658,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return waitForFocusChange(from: token, timeout: max(0.0, timeout - firstDeadline))
     }
 
-    private func waitForWindowCount(atLeast count: Int, app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        waitForCondition(timeout: timeout) {
-            app.windows.count >= count
-        }
-    }
-
-    private func launchAllowingHeadlessBackgroundActivation(_ app: XCUIApplication) {
+    func launchAllowingHeadlessBackgroundActivation(_ app: XCUIApplication) {
         let options = XCTExpectedFailure.Options()
         options.isStrict = false
         XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
@@ -665,13 +666,13 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         }
     }
 
-    private func ensureAppRunningAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+    func ensureAppRunningAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
         waitForCondition(timeout: timeout) {
             app.state == .runningForeground || app.state == .runningBackground
         }
     }
 
-    private func ensureAppForegroundForInteraction(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+    func ensureAppForegroundForInteraction(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
         if app.state == .runningForeground {
             return true
         }
@@ -702,7 +703,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         }
     }
 
-    private func waitForData(keys: [String], timeout: TimeInterval) -> Bool {
+    func waitForData(keys: [String], timeout: TimeInterval) -> Bool {
         waitForCondition(timeout: timeout) {
             guard let data = self.loadData() else { return false }
             return keys.allSatisfy { (data[$0] ?? "").isEmpty == false }
@@ -875,12 +876,13 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return surfaceId ?? firstSurfaceIdViaCLI(forWorkspaceId: workspaceId)
     }
 
-    private func waitForCondition(timeout: TimeInterval, predicate: @escaping () -> Bool) -> Bool {
-        let expectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in predicate() },
-            object: nil
-        )
-        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    func waitForCondition(timeout: TimeInterval, predicate: @escaping () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if predicate() { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        } while Date() < deadline
+        return predicate()
     }
 
     private func firstSurfaceIdViaCLI(forWorkspaceId workspaceId: String) -> String? {
@@ -969,7 +971,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         )
     }
 
-    private func runCmuxCommand(
+    func runCmuxCommand(
         socketPath: String,
         arguments: [String],
         responseTimeoutSeconds: Double = 3.0,
@@ -1026,7 +1028,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return lastPermissionFailure ?? fallbackResult
     }
 
-    private enum CmuxCLIStrategy: Equatable {
+    enum CmuxCLIStrategy: Equatable {
         case any
         case bundledOnly
     }
@@ -1487,7 +1489,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return String(data: data, encoding: .utf8)
     }
 
-    private func loadData() -> [String: String]? {
+    func loadData() -> [String: String]? {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: dataPath)) else {
             return nil
         }

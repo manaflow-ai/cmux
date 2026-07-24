@@ -2,6 +2,8 @@ import AppKit
 import Bonsplit
 import Combine
 import CmuxFoundation
+import CmuxSettings
+import CmuxSettingsUI
 import CmuxTestSupport
 import SwiftUI
 
@@ -12,7 +14,31 @@ enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
     case pillGroup
     case softButtons
 
+    static let storageKey = "titlebarControlsStyle"
+    static let defaultStyle = TitlebarControlsStyle.classic
+    static var defaultRawValue: Int { defaultStyle.rawValue }
+
     var id: Int { rawValue }
+
+    static func stored(in defaults: UserDefaults = .standard) -> TitlebarControlsStyle {
+        guard let rawObject = defaults.object(forKey: storageKey) else {
+            return defaultStyle
+        }
+        let rawValue: Int?
+        if let integer = rawObject as? Int {
+            rawValue = integer
+        } else if let number = rawObject as? NSNumber {
+            rawValue = number.intValue
+        } else {
+            rawValue = nil
+        }
+        guard let rawValue else { return defaultStyle }
+        return TitlebarControlsStyle(rawValue: rawValue) ?? defaultStyle
+    }
+
+    static func stored(rawValue: Int) -> TitlebarControlsStyle {
+        TitlebarControlsStyle(rawValue: rawValue) ?? defaultStyle
+    }
 
     var menuTitle: String {
         switch self {
@@ -405,9 +431,10 @@ func titlebarShortcutHintHeight(for config: TitlebarControlsStyleConfig) -> CGFl
 /// overflow its reserved slot. The `+ 12` matches the pill's 6pt horizontal padding per side.
 func titlebarHintPillWidth(for shortcut: StoredShortcut, config: TitlebarControlsStyleConfig) -> CGFloat {
     let pillFontSize = max(8, config.iconSize - 5)
-    let baseFont = NSFont.systemFont(ofSize: pillFontSize, weight: .semibold)
+    let scaledPillFontSize = GlobalFontMagnification.scaledSize(pillFontSize)
+    let baseFont = GlobalFontMagnification.systemFont(ofSize: pillFontSize, weight: .semibold)
     let pillFont = baseFont.fontDescriptor.withDesign(.rounded)
-        .flatMap { NSFont(descriptor: $0, size: pillFontSize) } ?? baseFont
+        .flatMap { NSFont(descriptor: $0, size: scaledPillFontSize) } ?? baseFont
     let textWidth = (shortcut.displayString as NSString).size(withAttributes: [.font: pillFont]).width
     return ceil(textWidth) + 12
 }
@@ -428,7 +455,8 @@ func titlebarHintLayoutRightmostExtent(
     let xOffset = CGFloat(ShortcutHintDebugSettings.clamped(titlebarShortcutHintXOffset))
     var intervals: [ClosedRange<CGFloat>] = []
     for slot in TitlebarShortcutHintActionSlot.allCases {
-        let shortcut = KeyboardShortcutSettings.shortcut(for: slot.action)
+        guard let action = slot.action else { continue }
+        let shortcut = KeyboardShortcutSettings.shortcut(for: action)
         guard !shortcut.isUnbound, shortcut.command else { continue }
         let width = titlebarHintPillWidth(for: shortcut, config: config)
         intervals.append(
@@ -459,7 +487,7 @@ enum TitlebarShortcutHintActionSlot: Int, CaseIterable {
     case focusHistoryBack
     case focusHistoryForward
 
-    var action: KeyboardShortcutSettings.Action {
+    var action: KeyboardShortcutSettings.Action? {
         switch self {
         case .toggleSidebar:
             return .toggleSidebar
@@ -492,19 +520,31 @@ enum TitlebarControlsLayoutMetrics {
     }
 
     static func buttonRowWidth(config: TitlebarControlsStyleConfig) -> CGFloat {
-        let buttonCount = CGFloat(TitlebarShortcutHintActionSlot.allCases.count)
-        let gapCount = max(0, buttonCount - 1)
-        return (buttonCount * config.buttonSize) + (gapCount * config.spacing)
+        let ranges = TitlebarControlsHitRegions.buttonXRanges(config: config)
+        guard let first = ranges.first, let last = ranges.last else { return 0 }
+        return last.upperBound - first.lowerBound
     }
 
     static func buttonCenterX(
         for slot: TitlebarShortcutHintActionSlot,
         config: TitlebarControlsStyleConfig
     ) -> CGFloat {
-        let index = CGFloat(slot.rawValue)
-        return config.groupPadding.leading
-            + (index * (config.buttonSize + config.spacing))
-            + (config.buttonSize / 2.0)
+        let actionSlot: MinimalModeSidebarControlActionSlot = switch slot {
+        case .toggleSidebar:
+            .toggleSidebar
+        case .showNotifications:
+            .showNotifications
+        case .newTab:
+            .newTab
+        case .focusHistoryBack:
+            .focusHistoryBack
+        case .focusHistoryForward:
+            .focusHistoryForward
+        }
+        guard let range = TitlebarControlsHitRegions.buttonXRange(for: actionSlot, config: config) else {
+            return config.groupPadding.leading + (config.buttonSize / 2.0)
+        }
+        return (range.lowerBound + range.upperBound) / 2.0
     }
 
     static func hintInterval(
@@ -644,6 +684,24 @@ func titlebarControlBorderOpacity(
     )
 }
 
+func titlebarControlActiveHoverBackgroundOpacity(
+    isHovering: Bool,
+    isPressed: Bool,
+    isEnabled: Bool
+) -> Double {
+    guard isEnabled, isHovering, !isPressed else { return 0 }
+    return 0.09
+}
+
+func titlebarControlPassiveHoverBackgroundOpacity(
+    isHovering: Bool,
+    isPressed: Bool,
+    isEnabled: Bool
+) -> Double {
+    guard isEnabled, isHovering, !isPressed else { return 0 }
+    return 0.016
+}
+
 struct TitlebarControlButton<Content: View>: View {
     let config: TitlebarControlsStyleConfig
     let foregroundColor: Color
@@ -755,12 +813,18 @@ private struct TitlebarControlButtonStyleBody: View {
     }
 
     private var backgroundOpacity: Double {
-        titlebarControlBackgroundOpacity(
+        let baseOpacity = titlebarControlBackgroundOpacity(
             config: config,
             isHovering: isHovering,
             isPressed: configuration.isPressed,
             isEnabled: isEnabled
         )
+        let activeHoverOpacity = titlebarControlActiveHoverBackgroundOpacity(
+            isHovering: isHovering,
+            isPressed: configuration.isPressed,
+            isEnabled: isEnabled
+        )
+        return max(baseOpacity, activeHoverOpacity)
     }
 
     private var borderOpacity: Double {
@@ -815,16 +879,18 @@ struct TitlebarControlsView: View {
     let onFocusHistoryForward: () -> Void
     let visibilityMode: TitlebarControlsVisibilityMode
     @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
-    @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
+    @AppStorage(TitlebarControlsStyle.storageKey) private var styleRawValue = TitlebarControlsStyle.defaultRawValue
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
     @State private var shortcutRefreshTick = 0
     @State private var appearanceRefreshTick = 0
     @State private var isHoveringControls = false
     @State private var hostWindowNumber: Int?
     @State private var focusHistoryAvailabilityRevision: UInt64 = 0
-    @StateObject private var modifierKeyMonitor = TitlebarShortcutHintModifierMonitor()
+    @State private var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     private let titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
     private let titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
-    private let alwaysShowShortcutHints = ShortcutHintDebugSettings.alwaysShowHints()
+    private let alwaysShowShortcutHints = ShortcutHintDebugSettings().alwaysShowHints
+    @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
 
     private struct TitlebarHintLayoutItem: Identifiable {
         let action: KeyboardShortcutSettings.Action
@@ -835,8 +901,20 @@ struct TitlebarControlsView: View {
         var id: String { action.rawValue }
     }
 
+    private var modifierHoldHintsEnabled: Bool {
+        showModifierHoldHints
+    }
+
     private var shouldShowTitlebarShortcutHints: Bool {
-        alwaysShowShortcutHints || modifierKeyMonitor.isModifierPressed
+        alwaysShowShortcutHints || (modifierHoldHintsEnabled && modifierKeyMonitor.isModifierPressed)
+    }
+
+    private func startShortcutHintMonitorIfNeeded() {
+        if modifierHoldHintsEnabled {
+            modifierKeyMonitor.start()
+        } else {
+            modifierKeyMonitor.stop()
+        }
     }
 
     private var shouldShowControls: Bool {
@@ -853,7 +931,8 @@ struct TitlebarControlsView: View {
         // (The titlebar controls don't otherwise re-render on UserDefaults changes.)
         let _ = shortcutRefreshTick
         let _ = appearanceRefreshTick
-        let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
+        let _ = globalFontPercent
+        let style = TitlebarControlsStyle.stored(rawValue: styleRawValue)
         let config = style.config
         let contentSize = TitlebarControlsLayoutMetrics.contentSize(
             config: config,
@@ -870,7 +949,7 @@ struct TitlebarControlsView: View {
             .allowsHitTesting(shouldShowControls)
             .animation(.easeInOut(duration: 0.14), value: shouldShowControls)
             .background(
-                WindowAccessor { window in
+                WindowAccessor(refreshID: showModifierHoldHints) { window in
                     let nextWindowNumber = window.windowNumber
                     if hostWindowNumber != nextWindowNumber {
                         DispatchQueue.main.async {
@@ -880,7 +959,7 @@ struct TitlebarControlsView: View {
                             }
                         }
                     }
-                    modifierKeyMonitor.setHostWindow(window)
+                    modifierKeyMonitor.setHostWindow(modifierHoldHintsEnabled ? window : nil)
                 }
                 .frame(width: 0, height: 0)
             )
@@ -903,11 +982,14 @@ struct TitlebarControlsView: View {
                 appearanceRefreshTick &+= 1
             }
             .onAppear {
-                modifierKeyMonitor.start()
+                startShortcutHintMonitorIfNeeded()
             }
             .onDisappear {
                 modifierKeyMonitor.stop()
                 hostWindowNumber = nil
+            }
+            .onChange(of: showModifierHoldHints) { _, _ in
+                startShortcutHintMonitorIfNeeded()
             }
     }
 
@@ -925,6 +1007,7 @@ struct TitlebarControlsView: View {
     private func controlsGroup(config: TitlebarControlsStyleConfig, foregroundColor: Color) -> some View {
         let hintLayoutItems = titlebarHintLayoutItems(config: config)
         let focusHistoryAvailability = focusHistoryNavigationAvailabilitySnapshot
+        let badgeBaseFontSize = titlebarNotificationBadgeFontSize(for: config) / max(1, GlobalFontMagnification.scale(for: globalFontPercent))
         let content = HStack(spacing: config.spacing) {
             TitlebarControlButton(
                 config: config,
@@ -964,12 +1047,11 @@ struct TitlebarControlsView: View {
 
                     if notificationStore.unreadCount > 0 {
                         Text("\(min(notificationStore.unreadCount, 99))")
-                            .font(.system(size: titlebarNotificationBadgeFontSize(for: config), weight: .semibold))
+                            // Fixed-size badge; cap effective glyph size.
+                            .cmuxFont(size: badgeBaseFontSize, weight: .semibold)
                             .foregroundColor(.white)
                             .frame(width: config.badgeSize, height: config.badgeSize)
-                            .background(
-                                Circle().fill(cmuxAccentColor())
-                            )
+                            .background(Circle().fill(cmuxAccentColor()))
                             .offset(x: config.badgeOffset.width, y: config.badgeOffset.height)
                     }
                 }
@@ -978,24 +1060,16 @@ struct TitlebarControlsView: View {
             .background(NotificationsAnchorView { viewModel.notificationsAnchorView = $0 })
             .safeHelp(KeyboardShortcutSettings.Action.showNotifications.tooltip(String(localized: "titlebar.notifications.tooltip", defaultValue: "Show notifications")))
 
-            TitlebarControlButton(
+            TitlebarNewWorkspaceCloudSplitButton(
                 config: config,
                 foregroundColor: foregroundColor,
-                accessibilityIdentifier: "titlebarControl.newTab",
-                accessibilityLabel: String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace"),
-                action: {
-                #if DEBUG
-                cmuxDebugLog("titlebar.newTab")
-                #endif
-                onNewTab()
-            },
-                rightClickAction: { anchorView, event in
-                    _ = AppDelegate.shared?.showNewWorkspaceContextMenu(anchorView: anchorView, event: event)
-                }) {
-                iconLabel(systemName: "plus", config: config, iconGeometryKeyPrefix: "titlebarControl_newTabIcon")
-            }
-            .safeHelp(KeyboardShortcutSettings.Action.newTab.tooltip(String(localized: "titlebar.newWorkspace.tooltip", defaultValue: "New workspace")))
-
+                onNewTab: {
+                    #if DEBUG
+                    cmuxDebugLog("titlebar.newTab")
+                    #endif
+                    onNewTab()
+                }
+            )
             TitlebarControlButton(
                 config: config,
                 foregroundColor: foregroundColor,
@@ -1093,11 +1167,13 @@ struct TitlebarControlsView: View {
         guard shouldShowTitlebarShortcutHints else { return [] }
 
         return TitlebarShortcutHintActionSlot.allCases.compactMap { slot in
-            let shortcut = KeyboardShortcutSettings.shortcut(for: slot.action)
-            guard titlebarShortcutHintShouldShow(
+            guard let action = slot.action else { return nil }
+            let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+            guard ShortcutHintTitlebarPolicy.shouldShow(
                 shortcut: shortcut,
                 alwaysShowShortcutHints: alwaysShowShortcutHints,
-                modifierPressed: modifierKeyMonitor.isModifierPressed
+                modifierPressed: modifierKeyMonitor.isModifierPressed,
+                modifierHoldHintsEnabled: modifierHoldHintsEnabled
             ) else { return nil }
 
             let width = titlebarHintWidth(for: shortcut, config: config)
@@ -1107,7 +1183,7 @@ struct TitlebarControlsView: View {
                 config: config,
                 xOffset: xOffset
             )
-            return (slot.action, shortcut, width, interval)
+            return (action, shortcut, width, interval)
         }
     }
 
@@ -1157,9 +1233,7 @@ struct TitlebarControlsView: View {
         iconGeometryKeyPrefix: String? = nil
     ) -> some View {
         titlebarIconChrome(config: config, iconGeometryKeyPrefix: iconGeometryKeyPrefix) {
-            Image(systemName: systemName)
-                .symbolRenderingMode(.monochrome)
-                .cmuxSymbolRasterSize(config.iconSize, weight: TitlebarControlIconStyle.weight)
+            CmuxSystemSymbolImage(systemName: systemName, pointSize: config.iconSize, weight: TitlebarControlIconStyle.weight)
         }
     }
 
@@ -1322,14 +1396,14 @@ struct HiddenTitlebarSidebarControlsView: View {
     @State private var isHoveringHost = false
     @State private var isHoveringWindowChrome = false
     @State private var hostWindowNumber: Int?
-    @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
+    @AppStorage(TitlebarControlsStyle.storageKey) private var styleRawValue = TitlebarControlsStyle.defaultRawValue
 
     private var shouldPinControls: Bool {
         isHoveringHost || isHoveringWindowChrome || popoverVisibilityState.isShown(in: hostWindowNumber)
     }
 
     var body: some View {
-        let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
+        let style = TitlebarControlsStyle.stored(rawValue: styleRawValue)
 
         ZStack(alignment: .leading) {
             WindowAccessor { window in
@@ -1400,6 +1474,11 @@ struct HiddenTitlebarSidebarControlsView: View {
                     onToggleNotifications(anchorView)
                 case .newTab:
                     onNewTab()
+                case .cloudVM:
+                    _ = AppDelegate.shared?.showNewWorkspaceContextMenu(
+                        anchorView: anchorView,
+                        debugSource: "titlebar.minimalSidebar.cloudMenu"
+                    )
                 case .focusHistoryBack:
                     let availability = focusHistoryNavigationAvailability(
                         preferredWindow: hostWindowForFocusHistoryNavigation
@@ -1659,176 +1738,6 @@ private struct PassthroughHoverTrackingView: NSViewRepresentable {
     }
 }
 
-@MainActor
-private final class TitlebarShortcutHintModifierMonitor: ObservableObject {
-    @Published private(set) var isModifierPressed = false {
-        didSet {
-            guard oldValue != isModifierPressed else { return }
-            NotificationCenter.default.post(
-                name: .titlebarShortcutHintsVisibilityChanged,
-                object: nil,
-                userInfo: ["visible": isModifierPressed]
-            )
-        }
-    }
-
-    private weak var hostWindow: NSWindow?
-    private var hostWindowDidBecomeKeyObserver: NSObjectProtocol?
-    private var hostWindowDidResignKeyObserver: NSObjectProtocol?
-    private var flagsMonitor: Any?
-    private var keyDownMonitor: Any?
-    private var appResignObserver: NSObjectProtocol?
-    private var pendingShowWorkItem: DispatchWorkItem?
-
-    func setHostWindow(_ window: NSWindow?) {
-        guard hostWindow !== window else { return }
-        removeHostWindowObservers()
-        hostWindow = window
-        guard let window else {
-            cancelPendingHintShow(resetVisible: true)
-            return
-        }
-
-        hostWindowDidBecomeKeyObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didBecomeKeyNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.update(from: NSEvent.modifierFlags, eventWindow: nil)
-            }
-        }
-
-        hostWindowDidResignKeyObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didResignKeyNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.cancelPendingHintShow(resetVisible: true)
-            }
-        }
-
-        update(from: NSEvent.modifierFlags, eventWindow: nil)
-    }
-
-    func start() {
-        guard flagsMonitor == nil else {
-            update(from: NSEvent.modifierFlags, eventWindow: nil)
-            return
-        }
-
-        flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-            self?.update(from: event.modifierFlags, eventWindow: event.window)
-            return event
-        }
-
-        keyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            self?.handleKeyDown(event)
-            return event
-        }
-
-        appResignObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didResignActiveNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.cancelPendingHintShow(resetVisible: true)
-            }
-        }
-
-        update(from: NSEvent.modifierFlags, eventWindow: nil)
-    }
-
-    func stop() {
-        if let flagsMonitor {
-            NSEvent.removeMonitor(flagsMonitor)
-            self.flagsMonitor = nil
-        }
-        if let keyDownMonitor {
-            NSEvent.removeMonitor(keyDownMonitor)
-            self.keyDownMonitor = nil
-        }
-        if let appResignObserver {
-            NotificationCenter.default.removeObserver(appResignObserver)
-            self.appResignObserver = nil
-        }
-        removeHostWindowObservers()
-        cancelPendingHintShow(resetVisible: true)
-    }
-
-    private func handleKeyDown(_ event: NSEvent) {
-        guard isCurrentWindow(eventWindow: event.window) else { return }
-        cancelPendingHintShow(resetVisible: true)
-    }
-
-    private func isCurrentWindow(eventWindow: NSWindow?) -> Bool {
-        ShortcutHintModifierPolicy.isCurrentWindow(
-            hostWindowNumber: hostWindow?.windowNumber,
-            hostWindowIsKey: hostWindow?.isKeyWindow ?? false,
-            eventWindowNumber: eventWindow?.windowNumber,
-            keyWindowNumber: NSApp.keyWindow?.windowNumber
-        )
-    }
-
-    private func update(from modifierFlags: NSEvent.ModifierFlags, eventWindow: NSWindow?) {
-        guard ShortcutHintModifierPolicy.shouldShowCommandHints(for: modifierFlags),
-              ShortcutHintModifierPolicy.isCurrentWindow(
-                hostWindowNumber: hostWindow?.windowNumber,
-                hostWindowIsKey: hostWindow?.isKeyWindow ?? false,
-                eventWindowNumber: eventWindow?.windowNumber,
-                keyWindowNumber: NSApp.keyWindow?.windowNumber
-              ) else {
-            cancelPendingHintShow(resetVisible: true)
-            return
-        }
-
-        queueHintShow()
-    }
-
-    private func queueHintShow() {
-        if pendingShowWorkItem != nil || isModifierPressed {
-            return
-        }
-
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.pendingShowWorkItem = nil
-            guard ShortcutHintModifierPolicy.shouldShowCommandHints(for: NSEvent.modifierFlags),
-                  ShortcutHintModifierPolicy.isCurrentWindow(
-                    hostWindowNumber: self.hostWindow?.windowNumber,
-                    hostWindowIsKey: self.hostWindow?.isKeyWindow ?? false,
-                    eventWindowNumber: nil,
-                    keyWindowNumber: NSApp.keyWindow?.windowNumber
-                  ) else { return }
-            self.isModifierPressed = true
-        }
-
-        pendingShowWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + ShortcutHintModifierPolicy.intentionalHoldDelay, execute: workItem)
-    }
-
-    private func cancelPendingHintShow(resetVisible: Bool) {
-        pendingShowWorkItem?.cancel()
-        pendingShowWorkItem = nil
-        if resetVisible {
-            isModifierPressed = false
-        }
-    }
-
-    private func removeHostWindowObservers() {
-        if let hostWindowDidBecomeKeyObserver {
-            NotificationCenter.default.removeObserver(hostWindowDidBecomeKeyObserver)
-            self.hostWindowDidBecomeKeyObserver = nil
-        }
-        if let hostWindowDidResignKeyObserver {
-            NotificationCenter.default.removeObserver(hostWindowDidResignKeyObserver)
-            self.hostWindowDidResignKeyObserver = nil
-        }
-    }
-}
-
 struct TitlebarControlsLayoutSnapshot: Equatable {
     let contentSize: NSSize
     let containerHeight: CGFloat
@@ -1878,7 +1787,7 @@ enum TitlebarWindowGeometryNotifications {
 }
 
 final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewController, NSPopoverDelegate {
-    private let hostingView: NonDraggableHostingView<TitlebarControlsView>
+    private let hostingView: NonDraggableHostingView<AnyView>
     private let containerView: NSView
     private let notificationStore: TerminalNotificationStore
     private lazy var notificationsPopover: NSPopover = makeNotificationsPopover()
@@ -1894,7 +1803,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     var popoverIsShownForTesting: Bool { notificationsPopover.isShown }
     private var showsWorkspaceTitlebar: Bool { !WorkspacePresentationModeSettings.isMinimal() }
 
-    init(notificationStore: TerminalNotificationStore) {
+    init(notificationStore: TerminalNotificationStore, settingsRuntime: SettingsRuntime?) {
         let containerView = TitlebarAccessoryContainerView()
         self.containerView = containerView
         self.notificationStore = notificationStore
@@ -1911,16 +1820,19 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         let focusHistoryForward = { [weak containerView] in
             _ = AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: containerView?.window)?.navigateForward()
         }
+        let rootView = TitlebarControlsView(
+            notificationStore: notificationStore,
+            viewModel: viewModel,
+            onToggleSidebar: toggleSidebar,
+            onToggleNotifications: toggleNotifications,
+            onNewTab: newTab,
+            onFocusHistoryBack: focusHistoryBack,
+            onFocusHistoryForward: focusHistoryForward,
+            visibilityMode: .alwaysVisible
+        )
         hostingView = NonDraggableHostingView(
-            rootView: TitlebarControlsView(
-                notificationStore: notificationStore,
-                viewModel: viewModel,
-                onToggleSidebar: toggleSidebar,
-                onToggleNotifications: toggleNotifications,
-                onNewTab: newTab,
-                onFocusHistoryBack: focusHistoryBack,
-                onFocusHistoryForward: focusHistoryForward,
-                visibilityMode: .alwaysVisible
+            rootView: AnyView(
+                rootView.environment(\.settingsRuntime, settingsRuntime)
             )
         )
 
@@ -2039,8 +1951,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         updateObservedWindowIfNeeded()
         applyWorkspaceTitlebarVisibility()
         guard showsWorkspaceTitlebar else { return }
-        let styleRawValue = UserDefaults.standard.integer(forKey: "titlebarControlsStyle")
-        let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
+        let style = TitlebarControlsStyle.stored()
         let contentSize = TitlebarControlsLayoutMetrics.contentSize(config: style.config)
         if intrinsicSizeNeedsRefresh {
             hostingView.invalidateIntrinsicContentSize()
@@ -2219,15 +2130,6 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     }
 }
 
-private enum NotificationsPopoverMetrics {
-    static let defaultWidth: CGFloat = 560
-    static let defaultHeight: CGFloat = 760
-    static let minWidth: CGFloat = 420
-    static let minHeight: CGFloat = 320
-    static let maxWidth: CGFloat = 1000
-    static let maxHeight: CGFloat = 1200
-}
-
 private struct NotificationsPopoverView: View {
     @ObservedObject var notificationStore: TerminalNotificationStore
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
@@ -2243,6 +2145,7 @@ private struct NotificationsPopoverView: View {
     // UserDefaults.didChangeNotification, which wakes up every observer in the app.
     @State private var liveWidth: CGFloat?
     @State private var liveHeight: CGFloat?
+    @State private var loadedWorkspaceTitles: [UUID: String]?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -2256,6 +2159,19 @@ private struct NotificationsPopoverView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .bottomTrailing) {
             resizeHandle
+        }
+        .onAppear { refreshWorkspaceTitles() }
+        .onChange(of: notificationStore.notifications.map(\.tabId)) { _, _ in
+            refreshWorkspaceTitles()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .workspaceTitleDidChange)) { notification in
+            refreshWorkspaceTitles(ifRelevantTo: notification)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .workspaceGroupNameDidChange)) { notification in
+            refreshWorkspaceTitles(ifRelevantTo: notification)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .workspaceOrderDidChange)) { notification in
+            refreshWorkspaceTitles(ifRelevantTo: notification)
         }
     }
 
@@ -2332,10 +2248,10 @@ private struct NotificationsPopoverView: View {
     private var header: some View {
         HStack(spacing: 8) {
             Text(String(localized: "notifications.title", defaultValue: "Notifications"))
-                .font(.system(size: 14, weight: .semibold))
+                .cmuxFont(size: 14, weight: .semibold)
             if unreadCount > 0 {
                 Text("\(unreadCount)")
-                    .font(.system(size: 11, weight: .semibold))
+                    .cmuxFont(size: 11, weight: .semibold)
                     .foregroundColor(.white)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 1)
@@ -2344,13 +2260,12 @@ private struct NotificationsPopoverView: View {
             Spacer()
             Button(action: jumpToLatestUnread) {
                 HStack(spacing: 5) {
-                    Image(systemName: "arrow.down.to.line")
-                        .cmuxSymbolRasterSize(10, weight: .semibold)
+                    CmuxSystemSymbolImage(systemName: "arrow.down.to.line", pointSize: 10, weight: .semibold)
                     Text(String(localized: "notifications.jumpToLatest", defaultValue: "Jump to Latest"))
-                        .font(.system(size: 11))
+                        .cmuxFont(size: 11)
                     if !jumpToUnreadShortcut.displayString.isEmpty {
                         Text(jumpToUnreadShortcut.displayString)
-                            .font(.system(size: 10.5, weight: .medium))
+                            .cmuxFont(size: 10.5, weight: .medium)
                             .foregroundColor(.secondary)
                             .padding(.horizontal, 4)
                             .padding(.vertical, 1)
@@ -2383,7 +2298,7 @@ private struct NotificationsPopoverView: View {
 
             Button(action: { notificationStore.clearAll() }) {
                 Text(String(localized: "notifications.clearAll", defaultValue: "Clear All"))
-                    .font(.system(size: 11))
+                    .cmuxFont(size: 11)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
             }
@@ -2422,12 +2337,14 @@ private struct NotificationsPopoverView: View {
             // sidebar/sessions panel (https://github.com/manaflow-ai/cmux/issues/2586).
             let snapshot = notificationStore.notifications
             let lastIndex = snapshot.count - 1
+            // One tabId -> title index per render, not an O(tabs) scan per row (#5794).
+            let titleSnapshot = loadedWorkspaceTitles ?? currentWorkspaceTitles()
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(Array(snapshot.enumerated()), id: \.element.id) { index, notification in
                         NotificationPopoverRow(
                             notification: notification,
-                            tabTitle: tabTitle(for: notification.tabId),
+                            workspaceTitle: titleSnapshot[notification.tabId],
                             onOpen: { open(notification) },
                             onClear: {
                                 withAnimation(.easeOut(duration: 0.18)) {
@@ -2455,6 +2372,7 @@ private struct NotificationsPopoverView: View {
                                 }
                             }
                         )
+                        .equatable()  // snapshot-boundary: skip unchanged rows (#5794)
                         if index < lastIndex {
                             Divider()
                                 .opacity(0.4)
@@ -2466,17 +2384,65 @@ private struct NotificationsPopoverView: View {
         }
     }
 
+    private func currentWorkspaceTitles() -> [UUID: String] {
+        let notificationWorkspaceIds = Set(notificationStore.notifications.map(\.tabId))
+        return AppDelegate.shared?.tabTitlesByTabId(for: notificationWorkspaceIds) ?? [:]
+    }
+
+    private func refreshWorkspaceTitles(ifRelevantTo notification: Notification? = nil) {
+        let notificationWorkspaceIds = Set(notificationStore.notifications.map(\.tabId))
+        guard let notification else {
+            let nextTitles = currentWorkspaceTitles()
+            guard loadedWorkspaceTitles != nextTitles else { return }
+            loadedWorkspaceTitles = nextTitles
+            return
+        }
+
+        guard let manager = notification.object as? TabManager else { return }
+        let changedWorkspaceIds: Set<UUID>
+        let changedTitles: [UUID: String]
+        switch notification.name {
+        case .workspaceTitleDidChange:
+            guard let workspaceId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID else { return }
+            changedWorkspaceIds = [workspaceId]
+            changedTitles = manager.resolvedWorkspaceDisplayTitle(forWorkspaceId: workspaceId)
+                .map { [workspaceId: $0] } ?? [:]
+        case .workspaceGroupNameDidChange:
+            changedTitles = manager.resolvedWorkspaceDisplayTitles(for: notificationWorkspaceIds)
+            changedWorkspaceIds = Set(changedTitles.keys)
+        case .workspaceOrderDidChange:
+            changedWorkspaceIds = Set(
+                notification.userInfo?[WorkspaceOrderChangeNotificationKey.movedWorkspaceIds] as? [UUID] ?? []
+            )
+            changedTitles = manager.resolvedWorkspaceDisplayTitles(for: changedWorkspaceIds)
+        default:
+            return
+        }
+
+        let relevantIds = changedWorkspaceIds.intersection(notificationWorkspaceIds)
+        guard !relevantIds.isEmpty else { return }
+        var nextTitles = loadedWorkspaceTitles ?? currentWorkspaceTitles()
+        for workspaceId in relevantIds {
+            if let title = changedTitles[workspaceId] {
+                nextTitles[workspaceId] = title
+            } else {
+                nextTitles.removeValue(forKey: workspaceId)
+            }
+        }
+        guard loadedWorkspaceTitles != nextTitles else { return }
+        loadedWorkspaceTitles = nextTitles
+    }
+
     private func emptyState(systemImage: String, title: String, subtitle: String?) -> some View {
         VStack(spacing: 10) {
-            Image(systemName: systemImage)
-                .cmuxSymbolRasterSize(30, weight: .light)
+            CmuxSystemSymbolImage(systemName: systemImage, pointSize: 30, weight: .light)
                 .foregroundColor(.secondary.opacity(0.7))
             Text(title)
-                .font(.system(size: 14, weight: .medium))
+                .cmuxFont(size: 14, weight: .medium)
                 .foregroundColor(.primary)
             if let subtitle {
                 Text(subtitle)
-                    .font(.system(size: 12))
+                    .cmuxFont(size: 12)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
             }
@@ -2485,9 +2451,6 @@ private struct NotificationsPopoverView: View {
         .padding(24)
     }
 
-    private func tabTitle(for tabId: UUID) -> String? {
-        AppDelegate.shared?.tabTitle(for: tabId)
-    }
 
     private var jumpToUnreadShortcut: StoredShortcut {
         let _ = keyboardShortcutSettingsObserver.revision
@@ -2519,314 +2482,25 @@ private struct NotificationsPopoverView: View {
     }
 }
 
-private struct NotificationPopoverRow: View {
-    let notification: TerminalNotification
-    let tabTitle: String?
-    let onOpen: () -> Void
-    let onClear: () -> Void
-    let onToggleRead: () -> Void
-
-    @State private var isHovering: Bool = false
-
-    private static let rowHeight: CGFloat = 56
-
-    var body: some View {
-        // Row uses a ZStack so the hover-only clear button is a *sibling* of the row's
-        // primary-action Button, not nested in its label. Nested SwiftUI buttons don't
-        // produce reliable independent hit targets on macOS — clicks on a nested button
-        // can be consumed by the outer button's tap area.
-        ZStack(alignment: .trailing) {
-            // Primary row action wrapped as a Button so the row participates in the
-            // key-view loop: keyboard users can tab to a row and activate it with
-            // space/return. Visual styling is owned by rowContent; the button background
-            // lets the NSTrackingArea-driven hover tint shine through.
-            Button(action: onOpen) {
-                rowContent
-                    .background(
-                        Color.primary.opacity(isHovering ? 0.11 : 0)
-                    )
-            }
-            .buttonStyle(.plain)
-            // Identifier/action live on the Button itself so XCUITest's
-            // `app.buttons["NotificationPopoverRow.<id>"]` query keeps matching. A previous
-            // pass put them on the combined outer ZStack, which exposed the row as a
-            // container rather than a button to accessibility clients.
-            .accessibilityIdentifier("NotificationPopoverRow.\(notification.id.uuidString)")
-            // XCUITest's `.click()` isn't always reliable for SwiftUI buttons hosted in an
-            // `NSPopover`. Provide an explicit accessibility action so AXPress always routes to onOpen.
-            .accessibilityAction { onOpen() }
-            // The clear button is hover-only for pointer users; expose dismiss as a row-level
-            // accessibility action so VoiceOver / keyboard / assistive tech can dismiss too.
-            .accessibilityAction(
-                named: Text(String(localized: "notifications.row.clear", defaultValue: "Clear notification"))
-            ) {
-                onClear()
-            }
-
-            clearButton
-                .padding(.trailing, 10)
-                .opacity(isHovering ? 1 : 0)
-                .allowsHitTesting(isHovering)
-                // Dismissal is exposed through the row Button's accessibility action and the
-                // context menu, so hide this hover-only affordance from keyboard focus /
-                // VoiceOver when not visible — otherwise Full Keyboard Access can tab to an
-                // invisible button.
-                .accessibilityHidden(!isHovering)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        // Hover detection runs through an AppKit NSTrackingArea (HoverTrackingRepresentable)
-        // because SwiftUI's `.onHover` / `.onContinuousHover` arbitrate with the row's
-        // primary action and miss enter/exit events right after the popover opens and when
-        // the pointer crosses between LazyVStack rows.
-        .background(
-            HoverTrackingRepresentable { hovering in
-                if isHovering != hovering { isHovering = hovering }
-            }
-        )
-        .contextMenu {
-                Button(String(localized: "notifications.open", defaultValue: "Open")) {
-                    onOpen()
-                }
-                if notification.isRead {
-                    Button(String(localized: "notifications.markAsUnread", defaultValue: "Mark as Unread")) {
-                        onToggleRead()
-                    }
-                } else {
-                    Button(String(localized: "notifications.markAsRead", defaultValue: "Mark as Read")) {
-                        onToggleRead()
-                    }
-                }
-                Divider()
-                Button(String(localized: "notifications.dismiss", defaultValue: "Dismiss"), role: .destructive) {
-                    onClear()
-                }
-            }
-    }
-
-    private var rowContent: some View {
-        HStack(spacing: 0) {
-            Rectangle()
-                .fill(notification.isRead ? Color.clear : cmuxAccentColor())
-                .frame(width: 2.5)
-                .padding(.vertical, 6)
-
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(notification.title)
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundColor(.primary)
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                    Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
-                        .font(.system(size: 10.5))
-                        .foregroundColor(.secondary)
-                        .padding(.trailing, 34)
-                }
-
-                if !notification.body.isEmpty {
-                    Text(notification.body)
-                        .font(.system(size: 11.5))
-                        .foregroundColor(.secondary)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                if let tabTitle, !tabTitle.isEmpty {
-                    Text(tabTitle)
-                        .font(.system(size: 10))
-                        .foregroundColor(.secondary.opacity(0.85))
-                        .lineLimit(1)
-                }
-            }
-            .padding(.leading, 10)
-            .padding(.vertical, 8)
-
-            Spacer(minLength: 0)
-        }
-        .frame(minHeight: Self.rowHeight)
-        .padding(.leading, 4)
-    }
-
-    private var clearButton: some View {
-        Button(action: onClear) {
-            ZStack {
-                Circle()
-                    .fill(Color.primary.opacity(0.1))
-                Image(systemName: "xmark")
-                    .cmuxSymbolRasterSize(9, weight: .bold)
-                    .foregroundColor(.primary.opacity(0.7))
-            }
-            .frame(width: 20, height: 20)
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-private struct ResizeGripperRepresentable: NSViewRepresentable {
-    let onBegin: () -> (CGFloat, CGFloat)
-    let onDrag: (CGFloat, CGFloat, CGFloat, CGFloat) -> Void
-    let onEnd: () -> Void
-
-    func makeNSView(context: Context) -> ResizeGripperNSView {
-        ResizeGripperNSView()
-    }
-
-    func updateNSView(_ nsView: ResizeGripperNSView, context: Context) {
-        nsView.onBegin = onBegin
-        nsView.onDrag = onDrag
-        nsView.onEnd = onEnd
-    }
-}
-
-private final class ResizeGripperNSView: NSView {
-    var onBegin: () -> (CGFloat, CGFloat) = { (0, 0) }
-    var onDrag: (CGFloat, CGFloat, CGFloat, CGFloat) -> Void = { _, _, _, _ in }
-    var onEnd: () -> Void = {}
-
-    private var pressLocation: NSPoint?
-    private var pressStartWidth: CGFloat = 0
-    private var pressStartHeight: CGFloat = 0
-
-    private static let diagonalResizeCursor: NSCursor = {
-        // AppKit ships a NW–SE diagonal resize cursor for window corners but doesn't expose
-        // it publicly. It has lived under this selector for years and is widely used by Mac
-        // apps that need a diagonal resize affordance.
-        let selector = NSSelectorFromString("_windowResizeNorthWestSouthEastCursor")
-        if let method = NSCursor.responds(to: selector) ? NSCursor.perform(selector) : nil,
-           let cursor = method.takeUnretainedValue() as? NSCursor {
-            return cursor
-        }
-        return NSCursor.crosshair
-    }()
-
-    override func resetCursorRects() {
-        super.resetCursorRects()
-        addCursorRect(bounds, cursor: Self.diagonalResizeCursor)
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        // NSEvent.mouseLocation is screen-coordinate and stable while the popover resizes.
-        pressLocation = NSEvent.mouseLocation
-        let (w, h) = onBegin()
-        pressStartWidth = w
-        pressStartHeight = h
-    }
-
-    override func mouseDragged(with event: NSEvent) {
-        guard let start = pressLocation else { return }
-        let current = NSEvent.mouseLocation
-        let dx = current.x - start.x
-        // Screen-y grows upward; popover should grow as the pointer moves down (toward
-        // smaller screen-y), so invert.
-        let dy = start.y - current.y
-        onDrag(pressStartWidth, pressStartHeight, dx, dy)
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        pressLocation = nil
-        onEnd()
-    }
-}
-
-private struct HoverTrackingRepresentable: NSViewRepresentable {
-    let onChange: (Bool) -> Void
-
-    func makeNSView(context: Context) -> HoverTrackingNSView {
-        HoverTrackingNSView(onChange: onChange)
-    }
-
-    func updateNSView(_ nsView: HoverTrackingNSView, context: Context) {
-        nsView.onChange = onChange
-    }
-}
-
-private final class HoverTrackingNSView: NSView {
-    var onChange: (Bool) -> Void
-    private var trackingArea: NSTrackingArea?
-    private var isInside: Bool = false
-
-    init(onChange: @escaping (Bool) -> Void) {
-        self.onChange = onChange
-        super.init(frame: .zero)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    // Pass clicks through to the SwiftUI parent (which owns the tap gesture and accessibility
-    // action). Tracking areas keep working because they're driven by window mouse-tracking,
-    // not by hitTest.
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let trackingArea {
-            removeTrackingArea(trackingArea)
-        }
-        let area = NSTrackingArea(
-            rect: .zero,
-            options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(area)
-        trackingArea = area
-
-        // Sync current pointer state in case the pointer is already inside when the tracking
-        // area is (re)installed — happens on first popover open or after layout changes.
-        // updateTrackingAreas runs on the main thread, so dispatch synchronously; deferring
-        // creates a race where mouseExited can fire before the queued sync-onChange(true) runs,
-        // leaving the row stuck in the hovered state.
-        if let window, window.isVisible {
-            let mouseInWindow = window.mouseLocationOutsideOfEventStream
-            let mouseInView = convert(mouseInWindow, from: nil)
-            let nowInside = bounds.contains(mouseInView)
-            if nowInside != isInside {
-                isInside = nowInside
-                onChange(nowInside)
-            }
-        }
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        if !isInside {
-            isInside = true
-            onChange(true)
-        }
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        if isInside {
-            isInside = false
-            onChange(false)
-        }
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if window == nil, isInside {
-            isInside = false
-            onChange(false)
-        }
-    }
-}
-
 @MainActor
 final class UpdateTitlebarAccessoryController {
     private let updateLog: UpdateLogStore
+    private let settingsRuntime: SettingsRuntime?
     private var didStart = false
     private let attachedWindows = NSHashTable<NSWindow>.weakObjects()
     private var observers: [NSObjectProtocol] = []
     private var pendingAttachRetries: [ObjectIdentifier: Int] = [:]
     private var startupScanWorkItems: [DispatchWorkItem] = []
     private let controlsIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarControls")
+    private let mobileConnectIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarMobileConnect")
     private let controlsControllers = NSHashTable<TitlebarControlsAccessoryViewController>.weakObjects()
     private var lastKnownPresentationMode: WorkspacePresentationModeSettings.Mode = WorkspacePresentationModeSettings.mode()
     private var detachedNotificationsPopover: NSPopover?
     private var detachedNotificationsPopoverDelegate: DetachedNotificationsPopoverDelegate?
 
-    init(updateLog: UpdateLogStore) {
+    init(updateLog: UpdateLogStore, settingsRuntime: SettingsRuntime?) {
         self.updateLog = updateLog
+        self.settingsRuntime = settingsRuntime
     }
 
     deinit {
@@ -2971,12 +2645,19 @@ final class UpdateTitlebarAccessoryController {
 
         if !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == controlsIdentifier }) {
             let controls = TitlebarControlsAccessoryViewController(
-                notificationStore: TerminalNotificationStore.shared
+                notificationStore: TerminalNotificationStore.shared,
+                settingsRuntime: settingsRuntime
             )
             controls.layoutAttribute = .left
             controls.view.identifier = controlsIdentifier
             window.addTitlebarAccessoryViewController(controls)
             controlsControllers.add(controls)
+        }
+
+        if !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == mobileConnectIdentifier }) {
+            let mobileConnect = MobileConnectTitlebarAccessoryViewController()
+            mobileConnect.view.identifier = mobileConnectIdentifier
+            window.addTitlebarAccessoryViewController(mobileConnect)
         }
 
         attachedWindows.add(window)
@@ -3000,7 +2681,8 @@ final class UpdateTitlebarAccessoryController {
         let shouldHide = WorkspacePresentationModeSettings.mode() == .minimal
             || window.styleMask.contains(.fullScreen)
         for accessory in window.titlebarAccessoryViewControllers
-            where accessory.view.identifier == controlsIdentifier {
+            where accessory.view.identifier == controlsIdentifier
+                || accessory.view.identifier == mobileConnectIdentifier {
             accessory.isHidden = shouldHide
             accessory.view.isHidden = shouldHide
             accessory.view.alphaValue = shouldHide ? 0 : 1
@@ -3015,7 +2697,7 @@ final class UpdateTitlebarAccessoryController {
         }
         let matchingIndices = window.titlebarAccessoryViewControllers.indices.reversed().filter { index in
             let id = window.titlebarAccessoryViewControllers[index].view.identifier
-            return id == controlsIdentifier
+            return id == controlsIdentifier || id == mobileConnectIdentifier
         }
         guard !matchingIndices.isEmpty || attachedWindows.contains(window) else { return }
 

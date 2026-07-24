@@ -1,4 +1,42 @@
+import {
+  englishFallbackContentLocales,
+  fallbackContentLocales,
+} from "@/i18n/locale-availability";
+
+export type BlogPost = {
+  slug: string;
+  key: string;
+  title: string;
+  date: string;
+  summary: string;
+  locales?: readonly string[];
+};
+
 export const blogPosts = [
+  {
+    slug: "cmux-fork",
+    key: "cmuxFork",
+    title: "Introducing cmux Fork",
+    date: "2026-07-14",
+    summary:
+      "Branch an agent conversation into a new split, tab, or workspace without losing its context.",
+  },
+  {
+    slug: "claude-code-best-worktree-manager",
+    key: "claudeCodeBestWorktreeManager",
+    title: "Claude Code Is The Best Worktree Manager",
+    date: "2026-07-03",
+    summary:
+      "Use Claude Code, Codex, scripts, and cmux primitives to build the worktree workflow your codebase actually needs.",
+  },
+  {
+    slug: "cmux-home",
+    key: "cmuxHome",
+    title: "cmux home",
+    date: "2026-06-23",
+    summary:
+      "We're not adding worktrees to cmux. It's a primitive, so you can script your own worktrees, multiple checkouts, or remote dev and make it feel like home.",
+  },
   {
     slug: "cmux-history",
     key: "cmuxHistory",
@@ -70,6 +108,7 @@ export const blogPosts = [
     date: "2026-03-30",
     summary:
       "One command gives you persistent remote sessions, browser panes that reach remote ports, and agent notifications that come home.",
+    locales: fallbackContentLocales,
   },
   {
     slug: "cmux-claude-teams",
@@ -78,6 +117,7 @@ export const blogPosts = [
     date: "2026-03-30",
     summary:
       "Claude Code's teammate mode requires tmux. cmux fakes it so teammates become native splits with sidebar metadata and notifications.",
+    locales: englishFallbackContentLocales,
   },
   {
     slug: "cmux-omo",
@@ -86,6 +126,7 @@ export const blogPosts = [
     date: "2026-03-30",
     summary:
       "oh-my-openagent (formerly oh-my-opencode) orchestrates parallel specialist agents across Claude, GPT, and Gemini. cmux omo turns their tmux panes into native splits.",
+    locales: englishFallbackContentLocales,
   },
   {
     slug: "gpl",
@@ -94,6 +135,7 @@ export const blogPosts = [
     date: "2026-03-30",
     summary:
       "cmux relicensed from AGPL-3.0 to GPL-3.0.",
+    locales: englishFallbackContentLocales,
   },
   {
     slug: "cmd-shift-u",
@@ -127,4 +169,10 @@ export const blogPosts = [
     summary:
       "A native macOS terminal built on Ghostty, designed for running multiple AI coding agents side by side.",
   },
-];
+] satisfies readonly BlogPost[];
+
+export function blogPostsForLocale(locale: string) {
+  return blogPosts.filter(
+    (post) => !post.locales || post.locales.some((candidate) => candidate === locale),
+  );
+}

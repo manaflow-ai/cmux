@@ -1,4 +1,5 @@
 import CmuxNotifications
+import CmuxSettings
 import Foundation
 
 /// The window-side host for the CmuxNotifications dismissal model: snapshot
@@ -20,9 +21,33 @@ extension TabManager: NotificationDismissalHosting {
         AppDelegate.shared?.notificationStore != nil
     }
 
+    func storeHasDismissibleState(workspaceId: UUID) -> Bool {
+        AppDelegate.shared?.notificationStore?.hasDismissibleState(forTabId: workspaceId) ?? false
+    }
+
+    func workspaceHasDismissiblePanelState(workspaceId: UUID) -> Bool {
+        guard let workspace = workspacesById[workspaceId] else { return false }
+        return !workspace.manualUnreadPanelIds.isEmpty || workspace.hasAnyRestoredUnreadPanelIndicator
+    }
+
     // focusedPanelId(in:) is already witnessed by the SidebarGitHosting
     // conformance (TabManager+SidebarGitHosting.swift); one declaration
     // satisfies both seams.
+
+    func focusedSurfaceId(in workspaceId: UUID) -> UUID? {
+        focusedSurfaceId(for: workspaceId)
+    }
+
+    // Cache the catalog section so reading the flag does not re-init every
+    // `SettingCatalog` section on each call (the read is gated to the
+    // workspace-visibility dismiss path, never per-keystroke, but caching keeps
+    // it allocation-free anyway — same pattern as `NotificationSettingsFileMapping`).
+    private static let notificationsSettings = NotificationsCatalogSection()
+
+    var suppressOnlyFocusedSurface: Bool {
+        UserDefaultsSettingsClient(defaults: .standard)
+            .value(for: Self.notificationsSettings.suppressOnlyFocusedSurface)
+    }
 
     func panelId(forSurfaceOrPanelId surfaceId: UUID, in workspaceId: UUID) -> UUID? {
         guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return nil }
@@ -49,6 +74,11 @@ extension TabManager: NotificationDismissalHosting {
         AppDelegate.shared?.notificationStore?.hasUnreadNotification(forTabId: workspaceId, surfaceId: surfaceId) ?? false
     }
 
+    func storeHasPendingNotification(workspaceId: UUID, surfaceId: UUID?) -> Bool {
+        AppDelegate.shared?.notificationStore?
+            .hasPendingNotification(forTabId: workspaceId, surfaceId: surfaceId) ?? false
+    }
+
     func storeHasVisibleNotificationIndicator(workspaceId: UUID, surfaceId: UUID?) -> Bool {
         AppDelegate.shared?.notificationStore?
             .hasVisibleNotificationIndicator(forTabId: workspaceId, surfaceId: surfaceId) ?? false
@@ -70,6 +100,26 @@ extension TabManager: NotificationDismissalHosting {
 
     func storeClearFocusedReadIndicator(workspaceId: UUID, surfaceId: UUID?) {
         AppDelegate.shared?.notificationStore?.clearFocusedReadIndicator(forTabId: workspaceId, surfaceId: surfaceId)
+    }
+
+    /// Notification hashing for session autosave extracted because
+    /// `TabManager.swift` sits at its file-length budget.
+    nonisolated static func hashNotifications(
+        _ notifications: [TerminalNotification],
+        into hasher: inout Hasher
+    ) {
+        hasher.combine(notifications.count)
+        for notification in notifications.sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
+            hasher.combine(notification.id)
+            hasher.combine(notification.title)
+            hasher.combine(notification.subtitle)
+            hasher.combine(notification.body)
+            hasher.combine(notification.createdAt.timeIntervalSince1970)
+            hasher.combine(notification.isRead)
+            hasher.combine(notification.paneFlash)
+            hasher.combine(notification.panelId)
+            hasher.combine(notification.clickAction)
+        }
     }
 
     func workspaceClearManualUnread(workspaceId: UUID, panelId: UUID) {

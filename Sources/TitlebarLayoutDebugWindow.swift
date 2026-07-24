@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import SwiftUI
 
@@ -28,7 +29,7 @@ enum TitlebarLayoutDebugSettingsSnapshot {
     static func copyPayload(defaults: UserDefaults = .standard) -> String {
         let snapshot = MinimalModeTitlebarDebugSettings.snapshot(defaults: defaults)
         return """
-        titlebarControlsStyle=\(defaults.integer(forKey: "titlebarControlsStyle"))
+        titlebarControlsStyle=\(TitlebarControlsStyle.stored(in: defaults).rawValue)
         leftControlsLeadingInset=\(String(format: "%.1f", snapshot.leftControlsLeadingInset))
         leftControlsTopInset=\(String(format: "%.1f", snapshot.leftControlsTopInset))
         trafficLightTabBarLeadingInset=\(String(format: "%.1f", snapshot.trafficLightTabBarLeadingInset))
@@ -53,10 +54,14 @@ enum TitlebarLayoutDebugSettingsSnapshot {
     }
 }
 
-final class TitlebarLayoutDebugWindowController: NSWindowController, NSWindowDelegate {
+final class TitlebarLayoutDebugWindowController: ReleasingWindowController {
     static let shared = TitlebarLayoutDebugWindowController()
 
-    private init() {
+    private override init() {
+        super.init()
+    }
+
+    override func makeWindow() -> NSWindow {
         let window = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 460, height: 640),
             styleMask: [.titled, .closable, .resizable, .utilityWindow],
@@ -67,13 +72,11 @@ final class TitlebarLayoutDebugWindowController: NSWindowController, NSWindowDel
         window.titleVisibility = .visible
         window.titlebarAppearsTransparent = false
         window.isMovableByWindowBackground = true
-        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.titlebarLayoutDebug")
         window.center()
         window.contentView = NSHostingView(rootView: TitlebarLayoutDebugView())
         AppDelegate.shared?.applyWindowDecorations(to: window)
-        super.init(window: window)
-        window.delegate = self
+        return window
     }
 
     @available(*, unavailable)
@@ -83,14 +86,13 @@ final class TitlebarLayoutDebugWindowController: NSWindowController, NSWindowDel
 
     @MainActor
     func show() {
-        window?.center()
-        window?.makeKeyAndOrderFront(nil)
+        showManagedWindow()
         TitlebarLayoutDebugSettingsSnapshot.applyToOpenWindows()
     }
 }
 
 private struct TitlebarLayoutDebugView: View {
-    @AppStorage("titlebarControlsStyle") private var titlebarControlsStyleRawValue = TitlebarControlsStyle.classic.rawValue
+    @AppStorage(TitlebarControlsStyle.storageKey) private var titlebarControlsStyleRawValue = TitlebarControlsStyle.defaultRawValue
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey) private var leftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey) private var leftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
     @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTabBarInsetKey) private var trafficLightTabBarInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset
@@ -101,7 +103,7 @@ private struct TitlebarLayoutDebugView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 Text(String(localized: "debug.titlebarLayoutDebug.title", defaultValue: "Titlebar Layout Debug"))
-                    .font(.headline)
+                    .cmuxFont(.headline)
 
                 GroupBox(String(localized: "debug.titlebarLayoutDebug.titlebarControls", defaultValue: "Titlebar Controls")) {
                     VStack(alignment: .leading, spacing: 10) {
@@ -192,7 +194,7 @@ private struct TitlebarLayoutDebugView: View {
                 .frame(width: 112, alignment: .leading)
             Slider(value: clamped, in: range, step: step)
             Text(String(format: "%.1f", clamped.wrappedValue))
-                .font(.system(.caption, design: .monospaced))
+                .cmuxFont(.caption, design: .monospaced)
                 .frame(width: 44, alignment: .trailing)
         }
     }

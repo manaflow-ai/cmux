@@ -8,7 +8,7 @@ import Foundation
 /// shares one execution path with shortcuts, the palette, and the View menu.
 extension TerminalController: ControlCanvasContext {
     /// The routing twin used by every canvas verb: TabManager, then workspace.
-    private func resolveCanvasWorkspace(routing: ControlRoutingSelectors) -> Workspace? {
+    func resolveCanvasWorkspace(routing: ControlRoutingSelectors) -> Workspace? {
         guard let tabManager = resolveTabManager(routing: routing) else { return nil }
         if let wsId = routing.workspaceID {
             return tabManager.tabs.first(where: { $0.id == wsId })

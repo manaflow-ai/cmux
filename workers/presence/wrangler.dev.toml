@@ -1,0 +1,19 @@
+# DEV-ONLY config for cmux-presence-dev: same worker + DO as production, but on
+# the workers.dev URL (cmux-presence-dev.<account>.workers.dev), NOT the
+# production presence.cmux.dev custom domain. Use:
+#   bunx wrangler deploy --config wrangler.dev.toml
+name = "cmux-presence-dev"
+main = "src/index.ts"
+compatibility_date = "2026-05-01"
+workers_dev = true
+
+[observability]
+enabled = true
+
+[[durable_objects.bindings]]
+name = "TEAM_PRESENCE"
+class_name = "TeamPresence"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["TeamPresence"]

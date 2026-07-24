@@ -1,10 +1,12 @@
-@_spi(CmuxHostTransport) import CMUXExtensionHostSupport
+@_spi(CmuxHostTransport) import CmuxSidebar
 import AppKit
+import CmuxFoundation
 import SwiftUI
 
 @MainActor
 final class CMUXSidebarExtensionBrowserPanel: NSObject, Panel, ObservableObject {
     let id = UUID()
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .extensionBrowser
     let browserViewController: NSViewController
 
@@ -116,6 +118,7 @@ private final class CMUXSidebarExtensionBrowserContainerViewController: NSViewCo
     private var cardHorizontalSafetyConstraints: [NSLayoutConstraint] = []
     private var cardBottomConstraint: NSLayoutConstraint?
     private var browserConstraints: [NSLayoutConstraint] = []
+    private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
 
     init(
         browserViewController: NSViewController,
@@ -162,13 +165,16 @@ private final class CMUXSidebarExtensionBrowserContainerViewController: NSViewCo
 
         compactLabel.translatesAutoresizingMaskIntoConstraints = false
         compactLabel.alignment = .center
-        compactLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        applyFonts()
         compactLabel.textColor = .secondaryLabelColor
         compactLabel.maximumNumberOfLines = 0
         compactLabel.lineBreakMode = .byWordWrapping
         compactLabel.cell?.wraps = true
         compactLabel.cell?.usesSingleLineMode = false
         compactLabel.isHidden = true
+        fontMagnificationObserver = GlobalFontMagnificationChangeObserver { [weak self] in
+            self?.applyFonts()
+        }
 
         rootView.addSubview(cardView)
         cardView.addSubview(contentView)
@@ -202,6 +208,11 @@ private final class CMUXSidebarExtensionBrowserContainerViewController: NSViewCo
 
         view = rootView
         attachBrowserIfNeeded()
+    }
+
+    private func applyFonts() {
+        compactLabel.font = GlobalFontMagnification.systemFont(ofSize: 13, weight: .medium)
+        compactLabel.invalidateIntrinsicContentSize()
     }
 
     func attachBrowserIfNeeded() {

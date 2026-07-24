@@ -84,6 +84,7 @@ Environment:
 | `events` | Stream reconnectable cmux events as newline-delimited JSON. |
 | `auth` | Manage auth status, login, and logout through the app. |
 | `vm`, `cloud` | Manage cloud VMs. `cloud` is an alias for `vm`. |
+| `remotes`, `remote` | Manage remote Macs in the team device registry so they appear in the iOS app's device list. `remote` is an alias for `remotes`. |
 | `rpc` | Call a raw v2 socket method with optional JSON params. |
 | `identify` | Print server identity and caller context. |
 | `list-windows` | List windows. |
@@ -98,10 +99,11 @@ Environment:
 | `reorder-workspace` | Reorder a workspace inside a window. |
 | `reorder-workspaces` | Atomically reorder workspaces inside pinned and unpinned groups. |
 | `workspace-action` | Run workspace context-menu actions from the CLI. |
-| `workspace` | Namespace for workspace verbs: `list`, `create`, `close`, `rename`, `select`, `reconnect`, `disconnect`, `group`. `workspace reconnect` manually reconnects a remote (SSH) workspace — including one whose automatic reconnect suspended because the host was unreachable — and `workspace disconnect` stops its remote connection. Both accept a positional workspace handle or `--workspace <id\|ref\|index>`, defaulting to the caller's workspace, then the selected one. |
+| `workspace` | Namespace for workspace verbs: `list`, `create`, `env`, `close`, `rename`, `select`, `status`, `reconnect`, `disconnect`, `group`. `workspace status` prints the workspace's todo lifecycle status (effective, inferred, override); `workspace status set <todo\|working\|needs-attention\|review\|done\|auto>` pins a manual lane (`auto` clears it; a pinned lane auto-clears once the inferred lane changes). `workspace env` prints a workspace's configured environment variables (see [Workspace environment variables](#workspace-environment-variables)); pass `--mask` to redact the values. `workspace reconnect` manually reconnects a remote (SSH) workspace — including one whose automatic reconnect suspended because the host was unreachable — and `workspace disconnect` stops its remote connection. `env`, `reconnect`, and `disconnect` accept a positional workspace handle or `--workspace <id\|ref\|index>`, defaulting to the caller's workspace, then the selected one. |
+| `todo` | Per-workspace checklist namespace: `add "text" [--state <pending\|in-progress\|completed>] [--origin <user\|agent>]`, `list`, `check <index\|id>`, `uncheck <index\|id>`, `start <index\|id>` (in-progress), `edit <index\|id> "text"`, `rm <index\|id>`, `clear`, `set ['<json>']` (atomic replace from a JSON item array, inline or piped on stdin), `open` (open or focus the workspace's todo pane). Targets the caller's workspace by default with `--workspace <id\|ref\|index>` override; `<index>` is the 1-based number printed by `todo list`. Items cap at 50 per workspace. See [Workspace todos](#workspace-todos). |
 | `move-tab-to-new-workspace` | Move a tab or surface into a newly created workspace. |
 | `list-workspaces` | List workspaces. |
-| `new-workspace` | Create a workspace, optionally with cwd, command, description, and layout. |
+| `new-workspace` | Create a workspace, optionally with cwd, command, description, layout, and per-workspace environment variables (`--env KEY=VALUE` repeatable, `--env-file <path>`). See [Workspace environment variables](#workspace-environment-variables). |
 | `ssh` | Open an SSH-backed workspace. Preserves the caller's live `SSH_AUTH_SOCK` for app-launched OpenSSH processes so `ForwardAgent yes` from ssh_config works normally. Supports `-A` / `--forward-agent` to request forwarding and `-a` / `--no-forward-agent` to disable forwarding for a workspace. Agent forwarding remains opt-in because forwarded agents can be used by processes on the remote host while the SSH session is active. |
 | `remote-daemon-status` | Print bundled remote daemon version, asset, checksum, and cache status. |
 | `ssh-session-list` | List persisted SSH PTY sessions for one remote workspace or all remote workspaces. Supports `--json`. |
@@ -198,6 +200,14 @@ VM subcommands:
 | `vm ssh-attach` | Internal attach helper. |
 | `vm exec` | Run a shell command inside a VM. |
 
+Remotes subcommands:
+
+| Command | Contract |
+| --- | --- |
+| `remotes list`, `remotes ls` | List the team's registered remotes (name, deviceId, routes, tag, last seen). Supports `--json`. |
+| `remotes add <name>` | Register or update a remote with one or more `--route <host:port>`. Supports `--tag` and `--json`. Idempotent on `<name>` (re-adding updates routes). The host must be a Tailscale address the phone can authenticate to (CGNAT `100.64.x.x`-`100.127.x.x` or `*.ts.net`); loopback, plain LAN IPs, and bare hostnames are rejected. |
+| `remotes remove <name-or-deviceId>` | Remove a remote you registered. Aliases `rm`, `delete`. Supports `--json`. |
+
 Theme subcommands:
 
 | Command | Contract |
@@ -215,6 +225,52 @@ Workspace and tab action names:
 | --- | --- |
 | `workspace-action` | `pin`, `unpin`, `rename`, `clear-name`, `set-description`, `clear-description`, `move-up`, `move-down`, `move-top`, `close-others`, `close-above`, `close-below`, `mark-read`, `mark-unread`, `set-color`, `clear-color` |
 | `tab-action` | `rename`, `clear-name`, `close-left`, `close-right`, `close-others`, `new-terminal-right`, `new-browser-right`, `reload`, `duplicate`, `pin`, `unpin`, `mark-unread` |
+
+### Workspace environment variables
+
+A workspace can carry a set of user-defined environment variables that every
+shell spawned in it inherits.
+
+Setting them:
+
+- CLI: `cmux new-workspace --env KEY=VALUE [--env ...] [--env-file <path>]`
+  (and the same flags on `cmux workspace create`). `--env` is repeatable;
+  `--env-file` reads `KEY=VALUE` lines (blank lines and `#` comments ignored, an
+  optional leading `export ` stripped). When both are given, `--env` overrides a
+  value from a file.
+- Project config (`cmux.json`): an `env` object on a workspace definition, e.g.
+  `{ "name": "Build", "cwd": ".", "env": { "AWS_PROFILE": "prod" } }`.
+- Socket: the `workspace_env` param on `workspace.create`.
+
+Inspecting them: `cmux workspace env [<handle>] [--mask] [--json]` prints the
+configured set. `--mask` redacts the values so secrets are not echoed in full.
+The env set is intentionally omitted from `workspace list` output so a plain
+listing never leaks secrets.
+
+Semantics:
+
+- **Inheritance.** The variables apply to the workspace's initial shell and to
+  every pane, surface, and split created later in that workspace — no per-pane
+  re-export. They are also re-applied to every shell recreated on session
+  restore.
+- **Persistence.** They are stored on the workspace in the session manifest, so
+  they survive app restart, daemon restart, and session restore.
+- **Precedence.** Workspace env overlays the inherited process environment. It is
+  applied as the shell's startup environment, so it is visible to login-shell
+  init files (`~/.zprofile`, `~/.zshrc`) as they run, but any `export` those
+  files perform for the same key wins for the interactive session (they run after
+  the variable is seeded). An explicit per-surface environment (a layout
+  `surfaces[].env`, SSH startup env) overrides the workspace value for that
+  surface.
+- **Protected `CMUX_*` variables.** Workspace env can never override the managed
+  variables cmux injects (e.g. `CMUX_WORKSPACE_ID`, `CMUX_SURFACE_ID`,
+  `CMUX_SOCKET_PATH`, `CMUX_SOCKET_PASSWORD`) or the terminal identity variables
+  (`TERM`, `COLORTERM`, `TERM_PROGRAM`); those keys are protected at spawn time
+  and silently win.
+- **Secrets.** Values may be secrets. They are never logged, are masked by
+  `--mask`, and are kept out of `workspace list`. Prefer `--env-file` so secrets
+  do not land in shell history. Note that values stored in the session manifest
+  live on disk in plaintext.
 
 tmux compatibility commands:
 
@@ -254,7 +310,7 @@ Browser subcommands:
 | `browser wait` | Wait for selector, text, URL, load state, or JS predicate. |
 | `browser click`, `browser dblclick`, `browser hover`, `browser focus`, `browser check`, `browser uncheck`, `browser scroll-into-view` | Run element interaction. |
 | `browser type`, `browser fill` | Type into or set an input. |
-| `browser press`, `browser key`, `browser keydown`, `browser keyup` | Send keyboard input. |
+| `browser press`, `browser key`, `browser keydown`, `browser keyup` | Send keyboard input as `--key <key>` or positional `<key>` using Playwright/W3C names such as `Enter`, `Tab`, `Escape`, `ArrowLeft`, and `Space`. `Space`, `Spacebar`, and `space` emit DOM key `" "` with code `"Space"`; raw `--key ' '` is also accepted. |
 | `browser select` | Select an option. |
 | `browser scroll` | Scroll page or element. |
 | `browser screenshot` | Save a screenshot. |
@@ -273,7 +329,8 @@ Browser subcommands:
 | `browser highlight` | Highlight an element. |
 | `browser state` | Save or load browser state. |
 | `browser addinitscript`, `browser addscript`, `browser addstyle` | Inject scripts or CSS. |
-| `browser viewport` | Set viewport size. |
+| `browser viewport <width> <height>` | Emulate an exact logical viewport from 1×1 through 4096×4096 CSS pixels. WKWebView aspect-fits the page inside its current pane without resizing the pane or changing focus; screenshots use the emulated dimensions. |
+| `browser viewport reset` | Restore native viewport sizing so the page follows its pane dimensions. |
 | `browser geolocation`, `browser geo` | Set geolocation. |
 | `browser offline` | Toggle offline state. |
 | `browser trace` | Start or stop trace capture. |
@@ -281,6 +338,27 @@ Browser subcommands:
 | `browser screencast` | Start or stop screencast. |
 | `browser input`, `browser input_mouse`, `browser input_keyboard`, `browser input_touch` | Send low-level input. |
 | `browser identify` | Identify browser surface context. |
+
+`browser viewport` changes the selected browser surface only. On WKWebView, the
+requested logical size becomes `window.innerWidth`/`window.innerHeight` and the
+page is uniformly scaled to fit inside the existing pane. The pane layout and
+other surfaces do not move. Visible screenshots are normalized to exactly those
+CSS-pixel dimensions, independent of the display backing scale. JSON results
+report `mode`, effective `width` and `height`, displayed size, `scale`,
+`presentation`, and `pane_resized`. `reset` reports the actual native CSS
+viewport, including the current page zoom.
+
+cmux bounds the combined viewport and page-zoom render geometry to 8192 points
+per dimension and 33,554,432 points of area. If the current zoom would exceed
+that bound, `browser.viewport.set` leaves the current viewport unchanged and
+returns `invalid_params` with
+`reason: viewport_zoom_render_geometry_too_large`, `requested_page_zoom`, and
+`maximum_page_zoom`. While emulation is active, browser zoom commands also stop
+at that maximum. A visible attached browser inspector owns the same layout;
+close or detach it before changing the viewport. In that state the v2 method
+returns `invalid_state` with `reason: attached_browser_inspector`. Opening or
+redocking an attached inspector while emulation is active resets the viewport to
+native sizing before WebKit takes ownership of the split geometry.
 
 Hook subcommands:
 
@@ -293,7 +371,9 @@ Hook subcommands:
 | `hooks claude <event>` | Handle Claude Code hook events. `claude-hook <event>` remains as the main-compatibility alias. |
 | `hooks codex <event>` | Handle Codex hook events. `codex install-hooks` remains as the main-compatibility installer alias. |
 | `hooks feed --source <agent>` | Convert agent hook events into Feed context. |
-| `hooks <agent> <event>` | Generic hook surface for `grok`, `opencode`, `pi`, `amp`, `cursor`, `gemini`, `rovodev`, `copilot`, `codebuddy`, `factory`, and `qoder`. |
+| `hooks <agent> <event>` | Generic hook surface for `grok`, `opencode`, `pi`, `amp`, `cursor`, `gemini`, `kimi`, `rovodev`, `copilot`, `codebuddy`, `factory`, and `qoder`. |
+
+Kimi hook setup targets `${KIMI_SHARE_DIR:-~/.kimi}/config.toml`. Setup and uninstall also remove only cmux's marker-delimited block from the legacy `${KIMI_CODE_HOME:-~/.kimi-code}/config.toml` path.
 
 Right sidebar commands:
 
@@ -307,6 +387,15 @@ Right sidebar commands:
 | `--workspace <id\|ref\|index>` | Target the window containing a workspace. Refs and indexes resolve before the V1 socket command is sent. |
 | `--window <id\|ref\|index>` | Target a window. Refs and indexes resolve before the V1 socket command is sent. |
 | `--no-focus` | Only valid with `set`; switches mode without moving focus. |
+
+Custom sidebar commands:
+
+| Command | Contract |
+| --- | --- |
+| `sidebar validate [name]` | Validate all custom sidebars, or one named sidebar, under `~/.config/cmux/sidebars`. |
+| `sidebar reload [name]` | Validate all custom sidebars, then request a reload for every valid one. |
+| `sidebar select <name>` | Validate and activate one custom sidebar in the sidebar picker. |
+| `sidebar open <name>` | Validate and open one custom sidebar as a normal Bonsplit pane tab, preferring the right-side split from the focused surface. |
 
 Docs topics:
 
@@ -376,6 +465,57 @@ surface selection, focus, creation, or closure. The stream is bounded: cmux keep
 slow subscribers after 1,024 pending events, and rotates `events.jsonl` with one
 16 MiB archive at `events.jsonl.1`.
 
+## Workspace todos
+
+Each workspace carries a persisted checklist plus a todo lifecycle status,
+shared by the sidebar row, the checklist popover, the todo pane, `cmux todo`
+/ `cmux workspace status`, and the `workspace.todo.*` / `workspace.status.*`
+socket verbs (all funnel through the same mutation entry points).
+
+Agent policy: the checklist and manual status pins belong to the user.
+Coding agents must not create, edit, complete, remove, or replace checklist
+items, and must not `set`/`cycle` the status, unless the user explicitly
+asks them to manage that surface — a request to manage checklist items or
+a request to manage manual status pins. The status lane already tracks
+agent activity automatically through inference; agents should keep their
+own plans in their internal task tracking.
+
+Item schema (wire and `todo list --json` shape):
+
+| Field | Contract |
+| --- | --- |
+| `id` | Stable item UUID, assigned at creation and preserved across edits. |
+| `text` | Trimmed, non-empty, capped at 500 characters. |
+| `state` | `pending`, `in-progress`, or `completed`. |
+| `origin` | `user` or `agent`; who created the item. |
+
+Caps and ordering: at most 50 items per workspace. Storage order is the
+creation/`set` order and is what `todo list` prints and the wire returns;
+the sidebar/popover/pane rendering that floats unchecked items above
+completed ones is display-only and never reorders storage.
+
+`cmux todo set` atomically replaces the whole checklist from a JSON array of
+`{text, state?, id?, origin?}` objects (inline argument, or piped on stdin;
+also accepts `{"items": [...]}`). Items whose `id` matches an existing item
+keep that identity and its origin (state updates when given, else stays);
+other items are created (`origin` defaults to `user`, `state` to `pending`);
+existing items not named are removed. The whole replace is rejected — nothing
+mutated — if any text is empty after trimming or the array exceeds 50 items.
+The reply is the full resulting list payload. `cmux todo open` (socket:
+`workspace.todo.open`) opens or focuses the workspace's todo pane, so a
+script can drive the pane as a generic list surface:
+
+```bash
+# Mirror a build script's step list into the workspace todo pane.
+./plan-steps.sh --json |            # emits [{"text":"lint","state":"completed"}, ...]
+  cmux todo set
+cmux todo open
+```
+
+Re-running `cmux todo set` with the same `id`s updates text/state in place
+(checkbox identity is stable), so a watcher loop can re-emit the full list on
+every tick without churning item identities.
+
 ## No-Socket Help Probes
 
 The following probes are executable contract checks. They must exit 0 and print
@@ -389,8 +529,10 @@ the expected text without connecting to a cmux socket.
 - `cmux capabilities --help` -> `Usage: cmux capabilities`
 - `cmux events --help` -> `Usage: cmux events [options]`
 - `cmux auth --help` -> `Usage: cmux auth <status|login|logout>`
-- `cmux vm --help` -> `Usage: cmux vm <new|ls|rm|exec|shell|attach|ssh|ssh-info> [args...]`
-- `cmux cloud --help` -> `Usage: cmux cloud <new|ls|rm|exec|shell|attach|ssh|ssh-info> [args...]`
+- `cmux vm --help` -> `Usage: cmux vm <base|new|ls|status|snapshot|fork|restore|rm|exec|shell|attach|ssh|ssh-info> [args...]`
+- `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|status|snapshot|fork|restore|rm|exec|shell|attach|ssh|ssh-info> [args...]`
+- `cmux remotes --help` -> `Usage: cmux remotes <list|add|remove> [options]`
+- `cmux remote --help` -> `Usage: cmux remotes <list|add|remove> [options]`
 - `cmux rpc --help` -> `Usage: cmux rpc <method> [json-params]`
 - `cmux help --help` -> `Usage: cmux help`
 - `cmux docs --help` -> `Usage: cmux docs [settings|shortcuts|api|browser|agents|dock]`
@@ -441,6 +583,11 @@ the expected text without connecting to a cmux socket.
 - `cmux list-workspaces --help` -> `Usage: cmux list-workspaces`
 - `cmux ssh --help` -> `Usage: cmux ssh <destination>`
 - `cmux ssh --help` -> `--forward-agent`
+- `cmux ssh --help` -> `--transport <ssh|mosh>`
+- `cmux mosh --help` -> `Usage: cmux mosh <destination>`
+- `cmux mosh-tmux --help` -> `Usage: cmux mosh-tmux <destination>`
+- `cmux mosh-tmux --help` -> `--session <name>`
+- `cmux ssh --help` -> `--command <text>`
 - `cmux ssh-session-list --help` -> `Usage: cmux ssh-session-list`
 - `cmux ssh-session-attach --help` -> `Usage: cmux ssh-session-attach --session-id <id>`
 - `cmux ssh-session-cleanup --help` -> `Usage: cmux ssh-session-cleanup`

@@ -480,6 +480,87 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertFalse(coordinator.isShellLoadingForTesting)
     }
 
+    func testMarkdownRendererReentersWindowReloadsShellAfterRecoveryBudgetExhausted() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let theme = MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor)
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        // Document was healthy when the pane was dragged out of its column.
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
+        coordinator.webView(webView, didFinish: nil)
+        coordinator.handleViewLeftWindow()
+
+        // While detached, WebKit reclaimed the WebContent process and the
+        // in-place recovery budget was exhausted, leaving the panel blank.
+        for _ in 0...2 {
+            coordinator.webViewWebContentProcessDidTerminate(webView)
+        }
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+
+        // Re-parenting the pane back into a window must recover the blank
+        // panel: reset the recovery budget and reload the shell.
+        coordinator.handleViewReenteredWindow()
+
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 0)
+        XCTAssertTrue(coordinator.isShellLoadingForTesting)
+    }
+
+    func testMarkdownRendererReentersWindowKeepsLoadedShell() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let theme = MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor)
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        // A still-loaded shell (WebContent process alive, just unpainted) must
+        // not be torn down and reloaded when the view re-enters a window.
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
+        // Consume part of the per-payload crash-recovery budget, then finish a
+        // successful reload so the shell is loaded again.
+        coordinator.webViewWebContentProcessDidTerminate(webView)
+        coordinator.webView(webView, didFinish: nil)
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 1)
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+
+        coordinator.handleViewLeftWindow()
+        coordinator.handleViewReenteredWindow()
+
+        // Re-entry on a loaded shell must not reload it, and must preserve the
+        // per-payload crash budget so reparent/layout churn can't grant a
+        // crashing payload extra recovery cycles.
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 1)
+    }
+
+    func testMarkdownRendererReentersWindowDoesNotReviveCrashLoopingPayload() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let theme = MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor)
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        // A payload that keeps crashing WebContent *while attached* exhausts
+        // the recovery budget and is intentionally left blank by the crash-loop
+        // guard — the shell was never healthy when detached.
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Crashy\n")
+        for _ in 0...2 {
+            coordinator.webViewWebContentProcessDidTerminate(webView)
+        }
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+
+        // Dragging the pane (detach while already blank) then re-entering must
+        // NOT grant the crashing payload a fresh budget or reload it.
+        coordinator.handleViewLeftWindow()
+        coordinator.handleViewReenteredWindow()
+
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+    }
+
     func testMarkdownRendererNavigationFailureUnblocksFutureShellReload() {
         let coordinator = MarkdownWebRenderer.Coordinator()
         let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
@@ -932,22 +1013,11 @@ final class MarkdownPanelTests: XCTestCase {
         let copiedHTTPButton = try XCTUnwrap(copiedHTTPButtonState as? [String: Any])
         XCTAssertEqual(copiedHTTPButton["text"] as? String, expectedCopiedButton)
         XCTAssertEqual(copiedHTTPButton["copied"] as? String, "1")
-        try await Task.sleep(nanoseconds: 1_300_000_000)
-        let restoredHTTPButtonState = try await webView.evaluateJavaScript(
-            """
-            (function() {
-              var img = document.querySelector('img[alt="HTTP remote"]');
-              var id = img && img.getAttribute('data-cmux-remote-placeholder-id');
-              var placeholder = id && document.querySelector('[data-cmux-remote-placeholder-for="' + id + '"]');
-              var button = placeholder && placeholder.querySelectorAll('button')[0];
-              return {
-                text: button ? button.textContent : '',
-                copied: button ? button.getAttribute('data-copied') : ''
-              };
-            })();
-            """
+        let restoredHTTPButton = try await waitForRemoteImageButtonRevert(
+            alt: "HTTP remote",
+            expectedText: expectedCopyURLButton,
+            in: webView
         )
-        let restoredHTTPButton = try XCTUnwrap(restoredHTTPButtonState as? [String: Any])
         XCTAssertEqual(restoredHTTPButton["text"] as? String, expectedCopyURLButton)
         XCTAssertNil(restoredHTTPButton["copied"] as? String)
         let openedHTTPImageURL = try await webView.evaluateJavaScript(
@@ -1363,6 +1433,49 @@ final class MarkdownPanelTests: XCTestCase {
             code: 1,
             userInfo: [
                 NSLocalizedDescriptionKey: "Timed out waiting for markdown image to load. Last snapshot: \(lastSnapshot)"
+            ]
+        )
+    }
+
+    private func waitForRemoteImageButtonRevert(
+        alt: String,
+        expectedText: String,
+        in webView: WKWebView
+    ) async throws -> [String: Any] {
+        // The "Copied" label reverts to "Copy image URL" via a JS setTimeout in the
+        // markdown viewer shell, which runs in a separate WebKit process. Poll the real
+        // DOM transition instead of racing a fixed sleep against that timer.
+        let deadline = Date().addingTimeInterval(8)
+        var lastSnapshot: [String: Any] = [:]
+
+        while Date() < deadline {
+            let result = try await webView.evaluateJavaScript(
+                """
+                (function() {
+                  var img = document.querySelector('img[alt="\(alt)"]');
+                  var id = img && img.getAttribute('data-cmux-remote-placeholder-id');
+                  var placeholder = id && document.querySelector('[data-cmux-remote-placeholder-for="' + id + '"]');
+                  var button = placeholder && placeholder.querySelectorAll('button')[0];
+                  return {
+                    text: button ? button.textContent : '',
+                    copied: button ? button.getAttribute('data-copied') : ''
+                  };
+                })();
+                """
+            )
+            lastSnapshot = try XCTUnwrap(result as? [String: Any])
+            if lastSnapshot["text"] as? String == expectedText,
+               lastSnapshot["copied"] == nil || lastSnapshot["copied"] is NSNull {
+                return lastSnapshot
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        throw NSError(
+            domain: "MarkdownPanelTests",
+            code: 2,
+            userInfo: [
+                NSLocalizedDescriptionKey: "Timed out waiting for remote image button to revert to \(expectedText). Last snapshot: \(lastSnapshot)"
             ]
         )
     }

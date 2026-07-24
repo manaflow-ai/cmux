@@ -1,4 +1,4 @@
-import CmuxWorkspaceNavigation
+import CmuxWorkspaces
 import Foundation
 
 /// The window-side host for the CmuxWorkspaceNavigation focus-history

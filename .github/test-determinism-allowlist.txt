@@ -1,0 +1,6 @@
+# Test-determinism gate allowlist (grandfathered legacy debt).
+# Format: relpath<TAB>rule<TAB>short reason
+# A finding whose (path, rule) appears here is suppressed.
+# Remove a line once the underlying test is determinized.
+cmuxTests/WorkspaceForkConversationContextMenuTests.swift	assert-on-duration	grandfathered
+cmuxTests/WorkspaceForkConversationContextMenuTests.swift	sleep-then-assert	grandfathered

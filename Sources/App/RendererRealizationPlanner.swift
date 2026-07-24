@@ -17,9 +17,18 @@ enum RendererRealizationPlanner {
     static func selectedSurfaceIds(
         inputs: [RendererRealizationPlannerInput],
         settings: RendererRealizationSettings.Values,
-        now: TimeInterval
+        now: TimeInterval,
+        trigger: RendererRealizationReclaimTrigger = .scheduled
     ) -> Set<UUID> {
         guard settings.enabled else { return [] }
+
+        if trigger == .systemMemoryPressure {
+            return Set(
+                inputs.lazy
+                    .filter { $0.isRealized && !$0.isVisible }
+                    .map(\.surfaceId)
+            )
+        }
 
         // Only realized surfaces hold releasable GPU resources. Rank by recency
         // (most-recent first); visible surfaces are stamped ~now so they sort to

@@ -1,6 +1,8 @@
+import CmuxFoundation
+import CmuxTerminal
 import Foundation
 import OSLog
-import CmuxTerminal
+import os
 
 private let mobileTerminalByteTeeLog = Logger(
     subsystem: "dev.cmux",
@@ -27,6 +29,11 @@ private let mobileTerminalByteTeeLog = Logger(
 /// publish handles the hop to the main `MobileHostService.emitEvent`.
 @MainActor
 final class MobileTerminalByteTee {
+    struct OutputChunk: Sendable {
+        let sequence: UInt64
+        let data: Data
+    }
+
     // nonisolated: the singleton itself is an immutable `let` constructed once;
     // the only cross-thread entry point (`append`, from the C tee trampoline) is
     // `nonisolated` and hops to the main actor internally, so reading the
@@ -39,9 +46,19 @@ final class MobileTerminalByteTee {
         var seq: UInt64 = 0
         /// Tail-trimmed ring (~256 KB) for replay on cold attach.
         var replayBuffer: Data = Data()
+        /// Unique lifetime of this surface's render revision sequence.
+        var renderEpoch = UUID().uuidString
+        /// Producer capture order, independent of byte sequence. Geometry-only
+        /// captures advance this even when `seq` is unchanged.
+        var renderRevision: UInt64 = 0
     }
 
     private var statesBySurfaceID: [UUID: SurfaceState] = [:]
+    private var laneContinuationsBySurfaceID: [
+        UUID: [UUID: AsyncStream<OutputChunk>.Continuation]
+    ] = [:]
+    nonisolated private let laneSubscriberCount = OSAllocatedUnfairLock(initialState: 0)
+    nonisolated private let laneDemand = AtomicBooleanGate(false)
     private let replayBudget: Int = 256 * 1024
     /// Serial queue so fan-out preserves byte order even though the
     /// upstream callback runs off the main thread.
@@ -69,9 +86,11 @@ final class MobileTerminalByteTee {
         // gate on both topics because `publishFromMain` is load-bearing for
         // the render-grid stream too: it advances `seq` (read as `stateSeq`)
         // and calls `noteTerminalBytes` to schedule the post-parse tick.
+        // Iroh application-lane demand keeps its lock-free gate.
         guard
             MobileHostService.hasEventSubscribers(topic: "terminal.bytes")
                 || MobileHostService.hasEventSubscribers(topic: "terminal.render_grid")
+                || laneDemand.loadAcquire()
         else {
             return
         }
@@ -96,9 +115,59 @@ final class MobileTerminalByteTee {
         statesBySurfaceID[surfaceID]?.seq
     }
 
+    /// Returns the producer identity that orders every render-grid capture.
+    ///
+    /// The state is installed even before the first capture so a viewport RPC
+    /// can return a floor in the same epoch that the subsequent replay uses.
+    func currentRenderCaptureIdentity(surfaceID: UUID) -> (epoch: String, revision: UInt64) {
+        let state = statesBySurfaceID[surfaceID] ?? SurfaceState()
+        statesBySurfaceID[surfaceID] = state
+        return (epoch: state.renderEpoch, revision: state.renderRevision)
+    }
+
+    /// Claims the next epoch-aware render-grid capture identity for one surface.
+    func nextRenderCaptureIdentity(surfaceID: UUID) -> (epoch: String, revision: UInt64) {
+        var state = statesBySurfaceID[surfaceID] ?? SurfaceState()
+        state.renderRevision &+= 1
+        if state.renderRevision == 0 {
+            state.renderRevision = 1
+        }
+        statesBySurfaceID[surfaceID] = state
+        return (epoch: state.renderEpoch, revision: state.renderRevision)
+    }
+
+    /// Opens a bounded raw-output subscription for one authenticated Iroh
+    /// terminal lane. If a slow consumer drops a chunk, the stream ends so the
+    /// phone must reopen with its last byte cursor instead of rendering a gap.
+    func outputUpdates(surfaceID: UUID) -> AsyncStream<OutputChunk> {
+        let id = UUID()
+        return AsyncStream(bufferingPolicy: .bufferingOldest(64)) { continuation in
+            laneContinuationsBySurfaceID[surfaceID, default: [:]][id] = continuation
+            laneSubscriberCount.withLock { $0 += 1 }
+            laneDemand.storeRelease(true)
+            continuation.onTermination = { @Sendable [weak self] _ in
+                Task { @MainActor in
+                    self?.removeLaneContinuation(id: id, surfaceID: surfaceID)
+                }
+            }
+        }
+    }
+
     /// Drop replay history for a surface (e.g. when the surface closes).
     func dropSurface(surfaceID: UUID) {
         statesBySurfaceID.removeValue(forKey: surfaceID)
+        let continuations = laneContinuationsBySurfaceID.removeValue(forKey: surfaceID)
+            .map { Array($0.values) } ?? []
+        if !continuations.isEmpty {
+            let remainingCount = laneSubscriberCount.withLock { count in
+                count = max(0, count - continuations.count)
+                return count
+            }
+            laneDemand.storeRelease(remainingCount > 0)
+            for continuation in continuations {
+                continuation.finish()
+            }
+        }
     }
 
     private func publishFromMain(surfaceID: UUID, data: Data) {
@@ -111,6 +180,20 @@ final class MobileTerminalByteTee {
         }
         statesBySurfaceID[surfaceID] = state
         MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: surfaceID)
+
+        if let continuations = laneContinuationsBySurfaceID[surfaceID] {
+            let chunk = OutputChunk(sequence: chunkSeq, data: data)
+            var droppedIDs: [UUID] = []
+            for (id, continuation) in continuations {
+                if case .dropped = continuation.yield(chunk) {
+                    continuation.finish()
+                    droppedIDs.append(id)
+                }
+            }
+            for id in droppedIDs {
+                removeLaneContinuation(id: id, surfaceID: surfaceID)
+            }
+        }
 
         // The render-grid path (the primary mobile path) only needs the seq
         // advance + `noteTerminalBytes` tick above; it never consumes the raw
@@ -132,33 +215,18 @@ final class MobileTerminalByteTee {
         ]
         MobileHostService.shared.emitEvent(topic: "terminal.bytes", payload: payload)
     }
-}
 
-/// C-callable trampoline matching `ghostty_pty_tee_cb` exactly:
-/// `void (void* userdata, const char* bytes, uintptr_t len)`. The
-/// userdata pointer is an opaque token that recovers the surface UUID.
-/// We expose this as a `@convention(c)` closure (not `@_cdecl`) so the
-/// symbol is private to this translation unit and the linker doesn't
-/// see a duplicate when other files reference the symbol via function
-/// pointer.
-public let cmuxMobileTerminalByteTeeCallback: @convention(c) (
-    UnsafeMutableRawPointer?, UnsafePointer<CChar>?, UInt
-) -> Void = { userdata, bytes, len in
-    guard let userdata, let bytes, len > 0 else { return }
-    let box = Unmanaged<MobileTerminalByteTeeUserdata>.fromOpaque(userdata).takeUnretainedValue()
-    let count = Int(len)
-    bytes.withMemoryRebound(to: UInt8.self, capacity: count) { rebound in
-        let buffer = UnsafeBufferPointer(start: rebound, count: count)
-        MobileTerminalByteTee.shared.append(surfaceID: box.surfaceID, bytes: buffer)
-    }
-}
-
-/// Heap-allocated userdata box passed to libghostty. The box's lifetime
-/// is tied to the surface via a retained `Unmanaged` reference held on
-/// the `TerminalSurface`; release happens when the surface is freed.
-public final class MobileTerminalByteTeeUserdata {
-    public let surfaceID: UUID
-    public init(surfaceID: UUID) {
-        self.surfaceID = surfaceID
+    private func removeLaneContinuation(id: UUID, surfaceID: UUID) {
+        guard laneContinuationsBySurfaceID[surfaceID]?.removeValue(forKey: id) != nil else {
+            return
+        }
+        if laneContinuationsBySurfaceID[surfaceID]?.isEmpty == true {
+            laneContinuationsBySurfaceID[surfaceID] = nil
+        }
+        let remainingCount = laneSubscriberCount.withLock { count in
+            count = max(0, count - 1)
+            return count
+        }
+        laneDemand.storeRelease(remainingCount > 0)
     }
 }

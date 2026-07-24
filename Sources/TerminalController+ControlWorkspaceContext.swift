@@ -19,35 +19,6 @@ import Foundation
 /// `workspace.remote.pty_*` (sessions/close/detach/bridge/resize) methods stay on
 /// the app-side dispatcher.
 extension TerminalController: ControlWorkspaceContext {
-    func controlWorkspaceStrings() -> ControlWorkspaceStrings {
-        ControlWorkspaceStrings(
-            closeProtected: String(
-                localized: "workspace.closeProtected.message",
-                defaultValue: "Pinned workspaces can't be closed while pinned. Unpin the workspace first."
-            ),
-            reorderManyMissingOrder: String(
-                localized: "socket.workspace.reorderMany.missingOrder",
-                defaultValue: "Missing workspace_ids"
-            ),
-            reorderManyDuplicateWorkspace: String(
-                localized: "socket.workspace.reorderMany.duplicateWorkspace",
-                defaultValue: "Duplicate workspace in order"
-            ),
-            reorderManyWorkspaceNotFound: String(
-                localized: "socket.workspace.reorderMany.workspaceNotFound",
-                defaultValue: "Workspace not found"
-            ),
-            reorderManyInvalidWorkspace: String(
-                localized: "socket.workspace.reorderMany.invalidWorkspace",
-                defaultValue: "Invalid workspace id or ref"
-            ),
-            reorderManyTabManagerUnavailable: String(
-                localized: "socket.workspace.reorderMany.tabManagerUnavailable",
-                defaultValue: "TabManager not available"
-            )
-        )
-    }
-
     func controlWorkspaceRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool {
         resolveTabManager(routing: routing) != nil
     }
@@ -64,7 +35,7 @@ extension TerminalController: ControlWorkspaceContext {
             isPinned: workspace.isPinned,
             listeningPorts: workspace.listeningPorts,
             remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:]),
-            currentDirectory: workspace.currentDirectory,
+            currentDirectory: workspace.presentedCurrentDirectory ?? "",
             customColor: workspace.customColor,
             latestConversationMessage: workspace.latestConversationMessage,
             latestSubmittedMessage: workspace.latestSubmittedMessage,
@@ -161,7 +132,9 @@ extension TerminalController: ControlWorkspaceContext {
         guard tabManager.canCloseWorkspace(ws) else {
             return .protected(windowID: windowId)
         }
-        tabManager.closeWorkspace(ws)
+        guard tabManager.closeWorkspaceNonInteractively(ws) else {
+            return .closeFailed(windowID: windowId)
+        }
         return .resolved(windowID: windowId)
     }
 
@@ -440,7 +413,10 @@ extension TerminalController: ControlWorkspaceContext {
         )
     }
 
-    func controlReconnectWorkspaceRemote(workspaceID: UUID) -> ControlWorkspaceRemoteResolution {
+    func controlReconnectWorkspaceRemote(
+        workspaceID: UUID,
+        surfaceID: UUID?
+    ) -> ControlWorkspaceRemoteResolution {
         guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceID),
               let workspace = owner.tabs.first(where: { $0.id == workspaceID }) else {
             return .notFound(workspaceID: workspaceID)
@@ -448,7 +424,7 @@ extension TerminalController: ControlWorkspaceContext {
         guard workspace.remoteConfiguration != nil else {
             return .notConfigured(workspaceID: workspaceID)
         }
-        workspace.reconnectRemoteConnection()
+        workspace.reconnectRemoteConnection(surfaceId: surfaceID)
         notifyRemotePTYControllerAvailabilityChanged()
         let windowId = AppDelegate.shared?.windowId(for: owner)
         return .resolved(
@@ -522,13 +498,15 @@ extension TerminalController: ControlWorkspaceContext {
             }
             localProxyPort = parsedLocalProxyPort
         }
-
         let identityFile = v2RawString(params, "identity_file")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let sshOptions = v2StringArray(params, "ssh_options") ?? []
-        let transportRaw = v2RawString(params, "transport")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let transport = WorkspaceRemoteTransport(rawValue: transportRaw ?? "") ?? .ssh
+        let remoteTransports = remoteTransportConfiguration(params)
+        if let error = remoteTransports.error { return error }
+        let remoteTerminalProfile = remoteTerminalProfileConfiguration(params)
+        if let error = remoteTerminalProfile.error { return error }
+        let (transport, terminalTransport, skipDaemonBootstrap) =
+            (remoteTransports.management, remoteTransports.terminal, remoteTransports.skipDaemonBootstrap)
+        let terminalProfile = remoteTerminalProfile.profile
         let autoConnect = v2Bool(params, "auto_connect") ?? true
         var relayPort: Int?
         if v2HasNonNullParam(params, "relay_port") {
@@ -548,6 +526,8 @@ extension TerminalController: ControlWorkspaceContext {
         let agentSocketPath = v2RawString(params, "ssh_auth_sock")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let terminalStartupCommand = v2RawString(params, "terminal_startup_command")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let managedCloudVMID = v2RawString(params, "managed_cloud_vm_id")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         var persistentDaemonSlot = v2RawString(params, "persistent_daemon_slot")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -604,7 +584,6 @@ extension TerminalController: ControlWorkspaceContext {
                 data: nil
             )
         }
-        let skipDaemonBootstrap = v2Bool(params, "skip_daemon_bootstrap") ?? false
         if persistentDaemonSlot != nil, !preserveAfterTerminalExit {
             return .err(
                 code: "invalid_params",
@@ -632,7 +611,8 @@ extension TerminalController: ControlWorkspaceContext {
 #if DEBUG
         cmuxDebugLog(
             "workspace.remote.configure.request workspace=\(workspaceId.uuidString.prefix(8)) " +
-            "target=\(destination) transport=\(transport.rawValue) port=\(sshPort.map(String.init) ?? "nil") " +
+            "target=\(destination) transport=\(transport.rawValue) terminalTransport=\(terminalTransport.rawValue) " +
+            "port=\(sshPort.map(String.init) ?? "nil") " +
             "autoConnect=\(autoConnect ? 1 : 0) relayPort=\(relayPort.map(String.init) ?? "nil") " +
             "localSocket=\(localSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? localSocketPath! : "nil") " +
             "sshAuthSock=\(agentSocketPath?.isEmpty == false ? 1 : 0) " +
@@ -650,6 +630,8 @@ extension TerminalController: ControlWorkspaceContext {
 
         let config = WorkspaceRemoteConfiguration(
             transport: transport,
+            terminalTransport: terminalTransport,
+            terminalProfile: terminalProfile,
             destination: destination,
             port: sshPort,
             identityFile: identityFile?.isEmpty == true ? nil : identityFile,
@@ -659,6 +641,7 @@ extension TerminalController: ControlWorkspaceContext {
             relayID: relayID?.isEmpty == true ? nil : relayID,
             relayToken: relayToken?.isEmpty == true ? nil : relayToken,
             localSocketPath: localSocketPath,
+            managedCloudVMID: managedCloudVMID?.isEmpty == true ? nil : managedCloudVMID,
             terminalStartupCommand: terminalStartupCommand?.isEmpty == true ? nil : terminalStartupCommand,
             foregroundAuthToken: foregroundAuthToken?.isEmpty == true ? nil : foregroundAuthToken,
             agentSocketPath: WorkspaceRemoteConfiguration.resolvedAgentSocketPath(
@@ -685,14 +668,10 @@ extension TerminalController: ControlWorkspaceContext {
     }
 
     func controlWorkspaceRemotePTYAttachEnd(
-        workspaceID workspaceId: UUID,
-        surfaceID surfaceId: UUID,
-        sessionID: String
+        workspaceID workspaceId: UUID, surfaceID surfaceId: UUID, sessionID: String
     ) -> ControlWorkspaceRemotePTYAttachEndResolution {
         let located = AppDelegate.shared?.workspaceContainingPanel(
-            panelId: surfaceId,
-            preferredWorkspaceId: workspaceId
-        )
+            panelId: surfaceId, preferredWorkspaceId: workspaceId)
         let fallbackOwner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId)
         let fallbackWorkspace = fallbackOwner?.tabs.first(where: { $0.id == workspaceId })
         guard let owner = located?.tabManager ?? fallbackOwner,
@@ -702,8 +681,7 @@ extension TerminalController: ControlWorkspaceContext {
         let outcome = workspace.markRemotePTYAttachEnded(surfaceId: surfaceId, sessionID: sessionID)
         let windowId = AppDelegate.shared?.windowId(for: owner)
         return .resolved(
-            windowID: windowId,
-            workspaceID: workspace.id,
+            windowID: windowId, workspaceID: workspace.id,
             clearedRemotePTYSession: outcome.clearedRemotePTYSession,
             untrackedRemoteTerminal: outcome.untrackedRemoteTerminal,
             remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:])
@@ -713,13 +691,24 @@ extension TerminalController: ControlWorkspaceContext {
     func controlWorkspaceRemoteTerminalSessionEnd(
         workspaceID workspaceId: UUID,
         surfaceID surfaceId: UUID,
-        relayPort: Int
+        relayPort: Int?,
+        sessionID: String?,
+        lifecycleID: String?,
+        lifecycleOnly: Bool
     ) -> ControlWorkspaceRemoteTerminalSessionEndResolution {
+        let generationIsCurrent = switch (sessionID, lifecycleID) {
+        case let (.some(sessionID), .some(lifecycleID)):
+            remoteProxyBroker.acknowledgePTYLifecycleAfterWrapperEnd(sessionID: sessionID, lifecycleID: lifecycleID)
+        case (nil, nil): true
+        default: false
+        }
         guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
               let workspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
             return .notFound
         }
-        workspace.markRemoteTerminalSessionEnded(surfaceId: surfaceId, relayPort: relayPort)
+        if !lifecycleOnly, generationIsCurrent {
+            workspace.markRemoteTerminalSessionEnded(surfaceId: surfaceId, relayPort: relayPort)
+        }
         let windowId = AppDelegate.shared?.windowId(for: owner)
         return .resolved(
             windowID: windowId,
@@ -749,4 +738,3 @@ extension TerminalController: ControlWorkspaceContext {
         return .string(uuid.uuidString)
     }
 }
-

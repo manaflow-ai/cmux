@@ -1,4 +1,5 @@
 import Darwin
+import CmuxTerminalCore
 import Foundation
 import SwiftUI
 
@@ -528,162 +529,35 @@ enum CmuxTaskManagerFormat {
     }
 }
 
-struct CmuxTaskManagerCodingAgentDefinition: Equatable {
+struct CmuxTaskManagerCodingAgentDefinition: Equatable, Sendable {
     let id: String
     let displayName: String
     let assetName: String?
     let launchKinds: [String]
     let directBasenames: [String]
     let argumentNeedles: [String]
+    let requiredArgumentPrefix: [String]
+    let promptTurnDetection: PromptLineTurnDetectionConfiguration?
 
-    static let builtIns: [CmuxTaskManagerCodingAgentDefinition] = [
-        CmuxTaskManagerCodingAgentDefinition(
-            id: "claude",
-            displayName: "Claude Code",
-            assetName: "AgentIcons/Claude",
-            launchKinds: ["claude", "claudeteams", "claude-teams", "omc"],
-            directBasenames: ["claude", "claude-code", "claude_code", "claude-teams", "omc"],
-            argumentNeedles: [
-                "claude-code",
-                "claude_code",
-                "claude-teams",
-                "@anthropic-ai/claude-code",
-                "oh-my-claude",
-                "omc",
-                "/.local/bin/claude",
-                "/.local/share/claude/versions/",
-                "/library/application support/claude/claude-code/",
-            ]
-        ),
-        CmuxTaskManagerCodingAgentDefinition(
-            id: "codex",
-            displayName: "Codex",
-            assetName: "AgentIcons/Codex",
-            launchKinds: ["codex", "omx"],
-            directBasenames: ["codex", "omx"],
-            argumentNeedles: ["codex", "@openai/codex", "oh-my-codex"]
-        ),
-        CmuxTaskManagerCodingAgentDefinition(
-            id: "grok",
-            displayName: "Grok",
-            assetName: nil,
-            launchKinds: ["grok"],
-            directBasenames: ["grok", "grok-macos-aarch64", "grok-macos-aarch"],
-            argumentNeedles: ["grok", "grok-build", "@xai/grok"]
-        ),
-        CmuxTaskManagerCodingAgentDefinition(
-            id: "opencode",
-            displayName: "OpenCode",
-            assetName: "AgentIcons/OpenCode",
-            launchKinds: ["opencode", "omo"],
-            directBasenames: ["opencode", "opencode-ai", "open-code", "omo"],
-            argumentNeedles: ["opencode", "opencode-ai", "open-code", "oh-my-openagent"]
-        ),
-        CmuxTaskManagerCodingAgentDefinition(
-            id: "omp",
-            displayName: "OMP",
-            assetName: nil,
-            launchKinds: ["omp"],
-            directBasenames: ["omp"],
-            argumentNeedles: ["@oh-my-pi/pi-coding-agent"]
-        ),
-        CmuxTaskManagerCodingAgentDefinition(
-            id: "pi",
-            displayName: "Pi",
-            assetName: "AgentIcons/Pi",
-            launchKinds: ["pi"],
-            directBasenames: ["pi", "pi-coding-agent"],
-            argumentNeedles: ["@mariozechner/pi-coding-agent", "pi-coding-agent"]
-        ),
-        CmuxTaskManagerCodingAgentDefinition(
-            id: "amp",
-            displayName: "Amp",
-            assetName: nil,
-            launchKinds: ["amp"],
-            directBasenames: ["amp"],
-            argumentNeedles: ["@ampcode"]
-        ),
-        CmuxTaskManagerCodingAgentDefinition(
-            id: "cursor",
-            displayName: "Cursor",
-            assetName: nil,
-            launchKinds: ["cursor"],
-            directBasenames: ["cursor-agent"],
-            argumentNeedles: ["cursor-agent"]
-        ),
-        CmuxTaskManagerCodingAgentDefinition(
-            id: "gemini",
-            displayName: "Gemini",
-            assetName: nil,
-            launchKinds: ["gemini"],
-            directBasenames: ["gemini"],
-            argumentNeedles: ["gemini"]
-        ),
-        CmuxTaskManagerCodingAgentDefinition(
-            id: "kiro",
-            displayName: "Kiro",
-            assetName: nil,
-            launchKinds: ["kiro"],
-            directBasenames: ["kiro", "kiro-cli"],
-            argumentNeedles: ["kiro", "kiro-cli"]
-        ),
-        CmuxTaskManagerCodingAgentDefinition(
-            id: "antigravity",
-            displayName: "Antigravity",
-            assetName: "AgentIcons/Antigravity",
-            launchKinds: ["antigravity", "agy"],
-            directBasenames: ["agy", "antigravity"],
-            argumentNeedles: ["antigravity-cli", "antigravity"]
-        ),
-        CmuxTaskManagerCodingAgentDefinition(
-            id: "rovodev",
-            displayName: "Rovo Dev",
-            assetName: "AgentIcons/RovoDev",
-            launchKinds: ["rovodev", "rovo"],
-            directBasenames: ["rovodev"],
-            argumentNeedles: ["rovodev"]
-        ),
-        CmuxTaskManagerCodingAgentDefinition(
-            id: "hermes-agent",
-            displayName: "Hermes Agent",
-            assetName: "AgentIcons/HermesAgent",
-            launchKinds: ["hermes-agent"],
-            directBasenames: ["hermes", "hermes-agent"],
-            argumentNeedles: ["hermes-agent"]
-        ),
-        CmuxTaskManagerCodingAgentDefinition(
-            id: "copilot",
-            displayName: "Copilot",
-            assetName: nil,
-            launchKinds: ["copilot"],
-            directBasenames: ["copilot"],
-            argumentNeedles: ["copilot"]
-        ),
-        CmuxTaskManagerCodingAgentDefinition(
-            id: "codebuddy",
-            displayName: "CodeBuddy",
-            assetName: nil,
-            launchKinds: ["codebuddy"],
-            directBasenames: ["codebuddy"],
-            argumentNeedles: ["codebuddy"]
-        ),
-        CmuxTaskManagerCodingAgentDefinition(
-            id: "factory",
-            displayName: "Factory",
-            assetName: nil,
-            launchKinds: ["factory"],
-            directBasenames: ["droid", "factory"],
-            argumentNeedles: ["factory"]
-        ),
-        CmuxTaskManagerCodingAgentDefinition(
-            id: "qoder",
-            displayName: "Qoder",
-            assetName: nil,
-            launchKinds: ["qoder"],
-            directBasenames: ["qoder", "qodercli"],
-            argumentNeedles: ["qoder", "qodercli"]
-        ),
-    ]
+    init(
+        id: String,
+        displayName: String,
+        assetName: String?,
+        launchKinds: [String],
+        directBasenames: [String],
+        argumentNeedles: [String],
+        requiredArgumentPrefix: [String] = [],
+        promptTurnDetection: PromptLineTurnDetectionConfiguration? = nil
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.assetName = assetName
+        self.launchKinds = launchKinds
+        self.directBasenames = directBasenames
+        self.argumentNeedles = argumentNeedles
+        self.requiredArgumentPrefix = requiredArgumentPrefix
+        self.promptTurnDetection = promptTurnDetection
+    }
 
     static func shouldReadArguments(processName: String, processPath: String?) -> Bool {
         if let normalizedPath = normalized(processPath),
@@ -710,37 +584,55 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
         environment: [String: String]
     ) -> CmuxTaskManagerCodingAgentDefinition? {
         let definitions = builtIns
-        let launchKind = normalized(environment["CMUX_AGENT_LAUNCH_KIND"])
-        if let launchKind,
-           let definition = definitions.first(where: { $0.launchKinds.contains(launchKind) }) {
-            return definition
-        }
-
+        // The process's own executable identity outranks the launch-kind
+        // environment: CMUX_AGENT_LAUNCH_* is inherited by every descendant
+        // of the launched pane, so a later `ollama run` inside a pane that
+        // launched claude still carries CMUX_AGENT_LAUNCH_KIND=claude. The
+        // env var only identifies processes (wrappers, script hosts) whose
+        // executable matches no agent definition of its own.
         let basenames = candidateBasenames(
             processName: processName,
             processPath: processPath,
             arguments: arguments
         )
         if let definition = definitions.first(where: { definition in
-            basenames.contains { definition.directBasenames.contains($0) }
+            definition.matchesRequiredArguments(arguments)
+                && basenames.contains { definition.directBasenames.contains($0) }
         }) {
+            return definition
+        }
+
+        let launchKind = normalized(environment["CMUX_AGENT_LAUNCH_KIND"])
+        if let launchKind,
+           let definition = definitions.first(where: {
+               $0.launchKinds.contains(launchKind) && $0.matchesRequiredArguments(arguments)
+           }) {
             return definition
         }
 
         guard !arguments.isEmpty else { return nil }
         return definitions.first { definition in
-            definition.argumentNeedles.contains { needle in
-                arguments.contains { argumentMatchesNeedle(argument: $0, needle: needle) }
-            }
+            definition.matchesRequiredArguments(arguments)
+                && definition.argumentNeedles.contains { needle in
+                    arguments.contains { argumentMatchesNeedle(argument: $0, needle: needle) }
+                }
         }
     }
 
+    private func matchesRequiredArguments(_ arguments: [String]) -> Bool {
+        guard !requiredArgumentPrefix.isEmpty else { return true }
+        let normalizedArguments = arguments.compactMap(Self.normalized)
+        let required = requiredArgumentPrefix.compactMap(Self.normalized)
+        guard normalizedArguments.count > required.count else { return false }
+        return Array(normalizedArguments.dropFirst().prefix(required.count)) == required
+    }
+
     private static let argumentHostBasenames: Set<String> = [
-        "node", "bun", "deno", "npm", "npx", "pnpm", "yarn", "tsx"
+        "node", "bun", "deno", "npm", "npx", "pnpm", "yarn", "tsx", "ts-node"
     ]
 
     private static let ambiguousDirectBasenames: Set<String> = [
-        "acli"
+        "acli", "ollama"
     ]
 
     private static let argumentInspectionPathNeedles = [

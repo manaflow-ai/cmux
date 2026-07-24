@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-nonisolated struct CmuxTopResourceSummary: Sendable {
+struct CmuxTopResourceSummary: Sendable {
     var cpuPercent: Double = 0
     var memoryBytes: Int64 = 0
     var residentBytes: Int64 = 0
@@ -45,7 +45,7 @@ nonisolated struct CmuxTopResourceSummary: Sendable {
     }
 }
 
-nonisolated enum CmuxTopProcessMemorySource: String, Sendable {
+enum CmuxTopProcessMemorySource: String, Sendable {
     case physicalFootprint = "proc_pid_rusage.RUSAGE_INFO_V4.ri_phys_footprint"
     case residentSize = "proc_pidinfo.PROC_PIDTASKINFO.pti_resident_size"
     case rusageResidentSize = "proc_pid_rusage.RUSAGE_INFO_V4.ri_resident_size"
@@ -53,7 +53,7 @@ nonisolated enum CmuxTopProcessMemorySource: String, Sendable {
     case unavailable
 }
 
-nonisolated struct CmuxTopProcessInfo: Sendable {
+struct CmuxTopProcessInfo: Sendable {
     let pid: Int
     let parentPID: Int
     let name: String
@@ -117,7 +117,7 @@ nonisolated struct CmuxTopProcessInfo: Sendable {
     }
 }
 
-nonisolated struct CmuxTopProcessScope: Sendable, Equatable {
+struct CmuxTopProcessScope: Sendable, Equatable {
     let workspaceID: UUID?
     let surfaceID: UUID?
     let attributionReason: String
@@ -129,30 +129,40 @@ nonisolated struct CmuxTopProcessScope: Sendable, Equatable {
     }
 }
 
-nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
+final class CmuxTopProcessSnapshot: @unchecked Sendable {
     let sampledAt: Date
     private let includesProcessDetails: Bool
+    private let includesCMUXScope: Bool
     let processesByPID: [Int: CmuxTopProcessInfo]
     private let childrenByParentPID: [Int: [Int]]
     private let pidsByTTYDevice: [Int64: [Int]]
     private let pidsByCMUXSurfaceID: [UUID: [Int]]
     private let residentMemorySources: [CmuxTopProcessMemorySource]
 
-    static func capture(includeProcessDetails: Bool = false) -> CmuxTopProcessSnapshot {
+    static func capture(
+        includeProcessDetails: Bool = false,
+        includeCMUXScope: Bool = true
+    ) -> CmuxTopProcessSnapshot {
         CmuxTopProcessSnapshot(
-            processes: allProcesses(includeProcessDetails: includeProcessDetails),
+            processes: allProcesses(
+                includeProcessDetails: includeProcessDetails,
+                includeCMUXScope: includeCMUXScope
+            ),
             sampledAt: Date(),
-            includesProcessDetails: includeProcessDetails
+            includesProcessDetails: includeProcessDetails,
+            includesCMUXScope: includeCMUXScope
         )
     }
 
     init(
         processes: [CmuxTopProcessInfo],
         sampledAt: Date,
-        includesProcessDetails: Bool
+        includesProcessDetails: Bool,
+        includesCMUXScope: Bool = true
     ) {
         self.sampledAt = sampledAt
         self.includesProcessDetails = includesProcessDetails
+        self.includesCMUXScope = includesCMUXScope
         var processMap: [Int: CmuxTopProcessInfo] = [:]
         processMap.reserveCapacity(processes.count)
         for process in processes {
@@ -193,8 +203,13 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             "resident_memory_source": Self.summaryMemorySource(residentMemorySources).rawValue,
             "resident_memory_sources": residentMemorySourceNames,
             "resident_memory_fallback_source": CmuxTopProcessMemorySource.rusageResidentSize.rawValue,
-            "process_details": includesProcessDetails
+            "process_details": includesProcessDetails,
+            "cmux_scope": includesCMUXScope
         ]
+    }
+
+    var hasCMUXScope: Bool {
+        includesCMUXScope
     }
 
     private static func sortedMemorySources(

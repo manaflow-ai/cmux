@@ -57,6 +57,25 @@ def _run_cli_json(cli: str, args: list[str]) -> dict:
         raise cmuxError(f"Invalid JSON output: {proc.stdout!r} ({exc})")
 
 
+def _wait_for_current_surface_id(client, workspace_id: str, timeout_s: float = 10.0) -> str:
+    """Poll surface.current until the new workspace exposes a surface_id.
+
+    Returns the surface_id the instant it appears; raises only at the deadline.
+    This replaces a fixed sleep that was a proxy for "the selected workspace's
+    surface is ready" with a wait on that real readiness signal.
+    """
+    deadline = time.monotonic() + timeout_s
+    last_payload: dict = {}
+    while True:
+        last_payload = client._call("surface.current", {"workspace_id": workspace_id}) or {}
+        surface_id = str(last_payload.get("surface_id") or "")
+        if surface_id:
+            return surface_id
+        if time.monotonic() >= deadline:
+            raise cmuxError(f"surface.current returned no surface_id within {timeout_s}s: {last_payload}")
+        time.sleep(0.05)
+
+
 def main() -> int:
     cli = _find_cli_binary()
     workspace_id = ""
@@ -65,11 +84,9 @@ def main() -> int:
         with cmux(SOCKET_PATH) as client:
             workspace_id = client.new_workspace()
             client.select_workspace(workspace_id)
-            time.sleep(0.2)
 
-            current_payload = client._call("surface.current", {"workspace_id": workspace_id}) or {}
-            surface_id = str(current_payload.get("surface_id") or "")
-            _must(bool(surface_id), f"surface.current returned no surface_id: {current_payload}")
+            surface_id = _wait_for_current_surface_id(client, workspace_id)
+            _must(bool(surface_id), "surface.current returned no surface_id")
 
             title = f"renamed-surface-{int(time.time() * 1000)}"
             renamed = client._call(

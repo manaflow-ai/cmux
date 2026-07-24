@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Observation
 import SwiftUI
 
@@ -93,7 +94,7 @@ struct CommandPaletteCommandListRowsView: View {
                 if state.rows.isEmpty {
                     if state.shouldShowEmptyState {
                         Text(state.emptyStateText)
-                            .font(.system(size: 13, weight: .regular))
+                            .cmuxFont(size: 13, weight: .regular)
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 12)
