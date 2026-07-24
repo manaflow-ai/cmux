@@ -40,12 +40,13 @@ class CodexWrapperResumeTrustTests(unittest.TestCase):
         custom_codex_is_symlink: bool = False,
         cmux_only_on_user_path: bool = False,
         codex_interpreter_only_on_user_path: bool = False,
+        launch_from_home: bool = False,
     ) -> tuple[list[str], str, subprocess.CompletedProcess[str]]:
         with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as raw:
             root = Path(raw)
             home = root / "home"
             project = root / "project"
-            working_directory = project / "nested"
+            working_directory = home if launch_from_home else project / "nested"
             effective_project = root / "effective-project"
             wrapper = root / "cmux-codex-wrapper"
             real_codex = (
@@ -308,6 +309,16 @@ printf '%s\\0' "$@" > "$FAKE_CODEX_ARGS_LOG"
             ],
             logged_cmux_calls,
         )
+
+    def test_home_directory_launch_allows_user_codex_install(self) -> None:
+        args, _, result = self.run_wrapper(
+            ["--yolo"],
+            trusted_codex_from_home=True,
+            launch_from_home=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(args, ["--enable", "hooks", "--yolo"], result.stderr)
 
     def test_last_and_named_resume_receive_trust_override(self) -> None:
         for arguments in (["resume", "--last"], ["resume", "session-name"]):
