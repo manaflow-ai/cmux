@@ -159,6 +159,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let liveIds = Set(liveWorkspaceIds)
         let previousRowIds = rows.map(\.id)
         rows = rows.filter { liveIds.contains($0.workspaceId) }
+        rowHeightCache.suspendPresentation(retaining: Set(rows.map(\.id)))
         if previousRowIds != rows.map(\.id) {
             mutationScheduler.stageTableReload()
         }
@@ -179,7 +180,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         optimisticallyPaintedRowIds.removeAll(keepingCapacity: true)
         pumpHeightOverrides.removeAll(keepingCapacity: true)
         selectionCoalescer.cancel()
-        rowHeightCache.clearRetainedPayloads()
+        rowHeightCache.suspendPresentation(retaining: Set(rows.map(\.id)))
         if let containerView {
             clearDropViewActions(in: containerView)
             if previousRowIds != rows.map(\.id) {

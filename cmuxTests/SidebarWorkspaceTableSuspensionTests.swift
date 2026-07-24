@@ -27,12 +27,27 @@ struct SidebarWorkspaceTableSuspensionTests {
         #expect(repeatedChanges.isEmpty)
         #expect(cache.height(for: row, columnWidth: 200) == 44)
 
-        cache.clearRetainedPayloads()
+        cache.suspendPresentation(retaining: [row.id])
         let changedRow = makeRowConfiguration(workspaceId: row.workspaceId, contentToken: 1)
         let revealChanges = cache.prepare(rows: [changedRow], columnWidth: 200) { candidate, _ in
             candidate.estimatedHeight
         }
         #expect(revealChanges == IndexSet(integer: 0))
+    }
+
+    @Test
+    func rowHeightCachePrunesRowsRemovedDuringSuspension() {
+        let retainedRow = makeRowConfiguration()
+        let removedRow = makeRowConfiguration()
+        let cache = SidebarWorkspaceTableRowHeightCache()
+        _ = cache.prepare(rows: [retainedRow, removedRow], columnWidth: 200) { row, _ in
+            row.id == retainedRow.id ? 44 : 55
+        }
+
+        cache.suspendPresentation(retaining: [retainedRow.id])
+
+        #expect(cache.height(for: retainedRow.presentationSnapshot(), columnWidth: 200) == 44)
+        #expect(cache.height(for: removedRow.presentationSnapshot(), columnWidth: 200) == nil)
     }
 
     @Test

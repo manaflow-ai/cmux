@@ -10919,6 +10919,8 @@ struct VerticalTabsSidebar: View, Equatable {
 
     private func deactivateSidebarInteractions() {
         appKitFrozenTableRowsBox.rows = nil
+        appKitRowSnapshotCache.prune(keeping: [])
+        if !workspaceSnapshotsById.isEmpty { workspaceSnapshotsById = [:] }
         guard sidebarInteractionsAreActive else { return }
         sidebarInteractionsAreActive = false
         pointerInteractionMonitor.stop()

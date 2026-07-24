@@ -287,6 +287,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         if let checklistAction = checklistSection.detachPresentation(commitEdits: commitEdits) {
             postUpdateActions.append(checklistAction)
         }
+        if statusPopoverPresenter.isShown {
+            statusPopoverPresenter.close()
+        }
+        lastStatusPopoverModel = nil
         actions = nil
         contextMenuDidOpen = nil
         contextMenuDidClose = nil

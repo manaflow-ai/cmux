@@ -29,12 +29,15 @@ final class SidebarWorkspaceTableRowHeightCache {
     private let prototypeRowView = SidebarWorkspaceRowTableCellView()
     private var preparedColumnWidth: CGFloat?
 
-    func clearRetainedPayloads() {
-        entries = entries.mapValues { entry in
-            Entry(
-                row: entry.row.presentationSnapshot(),
-                columnWidth: entry.columnWidth,
-                height: entry.height
+    func suspendPresentation(retaining rowIds: Set<SidebarWorkspaceRenderItemID>) {
+        entries = entries.reduce(
+            into: [SidebarWorkspaceRenderItemID: Entry]()
+        ) { suspendedEntries, pair in
+            guard rowIds.contains(pair.key) else { return }
+            suspendedEntries[pair.key] = Entry(
+                row: pair.value.row.presentationSnapshot(),
+                columnWidth: pair.value.columnWidth,
+                height: pair.value.height
             )
         }
         preparedColumnWidth = nil
