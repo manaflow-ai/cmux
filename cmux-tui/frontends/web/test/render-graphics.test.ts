@@ -8,6 +8,7 @@ import {
 } from "cmux/browser";
 import {
   decodeRenderGraphicImage,
+  RENDER_GRAPHIC_MAX_CANVAS_DIMENSION,
   resolveRenderGraphicPlacement,
 } from "../src/lib/renderGraphics";
 
@@ -115,6 +116,7 @@ describe("render graphics", () => {
 
     expect(resolveRenderGraphicPlacement(image, placement)).toMatchObject({
       key: "9:3:0",
+      backingBytes: 8,
       source: { x: 1, y: 0, width: 1, height: 2 },
       layer: "below",
       style: {
@@ -139,5 +141,35 @@ describe("render graphics", () => {
     expect(resolveRenderGraphicPlacement(image, { ...placement, viewport_visible: false })).toBeNull();
     expect(resolveRenderGraphicPlacement(image, { ...placement, image_id: 10 })).toBeNull();
     expect(resolveRenderGraphicPlacement(image, { ...placement, z: -1_073_741_824 })).toBeNull();
+  });
+
+  it("rejects browser-unsafe intrinsic canvas dimensions independently of area", () => {
+    const atLimit: RenderGraphicImage = {
+      id: 9,
+      generation: 1,
+      width: RENDER_GRAPHIC_MAX_CANVAS_DIMENSION,
+      height: 1,
+      format: "rgba",
+      data: "",
+    };
+    const beyondLimit: RenderGraphicImage = {
+      ...atLimit,
+      width: RENDER_GRAPHIC_MAX_CANVAS_DIMENSION + 1,
+    };
+    const thinPlacement: RenderGraphicPlacement = {
+      ...placement,
+      source_x: 0,
+      source_width: RENDER_GRAPHIC_MAX_CANVAS_DIMENSION,
+      source_height: 1,
+    };
+
+    expect(resolveRenderGraphicPlacement(atLimit, thinPlacement)).toMatchObject({
+      backingBytes: RENDER_GRAPHIC_MAX_CANVAS_DIMENSION * 4,
+      source: { width: RENDER_GRAPHIC_MAX_CANVAS_DIMENSION, height: 1 },
+    });
+    expect(resolveRenderGraphicPlacement(beyondLimit, {
+      ...thinPlacement,
+      source_width: RENDER_GRAPHIC_MAX_CANVAS_DIMENSION + 1,
+    })).toBeNull();
   });
 });

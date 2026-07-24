@@ -7,6 +7,14 @@ import {
 
 const KITTY_BELOW_BACKGROUND_Z = -1_073_741_824;
 
+// Per rendered terminal surface. This admits sixteen 1024px square RGBA
+// placements while bounding their simultaneous canvas backing to 64 MiB.
+export const RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP = 64 * 1024 * 1024;
+
+// Browser canvas limits vary. Keep each intrinsic axis at or below this
+// conservative limit even when a thin image would fit the aggregate byte cap.
+export const RENDER_GRAPHIC_MAX_CANVAS_DIMENSION = 16_384;
+
 export interface DecodedRenderGraphicImage {
   image: RenderGraphicImage;
   pixels: Uint8ClampedArray<ArrayBuffer>;
@@ -16,6 +24,7 @@ export interface ResolvedRenderGraphicPlacement {
   key: string;
   layer: "below" | "above";
   z: number;
+  backingBytes: number;
   source: { x: number; y: number; width: number; height: number };
   style: {
     left: string;
@@ -89,6 +98,11 @@ export function resolveRenderGraphicPlacement(
   const sourceBottom = placement.source_y + placement.source_height;
   if (!Number.isSafeInteger(sourceRight) || !Number.isSafeInteger(sourceBottom)
     || sourceRight > image.width || sourceBottom > image.height) return null;
+  if (placement.source_width > RENDER_GRAPHIC_MAX_CANVAS_DIMENSION
+    || placement.source_height > RENDER_GRAPHIC_MAX_CANVAS_DIMENSION) return null;
+  const sourcePixels = placement.source_width * placement.source_height;
+  const backingBytes = sourcePixels * 4;
+  if (!Number.isSafeInteger(sourcePixels) || !Number.isSafeInteger(backingBytes)) return null;
 
   const width = placement.columns > 0
     ? `calc(var(--render-cell-width) * ${placement.columns})`
@@ -109,6 +123,7 @@ export function resolveRenderGraphicPlacement(
     key: `${placement.image_id}:${placement.placement_id}:${placement.ordinal}`,
     layer: placement.z < 0 ? "below" : "above",
     z: placement.z,
+    backingBytes,
     source: {
       x: placement.source_x,
       y: placement.source_y,

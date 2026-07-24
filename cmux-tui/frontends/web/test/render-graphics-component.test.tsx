@@ -2,17 +2,20 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { RenderGraphicPlacement } from "cmux/browser";
 import { RenderGraphics } from "../src/components/RenderGraphics";
+import { RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP } from "../src/lib/renderGraphics";
 import type { RenderGraphicsModel } from "../src/lib/renderModel";
-
-// A rendered terminal surface may reserve at most 64 MiB for placement canvases.
-const DOCUMENTED_CANVAS_BACKING_BYTE_CAP = 64 * 1024 * 1024;
 
 function zeroBytesBase64(byteCount: number): string {
   const padding = byteCount % 3 === 1 ? "==" : byteCount % 3 === 2 ? "=" : "";
   return `${"A".repeat(Math.ceil(byteCount / 3) * 4 - padding.length)}${padding}`;
 }
 
-function placement(placementId: number, width: number, height: number): RenderGraphicPlacement {
+function placement(
+  placementId: number,
+  width: number,
+  height: number,
+  z = 0,
+): RenderGraphicPlacement {
   return {
     image_id: 1,
     placement_id: placementId,
@@ -32,7 +35,7 @@ function placement(placementId: number, width: number, height: number): RenderGr
     viewport_col: 0,
     viewport_row: 0,
     viewport_visible: true,
-    z: 0,
+    z,
   };
 }
 
@@ -70,8 +73,50 @@ describe("RenderGraphics canvas resource policy", () => {
       0,
     );
 
-    expect(canvases).toHaveLength(placementCount);
-    expect(backingBytes).toBe(2_048_000_000);
-    expect(backingBytes).toBeLessThanOrEqual(DOCUMENTED_CANVAS_BACKING_BYTE_CAP);
+    expect(placementCount * width * height * 4).toBe(2_048_000_000);
+    expect(canvases).toHaveLength(16);
+    expect(backingBytes).toBe(64_000_000);
+    expect(backingBytes).toBeLessThanOrEqual(RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP);
+  });
+
+  it("admits an exact-cap z-ordered protocol prefix", () => {
+    const width = 1_024;
+    const height = 1_024;
+    const graphics: RenderGraphicsModel = {
+      generation: 1,
+      images: [{
+        id: 1,
+        generation: 1,
+        width,
+        height,
+        format: "rgba",
+        data: zeroBytesBase64(width * height * 4),
+      }],
+      placements: [
+        placement(17, width, height, 2),
+        ...Array.from(
+          { length: 16 },
+          (_, index) => placement(index + 1, width, height),
+        ),
+      ],
+    };
+
+    const { container } = render(
+      <RenderGraphics graphics={graphics}>
+        <div>terminal</div>
+      </RenderGraphics>,
+    );
+    const canvases = [...container.querySelectorAll<HTMLCanvasElement>(
+      "[data-graphic-placement]",
+    )];
+    const backingBytes = canvases.reduce(
+      (total, canvas) => total + canvas.width * canvas.height * 4,
+      0,
+    );
+
+    expect(backingBytes).toBe(RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP);
+    expect(canvases.map((canvas) => canvas.dataset.graphicPlacement)).toEqual(
+      Array.from({ length: 16 }, (_, index) => `1:${index + 1}:0`),
+    );
   });
 });

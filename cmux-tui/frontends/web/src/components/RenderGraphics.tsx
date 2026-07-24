@@ -7,6 +7,7 @@ import {
 import type { RenderGraphicsModel } from "../lib/renderModel";
 import {
   decodeRenderGraphicImage,
+  RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP,
   resolveRenderGraphicPlacement,
   type DecodedRenderGraphicImage,
   type ResolvedRenderGraphicPlacement,
@@ -88,7 +89,15 @@ export function RenderGraphics({ children, graphics }: RenderGraphicsProps) {
     rendered.sort((left, right) =>
       left.placement.z - right.placement.z || left.order - right.order
     );
-    return rendered;
+    const admitted: RenderedPlacement[] = [];
+    let backingBytes = 0;
+    for (const candidate of rendered) {
+      if (candidate.placement.backingBytes
+        > RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP - backingBytes) continue;
+      backingBytes += candidate.placement.backingBytes;
+      admitted.push(candidate);
+    }
+    return admitted;
   }, [decodedImages, graphics?.placements]);
   const below = placements.filter((candidate) => candidate.placement.layer === "below");
   const above = placements.filter((candidate) => candidate.placement.layer === "above");
