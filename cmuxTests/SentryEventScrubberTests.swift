@@ -197,28 +197,28 @@ import Testing
 @Suite struct MacSentryStartupPolicyTests {
     @Test func xctestLaunchDoesNotStartSentry() {
         #expect(
-            MacSentryStartupPolicy.shouldStart(
+            MacSentryStartupPolicy(
                 telemetryEnabled: true,
                 isRunningUnderXCTest: true
-            ) == false
+            ).shouldStart == false
         )
     }
 
     @Test func normalTelemetryEnabledLaunchStartsSentry() {
         #expect(
-            MacSentryStartupPolicy.shouldStart(
+            MacSentryStartupPolicy(
                 telemetryEnabled: true,
                 isRunningUnderXCTest: false
-            ) == true
+            ).shouldStart == true
         )
     }
 
     @Test func telemetryOptOutStillPreventsSentryStartup() {
         #expect(
-            MacSentryStartupPolicy.shouldStart(
+            MacSentryStartupPolicy(
                 telemetryEnabled: false,
                 isRunningUnderXCTest: false
-            ) == false
+            ).shouldStart == false
         )
     }
 }

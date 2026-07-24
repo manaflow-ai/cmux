@@ -33,11 +33,11 @@ private enum CmuxThemeNotifications {
     static let reloadConfig = Notification.Name("com.cmuxterm.themes.reload-config")
 }
 
-enum MacSentryStartupPolicy {
-    static func shouldStart(
-        telemetryEnabled: Bool,
-        isRunningUnderXCTest: Bool
-    ) -> Bool {
+struct MacSentryStartupPolicy {
+    let telemetryEnabled: Bool
+    let isRunningUnderXCTest: Bool
+
+    var shouldStart: Bool {
         telemetryEnabled && !isRunningUnderXCTest
     }
 }
@@ -1274,10 +1274,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let env = ProcessInfo.processInfo.environment
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
-        let shouldStartSentry = MacSentryStartupPolicy.shouldStart(
+        let shouldStartSentry = MacSentryStartupPolicy(
             telemetryEnabled: telemetryEnabled,
             isRunningUnderXCTest: isRunningUnderXCTest
-        )
+        ).shouldStart
         StartupBreadcrumbLog.append(
             "appDelegate.didFinish.begin",
             fields: [
