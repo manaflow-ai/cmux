@@ -1,6 +1,7 @@
 mod app;
 mod codex;
 mod config;
+mod discovery;
 mod localization;
 mod model;
 mod trajectory;

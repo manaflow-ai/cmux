@@ -69,7 +69,10 @@ impl Catalog {
     }
 
     pub const fn no_machines(self) -> &'static str {
-        self.pick("Add a Codex app server.", "Codex app server を追加してください。")
+        self.pick(
+            "Scanning locally. Press a to add a server.",
+            "ローカルを検索中です。a でサーバーを追加できます。",
+        )
     }
 
     pub const fn no_conversations(self) -> &'static str {
@@ -133,7 +136,7 @@ impl Catalog {
     }
 
     pub const fn websocket_url(self) -> &'static str {
-        self.pick("WebSocket URL", "WebSocket URL")
+        self.pick("App-server URL", "App-server URL")
     }
 
     pub const fn token_file(self) -> &'static str {
@@ -154,13 +157,32 @@ impl Catalog {
 
     pub const fn invalid_url(self) -> &'static str {
         self.pick(
-            "URL must start with ws:// or wss://.",
-            "URL は ws:// または wss:// で始めてください。",
+            "URL must start with ws://, wss://, or unix://.",
+            "URL は ws://、wss://、unix:// のいずれかで始めてください。",
         )
     }
 
     pub const fn config_saved(self) -> &'static str {
         self.pick("Machine saved.", "マシンを保存しました。")
+    }
+
+    pub fn local_codex(self, port: u16) -> String {
+        match self.locale {
+            Locale::English => format!("Local Codex :{port}"),
+            Locale::Japanese => format!("ローカル Codex :{port}"),
+        }
+    }
+
+    pub const fn local_codex_daemon(self) -> &'static str {
+        self.pick("Local Codex daemon", "ローカル Codex デーモン")
+    }
+
+    pub fn discovered_local_servers(self, count: usize) -> String {
+        match self.locale {
+            Locale::English if count == 1 => "Discovered 1 local Codex app-server.".to_string(),
+            Locale::English => format!("Discovered {count} local Codex app-servers."),
+            Locale::Japanese => format!("ローカルの Codex app-server を {count} 件検出しました。"),
+        }
     }
 
     pub fn app_server_error(self, details: &str) -> String {
@@ -440,8 +462,8 @@ impl Catalog {
 
     pub const fn key_help(self) -> &'static str {
         self.pick(
-            "tab/h/l columns  j/k move  enter expand  pgup/pgdn scroll  a add  r refresh  q quit",
-            "tab/h/l 列  j/k 移動  enter 展開  pgup/pgdn スクロール  a 追加  r 更新  q 終了",
+            "tab/h/l columns  j/k move  enter expand  pgup/pgdn scroll  a add  r refresh/scan  q quit",
+            "tab/h/l 列  j/k 移動  enter 展開  pgup/pgdn スクロール  a 追加  r 更新/検索  q 終了",
         )
     }
 
@@ -484,8 +506,8 @@ impl Catalog {
 
     pub const fn help(self) -> &'static str {
         self.pick(
-            "Usage: cmux-tree [--config PATH]\n\nConnects directly to Codex app-server WebSocket endpoints configured in the TUI.",
-            "使い方: cmux-tree [--config PATH]\n\nTUI に設定した Codex app-server の WebSocket エンドポイントへ直接接続します。",
+            "Usage: cmux-tree [--config PATH]\n\nDiscovers local Codex app-server WebSocket and Unix-socket endpoints, then connects directly. Remote endpoints can be configured in the TUI.",
+            "使い方: cmux-tree [--config PATH]\n\nローカルの Codex app-server の WebSocket と Unix socket エンドポイントを検出して直接接続します。リモートエンドポイントは TUI で設定できます。",
         )
     }
 

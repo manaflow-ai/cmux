@@ -8,6 +8,29 @@ use serde::{Deserialize, Serialize};
 
 use crate::localization::{Catalog, Locale};
 
+pub fn default_codex_control_socket() -> PathBuf {
+    std::env::var_os("CODEX_HOME").map_or_else(
+        || {
+            std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join(".codex/app-server-control/app-server-control.sock")
+        },
+        |home| PathBuf::from(home).join("app-server-control/app-server-control.sock"),
+    )
+}
+
+pub fn expand_user_path(path: &Path) -> PathBuf {
+    let Some(value) = path.to_str() else { return path.to_path_buf() };
+    if value == "~" {
+        return std::env::var_os("HOME").map_or_else(|| path.to_path_buf(), PathBuf::from);
+    }
+    let Some(suffix) = value.strip_prefix("~/") else { return path.to_path_buf() };
+    std::env::var_os("HOME")
+        .map(|home| PathBuf::from(home).join(suffix))
+        .unwrap_or_else(|| path.to_path_buf())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MachineConfig {
@@ -30,7 +53,10 @@ impl MachineConfig {
         if self.name.trim().is_empty() {
             anyhow::bail!(catalog.invalid_name());
         }
-        if !(self.url.starts_with("ws://") || self.url.starts_with("wss://")) {
+        if !(self.url.starts_with("ws://")
+            || self.url.starts_with("wss://")
+            || self.url.starts_with("unix://"))
+        {
             anyhow::bail!(catalog.invalid_url());
         }
         Ok(())
@@ -121,8 +147,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn machine_validation_accepts_local_and_tls_websockets() {
-        for url in ["ws://127.0.0.1:4500", "wss://codex.example.test/app-server"] {
+    fn machine_validation_accepts_supported_app_server_transports() {
+        for url in [
+            "ws://127.0.0.1:4500",
+            "wss://codex.example.test/app-server",
+            "unix:///tmp/codex-app-server.sock",
+        ] {
             let machine = MachineConfig::new("dev".into(), url.into(), None);
             assert!(machine.validate().is_ok());
         }

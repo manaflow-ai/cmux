@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -10,6 +11,7 @@ use serde_json::Value;
 
 use crate::codex::{ConnectionState, NetworkEvent, NetworkHub};
 use crate::config::{Config, ConfigStore, MachineConfig};
+use crate::discovery::{DiscoveredServer, DiscoveredTransport, LocalDiscovery, endpoint_key};
 use crate::localization::{Catalog, Locale};
 use crate::model::{Conversation, ThreadSummary, ThreadTreeRow, flatten_thread_tree};
 use crate::trajectory::{ExpansionState, TrajectoryView};
@@ -143,6 +145,7 @@ pub struct App {
     pub config_store: ConfigStore,
     pub config: Config,
     network: NetworkHub,
+    discovery: LocalDiscovery,
 }
 
 impl App {
@@ -181,6 +184,7 @@ impl App {
             config_store,
             config,
             network,
+            discovery: LocalDiscovery::new(connect),
         }
     }
 
@@ -194,9 +198,12 @@ impl App {
 
     pub fn process_network_events(&mut self) -> bool {
         let events = self.network.drain().collect::<Vec<_>>();
-        let changed = !events.is_empty();
+        let mut changed = !events.is_empty();
         for event in events {
             self.handle_network_event(event);
+        }
+        if let Some(servers) = self.discovery.poll() {
+            changed |= self.add_discovered_servers(servers);
         }
         if self.status_message.as_ref().is_some_and(|(_, at)| at.elapsed() > STATUS_TTL) {
             self.status_message = None;
@@ -497,7 +504,7 @@ impl App {
             }
             return;
         }
-        if !(url.starts_with("ws://") || url.starts_with("wss://")) {
+        if !(url.starts_with("ws://") || url.starts_with("wss://") || url.starts_with("unix://")) {
             if let Some(draft) = self.draft.as_mut() {
                 draft.error = Some(self.catalog.invalid_url().to_string());
                 draft.field = 1;
@@ -707,10 +714,38 @@ impl App {
         );
     }
 
-    fn refresh_selected(&self) {
+    fn refresh_selected(&mut self) {
         if let Some(machine) = self.selected_machine() {
             self.network.refresh(&machine.config.id);
         }
+        self.discovery.request_scan();
+    }
+
+    fn add_discovered_servers(&mut self, servers: Vec<DiscoveredServer>) -> bool {
+        let mut known = self
+            .machines
+            .iter()
+            .map(|machine| endpoint_key(&machine.config.url))
+            .collect::<HashSet<_>>();
+        let mut added = 0;
+        for server in servers {
+            if !known.insert(endpoint_key(&server.url)) {
+                continue;
+            }
+            let name = match server.transport {
+                DiscoveredTransport::WebSocket { port } => self.catalog.local_codex(port),
+                DiscoveredTransport::UnixSocket => self.catalog.local_codex_daemon().to_string(),
+            };
+            let machine =
+                MachineConfig { id: server.machine_id(), name, url: server.url, token_file: None };
+            self.network.add_machine(machine.clone());
+            self.machines.push(MachineView::new(machine));
+            added += 1;
+        }
+        if added > 0 {
+            self.set_status(self.catalog.discovered_local_servers(added));
+        }
+        added > 0
     }
 
     fn reset_trajectory_navigation(&mut self) {

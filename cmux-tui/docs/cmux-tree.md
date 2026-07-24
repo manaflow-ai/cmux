@@ -18,13 +18,19 @@ The default config is `~/.config/cmux-tree/config.json`. Set `CMUX_TREE_CONFIG` 
 
 ## Start Codex app-server
 
-For Codex on the same machine:
+`cmux-tree` scans local Codex processes every 10 seconds. It discovers TCP WebSocket listeners, verifies them through `/healthz`, and discovers running Codex daemon Unix sockets. Press `r` to scan immediately.
+
+For a local TCP listener:
 
 ```bash
 codex app-server --listen ws://127.0.0.1:4500
 ```
 
-Press `a` in `cmux-tree`, then enter a name and `ws://127.0.0.1:4500`.
+It appears as `Local Codex :4500` without configuration. A managed local daemon also appears automatically after `codex app-server daemon start`.
+
+Codex app-servers launched with the default `stdio://` transport cannot be attached because their input and output pipes belong to the parent client. Start a WebSocket listener or the managed daemon when cmux tree needs to observe it.
+
+Authenticated listeners are not auto-added because discovery never reads credentials from another process's arguments. Add them manually with a protected bearer-token file.
 
 For another machine, bind app-server to that machine's Tailscale, LAN, or VPN address. Codex requires authentication on non-loopback listeners:
 
@@ -56,7 +62,7 @@ Completed work is collapsed at the turn level. Expand a turn to reveal its tool 
 | `PageUp`, `PageDown`, mouse wheel | Scroll |
 | `g`, `G` | Jump to top or bottom |
 | `a` | Add a machine |
-| `r` | Refresh |
+| `r` | Refresh and scan for local app-servers |
 | `q`, `Ctrl-C` | Quit |
 
 The mouse can select rows, expand trajectory items, activate the add-machine button, and scroll each column independently.

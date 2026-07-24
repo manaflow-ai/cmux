@@ -1,7 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::net::TcpStream;
-use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::os::unix::net::UnixStream;
+use std::path::Path;
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -16,7 +18,7 @@ use tungstenite::protocol::WebSocket;
 use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{Error as WebSocketError, Message};
 
-use crate::config::MachineConfig;
+use crate::config::{MachineConfig, default_codex_control_socket, expand_user_path};
 use crate::localization::{Catalog, DiagnosticAction, Locale};
 use crate::model::{Conversation, ThreadSummary, Turn};
 
@@ -27,7 +29,52 @@ const THREAD_REFRESH_INTERVAL: Duration = Duration::from_secs(2);
 const ACTIVE_TRAJECTORY_INTERVAL: Duration = Duration::from_millis(350);
 const IDLE_TRAJECTORY_INTERVAL: Duration = Duration::from_secs(2);
 
-type CodexSocket = WebSocket<MaybeTlsStream<TcpStream>>;
+enum CodexSocket {
+    Tcp(Box<WebSocket<MaybeTlsStream<TcpStream>>>),
+    #[cfg(unix)]
+    Unix(Box<WebSocket<UnixStream>>),
+}
+
+impl CodexSocket {
+    fn read(&mut self) -> Result<Message, WebSocketError> {
+        match self {
+            Self::Tcp(socket) => socket.read(),
+            #[cfg(unix)]
+            Self::Unix(socket) => socket.read(),
+        }
+    }
+
+    fn send(&mut self, message: Message) -> Result<(), WebSocketError> {
+        match self {
+            Self::Tcp(socket) => socket.send(message),
+            #[cfg(unix)]
+            Self::Unix(socket) => socket.send(message),
+        }
+    }
+
+    fn close(
+        &mut self,
+        frame: Option<tungstenite::protocol::CloseFrame>,
+    ) -> Result<(), WebSocketError> {
+        match self {
+            Self::Tcp(socket) => socket.close(frame),
+            #[cfg(unix)]
+            Self::Unix(socket) => socket.close(frame),
+        }
+    }
+
+    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
+        match self {
+            Self::Tcp(socket) => match socket.get_mut() {
+                MaybeTlsStream::Plain(stream) => stream.set_read_timeout(timeout),
+                MaybeTlsStream::Rustls(stream) => stream.sock.set_read_timeout(timeout),
+                _ => Ok(()),
+            },
+            #[cfg(unix)]
+            Self::Unix(socket) => socket.get_mut().set_read_timeout(timeout),
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConnectionState {
@@ -274,20 +321,9 @@ fn connect_and_initialize(
     events: &Sender<NetworkEvent>,
 ) -> Result<CodexSocket> {
     let catalog = Catalog::new(Locale::detect());
-    let mut request = machine.url.as_str().into_client_request().with_context(|| {
-        catalog.diagnostic(DiagnosticAction::ParseWebSocketUrl, Some(&machine.url))
-    })?;
-    if let Some(path) = machine.token_file.as_deref() {
-        let token = read_token(path)?;
-        let value = HeaderValue::from_str(&format!("Bearer {token}"))
-            .context(catalog.diagnostic(DiagnosticAction::BearerHeader, None))?;
-        request.headers_mut().insert(AUTHORIZATION, value);
-    }
-
-    let (mut socket, _) = tungstenite::connect(request).with_context(|| {
-        catalog.diagnostic(DiagnosticAction::ConnectAppServer, Some(&machine.url))
-    })?;
-    set_read_timeout(&mut socket, Some(Duration::from_millis(75)))
+    let mut socket = connect_socket(machine)?;
+    socket
+        .set_read_timeout(Some(Duration::from_millis(75)))
         .context(catalog.diagnostic(DiagnosticAction::ConfigureSocket, None))?;
 
     let mut next_id = 1;
@@ -314,9 +350,68 @@ fn connect_and_initialize(
     Ok(socket)
 }
 
+fn connect_socket(machine: &MachineConfig) -> Result<CodexSocket> {
+    let catalog = Catalog::new(Locale::detect());
+    if let Some(path) = machine.url.strip_prefix("unix://") {
+        #[cfg(unix)]
+        {
+            let path = if path.is_empty() {
+                default_codex_control_socket()
+            } else {
+                expand_user_path(Path::new(path))
+            };
+            let stream = UnixStream::connect(&path).with_context(|| {
+                catalog.diagnostic(
+                    DiagnosticAction::ConnectAppServer,
+                    Some(&path.display().to_string()),
+                )
+            })?;
+            stream
+                .set_read_timeout(Some(RPC_TIMEOUT))
+                .context(catalog.diagnostic(DiagnosticAction::ConfigureSocket, None))?;
+            stream
+                .set_write_timeout(Some(RPC_TIMEOUT))
+                .context(catalog.diagnostic(DiagnosticAction::ConfigureSocket, None))?;
+            let request = "ws://localhost/".into_client_request().with_context(|| {
+                catalog.diagnostic(DiagnosticAction::ParseWebSocketUrl, Some("ws://localhost/"))
+            })?;
+            let (socket, _) = tungstenite::client(request, stream).with_context(|| {
+                catalog.diagnostic(
+                    DiagnosticAction::ConnectAppServer,
+                    Some(&path.display().to_string()),
+                )
+            })?;
+            return Ok(CodexSocket::Unix(Box::new(socket)));
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = path;
+            anyhow::bail!(
+                "{}",
+                catalog.diagnostic(DiagnosticAction::ConnectAppServer, Some(&machine.url))
+            );
+        }
+    }
+
+    let mut request = machine.url.as_str().into_client_request().with_context(|| {
+        catalog.diagnostic(DiagnosticAction::ParseWebSocketUrl, Some(&machine.url))
+    })?;
+    if let Some(path) = machine.token_file.as_deref() {
+        let token = read_token(path)?;
+        let value = HeaderValue::from_str(&format!("Bearer {token}"))
+            .context(catalog.diagnostic(DiagnosticAction::BearerHeader, None))?;
+        request.headers_mut().insert(AUTHORIZATION, value);
+    }
+
+    let (socket, _) = tungstenite::connect(request).with_context(|| {
+        catalog.diagnostic(DiagnosticAction::ConnectAppServer, Some(&machine.url))
+    })?;
+    Ok(CodexSocket::Tcp(Box::new(socket)))
+}
+
 fn read_token(path: &Path) -> Result<String> {
     let catalog = Catalog::new(Locale::detect());
-    let expanded = expand_tilde(path);
+    let expanded = expand_user_path(path);
     let token = fs::read_to_string(&expanded).with_context(|| {
         catalog.diagnostic(DiagnosticAction::ReadBearerToken, Some(&expanded.display().to_string()))
     })?;
@@ -325,25 +420,6 @@ fn read_token(path: &Path) -> Result<String> {
         anyhow::bail!(catalog.empty_bearer_token(&expanded.display().to_string()));
     }
     Ok(token.to_string())
-}
-
-fn expand_tilde(path: &Path) -> PathBuf {
-    let Some(value) = path.to_str() else { return path.to_path_buf() };
-    if value == "~" {
-        return std::env::var_os("HOME").map_or_else(|| path.to_path_buf(), PathBuf::from);
-    }
-    let Some(suffix) = value.strip_prefix("~/") else { return path.to_path_buf() };
-    std::env::var_os("HOME")
-        .map(|home| PathBuf::from(home).join(suffix))
-        .unwrap_or_else(|| path.to_path_buf())
-}
-
-fn set_read_timeout(socket: &mut CodexSocket, timeout: Option<Duration>) -> std::io::Result<()> {
-    match socket.get_mut() {
-        MaybeTlsStream::Plain(stream) => stream.set_read_timeout(timeout),
-        MaybeTlsStream::Rustls(stream) => stream.sock.set_read_timeout(timeout),
-        _ => Ok(()),
-    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -756,8 +832,8 @@ mod tests {
     #[test]
     fn tilde_expansion_preserves_non_tilde_paths() {
         assert_eq!(
-            expand_tilde(Path::new("/run/secrets/codex")),
-            PathBuf::from("/run/secrets/codex")
+            expand_user_path(Path::new("/run/secrets/codex")),
+            std::path::PathBuf::from("/run/secrets/codex")
         );
     }
 

@@ -38,7 +38,7 @@ cargo run -p cmux-tree
 
 The default session is `main`. Default sockets live at `$TMPDIR/cmux-tui-<uid>/<session>.sock`; use `--socket <path>` for an explicit path. Detach from an attached TUI with prefix `d`, which is `Ctrl-b d` by default.
 
-`cmux-tree` is a separate, read-only Codex observer. It connects directly to one Codex app-server per machine and does not require a `cmux-tui` session. See [cmux tree](docs/cmux-tree.md) for app-server setup.
+`cmux-tree` is a separate, read-only Codex observer. It auto-discovers attachable local Codex app-servers, connects directly to one app-server per machine, and does not require a `cmux-tui` session. See [cmux tree](docs/cmux-tree.md) for local and remote app-server setup.
 
 Packaged builds can run as `npx cmux`. The optional machine rail lets that local client switch among the current session, other Unix sockets, and sessions reached through SSH. It is disabled by default and activates when `machine_sidebar.enabled` is true or `machines` contains a valid entry in `cmux-tui.json`. `npx cmux --cloud` composes those local targets with the Cloud catalog and enables temporary machine connections without sending local SSH details to Cloud. The client uses noninteractive SSH with strict host-key checking and the remote `cmux-tui relay --session <name>` transport primitive, so the remote headless session, trusted host key, authentication key, and binary must already exist. See [Machines and remote sessions](docs/machines.md).
 
