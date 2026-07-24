@@ -13935,6 +13935,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return true
         }
+        if handlePaneResizeShortcut(event: event) { return true }
         if matchConfiguredShortcut(event: event, action: .equalizeSplits) { performEqualizeSplitsShortcut(); return true }
         // Canvas layout actions share one executor with the palette, View
         // menu, and the canvas.* socket verbs.

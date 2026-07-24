@@ -97,6 +97,10 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case splitDown
     case toggleSplitZoom
     case equalizeSplits
+    case growPaneLeft
+    case growPaneRight
+    case growPaneUp
+    case growPaneDown
     case splitBrowserRight
     case splitBrowserDown
     case toggleRightSidebar = "toggleFileExplorer"
@@ -196,7 +200,9 @@ extension ShortcutAction {
              .clearScreenKeepScrollback:
             return .navigation
         case .focusLeft, .focusRight, .focusUp, .focusDown, .splitRight, .splitDown,
-             .toggleSplitZoom, .equalizeSplits, .splitBrowserRight, .splitBrowserDown,
+             .toggleSplitZoom, .equalizeSplits,
+             .growPaneLeft, .growPaneRight, .growPaneUp, .growPaneDown,
+             .splitBrowserRight, .splitBrowserDown,
              .toggleRightSidebar, .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias,
              .toggleCanvasLayout, .canvasRevealFocusedPane, .canvasOverview,
              .canvasZoomIn, .canvasZoomOut, .canvasZoomReset, .canvasTidy,
@@ -404,6 +410,10 @@ extension ShortcutAction {
         case .splitDown: return "Split Down"
         case .toggleSplitZoom: return "Toggle Pane Zoom"
         case .equalizeSplits: return "Equalize Splits"
+        case .growPaneLeft: return "Grow Pane Left"
+        case .growPaneRight: return "Grow Pane Right"
+        case .growPaneUp: return "Grow Pane Up"
+        case .growPaneDown: return "Grow Pane Down"
         case .splitBrowserRight: return "Split Browser Right"
         case .splitBrowserDown: return "Split Browser Down"
         case .toggleRightSidebar: return "Toggle Right Sidebar"

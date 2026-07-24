@@ -92,6 +92,10 @@ extension ShortcutAction {
         case .splitDown: return ShortcutStroke(key: "d", command: true, shift: true)
         case .toggleSplitZoom: return ShortcutStroke(key: "\r", command: true, shift: true)
         case .equalizeSplits: return ShortcutStroke(key: "=", command: true, control: true)
+        case .growPaneLeft, .growPaneRight, .growPaneUp, .growPaneDown:
+            // Configurable but initially unbound to avoid conflicting with
+            // terminal bindings and pane-navigation shortcuts.
+            return nil
         case .splitBrowserRight: return ShortcutStroke(key: "d", command: true, option: true)
         case .splitBrowserDown: return ShortcutStroke(key: "d", command: true, shift: true, option: true)
         case .toggleCanvasLayout: return ShortcutStroke(key: "c", command: true, control: true)
