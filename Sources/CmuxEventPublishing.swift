@@ -424,6 +424,7 @@ extension CmuxEventBus {
             category: "agent",
             source: event.source,
             workspaceId: event.workspaceId,
+            surfaceId: event.surfaceId,
             payload: payload
         )
 
@@ -432,6 +433,7 @@ extension CmuxEventBus {
             category: "feed",
             source: event.source,
             workspaceId: event.workspaceId,
+            surfaceId: event.surfaceId,
             payload: payload
         )
     }
@@ -442,6 +444,7 @@ extension CmuxEventBus {
             "hook_event_name": event.hookEventName.rawValue,
             "_source": event.source,
             "workspace_id": event.workspaceId ?? NSNull(),
+            "surface_id": event.surfaceId ?? NSNull(),
             "cwd": event.cwd ?? NSNull(),
             "tool_name": event.toolName ?? NSNull(),
             "_opencode_request_id": event.requestId ?? NSNull(),
