@@ -153,6 +153,37 @@ struct WindowKeyDownReplayGuardTests {
         )
     }
 
+    private func makeCommandCKeyDownEvent(windowNumber: Int) -> NSEvent? {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: windowNumber,
+            context: nil,
+            characters: "c",
+            charactersIgnoringModifiers: "c",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_C)
+        )
+    }
+
+    private func installUnavailableCopyMenu(target: GhosttyNSView) -> NSMenu? {
+        let previousMenu = NSApp.mainMenu
+        let menu = NSMenu(title: "Main")
+        let copyItem = NSMenuItem(
+            title: "Copy",
+            action: #selector(GhosttyNSView.copy(_:)),
+            keyEquivalent: "c"
+        )
+        copyItem.keyEquivalentModifierMask = [.command]
+        copyItem.target = target
+        copyItem.isEnabled = false
+        menu.addItem(copyItem)
+        NSApp.mainMenu = menu
+        return previousMenu
+    }
+
     private func installUndoMenu(probe: MenuActionProbe) -> NSMenu? {
         let previousMenu = NSApp.mainMenu
         let menu = NSMenu(title: "Main")
@@ -281,6 +312,32 @@ struct WindowKeyDownReplayGuardTests {
         #expect(window.performKeyEquivalent(with: event))
         #expect(window.performKeyEquivalent(with: event))
         #expect(responder.keyDownEvents.count == 2)
+    }
+
+    @Test
+    func terminalUnavailableCopyDoesNotReplayIntoGhostty() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let (window, terminal) = makeWindowWithTerminalResponder()
+        let previousMenu = installUnavailableCopyMenu(target: terminal)
+        defer {
+            NSApp.mainMenu = previousMenu
+            window.orderOut(nil)
+            window.close()
+        }
+
+        guard let event = makeCommandCKeyDownEvent(windowNumber: window.windowNumber) else {
+            Issue.record("Failed to construct Copy key event")
+            return
+        }
+
+        #expect(window.performKeyEquivalent(with: event))
+        #expect(
+            terminal.afterMenuMissEvents.isEmpty,
+            Comment(rawValue: "Unavailable terminal Copy must remain a native no-op instead of replaying Cmd+C into the PTY")
+        )
+        #expect(terminal.keyDownEvents.isEmpty)
     }
 
     @Test
