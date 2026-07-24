@@ -60,6 +60,7 @@ import type {
   DeclarativeLayout,
   FocusDirectionResult,
 } from "./protocol/index.js";
+import { RENDER_ATTACH_MAX_ENCODED_CHARS } from "./protocol/render.js";
 import type { Transport, Unsubscribe } from "./transport.js";
 
 export interface CmuxClientOptions {
@@ -75,7 +76,7 @@ export interface CmuxClientOptions {
 }
 
 export const DEFAULT_MAX_BUFFERED_EVENTS = 256;
-export const DEFAULT_MAX_ATTACH_ENCODED_CHARS = 16 * 1024 * 1024;
+export const DEFAULT_MAX_ATTACH_ENCODED_CHARS = RENDER_ATTACH_MAX_ENCODED_CHARS;
 
 function workspaceMutationResult(result: EmptyResult | WorkspaceMutation): WorkspaceMutation {
   if ("workspace" in result

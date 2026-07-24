@@ -1,6 +1,10 @@
-import { decodeBase64, type RenderGraphicImage, type RenderGraphicPlacement } from "cmux/browser";
+import {
+  decodeBase64,
+  RENDER_GRAPHIC_MAX_DECODED_BYTES,
+  type RenderGraphicImage,
+  type RenderGraphicPlacement,
+} from "cmux/browser";
 
-const MAX_RENDER_GRAPHIC_BYTES = 10_000_000;
 const KITTY_BELOW_BACKGROUND_Z = -1_073_741_824;
 
 export interface DecodedRenderGraphicImage {
@@ -35,7 +39,7 @@ export function decodeRenderGraphicImage(
   const bytesPerPixel = image.format === "rgb" ? 3 : image.format === "rgba" ? 4 : 0;
   const expectedBytes = pixelCount * bytesPerPixel;
   if (bytesPerPixel === 0 || !Number.isSafeInteger(expectedBytes)
-    || expectedBytes > MAX_RENDER_GRAPHIC_BYTES) return null;
+    || expectedBytes > RENDER_GRAPHIC_MAX_DECODED_BYTES) return null;
   const maximumEncodedLength = Math.ceil(expectedBytes / 3) * 4;
   if (image.data.length > maximumEncodedLength) return null;
 

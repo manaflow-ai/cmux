@@ -151,6 +151,30 @@ fn websocket_rejects_oversized_authentication_frames() {
 }
 
 #[test]
+fn websocket_keeps_authenticated_inbound_requests_at_four_mib() {
+    let mux = Mux::new("ws-inbound-frame-limit", SurfaceOptions::default());
+    let server = server::serve_websocket(
+        mux.clone(),
+        "127.0.0.1:0".parse().unwrap(),
+        Some(TEST_TOKEN.to_string()),
+        false,
+    )
+    .unwrap();
+
+    let mut websocket = authenticated_connect(server.local_addr());
+    let rejected = match websocket.send(Message::Text("x".repeat(4 * 1024 * 1024 + 1).into())) {
+        Ok(()) => matches!(websocket.read(), Ok(Message::Close(_)) | Err(_)),
+        Err(_) => true,
+    };
+    assert!(rejected, "oversized authenticated request remained accepted");
+
+    let mut next = authenticated_connect(server.local_addr());
+    send_json(&mut next, json!({"id": 1, "cmd": "ping"}));
+    assert_eq!(read_until(&mut next, |value| value["id"] == 1)["ok"], true);
+    mux.shutdown();
+}
+
+#[test]
 fn websocket_auth_accepts_exact_preamble_and_rejects_missing_or_wrong_tokens() {
     let mux = Mux::new("ws-auth", SurfaceOptions::default());
     let server = server::serve_websocket(

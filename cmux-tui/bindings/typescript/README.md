@@ -88,8 +88,13 @@ connections. An injected transport can multiplex attach streams and one
 subscription on its main connection; concurrent subscriptions require a
 `streamTransportFactory` because overflow events are terminal to one stream.
 Each stream retains at most 256 unread events, and each encoded attach payload
-is limited to 16 MiB by default. `maxBufferedEvents` and
+is limited to 32 MiB by default. `maxBufferedEvents` and
 `maxAttachEncodedChars` may lower those limits for constrained clients.
+Render graphics follow one budget chain: 10,000,000 decoded image bytes become
+at most 13,333,336 base64 characters. The 16,384-placement limit adds at most
+7,258,113 JSON characters. Their 20,591,449-character subtotal leaves
+12,962,983 characters of the 33,554,432-character attach limit for image
+metadata, rows, and the JSON wrapper.
 
 ## Raw typed requests
 

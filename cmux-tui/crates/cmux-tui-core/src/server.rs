@@ -571,10 +571,30 @@ const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_millis(100);
 const MAX_SERVER_CONNECTIONS: usize = 64;
 const WEBSOCKET_AUTH_MAX_BYTES: usize = 4 * 1024;
-const WEBSOCKET_MESSAGE_MAX_BYTES: usize = 4 * 1024 * 1024;
+const WEBSOCKET_INBOUND_MESSAGE_MAX_BYTES: usize = 4 * 1024 * 1024;
+// One outbound render budget chain:
+// 10,000,000 decoded image bytes -> 13,333,336 base64 bytes.
+// 16,384 maximal placement objects -> 7,258,113 JSON bytes.
+// Their 20,591,449-byte subtotal fits a 32 MiB attach message with
+// 12,962,983 bytes left for image metadata, rows, and the JSON wrapper.
+// Keep the TypeScript SDK and web decoder constants in sync.
+const RENDER_GRAPHIC_MAX_DECODED_BYTES: usize = 10_000_000;
+const RENDER_GRAPHIC_MAX_ENCODED_BYTES: usize = RENDER_GRAPHIC_MAX_DECODED_BYTES.div_ceil(3) * 4;
+const RENDER_GRAPHIC_MAX_PLACEMENTS: usize = 16_384;
+const RENDER_GRAPHIC_MAX_PLACEMENT_JSON_BYTES: usize = 442;
+const RENDER_GRAPHIC_MAX_PLACEMENT_ARRAY_BYTES: usize = 2
+    + RENDER_GRAPHIC_MAX_PLACEMENTS * RENDER_GRAPHIC_MAX_PLACEMENT_JSON_BYTES
+    + (RENDER_GRAPHIC_MAX_PLACEMENTS - 1);
+const RENDER_ATTACH_MAX_BYTES: usize = 32 * 1024 * 1024;
+// A server-to-client frame with a 64-bit payload length adds a 10-byte header.
+const WEBSOCKET_OUTBOUND_BUFFER_MAX_BYTES: usize = RENDER_ATTACH_MAX_BYTES + 10;
+const _: () = assert!(
+    RENDER_GRAPHIC_MAX_ENCODED_BYTES + RENDER_GRAPHIC_MAX_PLACEMENT_ARRAY_BYTES
+        < RENDER_ATTACH_MAX_BYTES
+);
 const OUTBOUND_CAPACITY: usize = 256;
 const OUTBOUND_CONTROL_RESERVE: usize = 256;
-const OUTBOUND_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
+const OUTBOUND_BYTE_CAPACITY: usize = RENDER_ATTACH_MAX_BYTES;
 const OUTBOUND_CONTROL_BYTE_RESERVE: usize = 16 * 1024 * 1024;
 const CLIENT_DETACH_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
 
@@ -1590,7 +1610,7 @@ fn handle_websocket_connection(
     let auth_config = WebSocketConfig::default()
         .read_buffer_size(4 * 1024)
         .write_buffer_size(4 * 1024)
-        .max_write_buffer_size(WEBSOCKET_MESSAGE_MAX_BYTES)
+        .max_write_buffer_size(WEBSOCKET_INBOUND_MESSAGE_MAX_BYTES)
         .max_message_size(Some(WEBSOCKET_AUTH_MAX_BYTES))
         .max_frame_size(Some(WEBSOCKET_AUTH_MAX_BYTES));
     let Ok(mut websocket) = accept_with_config(stream, Some(auth_config)) else { return };
@@ -1602,8 +1622,8 @@ fn handle_websocket_connection(
         return;
     }
     websocket.set_config(|config| {
-        config.max_message_size = Some(WEBSOCKET_MESSAGE_MAX_BYTES);
-        config.max_frame_size = Some(WEBSOCKET_MESSAGE_MAX_BYTES);
+        config.max_message_size = Some(WEBSOCKET_INBOUND_MESSAGE_MAX_BYTES);
+        config.max_frame_size = Some(WEBSOCKET_INBOUND_MESSAGE_MAX_BYTES);
     });
     let _ = websocket.get_mut().set_read_timeout(None);
     let _ = websocket.get_mut().set_write_timeout(Some(STREAM_WRITE_TIMEOUT));
@@ -1619,7 +1639,11 @@ fn handle_websocket_connection(
     let writer_outbound = outbound;
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-ws-out".into()).spawn(move || {
-            let mut websocket = WebSocket::from_raw_socket(writer_stream, Role::Server, None);
+            let outbound_config = WebSocketConfig::default()
+                .write_buffer_size(0)
+                .max_write_buffer_size(WEBSOCKET_OUTBOUND_BUFFER_MAX_BYTES);
+            let mut websocket =
+                WebSocket::from_raw_socket(writer_stream, Role::Server, Some(outbound_config));
             while let Some(text) = writer_outbound.recv() {
                 if websocket.send(Message::Text(text.into())).is_err() {
                     writer_outbound.close();
@@ -4251,8 +4275,6 @@ mod tests {
     const LARGE_RENDER_IMAGE_RAW_BYTES: usize =
         LARGE_RENDER_IMAGE_WIDTH * LARGE_RENDER_IMAGE_HEIGHT * 4;
     const LARGE_RENDER_IMAGE_BASE64_CHARS: usize = LARGE_RENDER_IMAGE_RAW_BYTES.div_ceil(3) * 4;
-    const RENDER_GRAPHIC_DECODED_BYTE_BUDGET: usize = 10_000_000;
-    const RENDER_GRAPHIC_PLACEMENT_COUNT_BUDGET: usize = 16_384;
 
     fn large_rgba_kitty_transmission() -> Vec<u8> {
         let data = base64::engine::general_purpose::STANDARD
@@ -4337,15 +4359,19 @@ mod tests {
         let serialized = render_graphics_json(&graphics, None, &[]);
         let placement_bytes = serde_json::to_string(&serialized["placements"][0]).unwrap().len();
         let placement_array_bytes = 2
-            + placement_bytes * RENDER_GRAPHIC_PLACEMENT_COUNT_BUDGET
-            + RENDER_GRAPHIC_PLACEMENT_COUNT_BUDGET.saturating_sub(1);
-        let image_base64_bytes = RENDER_GRAPHIC_DECODED_BYTE_BUDGET.div_ceil(3) * 4;
+            + placement_bytes * RENDER_GRAPHIC_MAX_PLACEMENTS
+            + RENDER_GRAPHIC_MAX_PLACEMENTS.saturating_sub(1);
+        let image_base64_bytes = RENDER_GRAPHIC_MAX_DECODED_BYTES.div_ceil(3) * 4;
         let required_without_rows = image_base64_bytes + placement_array_bytes;
 
         assert_eq!(placement_bytes, 442);
         assert_eq!(placement_array_bytes, 7_258_113);
         assert_eq!(image_base64_bytes, 13_333_336);
         assert_eq!(required_without_rows, 20_591_449);
+        assert_eq!(placement_bytes, RENDER_GRAPHIC_MAX_PLACEMENT_JSON_BYTES);
+        assert_eq!(placement_array_bytes, RENDER_GRAPHIC_MAX_PLACEMENT_ARRAY_BYTES);
+        assert_eq!(image_base64_bytes, RENDER_GRAPHIC_MAX_ENCODED_BYTES);
+        assert_eq!(OUTBOUND_BYTE_CAPACITY - required_without_rows, 12_962_983);
         assert!(
             required_without_rows < OUTBOUND_BYTE_CAPACITY,
             "{required_without_rows} image and placement bytes exceed the configured \
