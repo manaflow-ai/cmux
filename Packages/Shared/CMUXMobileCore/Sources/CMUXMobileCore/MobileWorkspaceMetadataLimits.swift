@@ -88,13 +88,13 @@ public enum MobileWorkspaceMetadataLimits {
                 isTruncated = true
             }
 
-            if isTruncated, foundNonWhitespace {
+            if isTruncated {
                 break
             }
         }
 
         guard foundNonWhitespace else {
-            return MobileWorkspaceDescriptionProjection(value: nil, isTruncated: false)
+            return MobileWorkspaceDescriptionProjection(value: nil, isTruncated: isTruncated)
         }
         return MobileWorkspaceDescriptionProjection(
             value: result,

@@ -212,16 +212,9 @@ struct WorkspaceCustomizationSheet: View {
     }
 
     private var descriptionExceedsLimit: Bool {
-        normalizedDescriptionByteCount
-            > MobileWorkspaceMetadataLimits.customDescriptionMaxUTF8Bytes
-    }
-
-    private var normalizedDescriptionByteCount: Int {
-        let description = customDescription
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return description.utf8.count
+        MobileWorkspaceMetadataLimits
+            .projectedCustomDescription(customDescription)
+            .isTruncated
     }
 
     private func submit() {

@@ -28,7 +28,7 @@ import Testing
         #expect(projected.isTruncated)
     }
 
-    @Test func descriptionProjectionFindsLateNonWhitespaceWithoutReturningUnboundedText() {
+    @Test func descriptionProjectionStopsAtBudgetBeforeLateNonWhitespace() {
         let prefix = String(
             repeating: " ",
             count: MobileWorkspaceMetadataLimits.customDescriptionMaxUTF8Bytes + 10
@@ -36,19 +36,16 @@ import Testing
 
         let projected = MobileWorkspaceMetadataLimits.projectedCustomDescription(prefix + "tail")
 
-        #expect(projected.value == String(
-            repeating: " ",
-            count: MobileWorkspaceMetadataLimits.customDescriptionMaxUTF8Bytes
-        ))
+        #expect(projected.value == nil)
         #expect(projected.isTruncated)
     }
 
-    @Test func descriptionProjectionTreatsHugeBlankInputAsNil() {
+    @Test func descriptionProjectionTreatsHugeBlankInputAsTruncatedNil() {
         let projected = MobileWorkspaceMetadataLimits.projectedCustomDescription(
-            String(repeating: "\r\n", count: MobileWorkspaceMetadataLimits.customDescriptionMaxUTF8Bytes)
+            String(repeating: "\r\n", count: MobileWorkspaceMetadataLimits.customDescriptionMaxUTF8Bytes + 1)
         )
 
         #expect(projected.value == nil)
-        #expect(!projected.isTruncated)
+        #expect(projected.isTruncated)
     }
 }

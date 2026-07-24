@@ -11561,6 +11561,23 @@
         }
       }
     },
+    "mobile.workspace.customize.workspaceUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This workspace is no longer available. Reopen the workspace list and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースは利用できなくなりました。ワークスペース一覧を開き直して、もう一度試してください。"
+          }
+        }
+      }
+    },
     "mobile.workspace.customize.identity": {
       "extractionState": "manual",
       "localizations": {

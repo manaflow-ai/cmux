@@ -208,6 +208,8 @@ extension Workspace {
             "normalized=\"\(debugWorkspaceDescriptionPreview(normalizedDescription))\""
         )
 #endif
+        guard customDescription != normalizedDescription else { return }
+        customDescriptionRevision &+= 1
         customDescription = normalizedDescription
     }
 }

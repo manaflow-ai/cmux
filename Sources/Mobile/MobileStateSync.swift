@@ -30,7 +30,12 @@ final class MobileStateSyncHost {
 
     private var previewCache: [UUID: PreviewCacheEntry] = [:]
 
-    private var descriptionProjectionCache: [UUID: MobileWorkspaceDescriptionProjection] = [:]
+    private struct DescriptionProjectionCacheEntry {
+        let revision: UInt64
+        let projection: MobileWorkspaceDescriptionProjection
+    }
+
+    private var descriptionProjectionCache: [UUID: DescriptionProjectionCacheEntry] = [:]
 
     func invalidateDescriptionProjection(workspaceID: UUID) {
         descriptionProjectionCache.removeValue(forKey: workspaceID)
@@ -223,11 +228,15 @@ final class MobileStateSyncHost {
     }
 
     private func cachedDescriptionProjection(for workspace: Workspace) -> MobileWorkspaceDescriptionProjection {
-        if let cached = descriptionProjectionCache[workspace.id] {
-            return cached
+        if let cached = descriptionProjectionCache[workspace.id],
+           cached.revision == workspace.customDescriptionRevision {
+            return cached.projection
         }
         let projection = MobileWorkspaceMetadataLimits.projectedCustomDescription(workspace.customDescription)
-        descriptionProjectionCache[workspace.id] = projection
+        descriptionProjectionCache[workspace.id] = DescriptionProjectionCacheEntry(
+            revision: workspace.customDescriptionRevision,
+            projection: projection
+        )
         return projection
     }
 }
