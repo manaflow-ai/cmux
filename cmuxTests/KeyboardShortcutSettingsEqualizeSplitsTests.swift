@@ -40,6 +40,18 @@ final class KeyboardShortcutSettingsEqualizeSplitsTests: XCTestCase {
         }
     }
 
+    func testSystemWideShortcutActionsDoNotAllowChords() {
+        let actions: [(KeyboardShortcutSettings.Action, ShortcutAction)] = [
+            (.showHideAllWindows, .showHideAllWindows),
+            (.globalSearch, .globalSearch),
+        ]
+
+        for (appAction, packageAction) in actions {
+            XCTAssertFalse(appAction.allowsChordShortcut)
+            XCTAssertFalse(packageAction.allowsChordShortcut)
+        }
+    }
+
     func testSettingsFileStoreParsesEqualizeSplitsShortcut() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
