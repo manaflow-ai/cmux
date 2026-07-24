@@ -1,3 +1,4 @@
+import CmuxWorkspaces
 import Foundation
 
 extension DockSplitStore {
@@ -7,6 +8,7 @@ extension DockSplitStore {
         restoredAgentLifecycle.resumeStatesByPanelId.removeValue(forKey: panelId)
         restoredAgentLifecycle.invalidatedFingerprintsByPanelId.removeValue(forKey: panelId)
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+        surfaceResumeBindingEventTimesByPanelId.removeValue(forKey: panelId)
         restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
     }
 
@@ -58,6 +60,12 @@ extension DockSplitStore {
         if let resumeBinding = detached.resumeBinding {
             surfaceResumeBindingsByPanelId[detached.panelId] = resumeBinding
         }
+        if let eventTime = [
+            detached.resumeBindingEventTime,
+            detached.resumeBinding?.updatedAt,
+        ].compactMap({ $0 }).max() {
+            surfaceResumeBindingEventTimesByPanelId[detached.panelId] = eventTime
+        }
         if let directory = detached.restoredResumeSessionWorkingDirectory {
             restoredResumeSessionWorkingDirectoriesByPanelId[detached.panelId] = directory
         }
@@ -94,7 +102,7 @@ extension DockSplitStore {
 
     private func clearAgentHookResumeBinding(panelId: UUID) {
         if surfaceResumeBindingsByPanelId[panelId]?.isAgentHookBinding == true {
-            surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+            _ = clearSurfaceResumeBinding(panelId: panelId)
         }
     }
 }
