@@ -1,7 +1,6 @@
 import {
-  useEffect,
+  useCallback,
   useMemo,
-  useRef,
   type CSSProperties,
   type ReactNode,
 } from "react";
@@ -30,9 +29,7 @@ interface RenderedPlacement {
 }
 
 function RenderGraphicCanvas({ decoded, placement }: RenderGraphicCanvasProps) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  useEffect(() => {
-    const canvas = canvasRef.current;
+  const canvasRef = useCallback((canvas: HTMLCanvasElement | null) => {
     if (canvas === null || typeof ImageData === "undefined") return;
     const context = canvas.getContext("2d");
     if (context === null) return;
