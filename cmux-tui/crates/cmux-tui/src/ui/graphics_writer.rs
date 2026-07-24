@@ -162,6 +162,27 @@ impl Drop for DoneOnDrop {
 mod tests {
     use super::*;
     use cmux_tui_core::Rect;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    struct BlockingOutput {
+        entered: SyncSender<()>,
+        release: Receiver<()>,
+        restored: Arc<AtomicBool>,
+        writes_after_restore: Arc<Mutex<Vec<bool>>>,
+    }
+
+    impl Write for BlockingOutput {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            let _ = self.entered.try_send(());
+            self.release.recv().unwrap();
+            self.writes_after_restore.lock().unwrap().push(self.restored.load(Ordering::Acquire));
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
 
     #[test]
     fn snapshot_slot_is_latest_wins_and_shutdown_is_clean() {
@@ -244,5 +265,50 @@ mod tests {
         assert_eq!(latest[0].rect.x, 1);
         rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn shutdown_quiesces_a_blocked_writer_before_terminal_restore() {
+        let (entered_tx, entered_rx) = sync_channel(1);
+        let (release_tx, release_rx) = sync_channel(1);
+        let restored = Arc::new(AtomicBool::new(false));
+        let writes_after_restore = Arc::new(Mutex::new(Vec::new()));
+        let output = BlockingOutput {
+            entered: entered_tx,
+            release: release_rx,
+            restored: restored.clone(),
+            writes_after_restore: writes_after_restore.clone(),
+        };
+        let mut writer =
+            GraphicsWriter::spawn_with_output(Arc::new(Mutex::new(())), output).unwrap();
+        let shutdown = writer.shutdown_control();
+        writer.submit(vec![GraphicPlacement::browser(
+            0,
+            1,
+            Rect { x: 0, y: 0, width: 10, height: 5 },
+            1,
+            10,
+            5,
+            "AAAA".to_string(),
+        )]);
+        entered_rx.recv().unwrap();
+
+        let (shutdown_done_tx, shutdown_done_rx) = sync_channel(1);
+        let restored_for_shutdown = restored.clone();
+        std::thread::spawn(move || {
+            writer.shutdown(Duration::ZERO);
+            restored_for_shutdown.store(true, Ordering::Release);
+            shutdown_done_tx.send(()).unwrap();
+        });
+
+        shutdown.wait_until_cancelled();
+        release_tx.send(()).unwrap();
+        shutdown_done_rx.recv().unwrap();
+
+        assert!(restored.load(Ordering::Acquire));
+        assert!(
+            writes_after_restore.lock().unwrap().iter().all(|after_restore| !after_restore),
+            "graphics bytes were written after terminal restoration"
+        );
     }
 }
