@@ -22,7 +22,7 @@ Protocol v7 is additive for v6 clients: `attach-surface.mode` defaults to `"byte
 
 Generated clients must inspect `identify.protocol` before using features newer than the connected server. Bindings may expose proposed APIs behind version checks, but they must not send proposed commands to an older server unless the caller explicitly opts into probing.
 
-`identify.capabilities` negotiates additive build-level features within one protocol version. Clients must treat a missing capability list as empty. They must require `attach-initial-size` before sending initial `cols` or `rows` on `attach-surface`, `workspace-registry-v1` before using registry creation, placement, stable-key, or revision-CAS APIs, `clear-history-v1` before sending `clear-history`, and `provider-managed-workspace-authority-v2` before committing provider-owned workspace mirrors with a pre-provisioned authority.
+`identify.capabilities` negotiates additive build-level features within one protocol version. Clients must treat a missing capability list as empty. They must require `attach-initial-size` before sending initial `cols` or `rows` on `attach-surface`, `workspace-registry-v1` before using registry creation, placement, stable-key, or revision-CAS APIs, `clear-history-v1` before sending `clear-history`, both `clear-history-v1` and `clear-history-key-v1` before including its structured `fallback_key`, and `provider-managed-workspace-authority-v2` before committing provider-owned workspace mirrors with a pre-provisioned authority.
 
 ## Generation Model
 

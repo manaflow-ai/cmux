@@ -410,6 +410,9 @@ pub struct PtySurface {
     /// A prompt-submitting write blocks prompt redraw until a later OSC 133
     /// marker confirms that the child has advanced beyond the stale prompt.
     prompt_submission: Mutex<PromptSubmissionState>,
+    /// Streaming parser state for prompt-submitting input and bracketed-paste
+    /// markers that may be split across consecutive writes.
+    prompt_input: Mutex<PromptInputParser>,
     master: Mutex<Box<dyn MasterPty + Send>>,
     killer: Mutex<Box<dyn ChildKiller + Send>>,
     pid: Option<u32>,
@@ -457,31 +460,79 @@ struct PromptSubmission {
     revision_before_write: u64,
 }
 
-fn input_may_submit_prompt(bytes: &[u8]) -> bool {
-    const PASTE_START: &[u8] = b"\x1b[200~";
-    const PASTE_END: &[u8] = b"\x1b[201~";
+#[derive(Debug, Default)]
+struct PromptInputParser {
+    bracketed_paste: bool,
+    pending_escape: Vec<u8>,
+}
 
-    let mut in_bracketed_paste = false;
-    let mut offset = 0;
-    while offset < bytes.len() {
-        let remaining = &bytes[offset..];
-        if remaining.starts_with(PASTE_START) {
-            in_bracketed_paste = true;
-            offset += PASTE_START.len();
-        } else if remaining.starts_with(PASTE_END) {
-            in_bracketed_paste = false;
-            offset += PASTE_END.len();
-        } else {
-            if !in_bracketed_paste && matches!(bytes[offset], b'\r' | b'\n') {
-                return true;
-            }
-            if !in_bracketed_paste && encoded_enter_sequence(&bytes[offset..]) {
-                return true;
-            }
-            offset += 1;
+impl PromptInputParser {
+    const MAX_PENDING_ESCAPE: usize = 64;
+    const PASTE_START: &'static [u8] = b"\x1b[200~";
+    const PASTE_END: &'static [u8] = b"\x1b[201~";
+
+    fn advance(&mut self, bytes: &[u8]) -> bool {
+        let mut may_submit = false;
+        for &byte in bytes {
+            may_submit |= self.advance_byte(byte);
         }
+        may_submit
     }
-    false
+
+    fn advance_byte(&mut self, byte: u8) -> bool {
+        if self.pending_escape.is_empty() {
+            if byte == b'\x1b' {
+                self.pending_escape.push(byte);
+                return false;
+            }
+            return !self.bracketed_paste && matches!(byte, b'\r' | b'\n');
+        }
+
+        if self.pending_escape.len() == 1 {
+            return match byte {
+                b'[' | b'O' => {
+                    self.pending_escape.push(byte);
+                    false
+                }
+                b'\x1b' => false,
+                _ => {
+                    self.pending_escape.clear();
+                    self.advance_byte(byte)
+                }
+            };
+        }
+
+        if (0x40..=0x7e).contains(&byte) {
+            self.pending_escape.push(byte);
+            let starts_paste = self.pending_escape == Self::PASTE_START;
+            let ends_paste = self.pending_escape == Self::PASTE_END;
+            let may_submit = !self.bracketed_paste && encoded_enter_sequence(&self.pending_escape);
+            self.pending_escape.clear();
+            if starts_paste {
+                self.bracketed_paste = true;
+            } else if ends_paste {
+                self.bracketed_paste = false;
+            }
+            return may_submit;
+        }
+
+        if (0x20..=0x3f).contains(&byte) {
+            if self.pending_escape.len() >= Self::MAX_PENDING_ESCAPE {
+                self.pending_escape.clear();
+                return !self.bracketed_paste;
+            }
+            self.pending_escape.push(byte);
+            return false;
+        }
+
+        self.pending_escape.clear();
+        self.advance_byte(byte)
+    }
+}
+
+#[cfg(test)]
+fn input_may_submit_prompt(bytes: &[u8]) -> bool {
+    PromptInputParser::default().advance(bytes)
 }
 
 fn encoded_enter_sequence(bytes: &[u8]) -> bool {
@@ -605,6 +656,7 @@ impl Surface {
             mouse_encoders: Mutex::new(mouse_encoders),
             writer: Mutex::new(writer),
             prompt_submission: Mutex::new(PromptSubmissionState::Idle),
+            prompt_input: Mutex::new(PromptInputParser::default()),
             master: Mutex::new(pty.master),
             killer: Mutex::new(killer),
             pid,
@@ -747,6 +799,7 @@ impl Surface {
             mouse_encoders: Mutex::new(mouse_encoders),
             writer: Mutex::new(Box::new(std::io::sink())),
             prompt_submission: Mutex::new(PromptSubmissionState::Idle),
+            prompt_input: Mutex::new(PromptInputParser::default()),
             master: Mutex::new(Box::new(TestMasterPty {
                 size: Mutex::new(PtySize {
                     rows: opts.rows,
@@ -833,7 +886,15 @@ impl Surface {
             term.mode(2004, false)
         };
         let mut writer = pty.writer.lock().unwrap();
-        let submission = if bracketed { None } else { pty.begin_prompt_submission(bytes) };
+        let submission = if bracketed {
+            pty.begin_prompt_submission_parts([
+                b"\x1b[200~".as_slice(),
+                bytes,
+                b"\x1b[201~".as_slice(),
+            ])
+        } else {
+            pty.begin_prompt_submission(bytes)
+        };
         let result = (|| {
             if bracketed {
                 writer.write_all(b"\x1b[200~")?;
@@ -984,9 +1045,9 @@ impl Surface {
     }
 
     /// Clear primary-screen history, or encode `fallback_key` when the
-    /// authoritative terminal is in the alternate screen. The screen
-    /// decision, keyboard-mode snapshot, encoding, and write share the
-    /// terminal and PTY writer locks.
+    /// authoritative terminal is in the alternate screen. The PTY writer
+    /// serializes input while the screen decision and keyboard encoding use
+    /// one terminal snapshot. The terminal lock is released before PTY I/O.
     pub fn clear_history_or_encode_key(
         &self,
         fallback_key: Option<&KeyInput>,
@@ -1010,11 +1071,11 @@ impl Surface {
                 if encoded.is_empty() {
                     return Ok(());
                 }
-                let submission = input_may_submit_prompt(&encoded)
-                    .then(|| pty.begin_prompt_submission_with_terminal(&term));
+                let submission = pty.begin_prompt_submission_with_terminal(&encoded, &term);
+                drop(term);
                 let result = writer.write_all(&encoded).and_then(|()| writer.flush());
                 if let Some(submission) = submission {
-                    pty.finish_prompt_submission_with_terminal(submission, result.is_ok(), &term);
+                    pty.finish_prompt_submission(Some(submission), result.is_ok());
                 }
                 return result.map_err(Into::into);
             }
@@ -1471,14 +1532,40 @@ impl ChildKiller for TestChildKiller {
 
 impl PtySurface {
     fn begin_prompt_submission(&self, bytes: &[u8]) -> Option<PromptSubmission> {
-        if !input_may_submit_prompt(bytes) {
+        self.begin_prompt_submission_parts([bytes])
+    }
+
+    fn begin_prompt_submission_parts<'a>(
+        &self,
+        parts: impl IntoIterator<Item = &'a [u8]>,
+    ) -> Option<PromptSubmission> {
+        let may_submit = {
+            let mut parser = self.prompt_input.lock().unwrap();
+            let mut may_submit = false;
+            for bytes in parts {
+                may_submit |= parser.advance(bytes);
+            }
+            may_submit
+        };
+        if !may_submit {
             return None;
         }
         let term = self.term.lock().unwrap();
-        Some(self.begin_prompt_submission_with_terminal(&term))
+        Some(self.start_prompt_submission_with_terminal(&term))
     }
 
-    fn begin_prompt_submission_with_terminal(&self, term: &Terminal) -> PromptSubmission {
+    fn begin_prompt_submission_with_terminal(
+        &self,
+        bytes: &[u8],
+        term: &Terminal,
+    ) -> Option<PromptSubmission> {
+        if !self.prompt_input.lock().unwrap().advance(bytes) {
+            return None;
+        }
+        Some(self.start_prompt_submission_with_terminal(term))
+    }
+
+    fn start_prompt_submission_with_terminal(&self, term: &Terminal) -> PromptSubmission {
         let revision_before_write = term.prompt_semantic_revision();
         *self.prompt_submission.lock().unwrap() = PromptSubmissionState::Writing;
         PromptSubmission { revision_before_write }

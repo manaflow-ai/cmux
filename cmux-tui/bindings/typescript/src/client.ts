@@ -47,6 +47,7 @@ import type {
   SplitDirection,
   SubscribeEvent,
   SurfaceResult,
+  TerminalKeyInput,
   TerminalPlacement,
   Tree,
   WorkspacePlacement,
@@ -459,9 +460,12 @@ export class CmuxClient {
     return this.request("send", { surface, text: options.text, bytes, paste: options.paste });
   }
 
-  async clearHistory(surface: Id): Promise<EmptyResult> {
+  async clearHistory(surface: Id, fallbackKey?: TerminalKeyInput): Promise<EmptyResult> {
     await this.requireCapability("clear-history-v1", "clear-history");
-    return this.request("clear-history", { surface });
+    if (fallbackKey !== undefined) {
+      await this.requireCapability("clear-history-key-v1", "clear-history key fallback");
+    }
+    return this.request("clear-history", { surface, fallback_key: fallbackKey });
   }
 
   readScreen(surface: Id): Promise<ReadScreenResult> { return this.request("read-screen", { surface }); }

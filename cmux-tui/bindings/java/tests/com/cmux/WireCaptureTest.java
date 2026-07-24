@@ -18,10 +18,12 @@ public final class WireCaptureTest {
         byte[] attach = captureAttach(9, null, null);
         byte[] sizedAttach = captureAttach(9, 120, 40);
         byte[] clearHistory = captureClearHistory(9);
+        byte[] clearHistoryFallback = captureClearHistoryFallback(9);
         printCapture("JAVA identify", identify);
         printCapture("JAVA attach", attach);
         printCapture("JAVA sized attach", sizedAttach);
         printCapture("JAVA clear history", clearHistory);
+        printCapture("JAVA clear history fallback", clearHistoryFallback);
         assertLine("identify", "{\"id\":1,\"cmd\":\"identify\"}\n", identify);
         assertLine("attach", "{\"cmd\":\"attach-surface\",\"surface\":9,\"id\":2}\n", attach);
         assertLine(
@@ -34,7 +36,13 @@ public final class WireCaptureTest {
             "{\"surface\":9,\"id\":2,\"cmd\":\"clear-history\"}\n",
             clearHistory
         );
+        assertLine(
+            "clear history fallback",
+            "{\"surface\":9,\"fallback_key\":{\"key\":\"k\",\"mods\":{\"shift\":false,\"control\":false,\"alt\":false,\"super\":true,\"caps_lock\":false,\"num_lock\":false},\"consumed_mods\":{\"shift\":false,\"control\":false,\"alt\":false,\"super\":false,\"caps_lock\":false,\"num_lock\":false},\"utf8\":\"\",\"unshifted_codepoint\":\"k\",\"action\":\"press\",\"macos_option_as_alt\":true},\"id\":2,\"cmd\":\"clear-history\"}\n",
+            clearHistoryFallback
+        );
         assertMissingClearHistoryCapabilityIsRejected();
+        assertMissingClearHistoryFallbackCapabilityIsRejected();
         assertProtocolV7RejectsSetSplitRatio();
         assertProtocolV8RejectsNewPane();
         assertProtocolV9AllowsSetSplitRatio();
@@ -87,6 +95,21 @@ public final class WireCaptureTest {
         return server.firstLine(1);
     }
 
+    private static byte[] captureClearHistoryFallback(long surface) throws Exception {
+        Path socket = freshSocketPath();
+        CaptureServer server = new CaptureServer(socket, new String[] {
+            "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"version\":\"test\",\"protocol\":9,\"capabilities\":[\"clear-history-v1\",\"clear-history-key-v1\"],\"session\":\"wire\",\"pid\":1}}",
+            "{\"id\":2,\"ok\":true,\"data\":{}}"
+        }, true);
+        server.start();
+        try (CmuxClient client = CmuxClient.builder().socketPath(socket.toString()).timeout(Duration.ofSeconds(2)).build()) {
+            client.clearHistory(surface, commandKFallback());
+        } finally {
+            server.close();
+        }
+        return server.firstLine(1);
+    }
+
     private static void assertMissingClearHistoryCapabilityIsRejected() throws Exception {
         Path socket = freshSocketPath();
         CaptureServer server = new CaptureServer(socket, new String[] {
@@ -106,6 +129,43 @@ public final class WireCaptureTest {
             server.close();
         }
         assertLine("clear-history identify", "{\"id\":1,\"cmd\":\"identify\"}\n", server.firstLine(0));
+    }
+
+    private static void assertMissingClearHistoryFallbackCapabilityIsRejected() throws Exception {
+        Path socket = freshSocketPath();
+        CaptureServer server = new CaptureServer(socket, new String[] {
+            "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"version\":\"test\",\"protocol\":9,\"capabilities\":[\"clear-history-v1\"],\"session\":\"wire\",\"pid\":1}}"
+        });
+        server.start();
+        try (CmuxClient client = CmuxClient.builder().socketPath(socket.toString()).timeout(Duration.ofSeconds(2)).build()) {
+            try {
+                client.clearHistory(9, commandKFallback());
+                throw new AssertionError("clearHistory fallback must require clear-history-key-v1");
+            } catch (CmuxProtocolMismatchException error) {
+                if (!error.getMessage().contains("clear-history key fallback is not supported")) {
+                    throw error;
+                }
+            }
+        } finally {
+            server.close();
+        }
+        assertLine(
+            "clear-history fallback identify",
+            "{\"id\":1,\"cmd\":\"identify\"}\n",
+            server.firstLine(0)
+        );
+    }
+
+    private static TerminalKeyInput commandKFallback() {
+        return new TerminalKeyInput(
+            TerminalKey.K,
+            new TerminalModifiers(false, false, false, true, false, false),
+            TerminalModifiers.none(),
+            "",
+            "k",
+            TerminalKeyAction.PRESS,
+            true
+        );
     }
 
     private static void assertProtocolV7RejectsSetSplitRatio() throws Exception {

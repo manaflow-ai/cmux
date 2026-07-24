@@ -244,6 +244,12 @@ pub struct PtyInputSender {
     on_failure: Arc<dyn Fn(PtyOperationFailure) + Send + Sync>,
 }
 
+#[derive(Clone, Copy, Default)]
+struct PtyMutationIdentity {
+    coalesce_key: Option<(&'static str, u64)>,
+    failure_surface_id: Option<SurfaceId>,
+}
+
 impl PtyInputDispatcher {
     pub fn spawn(
         on_failure: impl Fn(PtyOperationFailure) + Send + Sync + 'static,
@@ -377,7 +383,14 @@ impl PtyInputSender {
         remote: bool,
         operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
     ) {
-        let _ = self.enqueue_mutation_with_key(label, None, None, remote, None, None, operation);
+        let _ = self.enqueue_mutation(
+            label,
+            PtyMutationIdentity::default(),
+            remote,
+            None,
+            None,
+            operation,
+        );
     }
 
     pub fn enqueue_session_mutation_with_settlement(
@@ -387,10 +400,9 @@ impl PtyInputSender {
         after_operation: impl FnOnce() + Send + 'static,
         operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
     ) {
-        let _ = self.enqueue_mutation_with_key(
+        let _ = self.enqueue_mutation(
             label,
-            None,
-            None,
+            PtyMutationIdentity::default(),
             remote,
             None,
             Some(Box::new(after_operation)),
@@ -407,10 +419,9 @@ impl PtyInputSender {
         after_operation: impl FnOnce() + Send + 'static,
         operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
     ) -> PtyInputEnqueueResult {
-        self.enqueue_mutation_with_key(
+        self.enqueue_mutation(
             label,
-            Some(key),
-            None,
+            PtyMutationIdentity { coalesce_key: Some(key), ..Default::default() },
             remote,
             Some(Box::new(on_superseded)),
             Some(Box::new(after_operation)),
@@ -425,10 +436,12 @@ impl PtyInputSender {
         remote: bool,
         operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
     ) -> PtyInputEnqueueResult {
-        self.enqueue_mutation_with_key(
+        self.enqueue_mutation(
             label,
-            Some((label, surface_id)),
-            Some(surface_id),
+            PtyMutationIdentity {
+                coalesce_key: Some((label, surface_id)),
+                failure_surface_id: Some(surface_id),
+            },
             remote,
             None,
             None,
@@ -443,14 +456,20 @@ impl PtyInputSender {
         remote: bool,
         operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
     ) -> PtyInputEnqueueResult {
-        self.enqueue_mutation_with_key(label, None, Some(surface_id), remote, None, None, operation)
+        self.enqueue_mutation(
+            label,
+            PtyMutationIdentity { failure_surface_id: Some(surface_id), ..Default::default() },
+            remote,
+            None,
+            None,
+            operation,
+        )
     }
 
-    fn enqueue_mutation_with_key(
+    fn enqueue_mutation(
         &self,
         label: &'static str,
-        key: Option<(&'static str, u64)>,
-        failure_surface_id: Option<SurfaceId>,
+        identity: PtyMutationIdentity,
         remote: bool,
         on_superseded: Option<Box<dyn FnOnce() + Send>>,
         after_operation: Option<Box<dyn FnOnce() + Send>>,
@@ -458,8 +477,8 @@ impl PtyInputSender {
     ) -> PtyInputEnqueueResult {
         let result = self.enqueue(PtyInputEvent::mutation_for_surface(
             label,
-            key,
-            failure_surface_id,
+            identity.coalesce_key,
+            identity.failure_surface_id,
             remote,
             on_superseded,
             after_operation,
@@ -467,7 +486,7 @@ impl PtyInputSender {
         ));
         if result != PtyInputEnqueueResult::Accepted {
             (self.on_failure)(PtyOperationFailure {
-                surface_id: failure_surface_id,
+                surface_id: identity.failure_surface_id,
                 kind: None,
                 reservation_id: None,
                 label,

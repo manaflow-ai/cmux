@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from cmux import CmuxClient, ProtocolError
+from cmux import CmuxClient, ProtocolError, TerminalKeyInput, TerminalModifiers
 from cmux.client import IdentifyResult, Layout, _parse_tree
 
 
@@ -139,6 +139,61 @@ class ProtocolTests(unittest.TestCase):
         client.clear_history(7)
 
         self.assertEqual(requests, [("clear-history", {"surface": 7})])
+
+    def test_clear_history_fallback_requires_capability_and_preserves_key(self) -> None:
+        client = CmuxClient.__new__(CmuxClient)
+        client._protocol = 9
+        client._capabilities = {"clear-history-v1"}
+        fallback = TerminalKeyInput(
+            key="k",
+            mods=TerminalModifiers(super_key=True),
+            unshifted_codepoint="k",
+            action="press",
+        )
+
+        with self.assertRaisesRegex(ProtocolError, "clear-history key fallback is not supported"):
+            client.clear_history(7, fallback_key=fallback)
+
+        requests = []
+        client._capabilities.add("clear-history-key-v1")
+        client._request = lambda command, **params: requests.append((command, params)) or {}
+
+        client.clear_history(7, fallback_key=fallback)
+
+        self.assertEqual(
+            requests,
+            [
+                (
+                    "clear-history",
+                    {
+                        "surface": 7,
+                        "fallback_key": {
+                            "key": "k",
+                            "mods": {
+                                "shift": False,
+                                "control": False,
+                                "alt": False,
+                                "super": True,
+                                "caps_lock": False,
+                                "num_lock": False,
+                            },
+                            "consumed_mods": {
+                                "shift": False,
+                                "control": False,
+                                "alt": False,
+                                "super": False,
+                                "caps_lock": False,
+                                "num_lock": False,
+                            },
+                            "utf8": "",
+                            "unshifted_codepoint": "k",
+                            "action": "press",
+                            "macos_option_as_alt": True,
+                        },
+                    },
+                )
+            ],
+        )
 
     def test_new_pane_rejects_servers_older_than_protocol_nine(self) -> None:
         client = CmuxClient.__new__(CmuxClient)

@@ -106,6 +106,154 @@ pub struct IdentifyDetails {
     pub pid: u32,
 }
 
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TerminalKey {
+    Unidentified,
+    Backquote,
+    Backslash,
+    BracketLeft,
+    BracketRight,
+    Comma,
+    Digit0,
+    Digit1,
+    Digit2,
+    Digit3,
+    Digit4,
+    Digit5,
+    Digit6,
+    Digit7,
+    Digit8,
+    Digit9,
+    Equal,
+    A,
+    B,
+    C,
+    D,
+    E,
+    F,
+    G,
+    H,
+    I,
+    J,
+    K,
+    L,
+    M,
+    N,
+    O,
+    P,
+    Q,
+    R,
+    S,
+    T,
+    U,
+    V,
+    W,
+    X,
+    Y,
+    Z,
+    Minus,
+    Period,
+    Quote,
+    Semicolon,
+    Slash,
+    Backspace,
+    Enter,
+    Space,
+    Tab,
+    Delete,
+    End,
+    Home,
+    Insert,
+    PageDown,
+    PageUp,
+    ArrowDown,
+    ArrowLeft,
+    ArrowRight,
+    ArrowUp,
+    Numpad0,
+    Numpad1,
+    Numpad2,
+    Numpad3,
+    Numpad4,
+    Numpad5,
+    Numpad6,
+    Numpad7,
+    Numpad8,
+    Numpad9,
+    NumpadAdd,
+    NumpadBackspace,
+    NumpadComma,
+    NumpadDecimal,
+    NumpadDivide,
+    NumpadEnter,
+    NumpadEqual,
+    NumpadMultiply,
+    NumpadSubtract,
+    NumpadUp,
+    NumpadDown,
+    NumpadRight,
+    NumpadLeft,
+    NumpadBegin,
+    NumpadHome,
+    NumpadEnd,
+    NumpadInsert,
+    NumpadDelete,
+    NumpadPageUp,
+    NumpadPageDown,
+    Escape,
+    F1,
+    F2,
+    F3,
+    F4,
+    F5,
+    F6,
+    F7,
+    F8,
+    F9,
+    F10,
+    F11,
+    F12,
+    F13,
+    F14,
+    F15,
+    F16,
+    F17,
+    F18,
+    F19,
+    F20,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize)]
+pub struct TerminalModifiers {
+    pub shift: bool,
+    pub control: bool,
+    pub alt: bool,
+    #[serde(rename = "super")]
+    pub super_key: bool,
+    pub caps_lock: bool,
+    pub num_lock: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TerminalKeyAction {
+    Press,
+    Release,
+    Repeat,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TerminalKeyInput {
+    pub key: TerminalKey,
+    pub mods: TerminalModifiers,
+    pub consumed_mods: TerminalModifiers,
+    pub utf8: String,
+    pub unshifted_codepoint: Option<char>,
+    pub action: Option<TerminalKeyAction>,
+    pub macos_option_as_alt: bool,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct SurfaceResult {
     pub surface: u64,
@@ -460,6 +608,22 @@ impl CmuxClient {
     pub fn clear_history(&mut self, surface: u64) -> Result<()> {
         self.require_capability("clear-history-v1", "clear-history")?;
         self.request::<Empty>("clear-history", surface_params(surface)).map(|_| ())
+    }
+
+    pub fn clear_history_with_fallback(
+        &mut self,
+        surface: u64,
+        fallback_key: &TerminalKeyInput,
+    ) -> Result<()> {
+        self.require_capability("clear-history-v1", "clear-history")?;
+        self.require_capability("clear-history-key-v1", "clear-history key fallback")?;
+        let mut params = surface_params(surface);
+        params.insert(
+            "fallback_key".to_string(),
+            serde_json::to_value(fallback_key)
+                .map_err(|error| CmuxError::InvalidArgument(error.to_string()))?,
+        );
+        self.request::<Empty>("clear-history", params).map(|_| ())
     }
 
     pub fn read_screen(&mut self, surface: u64) -> Result<ReadScreenResult> {
@@ -1326,6 +1490,83 @@ mod tests {
         };
 
         client.clear_history(7).unwrap();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn clear_history_fallback_requires_capability_and_preserves_key() {
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(9),
+            capabilities: vec!["clear-history-v1".to_string()],
+        };
+        let fallback = TerminalKeyInput {
+            key: TerminalKey::K,
+            mods: TerminalModifiers { super_key: true, ..Default::default() },
+            consumed_mods: TerminalModifiers::default(),
+            utf8: String::new(),
+            unshifted_codepoint: Some('k'),
+            action: Some(TerminalKeyAction::Press),
+            macos_option_as_alt: true,
+        };
+
+        let error = client.clear_history_with_fallback(7, &fallback).unwrap_err();
+        assert_eq!(error.to_string(), "clear-history key fallback is not supported by this server");
+
+        let (socket, peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let server = std::thread::spawn(move || {
+            let mut response_writer = peer.try_clone().unwrap();
+            let mut reader = BufReader::new(peer);
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(
+                request,
+                serde_json::json!({
+                    "id": 1,
+                    "cmd": "clear-history",
+                    "surface": 7,
+                    "fallback_key": {
+                        "key": "k",
+                        "mods": {
+                            "shift": false,
+                            "control": false,
+                            "alt": false,
+                            "super": true,
+                            "caps_lock": false,
+                            "num_lock": false,
+                        },
+                        "consumed_mods": {
+                            "shift": false,
+                            "control": false,
+                            "alt": false,
+                            "super": false,
+                            "caps_lock": false,
+                            "num_lock": false,
+                        },
+                        "utf8": "",
+                        "unshifted_codepoint": "k",
+                        "action": "press",
+                        "macos_option_as_alt": true,
+                    },
+                })
+            );
+            response_writer.write_all(b"{\"id\":1,\"ok\":true,\"data\":{}}\n").unwrap();
+        });
+        let mut client = CmuxClient {
+            config: ClientConfig::default(),
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            next_id: 1,
+            protocol: Some(9),
+            capabilities: vec!["clear-history-v1".to_string(), "clear-history-key-v1".to_string()],
+        };
+
+        client.clear_history_with_fallback(7, &fallback).unwrap();
         server.join().unwrap();
     }
 

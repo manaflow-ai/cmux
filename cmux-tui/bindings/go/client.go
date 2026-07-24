@@ -291,6 +291,27 @@ func (c *Client) ClearHistory(ctx context.Context, surface uint64) error {
 	return c.request(ctx, "clear-history", map[string]any{"surface": surface}, nil)
 }
 
+func (c *Client) ClearHistoryWithFallback(
+	ctx context.Context,
+	surface uint64,
+	fallbackKey TerminalKeyInput,
+) error {
+	if err := c.requireCapability(ctx, "clear-history-v1", "clear-history"); err != nil {
+		return err
+	}
+	if err := c.requireCapability(
+		ctx,
+		"clear-history-key-v1",
+		"clear-history key fallback",
+	); err != nil {
+		return err
+	}
+	return c.request(ctx, "clear-history", map[string]any{
+		"surface":      surface,
+		"fallback_key": fallbackKey,
+	}, nil)
+}
+
 func (c *Client) ReadScreen(ctx context.Context, surface uint64) (ReadScreenResult, error) {
 	var result ReadScreenResult
 	return result, c.request(ctx, "read-screen", map[string]any{"surface": surface}, &result)
