@@ -325,8 +325,7 @@ impl ServerConnection {
                 return Err(DaemonError::Generation { expected, actual: generation });
             }
             let sequence = session.next_outbound_sequence(lane);
-            match session.send_with_replay_backpressure(lane, stream, payload.clone(), flags).await
-            {
+            match session.send_with_backpressure(lane, stream, payload.clone(), flags).await {
                 Ok(sequence) => return Ok(sequence),
                 Err(SessionError::StaleGeneration { .. }) => {
                     let Some(actual) = self.wait_for_replacement(generation).await else {

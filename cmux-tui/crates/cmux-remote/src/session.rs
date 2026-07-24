@@ -19,6 +19,8 @@ const RECONNECT_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
 pub struct SessionLimits {
     pub replay_frames_per_lane: usize,
     pub replay_bytes_per_lane: usize,
+    pub delivery_frames_per_lane: usize,
+    pub delivery_bytes_per_lane: usize,
     pub queued_frames_per_lane: usize,
     pub queued_bytes_per_lane: usize,
 }
@@ -28,6 +30,8 @@ impl Default for SessionLimits {
         Self {
             replay_frames_per_lane: 4_096,
             replay_bytes_per_lane: 16 * 1024 * 1024,
+            delivery_frames_per_lane: 64,
+            delivery_bytes_per_lane: 256 * 1024,
             queued_frames_per_lane: 256,
             queued_bytes_per_lane: 8 * 1024 * 1024,
         }
@@ -90,7 +94,7 @@ impl ReliableSession {
             limits,
             transition: tokio::sync::RwLock::new(()),
             lane_sends: std::array::from_fn(|_| tokio::sync::Mutex::new(())),
-            replay_progress: std::array::from_fn(|_| tokio::sync::Notify::new()),
+            outbound_progress: std::array::from_fn(|_| tokio::sync::Notify::new()),
             state: Mutex::new(ReliabilityState::new()),
         });
         Self::from_parts(shared, link, 0)
@@ -166,8 +170,8 @@ impl ReliableSession {
         }
         let rolled_back = state.rollback_unscheduled(lane, sequence);
         drop(state);
-        if rolled_back && lane.replays_across_generations() {
-            self.shared.replay_progress[lane_index(lane)].notify_waiters();
+        if rolled_back {
+            self.shared.outbound_progress[lane_index(lane)].notify_waiters();
         }
         rolled_back
     }
@@ -209,9 +213,7 @@ impl ReliableSession {
                 payload: payload.to_vec(),
             };
             let encoded = Bytes::from(frame.encode().map_err(SessionError::Frame)?);
-            if lane.replays_across_generations() {
-                outbound.push_replay(frame, encoded.len(), self.shared.limits)?;
-            }
+            outbound.push(frame, encoded.len(), self.shared.limits)?;
             outbound.next_sequence = next_sequence;
             (sequence, encoded)
         };
@@ -224,8 +226,8 @@ impl ReliableSession {
                         let rolled_back = state.rollback_unscheduled(lane, sequence);
                         debug_assert!(rolled_back);
                         drop(state);
-                        if rolled_back && lane.replays_across_generations() {
-                            self.shared.replay_progress[lane_index(lane)].notify_waiters();
+                        if rolled_back {
+                            self.shared.outbound_progress[lane_index(lane)].notify_waiters();
                         }
                     }
                 }
@@ -234,43 +236,57 @@ impl ReliableSession {
         }
     }
 
-    /// Apply flow control to replayable application traffic without turning a
-    /// temporary replay-window limit into a service-stream failure.
-    pub(crate) async fn send_with_replay_backpressure(
+    /// Apply acknowledgement-based flow control without turning a temporary
+    /// delivery or replay window limit into a service-stream failure.
+    pub(crate) async fn send_with_backpressure(
         &self,
         lane: Lane,
         stream: u64,
         payload: Bytes,
         flags: FrameFlags,
     ) -> Result<u64, SessionError> {
-        let first = self.send(lane, stream, payload.clone(), flags).await;
-        if !matches!(
-            &first,
-            Err(SessionError::ReplayFull(full_lane)) if *full_lane == lane
-        ) {
-            return first;
-        }
         let frame_overhead = MAX_WIRE_FRAME_BYTES - MAX_FRAME_PAYLOAD;
-        if !lane.replays_across_generations()
-            || self.shared.limits.replay_frames_per_lane == 0
-            || payload
-                .len()
-                .checked_add(frame_overhead)
-                .is_none_or(|bytes| bytes > self.shared.limits.replay_bytes_per_lane)
-        {
-            return first;
-        }
-
         loop {
-            let progress = self.shared.replay_progress[lane_index(lane)].notified();
+            let progress = self.shared.outbound_progress[lane_index(lane)].notified();
             tokio::pin!(progress);
             progress.as_mut().enable();
             match self.send(lane, stream, payload.clone(), flags).await {
-                Err(SessionError::ReplayFull(full_lane)) if full_lane == lane => {
+                Err(error)
+                    if self.can_wait_for_outbound_capacity(
+                        lane,
+                        &payload,
+                        frame_overhead,
+                        &error,
+                    ) =>
+                {
                     progress.await;
                 }
                 result => return result,
             }
+        }
+    }
+
+    fn can_wait_for_outbound_capacity(
+        &self,
+        lane: Lane,
+        payload: &Bytes,
+        frame_overhead: usize,
+        error: &SessionError,
+    ) -> bool {
+        let encoded_bytes = payload.len().checked_add(frame_overhead);
+        match error {
+            SessionError::DeliveryWindowFull(full_lane) if *full_lane == lane => {
+                self.shared.limits.delivery_frames_per_lane > 0
+                    && encoded_bytes
+                        .is_some_and(|bytes| bytes <= self.shared.limits.delivery_bytes_per_lane)
+            }
+            SessionError::ReplayFull(full_lane) if *full_lane == lane => {
+                lane.replays_across_generations()
+                    && self.shared.limits.replay_frames_per_lane > 0
+                    && encoded_bytes
+                        .is_some_and(|bytes| bytes <= self.shared.limits.replay_bytes_per_lane)
+            }
+            _ => false,
         }
     }
 
@@ -295,7 +311,7 @@ impl ReliableSession {
                 let mut state = self.shared.state.lock().unwrap();
                 state.require_generation(self.generation)?;
                 if state.apply_ack(frame.lane, frame.acknowledgement)? {
-                    self.shared.replay_progress[lane_index(frame.lane)].notify_waiters();
+                    self.shared.outbound_progress[lane_index(frame.lane)].notify_waiters();
                 }
                 if frame.flags.contains(FrameFlags::ACK_ONLY) {
                     false
@@ -441,7 +457,7 @@ impl ReliableSession {
         state.require_generation(self.generation)?;
         *state = staged;
         drop(state);
-        for progress in &self.shared.replay_progress {
+        for progress in &self.shared.outbound_progress {
             progress.notify_waiters();
         }
         close_uncommitted.disarm();
@@ -450,7 +466,7 @@ impl ReliableSession {
 
     pub async fn close(&self) -> Result<(), SessionError> {
         self.closed.store(true, Ordering::Release);
-        for progress in &self.shared.replay_progress {
+        for progress in &self.shared.outbound_progress {
             progress.notify_waiters();
         }
         self.link.close().await.map_err(SessionError::Link)
@@ -497,7 +513,7 @@ struct SharedState {
     limits: SessionLimits,
     transition: tokio::sync::RwLock<()>,
     lane_sends: [tokio::sync::Mutex<()>; 4],
-    replay_progress: [tokio::sync::Notify; 4],
+    outbound_progress: [tokio::sync::Notify; 4],
     state: Mutex<ReliabilityState>,
 }
 
@@ -550,12 +566,16 @@ impl ReliabilityState {
                 next_sequence: outbound.next_sequence,
             });
         }
-        let replay_len = outbound.replay.len();
+        let delivery_len = outbound.delivery.len();
+        while outbound.delivery.front().is_some_and(|entry| entry.sequence <= acknowledgement) {
+            let entry = outbound.delivery.pop_front().unwrap();
+            outbound.delivery_bytes = outbound.delivery_bytes.saturating_sub(entry.bytes);
+        }
         while outbound.replay.front().is_some_and(|entry| entry.frame.sequence <= acknowledgement) {
             let entry = outbound.replay.pop_front().unwrap();
             outbound.replay_bytes = outbound.replay_bytes.saturating_sub(entry.bytes);
         }
-        Ok(outbound.replay.len() != replay_len)
+        Ok(outbound.delivery.len() != delivery_len)
     }
 
     fn reset_lane_for_generation(&mut self, lane: Lane) {
@@ -568,10 +588,17 @@ impl ReliabilityState {
         if outbound.next_sequence != sequence.saturating_add(1) {
             return false;
         }
+        if outbound.delivery.back().map(|entry| entry.sequence) != Some(sequence) {
+            return false;
+        }
+        if lane.replays_across_generations()
+            && outbound.replay.back().map(|entry| entry.frame.sequence) != Some(sequence)
+        {
+            return false;
+        }
+        let delivery = outbound.delivery.pop_back().expect("back entry was checked");
+        outbound.delivery_bytes = outbound.delivery_bytes.saturating_sub(delivery.bytes);
         if lane.replays_across_generations() {
-            if outbound.replay.back().map(|entry| entry.frame.sequence) != Some(sequence) {
-                return false;
-            }
             let entry = outbound.replay.pop_back().expect("back entry was checked");
             outbound.replay_bytes = outbound.replay_bytes.saturating_sub(entry.bytes);
         }
@@ -583,24 +610,36 @@ impl ReliabilityState {
 #[derive(Clone)]
 struct OutboundLane {
     next_sequence: u64,
+    delivery: VecDeque<DeliveryEntry>,
+    delivery_bytes: usize,
     replay: VecDeque<ReplayEntry>,
     replay_bytes: usize,
 }
 
 impl OutboundLane {
-    fn push_replay(
+    fn push(
         &mut self,
         frame: WireFrame,
         bytes: usize,
         limits: SessionLimits,
     ) -> Result<(), SessionError> {
-        if self.replay.len() >= limits.replay_frames_per_lane
-            || self.replay_bytes.saturating_add(bytes) > limits.replay_bytes_per_lane
+        if self.delivery.len() >= limits.delivery_frames_per_lane
+            || self.delivery_bytes.saturating_add(bytes) > limits.delivery_bytes_per_lane
+        {
+            return Err(SessionError::DeliveryWindowFull(frame.lane));
+        }
+        if frame.lane.replays_across_generations()
+            && (self.replay.len() >= limits.replay_frames_per_lane
+                || self.replay_bytes.saturating_add(bytes) > limits.replay_bytes_per_lane)
         {
             return Err(SessionError::ReplayFull(frame.lane));
         }
-        self.replay_bytes += bytes;
-        self.replay.push_back(ReplayEntry { frame, bytes });
+        self.delivery_bytes += bytes;
+        self.delivery.push_back(DeliveryEntry { sequence: frame.sequence, bytes });
+        if frame.lane.replays_across_generations() {
+            self.replay_bytes += bytes;
+            self.replay.push_back(ReplayEntry { frame, bytes });
+        }
         Ok(())
     }
 }
@@ -613,7 +652,13 @@ impl Default for ReliabilityState {
 
 impl Default for OutboundLane {
     fn default() -> Self {
-        Self { next_sequence: 1, replay: VecDeque::new(), replay_bytes: 0 }
+        Self {
+            next_sequence: 1,
+            delivery: VecDeque::new(),
+            delivery_bytes: 0,
+            replay: VecDeque::new(),
+            replay_bytes: 0,
+        }
     }
 }
 
@@ -625,6 +670,12 @@ struct InboundLane {
 #[derive(Clone)]
 struct ReplayEntry {
     frame: WireFrame,
+    bytes: usize,
+}
+
+#[derive(Clone)]
+struct DeliveryEntry {
+    sequence: u64,
     bytes: usize,
 }
 
@@ -795,6 +846,7 @@ pub enum SessionError {
     LinkMessage(String),
     Frame(FrameDecodeError),
     PayloadTooLarge(usize),
+    DeliveryWindowFull(Lane),
     ReplayFull(Lane),
     QueueFull(Lane),
     SchedulerClosed,
@@ -815,6 +867,9 @@ impl fmt::Display for SessionError {
             Self::Frame(error) => write!(formatter, "invalid session frame: {error}"),
             Self::PayloadTooLarge(size) => {
                 write!(formatter, "session payload is {size} bytes, maximum is {MAX_FRAME_PAYLOAD}")
+            }
+            Self::DeliveryWindowFull(lane) => {
+                write!(formatter, "{lane} delivery window is full")
             }
             Self::ReplayFull(lane) => write!(formatter, "{lane} replay buffer is full"),
             Self::QueueFull(lane) => write!(formatter, "{lane} outbound queue is full"),
@@ -1159,7 +1214,7 @@ mod tests {
             let sender = sender.clone();
             async move {
                 sender
-                    .send_with_replay_backpressure(
+                    .send_with_backpressure(
                         Lane::Bulk,
                         7,
                         Bytes::from_static(b"two"),
@@ -1191,12 +1246,7 @@ mod tests {
         for expected_sequence in 1..=5 {
             assert_eq!(
                 sender
-                    .send_with_replay_backpressure(
-                        Lane::Tunnel,
-                        7,
-                        payload.clone(),
-                        FrameFlags::empty(),
-                    )
+                    .send_with_backpressure(Lane::Tunnel, 7, payload.clone(), FrameFlags::empty(),)
                     .await
                     .unwrap(),
                 expected_sequence
@@ -1208,21 +1258,11 @@ mod tests {
             let sender = sender.clone();
             let payload = payload.clone();
             async move {
-                sender
-                    .send_with_replay_backpressure(
-                        Lane::Tunnel,
-                        7,
-                        payload,
-                        FrameFlags::empty(),
-                    )
-                    .await
+                sender.send_with_backpressure(Lane::Tunnel, 7, payload, FrameFlags::empty()).await
             }
         });
         tokio::task::yield_now().await;
-        assert!(
-            !blocked.is_finished(),
-            "unacknowledged tunnel bytes escaped the delivery window"
-        );
+        assert!(!blocked.is_finished(), "unacknowledged tunnel bytes escaped the delivery window");
 
         let receive_acks = tokio::spawn({
             let sender = sender.clone();
