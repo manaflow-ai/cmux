@@ -1,5 +1,20 @@
 import CMUXAgentLaunch
+import CryptoKit
+import Darwin
 import Foundation
+
+private struct CodexResumeTrustProbeCacheRecord: Codable {
+    let version: Int
+    let key: String
+    let createdAt: TimeInterval
+    let succeeded: Bool
+    let decisionPaths: [String]
+}
+
+private enum CodexResumeTrustProbeCacheLookup {
+    case miss
+    case hit(Set<String>?)
+}
 
 extension CMUXCLI {
     /// The per-invocation Codex hook events the wrapper injects, paired with the
@@ -166,6 +181,15 @@ extension CMUXCLI {
             return nil
         }
 
+        let modelCatalogPath = codexModelsCachePath(environment: environment)
+        let cacheKey = codexResumeTrustProbeCacheKey(
+            executablePath: executablePath,
+            appServerConfigurationArguments: appServerConfigurationArguments,
+            currentDirectory: currentDirectory,
+            modelCatalogPath: modelCatalogPath,
+            environment: environment
+        )
+
         func readProjectDecisions(
             configurationArguments: [String]
         ) -> Set<String>? {
@@ -191,20 +215,308 @@ extension CMUXCLI {
         // refresh or credential command from delaying every restored session.
         // A missing/invalid cache or managed requirement can reject this
         // session override, so retry the original effective configuration.
-        if let modelCatalogPath = codexModelsCachePath(environment: environment) {
-            let isolatedConfigurationArguments = appServerConfigurationArguments + [
-                "-c",
-                "model_catalog_json=\(modelCatalogPath)",
-            ]
-            if let decisions = readProjectDecisions(
-                configurationArguments: isolatedConfigurationArguments
+        return codexCachedResumeTrustProbe(
+            key: cacheKey,
+            environment: environment
+        ) {
+            if let modelCatalogPath {
+                let isolatedConfigurationArguments = appServerConfigurationArguments + [
+                    "-c",
+                    "model_catalog_json=\(modelCatalogPath)",
+                ]
+                if let decisions = readProjectDecisions(
+                    configurationArguments: isolatedConfigurationArguments
+                ) {
+                    return decisions
+                }
+            }
+            return readProjectDecisions(
+                configurationArguments: appServerConfigurationArguments
+            )
+        }
+    }
+
+    /// Codex restore wrappers run as separate CLI processes, so an in-memory
+    /// cache cannot coalesce a multi-pane restore. An exclusive marker elects
+    /// one process per equivalent probe key while the others wait for its
+    /// atomic cache record. Both successes and fail-closed failures are cached
+    /// briefly, preventing the fallback probe from fanning out after an owner
+    /// finishes. Entries are short-lived and capped because config changes must
+    /// become visible quickly.
+    private func codexCachedResumeTrustProbe(
+        key: String,
+        environment: [String: String],
+        probe: () -> Set<String>?
+    ) -> Set<String>? {
+        guard let directory = codexResumeTrustProbeCacheDirectory(
+            environment: environment
+        ) else {
+            return probe()
+        }
+
+        let cacheURL = directory.appendingPathComponent(
+            "\(key).json",
+            isDirectory: false
+        )
+        let inFlightURL = directory.appendingPathComponent(
+            "\(key).inflight",
+            isDirectory: false
+        )
+        let waitDeadline = Date().addingTimeInterval(16)
+
+        while true {
+            switch codexResumeTrustProbeCacheLookup(
+                at: cacheURL,
+                key: key,
+                now: Date()
             ) {
-                return decisions
+            case .hit(let result):
+                return result
+            case .miss:
+                break
+            }
+
+            let markerFD = Darwin.open(
+                inFlightURL.path,
+                O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
+                S_IRUSR | S_IWUSR
+            )
+            if markerFD >= 0 {
+                Darwin.close(markerFD)
+                defer { Darwin.unlink(inFlightURL.path) }
+
+                // The previous owner can publish its cache record immediately
+                // before removing its marker. Recheck after winning so that
+                // boundary does not launch a duplicate probe.
+                switch codexResumeTrustProbeCacheLookup(
+                    at: cacheURL,
+                    key: key,
+                    now: Date()
+                ) {
+                case .hit(let result):
+                    return result
+                case .miss:
+                    break
+                }
+
+                let result = probe()
+                codexWriteResumeTrustProbeCache(
+                    result,
+                    key: key,
+                    at: cacheURL
+                )
+                codexPruneResumeTrustProbeCache(
+                    in: directory,
+                    now: Date()
+                )
+                return result
+            }
+
+            guard errno == EEXIST else {
+                return probe()
+            }
+            if codexResumeTrustProbeMarkerIsStale(
+                at: inFlightURL,
+                now: Date()
+            ) {
+                Darwin.unlink(inFlightURL.path)
+                continue
+            }
+            guard Date() < waitDeadline else {
+                // Never create a second heavyweight app-server fanout when an
+                // owner is unexpectedly slow. Omitting the override is the
+                // existing fail-closed behavior.
+                return nil
+            }
+            Thread.sleep(forTimeInterval: 0.025)
+        }
+    }
+
+    private func codexResumeTrustProbeCacheKey(
+        executablePath: String,
+        appServerConfigurationArguments: [String],
+        currentDirectory: String,
+        modelCatalogPath: String?,
+        environment: [String: String]
+    ) -> String {
+        let components = [
+            "v1",
+            codexResumeTrustProbeFileIdentity(path: executablePath),
+            currentDirectory,
+            environment["CODEX_HOME"] ?? "",
+            environment["HOME"] ?? "",
+            appServerConfigurationArguments.joined(separator: "\u{0}"),
+            modelCatalogPath.map(codexResumeTrustProbeFileIdentity(path:)) ?? "",
+        ]
+        let digest = SHA256.hash(
+            data: Data(components.joined(separator: "\u{0}").utf8)
+        )
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func codexResumeTrustProbeFileIdentity(path: String) -> String {
+        let url = URL(fileURLWithPath: path, isDirectory: false)
+        let attributes = try? FileManager.default.attributesOfItem(
+            atPath: url.path
+        )
+        let modifiedAt = (attributes?[.modificationDate] as? Date)?
+            .timeIntervalSince1970 ?? 0
+        let size = (attributes?[.size] as? NSNumber)?.uint64Value ?? 0
+        let device = (attributes?[.systemNumber] as? NSNumber)?.uint64Value ?? 0
+        let inode = (attributes?[.systemFileNumber] as? NSNumber)?
+            .uint64Value ?? 0
+        return [
+            url.standardizedFileURL.path,
+            url.resolvingSymlinksInPath().path,
+            String(device),
+            String(inode),
+            String(size),
+            String(modifiedAt),
+        ].joined(separator: "\u{0}")
+    }
+
+    private func codexResumeTrustProbeCacheDirectory(
+        environment: [String: String]
+    ) -> URL? {
+        let statePath = NSString(
+            string: agentHookStatePath(
+                sessionStoreSuffix: "codex",
+                env: environment
+            )
+        ).expandingTildeInPath
+        let directory = URL(
+            fileURLWithPath: statePath,
+            isDirectory: false
+        )
+        .deletingLastPathComponent()
+        .appendingPathComponent(
+            "codex-resume-trust-probes",
+            isDirectory: true
+        )
+        do {
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true
+            )
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: directory.path
+            )
+            return directory
+        } catch {
+            return nil
+        }
+    }
+
+    private func codexResumeTrustProbeCacheLookup(
+        at url: URL,
+        key: String,
+        now: Date
+    ) -> CodexResumeTrustProbeCacheLookup {
+        let fileManager = FileManager.default
+        guard let attributes = try? fileManager.attributesOfItem(
+            atPath: url.path
+        ),
+            let size = (attributes[.size] as? NSNumber)?.intValue,
+            size <= 1_048_576,
+            let data = try? Data(contentsOf: url),
+            let record = try? JSONDecoder().decode(
+                CodexResumeTrustProbeCacheRecord.self,
+                from: data
+            ),
+            record.version == 1,
+            record.key == key,
+            record.decisionPaths.count <= 8_192
+        else {
+            return .miss
+        }
+        let age = now.timeIntervalSince1970 - record.createdAt
+        guard age >= 0, age <= 5 else {
+            try? fileManager.removeItem(at: url)
+            return .miss
+        }
+        return .hit(
+            record.succeeded ? Set(record.decisionPaths) : nil
+        )
+    }
+
+    private func codexWriteResumeTrustProbeCache(
+        _ result: Set<String>?,
+        key: String,
+        at url: URL
+    ) {
+        let record = CodexResumeTrustProbeCacheRecord(
+            version: 1,
+            key: key,
+            createdAt: Date().timeIntervalSince1970,
+            succeeded: result != nil,
+            decisionPaths: result?.sorted() ?? []
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(record),
+              data.count <= 1_048_576 else {
+            return
+        }
+        do {
+            try data.write(to: url, options: .atomic)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: url.path
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    private func codexResumeTrustProbeMarkerIsStale(
+        at url: URL,
+        now: Date
+    ) -> Bool {
+        guard let attributes = try? FileManager.default.attributesOfItem(
+            atPath: url.path
+        ),
+            let modifiedAt = attributes[.modificationDate] as? Date else {
+            return false
+        }
+        return now.timeIntervalSince(modifiedAt) > 15
+    }
+
+    private func codexPruneResumeTrustProbeCache(
+        in directory: URL,
+        now: Date
+    ) {
+        let fileManager = FileManager.default
+        let urls = ((try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )) ?? []).filter { $0.pathExtension == "json" }
+
+        var current: [(url: URL, createdAt: TimeInterval)] = []
+        for url in urls {
+            guard let data = try? Data(contentsOf: url),
+                  data.count <= 1_048_576,
+                  let record = try? JSONDecoder().decode(
+                      CodexResumeTrustProbeCacheRecord.self,
+                      from: data
+                  ),
+                  record.version == 1,
+                  record.decisionPaths.count <= 8_192,
+                  now.timeIntervalSince1970 - record.createdAt >= 0,
+                  now.timeIntervalSince1970 - record.createdAt <= 5 else {
+                try? fileManager.removeItem(at: url)
+                continue
+            }
+            current.append((url, record.createdAt))
+        }
+
+        if current.count > 64 {
+            current.sort { $0.createdAt > $1.createdAt }
+            for entry in current.dropFirst(64) {
+                try? fileManager.removeItem(at: entry.url)
             }
         }
-        return readProjectDecisions(
-            configurationArguments: appServerConfigurationArguments
-        )
     }
 
     private func codexModelsCachePath(
