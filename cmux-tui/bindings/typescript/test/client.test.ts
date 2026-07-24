@@ -341,7 +341,59 @@ test("setSplitRatio accepts newer additive protocols", async () => {
   await client.close();
 });
 
+test("stable terminal resolve and close serialize process identity", async () => {
+  const terminalId = "0123456789abcdef0123456789abcdef";
+  const incarnation = "fedcba9876543210fedcba9876543210";
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "resolve-terminal") {
+      assert.deepEqual(request, {
+        id: 1,
+        cmd: "resolve-terminal",
+        terminal_id: terminalId,
+      });
+    } else {
+      assert.deepEqual(request, {
+        id: 2,
+        cmd: "close-terminal",
+        terminal_id: terminalId,
+        terminal_incarnation: incarnation,
+      });
+    }
+    connection.emit({
+      id: request.id,
+      ok: true,
+      data: {
+        surface: 7,
+        terminal_id: terminalId,
+        terminal_incarnation: incarnation,
+      },
+    });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  assert.deepEqual(await client.resolveTerminal(terminalId), {
+    surface: 7,
+    terminal_id: terminalId,
+    terminal_incarnation: incarnation,
+  });
+  assert.deepEqual(await client.closeTerminal(terminalId, incarnation), {
+    surface: 7,
+    terminal_id: terminalId,
+    terminal_incarnation: incarnation,
+  });
+  await client.close();
+});
+
 test("attachSurface decodes VT colors, output, and resized payloads", async () => {
+  const atomicColors = {
+    fg: "#010203",
+    bg: "#040506",
+    cursor: null,
+    selection_bg: null,
+    selection_fg: null,
+    cursor_style: null,
+    cursor_blink: null,
+  };
   const main = new ScriptedTransport((request, transport) => {
     assert.equal(request.cmd, "identify");
     transport.emit({ id: request.id, ok: true, data: { app: "cmux-tui", version: "0.1.2", protocol: 6, session: "main", pid: 1 } });
@@ -366,7 +418,7 @@ test("attachSurface decodes VT colors, output, and resized payloads", async () =
       },
     });
     transport.emit({ id: request.id, ok: true, data: {} });
-    transport.emit({ event: "output", surface: 7, data: "aGk=" });
+    transport.emit({ event: "output", surface: 7, data: "aGk=", colors: atomicColors });
     transport.emit({
       event: "resized",
       surface: 7,
@@ -408,7 +460,10 @@ test("attachSurface decodes VT colors, output, and resized payloads", async () =
     });
   }
   assert.equal(output.event, "output");
-  if (output.event === "output") assert.deepEqual(output.data, Uint8Array.from([104, 105]));
+  if (output.event === "output") {
+    assert.deepEqual(output.data, Uint8Array.from([104, 105]));
+    assert.deepEqual(output.colors, atomicColors);
+  }
   assert.equal(resized.event, "resized");
   if (resized.event === "resized") {
     const decoded = resized as DecodedResizedEvent;

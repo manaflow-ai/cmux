@@ -2,9 +2,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::fmt;
 use std::io::{BufRead, BufReader, Write};
+use std::mem::{offset_of, size_of};
 use std::net::Shutdown;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 pub type Result<T> = std::result::Result<T, CmuxError>;
@@ -70,8 +72,31 @@ pub fn env_socket_path() -> Option<PathBuf> {
 }
 
 pub fn default_socket_path(session: &str) -> PathBuf {
-    let base = std::env::var_os("TMPDIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
-    base.join(format!("cmux-tui-{}", current_uid_component())).join(format!("{session}.sock"))
+    let base = std::env::var_os("XDG_RUNTIME_DIR")
+        .filter(|value| !value.is_empty())
+        .or_else(|| std::env::var_os("TMPDIR").filter(|value| !value.is_empty()))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/tmp"));
+    default_socket_path_in_runtime_dir(session, base.join(private_runtime_dir_name()))
+}
+
+fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> PathBuf {
+    let file_name = format!("{session}.sock");
+    let preferred = runtime_dir.join(&file_name);
+    if !unix_socket_path_fits(&preferred) {
+        return PathBuf::from("/tmp").join(private_runtime_dir_name()).join(file_name);
+    }
+    preferred
+}
+
+fn private_runtime_dir_name() -> String {
+    format!("cmux-tui-{}", current_uid_component())
+}
+
+fn unix_socket_path_fits(path: &Path) -> bool {
+    const SUN_PATH_CAPACITY: usize =
+        size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
+    path.as_os_str().as_bytes().len() < SUN_PATH_CAPACITY
 }
 
 #[cfg(unix)]
@@ -1243,6 +1268,42 @@ mod tests {
         let details: IdentifyDetails = serde_json::from_value(wire).unwrap();
         assert_eq!(details.build_commit.as_deref(), Some("cmux-sha"));
         assert_eq!(details.ghostty_commit.as_deref(), Some("ghostty-sha"));
+    }
+
+    #[test]
+    fn default_socket_path_preserves_compatible_runtime_dir() {
+        let runtime_dir = PathBuf::from("/tmp/cmux-tui-compat");
+        assert_eq!(
+            default_socket_path_in_runtime_dir("main", runtime_dir.clone()),
+            runtime_dir.join("main.sock")
+        );
+    }
+
+    #[test]
+    fn default_socket_path_falls_back_for_long_tmpdir() {
+        let long_tmpdir = PathBuf::from("/tmp").join("x".repeat(200));
+        let preferred_runtime_dir = long_tmpdir.join(private_runtime_dir_name());
+        let path = default_socket_path_in_runtime_dir(
+            "cmux-browser-0123456789abcdef",
+            preferred_runtime_dir,
+        );
+
+        assert_eq!(
+            path,
+            PathBuf::from("/tmp")
+                .join(private_runtime_dir_name())
+                .join("cmux-browser-0123456789abcdef.sock")
+        );
+        assert!(unix_socket_path_fits(&path));
+        assert_ne!(path.parent(), Some(Path::new("/tmp")));
+    }
+
+    #[test]
+    fn unix_socket_path_reserves_trailing_nul() {
+        const SUN_PATH_CAPACITY: usize =
+            size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
+        assert!(unix_socket_path_fits(Path::new(&"x".repeat(SUN_PATH_CAPACITY - 1))));
+        assert!(!unix_socket_path_fits(Path::new(&"x".repeat(SUN_PATH_CAPACITY))));
     }
 
     #[test]

@@ -213,6 +213,13 @@ impl Session {
             remote.begin_shutdown();
         }
     }
+
+    pub fn daemon_shutdown_requested(&self) -> bool {
+        match self {
+            Session::Local(mux) => mux.daemon_shutdown_requested(),
+            Session::Remote(_) => false,
+        }
+    }
     pub fn invalidate_remote_tree(&self) {
         if let Session::Remote(remote) = self {
             remote.invalidate_tree();
@@ -646,8 +653,11 @@ impl Session {
     pub fn close_screen(&self, screen: ScreenId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.close_screen(screen);
-                Ok(())
+                if mux.close_screen(screen)? {
+                    Ok(())
+                } else {
+                    anyhow::bail!("unknown screen {screen}")
+                }
             }
             Session::Remote(remote) => {
                 remote.request(json!({"cmd": "close-screen", "screen": screen})).map(|_| ())
@@ -737,8 +747,11 @@ impl Session {
     pub fn close_surface(&self, surface: SurfaceId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.close_surface(surface);
-                Ok(())
+                if mux.close_surface(surface)? {
+                    Ok(())
+                } else {
+                    anyhow::bail!("unknown surface {surface}")
+                }
             }
             Session::Remote(remote) => {
                 remote.request(json!({"cmd": "close-surface", "surface": surface})).map(|_| ())
@@ -773,8 +786,11 @@ impl Session {
     pub fn close_pane(&self, pane: PaneId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.close_pane(pane);
-                Ok(())
+                if mux.close_pane(pane)? {
+                    Ok(())
+                } else {
+                    anyhow::bail!("unknown pane {pane}")
+                }
             }
             Session::Remote(remote) => {
                 remote.request(json!({"cmd": "close-pane", "pane": pane})).map(|_| ())
@@ -999,7 +1015,7 @@ impl Session {
     pub fn move_workspace(&self, workspace: WorkspaceId, index: usize) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.move_workspace(workspace, index);
+                mux.move_workspace_at_revision(workspace, index, None)?;
                 Ok(())
             }
             Session::Remote(remote) => remote
@@ -1527,7 +1543,11 @@ mod tests {
     fn local_provider_guard_surfaces_actionable_ordinary_mutation_errors() {
         let mux = Mux::new("local-provider-guard-test", SurfaceOptions::default());
         let workspace = mux
-            .create_empty_workspace(Some("managed".into()), Some("managed-key".into()), None)
+            .create_empty_workspace(
+                Some("managed".into()),
+                Some("018f6e21-7b70-7e70-8000-00000000aa06".into()),
+                None,
+            )
             .unwrap();
         let session = Session::Local(mux.clone());
         session.mark_workspaces_provider_managed().unwrap();

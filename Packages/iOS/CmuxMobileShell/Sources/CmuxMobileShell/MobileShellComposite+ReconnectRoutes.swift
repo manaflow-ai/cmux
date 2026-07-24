@@ -139,7 +139,7 @@ extension MobileShellComposite {
             ), let self else { return }
             await self.performSerializedPairedMacWrite(ifStillCurrent: nil) {
                 guard await self.isScopeCurrent(scope),
-                      await !self.isForgottenMacDeviceID(
+                      await !self.isHiddenMacDeviceID(
                         macDeviceID,
                         instanceTag: capturedInstanceTag,
                         scope: scope
@@ -155,7 +155,7 @@ extension MobileShellComposite {
                     return
                 }
                 guard await self.isScopeCurrent(scope),
-                      await !self.isForgottenMacDeviceID(
+                      await !self.isHiddenMacDeviceID(
                         macDeviceID,
                         instanceTag: capturedInstanceTag,
                         scope: scope
@@ -185,7 +185,7 @@ extension MobileShellComposite {
                     reconnectRouteLog.debug("registry refresh upsert failed: \(String(describing: error), privacy: .public)")
                     return
                 }
-                if await self.isForgottenMacDeviceID(
+                if await self.isHiddenMacDeviceID(
                     macDeviceID,
                     instanceTag: capturedInstanceTag,
                     scope: scope
@@ -306,7 +306,7 @@ extension MobileShellComposite {
                   pairedMacs: pairedMacs,
                   registryDevices: nil
               ).currentMac(for: captured),
-              await !isForgottenMacDeviceID(
+              await !isHiddenMacDeviceID(
                   captured.macDeviceID,
                   instanceTag: captured.instanceTag,
                   scope: scope
@@ -325,14 +325,14 @@ extension MobileShellComposite {
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         guard let snapshot,
               await isScopeCurrent(scope),
-              await !isForgottenMacDeviceID(
+              await !isHiddenMacDeviceID(
                   mac.macDeviceID,
                   instanceTag: mac.instanceTag,
                   scope: scope
               ),
               let currentMac = snapshot.currentMac(for: mac),
               await isScopeCurrent(scope),
-              await !isForgottenMacDeviceID(
+              await !isHiddenMacDeviceID(
                   mac.macDeviceID,
                   instanceTag: mac.instanceTag,
                   scope: scope

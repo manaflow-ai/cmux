@@ -12,28 +12,109 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork patch head: `130463c38`. It combines indented
-hard-newline link continuations, the presentation-token runtime from
-`24284c3ba`, and consumed Alt associated-text encoding. The latest patch is
-published through https://github.com/manaflow-ai/ghostty/pull/131.
-The corresponding universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-130463c38f14f951a3e9913a691745146d079ec5-crashsubdir-cmux-crash-v1
-and pinned in `scripts/ghosttykit-checksums.txt`.
+The submodule pinned by this branch is
+`c55514dd52d806e9aa661ee20381aa19c91c1c09`, the current
+`manaflow-ai/ghostty` `main`. The cumulative integration landed through
+https://github.com/manaflow-ai/ghostty/pull/128; the earlier stacked PRs
+https://github.com/manaflow-ai/ghostty/pull/127,
+https://github.com/manaflow-ai/ghostty/pull/123, and
+https://github.com/manaflow-ai/ghostty/pull/122 are now merged or superseded.
+The resulting main line supplies the external-frontend renderer contract used
+by cmux Browser, exact cursor state for process-separated terminal mirrors,
+mutable-default color reset semantics, and the product-main renderer/link
+fixes described below.
 
-### Associated text from consumed Alt input
+Its universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-c55514dd52d806e9aa661ee20381aa19c91c1c09-crashsubdir-cmux-crash-v1
+and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
+
+### External frontend rendering and recovery
 
 - Commits:
-  - `7e091b0ef` (test: cover Kitty text from consumed Alt)
-  - `14d4d041b` (fix: preserve text produced by consumed Alt)
+  - `581dbf264` (embedded: add manual mirror IO mode)
+  - `9a391205c` (feat: add external Metal presenter ABI)
+  - `0f400d0f5` (feat: serialize worker recovery state)
+  - `ad5d0124c` (merge the external presenter and manual-renderer lines)
+  - `d0dc34b2a` (embedded: pin combined cmux surface ABI)
+  - `8c645641a` (embedded: add leased external Metal frames)
 - Files:
-  - `src/input/key_encode.zig`
+  - `include/ghostty.h`
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+  - `src/renderer/external_frame.zig`
+  - `src/renderer/frame_lease.zig`
+  - `src/renderer/Metal.zig`
+  - `src/renderer/OpenGL.zig`
+  - `src/termio/Manual.zig`
 - Summary:
-  - Kitty keyboard encoding includes associated text when macOS consumes an
-    Alt-modified key but still produces text, preserving characters such as
-    `∑` instead of forwarding the physical Alt shortcut.
-- Conflict notes:
-  - Recheck the consumed-input branch and Kitty associated-text parameters
-    when upstream changes `encodeKey` or modifier handling.
+  - Adds windowless Metal presentation for an external frontend. Completed
+    IOSurface frames carry explicit frame and host-context tokens; the host
+    either drops the frame or acquires a lease and releases that exact lease
+    when it is finished presenting.
+  - Keeps manual-mirror terminal I/O under the embedder's authority, including
+    startup PTY teeing, parser-response suppression, serialized configuration,
+    and an atomic VT-tail/output-sequence snapshot for worker recovery.
+  - Retains the embedder-owned OpenGL path while assigning stable, distinct
+    platform ABI values to OpenGL, ordinary external Metal, and leased external
+    Metal surfaces.
+  - Conflict note: renderer refactors must preserve exact frame ownership,
+    one-release-per-acquired-lease semantics, and the atomic recovery snapshot.
+    Platform enum values and the combined surface ABI are externally consumed
+    and must not be renumbered implicitly.
+
+### Cursor visual and replay continuity state
+
+- Commits:
+  - `9a614e570` (terminal: expose effective cursor visual state)
+  - `fa8e3b18b` (terminal: expose screen activity token)
+  - `71ed4f8f6` (terminal: expose cursor semantic activity)
+- Files:
+  - `include/ghostty/vt/terminal.h`
+  - `src/terminal/c/terminal.zig`
+  - `src/terminal/stream_terminal.zig`
+- Summary:
+  - Exposes the active screen's resolved cursor shape and terminal-wide DEC
+    mode 12 blink state separately from the SGR cell cursor-style getter.
+  - Exposes opaque wrapping screen-activity and cursor-activity tokens. A
+    process-separated frontend compares them only for inequality so it can
+    replay resets, alternate-screen round trips, and same-value semantic
+    changes that the final visible shape/blink pair alone cannot reveal.
+  - Conflict note: DECSCUSR, DEC mode 12, alternate-screen transitions, full
+    reset, and embedder-default changes must continue advancing the appropriate
+    activity token even when the resolved visual pair is unchanged.
+
+### Dynamic colors follow mutable defaults
+
+- Commit: `d6f611a30` (terminal: let color resets follow mutable defaults)
+- Files:
+  - `src/terminal/color.zig`
+  - `src/terminal/c/render.zig`
+- Summary:
+  - OSC 110, 111, and 112 clear their foreground, background, and cursor
+    overrides instead of copying the current default into the override slot.
+    A later C API default-color update therefore becomes visible in an already
+    attached render state.
+  - Covers override, reset, and subsequent mutable-default updates while
+    reusing one C render state, matching long-lived external frontends.
+  - Conflict note: reset must continue to mean "no override"; snapshotting the
+    current default recreates stale colors after a later frontend theme update.
+
+## Reconciled product-main line
+
+The product-main line had advanced independently to `b211341be` while the
+external-frontend line advanced to `d6f611a30`. Integration commit
+`7c3ddd6f3cd4935f1b6bd10530b1e8e8ec4c9ef9` reconciled both histories, and
+merge commit `c55514dd52d806e9aa661ee20381aa19c91c1c09` landed that cumulative
+result on `manaflow-ai/ghostty` `main` through
+https://github.com/manaflow-ai/ghostty/pull/128. The current submodule pin
+therefore includes the indented hard-newline link continuations, tokened
+presentation lifetime fixes, leased external frames, recovery snapshots,
+cursor continuity state, and mutable-default color resets together.
+
+The older `b211341be` universal ReleaseFast archive remains published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b211341be1ba902e772f57fc67c3e65d35205676-crashsubdir-cmux-crash-v1
+and pinned in `scripts/ghosttykit-checksums.txt` for reproducibility of older
+cmux revisions.
 
 ### Indented hard-newline link continuations
 

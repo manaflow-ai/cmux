@@ -923,16 +923,17 @@ impl Chord {
             .union(KeyModifiers::SUPER)
             .union(KeyModifiers::HYPER)
             .union(KeyModifiers::META);
-        let normalize = |code, mut mods: KeyModifiers| {
-            let code = if let KeyCode::Char(c) = code
-                && mods.contains(KeyModifiers::SHIFT)
-            {
+        let normalize = |code, mut mods: KeyModifiers| match code {
+            KeyCode::Char(c) if mods.contains(KeyModifiers::SHIFT) => {
                 mods.remove(KeyModifiers::SHIFT);
-                KeyCode::Char(crate::keys::shifted_ascii_char(c))
-            } else {
-                code
-            };
-            (code, mods)
+                (KeyCode::Char(crate::keys::shifted_ascii_char(c)), mods)
+            }
+            KeyCode::BackTab => {
+                // Crossterm reports BackTab with an implied Shift modifier.
+                mods.remove(KeyModifiers::SHIFT);
+                (KeyCode::BackTab, mods)
+            }
+            _ => (code, mods),
         };
         let (configured_code, configured_mods) = normalize(self.code, self.mods);
         let (event_code, event_mods) = normalize(key.code, key.modifiers);
@@ -1667,7 +1668,7 @@ fn parse_color(s: &str) -> Option<Color> {
     s.parse::<u8>().ok().map(Color::Indexed)
 }
 
-/// The user's relevant Ghostty settings with Ghostty's application defaults
+/// The user's relevant Ghostty settings with non-optional application defaults
 /// resolved for values that the low-level terminal otherwise leaves unset.
 fn ghostty_defaults() -> DefaultColors {
     let parsed = resolved_ghostty_defaults()
@@ -1683,7 +1684,10 @@ fn ghostty_defaults() -> DefaultColors {
 
 fn resolve_ghostty_application_defaults(mut defaults: DefaultColors) -> DefaultColors {
     defaults.cursor_style.get_or_insert(CursorShape::Block);
-    defaults.cursor_blink.get_or_insert(true);
+    // `cursor-style-blink = null` is semantically different from `true` in
+    // Ghostty: both start blinking, but only the unset form lets DEC mode 12
+    // control the live cursor. Keep that absence intact for the terminal
+    // application boundary to resolve without losing its provenance.
     defaults
 }
 
@@ -1691,19 +1695,34 @@ fn resolve_ghostty_application_defaults(mut defaults: DefaultColors) -> DefaultC
 /// same theme-loading behavior as the graphical terminal. A failed or slow
 /// invocation is deliberately ignored; startup then uses the file fallback.
 fn resolved_ghostty_defaults() -> Option<DefaultColors> {
-    platform::ghostty_binary_paths()
-        .iter()
-        .find_map(|path| run_ghostty_show_config(path))
-        .map(|text| parse_resolved_ghostty_defaults(&text))
+    resolved_ghostty_defaults_from(&platform::ghostty_installations())
 }
 
-fn run_ghostty_show_config(path: &Path) -> Option<String> {
-    let mut child = Command::new(path)
+fn resolved_ghostty_defaults_from(
+    installations: &[platform::GhosttyInstallation],
+) -> Option<DefaultColors> {
+    installations.iter().find_map(|installation| {
+        let text = run_ghostty_show_config(installation)?;
+        let defaults = parse_resolved_ghostty_defaults(&text);
+        // `+show-config` serializes Ghostty's effective application defaults,
+        // including both colors. An executable that exits successfully but
+        // emits no resolved config (for example a packaging stub) is not a
+        // usable resolver and must not suppress later pinned candidates.
+        (defaults.fg.is_some() && defaults.bg.is_some()).then_some(defaults)
+    })
+}
+
+fn run_ghostty_show_config(installation: &platform::GhosttyInstallation) -> Option<String> {
+    let mut command = Command::new(&installation.binary);
+    command
         .args(["+show-config", "--no-pager"])
+        .env_remove("GHOSTTY_RESOURCES_DIR")
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
+        .stderr(Stdio::null());
+    if let Some(resources_dir) = installation.resources_dir.as_deref() {
+        command.env("GHOSTTY_RESOURCES_DIR", resources_dir);
+    }
+    let mut child = command.spawn().ok()?;
     let deadline = Instant::now() + Duration::from_secs(2);
     let status = loop {
         match child.try_wait().ok()? {
@@ -1921,6 +1940,20 @@ mod tests {
     }
 
     #[test]
+    fn resolves_ghostty_cursor_defaults_without_erasing_nullable_blink_semantics() {
+        let absent = resolve_ghostty_application_defaults(parse_ghostty_defaults(""));
+        assert_eq!(absent.cursor_style, Some(CursorShape::Block));
+        assert_eq!(absent.cursor_blink, None);
+
+        for (value, expected) in [("true", true), ("false", false)] {
+            let explicit = resolve_ghostty_application_defaults(parse_ghostty_defaults(&format!(
+                "cursor-style-blink = {value}\n"
+            )));
+            assert_eq!(explicit.cursor_blink, Some(expected));
+        }
+    }
+
+    #[test]
     fn parses_ghostty_terminal_colors_and_palette_with_later_valid_entry_wins() {
         let defaults = parse_ghostty_defaults(
             "foreground = #010203\n\
@@ -1972,6 +2005,72 @@ mod tests {
         assert_eq!(defaults.palette[0], Some(Rgb { r: 0x27, g: 0x28, b: 0x22 }));
         assert_eq!(defaults.palette[1], Some(Rgb { r: 0xf9, g: 0x26, b: 0x72 }));
         assert_eq!(defaults.palette[15], Some(Rgb { r: 0xfd, g: 0xff, b: 0xf1 }));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn packaged_ghostty_resolver_receives_matching_resources() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-resolver-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let resources = root.join("ghostty");
+        let binary = root.join("ghostty-config-helper");
+        std::fs::create_dir_all(&resources).unwrap();
+        std::fs::write(
+            &binary,
+            "#!/bin/sh\n\
+             printf 'resource-path = %s\\n' \"$GHOSTTY_RESOURCES_DIR\"\n\
+             printf 'background = #272822\\nforeground = #fdfff1\\n'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+        let output = run_ghostty_show_config(&platform::GhosttyInstallation {
+            binary,
+            resources_dir: Some(resources.clone()),
+        })
+        .unwrap();
+        assert!(output.contains(&format!("resource-path = {}", resources.display())));
+        let defaults = parse_resolved_ghostty_defaults(&output);
+        assert_eq!(defaults.bg, Some(Rgb { r: 0x27, g: 0x28, b: 0x22 }));
+        assert_eq!(defaults.fg, Some(Rgb { r: 0xfd, g: 0xff, b: 0xf1 }));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unusable_packaged_ghostty_resolver_falls_through() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-fallback-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let broken = root.join("copied-app-binary");
+        let working = root.join("standalone-cli-helper");
+        std::fs::write(&broken, "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::write(
+            &working,
+            "#!/bin/sh\nprintf 'background = #272822\\nforeground = #fdfff1\\n'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&broken, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::set_permissions(&working, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+        let defaults = resolved_ghostty_defaults_from(&[
+            platform::GhosttyInstallation { binary: broken, resources_dir: None },
+            platform::GhosttyInstallation { binary: working, resources_dir: None },
+        ])
+        .unwrap();
+        assert_eq!(defaults.bg, Some(Rgb { r: 0x27, g: 0x28, b: 0x22 }));
+        assert_eq!(defaults.fg, Some(Rgb { r: 0xfd, g: 0xff, b: 0xf1 }));
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -2075,7 +2174,7 @@ mod tests {
         assert_eq!(colors.selection_bg, Some(Rgb { r: 0x22, g: 0x33, b: 0x44 }));
         assert_eq!(colors.selection_fg, Some(Rgb { r: 0xfe, g: 0xfe, b: 0xfe }));
 
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
         mux.shutdown();
         server::cleanup(&socket);
     }
@@ -2180,7 +2279,7 @@ mod tests {
     }
 
     #[test]
-    fn omitted_ghostty_cursor_blink_resolves_to_blinking() {
+    fn omitted_ghostty_cursor_blink_remains_unspecified() {
         let _guard = CONFIG_ENV_LOCK.lock().unwrap();
         let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
         let old_xdg_config_home = std::env::var_os("XDG_CONFIG_HOME");
@@ -2201,7 +2300,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
 
         assert_eq!(config.terminal_defaults.cursor_style, Some(CursorShape::Bar));
-        assert_eq!(config.terminal_defaults.cursor_blink, Some(true));
+        assert_eq!(config.terminal_defaults.cursor_blink, None);
+        assert_eq!(config.cursor_blink, None);
     }
 
     #[test]
@@ -2709,6 +2809,15 @@ mod tests {
         let plain_left = Chord { code: KeyCode::Left, mods: KeyModifiers::NONE };
         assert!(plain_left.matches(&KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)));
         assert!(!plain_left.matches(&KeyEvent::new(KeyCode::Left, KeyModifiers::SHIFT)));
+    }
+
+    #[test]
+    fn default_backtab_accepts_crossterm_implied_shift() {
+        let keys = Keys::default();
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT)),
+            Some(Action::PrevTab)
+        );
     }
 
     #[test]

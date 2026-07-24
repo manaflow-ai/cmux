@@ -211,10 +211,22 @@ extension MobileHostIrohRuntime {
             configuration: configuration,
             pendingRevocations: pendingRevocations,
             protocolConfiguration: protocolConfiguration,
-            handleTransport: { [diagnosticLog] session, isCurrent in
+            handleTransport: { [weak self] session, isCurrent in
+                guard let self else {
+                    await session.close()
+                    return
+                }
+                let diagnosticSessionID = await self.makeDiagnosticSessionID()
+                let diagnosticLog = await self.diagnosticLog
                 diagnosticLog.record(DiagnosticEvent(
                     .admissionSucceeded,
                     a: DiagnosticTransportKind.iroh.rawValue
+                ))
+                diagnosticLog.record(DiagnosticEvent(
+                    .transportSessionLifecycle,
+                    a: DiagnosticSessionLifecycleKind.established.rawValue,
+                    b: Int(CmxTransportSessionPurpose.foregroundControl.rawValue),
+                    c: diagnosticSessionID
                 ))
                 let eventWriter = MobileHostIrohServerEventWriter(
                     session: session
@@ -246,10 +258,19 @@ extension MobileHostIrohRuntime {
                         await laneRouter.stop()
                     }
                 )
-                await connectionSupervisor.run()
+                let observedExit = await connectionSupervisor.run()
+                let exit = await session.connectionExit(resolving: observedExit)
+                diagnosticLog.record(DiagnosticEvent(
+                    .transportSessionLifecycle,
+                    a: exit.lifecycle.rawValue,
+                    b: Int(CmxTransportSessionPurpose.foregroundControl.rawValue),
+                    c: diagnosticSessionID
+                ))
                 diagnosticLog.record(DiagnosticEvent(
                     .sessionClosed,
-                    a: DiagnosticTransportKind.iroh.rawValue
+                    a: DiagnosticTransportKind.iroh.rawValue,
+                    b: exit.failure == .none ? nil : exit.failure.rawValue,
+                    c: diagnosticSessionID
                 ))
             },
             handleBinding: { [weak self] registration, discovery, attestation in

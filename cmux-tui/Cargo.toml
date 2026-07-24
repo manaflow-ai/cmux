@@ -50,6 +50,9 @@ regex = "1"
 bindgen = "0.72"
 smallvec = "1"
 getrandom = "0.3"
+rusqlite = { version = "0.40.1", default-features = false, features = ["bundled"] }
+fs4 = "1.1.0"
+sha2 = "0.10"
 zeroize = "1.9"
 
 [patch.crates-io]

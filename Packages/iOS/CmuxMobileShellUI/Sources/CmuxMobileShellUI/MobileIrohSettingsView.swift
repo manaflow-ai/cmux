@@ -329,6 +329,11 @@ private extension MobileIrohSettingsView {
             L10n.string("mobile.iroh.diagnostics.failure.offline", defaultValue: "Offline")
         case .some(.timedOut):
             L10n.string("mobile.iroh.diagnostics.failure.timedOut", defaultValue: "Timed Out")
+        case .some(.transportIdleTimedOut):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.transportIdleTimedOut",
+                defaultValue: "Transport Idle Timeout"
+            )
         case .some(.connectionRefused):
             L10n.string(
                 "mobile.iroh.diagnostics.failure.connectionRefused",
@@ -364,6 +369,16 @@ private extension MobileIrohSettingsView {
             L10n.string(
                 "mobile.iroh.diagnostics.failure.admissionDenied",
                 defaultValue: "Connection Admission Denied"
+            )
+        case .some(.admissionLeaseExpired):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.admissionLeaseExpired",
+                defaultValue: "Admission Lease Expired"
+            )
+        case .some(.admissionRevalidationFailed):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.admissionRevalidationFailed",
+                defaultValue: "Admission Revalidation Failed"
             )
         case .some(.authorizationFailed):
             L10n.string(

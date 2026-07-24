@@ -25,7 +25,13 @@ $TMPDIR/cmux-tui-<uid>/<session>.sock
 
 The implementation uses Rust `std::env::temp_dir()` for `$TMPDIR`, appends `cmux-tui-<uid>`, and then appends `<session>.sock`. The TUI exports the resolved path to child surfaces as `CMUX_TUI_SOCKET` and legacy `CMUX_MUX_SOCKET`.
 
-The `cmux-tui` process accepts `--session <name>` to select the default socket name and `--socket <path>` to override the path.
+The `cmux-tui` process accepts `--session <name>` to select the default socket name and `--socket <path>` to override the path. The socket contains no canonical state. Workspace identity/order, mutation results/tombstones, and frontend projections are stored in SQLite under the platform state directory (macOS: `~/Library/Application Support/cmux-tui/sessions`), or under `--state <root>`. An explicit temporary `--socket` derives an isolated `<socket>.state` root unless `--state` is supplied. `--ephemeral` selects an in-memory registry and is mutually exclusive with `--state`.
+
+One process holds an exclusive cross-platform writer lease for each session
+database. SQLite uses WAL, foreign keys, `synchronous=FULL`, and macOS
+`fullfsync`. A second daemon for the same state/session fails startup instead
+of racing. Corruption or an unsupported schema also fails closed; the daemon
+never silently falls back to ephemeral state.
 
 ### Framing And Canonical Envelope
 

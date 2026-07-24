@@ -30,6 +30,8 @@ import type {
   JsonObject,
   ListAgentsResult,
   ListClientsResult,
+  ListTerminalsResult,
+  MoveTerminalResult,
   NotificationLevel,
   NotifyResult,
   PaneDirection,
@@ -41,6 +43,7 @@ import type {
   ReloadConfigResult,
   ResizeSurfaceResult,
   ReportAgentResult,
+  ResolveTerminalResult,
   RunResult,
   RenderAttachEvent,
   SidebarPluginResult,
@@ -49,6 +52,7 @@ import type {
   SurfaceResult,
   TerminalKeyInput,
   TerminalPlacement,
+  TerminalEventsResult,
   Tree,
   WorkspacePlacement,
   WorkspaceMutation,
@@ -58,6 +62,7 @@ import type {
   ZoomPaneResult,
   AgentReportSource,
   AgentState,
+  CloseTerminalResult,
   DeclarativeLayout,
   FocusDirectionResult,
 } from "./protocol/index.js";
@@ -99,6 +104,10 @@ export type NewBrowserTabOptions = Omit<CmuxRequestParams<"new-browser-tab">, "u
 export type NewWorkspaceOptions = CmuxRequestParams<"new-workspace">;
 export type CreateWorkspaceOptions = CmuxRequestParams<"create-workspace">;
 export type CreateTerminalOptions = CmuxRequestParams<"create-terminal">;
+export type CloseTerminalOptions = Omit<
+  CmuxRequestParams<"close-terminal">,
+  "terminal_id" | "terminal_incarnation"
+>;
 export type CloseWorkspaceOptions = CmuxRequestParams<"close-workspace">;
 export type RenameWorkspaceOptions = CmuxRequestParams<"rename-workspace">;
 export type MoveWorkspaceOptions = CmuxRequestParams<"move-workspace">;
@@ -449,6 +458,10 @@ export class CmuxClient {
   setWindowTitle(title: string): Promise<EmptyResult> { return this.request("set-window-title", { title }); }
   clearWindowTitle(): Promise<EmptyResult> { return this.request("clear-window-title"); }
   listWorkspaces(): Promise<Tree> { return this.request("list-workspaces"); }
+  listTerminals(): Promise<ListTerminalsResult> { return this.request("list-terminals"); }
+  terminalEvents(afterRevision = 0): Promise<TerminalEventsResult> {
+    return this.request("terminal-events", { after_revision: afterRevision });
+  }
   exportLayout(screen?: Id | null): Promise<ExportLayoutResult> { return this.request("export-layout", { screen }); }
   applyLayout(layout: DeclarativeLayout, options: Omit<CmuxRequestParams<"apply-layout">, "layout"> = {}): Promise<ApplyLayoutResult> {
     return this.request("apply-layout", { ...options, layout });
@@ -476,6 +489,20 @@ export class CmuxClient {
     return this.request("sidebar-plugin", { cols, rows, relaunch });
   }
   vtState(surface: Id): Promise<VtStateResult> { return this.request("vt-state", { surface }); }
+  resolveTerminal(terminalId: string): Promise<ResolveTerminalResult> {
+    return this.request("resolve-terminal", { terminal_id: terminalId });
+  }
+  closeTerminal(
+    terminalId: string,
+    terminalIncarnation?: string | null,
+    options: CloseTerminalOptions = {},
+  ): Promise<CloseTerminalResult> {
+    return this.request("close-terminal", {
+      ...options,
+      terminal_id: terminalId,
+      terminal_incarnation: terminalIncarnation,
+    });
+  }
   newTab(options: NewTabOptions = {}): Promise<SurfaceResult> { return this.request("new-tab", options); }
   newBrowserTab(url: string, options: NewBrowserTabOptions = {}): Promise<SurfaceResult> {
     return this.request("new-browser-tab", { url, ...options });
@@ -488,6 +515,20 @@ export class CmuxClient {
   async createTerminal(options: CreateTerminalOptions): Promise<TerminalPlacement> {
     await this.requireCapability("workspace-registry-v1", "workspace registry");
     return this.request("create-terminal", options);
+  }
+  moveTerminal(
+    terminalId: string,
+    workspaceKey: string,
+    options: Omit<
+      CmuxRequestParams<"move-terminal">,
+      "terminal_id" | "workspace_key"
+    > = {},
+  ): Promise<MoveTerminalResult> {
+    return this.request("move-terminal", {
+      ...options,
+      terminal_id: terminalId,
+      workspace_key: workspaceKey,
+    });
   }
   newScreen(options: NewScreenOptions = {}): Promise<SurfaceResult> { return this.request("new-screen", options); }
   async newPane(pane: Id, options: NewPaneOptions = {}): Promise<SurfaceResult> {
