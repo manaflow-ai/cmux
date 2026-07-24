@@ -91,4 +91,73 @@ import Testing
         #expect(rebased.customDescription == "Mobile-safe prefix")
         #expect(rebased.customDescriptionIsTruncated)
     }
+
+    @Test func mutationDecisionAppliesWhenAuthoritativeStillMatchesInitial() {
+        let initial = WorkspaceCustomizationDraft(
+            name: "Original",
+            customDescription: nil,
+            customColorHex: "#111111",
+            isPinned: false
+        )
+        let submitted = WorkspaceCustomizationDraft(
+            name: "Original",
+            customDescription: nil,
+            customColorHex: "#222222",
+            isPinned: false
+        )
+
+        #expect(initial.mutationDecision(
+            submitted: submitted,
+            authoritative: initial,
+            field: \.customColorHex
+        ) == .apply)
+    }
+
+    @Test func mutationDecisionSkipsWhenAuthoritativeAlreadyMatchesSubmitted() {
+        let initial = WorkspaceCustomizationDraft(
+            name: "Original",
+            customDescription: nil,
+            customColorHex: "#111111",
+            isPinned: false
+        )
+        let submitted = WorkspaceCustomizationDraft(
+            name: "Original",
+            customDescription: nil,
+            customColorHex: "#222222",
+            isPinned: false
+        )
+
+        #expect(initial.mutationDecision(
+            submitted: submitted,
+            authoritative: submitted,
+            field: \.customColorHex
+        ) == .none)
+    }
+
+    @Test func mutationDecisionConflictsWhenAuthoritativeDivergesFromInitialAndSubmitted() {
+        let initial = WorkspaceCustomizationDraft(
+            name: "Original",
+            customDescription: nil,
+            customColorHex: "#111111",
+            isPinned: false
+        )
+        let submitted = WorkspaceCustomizationDraft(
+            name: "Original",
+            customDescription: nil,
+            customColorHex: "#222222",
+            isPinned: false
+        )
+        let authoritative = WorkspaceCustomizationDraft(
+            name: "Original",
+            customDescription: nil,
+            customColorHex: "#333333",
+            isPinned: false
+        )
+
+        #expect(initial.mutationDecision(
+            submitted: submitted,
+            authoritative: authoritative,
+            field: \.customColorHex
+        ) == .conflict)
+    }
 }

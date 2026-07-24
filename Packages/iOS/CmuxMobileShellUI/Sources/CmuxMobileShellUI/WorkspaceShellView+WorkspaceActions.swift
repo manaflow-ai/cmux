@@ -55,9 +55,9 @@ extension WorkspaceShellView {
     /// One shared action path for customization sheets opened from the sidebar
     /// row or workspace title. Only fields edited from the sheet's initial
     /// snapshot are applied, so a concurrent update to an untouched field is
-    /// preserved. The Mac protocol applies one field per request, so this batches
-    /// the requests with a single owner-scoped refresh and rebases the sheet after
-    /// any partial success.
+    /// preserved. The Mac protocol applies one field per request, so this
+    /// refreshes between requests and rebases the sheet after any partial success
+    /// or conflict.
     var customizeWorkspaceClosure: WorkspaceCustomizationAction? {
         let store = store
         return { id, initialDraft, submittedDraft in
@@ -91,7 +91,7 @@ extension WorkspaceShellView {
                     .map(WorkspaceCustomizationDraft.init(workspace:)) ?? landedDraft
                 let authoritativeDraft = landedDraft.rebasingUntouchedFields(
                     from: refreshedDraft,
-                    comparedTo: current
+                    comparedTo: initialDraft
                 )
                 return .failure(
                     rebasedTo: authoritativeDraft == initialDraft ? nil : authoritativeDraft,
@@ -110,20 +110,84 @@ extension WorkspaceShellView {
                 )
             }
 
-            let descriptionMutationRequested = initialDraft.customDescription != submittedDraft.customDescription
-                && current.customDescription != submittedDraft.customDescription
-            if descriptionMutationRequested, workspace.customDescriptionIsTruncated {
-                return await failureResult(failure: WorkspaceCustomizationSaveFailure(
+            @MainActor func latestDraftAfterRefreshing() async -> WorkspaceCustomizationDraft? {
+                await refreshAfterAttemptIfNeeded()
+                guard let workspace = store.workspaces.first(where: { $0.id == id }) else {
+                    return nil
+                }
+                let draft = WorkspaceCustomizationDraft(workspace: workspace)
+                landedDraft = draft
+                return draft
+            }
+
+            @MainActor func unavailableFailure() async -> WorkspaceCustomizationSaveResult {
+                await failureResult(failure: WorkspaceCustomizationSaveFailure(
                     title: Self.workspaceActionFailureTitle(action: .updateWorkspaceDescription),
                     message: L10n.string(
-                        "mobile.workspace.customize.description.truncated",
-                        defaultValue: "This Mac description is longer than iPhone can edit. Change it on Mac to avoid losing text."
+                        "mobile.workspace.customize.workspaceUnavailable",
+                        defaultValue: "This workspace is no longer available. Reopen the workspace list and try again."
                     )
                 ))
             }
 
-            if initialDraft.name != submittedDraft.name,
-               current.name != submittedDraft.name {
+            @MainActor func conflictFailure(
+                action: WorkspaceActionToastAction,
+                authoritativeDraft: WorkspaceCustomizationDraft
+            ) -> WorkspaceCustomizationSaveResult {
+                let rebasedDraft = landedDraft.rebasingUntouchedFields(
+                    from: authoritativeDraft,
+                    comparedTo: initialDraft
+                )
+                return .failure(
+                    rebasedTo: rebasedDraft == initialDraft ? nil : rebasedDraft,
+                    failure: WorkspaceCustomizationSaveFailure(
+                        title: Self.workspaceActionFailureTitle(action: action),
+                        message: L10n.string(
+                            "mobile.workspace.customize.concurrentChange",
+                            defaultValue: "This workspace changed on your Mac. Review the latest values and save again."
+                        )
+                    )
+                )
+            }
+
+            @MainActor func mutationDecision<Value: Equatable>(
+                field: KeyPath<WorkspaceCustomizationDraft, Value>,
+                action: WorkspaceActionToastAction
+            ) async -> (
+                decision: WorkspaceCustomizationFieldMutationDecision,
+                authoritativeDraft: WorkspaceCustomizationDraft?,
+                failure: WorkspaceCustomizationSaveResult?
+            ) {
+                guard initialDraft[keyPath: field] != submittedDraft[keyPath: field] else {
+                    return (.none, nil, nil)
+                }
+                guard let authoritativeDraft = await latestDraftAfterRefreshing() else {
+                    return (.none, nil, await unavailableFailure())
+                }
+                let decision = initialDraft.mutationDecision(
+                    submitted: submittedDraft,
+                    authoritative: authoritativeDraft,
+                    field: field
+                )
+                guard decision != .conflict else {
+                    return (
+                        .conflict,
+                        authoritativeDraft,
+                        conflictFailure(
+                            action: action,
+                            authoritativeDraft: authoritativeDraft
+                        )
+                    )
+                }
+                return (decision, authoritativeDraft, nil)
+            }
+
+            let nameDecision = await mutationDecision(
+                field: \.name,
+                action: .renameWorkspace
+            )
+            if let failure = nameDecision.failure { return failure }
+            if nameDecision.decision == .apply {
                 attemptedMutation = true
                 let result = await store.renameWorkspace(
                     id: id,
@@ -144,7 +208,22 @@ extension WorkspaceShellView {
                     isPinned: landedDraft.isPinned
                 )
             }
-            if descriptionMutationRequested {
+
+            let descriptionDecision = await mutationDecision(
+                field: \.customDescription,
+                action: .updateWorkspaceDescription
+            )
+            if let failure = descriptionDecision.failure { return failure }
+            if descriptionDecision.decision == .apply {
+                if descriptionDecision.authoritativeDraft?.customDescriptionIsTruncated == true {
+                    return await failureResult(failure: WorkspaceCustomizationSaveFailure(
+                        title: Self.workspaceActionFailureTitle(action: .updateWorkspaceDescription),
+                        message: L10n.string(
+                            "mobile.workspace.customize.description.truncated",
+                            defaultValue: "This Mac description is longer than iPhone can edit. Change it on Mac to avoid losing text."
+                        )
+                    ))
+                }
                 attemptedMutation = true
                 let result = await store.setWorkspaceDescription(
                     id: id,
@@ -165,8 +244,13 @@ extension WorkspaceShellView {
                     isPinned: landedDraft.isPinned
                 )
             }
-            if initialDraft.customColorHex != submittedDraft.customColorHex,
-               current.customColorHex != submittedDraft.customColorHex {
+
+            let colorDecision = await mutationDecision(
+                field: \.customColorHex,
+                action: .updateWorkspaceColor
+            )
+            if let failure = colorDecision.failure { return failure }
+            if colorDecision.decision == .apply {
                 attemptedMutation = true
                 let result = await store.setWorkspaceColor(
                     id: id,
@@ -187,8 +271,16 @@ extension WorkspaceShellView {
                     isPinned: landedDraft.isPinned
                 )
             }
-            if initialDraft.isPinned != submittedDraft.isPinned,
-               current.isPinned != submittedDraft.isPinned {
+
+            let pinAction: WorkspaceActionToastAction = submittedDraft.isPinned
+                ? .pinWorkspace
+                : .unpinWorkspace
+            let pinDecision = await mutationDecision(
+                field: \.isPinned,
+                action: pinAction
+            )
+            if let failure = pinDecision.failure { return failure }
+            if pinDecision.decision == .apply {
                 attemptedMutation = true
                 let result = await store.setWorkspacePinned(
                     id: id,
@@ -198,7 +290,7 @@ extension WorkspaceShellView {
                 guard case .success = result, !Task.isCancelled else {
                     return await failureResult(failure: saveFailure(
                         from: result,
-                        action: submittedDraft.isPinned ? .pinWorkspace : .unpinWorkspace
+                        action: pinAction
                     ))
                 }
                 landedDraft = WorkspaceCustomizationDraft(

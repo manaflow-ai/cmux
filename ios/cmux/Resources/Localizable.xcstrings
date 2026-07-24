@@ -11561,6 +11561,23 @@
         }
       }
     },
+    "mobile.workspace.customize.concurrentChange": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This workspace changed on your Mac. Review the latest values and save again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースはMacで変更されました。最新の値を確認して、もう一度保存してください。"
+          }
+        }
+      }
+    },
     "mobile.workspace.customize.workspaceUnavailable": {
       "extractionState": "manual",
       "localizations": {

@@ -69,6 +69,21 @@ struct WorkspaceCustomizationDraft: Equatable {
             isPinned: dirtyFields.isPinned ? isPinned : authoritativeDraft.isPinned
         )
     }
+
+    func mutationDecision<Value: Equatable>(
+        submitted submittedDraft: WorkspaceCustomizationDraft,
+        authoritative authoritativeDraft: WorkspaceCustomizationDraft,
+        field: KeyPath<WorkspaceCustomizationDraft, Value>
+    ) -> WorkspaceCustomizationFieldMutationDecision {
+        let initialValue = self[keyPath: field]
+        let submittedValue = submittedDraft[keyPath: field]
+        guard initialValue != submittedValue else { return .none }
+
+        let authoritativeValue = authoritativeDraft[keyPath: field]
+        if authoritativeValue == submittedValue { return .none }
+        guard authoritativeValue == initialValue else { return .conflict }
+        return .apply
+    }
 }
 
 struct WorkspaceCustomizationDirtyFields: Equatable {
@@ -76,6 +91,12 @@ struct WorkspaceCustomizationDirtyFields: Equatable {
     let customDescription: Bool
     let customColorHex: Bool
     let isPinned: Bool
+}
+
+enum WorkspaceCustomizationFieldMutationDecision: Equatable {
+    case none
+    case apply
+    case conflict
 }
 
 struct WorkspaceCustomizationSaveFailure: Equatable {
