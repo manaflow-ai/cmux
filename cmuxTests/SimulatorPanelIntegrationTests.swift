@@ -495,6 +495,69 @@ struct SimulatorPanelIntegrationTests {
         #expect(await client.activationCount == 0)
     }
 
+    @Test("Event log reads cached history without starting a stopped Simulator")
+    func eventLogReadsCachedHistoryWithoutStartingDevice() async throws {
+        let flags = CmuxFeatureFlags.shared
+        let simulatorFlag = CmuxFeatureFlags.allFlags[5]
+        let previousOverride = flags.overrideValue(for: simulatorFlag)
+        flags.setOverride(true, for: simulatorFlag)
+        defer { flags.setOverride(previousOverride, for: simulatorFlag) }
+
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            workspace.teardownAllPanels()
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+        let device = SimulatorDevice(
+            id: "stopped-event-log-ipad",
+            name: "Stopped Event Log iPad",
+            runtimeIdentifier: "runtime",
+            runtimeName: "iOS 26.5",
+            deviceTypeIdentifier: "type",
+            family: .iPad,
+            state: .shutdown,
+            isAvailable: true,
+            lastBootedAt: nil
+        )
+        let client = SimulatorFeatureFlagPaneClient(devices: [device])
+        let panel = SimulatorPanel(
+            preferredDeviceID: device.id,
+            preferredRuntimeIdentifier: device.runtimeIdentifier,
+            preferredDeviceTypeIdentifier: device.deviceTypeIdentifier,
+            client: client
+        )
+        workspace.panels[panel.id] = panel
+
+        let routing = ControlRoutingSelectors(
+            hasWindowIDParam: false,
+            windowID: nil,
+            groupID: nil,
+            workspaceID: workspace.id,
+            surfaceID: panel.id,
+            paneID: nil
+        )
+        guard case let .started(_, _, receipt) = TerminalController.shared.controlSimulatorBeginOperation(
+            routing: routing,
+            operation: .eventLog(limit: 10)
+        ) else {
+            Issue.record("Expected event-log operation to start")
+            return
+        }
+
+        let completion = await Task.detached {
+            receipt.wait(timeout: 2)
+        }.value
+        guard case let .success(.object(payload)) = completion else {
+            Issue.record("Expected cached event-log payload")
+            return
+        }
+        #expect(payload["events"] == .array([]))
+        #expect(await client.discoveryCount == 0)
+        #expect(await client.activationCount == 0)
+    }
+
     @Test("Control gestures map logical touches and edges through every orientation")
     func controlGestureOrientationMapping() throws {
         let touch = ControlSimulatorTouch(

@@ -191,6 +191,44 @@ final class CMUXOpenCommandTests: XCTestCase {
         )
     }
 
+    func testIOSScreenshotPreparesTheSelectedDeviceBeforeCapture() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("iosshot")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let surfaceID = UUID().uuidString.lowercased()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String,
+                  method == "simulator.context" || method == "simulator.prepare_screenshot" else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            return Self.v2Response(id: id, ok: true, result: [
+                "surface_ref": "surface:1",
+            ])
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["ios", "screenshot", "--surface", surfaceID]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertEqual(
+            state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String },
+            ["simulator.prepare_screenshot"]
+        )
+    }
+
     func testIOSListUsesExplicitWindowInsteadOfAmbientWorkspace() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("ioswin")
