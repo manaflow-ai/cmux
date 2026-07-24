@@ -372,11 +372,11 @@ class GhosttyApp {
     /// The process-wide pasteboard service (was the `GhosttyPasteboardHelper`
     /// namespace enum).
     static let terminalPasteboard = TerminalPasteboardService()
-
+    /// The single bounded lane shared by terminal and composer paste preparation.
+    static let terminalImageTransferPreparation = TerminalImageTransferPreparationService()
     /// The process-wide serialized native-surface free queue (was the
     /// `TerminalSurfaceRuntimeTeardownCoordinator.shared` actor singleton).
     static let terminalSurfaceRuntimeTeardown = TerminalSurfaceRuntimeTeardownCoordinator()
-
     /// The process-wide paced native-surface creation queue for session restore.
     @MainActor
     static let terminalSurfaceRestoreSpawnScheduler = TerminalSurfaceRestoreSpawnScheduler()

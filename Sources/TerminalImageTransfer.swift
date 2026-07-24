@@ -208,7 +208,7 @@ enum TerminalImageTransferPlanner {
         mode: TerminalImageTransferMode
     ) async -> TerminalImageTransferPreparedContent {
         let request = TerminalPasteboardReadRequest(pasteboard: pasteboard)
-        return await TerminalImageTransferPreparationService().prepare(
+        return await GhosttyApp.terminalImageTransferPreparation.prepare(
             request: request,
             mode: mode
         )

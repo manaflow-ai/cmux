@@ -7,20 +7,10 @@ import UniformTypeIdentifiers
 struct TextBoxPastePreparationService: Sendable {
     private static let thumbnailMaxPixelSize = 64
 
-#if compiler(>=6.2)
-    @concurrent
-#else
-    @Sendable
-#endif
     nonisolated func prepare(
-        request: TerminalPasteboardReadRequest
-    ) async -> TextBoxPastePreparedContent {
-        let terminalContent = await TerminalImageTransferPreparationService().prepare(
-            request: request,
-            mode: .paste
-        )
-
-        switch terminalContent {
+        preparedContent: TerminalImageTransferPreparedContent
+    ) -> TextBoxPastePreparedContent {
+        switch preparedContent {
         case .insertText(let text):
             return .insertText(text)
         case .reject:
@@ -29,20 +19,12 @@ struct TextBoxPastePreparationService: Sendable {
             var attachments: [TextBoxPreparedAttachment] = []
             attachments.reserveCapacity(fileURLs.count)
             for fileURL in fileURLs {
-                guard !Task.isCancelled else {
-                    terminalContent.cleanupTransferredTemporaryFiles()
-                    return .reject
-                }
                 attachments.append(
                     TextBoxPreparedAttachment(
                         fileURL: fileURL,
                         thumbnailPNGData: normalizedThumbnailPNGData(for: fileURL)
                     )
                 )
-            }
-            guard !Task.isCancelled else {
-                terminalContent.cleanupTransferredTemporaryFiles()
-                return .reject
             }
             return .attachments(attachments)
         }
@@ -54,8 +36,7 @@ struct TextBoxPastePreparationService: Sendable {
         )
         guard !pathExtension.isEmpty,
               let type = UTType(filenameExtension: pathExtension),
-              type.conforms(to: .image),
-              !Task.isCancelled else {
+              type.conforms(to: .image) else {
             return nil
         }
 
@@ -79,8 +60,7 @@ struct TextBoxPastePreparationService: Sendable {
             source,
             0,
             thumbnailOptions
-        ), !Task.isCancelled,
-           let sRGB = CGColorSpace(name: CGColorSpace.sRGB) else {
+        ), let sRGB = CGColorSpace(name: CGColorSpace.sRGB) else {
             return nil
         }
 
@@ -107,8 +87,7 @@ struct TextBoxPastePreparationService: Sendable {
             sourceThumbnail,
             in: CGRect(x: 0, y: 0, width: width, height: height)
         )
-        guard !Task.isCancelled,
-              let normalizedImage = context.makeImage() else {
+        guard let normalizedImage = context.makeImage() else {
             return nil
         }
 
@@ -122,8 +101,7 @@ struct TextBoxPastePreparationService: Sendable {
             return nil
         }
         CGImageDestinationAddImage(destination, normalizedImage, nil)
-        guard CGImageDestinationFinalize(destination),
-              !Task.isCancelled else {
+        guard CGImageDestinationFinalize(destination) else {
             return nil
         }
         return encodedData as Data

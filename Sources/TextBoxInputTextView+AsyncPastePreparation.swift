@@ -21,10 +21,11 @@ extension TextBoxInputTextView {
             return false
         }
         let validationToken = pendingAttachmentUploadValidationToken()
-        let service = TextBoxPastePreparationService()
 
         let task = Task { @MainActor [weak self] in
-            let preparedContent = await service.prepare(request: request)
+            let preparedContent = await GhosttyApp
+                .terminalImageTransferPreparation
+                .prepareComposer(request: request)
             guard let self else {
                 preparedContent.cleanupTransferredTemporaryFiles()
                 return
