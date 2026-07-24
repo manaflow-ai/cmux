@@ -351,6 +351,19 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         autoResume == true
     }
 
+    var hasAutoRestorableAgentCheckpointIdentity: Bool {
+        guard isAgentHookBinding,
+              allowsAutomaticResume,
+              let checkpointId = checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !checkpointId.isEmpty,
+              let kind = kind?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !kind.isEmpty,
+              RestorableAgentKind(rawValue: kind) != nil else {
+            return false
+        }
+        return true
+    }
+
     func shouldYieldToDetectedSurfaceResumeBinding(_ detectedBinding: SurfaceResumeBindingSnapshot) -> Bool {
         detectedBinding.isProcessDetected && (isProcessDetected || isAgentHookBinding)
     }

@@ -133,9 +133,13 @@ extension DockSplitStore {
                 : nil
             let resumeStartupInput = policy.surfaceResumeStartupInput(
                 resumeBinding,
-                autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled(
-                    defaults: agentSessionAutoResumeDefaults
-                ) && (agentWasRunning ?? true),
+                autoResumeAgentSessions: Workspace.shouldAutoResumeRestoredAgent(
+                    autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled(
+                        defaults: agentSessionAutoResumeDefaults
+                    ),
+                    wasAgentRunning: agentWasRunning,
+                    resumeBinding: resumeBinding
+                ),
                 promptForApproval: false,
                 approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
             )
