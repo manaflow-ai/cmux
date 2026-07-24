@@ -48,8 +48,12 @@ fn notification_color(theme: &Theme, notification: TabNotificationView) -> Color
 
 pub(crate) fn client_border_labels(clients: &[ClientInfo]) -> HashMap<u64, String> {
     let mut visible = HashMap::<u64, Vec<(&ClientInfo, (u16, u16), bool)>>::new();
+    let mut participating_attachments = HashSet::<u64>::new();
     for client in clients {
         for size in &client.sizes {
+            if size.size_participating {
+                participating_attachments.insert(size.surface);
+            }
             if let Some(grid) = size.cols.zip(size.rows) {
                 visible.entry(size.surface).or_default().push((
                     client,
@@ -67,7 +71,7 @@ pub(crate) fn client_border_labels(clients: &[ClientInfo]) -> HashMap<u64, Strin
             {
                 return None;
             }
-            let use_excluded = !viewers.iter().any(|(_, _, participating)| *participating);
+            let use_excluded = !participating_attachments.contains(&surface);
             let minimum = viewers
                 .iter()
                 .filter(|(_, _, participating)| use_excluded || *participating)

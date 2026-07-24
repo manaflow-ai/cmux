@@ -44,19 +44,24 @@ export function paneClientSummary(clients: ClientInfo[], surface: Id | null): Pa
   let hasPeer = false;
   let allMinimum: PaneClientSummary["minimum"] | null = null;
   let participatingMinimum: PaneClientSummary["minimum"] | null = null;
+  let hasParticipatingAttachment = false;
   for (const client of clients) {
-    const size = surfaceSize(client, surface);
-    if (size === null) continue;
+    const entry = client.sizes.find((candidate) => candidate.surface === surface);
+    if (entry === undefined) continue;
+    const participating = entry.size_participating !== false;
+    hasParticipatingAttachment ||= participating;
+    if (entry.cols === null || entry.rows === null) continue;
+    const size = { cols: entry.cols, rows: entry.rows };
     visible.push(client);
     hasSelf ||= client.self;
     hasPeer ||= !client.self;
     allMinimum = includeMinimum(allMinimum, size);
-    if (size.sizeParticipating) {
+    if (participating) {
       participatingMinimum = includeMinimum(participatingMinimum, size);
     }
   }
   if (!hasSelf || !hasPeer) return null;
-  const minimum = participatingMinimum ?? allMinimum;
+  const minimum = hasParticipatingAttachment ? participatingMinimum : allMinimum;
   if (minimum === null) return null;
   return {
     clients: visible,

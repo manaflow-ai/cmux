@@ -640,18 +640,23 @@ impl ClientSizingState {
         &self,
         attached_clients: &HashMap<SurfaceId, HashSet<u64>>,
     ) -> Option<(u16, u16)> {
+        // The default for a newly created surface is session-wide, so this
+        // must consider every report. Cache fallback once per surface to keep
+        // multiple viewers on the same surface linear instead of quadratic.
+        let mut fallback_by_surface = HashMap::<SurfaceId, bool>::new();
         let surface = self
             .report_order
             .iter()
             .filter(|((surface, client), _)| {
-                let use_excluded =
-                    self.uses_excluded_fallback(*surface, attached_clients.get(surface));
+                let use_excluded = *fallback_by_surface.entry(*surface).or_insert_with(|| {
+                    self.uses_excluded_fallback(*surface, attached_clients.get(surface))
+                });
                 self.surfaces.get(surface).is_some_and(|viewers| viewers.contains_key(client))
                     && (use_excluded || self.client_participates(*surface, *client))
             })
             .max_by_key(|(_, order)| *order)
             .map(|((surface, _), _)| *surface)?;
-        let use_excluded = self.uses_excluded_fallback(surface, attached_clients.get(&surface));
+        let use_excluded = fallback_by_surface[&surface];
         self.effective_size(surface, use_excluded)
     }
 }

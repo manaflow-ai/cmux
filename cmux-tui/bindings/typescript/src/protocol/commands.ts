@@ -48,7 +48,7 @@ export interface ClientSize {
   surface: Id;
   cols: number | null;
   rows: number | null;
-  /** Protocol v10; older servers imply true. */
+  /** Protocol v10; protocol v9 reports this on ClientInfo instead. */
   size_participating?: boolean;
 }
 export interface ClientInfo {
@@ -59,6 +59,8 @@ export interface ClientInfo {
   connected_seconds: number;
   attached: Id[];
   sizes: ClientSize[];
+  /** Protocol v9 compatibility; protocol v10 reports this per size entry. */
+  size_participating?: boolean;
   self: boolean;
 }
 export type ListClientsResult = ClientInfo[];
