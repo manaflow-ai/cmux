@@ -32,7 +32,7 @@ struct WorkspaceDetailView: View {
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
-    let signOut: (() -> Void)?
+    let signOut: (@MainActor @Sendable () -> Void)?
     @Environment(BrowserSurfaceStore.self) var browserStore
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @Environment(ToastCenter.self) private var toasts
@@ -270,27 +270,39 @@ struct WorkspaceDetailView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay(alignment: .topLeading) {
-            MobileMacConnectionStatusPill(host: host, status: connectionStatus)
+            MobileMacConnectionStatusPill(
+                host: host,
+                status: connectionStatus,
+                reconnect: toasts.isEnabled ? { reconnectToWorkspaceMac() } : nil
+            )
                 .padding(.top, 10)
                 .padding(.leading, 10)
         }
         .overlay {
             // Show a reconnecting/offline state instead of a black terminal.
-            if connectionStatus != .connected {
+            if !toasts.isEnabled && connectionStatus != .connected {
                 TerminalDisconnectedOverlay(
                     status: connectionStatus,
                     host: host,
                     theme: store.activeTerminalTheme
-                ) {
-                    Task {
-                        if let macDeviceID = workspace.macDeviceID,
-                           !macDeviceID.isEmpty,
-                           await store.switchToMac(macDeviceID: macDeviceID) {
-                            return
-                        }
-                        await store.reconnectOrRefresh()
-                    }
-                }
+                ) { reconnectToWorkspaceMac() }
+            }
+        }
+        .onChange(of: connectionStatus, initial: true) { _, status in
+            guard toasts.isEnabled else { return }
+            switch status {
+            case .unavailable:
+                toasts.present(.connectionUnavailable {
+                    reconnectToWorkspaceMac()
+                })
+            case .reconnecting:
+                toasts.present(.connectionReconnecting())
+            case .connected:
+                // The always-mounted shell owns connected-transition cleanup
+                // (dismiss + "Reconnected" success). Dismissing here too would
+                // race it: the success toast shares the coalescing key, so a
+                // dismiss landing after the shell's present kills the toast.
+                break
             }
         }
         #if os(iOS) && DEBUG
@@ -341,6 +353,17 @@ struct WorkspaceDetailView: View {
             }
         }
         #endif
+    }
+
+    private func reconnectToWorkspaceMac() {
+        Task {
+            if let macDeviceID = workspace.macDeviceID,
+               !macDeviceID.isEmpty,
+               await store.switchToMac(macDeviceID: macDeviceID) {
+                return
+            }
+            await store.reconnectOrRefresh()
+        }
     }
 
     #if os(iOS)

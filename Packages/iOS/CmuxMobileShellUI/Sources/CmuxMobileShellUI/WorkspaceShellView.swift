@@ -143,7 +143,7 @@ private struct WorkspaceShellRenderPresentation {
 
 struct WorkspaceShellView: View {
     @Bindable var store: CMUXMobileShellStore
-    let signOut: () -> Void
+    let signOut: @MainActor @Sendable () -> Void
     var isInitialConnectionLoading = false
     var initialConnectionTimedOut = false
     var retryInitialConnection: (() -> Void)?
@@ -334,14 +334,9 @@ struct WorkspaceShellView: View {
         // already connected, so the first genuine reconnect still toasts.
         .onChange(of: store.connectionState, initial: true) { _, state in
             guard state == .connected else { return }
+            toasts.dismiss(coalescingKey: Toast.connectionStatusKey)
             if hasHeldConnection {
-                toasts.present(.success(
-                    L10n.string(
-                        "mobile.connection.reconnectedToast",
-                        defaultValue: "Reconnected to your Mac."
-                    ),
-                    coalescingKey: "connection.reconnected"
-                ))
+                toasts.present(.connectionReconnected())
             }
             hasHeldConnection = true
         }
