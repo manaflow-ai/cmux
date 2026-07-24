@@ -21,10 +21,10 @@ struct CodexPermissionSignalIdentity: Codable, Equatable, Sendable {
         in startedIdentities: [Self],
         excluding resolvedIdentities: [Self]
     ) -> Self {
-        guard requestID == nil, let turnID else { return self }
+        guard requestID == nil else { return self }
         let active = startedIdentities.filter { candidate in
-            candidate.turnID == turnID &&
-                candidate.requestID != nil &&
+            candidate.isScoped &&
+                (turnID == nil || candidate.turnID == turnID) &&
                 !resolvedIdentities.contains(where: { $0.exactlyMatches(candidate) })
         }
         return active.count == 1 ? active[0] : self
