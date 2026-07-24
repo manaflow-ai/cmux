@@ -104,6 +104,27 @@ struct ShortcutRecorderViewTests {
         )
     }
 
+    @Test func unmappedPrintableSymbolRemainsRecordable() throws {
+        let button = RecorderHostButton(frame: .zero)
+        defer {
+            if button.isRecording {
+                button.stopRecording()
+            }
+        }
+        var recordedStroke: ShortcutStroke?
+        button.onStroke = { recordedStroke = $0 }
+        button.startRecording()
+
+        button.handleRecordingEvent(try keyDownEvent(
+            key: "§",
+            keyCode: 10,
+            modifierFlags: [.command]
+        ))
+
+        #expect(recordedStroke?.key == "§")
+        #expect(recordedStroke?.keyCode == 10)
+    }
+
     private func keyDownEvent(
         key: String,
         keyCode: UInt16,
