@@ -31,22 +31,27 @@ struct ReorderShortcutActionTests {
         let workspace = Workspace()
         let firstPanelId = try #require(workspace.focusedPanelId)
         let paneId = try #require(workspace.paneId(forPanelId: firstPanelId))
-        let secondPanel = try #require(workspace.newTerminalSurface(inPane: paneId, focus: false))
-        let thirdPanel = try #require(workspace.newTerminalSurface(inPane: paneId, focus: false))
+        _ = try #require(workspace.newTerminalSurface(inPane: paneId, focus: false))
+        _ = try #require(workspace.newTerminalSurface(inPane: paneId, focus: false))
         workspace.focusPanel(firstPanelId)
+        let initialOrder = panelOrder(in: workspace, paneId: paneId)
+        try #require(initialOrder.first == firstPanelId)
+        let remainingPanelIds = initialOrder.filter { $0 != firstPanelId }
+        try #require(remainingPanelIds.count == 2)
 
         #expect(workspace.moveSelectedSurface(by: 1))
-        #expect(panelOrder(in: workspace, paneId: paneId) == [secondPanel.id, firstPanelId, thirdPanel.id])
+        let middleOrder = [remainingPanelIds[0], firstPanelId, remainingPanelIds[1]]
+        #expect(panelOrder(in: workspace, paneId: paneId) == middleOrder)
         #expect(workspace.focusedPanelId == firstPanelId)
 
         #expect(workspace.moveSelectedSurface(by: 1))
-        let rightEdgeOrder = [secondPanel.id, thirdPanel.id, firstPanelId]
+        let rightEdgeOrder = remainingPanelIds + [firstPanelId]
         #expect(panelOrder(in: workspace, paneId: paneId) == rightEdgeOrder)
         #expect(workspace.moveSelectedSurface(by: 1))
         #expect(panelOrder(in: workspace, paneId: paneId) == rightEdgeOrder)
 
         #expect(workspace.moveSelectedSurface(by: -1))
-        #expect(panelOrder(in: workspace, paneId: paneId) == [secondPanel.id, firstPanelId, thirdPanel.id])
+        #expect(panelOrder(in: workspace, paneId: paneId) == middleOrder)
     }
 
     @Test func singleSurfaceReorderIsANoOp() throws {
@@ -65,14 +70,21 @@ struct ReorderShortcutActionTests {
         let splitPaneId = try #require(workspace.paneId(forPanelId: firstPanelId))
         let secondPanel = try #require(workspace.newTerminalSurface(inPane: splitPaneId, focus: false))
         let thirdPanel = try #require(workspace.newTerminalSurface(inPane: splitPaneId, focus: false))
-        let originalOrder = [firstPanelId, secondPanel.id, thirdPanel.id]
+        let splitOrder = panelOrder(in: workspace, paneId: splitPaneId)
+        try #require(splitOrder.first == firstPanelId)
 
-        workspace.canvasModel.syncPanes(panelIds: originalOrder, focusedPanelId: firstPanelId)
+        workspace.canvasModel.syncPanes(panelIds: splitOrder, focusedPanelId: firstPanelId)
         #expect(workspace.canvasModel.joinPanel(secondPanel.id, withPaneContaining: firstPanelId))
         #expect(workspace.canvasModel.joinPanel(thirdPanel.id, withPaneContaining: firstPanelId))
         workspace.setLayoutMode(.canvas)
         workspace.focusPanel(firstPanelId)
         let canvasPaneId = try #require(workspace.canvasModel.paneID(containing: firstPanelId))
+        let canvasOrder = try #require(
+            workspace.canvasModel.layout.panelIds(in: canvasPaneId)?.map(\.rawValue)
+        )
+        try #require(canvasOrder.first == firstPanelId)
+        let remainingCanvasPanelIds = canvasOrder.filter { $0 != firstPanelId }
+        try #require(remainingCanvasPanelIds.count == 2)
         let viewport = ReorderCanvasViewportSpy()
         workspace.canvasModel.viewport = viewport
 
@@ -83,10 +95,10 @@ struct ReorderShortcutActionTests {
         #expect(viewport.modelDidChangeCount == 1)
         #expect(
             workspace.canvasModel.layout.panelIds(in: canvasPaneId)?.map(\.rawValue) ==
-                [secondPanel.id, firstPanelId, thirdPanel.id]
+                [remainingCanvasPanelIds[0], firstPanelId, remainingCanvasPanelIds[1]]
         )
         #expect(workspace.focusedPanelId == firstPanelId)
-        #expect(panelOrder(in: workspace, paneId: splitPaneId) == originalOrder)
+        #expect(panelOrder(in: workspace, paneId: splitPaneId) == splitOrder)
     }
 
     @Test func selectedWorkspaceMovesWithinItsPinTierAndStaysSelected() {

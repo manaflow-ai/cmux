@@ -204,9 +204,9 @@ struct WorkspaceAdjacentPaneMoveTests {
         #expect(workspace.focusedPanelId == movedPanelId)
         #expect(workspace.bonsplitController.focusedPaneId == destinationPaneId)
 
-        let replacementPanelId = try #require(
-            panelOrder(in: workspace, paneId: sourcePaneId).only
-        )
+        let replacementPanelIds = panelOrder(in: workspace, paneId: sourcePaneId)
+        #expect(replacementPanelIds.count == 1)
+        let replacementPanelId = try #require(replacementPanelIds.first)
         #expect(replacementPanelId != movedPanelId)
         #expect(workspace.panels[replacementPanelId] is TerminalPanel)
 
@@ -318,9 +318,9 @@ struct WorkspaceAdjacentPaneMoveTests {
         #expect(workspace.focusedPanelId == browser.id)
         #expect(workspace.bonsplitController.focusedPaneId == destinationPaneId)
 
-        let replacementPanelId = try #require(
-            panelOrder(in: workspace, paneId: sourcePaneId).only
-        )
+        let replacementPanelIds = panelOrder(in: workspace, paneId: sourcePaneId)
+        #expect(replacementPanelIds.count == 1)
+        let replacementPanelId = try #require(replacementPanelIds.first)
         #expect(replacementPanelId != browser.id)
         #expect(workspace.panels[replacementPanelId] is TerminalPanel)
     }
