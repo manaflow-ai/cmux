@@ -93,23 +93,34 @@ public struct SubrouterAccountRowView: View {
         HStack(spacing: 5) {
             statusGlyph
                 .frame(width: 10)
-            Text(account.displayName)
-                .font(.system(size: 11, weight: account.isActive ? .semibold : .regular))
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer(minLength: 4)
+            // The expand/collapse tap targets exclude the controls (the
+            // radio glyph and the hover-revealed Switch button): SwiftUI's
+            // parent-gesture-vs-nested-button click routing has changed
+            // across macOS majors, so a control must never share its click
+            // with an enclosing tap gesture. Name + slack and the chevron
+            // toggle; the glyph and trailing summary own their clicks.
+            HStack(spacing: 5) {
+                Text(account.displayName)
+                    .font(.system(size: 11, weight: account.isActive ? .semibold : .regular))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 4)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { isExpanded.toggle() }
             trailingSummary
             Image(systemName: "chevron.right")
                 .font(.system(size: 7, weight: .semibold))
                 .foregroundStyle(.tertiary)
                 .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                .contentShape(Rectangle().inset(by: -4))
+                .onTapGesture { isExpanded.toggle() }
         }
-        .contentShape(Rectangle())
-        .onTapGesture { isExpanded.toggle() }
         .onHover { isHovering = $0 }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(accessibilityHeaderLabel)
+        .accessibilityAction { isExpanded.toggle() }
     }
 
     /// Checkmark = active (macOS selection convention); warning triangle =
