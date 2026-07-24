@@ -8,13 +8,6 @@ import Testing
     /// test-only transcription of Ghostty's AppKit routing contract.
     @Test func matchesGhosttyAcrossCompleteControlStateSpace() {
         let booleans = [false, true]
-        let keys: [TerminalKeyInputKey] = [
-            .arrowLeft,
-            .arrowRight,
-            .arrowUp,
-            .arrowDown,
-            .other,
-        ]
         let committedTextVariants = [
             [],
             [""],
@@ -34,36 +27,34 @@ import Testing
 
         for hadMarkedText in booleans {
             for hasMarkedText in booleans {
-                for inputSourceChanged in booleans {
-                    for committedText in committedTextVariants {
-                        for key in keys {
-                            for hasModifier in booleans {
-                                for translatedText in textVariants {
-                                    for rawText in textVariants {
-                                        let snapshot = TerminalKeyInputSnapshot(
-                                            hadMarkedText: hadMarkedText,
-                                            hasMarkedText: hasMarkedText,
-                                            inputSourceChanged: inputSourceChanged,
-                                            committedText: committedText,
-                                            event: TerminalKeyInputEvent(
-                                                key: key,
-                                                hasModifier: hasModifier,
-                                                translatedText: translatedText,
-                                                rawText: rawText
-                                            )
+                for textInputConsumed in booleans {
+                    for textInputCommandPerformed in booleans {
+                        for committedText in committedTextVariants {
+                            for translatedText in textVariants {
+                                for rawText in textVariants {
+                                    let snapshot = TerminalKeyInputSnapshot(
+                                        hadMarkedText: hadMarkedText,
+                                        hasMarkedText: hasMarkedText,
+                                        textInputConsumed: textInputConsumed,
+                                        textInputCommandPerformed: textInputCommandPerformed,
+                                        committedText: committedText,
+                                        event: TerminalKeyInputEvent(
+                                            translatedText: translatedText,
+                                            rawText: rawText
                                         )
-                                        checkedTransitions += 1
+                                    )
+                                    checkedTransitions += 1
 
-                                        if planner.actions(for: snapshot) != ghosttyReferenceActions(for: snapshot),
-                                           mismatches.count < 10 {
-                                            mismatches.append(
-                                                "had=\(hadMarkedText) has=\(hasMarkedText) " +
-                                                    "sourceChanged=\(inputSourceChanged) key=\(key) " +
-                                                    "modifier=\(hasModifier) committed=\(committedText) " +
-                                                    "translated=\(String(describing: translatedText)) " +
-                                                    "raw=\(String(describing: rawText))"
-                                            )
-                                        }
+                                    if planner.actions(for: snapshot) != ghosttyReferenceActions(for: snapshot),
+                                       mismatches.count < 10 {
+                                        mismatches.append(
+                                            "had=\(hadMarkedText) has=\(hasMarkedText) " +
+                                                "consumed=\(textInputConsumed) " +
+                                                "command=\(textInputCommandPerformed) " +
+                                                "committed=\(committedText) " +
+                                                "translated=\(String(describing: translatedText)) " +
+                                                "raw=\(String(describing: rawText))"
+                                        )
                                     }
                                 }
                             }
@@ -73,7 +64,7 @@ import Testing
             }
         }
 
-        #expect(checkedTransitions == 10_000)
+        #expect(checkedTransitions == 2_000)
         #expect(mismatches.isEmpty)
     }
 
@@ -149,15 +140,12 @@ import Testing
         #expect(mismatches.isEmpty)
     }
 
-    // Reference behavior from Ghostty's SurfaceView_AppKit.keyDown. Keeping
-    // this imperative shape separate from the planner catches routing drift.
+    // Reference behavior from Ghostty's SurfaceView_AppKit.keyDown, augmented
+    // with AppKit's explicit consumption and command callbacks. Keeping this
+    // imperative shape separate from the planner catches routing drift.
     private func ghosttyReferenceActions(
         for snapshot: TerminalKeyInputSnapshot
     ) -> [TerminalKeyInputAction] {
-        if snapshot.inputSourceChanged {
-            return []
-        }
-
         let composing = snapshot.hadMarkedText || snapshot.hasMarkedText
         let committedText = snapshot.committedText.filter {
             !ghosttySuppressesControlText($0, composing: composing)
@@ -165,21 +153,28 @@ import Testing
 
         if snapshot.hadMarkedText, !snapshot.committedText.isEmpty {
             var actions = committedText.map(TerminalKeyInputAction.sendCommittedText)
-            switch snapshot.event.key {
-            case .arrowDown, .arrowRight, .arrowUp:
+            if snapshot.textInputCommandPerformed {
                 actions.append(.sendKey(text: nil, composing: false))
-            case .arrowLeft where snapshot.event.hasModifier:
-                actions.append(.sendKey(text: nil, composing: false))
-            case .arrowLeft, .other:
-                break
             }
             return actions
         }
 
         if !snapshot.committedText.isEmpty {
-            return committedText.map {
+            var actions: [TerminalKeyInputAction] = committedText.map {
                 .sendKey(text: $0, composing: false)
             }
+            if snapshot.textInputCommandPerformed {
+                actions.append(.sendKey(text: nil, composing: false))
+            }
+            return actions
+        }
+
+        if snapshot.textInputCommandPerformed {
+            return [.sendKey(text: nil, composing: false)]
+        }
+
+        if snapshot.textInputConsumed {
+            return []
         }
 
         if ghosttySuppressesControlText(snapshot.event.rawText, composing: composing) {
@@ -210,21 +205,19 @@ import Testing
     private func snapshot(
         hadMarkedText: Bool = false,
         hasMarkedText: Bool = false,
-        inputSourceChanged: Bool = false,
+        textInputConsumed: Bool = false,
+        textInputCommandPerformed: Bool = false,
         committedText: [String] = [],
-        key: TerminalKeyInputKey = .other,
-        hasModifier: Bool = false,
         translatedText: String?,
         rawText: String?
     ) -> TerminalKeyInputSnapshot {
         TerminalKeyInputSnapshot(
             hadMarkedText: hadMarkedText,
             hasMarkedText: hasMarkedText,
-            inputSourceChanged: inputSourceChanged,
+            textInputConsumed: textInputConsumed,
+            textInputCommandPerformed: textInputCommandPerformed,
             committedText: committedText,
             event: TerminalKeyInputEvent(
-                key: key,
-                hasModifier: hasModifier,
                 translatedText: translatedText,
                 rawText: rawText
             )

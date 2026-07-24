@@ -31,7 +31,7 @@ extension GhosttyNSView {
 
     /// Uses libghostty's translated modifiers as the sole terminal text policy.
     ///
-    /// AppKit still owns composition through `interpretKeyEvents`; this method
+    /// AppKit still owns composition through its text input context; this method
     /// prevents the host from silently restoring modifiers that libghostty
     /// intentionally removed for terminal input.
     func textInputInterpretationEvent(

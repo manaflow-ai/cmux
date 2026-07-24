@@ -65,7 +65,7 @@ struct CJKIMEMarkedSelectionTests {
         #expect(substring?.string == expected)
     }
 
-    @Test func keyDownThatStartsPreeditOwnsItsPressAndRelease() throws {
+    @Test func keyDownThatStartsPreeditIsOwnedByTextInput() throws {
         let hostedTerminal = try makeHostedTerminalWindow()
         let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
         let previousInterpretHook = cjkIMEInterpretKeyEventsHook
@@ -244,6 +244,7 @@ struct CJKIMEMarkedSelectionTests {
                 "한",
                 replacementRange: NSRange(location: NSNotFound, length: 0)
             )
+            candidateView.doCommand(by: NSSelectorFromString("moveRight:"))
             return true
         }
 

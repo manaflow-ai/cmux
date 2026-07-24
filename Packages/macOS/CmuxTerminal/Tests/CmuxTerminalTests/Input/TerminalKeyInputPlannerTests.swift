@@ -11,55 +11,54 @@ import Testing
         #expect(actions == [.sendKey(text: "n", composing: false)])
     }
 
-    @Test func inputSourceChangeConsumesPhysicalKey() {
-        let actions = planner.actions(for: snapshot(
-            inputSourceChanged: true,
+    @Test func textInputConsumptionConsumesPhysicalKey() {
+        let plan = planner.plan(for: snapshot(
+            textInputConsumed: true,
             translatedText: " "
         ))
 
-        #expect(actions.isEmpty)
+        #expect(plan.actions.isEmpty)
+        #expect(!plan.forwardsPhysicalKey)
     }
 
     @Test func activeCompositionKeepsTranslatedKeyComposing() {
-        let actions = planner.actions(for: snapshot(
+        let plan = planner.plan(for: snapshot(
             hasMarkedText: true,
             translatedText: "ᄒ"
         ))
 
-        #expect(actions == [.sendKey(text: "ᄒ", composing: true)])
+        #expect(plan.actions == [.sendKey(text: "ᄒ", composing: true)])
+        #expect(!plan.forwardsPhysicalKey)
     }
 
-    @Test func committedPreeditTextAndNavigationRemainOrdered() {
-        let actions = planner.actions(for: snapshot(
+    @Test func textInputCommandForwardsPhysicalKey() {
+        let plan = planner.plan(for: snapshot(
+            textInputConsumed: true,
+            textInputCommandPerformed: true,
+            translatedText: "\r"
+        ))
+
+        #expect(plan.actions == [.sendKey(text: nil, composing: false)])
+        #expect(plan.forwardsPhysicalKey)
+    }
+
+    @Test func committedTextDoesNotOwnNativeKeyRelease() {
+        let plan = planner.plan(for: snapshot(
             hadMarkedText: true,
-            committedText: ["한"],
-            key: .arrowRight,
+            textInputConsumed: true,
+            committedText: ["日本"],
             translatedText: nil
         ))
 
-        #expect(actions == [
-            .sendCommittedText("한"),
-            .sendKey(text: nil, composing: false),
-        ])
+        #expect(plan.actions == [.sendCommittedText("日本")])
+        #expect(!plan.forwardsPhysicalKey)
     }
 
-    @Test func plainLeftArrowDoesNotReplayAfterPreeditCommit() {
+    @Test func committedPreeditTextAndCommandRemainOrdered() {
         let actions = planner.actions(for: snapshot(
             hadMarkedText: true,
+            textInputCommandPerformed: true,
             committedText: ["한"],
-            key: .arrowLeft,
-            translatedText: nil
-        ))
-
-        #expect(actions == [.sendCommittedText("한")])
-    }
-
-    @Test func modifiedLeftArrowReplaysAfterPreeditCommit() {
-        let actions = planner.actions(for: snapshot(
-            hadMarkedText: true,
-            committedText: ["한"],
-            key: .arrowLeft,
-            hasModifier: true,
             translatedText: nil
         ))
 
@@ -271,21 +270,19 @@ import Testing
     private func snapshot(
         hadMarkedText: Bool = false,
         hasMarkedText: Bool = false,
-        inputSourceChanged: Bool = false,
+        textInputConsumed: Bool = false,
+        textInputCommandPerformed: Bool = false,
         committedText: [String] = [],
-        key: TerminalKeyInputKey = .other,
-        hasModifier: Bool = false,
         translatedText: String?,
         rawText: String? = nil
     ) -> TerminalKeyInputSnapshot {
         TerminalKeyInputSnapshot(
             hadMarkedText: hadMarkedText,
             hasMarkedText: hasMarkedText,
-            inputSourceChanged: inputSourceChanged,
+            textInputConsumed: textInputConsumed,
+            textInputCommandPerformed: textInputCommandPerformed,
             committedText: committedText,
             event: TerminalKeyInputEvent(
-                key: key,
-                hasModifier: hasModifier,
                 translatedText: translatedText,
                 rawText: rawText ?? translatedText
             )

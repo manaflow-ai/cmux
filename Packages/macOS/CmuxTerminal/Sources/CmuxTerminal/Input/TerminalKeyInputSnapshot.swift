@@ -6,8 +6,11 @@ public struct TerminalKeyInputSnapshot: Sendable, Equatable {
     /// Whether marked text exists after AppKit interpreted the key.
     public let hasMarkedText: Bool
 
-    /// Whether AppKit changed the selected input source while handling the key.
-    public let inputSourceChanged: Bool
+    /// Whether the Cocoa text input context consumed the native event.
+    public let textInputConsumed: Bool
+
+    /// Whether text input delegated a command back to the terminal client.
+    public let textInputCommandPerformed: Bool
 
     /// Text committed by AppKit while interpreting the key.
     public let committedText: [String]
@@ -20,19 +23,22 @@ public struct TerminalKeyInputSnapshot: Sendable, Equatable {
     /// - Parameters:
     ///   - hadMarkedText: Whether composition was active before interpretation.
     ///   - hasMarkedText: Whether composition remains active after interpretation.
-    ///   - inputSourceChanged: Whether the selected input source changed.
+    ///   - textInputConsumed: Whether Cocoa text input consumed the event.
+    ///   - textInputCommandPerformed: Whether text input delegated a command.
     ///   - committedText: Text committed during interpretation.
     ///   - event: The translated native key description.
     public init(
         hadMarkedText: Bool,
         hasMarkedText: Bool,
-        inputSourceChanged: Bool,
+        textInputConsumed: Bool = false,
+        textInputCommandPerformed: Bool = false,
         committedText: [String],
         event: TerminalKeyInputEvent
     ) {
         self.hadMarkedText = hadMarkedText
         self.hasMarkedText = hasMarkedText
-        self.inputSourceChanged = inputSourceChanged
+        self.textInputConsumed = textInputConsumed
+        self.textInputCommandPerformed = textInputCommandPerformed
         self.committedText = committedText
         self.event = event
     }

@@ -11,9 +11,17 @@ public struct TerminalKeyInputPlanner: Sendable {
     /// - Parameter snapshot: State captured around AppKit interpretation.
     /// - Returns: Ordered terminal input actions, or an empty array when AppKit
     ///   consumed the key entirely.
-    public func actions(for snapshot: TerminalKeyInputSnapshot) -> [TerminalKeyInputAction] {
-        guard !snapshot.inputSourceChanged else { return [] }
+    public func plan(for snapshot: TerminalKeyInputSnapshot) -> TerminalKeyInputPlan {
+        TerminalKeyInputPlan(actions: plannedActions(for: snapshot))
+    }
 
+    /// Returns only the ordered terminal operations for callers that do not
+    /// manage native key-up ownership.
+    public func actions(for snapshot: TerminalKeyInputSnapshot) -> [TerminalKeyInputAction] {
+        plan(for: snapshot).actions
+    }
+
+    private func plannedActions(for snapshot: TerminalKeyInputSnapshot) -> [TerminalKeyInputAction] {
         let composing = snapshot.hadMarkedText || snapshot.hasMarkedText
         let committedText = snapshot.committedText.filter {
             !shouldSuppressControlText($0, composing: composing)
@@ -21,16 +29,28 @@ public struct TerminalKeyInputPlanner: Sendable {
 
         if snapshot.hadMarkedText, !snapshot.committedText.isEmpty {
             var actions = committedText.map(TerminalKeyInputAction.sendCommittedText)
-            if shouldReplayCommittedPreeditKey(snapshot.event) {
+            if snapshot.textInputCommandPerformed {
                 actions.append(.sendKey(text: nil, composing: false))
             }
             return actions
         }
 
         if !snapshot.committedText.isEmpty {
-            return committedText.map {
+            var actions: [TerminalKeyInputAction] = committedText.map {
                 .sendKey(text: $0, composing: false)
             }
+            if snapshot.textInputCommandPerformed {
+                actions.append(.sendKey(text: nil, composing: false))
+            }
+            return actions
+        }
+
+        if snapshot.textInputCommandPerformed {
+            return [.sendKey(text: nil, composing: false)]
+        }
+
+        if snapshot.textInputConsumed {
+            return []
         }
 
         guard !shouldSuppressControlText(
@@ -46,17 +66,6 @@ public struct TerminalKeyInputPlanner: Sendable {
                 composing: composing
             ),
         ]
-    }
-
-    private func shouldReplayCommittedPreeditKey(_ event: TerminalKeyInputEvent) -> Bool {
-        switch event.key {
-        case .arrowDown, .arrowRight, .arrowUp:
-            return true
-        case .arrowLeft:
-            return event.hasModifier
-        case .other:
-            return false
-        }
     }
 
     private func shouldSuppressControlText(_ text: String?, composing: Bool) -> Bool {

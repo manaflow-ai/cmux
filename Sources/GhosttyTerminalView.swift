@@ -5189,6 +5189,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     // For NSTextInputClient - accumulates text during key events
     private(set) var keyTextAccumulator: [String]? = nil
+    private var textInputCommandPerformed: Bool?
     private var markedText = NSMutableAttributedString()
     private var markedSelectedRange = NSRange(location: NSNotFound, length: 0)
     private var lastPerformKeyEvent: TimeInterval?
@@ -5220,9 +5221,32 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 #endif
 
-    // Prevents NSBeep for unimplemented actions from interpretKeyEvents
+    // Records command ownership during text-input handling and prevents NSBeep
+    // for commands that the terminal will route through libghostty.
     override func doCommand(by selector: Selector) {
-        // Intentionally empty - prevents system beep on unhandled key commands
+        if textInputCommandPerformed != nil {
+            textInputCommandPerformed = true
+        }
+    }
+
+    /// Gives AppKit first ownership of text, dead-key, and IME input.
+    ///
+    /// `NSTextInputContext.handleEvent` is the only public API that reports
+    /// whether the input system consumed an event, but it requires the native
+    /// event currently being dispatched. Reconstructed and test events use
+    /// `interpretKeyEvents`, which is AppKit's supported responder entry point
+    /// for an explicit event list.
+    private func handleTextInputEvent(_ event: NSEvent) -> Bool {
+#if DEBUG
+        if let debugTextInputEventHandler = Self.debugTextInputEventHandler {
+            return debugTextInputEventHandler(self, event)
+        }
+#endif
+        guard NSApp.currentEvent === event, let inputContext else {
+            interpretKeyEvents([event])
+            return false
+        }
+        return inputContext.handleEvent(event)
     }
 
     /// Some third-party voice input apps inject committed text by sending the
@@ -5315,7 +5339,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // If the binding is consumed and not meant for the menu, allow menu first.
             // Performable bindings (e.g. paste_from_clipboard) also need the menu
             // path so that Edit > Paste handles Cmd+V instead of keyDown double-
-            // firing the clipboard request through both interpretKeyEvents and
+            // firing the clipboard request through both AppKit text input and
             // ghostty_surface_key.
             if shouldRetryMainMenu && isConsumed && !isAll && keySequence.isEmpty && keyTables.isEmpty {
                 if let menu = NSApp.mainMenu, menu.performKeyEquivalent(with: event) {
@@ -5401,7 +5425,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         var rightSidebarShortcutMs: Double = 0
         var dismissNotificationMs: Double = 0
         var keyboardCopyModeMs: Double = 0
-        var interpretMs: Double = 0
+        var textInputMs: Double = 0
         var syncPreeditMs: Double = 0
         var ghosttySendMs: Double = 0
         defer {
@@ -5416,7 +5440,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     ("rightSidebarShortcutMs", rightSidebarShortcutMs),
                     ("dismissNotificationMs", dismissNotificationMs),
                     ("keyboardCopyModeMs", keyboardCopyModeMs),
-                    ("interpretMs", interpretMs),
+                    ("textInputMs", textInputMs),
                     ("syncPreeditMs", syncPreeditMs),
                     ("ghosttySendMs", ghosttySendMs),
                 ],
@@ -5531,42 +5555,31 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             translated: translationEvent
         )
 
-        // Set up text accumulator for interpretKeyEvents
+        // Capture every semantic callback AppKit emits for this native key.
         keyTextAccumulator = []
-        defer { keyTextAccumulator = nil }
+        textInputCommandPerformed = false
+        defer {
+            keyTextAccumulator = nil
+            textInputCommandPerformed = nil
+        }
 
         let markedTextBefore = markedText.length > 0
-        let keyboardIdBefore: String? = if !markedTextBefore {
-            KeyboardLayout.id
-        } else {
-            nil
-        }
 
         // AppKit may redispatch a command event from performKeyEquivalent.
         // Interpretation now owns this event, so it must not remain replayable.
         lastPerformKeyEvent = nil
 
-        // Let the input system handle the event (for IME, dead keys, etc.)
+        // Let AppKit own text input first and retain whether it consumed the
+        // event. This removes shortcut- and input-source-specific fallback.
 #if DEBUG
         let interpretTimingStart = CmuxTypingTiming.start()
         let interpretPhaseStart = ProcessInfo.processInfo.systemUptime
 #endif
+        let textInputConsumed = handleTextInputEvent(textInputEvent)
 #if DEBUG
-        if let debugTextInputEventHandler = Self.debugTextInputEventHandler {
-            let handled = debugTextInputEventHandler(self, textInputEvent)
-            if !handled {
-                interpretKeyEvents([textInputEvent])
-            }
-        } else {
-            interpretKeyEvents([textInputEvent])
-        }
-#else
-        interpretKeyEvents([textInputEvent])
-#endif
-#if DEBUG
-        interpretMs = (ProcessInfo.processInfo.systemUptime - interpretPhaseStart) * 1000.0
+        textInputMs = (ProcessInfo.processInfo.systemUptime - interpretPhaseStart) * 1000.0
         CmuxTypingTiming.logDuration(
-            path: "terminal.keyDown.interpretKeyEvents",
+            path: "terminal.keyDown.textInputContext",
             startedAt: interpretTimingStart,
             event: event
         )
@@ -5583,26 +5596,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let inputSnapshot = TerminalKeyInputSnapshot(
             hadMarkedText: markedTextBefore,
             hasMarkedText: markedText.length > 0,
-            inputSourceChanged: !markedTextBefore && keyboardIdBefore != KeyboardLayout.id,
+            textInputConsumed: textInputConsumed,
+            textInputCommandPerformed: textInputCommandPerformed ?? false,
             committedText: keyTextAccumulator ?? [],
             event: terminalKeyInputEvent(
                 original: event,
                 translated: translationEvent
             )
         )
-        let inputActions = terminalKeyInputPlanner.actions(for: inputSnapshot)
-        let sendsPhysicalKey = inputActions.contains { inputAction in
-            if case .sendKey = inputAction { return true }
-            return false
-        }
+        let inputPlan = terminalKeyInputPlanner.plan(for: inputSnapshot)
 
-        if sendsPhysicalKey {
+        if inputPlan.forwardsPhysicalKey {
             imeConsumedKeyUps.remove(event.keyCode)
         } else {
             imeConsumedKeyUps.insert(event.keyCode)
         }
 
-        for inputAction in inputActions {
+        for inputAction in inputPlan.actions {
 #if DEBUG
             let ghosttySendStart = ProcessInfo.processInfo.systemUptime
 #endif
@@ -5635,26 +5645,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         original event: NSEvent,
         translated translationEvent: NSEvent
     ) -> TerminalKeyInputEvent {
-        let key: TerminalKeyInputKey
-        switch Int(event.keyCode) {
-        case kVK_LeftArrow:
-            key = .arrowLeft
-        case kVK_RightArrow:
-            key = .arrowRight
-        case kVK_UpArrow:
-            key = .arrowUp
-        case kVK_DownArrow:
-            key = .arrowDown
-        default:
-            key = .other
-        }
-
-        let modifiers = translationEvent.modifierFlags
-            .intersection(.deviceIndependentFlagsMask)
-            .intersection([.shift, .control, .option, .command])
         return TerminalKeyInputEvent(
-            key: key,
-            hasModifier: !modifiers.isEmpty,
             translatedText: textForKeyEvent(translationEvent),
             rawText: event.characters
         )
