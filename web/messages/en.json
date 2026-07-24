@@ -980,18 +980,18 @@
       "metaDescription": "Fork a Codex, Claude Code, OpenCode, Pi, Hermes, or other supported agent conversation into a new split, tab, or workspace without losing its context."
     },
     "claudeCodeBestWorktreeManager": {
-      "metaTitle": "Claude Code Is The Best Worktree Manager",
-      "metaDescription": "Why agents, super repos, cmux custom commands, and programmable terminal primitives beat built-in worktree managers for real codebases.",
+      "metaTitle": "Superrepos and Why Claude Code Is the Best Worktree Manager",
+      "metaDescription": "A superrepo lets Claude Code or Codex choose between worktrees, second checkouts, remote sandboxes, VMs, and GPU clusters for each coding task.",
       "metaKeywords": [
+        "superrepo",
         "Claude Code worktree manager",
         "git worktrees",
-        "cmux super repo",
+        "cmux superrepo",
         "AI coding agents",
         "Codex",
-        "cmux custom commands",
-        "cmux skills",
-        "terminal workflow",
-        "agentic development"
+        "remote coding sandbox",
+        "GPU cluster",
+        "multi-repo development"
       ]
     },
     "cmuxClaudeTeams": {
@@ -1154,23 +1154,23 @@
         "release": "cmux Fork is available in v0.64.19."
       },
       "claudeCodeBestWorktreeManager": {
-        "title": "Claude Code Is The Best Worktree Manager",
-        "summary": "Use Claude Code, Codex, scripts, and cmux primitives to build the worktree workflow your codebase actually needs.",
-        "date": "July 3, 2026",
-        "p1": "Built-in worktree managers are guaranteed to be limited. They usually assume one repo, Git, a blessed branch flow, and a product team's idea of what setup should mean. Real codebases do not stay inside those lines.",
-        "p2": "The <zen>Zen of cmux</zen> is that developers should build their own tools and explore the search space of ways to work with code. Worktrees are one useful primitive, but so are multiple checkouts, backend/frontend repos in different folders, remote machines, no-git projects, local scripts, and occasionally just coding on main because it is the fastest thing for that task.",
-        "superRepoTitle": "The super repo pattern",
-        "superRepoP1": "A super repo is one control checkout that knows where all the real repos live, how worktrees are created, how related repos are paired, which scripts prepare each workspace, and how PRs get reviewed and merged. cmuxterm-hq is a super repo: it contains the primary cmux checkout, per-task cmux worktrees, Zed checkouts, hq scripts, reusable skills, and the rules agents follow to avoid stepping on each other.",
-        "superRepoP2": "The point is not that everyone should copy this exact directory tree. The point is that one local control repo can describe your whole engineering operating system. A backend repo and frontend repo can be opened together. A mobile app and web API can be reloaded together. A branch can be created in one repo and a matching branch in another. That shape belongs to your team, not to a generic worktree button.",
-        "agentTitle": "Let the agent manage the worktrees",
-        "agentP1": "Claude Code and Codex are better worktree managers than most built-in worktree managers because they can read your repo rules, run your scripts, create worktrees across multiple repos, clean up their own worktrees, fix conflicts, push branches, open PRs, and merge after CI and review gates pass.",
-        "agentP2": "Our most-used flows are task-worktree-pr and autoreview. They work because agents can read files, write files, run commands, inspect GitHub, wait for CI, respond to review comments, and operate across repositories. If a task needs cloud and desktop changes together, you can tell the agent to look in both places and let the super repo encode the rest.",
-        "limitsTitle": "Why built-in worktree support loses",
-        "limitsP1": "A product-level worktree feature can be polished for the common case, but the edge cases arrive immediately: no Git, several repos, generated clients, private setup scripts, paired backend/frontend branches, unusual merge policy, or a team that intentionally pushes to main for small internal changes.",
-        "limitsP2": "A programmable workflow can adapt. Ask Claude Code to create a worktree, start Codex beside it, run the setup command, open the right browser pane, watch tests, and remove the worktree when the PR merges. Then change that workflow tomorrow.",
-        "cmuxTitle": "cmux gives the workflow a surface",
-        "cmuxP1": "cmux does not need a built-in universal worktree manager. It gives you <customCommands>custom commands</customCommands>, a programmable <api>CLI and socket API</api>, and reusable <skills>skills</skills>. The plus button can launch your own worktree command, multi-repo setup, no-git sandbox, or remote environment.",
-        "cmuxP2": "That is why <home>cmux home</home> matters. The best worktree manager is the one your agents can change when your workflow changes, and the best terminal for that loop keeps notifications, Cmd+Shift+U, and Cmd+Control+U wired into the surface."
+        "title": "Superrepos and Why Claude Code Is the Best Worktree Manager",
+        "summary": "A lot of people have asked why cmux doesn't have a worktree manager yet. The best manager can choose a worktree, second checkout, sandbox, VM, or GPU cluster.",
+        "date": "July 23, 2026",
+        "p1": "Different workloads want different forms of parallelism. Worktrees suit ordinary Git changes. Multiple checkouts help when submodules or build tools dislike worktrees. E2B, Freestyle, Daytona, and Modal provide remote sandboxes, while GitHub Actions can be pressed into the same role. Docker, UTM, Lima, and OrbStack cover local isolation. Some teams use Mac minis or Linux boxes. ML experiments often belong on Ray, Modal, or Slurm. Sometimes the fastest answer is to yolo everything on main.",
+        "p2": "A useful manager should choose among these execution models from the task context. This follows the <zen>Zen of cmux</zen>: keep the primitive composable, then let project rules decide how to use it.",
+        "superRepoTitle": "A superrepo is project headquarters",
+        "superRepoP1": "I want to call this control repo a superrepo. In the context of coding agents, a superrepo sits above one or more source repositories and holds the data, skills, origins, worktrees, and operating rules that turn a prompt into an isolated task environment.",
+        "superRepoP2": "The <code>AGENTS.md</code> file is the control plane. It names the repositories an agent may need, defines where each task worktree belongs, and points to per-repo setup instructions. One task can create matching worktrees for a terminal, browser integration, and router without cloning all three for every task.",
+        "agentTitle": "Let the agent choose the topology",
+        "agentP1": "cmux uses this pattern internally. The public source lives in <cmux>manaflow-ai/cmux</cmux>, while our private control repo is <hq>manaflow-ai/cmuxterm-hq</hq>. From the hq root, we can ask Codex or Claude Code to fix a subrouter problem that may touch cmux. The agent creates only the worktrees it needs, reads each repository's AGENTS.md, starts its setup scripts, and begins inspecting code while those scripts run.",
+        "agentP2": "A <code>./scripts/new-worktree.sh</code> command implements one topology. An agent can choose a second checkout for incompatible submodules, a remote sandbox for untrusted setup, a VM for another operating system, or a GPU scheduler for experiments, then reuse scripts for the deterministic pieces.",
+        "limitsTitle": "Why this changes the clock time",
+        "limitsP1": "Worktrees are only half the parallelism story for many projects. In ML, one coding agent can write several experiments in one worktree while a scheduler fans the runs out across GPUs. Creating more worktrees would add coordination without adding compute.",
+        "limitsP2": "Agent orchestration can also shorten startup. The agent can read and edit code as soon as the checkout exists while dependency installs, builds, and local services continue in the background. A wrapper that finishes every setup step before starting the agent puts the slowest prerequisite on the critical path.",
+        "cmuxTitle": "The tradeoffs",
+        "cmuxP1": "Using Claude Code or Codex as the manager spends more tokens and consumes part of the context window on repository topology. Starting at the superrepo root is also less familiar than starting inside a single checkout, so the instructions need to be explicit. cmux supplies <customCommands>custom commands</customCommands>, a programmable <api>CLI and socket API</api>, and reusable <skills>skills</skills> for those instructions to call.",
+        "cmuxP2": "For us, the flexibility is worth that cost. <home>cmux home</home> gives the workflow a surface, while the superrepo tells the agent how to assemble it for each task. The best worktree manager can decide when a worktree is the wrong unit of parallelism."
       },
       "showHnLaunch": {
         "title": "Launching cmux on Show HN",

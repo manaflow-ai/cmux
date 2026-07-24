@@ -8,6 +8,7 @@ import {
   type AuditedBlogPostKey,
   blogPostSeoCopy,
 } from "@/i18n/audited-seo";
+import { lawrenceChen } from "@/app/[locale]/components/blog-authors";
 
 /**
  * Article + BreadcrumbList JSON-LD for a blog post. Defaults to the post's
@@ -52,6 +53,10 @@ export function BlogSchema({
           headline,
           description,
           datePublished,
+          authorType: "Person",
+          authorName: lawrenceChen.name,
+          authorUrl: lawrenceChen.url,
+          authorImage: lawrenceChen.avatar,
         })}
       />
       <JsonLd

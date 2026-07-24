@@ -3,7 +3,33 @@ import { getTranslations } from "next-intl/server";
 import { buildAlternates, openGraphDefaults, twitterSummary } from "@/i18n/seo";
 import { blogPostSeoCopy } from "@/i18n/audited-seo";
 import { Link } from "@/i18n/navigation";
+import { BlogPostMeta } from "@/app/[locale]/components/blog-author";
+import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { BlogSchema } from "../blog-schema";
+
+const superrepoTree = `~/my-superrepo/
+├── AGENTS.md
+├── skills/
+├── data/
+├── origins/
+│   └── origin-[n]/
+└── worktrees/
+    └── [worktree-name]/
+        └── origin-[n]/`;
+
+const agentsExample = `You are working in cmux-hq. Tasks may involve:
+- manaflow-ai/cmux
+- manaflow-ai/cmux-browser
+- manaflow-ai/subrouter
+
+When the user asks for a new task:
+1. Decide which repositories the task needs.
+2. Create matching worktrees in worktrees/[task]/[repo].
+3. Read each worktree's AGENTS.md.
+4. Start its setup scripts immediately, then continue the task.`;
+
+const launchCommand = `cd ~/fun/cmux-hq
+codex --yolo "fix subrouter xyz issues, might relate to cmux in xyz way"`;
 
 export async function generateMetadata({
   params,
@@ -41,7 +67,7 @@ export async function generateMetadata({
       title,
       description,
       url: alternates.canonical,
-      publishedTime: "2026-07-03T00:00:00Z",
+      publishedTime: "2026-07-23T00:00:00Z",
     },
     twitter: twitterSummary(locale, title, description),
     alternates,
@@ -58,7 +84,7 @@ export default function ClaudeCodeBestWorktreeManagerPage() {
         postKey="claudeCodeBestWorktreeManager"
         seoKey="claudeCodeBestWorktreeManager"
         path="/blog/claude-code-best-worktree-manager"
-        datePublished="2026-07-03T00:00:00Z"
+        datePublished="2026-07-23T00:00:00Z"
       />
       <div className="mb-8">
         <Link
@@ -70,9 +96,7 @@ export default function ClaudeCodeBestWorktreeManagerPage() {
       </div>
 
       <h1>{t("title")}</h1>
-      <time dateTime="2026-07-03" className="text-sm text-muted">
-        {t("date")}
-      </time>
+      <BlogPostMeta date={t("date")} dateTime="2026-07-23" />
 
       <p className="mt-6">{t("p1")}</p>
       <p>
@@ -83,11 +107,29 @@ export default function ClaudeCodeBestWorktreeManagerPage() {
 
       <h2>{t("superRepoTitle")}</h2>
       <p>{t("superRepoP1")}</p>
-      <p>{t("superRepoP2")}</p>
+      <CodeBlock variant="ascii">{superrepoTree}</CodeBlock>
+      <p>
+        {t.rich("superRepoP2", {
+          code: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
+      <CodeBlock title="AGENTS.md">{agentsExample}</CodeBlock>
 
       <h2>{t("agentTitle")}</h2>
-      <p>{t("agentP1")}</p>
-      <p>{t("agentP2")}</p>
+      <p>
+        {t.rich("agentP1", {
+          cmux: (chunks) => (
+            <a href="https://github.com/manaflow-ai/cmux">{chunks}</a>
+          ),
+          hq: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
+      <CodeBlock lang="bash">{launchCommand}</CodeBlock>
+      <p>
+        {t.rich("agentP2", {
+          code: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
 
       <h2>{t("limitsTitle")}</h2>
       <p>{t("limitsP1")}</p>
