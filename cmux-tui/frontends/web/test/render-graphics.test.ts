@@ -1,0 +1,110 @@
+import { describe, expect, it } from "vitest";
+import type { RenderGraphicImage, RenderGraphicPlacement } from "cmux/browser";
+import {
+  decodeRenderGraphicImage,
+  resolveRenderGraphicPlacement,
+} from "../src/lib/renderGraphics";
+
+const placement: RenderGraphicPlacement = {
+  image_id: 9,
+  placement_id: 3,
+  ordinal: 0,
+  x_offset: 2,
+  y_offset: 3,
+  source_x: 1,
+  source_y: 0,
+  source_width: 1,
+  source_height: 2,
+  columns: 2,
+  rows: 1,
+  grid_cols: 3,
+  grid_rows: 2,
+  pixel_width: 16,
+  pixel_height: 16,
+  viewport_col: 1,
+  viewport_row: -1,
+  viewport_visible: true,
+  z: -1,
+};
+
+describe("render graphics", () => {
+  it("decodes bounded RGB and RGBA pixels into browser RGBA", () => {
+    const rgb = decodeRenderGraphicImage({
+      id: 9,
+      generation: 1,
+      width: 2,
+      height: 1,
+      format: "rgb",
+      data: "/wAAAP8A",
+    });
+    const rgba = decodeRenderGraphicImage({
+      id: 10,
+      generation: 1,
+      width: 1,
+      height: 1,
+      format: "rgba",
+      data: "AAD//w==",
+    });
+
+    expect(Array.from(rgb!.pixels)).toEqual([255, 0, 0, 255, 0, 255, 0, 255]);
+    expect(Array.from(rgba!.pixels)).toEqual([0, 0, 255, 255]);
+  });
+
+  it("rejects dimension mismatches and images beyond the server storage bound", () => {
+    const mismatched: RenderGraphicImage = {
+      id: 9,
+      generation: 1,
+      width: 2,
+      height: 2,
+      format: "rgba",
+      data: "/wAA/w==",
+    };
+    const oversized: RenderGraphicImage = {
+      ...mismatched,
+      width: 2_500_001,
+      height: 1,
+      data: "",
+    };
+
+    expect(decodeRenderGraphicImage(mismatched)).toBeNull();
+    expect(decodeRenderGraphicImage(oversized)).toBeNull();
+  });
+
+  it("resolves source crop, cell origin, pixel offsets, explicit size, and layer", () => {
+    const image: RenderGraphicImage = {
+      id: 9,
+      generation: 1,
+      width: 2,
+      height: 2,
+      format: "rgba",
+      data: "/wAA/wD/AP8AAP///////w==",
+    };
+
+    expect(resolveRenderGraphicPlacement(image, placement)).toMatchObject({
+      key: "9:3:0",
+      source: { x: 1, y: 0, width: 1, height: 2 },
+      layer: "below",
+      style: {
+        left: "calc(var(--render-cell-width) * 1 + 2px)",
+        top: "calc(var(--render-cell-height) * -1 + 3px)",
+        width: "calc(var(--render-cell-width) * 2)",
+        height: "calc(var(--render-cell-height) * 1)",
+      },
+    });
+  });
+
+  it("drops hidden, missing, and below-background placements", () => {
+    const image: RenderGraphicImage = {
+      id: 9,
+      generation: 1,
+      width: 2,
+      height: 2,
+      format: "rgba",
+      data: "/wAA/wD/AP8AAP///////w==",
+    };
+
+    expect(resolveRenderGraphicPlacement(image, { ...placement, viewport_visible: false })).toBeNull();
+    expect(resolveRenderGraphicPlacement(image, { ...placement, image_id: 10 })).toBeNull();
+    expect(resolveRenderGraphicPlacement(image, { ...placement, z: -1_073_741_824 })).toBeNull();
+  });
+});

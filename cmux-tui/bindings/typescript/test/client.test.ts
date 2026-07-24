@@ -389,7 +389,40 @@ test("attachSurface routes colors-changed events without a surface field", async
   await client.close();
 });
 
-test("attachSurface render mode yields render-state and render-delta from cached protocol v7", async () => {
+const renderGraphics = {
+  generation: 4,
+  images: [{
+    id: 9,
+    generation: 2,
+    width: 1,
+    height: 1,
+    format: "rgba",
+    data: "/wAA/w==",
+  }],
+  placements: [{
+    image_id: 9,
+    placement_id: 3,
+    ordinal: 0,
+    x_offset: 0,
+    y_offset: 0,
+    source_x: 0,
+    source_y: 0,
+    source_width: 1,
+    source_height: 1,
+    columns: 1,
+    rows: 1,
+    grid_cols: 1,
+    grid_rows: 1,
+    pixel_width: 8,
+    pixel_height: 16,
+    viewport_col: 0,
+    viewport_row: 0,
+    viewport_visible: true,
+    z: 0,
+  }],
+};
+
+test("attachSurface render mode yields Kitty pixels and placements with render events", async () => {
   let identifyRequests = 0;
   const main = new ScriptedTransport((request, transport) => {
     assert.equal(request.cmd, "identify");
@@ -435,6 +468,7 @@ test("attachSurface render mode yields render-state and render-delta from cached
           width_hint: 3,
         }],
       }],
+      graphics: renderGraphics,
     });
     transport.emit({ id: request.id, ok: true, data: {} });
     transport.emit({
@@ -444,6 +478,10 @@ test("attachSurface render mode yields render-state and render-delta from cached
       full: false,
       scrollback_rows: 43,
       rows: [{ row: 0, runs: [{ text: "ok ", fg: "#00ff00", bg: null, attrs: 0 }] }],
+      graphics: {
+        generation: 4,
+        placements: [{ ...renderGraphics.placements[0], viewport_col: 1 }],
+      },
     });
   });
   const client = new CmuxClient({
@@ -475,6 +513,7 @@ test("attachSurface render mode yields render-state and render-delta from cached
         width_hint: 3,
       }],
     }],
+    graphics: renderGraphics,
   });
   assert.deepEqual(await stream.next(), {
     event: "render-delta",
@@ -483,8 +522,51 @@ test("attachSurface render mode yields render-state and render-delta from cached
     full: false,
     scrollback_rows: 43,
     rows: [{ row: 0, runs: [{ text: "ok ", fg: "#00ff00", bg: null, attrs: 0 }] }],
+    graphics: {
+      generation: 4,
+      placements: [{ ...renderGraphics.placements[0], viewport_col: 1 }],
+    },
   });
   stream.close();
+  await client.close();
+});
+
+test("attachSurface render mode rejects oversized Kitty image data before buffering it", async () => {
+  const main = new ScriptedTransport((request, transport) => {
+    transport.emit({
+      id: request.id,
+      ok: true,
+      data: { app: "cmux-tui", version: "0.1.2", protocol: 7, session: "main", pid: 1 },
+    });
+  });
+  const attach = new ScriptedTransport((request, transport) => {
+    transport.emit({
+      event: "render-state",
+      surface: 7,
+      size: { cols: 1, rows: 1 },
+      cursor: { x: 0, y: 0, style: "block", blink: false, visible: false, color: null },
+      default_fg: "#ffffff",
+      default_bg: "#000000",
+      scrollback_rows: 0,
+      rows: [],
+      graphics: {
+        ...renderGraphics,
+        images: [{ ...renderGraphics.images[0], data: "AAAAA" }],
+      },
+    });
+    transport.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({
+    transport: main,
+    streamTransportFactory: () => attach,
+    timeoutMs: 100,
+    maxAttachEncodedChars: 4,
+  } as CmuxClientOptionsWithSecurityLimits);
+
+  await assert.rejects(
+    () => client.attachSurface(7, { mode: "render" }),
+    /render-state graphics image data exceeds 4 encoded characters/,
+  );
   await client.close();
 });
 
