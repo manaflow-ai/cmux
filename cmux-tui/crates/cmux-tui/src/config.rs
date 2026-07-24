@@ -951,6 +951,7 @@ pub struct Keys {
 impl Default for Keys {
     fn default() -> Self {
         let bind = |code, action| (Chord { code, mods: KeyModifiers::NONE }, action);
+        let control = |code, action| (Chord { code, mods: KeyModifiers::CONTROL }, action);
         let alt = |code, action| (Chord { code, mods: KeyModifiers::ALT }, action);
         let command = |code, action| (Chord { code, mods: KeyModifiers::SUPER }, action);
         Keys {
@@ -1014,6 +1015,7 @@ impl Default for Keys {
                 bind(KeyCode::Char('['), Action::ScrollUp),
                 bind(KeyCode::PageUp, Action::ScrollUp),
                 bind(KeyCode::PageDown, Action::ScrollDown),
+                control(KeyCode::Char('l'), Action::ClearHistory),
                 command(KeyCode::Char('k'), Action::ClearHistory),
                 bind(KeyCode::Char('<'), Action::BrowserBack),
                 bind(KeyCode::Char('>'), Action::BrowserForward),
@@ -1032,12 +1034,16 @@ impl Keys {
     }
 
     /// The modeless action bound to a key event. Alt- and Super-modified
-    /// chords are modeless; other chords remain prefix-only.
+    /// chords are modeless, as are Control-modified clear-history chords;
+    /// other chords remain prefix-only.
     pub fn modeless_action_for(&self, key: &KeyEvent) -> Option<Action> {
         self.bindings
             .iter()
-            .find(|(chord, _)| {
-                chord.mods.intersects(KeyModifiers::ALT | KeyModifiers::SUPER) && chord.matches(key)
+            .find(|(chord, action)| {
+                (chord.mods.intersects(KeyModifiers::ALT | KeyModifiers::SUPER)
+                    || (*action == Action::ClearHistory
+                        && chord.mods.contains(KeyModifiers::CONTROL)))
+                    && chord.matches(key)
             })
             .map(|(_, a)| *a)
     }
@@ -2726,6 +2732,10 @@ mod tests {
         assert_eq!(
             keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('k'), KeyModifiers::SUPER)),
             None
+        );
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL)),
+            Some(Action::ClearHistory)
         );
 
         keys.apply(&HashMap::from([(
