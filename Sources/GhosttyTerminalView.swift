@@ -6950,6 +6950,43 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_MIDDLE, mouseModsFromEvent(event))
     }
 
+    override func quickLook(with event: NSEvent) {
+        // macOS dictionary "Look Up" (three-finger tap, force-click, or ⌃⌘D)
+        // for the word under the cursor, following upstream Ghostty's SurfaceView
+        // (with cmux's length-bounded ghostty_text_s decoding). cmux already links
+        // the libghostty quicklook APIs (used for cmd-click path resolution), so no
+        // ghostty-submodule change is needed.
+        guard let surface = self.surface else { return super.quickLook(with: event) }
+
+        // Grab the word under the cursor from the terminal grid.
+        var text = ghostty_text_s()
+        guard ghostty_surface_quicklook_word(surface, &text) else {
+            return super.quickLook(with: event)
+        }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard text.text_len > 0, let textPtr = text.text else {
+            return super.quickLook(with: event)
+        }
+
+        // Use the terminal's primary font for the definition popover when available.
+        var attributes: [NSAttributedString.Key: Any] = [:]
+        if let fontRaw = ghostty_surface_quicklook_font(surface) {
+            // ghostty_surface_quicklook_font returns a +1 (Create-rule) CTFont;
+            // takeRetainedValue() transfers that ownership to ARC.
+            attributes[.font] = Unmanaged<CTFont>.fromOpaque(fontRaw).takeRetainedValue()
+        }
+
+        // Decode exactly text_len bytes, matching the other ghostty_text_s decode
+        // sites in this file; the buffer is length-counted, not NUL-terminated.
+        let word = String(decoding: Data(bytes: textPtr, count: Int(text.text_len)), as: UTF8.self)
+
+        // Ghostty uses a top-left origin; convert to AppKit's bottom-left. Use the
+        // view's own bounds (matching the other coordinate conversions in this file).
+        let point = NSPoint(x: text.tl_px_x, y: bounds.height - text.tl_px_y)
+        let string = NSAttributedString(string: word, attributes: attributes)
+        showDefinition(for: string, at: point)
+    }
+
     override func menu(for event: NSEvent) -> NSMenu? {
         makeContextMenu(for: event, sendsTerminalPointerEvent: true)
     }
