@@ -91,6 +91,21 @@ struct PasteboardTextContentsTests {
         #expect(service.stringContents(from: scratch.pasteboard) == nil)
     }
 
+    @Test func convertsHTMLToPlainTextWithoutAppKitImporting() {
+        let scratch = ScratchPasteboard()
+        let service = TerminalPasteboardService()
+        scratch.pasteboard.declareTypes([.html], owner: nil)
+        scratch.pasteboard.setString(
+            "<p>Hello <strong>world</strong> &amp; friends</p>",
+            forType: .html
+        )
+
+        #expect(
+            service.stringContents(from: scratch.pasteboard)
+                == "Hello world & friends"
+        )
+    }
+
     @Test func hasStringIsFalseForUnsupportedLocationAndEmptyBoard() {
         let service = TerminalPasteboardService()
         #expect(!service.hasString(for: ghostty_clipboard_e(rawValue: 99)))
