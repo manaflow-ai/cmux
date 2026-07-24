@@ -500,8 +500,8 @@ public struct GhosttyConfigDiscovery {
     }
 
     /// Whether cmux should load the legacy `config` file because the new
-    /// `config.ghostty` is empty (size 0). Only true when the legacy file is
-    /// non-empty and the new file is exactly empty.
+    /// `config.ghostty` is missing or empty. Only true when the legacy file is
+    /// non-empty and the new file is absent or exactly empty.
     ///
     /// Pure with respect to its inputs; an instance method (not a static
     /// namespace member) so call sites invoke it on the held discovery value
@@ -511,6 +511,7 @@ public struct GhosttyConfigDiscovery {
         legacyConfigFileSize: Int?
     ) -> Bool {
         guard let legacyConfigFileSize, legacyConfigFileSize > 0 else { return false }
+        guard let newConfigFileSize else { return true }
         return newConfigFileSize == 0
     }
 
