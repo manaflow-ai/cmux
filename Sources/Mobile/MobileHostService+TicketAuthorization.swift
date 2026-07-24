@@ -38,13 +38,25 @@ extension MobileHostService {
         }
 
         switch request.method {
-        case "mobile.workspace.list", "workspace.list",
+        case "mobile.workspace.list", "workspace.list", "mobile.workspace.changes.summary",
              "mobile.directory.list", "mobile.directory.search":
+            // List-shaped reads may span the Mac's workspaces; same-account
+            // Stack authorization remains the authoritative data-plane gate.
             return nil
         case "mobile.sync.fetch":
             // Cursor-based read of the same Mac-scoped list state as
             // `mobile.workspace.list`; carries no workspace/terminal selection.
             return nil
+        case "mobile.workspace.changes.files",
+             "mobile.workspace.changes.file_diff",
+             "mobile.workspace.changes.file_stat",
+             "mobile.workspace.changes.file_fetch":
+            // Single-workspace reads honor a workspace-scoped attach ticket in
+            // the same way as workspace.action / workspace.close below.
+            return ticketWorkspaceAuthorizationError(
+                authorization: authorization,
+                workspaceSelection: workspaceSelection.value
+            )
         case "workspace.create":
             guard request.params["group_id"] == nil || request.params["group_id"] is NSNull else {
                 return ticketMacScopedWorkspaceMutationAuthorizationError(authorization: authorization)

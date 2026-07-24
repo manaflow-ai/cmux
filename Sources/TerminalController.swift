@@ -13965,6 +13965,16 @@ class TerminalController {
             result = await v2MobileAttachTicketCreate(params: request.params)
         case "mobile.workspace.list", "workspace.list":
             result = v2MobileWorkspaceList(params: request.params)
+        case "mobile.workspace.changes.summary":
+            result = await v2MobileWorkspaceChangesSummary(params: request.params)
+        case "mobile.workspace.changes.files":
+            result = await v2MobileWorkspaceChangesFiles(params: request.params)
+        case "mobile.workspace.changes.file_diff":
+            result = await v2MobileWorkspaceChangesFileDiff(params: request.params)
+        case "mobile.workspace.changes.file_stat":
+            result = await v2MobileWorkspaceChangesFileStat(params: request.params)
+        case "mobile.workspace.changes.file_fetch":
+            result = await v2MobileWorkspaceChangesFileFetch(params: request.params)
         case "mobile.directory.search":
             result = await v2MobileDirectorySearch(
                 params: request.params,

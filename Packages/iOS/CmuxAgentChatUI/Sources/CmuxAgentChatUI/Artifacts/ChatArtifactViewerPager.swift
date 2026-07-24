@@ -128,6 +128,9 @@ struct ChatArtifactViewerPager: View {
                     zoomedPath = path
                 }
             },
+            onImageAction: { action, snapshot in
+                performFileAction(action, snapshot: snapshot)
+            },
             onDone: onDone
         )
     }
@@ -160,8 +163,19 @@ struct ChatArtifactViewerPager: View {
                     zoomedPath = snapshot.path
                 }
             },
+            onImageAction: imageActionPerformer(for: snapshot),
             onDone: onDone
         )
+    }
+
+    private func imageActionPerformer(
+        for snapshot: ChatArtifactViewerPageSnapshot
+    ) -> (@MainActor (ChatArtifactAction) -> Void)? {
+        #if os(iOS)
+        { action in performFileAction(action, snapshot: snapshot) }
+        #else
+        nil
+        #endif
     }
 
     private var selectionBinding: Binding<String> {
@@ -196,8 +210,31 @@ struct ChatArtifactViewerPager: View {
             notifyCopied: { toasts.present(.copied()) },
             notifyPathCopied: {
                 toasts.present(.copied(L10n.string("mobile.toast.pathCopied", defaultValue: "Path copied")))
-            }
+            },
+            performFileAction: performFileAction
         )
+    }
+
+    private func performFileAction(
+        _ action: ChatArtifactAction,
+        snapshot: ChatArtifactViewerPageSnapshot
+    ) {
+        switch action {
+        case .share:
+            Task { await model.prepareShare(for: snapshot.path, loader: loader) }
+        case .save:
+            Task { await model.prepareSave(for: snapshot.path, loader: loader) }
+        case .copyImage:
+            guard case .image(let data) = snapshot.state else { return }
+            UIPasteboard.general.image = UIImage(data: data)
+            toasts.present(.copied())
+        case .copyContents:
+            UIPasteboard.general.string = snapshot.renderedText
+            toasts.present(.copied())
+        case .copyPath:
+            UIPasteboard.general.string = snapshot.path
+            toasts.present(.copied(L10n.string("mobile.toast.pathCopied", defaultValue: "Path copied")))
+        }
     }
 
     private var fileActionPresentationBinding: Binding<ChatArtifactFileActionPresentation?> {

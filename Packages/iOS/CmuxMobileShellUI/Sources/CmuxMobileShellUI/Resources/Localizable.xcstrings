@@ -596,6 +596,83 @@
         }
       }
     },
+    "workspace.changes.close" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Close" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "閉じる" } }
+      }
+    },
+    "workspace.changes.file_missing" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "File no longer changed" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このファイルは変更されていません" } }
+      }
+    },
+    "workspace.changes.chip.accessibility" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Changes: %1$@, +%2$lld, −%3$lld" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "変更：%1$@、+%2$lld、−%3$lld" } }
+      }
+    },
+    "workspace.changes.chip.row_accessibility" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%1$@, %2$lld additions, %3$lld deletions" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%1$@、追加%2$lld行、削除%3$lld行" } }
+      }
+    },
+    "workspace.changes.hint.body" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Tap the Changes button to see what the agent edited." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "変更ボタンをタップして、エージェントが編集した内容を確認できます。" } }
+      }
+    },
+    "workspace.changes.hint.dismiss" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Dismiss" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "閉じる" } }
+      }
+    },
+    "workspace.changes.hint.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Review this workspace's changes" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このワークスペースの変更を確認" } }
+      }
+    },
+    "workspace.changes.preview.error" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Error" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "エラー" } }
+      }
+    },
+    "workspace.changes.preview.loading" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Loading" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "読み込み中" } }
+      }
+    },
+    "workspace.changes.preview.state" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "State" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "状態" } }
+      }
+    },
+    "workspace.changes.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Changes" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "変更" } }
+      }
+    },
     "mobile.settings.terminalFolderTap" : {
       "extractionState" : "manual",
       "localizations" : {

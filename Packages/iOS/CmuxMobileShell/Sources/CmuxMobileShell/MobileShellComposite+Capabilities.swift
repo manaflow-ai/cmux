@@ -2,6 +2,9 @@ extension MobileShellComposite {
     static let chatArtifactFoldersCapability = "chat.artifact.folders.v1"
     static let terminalArtifactListCapability = "terminal.artifact.list.v1"
 
+    /// Whether the connected Mac supports workspace changes summaries and diffs.
+    public var workspaceChangesCapable: Bool { supportedHostCapabilities.contains(Self.workspaceChangesCapability) }
+
     /// Verified render-grid sessions present only Mac-ordered terminal state.
     public var usesVerifiedTerminalReplay: Bool {
         terminalOutputTransport == .renderGrid

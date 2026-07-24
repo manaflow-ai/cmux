@@ -1,3 +1,4 @@
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
@@ -10,6 +11,14 @@ struct WorkspaceRow: View {
     let workspace: MobileWorkspacePreview
     let connectionStatus: MobileMacConnectionStatus
     let isSelected: Bool
+    /// The workspace's compact changes summary, when the connected Mac supports
+    /// workspace changes and the repository is dirty. Rendered here
+    /// (not in a wrapper) so every list pipeline that shows a workspace row
+    /// (SwiftUI List and the UIKit table) carries the same signifier.
+    var changesChip: MobileWorkspaceChangesChip? = nil
+    /// Opens this workspace's changes without selecting the row. When absent,
+    /// the changes capsule remains a passive label.
+    var onOpenChanges: (@MainActor () -> Void)? = nil
     /// When `true`, the workspace title wraps onto multiple lines instead of
     /// truncating to one (driven by the "Wrap Workspace Titles" setting).
     let wrapWorkspaceTitles: Bool
@@ -65,10 +74,17 @@ struct WorkspaceRow: View {
                         .lineLimit(2, reservesSpace: true)
                 }
 
-                Text(workspace.previewLine)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(previewLineLimit, reservesSpace: true)
+                HStack(alignment: .top, spacing: 8) {
+                    Text(workspace.previewLine)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(previewLineLimit, reservesSpace: true)
+
+                    if let changesChip, changesChip.filesChanged > 0 {
+                        Spacer(minLength: 8)
+                        changesChipView(changesChip)
+                    }
+                }
             }
         }
         .overlay(alignment: .leading) {
@@ -93,6 +109,26 @@ struct WorkspaceRow: View {
             }
         }
         .contentShape(Rectangle())
+    }
+
+    @ViewBuilder
+    private func changesChipView(_ chip: MobileWorkspaceChangesChip) -> some View {
+        if let onOpenChanges {
+            Button(action: onOpenChanges) {
+                WorkspaceChangesChipLabel(
+                    chip: chip,
+                    workspaceID: workspace.rpcWorkspaceID.rawValue
+                )
+            }
+            .buttonStyle(.plain)
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
+        } else {
+            WorkspaceChangesChipLabel(
+                chip: chip,
+                workspaceID: workspace.rpcWorkspaceID.rawValue
+            )
+        }
     }
 
     private var unreadDotRailLayoutGap: CGFloat {

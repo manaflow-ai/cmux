@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileShell
 import CmuxMobileShellModel
 import SwiftUI
 import UIKit
@@ -17,6 +18,12 @@ struct WorkspaceListTable: UIViewRepresentable {
     let previewLineLimit: Int
     let unreadIndicatorLeftShift: Double
     let connectionStatus: MobileMacConnectionStatus
+    /// Whether the connected Mac advertises `workspace.changes.v1`.
+    let workspaceChangesCapable: Bool
+    /// Changes chips keyed by the workspace's RPC identifier
+    /// (`MobileWorkspacePreview.rpcWorkspaceID.rawValue`).
+    let workspaceChangeChipsByWorkspaceID: [String: MobileWorkspaceChangesChip]
+    let openWorkspaceChanges: (@MainActor (MobileWorkspacePreview) -> Void)?
 
     let connectionRequiresReauth: Bool
     let connectionRecoveryFailed: Bool

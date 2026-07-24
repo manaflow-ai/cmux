@@ -477,6 +477,8 @@ struct WorkspaceShellView: View {
             selectedWorkspaceID: store.selectedWorkspaceID,
             host: store.connectedHostName,
             connectionStatus: listConnectionStatus,
+            workspaceChangesCapable: store.workspaceChangesCapable,
+            workspaceChangeChipsByWorkspaceID: store.workspaceChangeChipsByWorkspaceID,
             macUpdateHint: store.macUpdateHint,
             macUpdateHintMacName: store.connectedHostName,
             dismissMacUpdateHint: { store.dismissMacUpdateHint() },

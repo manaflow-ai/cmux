@@ -14,6 +14,7 @@ struct ChatArtifactViewerRouteView: View {
     let actions: ChatArtifactViewerPageActions
     let onDone: () -> Void
     let onImageMinimumZoomChanged: (Bool) -> Void
+    let onImageAction: (@MainActor (ChatArtifactAction) -> Void)?
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var presentation = ChatArtifactViewerPresentationCoordinator()
@@ -23,6 +24,7 @@ struct ChatArtifactViewerRouteView: View {
         scope: ChatArtifactViewerScope,
         actions: ChatArtifactViewerPageActions,
         onImageMinimumZoomChanged: @escaping (Bool) -> Void = { _ in },
+        onImageAction: (@MainActor (ChatArtifactAction) -> Void)? = nil,
         onDone: @escaping () -> Void
     ) {
         self.snapshot = snapshot
@@ -30,6 +32,7 @@ struct ChatArtifactViewerRouteView: View {
         self.actions = actions
         self.onDone = onDone
         self.onImageMinimumZoomChanged = onImageMinimumZoomChanged
+        self.onImageAction = onImageAction
     }
 
     var body: some View {
@@ -99,7 +102,8 @@ struct ChatArtifactViewerRouteView: View {
             if let image = UIImage(data: data) {
                 ChatArtifactZoomableImageView(
                     image: image,
-                    onMinimumZoomChanged: onImageMinimumZoomChanged
+                    onMinimumZoomChanged: onImageMinimumZoomChanged,
+                    onAction: onImageAction
                 )
                 .ignoresSafeArea(.container, edges: .bottom)
                 .onDisappear {
@@ -345,27 +349,6 @@ struct ChatArtifactViewerRouteView: View {
         .padding()
     }
 
-    @ViewBuilder
-    private func artifactImage(data: Data) -> some View {
-        #if canImport(UIKit)
-        if let image = UIImage(data: data) {
-            Image(uiImage: image)
-                .resizable()
-        } else {
-            Color.clear
-        }
-        #elseif canImport(AppKit)
-        if let image = NSImage(data: data) {
-            Image(nsImage: image)
-                .resizable()
-        } else {
-            Color.clear
-        }
-        #else
-        Color.clear
-        #endif
-    }
-
     private var searchQueryBinding: Binding<String> {
         Binding(
             get: { snapshot.searchQuery },
@@ -397,47 +380,4 @@ struct ChatArtifactViewerRouteView: View {
         }
     }
 
-    private func progressValue(fetched: Int64, total: Int64?) -> Double? {
-        guard let total, total > 0 else { return nil }
-        return Double(fetched) / Double(total)
-    }
-
-    private func progressText(fetched: Int64, total: Int64?) -> String {
-        if let total {
-            return "\(formattedSize(fetched)) / \(formattedSize(total))"
-        }
-        return formattedSize(fetched)
-    }
-
-    private func formattedSize(_ bytes: Int64) -> String {
-        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
-    }
-
-    private func tooLargeMessage(actualSize: Int64?, limit: Int64) -> String {
-        guard let actualSize else {
-            let format = String(
-                localized: "chat.artifact.too_large.limit_message",
-                defaultValue: "This preview is limited to %@.",
-                bundle: .module
-            )
-            return String.localizedStringWithFormat(format, formattedSize(limit))
-        }
-        let format = String(
-            localized: "chat.artifact.too_large.message",
-            defaultValue: "This file is %@; previews are limited to %@.",
-            bundle: .module
-        )
-        return String.localizedStringWithFormat(
-            format,
-            formattedSize(actualSize),
-            formattedSize(limit)
-        )
-    }
-}
-
-extension ChatArtifactStat {
-    /// Whether this artifact routes to the recursive folder browser.
-    func showsFolder(supportsDirectoryBrowsing: Bool) -> Bool {
-        isDirectory && supportsDirectoryBrowsing
-    }
 }
