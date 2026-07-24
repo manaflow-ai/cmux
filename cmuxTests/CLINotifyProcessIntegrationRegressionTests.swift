@@ -7,6 +7,47 @@ import Darwin
 #endif
 
 final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
+    func testCodexResumeTrustReadsSelectedProfileConfig() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-profile-trust-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent("codex-home", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try """
+        [projects."\(root.path)"]
+        trust_level = "trusted"
+        """.write(
+            to: codexHome.appendingPathComponent("dogfood.config.toml", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
+        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated([
+            "/usr/local/bin/codex",
+            "resume",
+            "session-name",
+            "--profile",
+            "dogfood",
+        ])
+        environment["CODEX_HOME"] = codexHome.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "inject-resume-args"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.isEmpty, result.stdout)
+    }
+
     func testClaudeClearSessionStartMarksWorkspaceRunning() throws {
         let context = try makeClaudeHookContext(name: "claude-clear-running")
         defer { context.cleanup() }

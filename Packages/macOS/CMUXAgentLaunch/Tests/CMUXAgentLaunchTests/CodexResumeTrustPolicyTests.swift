@@ -208,6 +208,22 @@ struct CodexResumeTrustPolicyTests {
         )
     }
 
+    @Test("Inline trust belongs to the matching project entry")
+    func inlineTrustBelongsToMatchingProjectEntry() {
+        #expect(
+            policy.undecidedProjectOverride(
+                arguments: ["codex", "resume", "SID"],
+                currentDirectory: "/Users/me/worktree",
+                repositoryRoot: nil,
+                userConfigContents:
+                    #"projects = { "/Users/me/worktree" = {}, "/Users/me/other" = { trust_level = "trusted" } }"#
+            ) == [
+                "-c",
+                #"projects={"/Users/me/worktree"={trust_level="untrusted"}}"#,
+            ]
+        )
+    }
+
     @Test("Undecided override targets Codex's canonical working directory")
     func undecidedOverrideTargetsCanonicalWorkingDirectory() throws {
         let fileManager = FileManager.default
@@ -237,8 +253,8 @@ struct CodexResumeTrustPolicyTests {
         )
     }
 
-    @Test("A logical symlink decision does not satisfy Codex's canonical lookup")
-    func logicalSymlinkDecisionDoesNotSuppressCanonicalOverride() throws {
+    @Test("Codex honors a trust decision for the logical symlink path")
+    func logicalSymlinkDecisionRemainsAuthoritative() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-codex-trust-\(UUID().uuidString)", isDirectory: true)
@@ -248,11 +264,6 @@ struct CodexResumeTrustPolicyTests {
         try fileManager.createSymbolicLink(at: alias, withDestinationURL: actual)
         defer { try? fileManager.removeItem(at: root) }
 
-        let canonical = actual.path.withCString { pointer -> String in
-            guard let resolved = Darwin.realpath(pointer, nil) else { return actual.path }
-            defer { free(resolved) }
-            return String(cString: resolved)
-        }
         #expect(
             policy.undecidedProjectOverride(
                 arguments: ["codex", "resume", "SID"],
@@ -262,10 +273,7 @@ struct CodexResumeTrustPolicyTests {
                 [projects."\(alias.path)"]
                 trust_level = "trusted"
                 """
-            ) == [
-                "-c",
-                #"projects={"\#(canonical)"={trust_level="untrusted"}}"#,
-            ]
+            ).isEmpty
         )
     }
 

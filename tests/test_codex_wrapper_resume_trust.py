@@ -137,6 +137,36 @@ esac
                 )
                 self.assertIn("hooks codex inject-resume-args", logged_cmux_calls)
 
+    def test_resume_trust_override_precedes_end_of_options(self) -> None:
+        args, logged_cmux_calls, result = self.run_wrapper(
+            ["resume", SESSION_ID, "--", "-fix"]
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            args,
+            [
+                "--enable",
+                "hooks",
+                "resume",
+                SESSION_ID,
+                "-c",
+                TRUST_OVERRIDE,
+                "--",
+                "-fix",
+            ],
+        )
+        self.assertIn("hooks codex inject-resume-args", logged_cmux_calls)
+        self.assertIn('"cmux_resume_rebind":true', logged_cmux_calls)
+
+    def test_profile_value_named_resume_does_not_emit_rebind(self) -> None:
+        _, logged_cmux_calls, result = self.run_wrapper(
+            ["--profile", "resume", SESSION_ID]
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('"cmux_resume_rebind":true', logged_cmux_calls)
+
 
 if __name__ == "__main__":
     unittest.main()
