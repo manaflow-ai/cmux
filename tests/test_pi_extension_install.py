@@ -33,6 +33,15 @@ def wait_for_text(path: Path, expected_count: int, timeout: float = 5.0) -> str:
     return path.read_text(encoding="utf-8") if path.exists() else ""
 
 
+def wait_for_path(path: Path, timeout: float = 5.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if path.exists():
+            return True
+        time.sleep(0.05)
+    return path.exists()
+
+
 def payloads_from_log(text: str) -> list[dict[str, object]]:
     payloads: list[dict[str, object]] = []
     for raw in text.split("\n---\n"):
@@ -133,6 +142,10 @@ def main() -> int:
         fake_stdin_log = root / "fake-cmux-stdin.log"
         fake_env_log = root / "fake-cmux-env.log"
         fake_binding = root / "fake-surface-binding.json"
+        nonblocking_started = root / "nonblocking-prompt-started"
+        nonblocking_returned = root / "nonblocking-prompt-returned"
+        nonblocking_release = root / "nonblocking-prompt-release"
+        os.mkfifo(nonblocking_release)
         make_executable(
             fake_cmux,
             """#!/usr/bin/env bash
@@ -141,6 +154,10 @@ printf '%s\n' "$*" >> "$CMUX_TEST_PI_ARGS_LOG"
 payload="$(cat)"
 printf '%s' "$payload" >> "$CMUX_TEST_PI_STDIN_LOG"
 printf '\n---\n' >> "$CMUX_TEST_PI_STDIN_LOG"
+if printf '%s' "$payload" | grep -q 'pi-session-nonblocking'; then
+  : > "$CMUX_TEST_PI_NONBLOCKING_STARTED"
+  cat "$CMUX_TEST_PI_NONBLOCKING_RELEASE" >/dev/null
+fi
 {
   printf 'kind=%s\n' "${CMUX_AGENT_LAUNCH_KIND-}"
   printf 'cwd=%s\n' "${CMUX_AGENT_LAUNCH_CWD-}"
@@ -208,6 +225,9 @@ esac
         check_env["CMUX_TEST_PI_STDIN_LOG"] = str(fake_stdin_log)
         check_env["CMUX_TEST_PI_ENV_LOG"] = str(fake_env_log)
         check_env["CMUX_TEST_PI_BINDING_FILE"] = str(fake_binding)
+        check_env["CMUX_TEST_PI_NONBLOCKING_STARTED"] = str(nonblocking_started)
+        check_env["CMUX_TEST_PI_NONBLOCKING_RETURNED"] = str(nonblocking_returned)
+        check_env["CMUX_TEST_PI_NONBLOCKING_RELEASE"] = str(nonblocking_release)
         check_env["CMUX_TEST_PI_MODERN_SCRIPT_PATH"] = str(modern_cli)
         check_env["CMUX_TEST_PI_LEGACY_SCRIPT_PATH"] = str(legacy_pi)
         check_env["CMUX_TEST_PI_UNKNOWN_SCRIPT_PATH"] = str(root / "unknown-bin" / "pi")
@@ -225,6 +245,55 @@ esac
         check_env["STRIPE_SK"] = "stripe-secret-should-not-leak"
         check_env["SLACK_WEBHOOK_URL"] = "https://hooks.slack.invalid/secret"
         check_env["CMUX_TEST_PI_TOKEN"] = "test-token-should-not-leak"
+
+        nonblocking_source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({
+  on(name, handler) {
+    handlers.set(name, handler);
+  }
+});
+const ctx = {
+  cwd: "/tmp/pi-project",
+  sessionManager: {
+    getSessionId() { return "pi-session-nonblocking"; }
+  }
+};
+await handlers.get("before_agent_start")({ prompt: "do not block" }, ctx);
+await Bun.write(process.env.CMUX_TEST_PI_NONBLOCKING_RETURNED, "returned");
+"""
+        nonblocking_check = subprocess.Popen(
+            [bun, "--eval", nonblocking_source],
+            cwd=root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=check_env,
+        )
+        if not wait_for_path(nonblocking_started):
+            nonblocking_check.kill()
+            stdout, stderr = nonblocking_check.communicate(timeout=5)
+            print("FAIL: blocking Pi prompt hook did not start")
+            print(f"stdout={stdout.strip()}")
+            print(f"stderr={stderr.strip()}")
+            return 1
+
+        # The lifecycle callback must return while the fake cmux hook remains blocked.
+        returned_before_release = wait_for_path(nonblocking_returned, timeout=1.0)
+        nonblocking_release.write_text("release", encoding="utf-8")
+        stdout, stderr = nonblocking_check.communicate(timeout=5)
+        if nonblocking_check.returncode != 0:
+            print("FAIL: nonblocking Pi prompt check failed")
+            print(f"exit={nonblocking_check.returncode}")
+            print(f"stdout={stdout.strip()}")
+            print(f"stderr={stderr.strip()}")
+            return 1
+        if not returned_before_release:
+            print("FAIL: Pi prompt lifecycle waited for the cmux hook subprocess")
+            return 1
+
         check_source = """
 const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
 const mod = await import(extensionPath);
