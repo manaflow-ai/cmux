@@ -785,7 +785,7 @@ import Testing
         )
 
         var expected = RemoteTmuxControlConnection.altScreenExitSequence
-        expected.append(Data("\u{1b}[H\u{1b}[2Jprompt\r\n❯ hostname".utf8))
+        expected.append(Data("\u{1b}[r\u{1b}[H\u{1b}[2Jprompt\r\n❯ hostname".utf8))
         expected.append(
             RemoteTmuxControlMessageDecoding().paneStateSeedSequence(from: paneState)
         )
@@ -824,7 +824,7 @@ import Testing
         )
 
         var unfilteredSeed = RemoteTmuxControlConnection.altScreenExitSequence
-        unfilteredSeed.append(Data("\u{1b}[H\u{1b}[2Jdir git:main\r\n❯".utf8))
+        unfilteredSeed.append(Data("\u{1b}[r\u{1b}[H\u{1b}[2Jdir git:main\r\n❯".utf8))
         unfilteredSeed.append(
             RemoteTmuxControlMessageDecoding().paneStateSeedSequence(from: paneState)
         )
@@ -875,7 +875,7 @@ import Testing
         #expect(seed.catchUpOutput == [Data("after-capture".utf8)])
 
         var snapshot = RemoteTmuxControlConnection.altScreenExitSequence
-        snapshot.append(Data("\u{1b}[H\u{1b}[2Jauthoritative".utf8))
+        snapshot.append(Data("\u{1b}[r\u{1b}[H\u{1b}[2Jauthoritative".utf8))
         #expect(seed.snapshot == snapshot)
         #expect(
             seed.state
@@ -1063,11 +1063,11 @@ import Testing
         #expect(seeds.count == 2)
         #expect(seeds.allSatisfy { $0.kind == .visibleRepaint })
         var expectedAlternate = RemoteTmuxControlConnection.altScreenEnterSequence
-        expectedAlternate.append(Data("\u{1b}[H\u{1b}[2JALT_SCREEN".utf8))
+        expectedAlternate.append(Data("\u{1b}[r\u{1b}[H\u{1b}[2JALT_SCREEN".utf8))
         #expect(seeds.first?.snapshot == expectedAlternate)
 
         var expectedPrimary = RemoteTmuxControlConnection.altScreenExitSequence
-        expectedPrimary.append(Data("\u{1b}[H\u{1b}[2JPRIMARY_SCREEN".utf8))
+        expectedPrimary.append(Data("\u{1b}[r\u{1b}[H\u{1b}[2JPRIMARY_SCREEN".utf8))
         #expect(seeds.last?.snapshot == expectedPrimary)
     }
 
