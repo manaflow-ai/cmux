@@ -70,4 +70,49 @@ import CmuxGit
             $0.workspaceId == workspaceId && $0.panelId == panelId
         })
     }
+
+    @Test(.timeLimit(.minutes(1)))
+    func localProbeCompletingAfterPullRequestsBecomePassivePreservesExistingBadge() async throws {
+        let host = RecordingSidebarGitHost()
+        host.pullRequestActivity = .activePolling
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/repo")
+        let badge = SidebarPullRequestBadge(
+            number: 9_001,
+            label: "PR",
+            url: URL(string: "https://github.com/manaflow-ai/cmux/pull/9001")!,
+            status: .open,
+            branch: "feature/passive-projection"
+        )
+        host.updatePanelPullRequest(workspaceId: workspaceId, panelId: panelId, badge: badge)
+        let clock = ManualGitPollClock()
+        let pullRequestProbing = RecordingPullRequestProbing()
+        let reader = GatedMetadataReader(
+            metadata: .repository(branch: "feature/passive-projection"),
+            gated: true
+        )
+        let service = makeService(
+            host: host,
+            reader: reader,
+            clock: clock,
+            pullRequestProbing: pullRequestProbing
+        )
+
+        service.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: "test"
+        )
+        await clock.waitForSleeper()
+        await clock.resumeNext()
+        #expect(await reader.waitForProbe(maxYields: 100_000))
+
+        host.pullRequestActivity = .passiveReportsOnly
+        await reader.openGate()
+
+        #expect(await waitUntil {
+            host.workspaces[0].state.panels[panelId]?.branch?.branch == "feature/passive-projection"
+        })
+        #expect(host.workspaces[0].state.panels[panelId]?.badge == badge)
+        #expect(pullRequestProbing.scheduledRefreshes.isEmpty)
+    }
 }
