@@ -1298,6 +1298,7 @@ struct ComputerUseUXTests {
         )
         defer { scannedSessions.continuation.finish() }
         var activatedProcessIdentifiers: [pid_t] = []
+        var cursorVisibilityChanges: [(driverSessionID: String, visible: Bool)] = []
         let controller = ComputerUseWatchTargetController(
             stateDirectoryURL: directory,
             featureEnabled: { featureEnabled },
@@ -1313,6 +1314,9 @@ struct ComputerUseUXTests {
             feed: ComputerUseWatchTargetFeed(
                 authenticationKey: Self.stateAuthenticationKey
             ),
+            onCursorVisibilityChange: { driverSessionID, visible in
+                cursorVisibilityChanges.append((driverSessionID, visible))
+            },
             activate: { application in
                 activatedProcessIdentifiers.append(
                     application.processIdentifier
@@ -1327,6 +1331,9 @@ struct ComputerUseUXTests {
             logicalSessionID: backgroundLogicalSessionID,
             stateWriterIdentity: writerIdentity
         ))
+        #expect(cursorVisibilityChanges.count == 1)
+        #expect(cursorVisibilityChanges.first?.driverSessionID == backgroundDriverSessionID)
+        #expect(cursorVisibilityChanges.first?.visible == false)
 
         let actionDate = max(Date(), targetLaunchDate)
         let formatter = ISO8601DateFormatter()
@@ -1391,6 +1398,9 @@ struct ComputerUseUXTests {
             stateWriterIdentity: writerIdentity
         ))
         #expect(activatedProcessIdentifiers == [target.processIdentifier])
+        #expect(cursorVisibilityChanges.count == 2)
+        #expect(cursorVisibilityChanges.last?.driverSessionID == backgroundDriverSessionID)
+        #expect(cursorVisibilityChanges.last?.visible == true)
         #expect(!controller.isRunningInBackground(
             driverSessionID: backgroundDriverSessionID,
             logicalSessionID: backgroundLogicalSessionID

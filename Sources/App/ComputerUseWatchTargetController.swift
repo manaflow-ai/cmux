@@ -223,6 +223,7 @@ final class ComputerUseWatchTargetController {
     private let currentLiveDriverSession:
         @MainActor (ComputerUseLiveDriverSession) -> ComputerUseLiveDriverSession?
     private let feed: ComputerUseWatchTargetFeed
+    private let onCursorVisibilityChange: @MainActor (String, Bool) -> Void
     private let activate: @MainActor (NSRunningApplication) -> Void
 
     /// Background/focus presentation is retained independently for every live
@@ -262,6 +263,8 @@ final class ComputerUseWatchTargetController {
                 ComputerUseLiveDriverSession
             ) -> ComputerUseLiveDriverSession?,
         feed: ComputerUseWatchTargetFeed,
+        onCursorVisibilityChange:
+            @escaping @MainActor (String, Bool) -> Void = { _, _ in },
         activate: @escaping @MainActor (NSRunningApplication) -> Void = { application in
             // NSRunningApplication.activate no longer reliably fronts another app
             // on macOS 14+ (cooperative-activation changes make it a frequent
@@ -287,6 +290,7 @@ final class ComputerUseWatchTargetController {
         self.liveDriverSessions = liveDriverSessions
         self.currentLiveDriverSession = currentLiveDriverSession
         self.feed = feed
+        self.onCursorVisibilityChange = onCursorVisibilityChange
         self.activate = activate
     }
 

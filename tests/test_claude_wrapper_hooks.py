@@ -1070,6 +1070,14 @@ def expect_computer_use_env_scrubbed(
     }
     for key, value in expected_common.items():
         expect(env.get(key) == value, f"{context}: expected {key}={value!r}, got {env}", failures)
+    state_owner_pid = env.get("CUA_DRIVER_STATE_OWNER_PID")
+    expect(
+        isinstance(state_owner_pid, str)
+        and state_owner_pid.isdigit()
+        and int(state_owner_pid) > 1,
+        f"{context}: expected a stable agent process owner PID, got {env}",
+        failures,
+    )
     state_dir = env.get("CUA_DRIVER_STATE_DIR", "")
     expect(
         state_dir.endswith("/Library/Application Support/cmux/computer-use/runtime/default/state"),

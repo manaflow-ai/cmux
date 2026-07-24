@@ -67,6 +67,7 @@ def expect_scrubbed_mcp_env(
     external_flow = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW=")
     auth_token = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_SOCKET_AUTH_TOKEN=")
     default_session = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_DEFAULT_SESSION=")
+    state_owner_pid = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_STATE_OWNER_PID=")
     permissions_gate = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_PERMISSIONS_GATE=")
     telemetry = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_TELEMETRY_ENABLED=")
     update_check = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_UPDATE_CHECK=")
@@ -83,6 +84,7 @@ def expect_scrubbed_mcp_env(
     expect(external_flow is not None, f"{context}: missing proxy permission-wait config in {args}", failures)
     expect(auth_token is not None, f"{context}: missing daemon authentication config in {args}", failures)
     expect(default_session is not None, f"{context}: missing CUA_DRIVER_DEFAULT_SESSION config in {args}", failures)
+    expect(state_owner_pid is not None, f"{context}: missing stable state owner PID in {args}", failures)
     expect(telemetry is not None, f"{context}: missing telemetry opt-out config in {args}", failures)
     expect(update_check is not None, f"{context}: missing update-check opt-out config in {args}", failures)
     expect(cursor_gradient is not None, f"{context}: missing cursor gradient config in {args}", failures)
@@ -95,6 +97,13 @@ def expect_scrubbed_mcp_env(
         expect(json.loads(embedded) == "1", f"{context}: expected embedded env, got {embedded}", failures)
     if default_session is not None:
         expect(json.loads(default_session).startswith("cmux-"), f"{context}: expected cmux- default session, got {default_session}", failures)
+    if state_owner_pid is not None:
+        owner_pid = json.loads(state_owner_pid)
+        expect(
+            isinstance(owner_pid, str) and owner_pid.isdigit() and int(owner_pid) > 1,
+            f"{context}: invalid stable state owner PID {state_owner_pid}",
+            failures,
+        )
     if permissions_gate is not None:
         expect(json.loads(permissions_gate) == "0", f"{context}: expected permission gate disabled, got {permissions_gate}", failures)
     if force_proxy is not None:
