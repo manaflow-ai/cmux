@@ -249,8 +249,8 @@ import Testing
         ) == false)
     }
 
-    @Test func rejectsRefreshAfterMacForgotten() {
-        // The Mac was forgotten (no active Mac now): do not recreate it.
+    @Test func rejectsRefreshAfterMacHidden() {
+        // The Mac was hidden (no active Mac now): do not recreate it.
         #expect(DeviceRegistryService.shouldApplyRegistryRefresh(
             isSignedIn: true,
             capturedUserID: "user-1",

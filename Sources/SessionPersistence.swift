@@ -707,6 +707,14 @@ enum SurfaceResumeApprovalStore {
     private static let settingsRecordsKey = "resumeCommands"
     private static let keychainService = "com.cmuxterm.app.surface-resume-approvals"
     private static let keychainAccount = "hmac-secret-v1"
+    private static let signingSecretCache = SurfaceResumeApprovalSigningSecretCache(
+        loader: {
+            SurfaceResumeApprovalStore.loadOrCreateSigningSecret(fileManager: .default)
+        },
+        schedule: { job in
+            DispatchQueue.global(qos: .utility).async(execute: job)
+        }
+    )
 
     struct StoredFile: Codable {
         var version: Int
@@ -1018,12 +1026,45 @@ enum SurfaceResumeApprovalStore {
     }
 
     static func defaultSigningSecret(fileManager: FileManager = .default) -> Data? {
-        let env = ProcessInfo.processInfo.environment
-        if let encoded = env["CMUX_SURFACE_RESUME_APPROVAL_SECRET_B64"],
-           let data = Data(base64Encoded: encoded),
-           !data.isEmpty {
+        if let data = environmentSigningSecret() {
             return data
         }
+        if fileManager === FileManager.default {
+            return signingSecretCache.value(isMainThread: Thread.isMainThread)
+        }
+        guard !Thread.isMainThread else { return nil }
+        return loadOrCreateSigningSecret(fileManager: fileManager)
+    }
+
+    /// Starts the one-time Keychain/file lookup early while preserving the
+    /// nonblocking contract for the app's main thread.
+    static func preloadSigningSecret() {
+        guard environmentSigningSecret() == nil else { return }
+        signingSecretCache.preload { _ in }
+    }
+
+    static var signingSecretIsReady: Bool {
+        environmentSigningSecret() != nil || signingSecretCache.isReady
+    }
+
+    static func whenSigningSecretReady(_ action: @escaping @Sendable () -> Void) {
+        guard environmentSigningSecret() == nil else {
+            action()
+            return
+        }
+        signingSecretCache.preload { _ in action() }
+    }
+
+    private static func environmentSigningSecret() -> Data? {
+        guard let encoded = ProcessInfo.processInfo.environment["CMUX_SURFACE_RESUME_APPROVAL_SECRET_B64"],
+              let data = Data(base64Encoded: encoded),
+              !data.isEmpty else {
+            return nil
+        }
+        return data
+    }
+
+    private static func loadOrCreateSigningSecret(fileManager: FileManager) -> Data? {
         if let data = keychainSecret(), !data.isEmpty {
             return data
         }
@@ -1742,8 +1783,8 @@ struct SessionCanvasPaneSnapshot: Codable, Equatable, Sendable {
 
 struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// Original workspace ID captured when the snapshot comes from a live workspace.
-    /// Restore uses this to remap closed-panel history onto the new workspace IDs;
-    /// legacy or externally-created snapshots can leave it nil.
+    /// Restore reuses this identity when it is present and non-colliding; legacy,
+    /// externally-created, or duplicate snapshots can leave it nil or force a fresh ID.
     var workspaceId: UUID? = nil
     var stableId: UUID? = nil
     var taskCreateOperationID: UUID? = nil
@@ -1791,14 +1832,14 @@ struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
     var id: UUID
     var name: String
     var isCollapsed: Bool
-    /// The workspace whose close dissolves the group. Only meaningful within a single
-    /// app run; on restore, each workspace gets a fresh UUID. The loader prefers
-    /// `anchorMemberIndex` (restore-stable) and treats this field as a hint for in-process round-trips.
+    /// The workspace whose close dissolves the group. The loader prefers
+    /// `anchorMemberIndex` (restore-stable) and treats this field as a hint when
+    /// duplicate/corrupt snapshots force a workspace to mint a fresh UUID.
     var anchorWorkspaceId: UUID? = nil
     /// 0-based index of the anchor among the group's members in tab order. Restore-stable:
     /// tab order is preserved across restore, so the same index resolves to the same
-    /// logical anchor even though workspace UUIDs change. Older snapshots that omit
-    /// this field fall back to "first member by tab order".
+    /// logical anchor even when a workspace UUID cannot be reused. Older snapshots
+    /// that omit this field fall back to "first member by tab order".
     var anchorMemberIndex: Int? = nil
     var isPinned: Bool? = nil
     var customColor: String? = nil

@@ -107,6 +107,7 @@ const (
 	defaultPTYInputChunkBytes        = 16 * 1024
 	defaultWebSocketWriteTimeout     = 10 * time.Second
 	defaultWebSocketSessionIdleTTL   = 24 * time.Hour
+	standardExecutablePath           = "/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
 )
 
 type wsPTYOutgoingFrame struct {
@@ -193,6 +194,7 @@ type wsPTYSession struct {
 	ptyFileMu      sync.Mutex
 	closeTTYOnce   sync.Once
 	closePTYOnce   sync.Once
+	terminateOnce  sync.Once
 }
 
 type wsPTYHub struct {
@@ -680,6 +682,7 @@ func defaultWebSocketPTYEnv(shellPath string) []string {
 		}
 	}
 
+	set("PATH", pathWithStandardExecutableDirectories(env["PATH"]))
 	set("TERM", "xterm-256color")
 	setIfMissing("COLORTERM", "truecolor")
 	setIfMissing("TERM_PROGRAM", "ghostty")
@@ -701,6 +704,22 @@ func defaultWebSocketPTYEnv(shellPath string) []string {
 		out = append(out, key+"="+env[key])
 	}
 	return out
+}
+
+func pathWithStandardExecutableDirectories(inheritedPath string) string {
+	entries := filepath.SplitList(inheritedPath)
+	present := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		present[entry] = struct{}{}
+	}
+	for _, standardDirectory := range filepath.SplitList(standardExecutablePath) {
+		if _, ok := present[standardDirectory]; ok {
+			continue
+		}
+		entries = append(entries, standardDirectory)
+		present[standardDirectory] = struct{}{}
+	}
+	return strings.Join(entries, string(os.PathListSeparator))
 }
 
 func envMapWithOrder(values []string) (map[string]string, []string) {
@@ -1370,22 +1389,33 @@ func (session *wsPTYSession) terminateProcesses() {
 }
 
 func (session *wsPTYSession) terminateProcessesWithForegroundGroupLookup(lookup func(*os.File) int) {
-	foregroundGroup := 0
-	session.withPTYFileLocked(func(ptyFile *os.File) {
-		foregroundGroup = lookup(ptyFile)
+	// Two independent paths tear the same session down. waitSessionProcess runs
+	// after the session leader exits, and the hub runs when a client closes the
+	// session, when a non-persistent attachment goes away, on closeAll, and on
+	// an idle reap. A session that outlives its leader and is then closed goes
+	// through both. The hub paths run while the leader is still alive and
+	// unreaped, which is why they signal it at all, but a second pass can only
+	// happen once cmd.Wait has returned, and by then the leader's pid is not
+	// ours to signal. Repeating the member scan is not free either, since it
+	// reads every entry in /proc on Linux and forks ps on macOS.
+	session.terminateOnce.Do(func() {
+		foregroundGroup := 0
+		session.withPTYFileLocked(func(ptyFile *os.File) {
+			foregroundGroup = lookup(ptyFile)
+		})
+		sessionLeader := 0
+		if session.cmd != nil && session.cmd.Process != nil {
+			sessionLeader = session.cmd.Process.Pid
+			terminatePTYSessionMembers(sessionLeader)
+		}
+		if foregroundGroup > 0 {
+			_ = syscall.Kill(-foregroundGroup, syscall.SIGKILL)
+		}
+		if sessionLeader > 0 {
+			_ = syscall.Kill(-sessionLeader, syscall.SIGKILL)
+			_ = session.cmd.Process.Kill()
+		}
 	})
-	sessionLeader := 0
-	if session.cmd != nil && session.cmd.Process != nil {
-		sessionLeader = session.cmd.Process.Pid
-		terminatePTYSessionMembers(sessionLeader)
-	}
-	if foregroundGroup > 0 {
-		_ = syscall.Kill(-foregroundGroup, syscall.SIGKILL)
-	}
-	if sessionLeader > 0 {
-		_ = syscall.Kill(-sessionLeader, syscall.SIGKILL)
-		_ = session.cmd.Process.Kill()
-	}
 }
 
 func terminatePTYSessionMembers(sessionID int) {
