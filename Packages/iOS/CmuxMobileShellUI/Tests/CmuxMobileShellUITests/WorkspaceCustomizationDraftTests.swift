@@ -58,4 +58,37 @@ import Testing
         #expect(rebased.customColorHex == "#222222")
         #expect(rebased.isPinned)
     }
+
+    @Test func rebaseCarriesAuthoritativeDescriptionTruncationForUntouchedDescription() {
+        let initial = WorkspaceCustomizationDraft(
+            name: "Original",
+            customDescription: "Mobile-safe prefix",
+            customDescriptionIsTruncated: false,
+            customColorHex: nil,
+            isPinned: false
+        )
+        let submitted = WorkspaceCustomizationDraft(
+            name: "Edited",
+            customDescription: "Mobile-safe prefix",
+            customDescriptionIsTruncated: false,
+            customColorHex: nil,
+            isPinned: false
+        )
+        let authoritative = WorkspaceCustomizationDraft(
+            name: "Original",
+            customDescription: "Mobile-safe prefix",
+            customDescriptionIsTruncated: true,
+            customColorHex: nil,
+            isPinned: false
+        )
+
+        let rebased = submitted.rebasingUntouchedFields(
+            from: authoritative,
+            comparedTo: initial
+        )
+
+        #expect(rebased.name == "Edited")
+        #expect(rebased.customDescription == "Mobile-safe prefix")
+        #expect(rebased.customDescriptionIsTruncated)
+    }
 }

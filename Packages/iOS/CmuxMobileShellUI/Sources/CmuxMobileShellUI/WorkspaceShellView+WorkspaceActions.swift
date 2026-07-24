@@ -133,6 +133,7 @@ extension WorkspaceShellView {
                 landedDraft = WorkspaceCustomizationDraft(
                     name: submittedDraft.name,
                     customDescription: landedDraft.customDescription,
+                    customDescriptionIsTruncated: landedDraft.customDescriptionIsTruncated,
                     customColorHex: landedDraft.customColorHex,
                     isPinned: landedDraft.isPinned
                 )
@@ -153,6 +154,7 @@ extension WorkspaceShellView {
                 landedDraft = WorkspaceCustomizationDraft(
                     name: landedDraft.name,
                     customDescription: submittedDraft.customDescription,
+                    customDescriptionIsTruncated: false,
                     customColorHex: landedDraft.customColorHex,
                     isPinned: landedDraft.isPinned
                 )
@@ -174,6 +176,7 @@ extension WorkspaceShellView {
                 landedDraft = WorkspaceCustomizationDraft(
                     name: landedDraft.name,
                     customDescription: landedDraft.customDescription,
+                    customDescriptionIsTruncated: landedDraft.customDescriptionIsTruncated,
                     customColorHex: submittedDraft.customColorHex,
                     isPinned: landedDraft.isPinned
                 )
@@ -195,6 +198,7 @@ extension WorkspaceShellView {
                 landedDraft = WorkspaceCustomizationDraft(
                     name: landedDraft.name,
                     customDescription: landedDraft.customDescription,
+                    customDescriptionIsTruncated: landedDraft.customDescriptionIsTruncated,
                     customColorHex: landedDraft.customColorHex,
                     isPinned: submittedDraft.isPinned
                 )

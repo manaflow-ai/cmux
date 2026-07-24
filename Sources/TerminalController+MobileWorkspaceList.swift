@@ -213,7 +213,7 @@ extension TerminalController {
         let store = notificationStore ?? AppDelegate.shared?.notificationStore
         let latestNotification = store?.latestNotification(forTabId: workspace.id)
         let preview = Self.mobileWorkspacePreview(latestNotification: latestNotification)
-        let description = workspace.mobileCustomDescriptionProjection
+        let description = MobileWorkspaceMetadataLimits.projectedCustomDescription(workspace.customDescription)
         return [
             "id": workspace.id.uuidString,
             "window_id": v2OrNull(windowID?.uuidString),

@@ -6,17 +6,25 @@ import Foundation
 struct WorkspaceCustomizationDraft: Equatable {
     let name: String
     let customDescription: String?
+    let customDescriptionIsTruncated: Bool
     let customColorHex: String?
     let isPinned: Bool
 
     /// Builds a normalized draft from editor values.
-    init(name: String, customDescription: String?, customColorHex: String?, isPinned: Bool) {
+    init(
+        name: String,
+        customDescription: String?,
+        customDescriptionIsTruncated: Bool = false,
+        customColorHex: String?,
+        isPinned: Bool
+    ) {
         self.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let description = customDescription?
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         self.customDescription = MobileWorkspaceMetadataLimits.normalizedCustomDescription(description)
+        self.customDescriptionIsTruncated = customDescriptionIsTruncated
         let color = customColorHex?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         self.customColorHex = color?.isEmpty == false ? color : nil
         self.isPinned = isPinned
@@ -27,6 +35,7 @@ struct WorkspaceCustomizationDraft: Equatable {
         self.init(
             name: workspace.name,
             customDescription: workspace.customDescription,
+            customDescriptionIsTruncated: workspace.customDescriptionIsTruncated,
             customColorHex: workspace.customColorHex,
             isPinned: workspace.isPinned
         )
@@ -51,6 +60,9 @@ struct WorkspaceCustomizationDraft: Equatable {
             customDescription: dirtyFields.customDescription
                 ? customDescription
                 : authoritativeDraft.customDescription,
+            customDescriptionIsTruncated: dirtyFields.customDescription
+                ? false
+                : authoritativeDraft.customDescriptionIsTruncated,
             customColorHex: dirtyFields.customColorHex
                 ? customColorHex
                 : authoritativeDraft.customColorHex,

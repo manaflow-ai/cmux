@@ -10,10 +10,10 @@ struct WorkspaceCustomizationSheet: View {
         WorkspaceCustomizationDraft,
         WorkspaceCustomizationDraft
     ) async -> WorkspaceCustomizationSaveResult
-    private let descriptionIsTruncated: Bool
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
     @State private var customDescription: String
+    @State private var descriptionIsTruncated: Bool
     @State private var usesCustomColor: Bool
     @State private var customColor: Color
     @State private var isPinned: Bool
@@ -30,9 +30,9 @@ struct WorkspaceCustomizationSheet: View {
         let draft = WorkspaceCustomizationDraft(workspace: workspace)
         _initialDraft = State(initialValue: draft)
         self.save = save
-        self.descriptionIsTruncated = workspace.customDescriptionIsTruncated
         _name = State(initialValue: workspace.name)
         _customDescription = State(initialValue: workspace.customDescription ?? "")
+        _descriptionIsTruncated = State(initialValue: workspace.customDescriptionIsTruncated)
         _usesCustomColor = State(initialValue: workspace.customColorHex != nil)
         _customColor = State(
             initialValue: workspace.customColorHex.flatMap { Color(hexString: $0) } ?? .blue
@@ -197,6 +197,7 @@ struct WorkspaceCustomizationSheet: View {
         WorkspaceCustomizationDraft(
             name: name,
             customDescription: customDescription,
+            customDescriptionIsTruncated: descriptionIsTruncated,
             customColorHex: usesCustomColor ? customColor.hexString : nil,
             isPinned: isPinned
         )
@@ -253,6 +254,7 @@ struct WorkspaceCustomizationSheet: View {
         initialDraft = rebasedDraft
         name = displayDraft.name
         customDescription = displayDraft.customDescription ?? ""
+        descriptionIsTruncated = displayDraft.customDescriptionIsTruncated
         isPinned = displayDraft.isPinned
         usesCustomColor = displayDraft.customColorHex != nil
         customColor = displayDraft.customColorHex.flatMap { Color(hexString: $0) } ?? .blue

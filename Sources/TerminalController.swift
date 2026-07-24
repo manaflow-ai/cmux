@@ -14159,8 +14159,23 @@ class TerminalController {
         if let error = mobileWorkspaceIDValidationError(params: params) {
             return error
         }
-        guard v2UUID(params, "workspace_id") != nil else {
+        guard let targetWorkspaceID = v2UUID(params, "workspace_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        if action == "set_description" || action == "clear_description" {
+            guard let tabManager = v2ResolveTabManager(params: params),
+                  let workspace = tabManager.tabs.first(where: { $0.id == targetWorkspaceID }) else {
+                return .err(code: "not_found", message: "Workspace not found", data: nil)
+            }
+            if MobileWorkspaceMetadataLimits
+                .projectedCustomDescription(workspace.customDescription)
+                .isTruncated {
+                return .err(
+                    code: "conflict",
+                    message: "Workspace description is too long to edit from mobile",
+                    data: ["workspace_id": targetWorkspaceID.uuidString]
+                )
+            }
         }
         var sanitizedParams = params
         switch action {
