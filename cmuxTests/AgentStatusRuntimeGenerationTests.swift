@@ -247,7 +247,7 @@ struct AgentStatusRuntimeGenerationTests {
         let signal = try #require(AgentStatusHookEventSignal(event: event))
 
         #expect(!workspace.noteAgentStatusHookSignal(signal, panelId: panelId))
-        #expect(workspace.agentLifecycleStatesByPanelId[panelId]?["codex"] == nil)
+        #expect(workspace.agentLifecycleStatesByPanelId[panelId]?["codex"] == .unknown)
     }
 
     @Test @MainActor func claudeRuntimeConfirmsExactRestorableSessionGeneration() throws {
@@ -321,12 +321,13 @@ struct AgentStatusRuntimeGenerationTests {
             panelId: panelId,
             refreshPorts: false
         )
+        let remoteObservedAt = Date.now
         let remoteEvent = WorkstreamEvent(
             sessionId: "codex-remote-session",
             hookEventName: .permissionRequest,
             source: "codex",
             ppid: Int(remotePID),
-            receivedAt: now,
+            receivedAt: remoteObservedAt,
             extraFieldsJSON: #"{"_cmux_agent_status_signal":"needsInput","_cmux_agent_pid_namespace":"remote"}"#
         )
         let localNamespaceEvent = WorkstreamEvent(
@@ -334,7 +335,7 @@ struct AgentStatusRuntimeGenerationTests {
             hookEventName: .permissionRequest,
             source: "codex",
             ppid: Int(remotePID),
-            receivedAt: now,
+            receivedAt: remoteObservedAt,
             extraFieldsJSON: #"{"_cmux_agent_status_signal":"needsInput"}"#
         )
         let invalidNamespaceEvent = WorkstreamEvent(
@@ -342,7 +343,7 @@ struct AgentStatusRuntimeGenerationTests {
             hookEventName: .permissionRequest,
             source: "codex",
             ppid: Int(remotePID),
-            receivedAt: now,
+            receivedAt: remoteObservedAt,
             extraFieldsJSON: #"{"_cmux_agent_status_signal":"needsInput","_cmux_agent_pid_namespace":"elsewhere"}"#
         )
 
@@ -363,12 +364,13 @@ struct AgentStatusRuntimeGenerationTests {
             panelId: panelId,
             refreshPorts: false
         )
+        let replacementObservedAt = Date.now
         let replacementEvent = WorkstreamEvent(
             sessionId: "codex-replacement-session",
             hookEventName: .permissionRequest,
             source: "codex",
             ppid: Int(remotePID),
-            receivedAt: now,
+            receivedAt: replacementObservedAt,
             extraFieldsJSON: #"{"_cmux_agent_status_signal":"needsInput","_cmux_agent_pid_namespace":"remote"}"#
         )
 

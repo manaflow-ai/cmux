@@ -49,6 +49,7 @@ extension AgentNotificationRegressionTests {
             refreshPorts: false
         )
         defer { fixture.source.clearAllAgentPIDs(refreshPorts: false) }
+        let identity = try #require(fixture.source.agentPIDProcessIdentitiesByKey["codex.session"])
 
         let resumed = try #require(AgentStatusHookEventSignal(event: WorkstreamEvent(
             sessionId: "codex-session",
@@ -56,7 +57,9 @@ extension AgentNotificationRegressionTests {
             source: "codex",
             ppid: Int(pid),
             receivedAt: .now,
-            extraFieldsJSON: #"{"_cmux_agent_status_signal":"running","_cmux_agent_status_revision":2}"#
+            extraFieldsJSON: """
+            {"_cmux_agent_status_signal":"running","_cmux_agent_status_revision":2,"_cmux_agent_pid_start_seconds":\(identity.startSeconds),"_cmux_agent_pid_start_microseconds":\(identity.startMicroseconds)}
+            """
         )))
         fixture.source.noteAgentStatusHookSignal(resumed, panelId: fixture.panelId)
 
@@ -69,7 +72,9 @@ extension AgentNotificationRegressionTests {
             requestId: "late-codex-permission",
             ppid: Int(pid),
             receivedAt: resumed.observedAt.addingTimeInterval(1),
-            extraFieldsJSON: #"{"_cmux_agent_status_signal":"needsInput","_cmux_agent_status_revision":1}"#
+            extraFieldsJSON: """
+            {"_cmux_agent_status_signal":"needsInput","_cmux_agent_status_revision":1,"_cmux_agent_pid_start_seconds":\(identity.startSeconds),"_cmux_agent_pid_start_microseconds":\(identity.startMicroseconds)}
+            """
         )
 
         let target = FeedCoordinator.shared.surfaceBlockingDecisionAttention(

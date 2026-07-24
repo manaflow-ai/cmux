@@ -25,7 +25,7 @@ struct AgentStatusReconciliationRecoveryTests {
         #expect(resolution == AgentStatusResolution(lifecycle: .unknown, confidence: .uncertain))
     }
 
-    @Test func outputActivitySurvivesUntilTheNextThirtySecondSweep() {
+    @Test func outputActivityCannotPromoteAnUnknownRuntimeToRunning() {
         let observedAt = now.addingTimeInterval(-31)
         let resolution = AgentStatusReconciler().resolve(
             evidence: AgentStatusEvidence(
@@ -39,7 +39,7 @@ struct AgentStatusReconciliationRecoveryTests {
             now: now
         )
 
-        #expect(resolution == AgentStatusResolution(lifecycle: .running, confidence: .inferred))
+        #expect(resolution == AgentStatusResolution(lifecycle: .unknown, confidence: .uncertain))
     }
 
     @Test @MainActor func replacementRuntimeAcceptsRestartedLifecycleRevision() throws {
@@ -55,13 +55,17 @@ struct AgentStatusReconciliationRecoveryTests {
             panelId: panelID,
             refreshPorts: false
         )
+        let firstIdentity = try #require(workspace.agentPIDProcessIdentitiesByKey["codex.session"])
+        let firstObservedAt = Date.now
         let oldGeneration = try #require(AgentStatusHookEventSignal(event: WorkstreamEvent(
             sessionId: "codex-session",
             hookEventName: .preToolUse,
             source: "codex",
             ppid: Int(firstPID),
-            receivedAt: now,
-            extraFieldsJSON: #"{"_cmux_agent_status_signal":"running","_cmux_agent_status_revision":5}"#
+            receivedAt: firstObservedAt,
+            extraFieldsJSON: """
+            {"_cmux_agent_status_signal":"running","_cmux_agent_status_revision":5,"_cmux_agent_pid_start_seconds":\(firstIdentity.startSeconds),"_cmux_agent_pid_start_microseconds":\(firstIdentity.startMicroseconds)}
+            """
         )))
         workspace.noteAgentStatusHookSignal(oldGeneration, panelId: panelID)
 
@@ -71,13 +75,17 @@ struct AgentStatusReconciliationRecoveryTests {
             panelId: panelID,
             refreshPorts: false
         )
+        let replacementIdentity = try #require(workspace.agentPIDProcessIdentitiesByKey["codex.session"])
+        let replacementObservedAt = Date.now
         let newGeneration = try #require(AgentStatusHookEventSignal(event: WorkstreamEvent(
             sessionId: "codex-session",
             hookEventName: .permissionRequest,
             source: "codex",
             ppid: Int(replacementPID),
-            receivedAt: now.addingTimeInterval(1),
-            extraFieldsJSON: #"{"_cmux_agent_status_signal":"needsInput","_cmux_agent_status_revision":1}"#
+            receivedAt: replacementObservedAt,
+            extraFieldsJSON: """
+            {"_cmux_agent_status_signal":"needsInput","_cmux_agent_status_revision":1,"_cmux_agent_pid_start_seconds":\(replacementIdentity.startSeconds),"_cmux_agent_pid_start_microseconds":\(replacementIdentity.startMicroseconds)}
+            """
         )))
         workspace.noteAgentStatusHookSignal(newGeneration, panelId: panelID)
 
@@ -96,13 +104,14 @@ struct AgentStatusReconciliationRecoveryTests {
             panelId: panelID,
             refreshPorts: false
         )
+        let permissionObservedAt = Date.now
         workspace.updatePanelShellActivityState(panelId: panelID, state: .commandRunning)
         let permission = try #require(AgentStatusHookEventSignal(event: WorkstreamEvent(
             sessionId: "codex-remote-session",
             hookEventName: .permissionRequest,
             source: "codex",
             ppid: Int(remotePID),
-            receivedAt: now,
+            receivedAt: permissionObservedAt,
             extraFieldsJSON: #"{"_cmux_agent_status_signal":"needsInput","_cmux_agent_status_revision":1,"_cmux_agent_pid_namespace":"remote"}"#
         )))
         workspace.noteAgentStatusHookSignal(permission, panelId: panelID)
@@ -125,12 +134,13 @@ struct AgentStatusReconciliationRecoveryTests {
             panelId: panelID,
             refreshPorts: false
         )
+        let previousObservedAt = Date.now
         let previousGeneration = try #require(AgentStatusHookEventSignal(event: WorkstreamEvent(
             sessionId: "codex-remote-session",
             hookEventName: .preToolUse,
             source: "codex",
             ppid: Int(remotePID),
-            receivedAt: now,
+            receivedAt: previousObservedAt,
             extraFieldsJSON: #"{"_cmux_agent_status_signal":"running","_cmux_agent_status_revision":8,"_cmux_agent_pid_namespace":"remote","_cmux_agent_pid_start_seconds":10,"_cmux_agent_pid_start_microseconds":20}"#
         )))
         workspace.noteAgentStatusHookSignal(previousGeneration, panelId: panelID)
@@ -140,7 +150,7 @@ struct AgentStatusReconciliationRecoveryTests {
             hookEventName: .permissionRequest,
             source: "codex",
             ppid: Int(remotePID),
-            receivedAt: now.addingTimeInterval(1),
+            receivedAt: previousObservedAt.addingTimeInterval(1),
             extraFieldsJSON: #"{"_cmux_agent_status_signal":"needsInput","_cmux_agent_status_revision":1,"_cmux_agent_pid_namespace":"remote","_cmux_agent_pid_start_seconds":11,"_cmux_agent_pid_start_microseconds":30}"#
         )))
         workspace.noteAgentStatusHookSignal(replacementGeneration, panelId: panelID)
@@ -152,7 +162,7 @@ struct AgentStatusReconciliationRecoveryTests {
             hookEventName: .preToolUse,
             source: "codex",
             ppid: Int(remotePID),
-            receivedAt: now.addingTimeInterval(2),
+            receivedAt: previousObservedAt.addingTimeInterval(2),
             extraFieldsJSON: #"{"_cmux_agent_status_signal":"running","_cmux_agent_status_revision":9,"_cmux_agent_pid_namespace":"remote","_cmux_agent_pid_start_seconds":10,"_cmux_agent_pid_start_microseconds":20}"#
         )))
         workspace.noteAgentStatusHookSignal(delayedPreviousGeneration, panelId: panelID)
@@ -222,6 +232,7 @@ struct AgentStatusReconciliationRecoveryTests {
             panelId: panelID,
             refreshPorts: false
         )
+        let identity = try #require(workspace.agentPIDProcessIdentitiesByKey["codex.session"])
         #expect(fastPath.shouldPublishShellActivity(
             workspaceId: workspace.id,
             panelId: panelID,
@@ -237,8 +248,10 @@ struct AgentStatusReconciliationRecoveryTests {
             hookEventName: .preToolUse,
             source: "codex",
             ppid: Int(getpid()),
-            receivedAt: now,
-            extraFieldsJSON: #"{"_cmux_agent_status_signal":"running"}"#
+            receivedAt: Date.now,
+            extraFieldsJSON: """
+            {"_cmux_agent_status_signal":"running","_cmux_agent_pid_start_seconds":\(identity.startSeconds),"_cmux_agent_pid_start_microseconds":\(identity.startMicroseconds)}
+            """
         )))
 
         workspace.noteAgentStatusHookSignal(running, panelId: panelID)
@@ -300,16 +313,20 @@ struct AgentStatusReconciliationRecoveryTests {
             panelId: panelID,
             refreshPorts: false
         )
+        let identity = try #require(workspace.agentPIDProcessIdentitiesByKey["codex.current"])
         workspace.updatePanelShellActivityState(panelId: panelID, state: .commandRunning)
         let running = try #require(AgentStatusHookEventSignal(event: WorkstreamEvent(
             sessionId: "codex-current",
             hookEventName: .preToolUse,
             source: "codex",
             ppid: Int(getpid()),
-            receivedAt: now,
-            extraFieldsJSON: #"{"_cmux_agent_status_signal":"running"}"#
+            receivedAt: Date.now,
+            extraFieldsJSON: """
+            {"_cmux_agent_status_signal":"running","_cmux_agent_pid_start_seconds":\(identity.startSeconds),"_cmux_agent_pid_start_microseconds":\(identity.startMicroseconds)}
+            """
         )))
         workspace.noteAgentStatusHookSignal(running, panelId: panelID)
+        #expect(workspace.agentLifecycleStatesByPanelId[panelID]?["codex"] == .running)
         let detector = StalledAgentStatusDetector()
         let coordinator = AgentStatusReconciliationCoordinator { _, _ in
             await detector.detect()
