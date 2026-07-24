@@ -56,8 +56,6 @@ extension Workspace {
             bonsplitController.focusPane(newPaneId)
             bonsplitController.selectTab(tabId)
             focusPanel(panelId)
-            scheduleMovedTerminalRefresh(panelId: panelId)
-            scheduleTerminalGeometryReconcile()
             didMove = true
         } else {
             didMove = false

@@ -10502,7 +10502,7 @@ final class Workspace: Identifiable, ObservableObject {
         return false
     }
 
-    func scheduleMovedTerminalRefresh(panelId: UUID) {
+    private func scheduleMovedTerminalRefresh(panelId: UUID) {
         guard terminalPanel(for: panelId) != nil else { return }
 
         // Force an NSViewRepresentable update after drag/move reparenting. This keeps
