@@ -494,6 +494,28 @@ mod tests {
         server.shutdown().await;
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn repeated_admin_requests_do_not_fail_spuriously() {
+        let directory = tempdir().unwrap();
+        let auth =
+            AuthDatabase::load_or_create(directory.path().join("state"), "stress-test", true)
+                .unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let socket = directory.path().join("admin.sock");
+        let server = serve_admin(daemon, &socket, Vec::new()).await.unwrap();
+
+        for iteration in 0..1_000 {
+            let response = call_admin(&socket, &AdminRequest::Connections)
+                .await
+                .unwrap_or_else(|error| {
+                    panic!("admin request {iteration} failed spuriously: {error}")
+                });
+            assert!(response.ok);
+        }
+
+        server.shutdown().await;
+    }
+
     #[tokio::test]
     async fn client_rejects_wrong_uid_responder_before_writing_request() {
         let directory = tempdir().unwrap();
