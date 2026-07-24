@@ -67,7 +67,7 @@ struct FilePreviewReloadTests {
         #expect(panel.handleObservedFileChange() == nil)
         #expect(panel.previewRevision == initialRevision)
 
-        try Data([0x02, 0x03]).write(to: fileURL)
+        try Data([0x00, 0x02, 0x03]).write(to: fileURL)
         let reloadTask = try #require(panel.handleObservedFileChange())
         await reloadTask.value
         #expect(panel.previewRevision == initialRevision + 1)
@@ -273,7 +273,12 @@ struct FilePreviewReloadTests {
             .appending(path: "cmux-file-preview-pdf-rotation-\(UUID().uuidString).pdf")
         defer { try? FileManager.default.removeItem(at: fileURL) }
         let sourceDocument = PDFDocument()
-        let sourcePage = try #require(PDFPage(image: NSImage(size: NSSize(width: 100, height: 100))))
+        let sourceImage = NSImage(size: NSSize(width: 100, height: 100))
+        sourceImage.lockFocus()
+        NSColor.white.setFill()
+        NSBezierPath(rect: NSRect(origin: .zero, size: sourceImage.size)).fill()
+        sourceImage.unlockFocus()
+        let sourcePage = try #require(PDFPage(image: sourceImage))
         sourceDocument.insert(sourcePage, at: 0)
         #expect(sourceDocument.write(to: fileURL))
 

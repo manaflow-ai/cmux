@@ -3,6 +3,14 @@ import Foundation
 import Quartz
 
 @MainActor
+protocol FilePreviewQuickLookRefreshing: AnyObject {
+    var displayState: Any! { get set }
+    func refreshPreviewItem()
+}
+
+extension QLPreviewView: FilePreviewQuickLookRefreshing {}
+
+@MainActor
 final class FilePreviewQuickLookSession {
     private let liveViews = NSHashTable<NSView>.weakObjects()
     private var item: FilePreviewQLItem?
@@ -125,9 +133,17 @@ final class FilePreviewQuickLookSession {
         }
         guard itemRevision != revision else { return }
         for previewView in previewViews {
-            previewView.refreshPreviewItem()
+            Self.refreshPreservingDisplayState(previewView)
         }
         itemRevision = revision
+    }
+
+    static func refreshPreservingDisplayState(_ previewView: some FilePreviewQuickLookRefreshing) {
+        let displayState = previewView.displayState
+        previewView.refreshPreviewItem()
+        if let displayState {
+            previewView.displayState = displayState
+        }
     }
 
     private func livePreviewViews() -> [QLPreviewView] {

@@ -68,8 +68,8 @@ struct FilePreviewNativeRefreshStateTests {
         #expect(player.currentItem !== refreshedItem)
     }
 
-    @Test("Quick Look refresh keeps its item and display state")
-    func quickLookRefreshKeepsDisplayState() async throws {
+    @Test("Quick Look refresh keeps its preview item")
+    func quickLookRefreshKeepsPreviewItem() throws {
         let fileURL = FileManager.default.temporaryDirectory
             .appending(path: "cmux-file-preview-quick-look-\(UUID().uuidString).bin")
         defer { try? FileManager.default.removeItem(at: fileURL) }
@@ -94,15 +94,12 @@ struct FilePreviewNativeRefreshStateTests {
         let container = try #require(view as? FilePreviewQuickLookContainerView)
         let previewView = try #require(container.livePreviewView())
         let originalItem = try #require(previewView.previewItem as AnyObject?)
-        let displayState = NSObject()
-        previewView.displayState = displayState
 
-        try Data([0x02, 0x03]).write(to: fileURL)
-        await panel.reloadFromDisk().value
+        try Data([0x00, 0x02, 0x03]).write(to: fileURL)
         session.update(
             view,
             panel: panel,
-            revision: panel.previewRevision,
+            revision: panel.previewRevision + 1,
             isVisibleInUI: true,
             backgroundColor: .textBackgroundColor,
             drawsBackground: true
@@ -110,6 +107,31 @@ struct FilePreviewNativeRefreshStateTests {
 
         let refreshedItem = try #require(previewView.previewItem as AnyObject?)
         #expect(refreshedItem === originalItem)
-        #expect(previewView.displayState as AnyObject? === displayState)
+    }
+
+    @Test("Quick Look refresh restores its opaque display state")
+    func quickLookRefreshRestoresDisplayState() {
+        let displayState = NSObject()
+        let preview = ResettingQuickLookPreview(displayState: displayState)
+
+        FilePreviewQuickLookSession.refreshPreservingDisplayState(preview)
+
+        #expect(preview.refreshCount == 1)
+        #expect(preview.displayState as AnyObject? === displayState)
+    }
+}
+
+@MainActor
+private final class ResettingQuickLookPreview: FilePreviewQuickLookRefreshing {
+    var displayState: Any!
+    private(set) var refreshCount = 0
+
+    init(displayState: Any) {
+        self.displayState = displayState
+    }
+
+    func refreshPreviewItem() {
+        refreshCount += 1
+        displayState = nil
     }
 }
