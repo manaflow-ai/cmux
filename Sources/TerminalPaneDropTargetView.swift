@@ -387,7 +387,7 @@ final class PaneDropTargetView: NSView {
         switch panel.panelType {
         case .terminal:
             return .terminal
-        case .browser:
+        case .browser, .application:
             return nil
         case .filePreview:
             guard let filePreviewPanel = panel as? FilePreviewPanel,

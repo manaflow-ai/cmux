@@ -164,11 +164,19 @@ extension TerminalController: ControlSurfaceContext {
                     inWindow = tp.surface.isViewInWindow
                 } else if let bp = panel as? BrowserPanel {
                     inWindow = bp.webView.window != nil
+                } else if let ap = panel as? ApplicationPanel {
+                    inWindow = ap.isCaptureViewInWindow
                 }
                 return ControlSurfaceHealthEntry(
                     surfaceID: panel.id,
                     typeRawValue: panel.panelType.rawValue,
-                    inWindow: inWindow
+                    inWindow: inWindow,
+                    applicationCaptureState: (panel as? ApplicationPanel)?
+                        .captureStateDescription,
+                    applicationCaptureError: (panel as? ApplicationPanel)?
+                        .captureFailureDetail,
+                    applicationWindowID: (panel as? ApplicationPanel)?.windowID,
+                    applicationProcessID: (panel as? ApplicationPanel)?.processID
                 )
             }
             return ControlSurfaceHealthSnapshot(
@@ -184,11 +192,19 @@ extension TerminalController: ControlSurfaceContext {
                 inWindow = tp.surface.isViewInWindow
             } else if let bp = panel as? BrowserPanel {
                 inWindow = bp.webView.window != nil
+            } else if let ap = panel as? ApplicationPanel {
+                inWindow = ap.isCaptureViewInWindow
             }
             return ControlSurfaceHealthEntry(
                 surfaceID: panel.id,
                 typeRawValue: panel.panelType.rawValue,
-                inWindow: inWindow
+                inWindow: inWindow,
+                applicationCaptureState: (panel as? ApplicationPanel)?
+                    .captureStateDescription,
+                applicationCaptureError: (panel as? ApplicationPanel)?
+                    .captureFailureDetail,
+                applicationWindowID: (panel as? ApplicationPanel)?.windowID,
+                applicationProcessID: (panel as? ApplicationPanel)?.processID
             )
         }
         return ControlSurfaceHealthSnapshot(

@@ -15,6 +15,8 @@ extension Workspace {
             return SurfaceKind.terminal.rawValue
         case .browser:
             return SurfaceKind.browser.rawValue
+        case .application:
+            return SurfaceKind.application.rawValue
         case .markdown:
             return SurfaceKind.markdown.rawValue
         case .filePreview:

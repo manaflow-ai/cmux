@@ -1,0 +1,302 @@
+import AppKit
+import AVFoundation
+import CoreMedia
+import ScreenCaptureKit
+import SwiftUI
+
+struct ApplicationCaptureRepresentable: NSViewRepresentable {
+    let panel: ApplicationPanel
+    let windowID: CGWindowID
+
+    func makeNSView(context: Context) -> ApplicationCaptureView {
+        let captureToken = panel.beginCaptureSession()
+        let view = ApplicationCaptureView(
+            windowID: windowID,
+            processID: panel.processID,
+            targetFrameRate: panel.targetFrameRate,
+            onStateChanged: { [weak panel] state in
+                panel?.updateCaptureState(state, token: captureToken)
+            }
+        )
+        panel.attach(view, token: captureToken)
+        view.startCapture()
+        return view
+    }
+
+    func updateNSView(_ nsView: ApplicationCaptureView, context: Context) {}
+
+    static func dismantleNSView(_ nsView: ApplicationCaptureView, coordinator: ()) {
+        nsView.stopCapture()
+    }
+}
+
+final class ApplicationCaptureView: NSView {
+    private let sourceWindowID: CGWindowID
+    private let processID: pid_t
+    private let targetFrameRate: Int
+    private let onStateChanged: (ApplicationPanel.CaptureState) -> Void
+    private let displayLayer = AVSampleBufferDisplayLayer()
+    private let streamOutput: ApplicationCaptureStreamOutput
+    private var captureTask: Task<Void, Never>?
+    private var stream: SCStream?
+    private var sourceFrame: CGRect = .zero
+
+    override var acceptsFirstResponder: Bool { true }
+    override var isFlipped: Bool { true }
+
+    init(
+        windowID: CGWindowID,
+        processID: pid_t,
+        targetFrameRate: Int,
+        onStateChanged: @escaping (ApplicationPanel.CaptureState) -> Void
+    ) {
+        self.sourceWindowID = windowID
+        self.processID = processID
+        self.targetFrameRate = targetFrameRate
+        self.onStateChanged = onStateChanged
+        self.streamOutput = ApplicationCaptureStreamOutput(displayLayer: displayLayer)
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer = CALayer()
+        layer?.backgroundColor = NSColor.black.cgColor
+        displayLayer.videoGravity = .resizeAspect
+        layer?.addSublayer(displayLayer)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        displayLayer.frame = bounds
+        CATransaction.commit()
+    }
+
+    func startCapture() {
+        guard captureTask == nil else { return }
+        captureTask = Task { [weak self] in
+            await self?.beginCapture()
+        }
+    }
+
+    func stopCapture() {
+        captureTask?.cancel()
+        captureTask = nil
+        let activeStream = stream
+        stream = nil
+        Task {
+            try? await activeStream?.stopCapture()
+        }
+        displayLayer.flushAndRemoveImage()
+    }
+
+    private func beginCapture() async {
+        onStateChanged(.starting)
+        guard CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess() else {
+            onStateChanged(.permissionRequired)
+            return
+        }
+
+        do {
+            let content = try await SCShareableContent.excludingDesktopWindows(
+                false,
+                onScreenWindowsOnly: false
+            )
+            guard let sourceWindow = content.windows.first(where: {
+                $0.windowID == sourceWindowID
+            }) else {
+                onStateChanged(.windowUnavailable)
+                return
+            }
+            sourceFrame = sourceWindow.frame
+            let filter = SCContentFilter(desktopIndependentWindow: sourceWindow)
+            let configuration = SCStreamConfiguration()
+            let sourceSize = sourceWindow.frame.size
+            let captureScale = min(
+                2,
+                4_096 / max(sourceSize.width, 1),
+                2_304 / max(sourceSize.height, 1)
+            )
+            configuration.width = max(Int(sourceSize.width * captureScale), 1)
+            configuration.height = max(Int(sourceSize.height * captureScale), 1)
+            configuration.minimumFrameInterval = CMTime(
+                value: 1,
+                timescale: CMTimeScale(targetFrameRate)
+            )
+            configuration.queueDepth = 3
+            configuration.showsCursor = true
+            configuration.pixelFormat = kCVPixelFormatType_32BGRA
+
+            let newStream = SCStream(filter: filter, configuration: configuration, delegate: nil)
+            try newStream.addStreamOutput(
+                streamOutput,
+                type: .screen,
+                sampleHandlerQueue: streamOutput.sampleQueue
+            )
+            stream = newStream
+            try await newStream.startCapture()
+            onStateChanged(.streaming)
+        } catch {
+            stream = nil
+            onStateChanged(.failed(error.localizedDescription))
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        postMouse(event, type: .leftMouseDown, button: .left)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        postMouse(event, type: .leftMouseUp, button: .left)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        postMouse(event, type: .rightMouseDown, button: .right)
+    }
+
+    override func rightMouseUp(with event: NSEvent) {
+        postMouse(event, type: .rightMouseUp, button: .right)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        postMouse(event, type: .mouseMoved, button: .left)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        postMouse(event, type: .leftMouseDragged, button: .left)
+    }
+
+    override func rightMouseDragged(with event: NSEvent) {
+        postMouse(event, type: .rightMouseDragged, button: .right)
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        guard let cgEvent = CGEvent(
+                scrollWheelEvent2Source: nil,
+                units: .pixel,
+                wheelCount: 2,
+                wheel1: Int32(event.scrollingDeltaY),
+                wheel2: Int32(event.scrollingDeltaX),
+                wheel3: 0
+              ) else { return }
+        cgEvent.postToPid(processID)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        postKey(event, keyDown: true)
+    }
+
+    override func keyUp(with event: NSEvent) {
+        postKey(event, keyDown: false)
+    }
+
+    override func flagsChanged(with event: NSEvent) {
+        postKey(event, keyDown: true)
+    }
+
+    func sendNamedKey(_ name: String) -> Bool {
+        let normalized = name.lowercased()
+        let keys: [String: CGKeyCode] = [
+            "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5,
+            "z": 6, "x": 7, "c": 8, "v": 9, "b": 11,
+            "q": 12, "w": 13, "e": 14, "r": 15, "y": 16, "t": 17,
+            "1": 18, "2": 19, "3": 20, "4": 21, "6": 22, "5": 23,
+            "9": 25, "7": 26, "8": 28, "0": 29,
+            "enter": 36, "return": 36, "tab": 48, "space": 49,
+            "escape": 53, "esc": 53,
+            "f1": 122, "f2": 120, "f3": 99, "f4": 118,
+            "f5": 96, "f6": 97, "f7": 98, "f8": 100,
+            "f9": 101, "f10": 109, "f11": 103, "f12": 111,
+            "left": 123, "right": 124, "down": 125, "up": 126,
+        ]
+        var components = normalized.split(separator: "-").map(String.init)
+        guard let keyName = components.popLast(), let keyCode = keys[keyName] else {
+            return false
+        }
+        var flags: CGEventFlags = []
+        for modifier in components {
+            switch modifier {
+            case "ctrl", "control": flags.insert(.maskControl)
+            case "shift": flags.insert(.maskShift)
+            case "alt", "option": flags.insert(.maskAlternate)
+            case "cmd", "command", "super": flags.insert(.maskCommand)
+            default: return false
+            }
+        }
+        guard let down = CGEvent(
+                keyboardEventSource: nil,
+                virtualKey: keyCode,
+                keyDown: true
+              ),
+              let up = CGEvent(
+                keyboardEventSource: nil,
+                virtualKey: keyCode,
+                keyDown: false
+              ) else { return false }
+        down.flags = flags
+        up.flags = flags
+        down.postToPid(processID)
+        up.postToPid(processID)
+        return true
+    }
+
+    private func postMouse(_ event: NSEvent, type: CGEventType, button: CGMouseButton) {
+        guard sourceFrame.width > 0, sourceFrame.height > 0 else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        let scale = min(bounds.width / sourceFrame.width, bounds.height / sourceFrame.height)
+        guard scale > 0 else { return }
+        let renderedSize = CGSize(
+            width: sourceFrame.width * scale,
+            height: sourceFrame.height * scale
+        )
+        let insetX = (bounds.width - renderedSize.width) / 2
+        let insetY = (bounds.height - renderedSize.height) / 2
+        let sourcePoint = CGPoint(
+            x: sourceFrame.minX + min(max((point.x - insetX) / scale, 0), sourceFrame.width),
+            y: sourceFrame.minY + min(max((point.y - insetY) / scale, 0), sourceFrame.height)
+        )
+        guard let cgEvent = CGEvent(
+            mouseEventSource: nil,
+            mouseType: type,
+            mouseCursorPosition: sourcePoint,
+            mouseButton: button
+        ) else { return }
+        cgEvent.postToPid(processID)
+    }
+
+    private func postKey(_ event: NSEvent, keyDown: Bool) {
+        guard let cgEvent = CGEvent(
+                keyboardEventSource: nil,
+                virtualKey: CGKeyCode(event.keyCode),
+                keyDown: keyDown
+              ) else { return }
+        cgEvent.flags = CGEventFlags(rawValue: UInt64(event.modifierFlags.rawValue))
+        cgEvent.postToPid(processID)
+    }
+}
+
+private final class ApplicationCaptureStreamOutput: NSObject, SCStreamOutput, @unchecked Sendable {
+    let sampleQueue = DispatchQueue(
+        label: "com.cmux.application-capture.frames",
+        qos: .userInteractive
+    )
+    private let displayLayer: AVSampleBufferDisplayLayer
+
+    init(displayLayer: AVSampleBufferDisplayLayer) {
+        self.displayLayer = displayLayer
+    }
+
+    func stream(
+        _ stream: SCStream,
+        didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
+        of outputType: SCStreamOutputType
+    ) {
+        guard outputType == .screen, sampleBuffer.isValid else { return }
+        displayLayer.enqueue(sampleBuffer)
+    }
+}

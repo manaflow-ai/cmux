@@ -259,13 +259,23 @@ extension ControlCommandCoordinator {
             return .err(code: "not_found", message: "Workspace not found", data: nil)
         }
         let items: [JSONValue] = snapshot.surfaces.enumerated().map { index, entry in
-            .object([
+            var item: [String: JSONValue] = [
                 "index": .int(Int64(index)),
                 "id": .string(entry.surfaceID.uuidString),
                 "ref": ref(.surface, entry.surfaceID),
                 "type": .string(entry.typeRawValue),
                 "in_window": entry.inWindow.map { .bool($0) } ?? .null,
-            ])
+            ]
+            if let state = entry.applicationCaptureState {
+                item["capture_state"] = .string(state)
+                item["capture_error"] = entry.applicationCaptureError
+                    .map { .string(String($0.prefix(1_000))) } ?? .null
+                item["native_window_id"] = entry.applicationWindowID
+                    .map { .int(Int64($0)) } ?? .null
+                item["process_id"] = entry.applicationProcessID
+                    .map { .int(Int64($0)) } ?? .null
+            }
+            return .object(item)
         }
         return .ok(.object([
             "workspace_id": .string(snapshot.workspaceID.uuidString),
@@ -503,6 +513,10 @@ extension ControlCommandCoordinator {
             providerRaw: string(params, "provider_id") ?? string(params, "provider"),
             rendererRaw: string(params, "renderer_kind") ?? string(params, "renderer"),
             urlRaw: string(params, "url"),
+            applicationWindowID: int(params, "window_id_native").flatMap(UInt32.init(exactly:)),
+            applicationProcessID: int(params, "process_id").flatMap(Int32.init(exactly:)),
+            applicationTitle: optionalTrimmedRawString(params, "title"),
+            applicationFrameRate: int(params, "frame_rate"),
             workingDirectory: optionalTrimmedRawString(params, "working_directory"),
             initialCommand: optionalTrimmedRawString(params, "initial_command"),
             tmuxStartCommand: optionalTrimmedRawString(params, "tmux_start_command"),

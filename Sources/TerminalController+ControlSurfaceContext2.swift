@@ -364,7 +364,24 @@ extension TerminalController {
         let focus = v2FocusAllowed(requested: inputs.requestedFocus)
         let useLocalContext = surfaceRemoteContextWantsLocal(inputs.remoteContextRaw)
         let newPanelId: UUID?
-        if panelType == .browser {
+        if panelType == .application {
+            guard let applicationWindowID = inputs.applicationWindowID,
+                  let applicationProcessID = inputs.applicationProcessID
+            else {
+                return .createFailed
+            }
+            newPanelId = ws.newApplicationSurface(
+                inPane: paneId,
+                windowID: CGWindowID(applicationWindowID),
+                processID: applicationProcessID,
+                title: inputs.applicationTitle ?? String(
+                    localized: "panel.application.defaultTitle",
+                    defaultValue: "Application"
+                ),
+                targetFrameRate: inputs.applicationFrameRate ?? 60,
+                focus: focus
+            )?.id
+        } else if panelType == .browser {
             newPanelId = ws.newBrowserSurface(
                 inPane: paneId,
                 url: url,
@@ -518,6 +535,7 @@ extension TerminalController {
         switch v2NormalizedToken(raw) {
         case "terminal": return .terminal
         case "browser": return .browser
+        case "application", "app": return .application
         case "markdown": return .markdown
         case "filepreview": return .filePreview
         case "rightsidebartool": return .rightSidebarTool

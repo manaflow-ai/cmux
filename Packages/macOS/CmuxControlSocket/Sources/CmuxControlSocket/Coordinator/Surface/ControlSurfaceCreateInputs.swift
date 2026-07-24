@@ -17,6 +17,14 @@ public struct ControlSurfaceCreateInputs: Sendable, Equatable {
     public let rendererRaw: String?
     /// The raw `url` string, or `nil`.
     public let urlRaw: String?
+    /// The native application window identifier.
+    public let applicationWindowID: UInt32?
+    /// The native application process identifier.
+    public let applicationProcessID: Int32?
+    /// The title displayed for an application surface.
+    public let applicationTitle: String?
+    /// The requested application capture frame rate.
+    public let applicationFrameRate: Int?
     /// The trimmed-non-empty `working_directory`, or `nil`.
     public let workingDirectory: String?
     /// The trimmed-non-empty `initial_command`, or `nil`.
@@ -44,6 +52,10 @@ public struct ControlSurfaceCreateInputs: Sendable, Equatable {
         providerRaw: String?,
         rendererRaw: String?,
         urlRaw: String?,
+        applicationWindowID: UInt32? = nil,
+        applicationProcessID: Int32? = nil,
+        applicationTitle: String? = nil,
+        applicationFrameRate: Int? = nil,
         workingDirectory: String?,
         initialCommand: String?,
         tmuxStartCommand: String?,
@@ -58,6 +70,10 @@ public struct ControlSurfaceCreateInputs: Sendable, Equatable {
         self.providerRaw = providerRaw
         self.rendererRaw = rendererRaw
         self.urlRaw = urlRaw
+        self.applicationWindowID = applicationWindowID
+        self.applicationProcessID = applicationProcessID
+        self.applicationTitle = applicationTitle
+        self.applicationFrameRate = applicationFrameRate
         self.workingDirectory = workingDirectory
         self.initialCommand = initialCommand
         self.tmuxStartCommand = tmuxStartCommand

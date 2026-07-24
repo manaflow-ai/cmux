@@ -120,6 +120,37 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(payload["workspace_id"] == .string(workspaceID.uuidString))
     }
 
+    @Test func applicationSurfaceCreatePreservesCaptureInputs() throws {
+        let surfaceID = UUID()
+        let paneID = UUID()
+        let workspaceID = UUID()
+        let windowID = UUID()
+        let (coordinator, context) = coordinator(createResolution: .created(
+            windowID: windowID,
+            workspaceID: workspaceID,
+            paneID: paneID,
+            surfaceID: surfaceID,
+            typeRawValue: "application"
+        ))
+
+        _ = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.create",
+            params: [
+                "type": .string("application"),
+                "window_id_native": .int(34599),
+                "process_id": .int(34401),
+                "title": .string("Preview"),
+                "frame_rate": .int(120),
+            ]
+        ))
+
+        #expect(context.lastCreateInputs?.applicationWindowID == 34599)
+        #expect(context.lastCreateInputs?.applicationProcessID == 34401)
+        #expect(context.lastCreateInputs?.applicationTitle == "Preview")
+        #expect(context.lastCreateInputs?.applicationFrameRate == 120)
+    }
+
     @Test func surfaceCreateDockUnsupportedTypeReturnsInvalidParams() throws {
         let (coordinator, context) = coordinator(createResolution: .dockUnsupportedType(
             typeRawValue: "agentSession",

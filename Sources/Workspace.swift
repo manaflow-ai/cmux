@@ -580,6 +580,8 @@ extension Workspace {
             rightSidebarToolSnapshot = nil
             agentSessionSnapshot = nil
             projectSnapshot = nil
+        case .application:
+            return nil
         case .markdown:
             guard let markdownPanel = panel as? MarkdownPanel else { return nil }
             terminalSnapshot = nil
@@ -1668,6 +1670,8 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: browserPanel.id)
             return browserPanel.id
+        case .application:
+            return nil
         case .markdown:
             guard let filePath = snapshot.markdown?.filePath,
                   let markdownPanel = newMarkdownSurface(
@@ -7757,6 +7761,63 @@ final class Workspace: Identifiable, ObservableObject {
         browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
 
         return browserPanel
+    }
+
+    /// Creates a live native application surface in the specified pane.
+    @discardableResult
+    func newApplicationSurface(
+        inPane paneId: PaneID,
+        windowID: CGWindowID,
+        processID: pid_t,
+        title: String,
+        targetFrameRate: Int = 60,
+        focus: Bool = false
+    ) -> ApplicationPanel? {
+        if isRemoteTmuxMirror { return nil }
+
+        guard let applicationPanel = ApplicationPanel(
+            workspaceId: id,
+            windowID: windowID,
+            processID: processID,
+            title: title,
+            targetFrameRate: targetFrameRate
+        ) else { return nil }
+        panels[applicationPanel.id] = applicationPanel
+        panelTitles[applicationPanel.id] = applicationPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: applicationPanel.displayTitle,
+            icon: applicationPanel.displayIcon,
+            kind: SurfaceKind.application.rawValue,
+            isDirty: false,
+            isLoading: false,
+            isAudioMuted: false,
+            isAudioPlaying: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: applicationPanel.id)
+            panelTitles.removeValue(forKey: applicationPanel.id)
+            return nil
+        }
+
+        bindSurface(newTabId, toPanelId: applicationPanel.id)
+        publishCmuxSurfaceCreated(
+            applicationPanel.id,
+            paneId: paneId,
+            kind: "application",
+            origin: "application_tab",
+            focused: focus
+        )
+
+        if focus {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(newTabId)
+            focusPanel(applicationPanel.id)
+        } else {
+            applicationPanel.unfocus()
+        }
+        return applicationPanel
     }
 
     /// Create a new browser surface in the specified pane.

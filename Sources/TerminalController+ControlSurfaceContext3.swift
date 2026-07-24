@@ -384,6 +384,18 @@ extension TerminalController {
         case .unresolved(let resolution): return resolution
         case .surface(let id): requestedSurfaceID = id
         }
+        if let target = ws.controlSurfaceTarget(for: requestedSurfaceID),
+           let applicationPanel = target.panel as? ApplicationPanel {
+            guard applicationPanel.sendNamedKey(key) else {
+                return .unknownKey
+            }
+            return .sent(
+                windowID: v2ResolveWindowId(tabManager: tabManager),
+                workspaceID: ws.id,
+                surfaceID: target.surfaceID,
+                queued: false
+            )
+        }
         guard let target = ws.controlTerminalTarget(for: requestedSurfaceID) else {
             return .surfaceNotTerminal(requestedSurfaceID)
         }

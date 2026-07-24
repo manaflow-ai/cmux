@@ -5689,6 +5689,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.terminal", defaultValue: "Terminal")
         case .browser:
             return String(localized: "commandPalette.kind.browser", defaultValue: "Browser")
+        case .application:
+            return String(localized: "commandPalette.kind.application", defaultValue: "Application")
         case .markdown:
             return String(localized: "commandPalette.kind.markdown", defaultValue: "Markdown")
         case .filePreview:
@@ -5715,6 +5717,8 @@ struct ContentView: View {
             return ["terminal", "shell", "console"]
         case .browser:
             return ["browser", "web", "page"]
+        case .application:
+            return ["application", "app", "game", "stream"]
         case .markdown:
             return ["markdown", "note", "preview"]
         case .filePreview:
@@ -12288,6 +12292,8 @@ struct VerticalTabsSidebar: View, Equatable {
             return .terminal
         case .browser:
             return .browser
+        case .application:
+            return .unknown
         case .markdown:
             return .markdown
         case .filePreview:
