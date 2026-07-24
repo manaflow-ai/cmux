@@ -430,6 +430,10 @@ pub struct PtySurface {
     pwd: Mutex<Option<String>>,
     size: Mutex<(u16, u16)>,
     cell_pixels: Mutex<(u16, u16)>,
+    #[cfg(test)]
+    geometry_test_hook: Mutex<Option<Arc<dyn Fn(PtyGeometryTestStep) + Send + Sync>>>,
+    #[cfg(test)]
+    test_master_control: Option<Arc<TestMasterPtyControl>>,
     mux: Weak<Mux>,
     /// Live output subscribers (attach streams). Guarded by the terminal
     /// lock ordering: the reader thread broadcasts while holding the
@@ -553,6 +557,10 @@ impl Surface {
             pwd: Mutex::new(None),
             size: Mutex::new((opts.cols, opts.rows)),
             cell_pixels: Mutex::new(cell_pixels),
+            #[cfg(test)]
+            geometry_test_hook: Mutex::new(None),
+            #[cfg(test)]
+            test_master_control: None,
             mux: mux.clone(),
             taps: Mutex::new(Vec::new()),
             attach_colors_pending: AtomicBool::new(false),
@@ -680,6 +688,7 @@ impl Surface {
 
         let render_state = RenderState::new()?;
         let (frame_requests, _frame_rx) = sync_channel(1);
+        let test_master_control = Arc::new(TestMasterPtyControl::default());
 
         Ok(Arc::new(Surface::Pty(PtySurface {
             meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
@@ -693,6 +702,7 @@ impl Surface {
                     pixel_width: total_pixels(opts.cols, cell_pixels.0),
                     pixel_height: total_pixels(opts.rows, cell_pixels.1),
                 }),
+                control: test_master_control.clone(),
             })),
             killer: Mutex::new(Box::new(TestChildKiller)),
             pid: Some(id as u32),
@@ -704,6 +714,8 @@ impl Surface {
             pwd: Mutex::new(None),
             size: Mutex::new((opts.cols, opts.rows)),
             cell_pixels: Mutex::new(cell_pixels),
+            geometry_test_hook: Mutex::new(None),
+            test_master_control: Some(test_master_control),
             mux,
             taps: Mutex::new(Vec::new()),
             attach_colors_pending: AtomicBool::new(false),
@@ -1059,6 +1071,25 @@ impl Surface {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn fail_next_test_master_resize(&self) {
+        self.as_pty()
+            .and_then(|pty| pty.test_master_control.as_ref())
+            .expect("test PTY surface")
+            .fail_next_resize
+            .store(true, Ordering::Release);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_master_size(&self) -> PtySize {
+        self.as_pty().expect("test PTY surface").master.lock().unwrap().get_size().unwrap()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_cell_pixel_size(&self) -> (u16, u16) {
+        *self.as_pty().expect("test PTY surface").cell_pixels.lock().unwrap()
+    }
+
     pub fn title(&self) -> String {
         match self {
             Surface::Pty(pty) => pty.title.lock().unwrap().clone(),
@@ -1280,11 +1311,21 @@ impl Surface {
 #[cfg(test)]
 struct TestMasterPty {
     size: Mutex<PtySize>,
+    control: Arc<TestMasterPtyControl>,
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct TestMasterPtyControl {
+    fail_next_resize: AtomicBool,
 }
 
 #[cfg(test)]
 impl MasterPty for TestMasterPty {
     fn resize(&self, size: PtySize) -> anyhow::Result<()> {
+        if self.control.fail_next_resize.swap(false, Ordering::AcqRel) {
+            anyhow::bail!("injected PTY master resize failure");
+        }
         *self.size.lock().unwrap() = size;
         Ok(())
     }
@@ -1333,6 +1374,14 @@ impl ChildKiller for TestChildKiller {
 }
 
 impl PtySurface {
+    #[cfg(test)]
+    fn run_geometry_test_hook(&self, step: PtyGeometryTestStep) {
+        let hook = self.geometry_test_hook.lock().unwrap().clone();
+        if let Some(hook) = hook {
+            hook(step);
+        }
+    }
+
     /// Snapshot colors from the terminal and the owning shared render state.
     /// Updating that state keeps Ghostty damage owned by the renderer without
     /// inventing a generation, building a viewport, or notifying subscribers.
@@ -1439,6 +1488,8 @@ impl PtySurface {
     /// Resize both the PTY and the terminal state. Returns whether the
     /// final clamped size actually changed.
     fn resize(&self, cols: u16, rows: u16) -> bool {
+        #[cfg(test)]
+        self.run_geometry_test_hook(PtyGeometryTestStep::ResizeStarted);
         let (cols, rows) = (cols.max(1), rows.max(1));
         {
             let mut size = self.size.lock().unwrap();
@@ -1447,6 +1498,8 @@ impl PtySurface {
             }
             *size = (cols, rows);
         }
+        #[cfg(test)]
+        self.run_geometry_test_hook(PtyGeometryTestStep::ResizeCommitBoundary);
         // Hold the terminal lock while resizing and while sending the
         // attach marker, so attach mirrors observe bytes and resizes in
         // the exact order the server terminal applied them.
@@ -1479,6 +1532,8 @@ impl PtySurface {
     }
 
     fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) -> bool {
+        #[cfg(test)]
+        self.run_geometry_test_hook(PtyGeometryTestStep::CellPixelStarted);
         let next = (width_px.max(1), height_px.max(1));
         {
             let mut current = self.cell_pixels.lock().unwrap();
@@ -1487,6 +1542,8 @@ impl PtySurface {
             }
             *current = next;
         }
+        #[cfg(test)]
+        self.run_geometry_test_hook(PtyGeometryTestStep::CellPixelCommitBoundary);
         let (cols, rows) = *self.size.lock().unwrap();
         let mut term = self.term.lock().unwrap();
         let _ = self.master.lock().unwrap().resize(PtySize {
@@ -1510,6 +1567,15 @@ impl PtySurface {
         });
         true
     }
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PtyGeometryTestStep {
+    ResizeStarted,
+    ResizeCommitBoundary,
+    CellPixelStarted,
+    CellPixelCommitBoundary,
 }
 
 fn total_pixels(cells: u16, cell_pixels: u16) -> u16 {
@@ -1764,5 +1830,89 @@ mod tests {
         drop(render);
         assert!(pty.dirty.load(Ordering::Acquire));
         assert!(matches!(events.try_recv(), Ok(MuxEvent::SurfaceOutput(1))));
+    }
+
+    #[test]
+    fn concurrent_pty_resize_and_cell_pixel_update_publish_one_geometry_transaction_at_a_time() {
+        let mux = Mux::new_for_test("pty-geometry-transaction", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let pty = surface.as_pty().unwrap();
+        let (resize_entered_tx, resize_entered_rx) = std::sync::mpsc::channel();
+        let (release_resize_tx, release_resize_rx) = std::sync::mpsc::channel();
+        let (cell_started_tx, cell_started_rx) = std::sync::mpsc::channel();
+        let release_resize_rx = Arc::new(Mutex::new(release_resize_rx));
+        *pty.geometry_test_hook.lock().unwrap() = Some(Arc::new({
+            let release_resize_rx = release_resize_rx.clone();
+            move |step| match step {
+                PtyGeometryTestStep::ResizeCommitBoundary => {
+                    resize_entered_tx.send(()).unwrap();
+                    release_resize_rx.lock().unwrap().recv().unwrap();
+                }
+                PtyGeometryTestStep::CellPixelStarted => {
+                    cell_started_tx.send(()).unwrap();
+                }
+                _ => {}
+            }
+        }));
+
+        let resizing_surface = surface.clone();
+        let resizing = std::thread::spawn(move || resizing_surface.resize(100, 30));
+        resize_entered_rx.recv().unwrap();
+
+        let updating_surface = surface.clone();
+        let (cell_done_tx, cell_done_rx) = std::sync::mpsc::channel();
+        let updating = std::thread::spawn(move || {
+            let result = updating_surface.set_cell_pixel_size(9, 18);
+            cell_done_tx.send(result).unwrap();
+        });
+        cell_started_rx.recv().unwrap();
+        let cell_completed_while_resize_was_uncommitted =
+            cell_done_rx.recv_timeout(Duration::from_millis(100)).is_ok();
+
+        release_resize_tx.send(()).unwrap();
+        resizing.join().unwrap().unwrap();
+        updating.join().unwrap();
+
+        assert!(
+            !cell_completed_while_resize_was_uncommitted,
+            "cell pixels published while the resize transaction was paused before its backend commit"
+        );
+        assert_eq!(surface.size(), (100, 30));
+        let master = surface.test_master_size();
+        assert_eq!(
+            (master.cols, master.rows, master.pixel_width, master.pixel_height),
+            (100, 30, 900, 540)
+        );
+    }
+
+    #[test]
+    fn failed_pty_master_resize_commits_nothing_and_the_same_request_retries() {
+        let mux = Mux::new_for_test("pty-resize-failure", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        surface.fail_next_test_master_resize();
+
+        let failed = surface.resize(100, 30);
+
+        assert!(failed.is_err(), "PTY master resize failure must reach the caller");
+        assert_eq!(surface.size(), (80, 24));
+        {
+            let term = surface.as_pty().unwrap().term.lock().unwrap();
+            assert_eq!((term.cols(), term.rows()), (80, 24));
+        }
+        let master = surface.test_master_size();
+        assert_eq!(
+            (master.cols, master.rows, master.pixel_width, master.pixel_height),
+            (80, 24, 640, 384)
+        );
+
+        assert_eq!(surface.resize(100, 30).unwrap(), true);
+        assert_eq!(surface.size(), (100, 30));
+        let master = surface.test_master_size();
+        assert_eq!(
+            (master.cols, master.rows, master.pixel_width, master.pixel_height),
+            (100, 30, 800, 480)
+        );
     }
 }

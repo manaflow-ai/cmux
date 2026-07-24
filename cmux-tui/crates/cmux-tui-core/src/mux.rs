@@ -669,6 +669,8 @@ pub struct Mux {
     terminal_create_after_workspace_reservation: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     cell_pixels: Mutex<(u16, u16)>,
+    #[cfg(test)]
+    cell_pixel_before_publish: Mutex<Option<Arc<dyn Fn((u16, u16)) + Send + Sync>>>,
     default_colors: Mutex<DefaultColors>,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     agent_records: Mutex<HashMap<SurfaceId, AgentRecord>>,
@@ -788,6 +790,8 @@ impl Mux {
             terminal_create_after_workspace_reservation: Mutex::new(None),
             browser_runtime: Mutex::new(None),
             cell_pixels: Mutex::new((8, 16)),
+            #[cfg(test)]
+            cell_pixel_before_publish: Mutex::new(None),
             default_colors: Mutex::new(DefaultColors::default()),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             agent_records: Mutex::new(HashMap::new()),
@@ -2201,6 +2205,10 @@ impl Mux {
         // Existing surfaces still check their settled geometry on every call,
         // so a rejected queue submission can be retried with the same value.
         *self.cell_pixels.lock().unwrap() = next;
+        #[cfg(test)]
+        if let Some(hook) = self.cell_pixel_before_publish.lock().unwrap().clone() {
+            hook(self.cell_pixel_size());
+        }
         let surfaces = self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
         let mut update = CellPixelUpdate::default();
         for surface in surfaces {
@@ -5094,6 +5102,46 @@ mod tests {
 
     fn test_mux() -> Arc<Mux> {
         Mux::new_for_test("test", SurfaceOptions::default())
+    }
+
+    #[test]
+    fn cell_pixel_metric_publishes_only_after_existing_surface_fanout() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let observed_at_publish = Arc::new(Mutex::new(Vec::new()));
+        *mux.cell_pixel_before_publish.lock().unwrap() = Some(Arc::new({
+            let observed_at_publish = observed_at_publish.clone();
+            move |metric| observed_at_publish.lock().unwrap().push(metric)
+        }));
+
+        let update = mux.set_cell_pixel_size(9, 18);
+
+        assert_eq!(*observed_at_publish.lock().unwrap(), vec![(8, 16)]);
+        assert_eq!(mux.cell_pixel_size(), (9, 18));
+        assert_eq!(surface.test_cell_pixel_size(), (9, 18));
+        assert_eq!(update.resizes, vec![(surface.id, (80, 24), 0)]);
+        assert!(update.failures.is_empty());
+    }
+
+    #[test]
+    fn cell_pixel_fanout_reports_pty_failure_without_committing_that_surface() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        surface.fail_next_test_master_resize();
+
+        let update = mux.set_cell_pixel_size(9, 18);
+
+        assert!(update.resizes.is_empty());
+        assert_eq!(update.failures.len(), 1);
+        assert_eq!(update.failures[0].surface, surface.id);
+        assert!(update.failures[0].error.contains("injected PTY master resize failure"));
+        assert_eq!(mux.cell_pixel_size(), (9, 18));
+        assert_eq!(surface.test_cell_pixel_size(), (8, 16));
+        let master = surface.test_master_size();
+        assert_eq!(
+            (master.cols, master.rows, master.pixel_width, master.pixel_height),
+            (80, 24, 640, 384)
+        );
     }
 
     #[test]
