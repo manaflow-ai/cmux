@@ -1794,21 +1794,28 @@ impl Mux {
         let _lifecycle = self.lock_client_sizing_lifecycle();
         let mut sizing = self.client_sizing.lock().unwrap();
         let attached_clients = self.control_clients.attached_client_ids_by_surface();
-        let known = attached_clients.get(&surface).is_some_and(|clients| clients.contains(&client))
-            || sizing.surfaces.get(&surface).is_some_and(|viewers| viewers.contains_key(&client));
-        if !known {
+        let mut known_clients = attached_clients.get(&surface).cloned().unwrap_or_default();
+        if let Some(reporters) = sizing.surfaces.get(&surface) {
+            known_clients.extend(reporters.keys().copied());
+        }
+        if !known_clients.contains(&client) {
             return None;
         }
         if sizing.client_participates(surface, client) == participating {
             return Some(false);
         }
         let policy = sizing.policies.entry(surface).or_default();
+        if let Some(exclusive) = policy.exclusive_client.take() {
+            policy
+                .excluded_clients
+                .extend(known_clients.iter().copied().filter(|candidate| *candidate != exclusive));
+            policy.excluded_clients.remove(&exclusive);
+        }
         if participating {
             policy.excluded_clients.remove(&client);
         } else {
             policy.excluded_clients.insert(client);
         }
-        policy.exclusive_client = None;
         if policy.excluded_clients.is_empty() {
             sizing.policies.remove(&surface);
         }

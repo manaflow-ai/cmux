@@ -694,7 +694,7 @@ struct SurfaceResizeClaim {
 }
 
 struct SurfaceAttachClaim {
-    claims: Arc<Mutex<HashSet<SurfaceId>>>,
+    claims: Arc<Mutex<HashMap<SurfaceId, SurfaceAttachClaimState>>>,
     surface: SurfaceId,
 }
 
@@ -702,6 +702,11 @@ impl Drop for SurfaceAttachClaim {
     fn drop(&mut self) {
         self.claims.lock().unwrap().remove(&self.surface);
     }
+}
+
+#[derive(Clone, Copy, Default)]
+struct SurfaceAttachClaimState {
+    retired: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -849,7 +854,7 @@ pub struct OrderedSession {
     surface_resize_claims: Arc<Mutex<HashMap<SurfaceId, SurfaceResizeClaimState>>>,
     surface_resize_claim_sequence: Arc<AtomicU64>,
     surface_resize_ownership: Arc<Mutex<HashMap<SurfaceId, SurfaceResizeOwnership>>>,
-    surface_attach_claims: Arc<Mutex<HashSet<SurfaceId>>>,
+    surface_attach_claims: Arc<Mutex<HashMap<SurfaceId, SurfaceAttachClaimState>>>,
     surface_attach_failures: Arc<Mutex<HashMap<SurfaceId, SurfaceSyncFailureState>>>,
     surface_resize_failures: Arc<Mutex<HashMap<SurfaceId, SurfaceResizeFailure>>>,
     config_generation: Arc<AtomicU64>,
@@ -891,7 +896,7 @@ impl OrderedSession {
             surface_resize_claims: Arc::new(Mutex::new(HashMap::new())),
             surface_resize_claim_sequence: Arc::new(AtomicU64::new(0)),
             surface_resize_ownership: Arc::new(Mutex::new(HashMap::new())),
-            surface_attach_claims: Arc::new(Mutex::new(HashSet::new())),
+            surface_attach_claims: Arc::new(Mutex::new(HashMap::new())),
             surface_attach_failures: Arc::new(Mutex::new(HashMap::new())),
             surface_resize_failures: Arc::new(Mutex::new(HashMap::new())),
             config_generation: Arc::new(AtomicU64::new(0)),
@@ -1044,10 +1049,14 @@ impl OrderedSession {
 
     fn forget_surface(&self, id: SurfaceId) {
         if self.remote {
-            self.exited_surfaces.lock().unwrap().insert(id);
+            let mut exited_surfaces = self.exited_surfaces.lock().unwrap();
+            let mut attach_claims = self.surface_attach_claims.lock().unwrap();
+            exited_surfaces.insert(id);
+            if let Some(claim) = attach_claims.get_mut(&id) {
+                claim.retired = true;
+            }
         }
         self.surface_attach_failures.lock().unwrap().remove(&id);
-        self.surface_attach_claims.lock().unwrap().remove(&id);
         self.surface_resize_failures.lock().unwrap().remove(&id);
         self.surface_resize_ownership.lock().unwrap().remove(&id);
         self.inner.forget_surface(id);
@@ -1073,8 +1082,19 @@ impl OrderedSession {
         if !self.can_attach_surface(id) {
             return;
         }
-        self.surface_attach_claims.lock().unwrap().insert(id);
+        {
+            let exited_surfaces = self.exited_surfaces.lock().unwrap();
+            if exited_surfaces.contains(&id) {
+                return;
+            }
+            let mut attach_claims = self.surface_attach_claims.lock().unwrap();
+            if attach_claims.contains_key(&id) {
+                return;
+            }
+            attach_claims.insert(id, SurfaceAttachClaimState::default());
+        }
         let claim = SurfaceAttachClaim { claims: self.surface_attach_claims.clone(), surface: id };
+        let attach_claims = self.surface_attach_claims.clone();
         let session = self.inner.clone();
         let exited_surfaces = self.exited_surfaces.clone();
         let attach_failures = self.surface_attach_failures.clone();
@@ -1092,7 +1112,12 @@ impl OrderedSession {
             move || settlement.publish_deferred(),
             move || {
                 let _claim = claim;
-                if exited_surfaces.lock().unwrap().contains(&id) {
+                let retired_before_attach = {
+                    let exited_surfaces = exited_surfaces.lock().unwrap();
+                    exited_surfaces.contains(&id)
+                        || attach_claims.lock().unwrap().get(&id).is_some_and(|claim| claim.retired)
+                };
+                if retired_before_attach {
                     pending.defer(SessionMutationOutcome::Success { tree: None });
                     return Ok(());
                 }
@@ -1105,15 +1130,18 @@ impl OrderedSession {
                 // ordered worker is waiting to attach. In that case the
                 // missing mirror is the expected result of teardown, not a
                 // retryable synchronization failure.
-                if exited_surfaces.lock().unwrap().contains(&id) {
+                let attach_claims = attach_claims.lock().unwrap();
+                if attach_claims.get(&id).is_some_and(|claim| claim.retired) {
                     attach_failures.lock().unwrap().remove(&id);
                     pending.defer(SessionMutationOutcome::Success { tree: None });
+                    drop(attach_claims);
                     return Ok(());
                 }
                 match result {
                     Ok(Some(_)) => {
                         attach_failures.lock().unwrap().remove(&id);
                         pending.defer(SessionMutationOutcome::Success { tree: None });
+                        drop(attach_claims);
                         Ok(())
                     }
                     Ok(None) => {
@@ -1128,6 +1156,7 @@ impl OrderedSession {
                             error: format!("surface {id} is unavailable"),
                             reconnect_required: false,
                         });
+                        drop(attach_claims);
                         Ok(())
                     }
                     Err(error) => {
@@ -1147,6 +1176,7 @@ impl OrderedSession {
                             error: error.to_string(),
                             reconnect_required: timed_out,
                         });
+                        drop(attach_claims);
                         if timed_out || transport_failed { Err(error) } else { Ok(()) }
                     }
                 }
@@ -1161,17 +1191,19 @@ impl OrderedSession {
     }
 
     fn can_attach_surface(&self, id: SurfaceId) -> bool {
+        let failure_blocks = self
+            .surface_attach_failures
+            .lock()
+            .unwrap()
+            .get(&id)
+            .copied()
+            .is_some_and(surface_sync_failure_blocks);
+        let attach_claimed = self.surface_attach_claims.lock().unwrap().contains_key(&id);
         self.inner.cached_surface(id).is_none()
             && self.inner.can_attach_after_overflow(id)
             && !self.exited_surfaces.lock().unwrap().contains(&id)
-            && !self
-                .surface_attach_failures
-                .lock()
-                .unwrap()
-                .get(&id)
-                .copied()
-                .is_some_and(surface_sync_failure_blocks)
-            && !self.surface_attach_claims.lock().unwrap().contains(&id)
+            && !failure_blocks
+            && !attach_claimed
             && (!self.remote || !self.inner.remote_tree_is_stale())
     }
 
