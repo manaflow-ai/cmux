@@ -5,6 +5,18 @@ public import Foundation
 internal import CmuxMobileRPC
 
 extension MobileShellComposite {
+    /// Decodes a content chunk (up to 3 MiB of base64 per fetch) off the main
+    /// actor so binary previews and expansion downloads never run their JSON
+    /// pass on the UI thread.
+    nonisolated static func decodeContentResponse<T: Decodable & Sendable>(
+        _ response: Data
+    ) async throws -> WorkspaceChangesContentResponse<T> {
+        try ChatWireCoding().decode(
+            WorkspaceChangesContentResponse<T>.self,
+            from: response
+        )
+    }
+
     /// Maximum current-file size accepted by the unchanged-line expander.
     private static let workspaceChangesExpansionByteLimit: Int64 = 5 * 1_024 * 1_024
     /// Maximum decoded lines accepted by the unchanged-line expander.
@@ -244,10 +256,7 @@ extension MobileShellComposite {
             guard remoteClient === client, connectionState == .connected else {
                 throw CancellationError()
             }
-            return try ChatWireCoding().decode(
-                WorkspaceChangesContentResponse<T>.self,
-                from: response
-            )
+            return try await Self.decodeContentResponse(response)
         } catch is CancellationError {
             throw CancellationError()
         } catch {

@@ -162,6 +162,15 @@ extension MobileShellComposite {
         return try MobileWorkspaceChangedFilesResponse.decode(data)
     }
 
+    /// Decodes a potentially multi-megabyte file-diff payload off the main
+    /// actor (SE-0338: nonisolated async runs on the generic executor), so a
+    /// Show more response never runs a large JSON pass on the UI thread.
+    nonisolated static func decodeFileDiffResponse(
+        _ data: Data
+    ) async throws -> MobileWorkspaceFileDiffResponse {
+        try MobileWorkspaceFileDiffResponse.decode(data)
+    }
+
     /// Maps the RPC connection error onto the shell-owned fetch failure so UI
     /// callers can render a dedicated non-repository state.
     nonisolated static func workspaceChangesFetchError(
@@ -201,7 +210,7 @@ extension MobileShellComposite {
         guard remoteClient === client, connectionState == .connected else {
             throw CancellationError()
         }
-        return try MobileWorkspaceFileDiffResponse.decode(data)
+        return try await Self.decodeFileDiffResponse(data)
     }
 
     func scheduleWorkspaceChangesSummaryRefresh(

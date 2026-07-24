@@ -56,10 +56,10 @@ actor WorkspaceChangesBaseContentCache {
     func withLeasedFileURL<Value: Sendable>(
         for key: Key,
         projectedSize: Int64,
-        materialize: @Sendable (_ destination: URL) throws -> Void,
+        materialize: @Sendable (_ destination: URL) async throws -> Void,
         operation: @Sendable (URL) async throws -> Value
     ) async throws -> Value {
-        let leasedURL = try fileURL(
+        let leasedURL = try await fileURL(
             for: key,
             projectedSize: projectedSize,
             materialize: materialize
@@ -71,8 +71,8 @@ actor WorkspaceChangesBaseContentCache {
     private func fileURL(
         for key: Key,
         projectedSize: Int64,
-        materialize: @Sendable (_ destination: URL) throws -> Void
-    ) throws -> URL {
+        materialize: @Sendable (_ destination: URL) async throws -> Void
+    ) async throws -> URL {
         if let entry = entries[key] {
             if fileManager.fileExists(atPath: entry.fileURL.path) {
                 nextAccessOrdinal &+= 1
@@ -96,7 +96,24 @@ actor WorkspaceChangesBaseContentCache {
         let destination = directory.appendingPathComponent(filename, isDirectory: false)
         do {
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-            try materialize(destination)
+            // The materializer runs off-actor (async): the actor suspends
+            // rather than blocking a thread on the git subprocess.
+            try await materialize(destination)
+            if let existing = entries[key],
+               fileManager.fileExists(atPath: existing.fileURL.path) {
+                // A concurrent materialization for this key won during the
+                // suspension; adopt its entry and drop this one.
+                totalBytes -= projectedSize
+                try? fileManager.removeItem(at: destination)
+                nextAccessOrdinal &+= 1
+                entries[key] = Entry(
+                    fileURL: existing.fileURL,
+                    size: existing.size,
+                    accessOrdinal: nextAccessOrdinal,
+                    leaseCount: existing.leaseCount + 1
+                )
+                return existing.fileURL
+            }
             nextAccessOrdinal &+= 1
             entries[key] = Entry(
                 fileURL: destination,

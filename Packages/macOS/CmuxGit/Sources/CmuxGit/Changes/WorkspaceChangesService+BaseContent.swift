@@ -12,7 +12,7 @@ extension WorkspaceChangesService {
             for: key,
             projectedSize: projectedSize,
             materialize: { destination in
-                try materializeBaseContent(authorizedFile, to: destination)
+                try await materializeBaseContent(authorizedFile, to: destination)
             },
             operation: { fileURL in
                 let stat = try reader.stat(
@@ -40,7 +40,7 @@ extension WorkspaceChangesService {
             for: key,
             projectedSize: projectedSize,
             materialize: { destination in
-                try materializeBaseContent(authorizedFile, to: destination)
+                try await materializeBaseContent(authorizedFile, to: destination)
             },
             operation: { fileURL in
                 let chunk = try reader.fetch(
@@ -71,18 +71,21 @@ extension WorkspaceChangesService {
     private nonisolated func materializeBaseContent(
         _ authorizedFile: WorkspaceChangesAuthorizedPathCache.AuthorizedFile,
         to destination: URL
-    ) throws {
+    ) async throws {
         let blobSize = try requiredBaseBlobSize(for: authorizedFile)
         let scope = authorizedFile.snapshot.scope
         guard let object = authorizedFile.baseBlobOID else {
             throw WorkspaceChangesServiceError.fileNotFound
         }
-        let result = try runner.run(
-            arguments: ["--literal-pathspecs", "show", object],
-            in: URL(fileURLWithPath: scope.repoRoot, isDirectory: true),
-            writingOutputTo: destination,
-            maximumOutputByteCount: blobSize
-        )
+        let runner = self.runner
+        let result = try await offCooperativePool {
+            try runner.run(
+                arguments: ["--literal-pathspecs", "show", object],
+                in: URL(fileURLWithPath: scope.repoRoot, isDirectory: true),
+                writingOutputTo: destination,
+                maximumOutputByteCount: blobSize
+            )
+        }
         guard result.exitCode == 0,
               !result.standardOutputWasTruncated else {
             throw WorkspaceChangesServiceError.fileNotFound

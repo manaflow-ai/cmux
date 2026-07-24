@@ -299,19 +299,23 @@ public struct WorkspaceChangesService: Sendable {
             let runner = self.runner
             let object = "\(scope.diffBaseCommitOID):\(normalizedPath)"
             let repoURL = URL(fileURLWithPath: authorization.scope.repoRoot, isDirectory: true)
-            let oidResult = try runner.run(
-                arguments: ["--literal-pathspecs", "rev-parse", object],
-                in: repoURL
-            )
+            let oidResult = try await offCooperativePool {
+                try runner.run(
+                    arguments: ["--literal-pathspecs", "rev-parse", object],
+                    in: repoURL
+                )
+            }
             let oid = String(decoding: oidResult.output, as: UTF8.self)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard oidResult.exitCode == 0, !oid.isEmpty else {
                 throw WorkspaceChangesServiceError.gitFailure
             }
-            let sizeResult = try runner.run(
-                arguments: ["--literal-pathspecs", "cat-file", "-s", oid],
-                in: repoURL
-            )
+            let sizeResult = try await offCooperativePool {
+                try runner.run(
+                    arguments: ["--literal-pathspecs", "cat-file", "-s", oid],
+                    in: repoURL
+                )
+            }
             let sizeText = String(decoding: sizeResult.output, as: UTF8.self)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard sizeResult.exitCode == 0,
