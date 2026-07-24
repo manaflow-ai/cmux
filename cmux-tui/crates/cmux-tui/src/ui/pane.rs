@@ -15,7 +15,7 @@ use ratatui::style::{Color, Modifier, Style};
 
 use super::{thumb_geometry, truncate};
 use crate::app::{App, FocusTarget, Hit, PaneArea, PaneEdge, Selection};
-use crate::config::{Theme, tab_label};
+use crate::config::{PaneLayoutMode, Theme, tab_label};
 use crate::session::{ClientInfo, TabNotificationView};
 
 /// Border style for a pane box: active gets the accent color, idle
@@ -513,16 +513,37 @@ fn push_resize_hits(app: &mut App, area: &PaneArea) {
     let (x0, y0) = (rect.x, rect.y);
     let (x1, y1) = (rect.x + rect.width - 1, rect.y + rect.height - 1);
     let pane = area.pane;
+    let horizontal_resize = app.config.layout.mode != PaneLayoutMode::Scrolling;
     let cell = |x, y, horizontal, vertical| {
         (Rect { x, y, width: 1, height: 1 }, Hit::PaneResize { horizontal, vertical })
     };
     let mut hits = vec![
-        cell(x0, y0, Some((pane, PaneEdge::Left)), Some((pane, PaneEdge::Top))),
-        cell(x1, y0, Some((pane, PaneEdge::Right)), Some((pane, PaneEdge::Top))),
-        cell(x0, y1, Some((pane, PaneEdge::Left)), Some((pane, PaneEdge::Bottom))),
-        cell(x1, y1, Some((pane, PaneEdge::Right)), Some((pane, PaneEdge::Bottom))),
+        cell(
+            x0,
+            y0,
+            horizontal_resize.then_some((pane, PaneEdge::Left)),
+            Some((pane, PaneEdge::Top)),
+        ),
+        cell(
+            x1,
+            y0,
+            horizontal_resize.then_some((pane, PaneEdge::Right)),
+            Some((pane, PaneEdge::Top)),
+        ),
+        cell(
+            x0,
+            y1,
+            horizontal_resize.then_some((pane, PaneEdge::Left)),
+            Some((pane, PaneEdge::Bottom)),
+        ),
+        cell(
+            x1,
+            y1,
+            horizontal_resize.then_some((pane, PaneEdge::Right)),
+            Some((pane, PaneEdge::Bottom)),
+        ),
     ];
-    if rect.height > 2 {
+    if horizontal_resize && rect.height > 2 {
         hits.push((
             Rect { x: x0, y: y0 + 1, width: 1, height: rect.height - 2 },
             Hit::PaneResize { horizontal: Some((pane, PaneEdge::Left)), vertical: None },

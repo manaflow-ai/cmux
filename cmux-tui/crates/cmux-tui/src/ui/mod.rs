@@ -21,7 +21,7 @@ use ratatui::style::{Color, Modifier, Style};
 
 use crate::app::{App, Hit};
 
-pub(crate) use scrollbar::thumb_geometry;
+pub(crate) use scrollbar::{horizontal_column_at, horizontal_thumb_geometry, thumb_geometry};
 
 pub fn draw(app: &mut App, frame: &mut Frame) {
     app.reset_frame_cursor_spec();
@@ -99,8 +99,6 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     if width > 0 {
         hits.push((Rect { x: start, y: status_y, width, height: 1 }, Hit::NewScreen));
     }
-    app.hits.extend(hits);
-
     // Session label / status message, right-aligned (the prefix indicator
     // replaces it).
     let label = app
@@ -109,6 +107,27 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
         .map(|msg| format!(" {} ", truncate(msg, area.width.saturating_sub(x) as usize)))
         .unwrap_or_else(|| format!("[{}] ", app.session_label));
     let label_w = label.chars().count() as u16;
+    let right_reserved = if app.prefix_armed { 5 } else { label_w };
+    let track_end = area.width.saturating_sub(right_reserved);
+    let track_start = x.saturating_add(1);
+    let track_width = track_end.saturating_sub(track_start.saturating_add(1));
+    if let Some((columns, active)) = app.horizontal_scrollbar_state()
+        && track_width > 0
+    {
+        let track = Rect { x: track_start, y: status_y, width: track_width, height: 1 };
+        let track_style = base.fg(chrome.status_dim_fg);
+        for cell_x in track.x..track.x + track.width {
+            frame.buffer_mut()[(cell_x, status_y)].set_symbol("─").set_style(track_style);
+        }
+        let (thumb_x, thumb_width) = horizontal_thumb_geometry(columns, active, track.width);
+        let thumb_style = base.fg(chrome.scrollbar_thumb_active_fg);
+        for cell_x in track.x + thumb_x..track.x + thumb_x + thumb_width {
+            frame.buffer_mut()[(cell_x, status_y)].set_symbol("━").set_style(thumb_style);
+        }
+        hits.push((track, Hit::HorizontalScrollbar { track }));
+    }
+    app.hits.extend(hits);
+
     if !app.prefix_armed && x + label_w < area.width {
         frame.buffer_mut().set_stringn(
             area.width - label_w,

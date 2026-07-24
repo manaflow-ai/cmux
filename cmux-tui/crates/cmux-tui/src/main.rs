@@ -279,7 +279,7 @@ KEYS (prefix: Ctrl-b)
   n/p  next/prev screen
   h/j/k/l or arrows    move focus              d    quit (attach: detach)
   w  next workspace    W    new workspace       s    toggle sidebar
-  e  toggle sidebar view                       S    focus sidebar
+  e  toggle sidebar view   S    focus sidebar   g    toggle scrolling layout
   <  browser back      >    browser forward     r/u  browser reload/edit URL
   Ctrl-b  send a literal Ctrl-b
 
@@ -1528,6 +1528,11 @@ mod tests {
         assert!(USAGE.contains("--machine-provider-command <program> [arg ...] --"));
         assert!(USAGE.contains("--cloud"));
         assert!(USAGE.contains("--cloud-identity"));
+    }
+
+    #[test]
+    fn startup_help_lists_scrolling_layout_toggle() {
+        assert!(USAGE.contains("g    toggle scrolling layout"));
     }
 
     #[test]

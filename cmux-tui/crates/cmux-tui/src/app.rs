@@ -6,6 +6,7 @@
 //! snapshots, prefix arming, the current layout, hit map, selection, and
 //! menu/prompt overlays).
 
+use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Write;
 use std::path::PathBuf;
@@ -19,7 +20,7 @@ use base64::Engine;
 use cmux_tui_core::{
     BrowserSource, BrowserStatus, Direction, MuxEvent, Node, PairingChallenge, PaneId, Rect,
     SplitDir, SplitEdge, SplitId, SurfaceId, SurfaceKind, WorkspaceId, exact_split_for_pane_edge,
-    layout_screen, split_sides, zellij_default_pane_layout,
+    layout_screen, layout_screen_scrolling, split_sides, zellij_default_pane_layout,
 };
 use crossterm::ExecutableCommand;
 use crossterm::event::{
@@ -40,7 +41,7 @@ use ratatui::backend::CrosstermBackend;
 use crate::browser_input::{
     BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind, BrowserResizeFailure,
 };
-use crate::config::{Action, ChromeTheme, Config, ScrollbarPosition, SidebarView};
+use crate::config::{Action, ChromeTheme, Config, PaneLayoutMode, ScrollbarPosition, SidebarView};
 use crate::keys;
 use crate::localization;
 use crate::machine::{
@@ -62,7 +63,7 @@ use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quot
 use crate::ui::graphics::GraphicPlacement;
 use crate::ui::graphics_writer::GraphicsWriter;
 use crate::ui::input::{InputEvent, TextInput};
-use crate::ui::thumb_geometry;
+use crate::ui::{horizontal_column_at, thumb_geometry};
 
 const DEFERRED_INPUT_CAPACITY: usize = 512;
 const DEFERRED_INPUT_FIXED_BYTES: usize = 64;
@@ -2085,6 +2086,10 @@ pub enum Hit {
         surface: SurfaceId,
         track: Rect,
     },
+    /// Client-local horizontal pane-column viewport.
+    HorizontalScrollbar {
+        track: Rect,
+    },
     /// A rail's right border.
     RailResize(RailKind),
     /// Pane border resize handle.
@@ -2799,6 +2804,8 @@ enum Drag {
     },
     /// Scrollbar thumb drag.
     Scrollbar { surface: SurfaceId, track: Rect, anchor_y: u16, anchor_offset: u64 },
+    /// Horizontal pane-column scrollbar drag.
+    HorizontalScrollbar { track: Rect },
     /// Independent rail width override drag.
     RailResize(RailKind),
     /// Pane split resize drag.
@@ -2846,6 +2853,30 @@ struct PaneFocusHistory {
     baseline: HashMap<PaneId, u64>,
     membership_revision: Option<u64>,
     membership_initialized: bool,
+}
+
+#[derive(Debug, Default)]
+struct HorizontalColumn {
+    x: u16,
+    panes: Vec<(PaneId, Rect)>,
+}
+
+fn horizontal_columns(panes: &[(PaneId, Rect)]) -> Vec<HorizontalColumn> {
+    let mut panes = panes
+        .iter()
+        .copied()
+        .filter(|(_, rect)| rect.width > 0 && rect.height > 0)
+        .collect::<Vec<_>>();
+    panes.sort_by_key(|(pane, rect)| (rect.x, rect.y, *pane));
+    let mut columns = Vec::<HorizontalColumn>::new();
+    for (pane, rect) in panes {
+        if let Some(column) = columns.last_mut().filter(|column| column.x == rect.x) {
+            column.panes.push((pane, rect));
+        } else {
+            columns.push(HorizontalColumn { x: rect.x, panes: vec![(pane, rect)] });
+        }
+    }
+    columns
 }
 
 impl PaneFocusHistory {
@@ -2919,6 +2950,7 @@ pub struct App {
     pub graphics_supported: bool,
     stdout_lock: Arc<Mutex<()>>,
     pub pane_areas: Vec<PaneArea>,
+    horizontal_columns: Vec<HorizontalColumn>,
     pane_focus_history: PaneFocusHistory,
     /// Terminal cells actually represented by the last rendered snapshot.
     /// Foreign-viewer padding outside these bounds is display-only.
@@ -3935,6 +3967,7 @@ pub fn run_with_machine_updates(
         graphics_supported,
         stdout_lock: stdout_lock.clone(),
         pane_areas: Vec::new(),
+        horizontal_columns: Vec::new(),
         pane_focus_history: PaneFocusHistory::default(),
         rendered_terminal_bounds: HashMap::new(),
         visible_size_surfaces: HashSet::new(),
@@ -4615,6 +4648,7 @@ impl App {
         self.rebuild_tab_locations();
         self.render_states.clear();
         self.pane_areas.clear();
+        self.horizontal_columns.clear();
         self.pane_focus_history = PaneFocusHistory::default();
         self.pane_focus_history.sync_membership(&self.tree);
         self.rendered_terminal_bounds.clear();
@@ -5271,12 +5305,19 @@ impl App {
         self.sidebar_workspace_selection =
             self.sidebar_workspace_selection.min(self.tree.workspaces.len().saturating_sub(1));
         self.sync_sidebar_files_to_focus(false);
+        let scrolling = self.config.layout.mode == PaneLayoutMode::Scrolling;
         let layout = self
             .tree
             .active_screen()
             .map(|screen| {
                 if let Some(pane) = screen.zoomed_pane {
-                    layout_screen(&Node::Leaf(pane), area, Some(pane))
+                    if scrolling {
+                        layout_screen_scrolling(&Node::Leaf(pane), area, Some(pane))
+                    } else {
+                        layout_screen(&Node::Leaf(pane), area, Some(pane))
+                    }
+                } else if scrolling {
+                    layout_screen_scrolling(&screen.layout, area, Some(screen.active_pane))
                 } else {
                     layout_screen(&screen.layout, area, Some(screen.active_pane))
                 }
@@ -5284,6 +5325,8 @@ impl App {
             .unwrap_or_default();
 
         self.pane_areas.clear();
+        self.horizontal_columns =
+            if scrolling { horizontal_columns(&layout.panes) } else { Vec::new() };
         let Some(screen) = self.tree.active_screen().cloned() else {
             let hidden = self
                 .visible_size_surfaces
@@ -5299,8 +5342,18 @@ impl App {
             }
             return;
         };
+        let active_column_x = scrolling
+            .then(|| layout.rect_of(screen.active_pane).map(|rect| rect.x))
+            .flatten()
+            .or_else(|| self.horizontal_columns.first().map(|column| column.x));
         let stacked_headers = layout.stacked_headers;
-        for (pane_id, rect) in layout.panes {
+        for (pane_id, mut rect) in layout.panes {
+            if scrolling {
+                if Some(rect.x) != active_column_x {
+                    continue;
+                }
+                rect.x = area.x;
+            }
             let Some(pane) = screen.pane(pane_id) else { continue };
             let Some(surface_id) = pane.active_surface() else { continue };
             let has_browser_omnibar =
@@ -6014,6 +6067,13 @@ impl App {
                         | MouseEventKind::Up(MouseButton::Left),
                     ..
                 }),
+                Some(Drag::HorizontalScrollbar { .. })
+            ) | (
+                Event::Mouse(MouseEvent {
+                    kind: MouseEventKind::Drag(MouseButton::Left)
+                        | MouseEventKind::Up(MouseButton::Left),
+                    ..
+                }),
                 Some(Drag::ResizeSplit { .. })
             ) | (
                 Event::Mouse(MouseEvent {
@@ -6285,6 +6345,63 @@ impl App {
         }
     }
 
+    pub(crate) fn horizontal_scrollbar_state(&self) -> Option<(usize, usize)> {
+        if self.config.layout.mode != PaneLayoutMode::Scrolling || self.horizontal_columns.len() < 2
+        {
+            return None;
+        }
+        let active = self.active_pane()?;
+        let index = self
+            .horizontal_columns
+            .iter()
+            .position(|column| column.panes.iter().any(|(pane, _)| *pane == active))?;
+        Some((self.horizontal_columns.len(), index))
+    }
+
+    fn focus_horizontal_column(&mut self, index: usize) {
+        let Some(active) = self.active_pane() else { return };
+        let Some(active_rect) = self
+            .horizontal_columns
+            .iter()
+            .flat_map(|column| column.panes.iter())
+            .find_map(|(pane, rect)| (*pane == active).then_some(*rect))
+        else {
+            return;
+        };
+        let active_center = active_rect.y.saturating_add(active_rect.height / 2);
+        let Some(target) = self.horizontal_columns.get(index).and_then(|column| {
+            column
+                .panes
+                .iter()
+                .min_by_key(|(pane, rect)| {
+                    (
+                        rect.y.saturating_add(rect.height / 2).abs_diff(active_center),
+                        Reverse(self.pane_focus_history.recency(*pane)),
+                    )
+                })
+                .map(|(pane, _)| *pane)
+        }) else {
+            return;
+        };
+        if target != active {
+            self.focus_pane_after_input(target);
+        }
+    }
+
+    fn scroll_horizontal_columns(&mut self, delta: isize) {
+        let Some((count, active)) = self.horizontal_scrollbar_state() else { return };
+        let target = active.saturating_add_signed(delta).min(count - 1);
+        self.focus_horizontal_column(target);
+    }
+
+    fn scroll_horizontal_track(&mut self, track: Rect, x: u16) {
+        let Some((count, _)) = self.horizontal_scrollbar_state() else { return };
+        let position = x.saturating_sub(track.x);
+        if let Some(index) = horizontal_column_at(count, track.width, position) {
+            self.focus_horizontal_column(index);
+        }
+    }
+
     fn enqueue_surface_resize(
         &mut self,
         surface_id: SurfaceId,
@@ -6370,6 +6487,9 @@ impl App {
     /// Size hint for splitting `pane`: the second side of its rect.
     fn split_size_hint(&self, pane: PaneId, dir: SplitDir) -> Option<(u16, u16)> {
         let area = self.pane_areas.iter().find(|a| a.pane == pane)?;
+        if self.config.layout.mode == PaneLayoutMode::Scrolling && dir == SplitDir::Right {
+            return self.size_of_rect(area.rect);
+        }
         let (_, b) = split_sides(area.rect, dir, 0.5);
         self.size_of_rect(b)
     }
@@ -6405,6 +6525,13 @@ impl App {
         let Some(pane) = self.active_pane() else {
             return Ok(());
         };
+        if self.config.layout.mode == PaneLayoutMode::Scrolling {
+            let hint = self.size_of_rect(self.content_area);
+            if self.prepare_pty_input_before_mutation() {
+                self.session.new_pane(pane, hint)?;
+            }
+            return Ok(());
+        }
         let Some(hint) = self.tree.active_screen().and_then(|screen| {
             let mut panes = Vec::new();
             screen.layout.pane_ids(&mut panes);
@@ -7599,6 +7726,9 @@ impl App {
             }
             Action::ToggleSidebarView => self.toggle_sidebar_view(),
             Action::FocusSidebar => self.toggle_sidebar_focus(),
+            Action::ToggleScrollingLayout => {
+                self.config.layout.mode = self.config.layout.mode.toggled();
+            }
             Action::FocusLeft => self.move_focus(Direction::Left),
             Action::FocusRight => self.move_focus(Direction::Right),
             Action::FocusUp => self.move_focus(Direction::Up),
@@ -7988,16 +8118,35 @@ impl App {
             return;
         }
         let active = screen.active_pane;
+        if self.config.layout.mode == PaneLayoutMode::Scrolling {
+            match direction {
+                Direction::Left => {
+                    self.scroll_horizontal_columns(-1);
+                    return;
+                }
+                Direction::Right => {
+                    self.scroll_horizontal_columns(1);
+                    return;
+                }
+                Direction::Up | Direction::Down => {}
+            }
+        }
         let (dx, dy) = match direction {
             Direction::Left => (-1, 0),
             Direction::Right => (1, 0),
             Direction::Up => (0, -1),
             Direction::Down => (0, 1),
         };
-        let layout = cmux_tui_core::LayoutResult {
-            panes: self.pane_areas.iter().map(|area| (area.pane, area.rect)).collect(),
-            ..Default::default()
+        let panes = if self.config.layout.mode == PaneLayoutMode::Scrolling {
+            self.horizontal_columns
+                .iter()
+                .find(|column| column.panes.iter().any(|(pane, _)| *pane == active))
+                .map(|column| column.panes.clone())
+                .unwrap_or_default()
+        } else {
+            self.pane_areas.iter().map(|area| (area.pane, area.rect)).collect()
         };
+        let layout = cmux_tui_core::LayoutResult { panes, ..Default::default() };
         if let Some(next) =
             layout.neighbor_by_recency(active, dx, dy, |pane| self.pane_focus_history.recency(pane))
         {
@@ -9285,7 +9434,10 @@ impl App {
                     .filter(|hit| {
                         matches!(
                             hit,
-                            Hit::NewTab { .. } | Hit::TabScroll { .. } | Hit::Scrollbar { .. }
+                            Hit::NewTab { .. }
+                                | Hit::TabScroll { .. }
+                                | Hit::Scrollbar { .. }
+                                | Hit::HorizontalScrollbar { .. }
                         )
                     })
                     .map(|hit| format!("{hit:?}"))
@@ -9547,6 +9699,10 @@ impl App {
                 Hit::Scrollbar { surface, track } => {
                     self.start_scrollbar_drag(surface, track, y);
                 }
+                Hit::HorizontalScrollbar { track } => {
+                    self.scroll_horizontal_track(track, x);
+                    self.drag = Some(Drag::HorizontalScrollbar { track });
+                }
                 Hit::RailResize(kind) => {
                     self.focus = match kind {
                         RailKind::Machine => FocusTarget::MachineRail,
@@ -9677,6 +9833,11 @@ impl App {
                 let (surface, track, anchor_y, anchor_offset) =
                     (*surface, *track, *anchor_y, *anchor_offset);
                 self.drag_scrollbar(surface, track, anchor_y, anchor_offset, y);
+                Ok(RenderAction::Draw)
+            }
+            Some(Drag::HorizontalScrollbar { track }) => {
+                let track = *track;
+                self.scroll_horizontal_track(track, x);
                 Ok(RenderAction::Draw)
             }
             Some(Drag::RailResize(kind)) => {
@@ -9918,8 +10079,10 @@ impl App {
             (SplitEdge::Bottom, PaneEdge::Bottom),
             (SplitEdge::Top, PaneEdge::Top),
         ];
+        let scrolling = self.config.layout.mode == PaneLayoutMode::Scrolling;
         let Some((edge, target)) = candidates
             .into_iter()
+            .filter(|(edge, _)| !scrolling || matches!(edge, SplitEdge::Top | SplitEdge::Bottom))
             .filter_map(|(split_edge, pane_edge)| {
                 exact_split_for_pane_edge(
                     &screen.layout,
@@ -9968,6 +10131,11 @@ impl App {
     }
 
     fn resize_split(&mut self, pane: PaneId, edge: PaneEdge, x: u16, y: u16) {
+        if self.config.layout.mode == PaneLayoutMode::Scrolling
+            && matches!(edge, PaneEdge::Left | PaneEdge::Right)
+        {
+            return;
+        }
         let Some(screen) = self.tree.active_screen() else { return };
         let split_edge = match edge {
             PaneEdge::Left => SplitEdge::Left,
@@ -10271,6 +10439,13 @@ impl App {
         if self.menu.is_some() || self.prompt.is_some() {
             return Ok(RenderAction::None);
         }
+        if self.config.layout.mode == PaneLayoutMode::Scrolling
+            && (self.content_area.contains(x, y)
+                || matches!(self.hit_at(x, y), Some(Hit::HorizontalScrollbar { .. })))
+        {
+            self.scroll_horizontal_columns(if right { 1 } else { -1 });
+            return Ok(RenderAction::Draw);
+        }
         let Some(area) = self.pane_area_at(x, y).copied() else {
             return Ok(RenderAction::None);
         };
@@ -10439,6 +10614,7 @@ fn action_prepares_pty_release(action: Action) -> bool {
             | Action::RenameScreen
             | Action::RenameWorkspace
             | Action::NewWorkspace
+            | Action::ToggleScrollingLayout
             | Action::ScrollUp
             | Action::ScrollDown
             | Action::BrowserEditUrl
@@ -10574,7 +10750,9 @@ mod tests {
     use ratatui::backend::TestBackend;
 
     use crate::browser_input::{BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind};
-    use crate::config::{Action, ChromeTheme, Config, ScrollbarPosition, SidebarView};
+    use crate::config::{
+        Action, ChromeTheme, Config, PaneLayoutMode, ScrollbarPosition, SidebarView,
+    };
     use crate::localization;
     use crate::machine::{
         MachineActionResult, MachineCapabilities, MachineController, MachineDescriptor, MachineKey,
@@ -10748,6 +10926,105 @@ mod tests {
         for surface in surfaces {
             mux.close_surface(surface).unwrap();
         }
+    }
+
+    #[test]
+    fn scrolling_layout_uses_full_width_columns_and_mouse_navigation() {
+        let mux = Mux::new("scrolling-layout-navigation-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 24))).unwrap();
+        let left = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        mux.split(left, SplitDir::Right, Some((40, 24))).unwrap();
+        let right = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        assert!(mux.focus_pane(left));
+
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((80, 25));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        assert!(app.horizontal_columns.is_empty());
+        assert_eq!(app.pane_areas.len(), 2);
+        assert!(app.pane_areas.iter().all(|area| area.rect.width == 40));
+
+        app.config.layout.mode = PaneLayoutMode::Scrolling;
+        app.sync_layout((80, 25));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+
+        assert_eq!(app.horizontal_columns.len(), 2);
+        assert_eq!(app.pane_areas.len(), 1);
+        assert_eq!(app.pane_areas[0].pane, left);
+        assert_eq!(app.pane_areas[0].rect, Rect { x: 0, y: 0, width: 80, height: 24 });
+        assert_eq!(app.horizontal_scrollbar_state(), Some((2, 0)));
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 25)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let track = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::HorizontalScrollbar { .. }).then_some(*rect)
+            })
+            .expect("scrolling mode must render a horizontal track");
+
+        app.session.remote = true;
+        app.horizontal_columns[0].panes[0].1.height = 5;
+        app.horizontal_columns[1].panes[0].1.y = 10;
+        app.horizontal_columns[1].panes[0].1.height = 5;
+        app.move_focus(Direction::Right);
+        assert_eq!(app.active_pane(), Some(right));
+        app.move_focus(Direction::Left);
+        assert_eq!(app.active_pane(), Some(left));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        assert_eq!(
+            app.handle_horizontal_scroll(10, 10, true, KeyModifiers::NONE).unwrap(),
+            RenderAction::Draw
+        );
+        assert_eq!(app.active_pane(), Some(right));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        app.sync_layout((80, 25));
+        assert_eq!(app.pane_areas.len(), 1);
+        assert_eq!(app.pane_areas[0].pane, right);
+        assert_eq!(app.horizontal_scrollbar_state(), Some((2, 1)));
+
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        app.handle_left_down(track.x, track.y, KeyModifiers::NONE).unwrap();
+        assert_eq!(app.active_pane(), Some(left));
+        assert!(matches!(app.drag, Some(Drag::HorizontalScrollbar { .. })));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        app.handle_left_drag(track.x + track.width - 1, track.y).unwrap();
+        assert_eq!(app.active_pane(), Some(right));
+        app.handle_left_up(track.x + track.width - 1, track.y).unwrap();
+        assert!(app.drag.is_none());
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn scrolling_layout_toggle_preserves_the_tiled_default() {
+        let mux = Mux::new("scrolling-layout-toggle-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+
+        assert_eq!(app.config.layout.mode, PaneLayoutMode::Tiled);
+        app.run_action(Action::ToggleScrollingLayout).unwrap();
+        assert_eq!(app.config.layout.mode, PaneLayoutMode::Scrolling);
+        app.run_action(Action::ToggleScrollingLayout).unwrap();
+        assert_eq!(app.config.layout.mode, PaneLayoutMode::Tiled);
     }
 
     #[test]
@@ -16617,6 +16894,7 @@ mod tests {
             graphics_supported: false,
             stdout_lock: Arc::new(Mutex::new(())),
             pane_areas: Vec::new(),
+            horizontal_columns: Vec::new(),
             pane_focus_history: PaneFocusHistory::default(),
             rendered_terminal_bounds: HashMap::new(),
             visible_size_surfaces: HashSet::new(),

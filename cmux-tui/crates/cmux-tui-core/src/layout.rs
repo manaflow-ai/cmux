@@ -227,6 +227,23 @@ pub fn layout_screen(root: &Node, area: Rect, active_pane: Option<PaneId>) -> La
     result
 }
 
+/// Compute a client-local, horizontally scrolling presentation of a screen.
+///
+/// Every pane receives one full `area.width` column. Horizontal splits place
+/// their children in adjacent columns and deliberately ignore their stored
+/// ratio, while vertical splits retain their ratio inside each column. The
+/// mux-owned split tree is not mutated, so another frontend can keep using
+/// [`layout_screen`] at the same time.
+pub fn layout_screen_scrolling(
+    root: &Node,
+    area: Rect,
+    active_pane: Option<PaneId>,
+) -> LayoutResult {
+    let mut result = LayoutResult::default();
+    let _ = walk_scrolling(root, area, active_pane, &mut result);
+    result
+}
+
 /// Reproduce Zellij's default auto-layout sequence for panes in creation
 /// order. Through twelve panes, the `vertical` family fills columns of four.
 /// Above twelve panes, Zellij advances to `stacked`: the first pane stays
@@ -330,6 +347,49 @@ fn walk(node: &Node, area: Rect, active_pane: Option<PaneId>, out: &mut LayoutRe
             let panes = panes.as_slice();
             let expanded = active_pane.filter(|pane| panes.contains(pane)).unwrap_or(*expanded);
             walk_stack(panes, expanded, area, out);
+        }
+    }
+}
+
+/// Lay out `node` and return the horizontal extent consumed by its columns.
+fn walk_scrolling(
+    node: &Node,
+    area: Rect,
+    active_pane: Option<PaneId>,
+    out: &mut LayoutResult,
+) -> u16 {
+    match node {
+        Node::Leaf(id) => {
+            out.panes.push((*id, area));
+            area.width
+        }
+        Node::Split { dir: SplitDir::Right, a, b, .. } => {
+            let a_width = walk_scrolling(a, area, active_pane, out);
+            let b_width = walk_scrolling(
+                b,
+                Rect { x: area.x.saturating_add(a_width), ..area },
+                active_pane,
+                out,
+            );
+            a_width.saturating_add(b_width)
+        }
+        Node::Split { dir: SplitDir::Down, ratio, a, b, .. } => {
+            if area.height < 2 {
+                let a_width = walk_scrolling(a, area, active_pane, out);
+                let b_width =
+                    walk_scrolling(b, Rect { width: 0, height: 0, ..area }, active_pane, out);
+                return a_width.max(b_width);
+            }
+            let (a_rect, b_rect) = split_sides(area, SplitDir::Down, *ratio);
+            let a_width = walk_scrolling(a, a_rect, active_pane, out);
+            let b_width = walk_scrolling(b, b_rect, active_pane, out);
+            a_width.max(b_width)
+        }
+        Node::Stack { panes, expanded } => {
+            let panes = panes.as_slice();
+            let expanded = active_pane.filter(|pane| panes.contains(pane)).unwrap_or(*expanded);
+            walk_stack(panes, expanded, area, out);
+            area.width
         }
     }
 }
@@ -556,6 +616,48 @@ mod tests {
         // Panes tile without gaps: every cell belongs to exactly one pane.
         assert_eq!(layout.pane_at(39, 0), Some(1));
         assert_eq!(layout.pane_at(40, 0), Some(2));
+    }
+
+    #[test]
+    fn scrolling_layout_gives_horizontal_splits_full_width_columns() {
+        let root = Node::Split {
+            id: 10,
+            dir: SplitDir::Right,
+            ratio: 0.9,
+            a: Box::new(Node::Leaf(1)),
+            b: Box::new(Node::Leaf(2)),
+        };
+
+        let layout =
+            layout_screen_scrolling(&root, Rect { x: 7, y: 3, width: 80, height: 24 }, Some(1));
+
+        assert_eq!(layout.rect_of(1), Some(Rect { x: 7, y: 3, width: 80, height: 24 }));
+        assert_eq!(layout.rect_of(2), Some(Rect { x: 87, y: 3, width: 80, height: 24 }));
+    }
+
+    #[test]
+    fn scrolling_layout_keeps_vertical_splits_in_one_column() {
+        let root = Node::Split {
+            id: 10,
+            dir: SplitDir::Right,
+            ratio: 0.5,
+            a: Box::new(Node::Split {
+                id: 11,
+                dir: SplitDir::Down,
+                ratio: 0.25,
+                a: Box::new(Node::Leaf(1)),
+                b: Box::new(Node::Leaf(2)),
+            }),
+            b: Box::new(Node::Leaf(3)),
+        };
+
+        let layout =
+            layout_screen_scrolling(&root, Rect { x: 0, y: 0, width: 100, height: 40 }, Some(2));
+
+        assert_eq!(layout.rect_of(1), Some(Rect { x: 0, y: 0, width: 100, height: 10 }));
+        assert_eq!(layout.rect_of(2), Some(Rect { x: 0, y: 10, width: 100, height: 30 }));
+        assert_eq!(layout.rect_of(3), Some(Rect { x: 100, y: 0, width: 100, height: 40 }));
+        assert_eq!(layout.neighbor(2, 1, 0), Some(3));
     }
 
     #[test]
