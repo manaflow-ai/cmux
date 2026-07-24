@@ -234,6 +234,110 @@ struct CLICodexHookTimeoutRegressionTests {
         )
     }
 
+    @Test func codexWrapperStopScriptCannotBeOverwrittenByAnOlderGenerator() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-stop-versioned-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let emit = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "inject-args"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 5
+        )
+        #expect(!emit.timedOut, Comment(rawValue: emit.stderr))
+        #expect(emit.status == 0, Comment(rawValue: emit.stderr))
+        #expect(emit.stdout.contains("hooks.Stop="))
+        #expect(emit.stdout.contains("timeout=10000"))
+
+        let hooksDirectory = root
+            .appendingPathComponent(".cmux", isDirectory: true)
+            .appendingPathComponent("hooks", isDirectory: true)
+        let generatedStopScript = try #require(
+            FileManager.default
+                .contentsOfDirectory(
+                    at: hooksDirectory,
+                    includingPropertiesForKeys: nil
+                )
+                .first { $0.lastPathComponent.hasSuffix("-stop.sh") }
+        )
+        let legacyStopScript = hooksDirectory
+            .appendingPathComponent("cmux-codex-hook-stop.sh", isDirectory: false)
+        #expect(
+            generatedStopScript != legacyStopScript,
+            "A content-addressed path prevents an older cmux build from replacing this script"
+        )
+
+        let generatedContents = try String(contentsOf: generatedStopScript, encoding: .utf8)
+        try "#!/bin/sh\necho '{}'\n".write(
+            to: legacyStopScript,
+            atomically: true,
+            encoding: .utf8
+        )
+        #expect(try String(contentsOf: generatedStopScript, encoding: .utf8) == generatedContents)
+    }
+
+    @Test func codexHookInstallReplacesLegacyGeneratedScriptPath() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-stop-legacy-path-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        let hooksDirectory = root
+            .appendingPathComponent(".cmux", isDirectory: true)
+            .appendingPathComponent("hooks", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: hooksDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let legacyStopScript = hooksDirectory
+            .appendingPathComponent("cmux-codex-hook-stop.sh", isDirectory: false)
+        try makeCodexHookExecutableShellFile(at: legacyStopScript, lines: [
+            "#!/bin/sh",
+            "echo '{}'",
+        ])
+        let legacyHookJSON: [String: Any] = [
+            "hooks": [
+                "Stop": [
+                    [
+                        "hooks": [
+                            [
+                                "command": legacyStopScript.path,
+                                "timeout": 10000,
+                                "type": "command",
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ]
+        try JSONSerialization.data(
+            withJSONObject: legacyHookJSON,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        .write(
+            to: codexHome.appendingPathComponent("hooks.json", isDirectory: false),
+            options: .atomic
+        )
+
+        let install = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install", "--yes"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 5
+        )
+        #expect(!install.timedOut, Comment(rawValue: install.stderr))
+        #expect(install.status == 0, Comment(rawValue: install.stderr))
+
+        let stopHooks = try codexHookEntries(in: codexHome)
+            .filter { $0.eventName == "Stop" }
+        #expect(stopHooks.count == 1)
+        #expect(stopHooks.first?.command != legacyStopScript.path)
+        #expect(stopHooks.first?.body.contains("cat >/dev/null") == true)
+    }
+
     @Test func codexInstalledAsyncStopDoesNotMarkNewerTurnIdle() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
