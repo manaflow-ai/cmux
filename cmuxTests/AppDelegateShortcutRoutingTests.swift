@@ -6303,18 +6303,21 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #if DEBUG
         XCTAssertEqual(repairProbe.repairCount(), 1, "window.sendEvent should run the focused terminal repair path")
         XCTAssertTrue(repairProbe.repairResponder() === orphanResponder, "Repair should evaluate the simulated stranded responder")
-        // Forwarding the repaired keyDown into libghostty only happens once the
-        // runtime surface is live. The headless xctest host does not always spin one
-        // up, so gate the forward observation on a live surface (the same constraint
-        // GhosttyPhysicalInputFocusReassertionTests uses). The repair routing itself
-        // is verified above regardless of surface liveness.
-        if terminalPanel.surface.hasLiveSurface {
-            XCTAssertGreaterThan(
-                repairProbe.forwardedKeyDownCount(),
-                0,
-                "Typing repair should forward the keyDown into Ghostty"
-            )
-        }
+        // Forwarding the repaired keyDown into libghostty only happens once the runtime surface is
+        // live, and the headless xctest host does not always spin one up. Skip rather than wrap the
+        // assertion in `if hasLiveSurface`: a conditional makes the oracle vanish on a host without a
+        // surface and the test still reports green, so the forwarding would be unverified without
+        // anything saying so. A skip says it out loud. The repair routing asserted above is checked
+        // either way, and runs before this point.
+        try XCTSkipUnless(
+            terminalPanel.surface.hasLiveSurface,
+            "No live libghostty surface on this host, so keyDown forwarding cannot be observed"
+        )
+        XCTAssertGreaterThan(
+            repairProbe.forwardedKeyDownCount(),
+            0,
+            "Typing repair should forward the keyDown into Ghostty"
+        )
 #endif
     }
 
