@@ -242,6 +242,7 @@ struct PromptSemanticTracker {
     alternate: PromptSemantic,
     alternate_active: bool,
     revision: u64,
+    command_revision: u64,
 }
 
 #[derive(Default)]
@@ -436,6 +437,10 @@ impl PromptSemanticTracker {
         self.revision
     }
 
+    fn command_revision(&self) -> u64 {
+        self.command_revision
+    }
+
     fn current_mut(&mut self) -> &mut PromptSemantic {
         if self.alternate_active { &mut self.alternate } else { &mut self.primary }
     }
@@ -457,6 +462,9 @@ impl PromptSemanticTracker {
         };
         *self.current_mut() = semantic;
         self.revision = self.revision.wrapping_add(1);
+        if action == b'C' {
+            self.command_revision = self.command_revision.wrapping_add(1);
+        }
     }
 }
 
@@ -1366,6 +1374,11 @@ impl Terminal {
         self.prompt_semantic.revision()
     }
 
+    /// Monotonic revision of OSC 133 `C` command-execution markers.
+    pub fn prompt_command_revision(&self) -> u64 {
+        self.prompt_semantic.command_revision()
+    }
+
     /// Whether any mouse tracking mode is enabled by the application.
     pub fn mouse_tracking(&self) -> bool {
         self.get::<bool>(sys::GHOSTTY_TERMINAL_DATA_MOUSE_TRACKING).unwrap_or(false)
@@ -1956,6 +1969,21 @@ mod tests {
         tracker.feed(b"\x1b]133;A;redraw=1\x1b\\");
         assert_eq!(tracker.semantic(Screen::Primary), PromptSemantic::Prompt);
         assert_eq!(tracker.revision(), revision.wrapping_add(1));
+    }
+
+    #[test]
+    fn prompt_command_revision_advances_only_when_execution_begins() {
+        let mut tracker = PromptSemanticTracker::default();
+        let initial = tracker.command_revision();
+
+        tracker.feed(b"\x1b]133;A\x07prompt> \x1b]133;B\x07");
+        assert_eq!(tracker.command_revision(), initial);
+
+        tracker.feed(b"\x1b]133;C\x07");
+        assert_eq!(tracker.command_revision(), initial.wrapping_add(1));
+
+        tracker.feed(b"\x1b]133;D;0\x07\x1b]133;A\x07\x1b]133;B\x07");
+        assert_eq!(tracker.command_revision(), initial.wrapping_add(1));
     }
 
     #[test]

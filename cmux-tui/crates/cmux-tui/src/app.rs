@@ -3800,12 +3800,13 @@ pub fn run_with_machine_updates(
         .transpose()?;
 
     // Crossterm input → app channel.
+    let mut host_keyboard_protocol = HostKeyboardProtocolOwnership::default();
     enable_raw_mode()?;
     if let Err(e) = (|| -> anyhow::Result<()> {
         let _guard = stdout_lock.lock().unwrap();
         let mut stdout = std::io::stdout();
         stdout.execute(EnterAlternateScreen)?;
-        enable_host_keyboard_protocol(&mut stdout)?;
+        host_keyboard_protocol = enable_host_keyboard_protocol(&mut stdout)?;
         stdout.execute(EnableMouseCapture)?;
         // Ask the host terminal to report Shift-modified mouse events so
         // Shift remains cmux's selection/context-menu escape while the inner
@@ -3815,7 +3816,7 @@ pub fn run_with_machine_updates(
         stdout.execute(EnableBracketedPaste)?;
         Ok(())
     })() {
-        let _ = restore_terminal(Some(&stdout_lock));
+        let _ = restore_terminal(Some(&stdout_lock), host_keyboard_protocol);
         return Err(e);
     }
 
@@ -3840,8 +3841,9 @@ pub fn run_with_machine_updates(
     // Restore the host terminal even if we panic mid-frame.
     let default_hook = std::panic::take_hook();
     let restore_lock = stdout_lock.clone();
+    let panic_keyboard_protocol = host_keyboard_protocol;
     std::panic::set_hook(Box::new(move |info| {
-        let _ = restore_terminal(Some(&restore_lock));
+        let _ = restore_terminal(Some(&restore_lock), panic_keyboard_protocol);
         default_hook(info);
     }));
 
@@ -3849,7 +3851,7 @@ pub fn run_with_machine_updates(
     let mut terminal = match RatatuiTerminal::new(backend) {
         Ok(terminal) => terminal,
         Err(e) => {
-            let _ = restore_terminal(Some(&stdout_lock));
+            let _ = restore_terminal(Some(&stdout_lock), host_keyboard_protocol);
             return Err(e.into());
         }
     };
@@ -3960,7 +3962,7 @@ pub fn run_with_machine_updates(
             writer.shutdown(Duration::from_millis(200));
         }
         let _ = std::panic::take_hook();
-        let _ = restore_terminal(Some(&stdout_lock));
+        let _ = restore_terminal(Some(&stdout_lock), host_keyboard_protocol);
         return Err(error);
     }
 
@@ -3973,7 +3975,7 @@ pub fn run_with_machine_updates(
         writer.shutdown(Duration::from_millis(200));
     }
     let _ = std::panic::take_hook();
-    restore_terminal(Some(&stdout_lock))?;
+    restore_terminal(Some(&stdout_lock), host_keyboard_protocol)?;
     result?;
     let outcome = app
         .machine_ui
@@ -3983,7 +3985,14 @@ pub fn run_with_machine_updates(
     Ok(outcome)
 }
 
-fn enable_host_keyboard_protocol(stdout: &mut impl Write) -> std::io::Result<()> {
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct HostKeyboardProtocolOwnership {
+    pushed: bool,
+}
+
+fn enable_host_keyboard_protocol(
+    stdout: &mut impl Write,
+) -> std::io::Result<HostKeyboardProtocolOwnership> {
     let result = stdout.execute(PushKeyboardEnhancementFlags(
         KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
             | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS
@@ -3991,25 +4000,35 @@ fn enable_host_keyboard_protocol(stdout: &mut impl Write) -> std::io::Result<()>
             | KeyboardEnhancementFlags::REPORT_ASSOCIATED_TEXT,
     ));
     match result {
-        Ok(_) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::Unsupported => Ok(()),
+        Ok(_) => Ok(HostKeyboardProtocolOwnership { pushed: true }),
+        Err(error) if error.kind() == std::io::ErrorKind::Unsupported => {
+            Ok(HostKeyboardProtocolOwnership::default())
+        }
         Err(error) => Err(error),
     }
 }
 
-fn disable_host_keyboard_protocol(stdout: &mut impl Write) -> std::io::Result<()> {
-    stdout.execute(PopKeyboardEnhancementFlags)?;
+fn disable_host_keyboard_protocol(
+    stdout: &mut impl Write,
+    ownership: HostKeyboardProtocolOwnership,
+) -> std::io::Result<()> {
+    if ownership.pushed {
+        stdout.execute(PopKeyboardEnhancementFlags)?;
+    }
     Ok(())
 }
 
-fn restore_terminal(stdout_lock: Option<&Arc<Mutex<()>>>) -> anyhow::Result<()> {
+fn restore_terminal(
+    stdout_lock: Option<&Arc<Mutex<()>>>,
+    host_keyboard_protocol: HostKeyboardProtocolOwnership,
+) -> anyhow::Result<()> {
     let _guard = stdout_lock.map(|lock| lock.lock().unwrap());
     let mut stdout = std::io::stdout();
     // Reset the mouse pointer shape in case we left it as a hand.
     let _ = write!(stdout, "\x1b]22;default\x07");
     // Restore the conventional host behavior where Shift bypasses capture.
     let _ = write!(stdout, "\x1b[>0s");
-    let _ = disable_host_keyboard_protocol(&mut stdout);
+    let _ = disable_host_keyboard_protocol(&mut stdout, host_keyboard_protocol);
     let _ = stdout.execute(DisableBracketedPaste);
     let _ = stdout.execute(DisableFocusChange);
     let _ = stdout.execute(DisableMouseCapture);
@@ -10622,18 +10641,22 @@ mod tests {
     fn host_keyboard_protocol_reports_command_modifiers_and_is_restored() {
         let mut output = Vec::new();
 
-        enable_host_keyboard_protocol(&mut output).unwrap();
-        disable_host_keyboard_protocol(&mut output).unwrap();
+        let ownership = enable_host_keyboard_protocol(&mut output).unwrap();
+        assert!(ownership.pushed);
+        disable_host_keyboard_protocol(&mut output, ownership).unwrap();
 
         assert_eq!(output, b"\x1b[>29u\x1b[<1u");
     }
 
     #[test]
     fn unsupported_host_keyboard_protocol_is_a_nonfatal_fallback() {
-        struct UnsupportedWriter;
+        struct UnsupportedWriter {
+            writes: usize,
+        }
 
         impl std::io::Write for UnsupportedWriter {
             fn write(&mut self, _buffer: &[u8]) -> std::io::Result<usize> {
+                self.writes += 1;
                 Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
             }
 
@@ -10642,7 +10665,11 @@ mod tests {
             }
         }
 
-        assert!(enable_host_keyboard_protocol(&mut UnsupportedWriter).is_ok());
+        let mut output = UnsupportedWriter { writes: 0 };
+        let ownership = enable_host_keyboard_protocol(&mut output).unwrap();
+        assert!(!ownership.pushed);
+        disable_host_keyboard_protocol(&mut output, ownership).unwrap();
+        assert_eq!(output.writes, 1, "cleanup must not pop a stack entry cmux did not push");
     }
 
     #[test]

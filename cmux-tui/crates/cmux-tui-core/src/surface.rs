@@ -457,7 +457,7 @@ enum PromptSubmissionState {
 }
 
 struct PromptSubmission {
-    revision_before_write: u64,
+    command_revision_before_write: u64,
 }
 
 #[derive(Debug, Default)]
@@ -1566,9 +1566,9 @@ impl PtySurface {
     }
 
     fn start_prompt_submission_with_terminal(&self, term: &Terminal) -> PromptSubmission {
-        let revision_before_write = term.prompt_semantic_revision();
+        let command_revision_before_write = term.prompt_command_revision();
         *self.prompt_submission.lock().unwrap() = PromptSubmissionState::Writing;
-        PromptSubmission { revision_before_write }
+        PromptSubmission { command_revision_before_write }
     }
 
     fn finish_prompt_submission(&self, submission: Option<PromptSubmission>, succeeded: bool) {
@@ -1585,13 +1585,14 @@ impl PtySurface {
     ) {
         let revision = term.prompt_semantic_revision();
         let next = if succeeded
-            && revision != submission.revision_before_write
+            && term.prompt_command_revision() != submission.command_revision_before_write
             && term.cursor_is_at_prompt()
         {
             PromptSubmissionState::Idle
         } else {
-            // A failed write or flush has an ambiguous delivery outcome. Keep
-            // prompt redraw blocked until output proves the child advanced.
+            // A generic prompt redraw observed during the write is not proof
+            // that Enter reached the child. Only OSC 133 C establishes that
+            // command execution began; otherwise wait for a later marker.
             PromptSubmissionState::AwaitingPromptMarker(revision)
         };
         *self.prompt_submission.lock().unwrap() = next;
