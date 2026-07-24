@@ -1086,8 +1086,10 @@ CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
 publish_reload_cli_path "$CLI_PATH"
 
 TAG_LAUNCHD_LABEL=""
+TAG_LAUNCHD_DOMAIN=""
 if [[ -n "${TAG_SLUG:-}" ]]; then
   TAG_LAUNCHD_LABEL="${BUNDLE_ID}.reload"
+  TAG_LAUNCHD_DOMAIN="gui/$(id -u)"
 fi
 
 # Tag mode: always terminate the existing same-tag instance after a successful build,
@@ -1102,6 +1104,7 @@ if [[ -n "$TAG" ]]; then
   # Tagged --launch runs are handed off to launchd so they survive the terminal or
   # automation process that invoked reload.sh. Remove a still-registered prior job
   # after giving the app a chance to quit gracefully.
+  /bin/launchctl bootout "$TAG_LAUNCHD_DOMAIN/$TAG_LAUNCHD_LABEL" >/dev/null 2>&1 || true
   /bin/launchctl remove "$TAG_LAUNCHD_LABEL" >/dev/null 2>&1 || true
 fi
 
@@ -1188,9 +1191,11 @@ if [[ "$LAUNCH" -eq 1 ]]; then
   LAUNCH_CMD=()
   LAUNCH_RETRY_CMD=()
   if [[ -n "${TAG_SLUG:-}" ]]; then
-    # Launch tagged apps through a per-tag launchd job. A plain background child
-    # can be terminated when the invoking terminal/automation process exits, while
-    # launchd also lets us avoid LaunchServices reusing stale LSEnvironment values.
+    # Launch tagged apps through an explicit one-shot launchd job. `launchctl
+    # submit` infers KeepAlive for app executables, which relaunches the app after
+    # the user chooses Quit. A loaded plist with KeepAlive=false still survives
+    # the invoking terminal/automation process, while a normal exit stays exited.
+    # It also avoids LaunchServices reusing stale LSEnvironment values.
     APP_EXECUTABLE="$APP_PATH/Contents/MacOS/${BASE_APP_NAME}"
     if [[ ! -x "$APP_EXECUTABLE" ]]; then
       echo "error: tagged app executable not found: $APP_EXECUTABLE" >&2
@@ -1202,11 +1207,32 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     (umask 077 && : > "$TAG_LAUNCH_LOG")
     chmod 0600 "$TAG_LAUNCH_LOG"
     if [[ -n "${CMUX_SOCKET_PATH_VALUE:-}" ]]; then
-      /bin/launchctl submit -l "$TAG_LAUNCHD_LABEL" -o "$TAG_LAUNCH_LOG" -e "$TAG_LAUNCH_LOG" -- \
-        "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" "$APP_EXECUTABLE"
-    else
-      /bin/launchctl submit -l "$TAG_LAUNCHD_LABEL" -o "$TAG_LAUNCH_LOG" -e "$TAG_LAUNCH_LOG" -- \
-        "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" "$APP_EXECUTABLE"
+      TAG_LAUNCH_ENV+=(
+        CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE"
+        CMUXD_UNIX_PATH="$CMUXD_SOCKET"
+      )
+    fi
+    TAG_LAUNCH_PLIST="$CMUX_TAG_LAUNCH_LOG_DIRECTORY/$TAG_LAUNCHD_LABEL.plist"
+    /usr/bin/plutil -create xml1 "$TAG_LAUNCH_PLIST"
+    /usr/bin/plutil -insert Label -string "$TAG_LAUNCHD_LABEL" "$TAG_LAUNCH_PLIST"
+    /usr/bin/plutil -insert ProgramArguments -array "$TAG_LAUNCH_PLIST"
+    /usr/bin/plutil -insert ProgramArguments.0 -string "$APP_EXECUTABLE" "$TAG_LAUNCH_PLIST"
+    /usr/bin/plutil -insert EnvironmentVariables -dictionary "$TAG_LAUNCH_PLIST"
+    for TAG_LAUNCH_ENV_ENTRY in "${TAG_LAUNCH_ENV[@]}"; do
+      TAG_LAUNCH_ENV_KEY="${TAG_LAUNCH_ENV_ENTRY%%=*}"
+      TAG_LAUNCH_ENV_VALUE="${TAG_LAUNCH_ENV_ENTRY#*=}"
+      /usr/bin/plutil -insert "EnvironmentVariables.$TAG_LAUNCH_ENV_KEY" \
+        -string "$TAG_LAUNCH_ENV_VALUE" "$TAG_LAUNCH_PLIST"
+    done
+    /usr/bin/plutil -insert RunAtLoad -bool true "$TAG_LAUNCH_PLIST"
+    /usr/bin/plutil -insert KeepAlive -bool false "$TAG_LAUNCH_PLIST"
+    /usr/bin/plutil -insert ProcessType -string Interactive "$TAG_LAUNCH_PLIST"
+    /usr/bin/plutil -insert StandardOutPath -string "$TAG_LAUNCH_LOG" "$TAG_LAUNCH_PLIST"
+    /usr/bin/plutil -insert StandardErrorPath -string "$TAG_LAUNCH_LOG" "$TAG_LAUNCH_PLIST"
+    chmod 0600 "$TAG_LAUNCH_PLIST"
+    if ! /bin/launchctl bootstrap "$TAG_LAUNCHD_DOMAIN" "$TAG_LAUNCH_PLIST"; then
+      echo "error: failed to bootstrap one-shot tagged launch job: $TAG_LAUNCHD_LABEL" >&2
+      exit 1
     fi
   else
     echo "/tmp/cmux-debug.sock" > /tmp/cmux-last-socket-path || true
