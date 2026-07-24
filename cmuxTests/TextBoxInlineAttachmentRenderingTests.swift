@@ -1,0 +1,164 @@
+import AppKit
+import Foundation
+import Testing
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+@MainActor
+@Suite struct TextBoxInlineAttachmentRenderingTests {
+    @Test func identicalRefreshReusesRenderedChipImage() throws {
+        let fixture = try AttachmentFixture()
+        defer { fixture.cleanup() }
+        let textView = fixture.makeTextView(attachments: [fixture.firstAttachment])
+        let inlineAttachment = try #require(fixture.inlineAttachments(in: textView).first)
+        let initialImage = try fixture.renderedImage(for: inlineAttachment)
+
+        textView.refreshInlineAttachmentCells(
+            font: try #require(textView.font),
+            foregroundColor: try #require(textView.textColor)
+        )
+
+        let refreshedImage = try fixture.renderedImage(for: inlineAttachment)
+        #expect(
+            refreshedImage === initialImage,
+            "An unchanged inline attachment should reuse its rendered chip bitmap."
+        )
+    }
+
+    @Test func focusingOneAttachmentDoesNotRefreshUnchangedAttachment() throws {
+        let fixture = try AttachmentFixture()
+        defer { fixture.cleanup() }
+        let textView = fixture.makeTextView(
+            attachments: [fixture.firstAttachment, fixture.secondAttachment]
+        )
+        let inlineAttachments = fixture.inlineAttachments(in: textView)
+        let first = try #require(inlineAttachments.first)
+        let second = try #require(inlineAttachments.last)
+        let focusedCellBeforeSelection = try #require(first.attachmentCell)
+        let unchangedCell = try #require(second.attachmentCell)
+        let firstLocation = try #require(fixture.location(of: first, in: textView))
+
+        textView.selectAttachment(at: firstLocation)
+
+        #expect(first.attachmentCell !== focusedCellBeforeSelection)
+        #expect(
+            second.attachmentCell === unchangedCell,
+            "Changing focus should refresh only the attachment whose visual focus state changed."
+        )
+    }
+}
+
+@MainActor
+private final class AttachmentFixture {
+    let directoryURL: URL
+    let firstAttachment: TextBoxAttachment
+    let secondAttachment: TextBoxAttachment
+
+    init() throws {
+        directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-inline-attachment-rendering-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let firstURL = directoryURL.appendingPathComponent("first.png")
+        let secondURL = directoryURL.appendingPathComponent("second.png")
+        try Self.writeImage(to: firstURL, color: .systemRed)
+        try Self.writeImage(to: secondURL, color: .systemBlue)
+        firstAttachment = TextBoxAttachment(
+            localURL: firstURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: firstURL)
+        )
+        secondAttachment = TextBoxAttachment(
+            localURL: secondURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: secondURL)
+        )
+    }
+
+    func cleanup() {
+        try? FileManager.default.removeItem(at: directoryURL)
+    }
+
+    func makeTextView(attachments: [TextBoxAttachment]) -> TextBoxInputTextView {
+        let textView = TextBoxInputTextView(
+            frame: NSRect(x: 0, y: 0, width: 420, height: 30)
+        )
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        textView.insertAttachments(attachments)
+        return textView
+    }
+
+    func inlineAttachments(in textView: TextBoxInputTextView) -> [NSTextAttachment] {
+        var result: [NSTextAttachment] = []
+        let attributed = textView.attributedString()
+        attributed.enumerateAttribute(
+            .attachment,
+            in: NSRange(location: 0, length: attributed.length),
+            options: []
+        ) { value, _, _ in
+            if let attachment = value as? NSTextAttachment {
+                result.append(attachment)
+            }
+        }
+        return result
+    }
+
+    func renderedImage(for attachment: NSTextAttachment) throws -> NSImage {
+        let cell = try #require(attachment.attachmentCell as? NSTextAttachmentCell)
+        return try #require(cell.image)
+    }
+
+    func location(
+        of target: NSTextAttachment,
+        in textView: TextBoxInputTextView
+    ) -> Int? {
+        let attributed = textView.attributedString()
+        var result: Int?
+        attributed.enumerateAttribute(
+            .attachment,
+            in: NSRange(location: 0, length: attributed.length),
+            options: []
+        ) { value, range, stop in
+            guard let attachment = value as? NSTextAttachment,
+                  attachment === target else {
+                return
+            }
+            result = range.location
+            stop.pointee = true
+        }
+        return result
+    }
+
+    private static func writeImage(to url: URL, color: NSColor) throws {
+        guard let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: 32,
+            pixelsHigh: 32,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else {
+            throw FixtureError.imageCreationFailed
+        }
+        bitmap.size = NSSize(width: 32, height: 32)
+        for x in 0..<32 {
+            for y in 0..<32 {
+                bitmap.setColor(color, atX: x, y: y)
+            }
+        }
+        guard let data = bitmap.representation(using: .png, properties: [:]) else {
+            throw FixtureError.imageCreationFailed
+        }
+        try data.write(to: url, options: .atomic)
+    }
+
+    private enum FixtureError: Error {
+        case imageCreationFailed
+    }
+}
