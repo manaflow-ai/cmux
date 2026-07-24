@@ -96,6 +96,12 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case splitRight
     case splitDown
     case toggleSplitZoom
+    /// Increases every terminal font size in the selected workspace.
+    case increaseWorkspaceTerminalFontSize
+    /// Decreases every terminal font size in the selected workspace.
+    case decreaseWorkspaceTerminalFontSize
+    /// Resets every terminal font size in the selected workspace.
+    case resetWorkspaceTerminalFontSize
     case equalizeSplits
     case splitBrowserRight
     case splitBrowserDown
@@ -196,7 +202,10 @@ extension ShortcutAction {
              .clearScreenKeepScrollback:
             return .navigation
         case .focusLeft, .focusRight, .focusUp, .focusDown, .splitRight, .splitDown,
-             .toggleSplitZoom, .equalizeSplits, .splitBrowserRight, .splitBrowserDown,
+             .toggleSplitZoom, .increaseWorkspaceTerminalFontSize,
+             .decreaseWorkspaceTerminalFontSize, .resetWorkspaceTerminalFontSize,
+             .equalizeSplits,
+             .splitBrowserRight, .splitBrowserDown,
              .toggleRightSidebar, .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias,
              .toggleCanvasLayout, .canvasRevealFocusedPane, .canvasOverview,
              .canvasZoomIn, .canvasZoomOut, .canvasZoomReset, .canvasTidy,
@@ -403,6 +412,21 @@ extension ShortcutAction {
         case .splitRight: return "Split Right"
         case .splitDown: return "Split Down"
         case .toggleSplitZoom: return "Toggle Pane Zoom"
+        case .increaseWorkspaceTerminalFontSize:
+            return String(
+                localized: "shortcut.increaseWorkspaceTerminalFontSize.label",
+                defaultValue: "Increase Font Size for Workspace Terminals"
+            )
+        case .decreaseWorkspaceTerminalFontSize:
+            return String(
+                localized: "shortcut.decreaseWorkspaceTerminalFontSize.label",
+                defaultValue: "Decrease Font Size for Workspace Terminals"
+            )
+        case .resetWorkspaceTerminalFontSize:
+            return String(
+                localized: "shortcut.resetWorkspaceTerminalFontSize.label",
+                defaultValue: "Reset Font Size for Workspace Terminals"
+            )
         case .equalizeSplits: return "Equalize Splits"
         case .splitBrowserRight: return "Split Browser Right"
         case .splitBrowserDown: return "Split Browser Down"

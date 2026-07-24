@@ -1,5 +1,7 @@
 import AppKit
 import Bonsplit
+import CmuxFoundation
+import CmuxTerminalCore
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -119,8 +121,8 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             in: workspace.bonsplitController.treeSnapshot()
         )
 
-        guard let event = makeKeyDownEvent(key: "=", modifiers: [.command, .control], keyCode: 24, windowNumber: window.windowNumber) else {
-            XCTFail("Failed to construct Cmd+Ctrl+= event")
+        guard let event = makeKeyDownEvent(key: "=", modifiers: [.command, .control, .shift], keyCode: 24, windowNumber: window.windowNumber) else {
+            XCTFail("Failed to construct Cmd+Ctrl+Shift+= event")
             return
         }
 
@@ -156,6 +158,1108 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             shortcutRoutingPaneFramesById(in: liveEqualizedLayout)
         )
         shortcutRoutingAssertPaneFramesMatch(cachedEqualizedLayout, liveEqualizedLayout)
+    }
+
+    func testConfiguredWorkspaceTerminalFontSizeShortcutAdjustsEverySplit() {
+        withTemporaryShortcut(action: .decreaseWorkspaceTerminalFontSize) {
+            guard let appDelegate = AppDelegate.shared else {
+                XCTFail("Expected AppDelegate.shared")
+                return
+            }
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            guard let window = window(withId: windowId),
+                  let manager = appDelegate.tabManagerFor(windowId: windowId),
+                  let workspace = manager.selectedWorkspace,
+                  let firstPanelId = workspace.focusedPanelId,
+                  let firstPanel = workspace.terminalPanel(for: firstPanelId),
+                  let secondPanel = workspace.newTerminalSplit(
+                    from: firstPanelId,
+                    orientation: .horizontal
+                  ),
+                  let event = makeKeyDownEvent(
+                    key: "-",
+                    modifiers: [.command, .control],
+                    keyCode: 27,
+                    windowNumber: window.windowNumber
+                  ) else {
+                XCTFail("Expected two terminal splits and Cmd+Ctrl+- event")
+                return
+            }
+
+            let windowDock = appDelegate.windowDock(forWindowId: windowId)
+            let dockPanel = TerminalPanel(
+                workspaceId: windowDock.workspaceId,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            windowDock.panels[dockPanel.id] = dockPanel
+
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            let configuredRuntimePoints = Float32(
+                GhosttyConfig.load(
+                    globalFontMagnificationPercent: GlobalFontMagnification.storedPercent
+                ).fontSize
+            )
+            let beforeLineages = [
+                firstPanel.surface.fontSizeLineageSnapshot(),
+                secondPanel.surface.fontSizeLineageSnapshot(),
+                dockPanel.surface.fontSizeLineageSnapshot(),
+            ]
+
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            return
+#endif
+
+            let surfaces = [firstPanel.surface, secondPanel.surface, dockPanel.surface]
+            for (surface, beforeLineage) in zip(surfaces, beforeLineages) {
+                guard let afterLineage = surface.fontSizeLineageSnapshot() else {
+                    XCTFail("Expected adjusted font-size lineage")
+                    continue
+                }
+                let beforeRuntimePoints = beforeLineage.map {
+                    CmuxSurfaceConfigTemplate.runtimeFontSize(
+                        fromBasePoints: $0.basePoints,
+                        percent: GlobalFontMagnification.storedPercent
+                    )
+                } ?? configuredRuntimePoints
+                let expectedRuntimePoints = TerminalFontSizePolicy().clampedRuntimePoints(
+                    beforeRuntimePoints - 1
+                )
+                let afterRuntimePoints = CmuxSurfaceConfigTemplate.runtimeFontSize(
+                    fromBasePoints: afterLineage.basePoints,
+                    percent: GlobalFontMagnification.storedPercent
+                )
+                XCTAssertEqual(afterRuntimePoints, expectedRuntimePoints, accuracy: 0.001)
+                XCTAssertTrue(afterLineage.isExplicitOverride)
+            }
+
+            guard let sourceDockLineage = dockPanel.surface.fontSizeLineageSnapshot(),
+                  let dockPane = windowDock.bonsplitController.allPaneIds.first,
+                  let inheritedDockPanelId = windowDock.newSurface(
+                    kind: .terminal,
+                    inPane: dockPane,
+                    focus: false
+                  ),
+                  let inheritedDockPanel = windowDock.panels[inheritedDockPanelId] as? TerminalPanel else {
+                XCTFail("Expected a new Dock terminal after workspace font-size adjustment")
+                return
+            }
+            XCTAssertEqual(
+                inheritedDockPanel.surface.fontSizeLineageSnapshot(),
+                sourceDockLineage
+            )
+        }
+    }
+
+    func testWorkspaceTerminalFontSizeShortcutSeedsDockCreatedAfterShortcut() {
+        withTemporaryShortcut(action: .decreaseWorkspaceTerminalFontSize) {
+            guard let appDelegate = AppDelegate.shared else {
+                XCTFail("Expected AppDelegate.shared")
+                return
+            }
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            guard let window = window(withId: windowId),
+                  let manager = appDelegate.tabManagerFor(windowId: windowId),
+                  let workspace = manager.selectedWorkspace,
+                  let event = makeKeyDownEvent(
+                    key: "-",
+                    modifiers: [.command, .control],
+                    keyCode: 27,
+                    windowNumber: window.windowNumber
+                  ) else {
+                XCTFail("Expected a workspace and Cmd+Ctrl+- event")
+                return
+            }
+
+            XCTAssertNil(appDelegate.existingWindowDock(forWindowId: windowId))
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            return
+#endif
+
+            XCTAssertNil(
+                appDelegate.existingWindowDock(forWindowId: windowId),
+                "Font zoom should not eagerly create a hidden Dock"
+            )
+            guard let expectedLineage =
+                    workspace.lastRememberedTerminalFontSizeLineageForConfigInheritance(),
+                  let dockPane = appDelegate.windowDock(forWindowId: windowId)
+                    .bonsplitController.allPaneIds.first,
+                  let inheritedDockPanelId = appDelegate.windowDock(forWindowId: windowId)
+                    .newSurface(kind: .terminal, inPane: dockPane, focus: false),
+                  let inheritedDockPanel = appDelegate.windowDock(forWindowId: windowId)
+                    .panels[inheritedDockPanelId] as? TerminalPanel else {
+                XCTFail("Expected a new Dock terminal after workspace font-size adjustment")
+                return
+            }
+
+            XCTAssertEqual(
+                inheritedDockPanel.surface.fontSizeLineageSnapshot(),
+                expectedLineage
+            )
+        }
+    }
+
+    func testWorkspaceTerminalFontSizeRepeatEventsCoalesceUntilFlush() {
+        withTemporaryShortcut(action: .decreaseWorkspaceTerminalFontSize) {
+            guard let appDelegate = AppDelegate.shared else {
+                XCTFail("Expected AppDelegate.shared")
+                return
+            }
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            guard let window = window(withId: windowId),
+                  let manager = appDelegate.tabManagerFor(windowId: windowId),
+                  let workspace = manager.selectedWorkspace,
+                  let panelId = workspace.focusedPanelId,
+                  let panel = workspace.terminalPanel(for: panelId),
+                  let repeatedEvent = makeKeyDownEvent(
+                    key: "-",
+                    modifiers: [.command, .control],
+                    keyCode: 27,
+                    windowNumber: window.windowNumber,
+                    isARepeat: true
+                  ) else {
+                XCTFail("Expected a terminal and repeated Cmd+Ctrl+- event")
+                return
+            }
+
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            let configuredRuntimePoints = Float32(
+                GhosttyConfig.load(
+                    globalFontMagnificationPercent: GlobalFontMagnification.storedPercent
+                ).fontSize
+            )
+            let beforeLineage = panel.surface.fontSizeLineageSnapshot()
+            let beforeRuntimePoints = beforeLineage.map {
+                CmuxSurfaceConfigTemplate.runtimeFontSize(
+                    fromBasePoints: $0.basePoints,
+                    percent: GlobalFontMagnification.storedPercent
+                )
+            } ?? configuredRuntimePoints
+
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: repeatedEvent))
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: repeatedEvent))
+            XCTAssertEqual(panel.surface.fontSizeLineageSnapshot(), beforeLineage)
+            appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
+#else
+            XCTFail("Workspace font-size coalescer hooks are only available in DEBUG")
+            return
+#endif
+
+            guard let afterLineage = panel.surface.fontSizeLineageSnapshot() else {
+                XCTFail("Expected adjusted font-size lineage")
+                return
+            }
+            let afterRuntimePoints = CmuxSurfaceConfigTemplate.runtimeFontSize(
+                fromBasePoints: afterLineage.basePoints,
+                percent: GlobalFontMagnification.storedPercent
+            )
+            XCTAssertEqual(
+                afterRuntimePoints,
+                TerminalFontSizePolicy().clampedRuntimePoints(beforeRuntimePoints - 2),
+                accuracy: 0.001
+            )
+        }
+    }
+
+    func testWorkspaceTerminalFontSizeResetRepeatDoesNotQueueFanout() {
+        withTemporaryShortcut(action: .resetWorkspaceTerminalFontSize) {
+            guard let appDelegate = AppDelegate.shared else {
+                XCTFail("Expected AppDelegate.shared")
+                return
+            }
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            guard let window = window(withId: windowId),
+                  let repeatedEvent = makeKeyDownEvent(
+                    key: "0",
+                    modifiers: [.command, .control],
+                    keyCode: 29,
+                    windowNumber: window.windowNumber,
+                    isARepeat: true
+                  ) else {
+                XCTFail("Expected repeated Cmd+Ctrl+0 event")
+                return
+            }
+
+#if DEBUG
+            appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: repeatedEvent))
+            XCTAssertEqual(
+                appDelegate.debugPendingWorkspaceTerminalFontSizeChangeCount,
+                0
+            )
+#else
+            XCTFail("Workspace font-size coalescer hooks are only available in DEBUG")
+#endif
+        }
+    }
+
+    func testWorkspaceTerminalFontSizeRepeatDrainBoundsOneTurn() {
+        withTemporaryShortcut(action: .decreaseWorkspaceTerminalFontSize) {
+            guard let appDelegate = AppDelegate.shared else {
+                XCTFail("Expected AppDelegate.shared")
+                return
+            }
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            guard let window = window(withId: windowId),
+                  let repeatedEvent = makeKeyDownEvent(
+                    key: "-",
+                    modifiers: [.command, .control],
+                    keyCode: 27,
+                    windowNumber: window.windowNumber,
+                    isARepeat: true
+                  ) else {
+                XCTFail("Expected repeated Cmd+Ctrl+- event")
+                return
+            }
+
+            let windowDock = appDelegate.windowDock(forWindowId: windowId)
+            let dockPanels = (0..<12).map { _ in
+                let panel = TerminalPanel(
+                    workspaceId: windowDock.workspaceId,
+                    runtimeSpawnPolicy: .pacedSessionRestore
+                )
+                panel.surface.recordCurrentFontSizeLineage(
+                    TerminalFontSizeLineage(basePoints: 20, isExplicitOverride: true)
+                )
+                windowDock.panels[panel.id] = panel
+                return panel
+            }
+
+#if DEBUG
+            appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: repeatedEvent))
+            appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
+#else
+            XCTFail("Workspace font-size coalescer hooks are only available in DEBUG")
+            return
+#endif
+
+            let adjustedCount = dockPanels.count {
+                $0.surface.fontSizeLineageSnapshot()?.basePoints == 19
+            }
+            XCTAssertGreaterThan(adjustedCount, 0)
+            XCTAssertLessThanOrEqual(
+                adjustedCount,
+                8,
+                "One event-loop drain must have a fixed panel/action budget"
+            )
+            XCTAssertLessThan(adjustedCount, dockPanels.count)
+
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.2))
+        }
+    }
+
+    func testWorkspaceTerminalFontSizeDrainSeedsLateTerminalsExactlyOnce() {
+        withTemporaryShortcut(action: .decreaseWorkspaceTerminalFontSize) {
+            guard let appDelegate = AppDelegate.shared else {
+                XCTFail("Expected AppDelegate.shared")
+                return
+            }
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            guard let window = window(withId: windowId),
+                  let repeatedEvent = makeKeyDownEvent(
+                    key: "-",
+                    modifiers: [.command, .control],
+                    keyCode: 27,
+                    windowNumber: window.windowNumber,
+                    isARepeat: true
+                  ) else {
+                XCTFail("Expected repeated Cmd+Ctrl+- event")
+                return
+            }
+
+            let windowDock = appDelegate.windowDock(forWindowId: windowId)
+            func dormantPanel(id: UUID, basePoints: Float32 = 20) -> TerminalPanel {
+                let panel = TerminalPanel(
+                    id: id,
+                    workspaceId: windowDock.workspaceId,
+                    runtimeSpawnPolicy: .pacedSessionRestore
+                )
+                panel.surface.recordCurrentFontSizeLineage(
+                    TerminalFontSizeLineage(
+                        basePoints: basePoints,
+                        isExplicitOverride: true
+                    )
+                )
+                windowDock.panels[panel.id] = panel
+                return panel
+            }
+
+            let adjustedSource = dormantPanel(
+                id: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!
+            )
+            for suffix in 2...10 {
+                _ = dormantPanel(
+                    id: UUID(
+                        uuidString: String(
+                            format: "00000000-0000-4000-8000-%012d",
+                            suffix
+                        )
+                    )!
+                )
+            }
+            let staleSource = dormantPanel(
+                id: UUID(uuidString: "FFFFFFFF-FFFF-4FFF-BFFF-FFFFFFFFFFFF")!,
+                basePoints: 19
+            )
+
+#if DEBUG
+            appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: repeatedEvent))
+            appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
+#else
+            XCTFail("Workspace font-size drain hooks are only available in DEBUG")
+            return
+#endif
+
+            if let lineageProbeCount =
+                    windowDock
+                        .debugActiveTerminalFontSizeChangeInitialLineageProbeCount {
+                XCTAssertLessThanOrEqual(
+                    lineageProbeCount,
+                    1,
+                    "Drain activation must not snapshot every terminal lineage"
+                )
+            } else {
+                XCTFail("Expected an active Dock font-size inheritance context")
+            }
+            XCTAssertEqual(
+                adjustedSource.surface.fontSizeLineageSnapshot()?.basePoints,
+                19
+            )
+            XCTAssertEqual(
+                staleSource.surface.fontSizeLineageSnapshot()?.basePoints,
+                19
+            )
+
+            guard let dockPane = windowDock.bonsplitController.allPaneIds.first,
+                  let adjustedLatePanelId = windowDock.newSurface(
+                    kind: .terminal,
+                    inPane: dockPane,
+                    sourcePanelId: adjustedSource.id,
+                    focus: false
+                  ),
+                  let adjustedLatePanel =
+                    windowDock.panels[adjustedLatePanelId] as? TerminalPanel,
+                  let staleLatePanelId = windowDock.newSurface(
+                    kind: .terminal,
+                    inPane: dockPane,
+                    sourcePanelId: staleSource.id,
+                    focus: false
+                  ),
+                  let staleLatePanel =
+                    windowDock.panels[staleLatePanelId] as? TerminalPanel else {
+                XCTFail("Expected late Dock terminals from adjusted and stale sources")
+                return
+            }
+
+            XCTAssertEqual(
+                adjustedLatePanel.surface.fontSizeLineageSnapshot()?.basePoints,
+                19
+            )
+            XCTAssertEqual(
+                staleLatePanel.surface.fontSizeLineageSnapshot()?.basePoints,
+                18,
+                "A late terminal must inherit the pending result for its exact stale source"
+            )
+
+#if DEBUG
+            appDelegate.debugDrainAllPendingWorkspaceTerminalFontSizeChanges()
+#endif
+
+            XCTAssertEqual(
+                adjustedLatePanel.surface.fontSizeLineageSnapshot()?.basePoints,
+                19,
+                "A late terminal inheriting the final lineage must not receive the request twice"
+            )
+            XCTAssertEqual(
+                staleLatePanel.surface.fontSizeLineageSnapshot()?.basePoints,
+                18,
+                "A late terminal inheriting a stale source must still receive the request once"
+            )
+        }
+    }
+
+    func testWorkspaceTerminalFontSizeDrainSeedsLazyWindowDockOnce() {
+        withTemporaryShortcut(action: .decreaseWorkspaceTerminalFontSize) {
+            guard let appDelegate = AppDelegate.shared else {
+                XCTFail("Expected AppDelegate.shared")
+                return
+            }
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            guard let window = window(withId: windowId),
+                  let manager = appDelegate.tabManagerFor(windowId: windowId),
+                  let workspace = manager.selectedWorkspace,
+                  let repeatedEvent = makeKeyDownEvent(
+                    key: "-",
+                    modifiers: [.command, .control],
+                    keyCode: 27,
+                    windowNumber: window.windowNumber,
+                    isARepeat: true
+                  ) else {
+                XCTFail("Expected workspace and repeated Cmd+Ctrl+- event")
+                return
+            }
+
+            let inheritanceSource = TerminalPanel(
+                id: UUID(uuidString: "00000000-0000-4000-8000-000000000101")!,
+                workspaceId: workspace.id,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            inheritanceSource.surface.recordCurrentFontSizeLineage(
+                TerminalFontSizeLineage(
+                    basePoints: 20,
+                    isExplicitOverride: true
+                )
+            )
+            workspace.panels[inheritanceSource.id] = inheritanceSource
+            workspace.rememberTerminalConfigInheritanceSource(
+                inheritanceSource
+            )
+            for suffix in 102...112 {
+                let panel = TerminalPanel(
+                    id: UUID(
+                        uuidString: String(
+                            format: "00000000-0000-4000-8000-%012d",
+                            suffix
+                        )
+                    )!,
+                    workspaceId: workspace.id,
+                    runtimeSpawnPolicy: .pacedSessionRestore
+                )
+                panel.surface.recordCurrentFontSizeLineage(
+                    TerminalFontSizeLineage(
+                        basePoints: 20,
+                        isExplicitOverride: true
+                    )
+                )
+                workspace.panels[panel.id] = panel
+            }
+
+#if DEBUG
+            appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: repeatedEvent))
+            appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
+#else
+            XCTFail("Workspace font-size drain hooks are only available in DEBUG")
+            return
+#endif
+
+            let windowDock = appDelegate.windowDock(forWindowId: windowId)
+            guard let dockPane = windowDock.bonsplitController.allPaneIds.first,
+                  let latePanelId = windowDock.newSurface(
+                    kind: .terminal,
+                    inPane: dockPane,
+                    focus: false
+                  ),
+                  let latePanel =
+                    windowDock.panels[latePanelId] as? TerminalPanel else {
+                XCTFail("Expected a terminal in the lazily-created window Dock")
+                return
+            }
+            XCTAssertEqual(
+                latePanel.surface.fontSizeLineageSnapshot()?.basePoints,
+                19,
+                "The already-predicted lazy Dock fallback must not be decremented twice"
+            )
+
+#if DEBUG
+            appDelegate.debugDrainAllPendingWorkspaceTerminalFontSizeChanges()
+#endif
+            XCTAssertEqual(
+                latePanel.surface.fontSizeLineageSnapshot()?.basePoints,
+                19
+            )
+        }
+    }
+
+    func testWorkspaceTerminalFontSizeSharedDockPreservesCrossWorkspaceEventOrder() {
+        withTemporaryShortcut(action: .increaseWorkspaceTerminalFontSize) {
+            withTemporaryShortcut(action: .decreaseWorkspaceTerminalFontSize) {
+                guard let appDelegate = AppDelegate.shared else {
+                    XCTFail("Expected AppDelegate.shared")
+                    return
+                }
+
+                let windowId = appDelegate.createMainWindow()
+                defer { closeWindow(withId: windowId) }
+
+                guard let window = window(withId: windowId),
+                      let manager = appDelegate.tabManagerFor(windowId: windowId),
+                      let firstWorkspace = manager.selectedWorkspace,
+                      let increaseEvent = makeKeyDownEvent(
+                        key: "=",
+                        modifiers: [.command, .control],
+                        keyCode: 24,
+                        windowNumber: window.windowNumber,
+                        isARepeat: true
+                      ),
+                      let decreaseEvent = makeKeyDownEvent(
+                        key: "-",
+                        modifiers: [.command, .control],
+                        keyCode: 27,
+                        windowNumber: window.windowNumber,
+                        isARepeat: true
+                      ) else {
+                    XCTFail("Expected two workspace font-size repeat events")
+                    return
+                }
+
+                let windowDock = appDelegate.windowDock(forWindowId: windowId)
+                let maximumPanel = TerminalPanel(
+                    workspaceId: windowDock.workspaceId,
+                    runtimeSpawnPolicy: .pacedSessionRestore
+                )
+                maximumPanel.surface.recordCurrentFontSizeLineage(
+                    TerminalFontSizeLineage(
+                        basePoints: TerminalFontSizePolicy.maximumRuntimePoints,
+                        isExplicitOverride: true
+                    )
+                )
+                windowDock.panels[maximumPanel.id] = maximumPanel
+
+                let minimumPanel = TerminalPanel(
+                    workspaceId: windowDock.workspaceId,
+                    runtimeSpawnPolicy: .pacedSessionRestore
+                )
+                minimumPanel.surface.recordCurrentFontSizeLineage(
+                    TerminalFontSizeLineage(
+                        basePoints: TerminalFontSizePolicy.minimumRuntimePoints,
+                        isExplicitOverride: true
+                    )
+                )
+                windowDock.panels[minimumPanel.id] = minimumPanel
+
+#if DEBUG
+                appDelegate.debugFlushPendingWorkspaceTerminalFontSizeChanges()
+                XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: increaseEvent))
+
+                let secondWorkspace = manager.addTab(select: true)
+                XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: decreaseEvent))
+
+                manager.selectTab(firstWorkspace)
+                XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: increaseEvent))
+                appDelegate.debugDrainAllPendingWorkspaceTerminalFontSizeChanges()
+#else
+                XCTFail("Workspace font-size coalescer hooks are only available in DEBUG")
+                return
+#endif
+
+                XCTAssertEqual(
+                    maximumPanel.surface.fontSizeLineageSnapshot()?.basePoints,
+                    TerminalFontSizePolicy.maximumRuntimePoints
+                )
+                XCTAssertEqual(
+                    minimumPanel.surface.fontSizeLineageSnapshot()?.basePoints,
+                    TerminalFontSizePolicy.minimumRuntimePoints + 1
+                )
+            }
+        }
+    }
+
+    func testWorkspaceTerminalFontSizeDrainBudgetCapsLiveActionsAndPanelVisits() {
+        var liveBudget = WorkspaceTerminalFontSizeDrainBudget()
+        for _ in 0..<4 {
+            XCTAssertTrue(
+                liveBudget.reserve(
+                    panelHasLiveSurface: true,
+                    nativeActionUpperBound: 2
+                )
+            )
+        }
+        XCTAssertEqual(
+            liveBudget.liveActionUpperBound,
+            WorkspaceTerminalFontSizeDrainBudget.maximumLiveActionsPerDrain
+        )
+        XCTAssertFalse(
+            liveBudget.reserve(
+                panelHasLiveSurface: true,
+                nativeActionUpperBound: 1
+            )
+        )
+
+        var panelBudget = WorkspaceTerminalFontSizeDrainBudget()
+        for _ in 0..<WorkspaceTerminalFontSizeDrainBudget.maximumPanelVisitsPerDrain {
+            XCTAssertTrue(
+                panelBudget.reserve(
+                    panelHasLiveSurface: false,
+                    nativeActionUpperBound: 2
+                )
+            )
+        }
+        XCTAssertFalse(
+            panelBudget.reserve(
+                panelHasLiveSurface: false,
+                nativeActionUpperBound: 2
+            )
+        )
+
+        var requestBudget = WorkspaceTerminalFontSizeDrainBudget()
+        for _ in 0..<WorkspaceTerminalFontSizeDrainBudget.maximumRequestVisitsPerDrain {
+            XCTAssertTrue(requestBudget.reserveRequestVisit())
+        }
+        XCTAssertFalse(requestBudget.reserveRequestVisit())
+    }
+
+    func testPendingWorkspaceTerminalFontSizeChangePreservesResetOrdering() {
+        var change = WorkspaceTerminalFontSizeChange.relative([-1])
+        change.appendAdjustment(-1)
+        XCTAssertEqual(change, .relative([-2]))
+
+        change.appendReset()
+        XCTAssertEqual(change, .resetThen([]))
+
+        change.appendAdjustment(1)
+        XCTAssertEqual(change, .resetThen([1]))
+
+        change.appendReset()
+        XCTAssertEqual(change, .resetThen([]))
+    }
+
+    func testPendingWorkspaceTerminalFontSizeChangePreservesOppositeDirections() {
+        var change = WorkspaceTerminalFontSizeChange.relative([1])
+        change.appendAdjustment(-1)
+
+        XCTAssertEqual(change, .relative([1, -1]))
+    }
+
+    func testExplicitWorkspaceFontSizeBindingWinsOverAnotherImplicitFontSizeDefault() {
+        withIsolatedShortcutFileStore {
+            withDefaultShortcutFallback(action: .increaseWorkspaceTerminalFontSize) {
+                withTemporaryShortcut(
+                    action: .decreaseWorkspaceTerminalFontSize,
+                    shortcut: StoredShortcut(
+                        key: "=",
+                        command: true,
+                        shift: false,
+                        option: false,
+                        control: true
+                    )
+                ) {
+                    guard let appDelegate = AppDelegate.shared else {
+                        XCTFail("Expected AppDelegate.shared")
+                        return
+                    }
+
+                    let windowId = appDelegate.createMainWindow()
+                    defer { closeWindow(withId: windowId) }
+
+                    guard let window = window(withId: windowId),
+                          let manager = appDelegate.tabManagerFor(windowId: windowId),
+                          let workspace = manager.selectedWorkspace,
+                          let panelId = workspace.focusedPanelId,
+                          let panel = workspace.terminalPanel(for: panelId),
+                          let event = makeKeyDownEvent(
+                            key: "=",
+                            modifiers: [.command, .control],
+                            keyCode: 24,
+                            windowNumber: window.windowNumber
+                          ) else {
+                        XCTFail("Expected a terminal and Cmd+Ctrl+= event")
+                        return
+                    }
+
+                    window.makeKeyAndOrderFront(nil)
+                    window.displayIfNeeded()
+                    let configuredRuntimePoints = Float32(
+                        GhosttyConfig.load(
+                            globalFontMagnificationPercent: GlobalFontMagnification.storedPercent
+                        ).fontSize
+                    )
+                    let beforeRuntimePoints = panel.surface.fontSizeLineageSnapshot().map {
+                        CmuxSurfaceConfigTemplate.runtimeFontSize(
+                            fromBasePoints: $0.basePoints,
+                            percent: GlobalFontMagnification.storedPercent
+                        )
+                    } ?? configuredRuntimePoints
+
+#if DEBUG
+                    XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+                    XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+                    return
+#endif
+
+                    guard let afterLineage = panel.surface.fontSizeLineageSnapshot() else {
+                        XCTFail("Expected adjusted font-size lineage")
+                        return
+                    }
+                    let afterRuntimePoints = CmuxSurfaceConfigTemplate.runtimeFontSize(
+                        fromBasePoints: afterLineage.basePoints,
+                        percent: GlobalFontMagnification.storedPercent
+                    )
+                    XCTAssertEqual(
+                        afterRuntimePoints,
+                        TerminalFontSizePolicy().clampedRuntimePoints(beforeRuntimePoints - 1),
+                        accuracy: 0.001
+                    )
+                    XCTAssertTrue(afterLineage.isExplicitOverride)
+                }
+            }
+        }
+    }
+
+    func testConfiguredWorkspaceTerminalFontSizeResetRestoresEverySplit() {
+        withTemporaryShortcut(action: .resetWorkspaceTerminalFontSize) {
+            guard let appDelegate = AppDelegate.shared else {
+                XCTFail("Expected AppDelegate.shared")
+                return
+            }
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            guard let window = window(withId: windowId),
+                  let manager = appDelegate.tabManagerFor(windowId: windowId),
+                  let workspace = manager.selectedWorkspace,
+                  let firstPanelId = workspace.focusedPanelId,
+                  let firstPanel = workspace.terminalPanel(for: firstPanelId),
+                  let secondPanel = workspace.newTerminalSplit(
+                    from: firstPanelId,
+                    orientation: .horizontal
+                  ),
+                  let event = makeKeyDownEvent(
+                    key: "0",
+                    modifiers: [.command, .control],
+                    keyCode: 29,
+                    windowNumber: window.windowNumber
+                  ) else {
+                XCTFail("Expected two terminal splits and Cmd+Ctrl+0 event")
+                return
+            }
+
+            let windowDock = appDelegate.windowDock(forWindowId: windowId)
+            let dockPanel = TerminalPanel(
+                workspaceId: windowDock.workspaceId,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            windowDock.panels[dockPanel.id] = dockPanel
+
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            XCTAssertEqual(
+                workspace.adjustTerminalFontSizes(
+                    byRuntimePoints: -3,
+                    additionalTerminalPanels: [dockPanel]
+                ),
+                3
+            )
+            guard let inheritedWhileZoomedPanel = workspace.newTerminalSplit(
+                from: firstPanelId,
+                orientation: .vertical
+            ) else {
+                XCTFail("Expected a terminal created after workspace zoom")
+                return
+            }
+            let surfaces = [
+                firstPanel.surface,
+                secondPanel.surface,
+                inheritedWhileZoomedPanel.surface,
+                dockPanel.surface,
+            ]
+            for surface in surfaces {
+                XCTAssertTrue(
+                    surface.fontSizeLineageSnapshot()?.isExplicitOverride ?? false,
+                    "Expected every terminal to own the shrunken size before reset"
+                )
+            }
+
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            return
+#endif
+
+            let configuredRuntimePoints = Float32(
+                GhosttyConfig.load(
+                    globalFontMagnificationPercent: GlobalFontMagnification.storedPercent
+                ).fontSize
+            )
+            for surface in surfaces {
+                guard let resetLineage = surface.fontSizeLineageSnapshot() else {
+                    XCTFail("Expected reset font-size lineage")
+                    continue
+                }
+                let resetRuntimePoints = CmuxSurfaceConfigTemplate.runtimeFontSize(
+                    fromBasePoints: resetLineage.basePoints,
+                    percent: GlobalFontMagnification.storedPercent
+                )
+                XCTAssertEqual(resetRuntimePoints, configuredRuntimePoints, accuracy: 0.001)
+                XCTAssertFalse(resetLineage.isExplicitOverride)
+                XCTAssertNil(surface.sessionFontSizeOverrideBasePoints())
+            }
+        }
+    }
+
+    func testPersistedLegacyEqualizeShortcutWinsOverNewFontSizeDefault() {
+        withIsolatedShortcutFileStore {
+            withDefaultShortcutFallback(action: .increaseWorkspaceTerminalFontSize) {
+                withTemporaryShortcut(
+                    action: .equalizeSplits,
+                    shortcut: StoredShortcut(
+                        key: "=",
+                        command: true,
+                        shift: false,
+                        option: false,
+                        control: true
+                    )
+                ) {
+                    guard let appDelegate = AppDelegate.shared else {
+                        XCTFail("Expected AppDelegate.shared")
+                        return
+                    }
+
+                    let windowId = appDelegate.createMainWindow()
+                    defer { closeWindow(withId: windowId) }
+
+                    guard let window = window(withId: windowId),
+                          let manager = appDelegate.tabManagerFor(windowId: windowId),
+                          let workspace = manager.selectedWorkspace,
+                          let firstPanelId = workspace.focusedPanelId,
+                          let firstPanel = workspace.terminalPanel(for: firstPanelId),
+                          let secondPanel = workspace.newTerminalSplit(
+                            from: firstPanelId,
+                            orientation: .horizontal
+                          ),
+                          let split = shortcutRoutingSplitNodes(
+                            in: workspace.bonsplitController.treeSnapshot()
+                          ).first,
+                          let splitId = UUID(uuidString: split.id),
+                          let event = makeKeyDownEvent(
+                            key: "=",
+                            modifiers: [.command, .control],
+                            keyCode: 24,
+                            windowNumber: window.windowNumber
+                          ) else {
+                        XCTFail("Expected a split and legacy Cmd+Ctrl+= event")
+                        return
+                    }
+
+                    XCTAssertNil(firstPanel.surface.fontSizeLineageSnapshot())
+                    XCTAssertNil(secondPanel.surface.fontSizeLineageSnapshot())
+                    XCTAssertTrue(
+                        workspace.bonsplitController.setDividerPosition(0.2, forSplit: splitId)
+                    )
+
+                    window.makeKeyAndOrderFront(nil)
+#if DEBUG
+                    XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+                    XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+                    return
+#endif
+
+                    guard let updatedSplit = shortcutRoutingSplitNodes(
+                        in: workspace.bonsplitController.treeSnapshot()
+                    ).first(where: { $0.id == split.id }) else {
+                        XCTFail("Expected split to remain present")
+                        return
+                    }
+                    XCTAssertEqual(updatedSplit.dividerPosition, 0.5, accuracy: 0.000_1)
+                    XCTAssertFalse(
+                        firstPanel.surface.fontSizeLineageSnapshot()?.isExplicitOverride ?? false
+                    )
+                    XCTAssertFalse(
+                        secondPanel.surface.fontSizeLineageSnapshot()?.isExplicitOverride ?? false
+                    )
+                }
+            }
+        }
+    }
+
+    func testPersistedSplitShortcutWinsOverNewFontSizeDefaults() {
+        withIsolatedShortcutFileStore {
+            let cases: [
+                (
+                    action: KeyboardShortcutSettings.Action,
+                    key: String,
+                    keyCode: UInt16
+                )
+            ] = [
+                (.decreaseWorkspaceTerminalFontSize, "-", 27),
+                (.resetWorkspaceTerminalFontSize, "0", 29),
+            ]
+
+            for testCase in cases {
+                withDefaultShortcutFallback(action: testCase.action) {
+                    withTemporaryShortcut(
+                        action: .splitRight,
+                        shortcut: StoredShortcut(
+                            key: testCase.key,
+                            command: true,
+                            shift: false,
+                            option: false,
+                            control: true
+                        )
+                    ) {
+                        guard let appDelegate = AppDelegate.shared else {
+                            XCTFail("Expected AppDelegate.shared")
+                            return
+                        }
+
+                        let windowId = appDelegate.createMainWindow()
+                        defer { closeWindow(withId: windowId) }
+
+                        guard let window = window(withId: windowId),
+                              let manager = appDelegate.tabManagerFor(windowId: windowId),
+                              let workspace = manager.selectedWorkspace,
+                              let firstPanelId = workspace.focusedPanelId,
+                              let firstPanel = workspace.terminalPanel(for: firstPanelId),
+                              let event = makeKeyDownEvent(
+                                key: testCase.key,
+                                modifiers: [.command, .control],
+                                keyCode: testCase.keyCode,
+                                windowNumber: window.windowNumber
+                              ) else {
+                            XCTFail("Expected a terminal and workspace font-size event")
+                            return
+                        }
+                        let panelCountBefore = workspace.panels.count
+
+                        window.makeKeyAndOrderFront(nil)
+#if DEBUG
+                        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+                        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+                        return
+#endif
+
+                        XCTAssertEqual(workspace.panels.count, panelCountBefore + 1)
+                        XCTAssertEqual(
+                            shortcutRoutingSplitNodes(
+                                in: workspace.bonsplitController.treeSnapshot()
+                            ).count,
+                            1
+                        )
+                        XCTAssertFalse(
+                            firstPanel.surface.fontSizeLineageSnapshot()?.isExplicitOverride ?? false
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    func testPersistedSplitShortcutWinsOverNewEqualizeDefault() {
+        withIsolatedShortcutFileStore {
+            withDefaultShortcutFallback(action: .equalizeSplits) {
+                withTemporaryShortcut(
+                    action: .splitRight,
+                    shortcut: StoredShortcut(
+                        key: "=",
+                        command: true,
+                        shift: true,
+                        option: false,
+                        control: true
+                    )
+                ) {
+                    guard let appDelegate = AppDelegate.shared else {
+                        XCTFail("Expected AppDelegate.shared")
+                        return
+                    }
+
+                    let windowId = appDelegate.createMainWindow()
+                    defer { closeWindow(withId: windowId) }
+
+                    guard let window = window(withId: windowId),
+                          let manager = appDelegate.tabManagerFor(windowId: windowId),
+                          let workspace = manager.selectedWorkspace,
+                          let event = makeKeyDownEvent(
+                            key: "=",
+                            modifiers: [.command, .control, .shift],
+                            keyCode: 24,
+                            windowNumber: window.windowNumber
+                          ) else {
+                        XCTFail("Expected a terminal and Cmd+Ctrl+Shift+= event")
+                        return
+                    }
+                    let panelCountBefore = workspace.panels.count
+
+                    window.makeKeyAndOrderFront(nil)
+#if DEBUG
+                    XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+                    XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+                    return
+#endif
+
+                    XCTAssertEqual(workspace.panels.count, panelCountBefore + 1)
+                    XCTAssertEqual(
+                        shortcutRoutingSplitNodes(
+                            in: workspace.bonsplitController.treeSnapshot()
+                        ).count,
+                        1
+                    )
+                }
+            }
+        }
+    }
+
+    func testWorkspaceFontSizeDefaultsAreNotSuppressedAfterRebinding() {
+        withIsolatedShortcutFileStore {
+            let cases: [
+                (
+                    action: KeyboardShortcutSettings.Action,
+                    key: String,
+                    keyCode: UInt16
+                )
+            ] = [
+                (.increaseWorkspaceTerminalFontSize, "=", 24),
+                (.decreaseWorkspaceTerminalFontSize, "-", 27),
+                (.resetWorkspaceTerminalFontSize, "0", 29),
+            ]
+
+            for testCase in cases {
+                guard let event = makeKeyDownEvent(
+                    key: testCase.key,
+                    modifiers: [.command, .control],
+                    keyCode: testCase.keyCode,
+                    windowNumber: 0
+                ) else {
+                    XCTFail("Expected workspace font-size shortcut event")
+                    continue
+                }
+                withTemporaryShortcut(action: testCase.action, shortcut: .unbound) {
+                    XCTAssertFalse(
+                        AppDelegate.shared?.shouldSuppressStaleCmuxMenuShortcut(event: event) ?? true,
+                        "\(testCase.action.rawValue) is routed without an NSMenu item"
+                    )
+                }
+            }
+        }
     }
 
     private func shortcutRoutingSplitNodes(in node: ExternalTreeNode) -> [ExternalSplitNode] {
@@ -242,7 +1346,8 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         key: String,
         modifiers: NSEvent.ModifierFlags,
         keyCode: UInt16,
-        windowNumber: Int
+        windowNumber: Int,
+        isARepeat: Bool = false
     ) -> NSEvent? {
         NSEvent.keyEvent(
             with: .keyDown,
@@ -253,7 +1358,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             context: nil,
             characters: key,
             charactersIgnoringModifiers: key,
-            isARepeat: false,
+            isARepeat: isARepeat,
             keyCode: keyCode
         )
     }
@@ -273,6 +1378,39 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             }
         }
         KeyboardShortcutSettings.setShortcut(shortcut ?? action.defaultShortcut, for: action)
+        body()
+    }
+
+    private func withDefaultShortcutFallback(
+        action: KeyboardShortcutSettings.Action,
+        _ body: () -> Void
+    ) {
+        let defaults = UserDefaults.standard
+        let originalValue = defaults.object(forKey: action.defaultsKey)
+        defaults.removeObject(forKey: action.defaultsKey)
+        defer {
+            if let originalValue {
+                defaults.set(originalValue, forKey: action.defaultsKey)
+            } else {
+                defaults.removeObject(forKey: action.defaultsKey)
+            }
+        }
+        body()
+    }
+
+    private func withIsolatedShortcutFileStore(_ body: () -> Void) {
+        let originalStore = KeyboardShortcutSettings.settingsFileStore
+        let settingsFileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-font-zoom-\(UUID().uuidString).json")
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        defer {
+            KeyboardShortcutSettings.settingsFileStore = originalStore
+            try? FileManager.default.removeItem(at: settingsFileURL)
+        }
         body()
     }
 

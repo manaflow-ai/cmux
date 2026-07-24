@@ -1,10 +1,12 @@
 import CmuxTerminalCore
+import Foundation
 import Testing
 
 @Suite struct TerminalFontSizeCreationPolicyTests {
     @Test func inheritPreservesConfiguration() throws {
         var inherited = CmuxSurfaceConfigTemplate()
         inherited.setFontSize(13, isExplicitOverride: true)
+        inherited.fontSizeChangeToken = UUID()
         inherited.workingDirectory = "/tmp/inherited"
         inherited.command = "echo inherited"
         inherited.environmentVariables = ["CMUX_TEST": "inherited"]
@@ -16,6 +18,7 @@ import Testing
         )
 
         #expect(applied.fontSizeLineage == inherited.fontSizeLineage)
+        #expect(applied.fontSizeChangeToken == inherited.fontSizeChangeToken)
         #expect(applied.workingDirectory == inherited.workingDirectory)
         #expect(applied.command == inherited.command)
         #expect(applied.environmentVariables == inherited.environmentVariables)
@@ -26,6 +29,7 @@ import Testing
     @Test func sessionRestoreAppliesExplicitOverride() throws {
         var inherited = CmuxSurfaceConfigTemplate()
         inherited.setFontSize(11, isExplicitOverride: false)
+        inherited.fontSizeChangeToken = UUID()
 
         let applied = try #require(
             TerminalFontSizeCreationPolicy.sessionRestore(overrideBasePoints: 15)
@@ -36,6 +40,7 @@ import Testing
             basePoints: 15,
             isExplicitOverride: true
         ))
+        #expect(applied.fontSizeChangeToken == nil)
     }
 
     @Test(arguments: [
@@ -52,6 +57,7 @@ import Testing
     ) throws {
         var inherited = CmuxSurfaceConfigTemplate()
         inherited.setFontSize(13, isExplicitOverride: true)
+        inherited.fontSizeChangeToken = UUID()
         inherited.workingDirectory = "/tmp/restored"
         inherited.command = "echo restored"
         inherited.environmentVariables = ["CMUX_TEST": "restored"]
@@ -65,6 +71,7 @@ import Testing
         )
 
         #expect(applied.fontSizeLineage == nil)
+        #expect(applied.fontSizeChangeToken == nil)
         #expect(applied.workingDirectory == inherited.workingDirectory)
         #expect(applied.command == inherited.command)
         #expect(applied.environmentVariables == inherited.environmentVariables)
