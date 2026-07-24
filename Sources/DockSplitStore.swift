@@ -5,6 +5,7 @@ import CmuxAppKitSupportUI
 import CmuxCore
 import CmuxSettings
 import CmuxTerminal
+import CmuxTerminalCore
 import CmuxWorkspaces
 import Observation
 import SwiftUI
