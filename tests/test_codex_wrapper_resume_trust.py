@@ -35,12 +35,15 @@ class CodexWrapperResumeTrustTests(unittest.TestCase):
         trusted_codex_from_home: bool = False,
         trusted_codex_from_custom_path: bool = False,
         hostile_codex_on_path: bool = False,
+        effective_project_codex_on_path: bool = False,
+        project_codex_passthrough: bool = False,
     ) -> tuple[list[str], str, subprocess.CompletedProcess[str]]:
         with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as raw:
             root = Path(raw)
             home = root / "home"
             project = root / "project"
             working_directory = project / "nested"
+            effective_project = root / "effective-project"
             wrapper = root / "cmux-codex-wrapper"
             real_codex = (
                 home / ".local" / "bin" / "codex"
@@ -56,11 +59,14 @@ class CodexWrapperResumeTrustTests(unittest.TestCase):
             cmux_log = root / "cmux.log"
             socket_path = root / "cmux.sock"
             hostile_bin = project / "hostile-bin"
+            project_bin = project / "bin"
+            effective_project_bin = effective_project / "bin"
 
             shutil.copy2(SOURCE_WRAPPER, wrapper)
             wrapper.chmod(0o755)
             (project / ".git").mkdir(parents=True)
             working_directory.mkdir()
+            (effective_project / ".git").mkdir(parents=True)
             real_codex.parent.mkdir(parents=True, exist_ok=True)
             make_executable(
                 real_codex,
@@ -125,7 +131,11 @@ esac
                     "HOME": str(home),
                 }
             )
-            if not trusted_codex_from_home and not trusted_codex_from_custom_path:
+            if (
+                not trusted_codex_from_home
+                and not trusted_codex_from_custom_path
+                and not project_codex_passthrough
+            ):
                 env["CMUX_CUSTOM_CODEX_PATH"] = str(real_codex)
             if hostile_bash_on_path or hostile_codex_on_path:
                 hostile_bin.mkdir(parents=True)
@@ -144,12 +154,38 @@ printf 'hostile-codex-ran\\n' >> "$FAKE_CMUX_LOG"
 exit 98
 """,
                 )
+            if effective_project_codex_on_path:
+                effective_project_bin.mkdir()
+                make_executable(
+                    effective_project_bin / "codex",
+                    """#!/bin/sh
+printf 'effective-project-codex-ran\\n' >> "$FAKE_CMUX_LOG"
+exit 98
+""",
+                )
+            if project_codex_passthrough:
+                project_bin.mkdir()
+                make_executable(
+                    project_bin / "codex",
+                    """#!/bin/bash
+printf '%s\\0' "$@" > "$FAKE_CODEX_ARGS_LOG"
+""",
+                )
+                env["CMUX_CODEX_HOOKS_DISABLED"] = "1"
             lookup_path = "/usr/bin:/bin"
             if trusted_codex_from_custom_path:
                 lookup_path = f"{lookup_path}:{real_codex.parent}"
+            if effective_project_codex_on_path:
+                lookup_path = f"{effective_project_bin}:{lookup_path}"
+            if project_codex_passthrough:
+                lookup_path = f"{project_bin}:{lookup_path}"
             if hostile_bash_on_path or hostile_codex_on_path:
                 lookup_path = f"{hostile_bin}:{lookup_path}"
             env["PATH"] = lookup_path
+            arguments = [
+                str(effective_project) if arg == "{effective-project}" else arg
+                for arg in arguments
+            ]
             try:
                 result = subprocess.run(
                     [str(wrapper), *arguments],
@@ -364,6 +400,27 @@ exit 98
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(args, ["--enable", "hooks", "--yolo"])
         self.assertNotIn("hostile-codex-ran", logged_cmux_calls)
+
+    def test_effective_cd_project_cannot_select_codex_before_trust(self) -> None:
+        args, logged_cmux_calls, result = self.run_wrapper(
+            ["-C", "{effective-project}", "--yolo"],
+            trusted_codex_from_custom_path=True,
+            effective_project_codex_on_path=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(args[:3], ["--enable", "hooks", "-C"])
+        self.assertEqual(args[-1], "--yolo")
+        self.assertNotIn("effective-project-codex-ran", logged_cmux_calls)
+
+    def test_hooks_opt_out_preserves_project_local_codex_passthrough(self) -> None:
+        args, _, result = self.run_wrapper(
+            ["resume", SESSION_ID],
+            project_codex_passthrough=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(args, ["resume", SESSION_ID])
 
     def test_resume_helper_empty_or_failed_partial_output_is_discarded(self) -> None:
         for mode in ("empty", "partial", "truncated", "wrong_arity"):
