@@ -206,6 +206,59 @@ struct SimulatorRemoteSurfaceLifecycleTests {
         #expect(pipeline.displayTick()?.sequence == 2)
     }
 
+    @Test("A publication burst schedules bounded main-actor frame work")
+    func publicationBurstCoalescesMainActorWork() async throws {
+        let source = SignaledSimulatorFrameSurfaceSource(snapshot: simulatorFrameSnapshot(
+            pixel: 0xFF_12_34_56,
+            sequence: 1
+        ))
+        var completionCount = 0
+        let pipeline = SimulatorFramePresentationPipeline(
+            source: source,
+            presentationDidComplete: { completionCount += 1 }
+        )
+        defer { pipeline.invalidate() }
+
+        _ = pipeline.displayTick()
+        try await waitUntil { completionCount == 1 }
+        #expect(pipeline.displayTick()?.sequence == 1)
+        let availabilityChecksBeforeBurst = source.availabilityCheckCount
+
+        source.signalPublicationBurst(count: 1_000)
+        try await Task.sleep(for: .milliseconds(100))
+
+        #expect(source.availabilityCheckCount - availabilityChecksBeforeBurst <= 2)
+    }
+
+    @Test("A publication invalidating an in-flight copy retries the newest frame")
+    func invalidatedCopyRetriesNewestPublication() async throws {
+        let source = InvalidatingSignaledSimulatorFrameSurfaceSource(
+            snapshot: simulatorFrameSnapshot(
+                pixel: 0xFF_12_34_56,
+                sequence: 1
+            )
+        )
+        var completionCount = 0
+        let pipeline = SimulatorFramePresentationPipeline(
+            source: source,
+            presentationDidComplete: { completionCount += 1 }
+        )
+        defer { pipeline.invalidate() }
+
+        _ = pipeline.displayTick()
+        try await waitUntil { source.hasStartedCopy }
+        source.publish(simulatorFrameSnapshot(
+            pixel: 0xFF_65_43_21,
+            sequence: 2
+        ))
+        try await Task.sleep(for: .milliseconds(50))
+        source.releaseCopy()
+        try await waitUntil { completionCount == 1 }
+
+        #expect(source.copyCount == 2)
+        #expect(pipeline.displayTick()?.sequence == 2)
+    }
+
     @Test("Worker frame publication wakes the host pipeline")
     func workerPublicationWakesHostPipeline() async throws {
         let surface = try #require(IOSurfaceCreate([
@@ -606,6 +659,13 @@ private final class SignaledSimulatorFrameSurfaceSource:
         handler?()
     }
 
+    func signalPublicationBurst(count: Int) {
+        let handler = lock.withLock { publicationHandler }
+        for _ in 0..<count {
+            handler?()
+        }
+    }
+
     func hasPublishedFrame(after sequence: UInt64?) -> Bool {
         lock.withLock {
             availabilityChecks += 1
@@ -616,6 +676,88 @@ private final class SignaledSimulatorFrameSurfaceSource:
     func copyLatestFrame(after sequence: UInt64?) async -> SimulatorFrameSnapshot? {
         lock.withLock {
             guard sequence.map({ snapshot.sequence > $0 }) ?? true else { return nil }
+            return snapshot
+        }
+    }
+}
+
+private final class InvalidatingSignaledSimulatorFrameSurfaceSource:
+    SimulatorFrameSurfaceReading,
+    @unchecked Sendable
+{
+    private let lock = NSLock()
+    private var snapshot: SimulatorFrameSnapshot
+    private var publicationHandler: (@Sendable () -> Void)?
+    private var copies = 0
+    private var copyStarted = false
+    private var copyIsBlocked = true
+    private var copyWaiters: [CheckedContinuation<Void, Never>] = []
+
+    init(snapshot: SimulatorFrameSnapshot) {
+        self.snapshot = snapshot
+    }
+
+    var copyCount: Int {
+        lock.withLock { copies }
+    }
+
+    var hasStartedCopy: Bool {
+        lock.withLock { copyStarted }
+    }
+
+    @discardableResult
+    func setFramePublicationHandler(
+        _ handler: (@Sendable () -> Void)?
+    ) -> Bool {
+        lock.withLock { publicationHandler = handler }
+        return true
+    }
+
+    func publish(_ snapshot: SimulatorFrameSnapshot) {
+        let handler = lock.withLock {
+            self.snapshot = snapshot
+            return publicationHandler
+        }
+        handler?()
+    }
+
+    func releaseCopy() {
+        let waiters = lock.withLock {
+            copyIsBlocked = false
+            let waiters = copyWaiters
+            copyWaiters.removeAll()
+            return waiters
+        }
+        waiters.forEach { $0.resume() }
+    }
+
+    func hasPublishedFrame(after sequence: UInt64?) -> Bool {
+        lock.withLock {
+            sequence.map { snapshot.sequence > $0 } ?? true
+        }
+    }
+
+    func copyLatestFrame(after sequence: UInt64?) async -> SimulatorFrameSnapshot? {
+        let copiedSequence = lock.withLock {
+            copies += 1
+            copyStarted = true
+            return snapshot.sequence
+        }
+        await withCheckedContinuation { continuation in
+            let shouldResume = lock.withLock {
+                guard copyIsBlocked else { return true }
+                copyWaiters.append(continuation)
+                return false
+            }
+            if shouldResume {
+                continuation.resume()
+            }
+        }
+        return lock.withLock {
+            guard snapshot.sequence == copiedSequence,
+                  sequence.map({ copiedSequence > $0 }) ?? true else {
+                return nil
+            }
             return snapshot
         }
     }
