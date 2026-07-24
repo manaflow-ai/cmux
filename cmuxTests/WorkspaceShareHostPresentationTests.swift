@@ -350,6 +350,53 @@ struct WorkspaceShareSocketRequestTests {
         await socket.stop()
     }
 
+    @Test("Stale critical backpressure does not cancel a replacement socket")
+    func staleCriticalBackpressurePreservesReplacementSocket() async throws {
+        let lifecycle = WorkspaceShareSessionLifecycle(
+            clockSleep: { _ in
+                try await Task.sleep(for: .seconds(60))
+            },
+            randomUnitInterval: { 0 }
+        )
+        await lifecycle.start()
+        await lifecycle.connectionOpened()
+        let socket = ShareSocket(
+            endpoint: ShareSocket.Endpoint(
+                wsUrl: "ws://127.0.0.1:1/connect",
+                token: "valid-token"
+            ),
+            refresh: {
+                ShareSocket.Endpoint(
+                    wsUrl: "ws://127.0.0.1:1/connect",
+                    token: "valid-token"
+                )
+            },
+            lifecycle: lifecycle
+        )
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let original = session.webSocketTask(
+            with: try #require(URL(string: "ws://127.0.0.1:1/original"))
+        )
+        let replacement = session.webSocketTask(
+            with: try #require(URL(string: "ws://127.0.0.1:1/replacement"))
+        )
+        let replacementID = ObjectIdentifier(replacement)
+
+        await socket.installWebSocketTaskForTesting(original)
+        await socket.setBeforeCriticalBackpressureLifecycleStateForTesting {
+            await socket.installWebSocketTaskForTesting(replacement)
+        }
+
+        #expect(await socket.reconnectAfterOutboundBackpressure())
+        #expect(
+            await socket.currentWebSocketTaskIDForTesting()
+                == replacementID
+        )
+        #expect(replacement.state == .suspended)
+        await socket.stop()
+    }
+
     private func waitForReconnect(
         _ lifecycle: WorkspaceShareSessionLifecycle
     ) async -> Bool {
