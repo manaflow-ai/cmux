@@ -140,7 +140,10 @@ protocol RemoteTmuxSessionSource: AnyObject {
     /// so a state machine can anchor on the resolution instead of a timer.
     @discardableResult func sendTracked(_ command: String, completion: @escaping (Bool) -> Void) -> Bool
     /// Replaces a pane's visible screen from a fresh capture (home+clear+rows),
-    /// used to repaint after a resize the terminal didn't reflow.
+    /// used to repaint after a resize the terminal didn't reflow. Returns the id of
+    /// the pane-seed transaction the repaint runs under, or nil when no transaction
+    /// started — the repaint coalesced into one already in flight, or the transport
+    /// refused it.
     @discardableResult
     func repaintPaneVisibleScreen(paneId: Int) -> UUID?
     /// Drops cached window-size claims for windows no longer live (sizing GC).
@@ -166,7 +169,13 @@ protocol RemoteTmuxSessionSource: AnyObject {
     /// requirement cannot carry one, so callers that want the common case pass `false`
     /// explicitly. See the implementation for what `preservingBackoff` protects against.
     func beginReconnecting(preservingBackoff: Bool)
-    /// Replays a pane's captured contents into a freshly-mounted surface.
+    /// Replays a pane's captured contents into a freshly-mounted surface, clearing
+    /// that surface's scrollback first when the capture carries the pane's own
+    /// history. Returns the id of the pane-seed transaction, or nil when no seed
+    /// started; a caller that still owes the surface a seed (the deferred full
+    /// reseed) retries on that nil rather than leaving the pane blank.
+    /// `clearScrollback` has no default here because a protocol requirement can't
+    /// carry one, so every call through the source names it.
     @discardableResult
     func seedPane(paneId: Int, clearScrollback: Bool) -> UUID?
     /// Ends per-pane cwd / reflow / header subscriptions when a pane's mirror goes away.
