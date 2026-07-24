@@ -625,7 +625,12 @@
     return {
       ...reference.baseline,
       bounds: rectFor(element),
-      viewport: { width: globalThis.innerWidth || 0, height: globalThis.innerHeight || 0 },
+      viewport: {
+        width: globalThis.innerWidth || 0,
+        height: globalThis.innerHeight || 0,
+        scroll_x: globalThis.scrollX || 0,
+        scroll_y: globalThis.scrollY || 0,
+      },
     };
   };
 
@@ -643,7 +648,12 @@
       text_content: "",
       text_editable: false,
       bounds: { x, y, width: region.width, height: region.height },
-      viewport: { width: globalThis.innerWidth || 0, height: globalThis.innerHeight || 0 },
+      viewport: {
+        width: globalThis.innerWidth || 0,
+        height: globalThis.innerHeight || 0,
+        scroll_x: globalThis.scrollX || 0,
+        scroll_y: globalThis.scrollY || 0,
+      },
       computed_styles: {},
     };
   };

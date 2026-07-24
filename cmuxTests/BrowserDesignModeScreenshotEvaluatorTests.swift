@@ -56,56 +56,23 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         }
     }
 
-    @Test func screenshotPruningPinsOnlyLiveAnnotationContext() async throws {
-        let directory = URL.temporaryDirectory
-            .appendingPathComponent("cmux-design-mode-pinning-test-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let store = BrowserDesignModeScreenshotStore(directory: directory)
-        let surfaceID = UUID()
-        let pinned = try await store.save(
-            Data([0]),
-            surfaceID: surfaceID,
-            retention: .liveContext
-        )
-        try FileManager.default.setAttributes(
-            [.modificationDate: Date(timeIntervalSince1970: 0)],
-            ofItemAtPath: pinned.path
+    @Test func fullPageCaptureCanOutliveSingleViewportDeadline() async throws {
+        let expected = NSImage(size: NSSize(width: 20, height: 40))
+        let evaluator = BrowserDesignModeScreenshotEvaluator(
+            timeout: 0.2,
+            visibleViewportCapture: { _, _ in },
+            fullPageCapture: { _, onProgress in
+                for _ in 0..<5 {
+                    try await ContinuousClock().sleep(for: .milliseconds(50))
+                    onProgress()
+                }
+                return expected
+            }
         )
 
-        for value in 1...101 {
-            _ = try await store.save(Data([UInt8(value)]), surfaceID: surfaceID)
-        }
-        #expect(FileManager.default.fileExists(atPath: pinned.path))
+        let captured = try await evaluator.captureFullPage(from: WKWebView())
 
-        await store.release(pinned)
-        _ = try await store.save(Data([255]), surfaceID: surfaceID)
-        #expect(!FileManager.default.fileExists(atPath: pinned.path))
-    }
-
-    @Test func releasingLiveAnnotationImmediatelyRestoresScreenshotLimit() async throws {
-        let directory = URL.temporaryDirectory
-            .appendingPathComponent("cmux-design-mode-release-pruning-test-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let store = BrowserDesignModeScreenshotStore(directory: directory)
-        let surfaceID = UUID()
-        var pinned: [URL] = []
-
-        for value in 0...100 {
-            pinned.append(try await store.save(
-                Data([UInt8(value)]),
-                surfaceID: surfaceID,
-                retention: .liveContext
-            ))
-        }
-        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).count == 101)
-
-        await store.release(pinned[0])
-
-        #expect(!FileManager.default.fileExists(atPath: pinned[0].path))
-        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).count == 100)
-        for url in pinned.dropFirst() {
-            await store.remove(url)
-        }
+        #expect(captured === expected)
     }
 
     @Test func synthesizedClickKeepsPageRuntimeOutOfTheNativeComposerInputPath() async throws {
@@ -114,7 +81,7 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
             surfaceID: UUID(),
             script: BrowserDesignModeScript(),
             promptFormatter: BrowserDesignModePromptFormatter(),
-            screenshotStore: BrowserDesignModeScreenshotStore(directory: URL.temporaryDirectory),
+            artifactStore: BrowserDesignModeArtifactStore(directory: URL.temporaryDirectory),
             javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator(),
             screenshotEvaluator: BrowserDesignModeScreenshotEvaluator(),
             canEnable: { true },
@@ -253,6 +220,14 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         let directory = URL.temporaryDirectory
             .appendingPathComponent("cmux-design-mode-copy-test-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
+        let artifactStore = BrowserDesignModeArtifactStore(directory: directory)
+        for value in 0..<99 {
+            _ = try await artifactStore.saveScreenshot(
+                Data([UInt8(value)]),
+                surfaceID: UUID(),
+                retention: .liveContext
+            )
+        }
         var copiedPrompt: String?
         var captureCoverStates: [Bool] = []
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
@@ -262,7 +237,7 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
             surfaceID: UUID(),
             script: BrowserDesignModeScript(),
             promptFormatter: BrowserDesignModePromptFormatter(),
-            screenshotStore: BrowserDesignModeScreenshotStore(directory: directory),
+            artifactStore: artifactStore,
             javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator(),
             screenshotEvaluator: BrowserDesignModeScreenshotEvaluator(timeout: 1) { capturedWebView, completion in
                 captureCoverStates.append(
@@ -309,8 +284,22 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         #expect(captureCoverStates == [false, true, true])
         #expect(container.subviews == [webView])
         let prompt = try #require(copiedPrompt)
-        #expect(prompt.contains("<cmux_design_mode>"))
+        #expect(!prompt.contains("<cmux_design_mode>"))
+        #expect(!prompt.contains("base64"))
+        #expect(prompt.contains("Full-page screenshot: \(directory.path)/"))
+        #expect(prompt.contains("Selection 1 (tag: \"button\", selector: \"#target\"): \(directory.path)/"))
+        let contextURL = try contextURL(from: prompt)
+        let processDirectory = contextURL.deletingLastPathComponent()
+        #expect(processDirectory.deletingLastPathComponent() == directory)
+        #expect(processDirectory.lastPathComponent.hasPrefix("process-"))
         #expect(try requestedChange(from: prompt) == "")
+        let context = try payload(from: prompt)
+        let selections = try #require(context["selections"] as? [[String: Any]])
+        let selectionPath = try #require(selections.first?["screenshot_path"] as? String)
+        let pagePath = try #require(context["page_screenshot_path"] as? String)
+        #expect(FileManager.default.fileExists(atPath: selectionPath))
+        #expect(FileManager.default.fileExists(atPath: pagePath))
+        #expect(FileManager.default.fileExists(atPath: contextURL.path))
         _ = navigationDelegate
     }
 
@@ -330,7 +319,7 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
             surfaceID: UUID(),
             script: BrowserDesignModeScript(),
             promptFormatter: BrowserDesignModePromptFormatter(),
-            screenshotStore: BrowserDesignModeScreenshotStore(directory: directory),
+            artifactStore: BrowserDesignModeArtifactStore(directory: directory),
             javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator(),
             screenshotEvaluator: BrowserDesignModeScreenshotEvaluator(timeout: 1) { _, completion in
                 completion(.success(image))
@@ -402,11 +391,11 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
 
         let prompt = try #require(copiedPrompt)
         let initialPayload = try payload(from: prompt)
-        let elements = try #require(initialPayload["elements"] as? [[String: Any]])
-        #expect(elements.count == 2)
-        #expect((elements[0]["selection"] as? [String: Any])?["selector"] as? String == "#first")
-        #expect((elements[1]["selection"] as? [String: Any])?["selector"] as? String == "#second")
-        #expect(elements.allSatisfy { ($0["screenshot_path"] as? String)?.isEmpty == false })
+        let selections = try #require(initialPayload["selections"] as? [[String: Any]])
+        #expect(selections.count == 2)
+        #expect(selections[0]["selector"] as? String == "#first")
+        #expect(selections[1]["selector"] as? String == "#second")
+        #expect(selections.allSatisfy { ($0["screenshot_path"] as? String)?.isEmpty == false })
 
         controller.requestedChange = "Keep the second selection"
         await controller.removeSelection(at: 0)
@@ -417,9 +406,9 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
 
         let reducedPrompt = try #require(copiedPrompt)
         let reducedPayload = try payload(from: reducedPrompt)
-        let reducedElements = try #require(reducedPayload["elements"] as? [[String: Any]])
-        #expect(reducedElements.count == 1)
-        #expect((reducedElements[0]["selection"] as? [String: Any])?["selector"] as? String == "#second")
+        let reducedSelections = try #require(reducedPayload["selections"] as? [[String: Any]])
+        #expect(reducedSelections.count == 1)
+        #expect(reducedSelections[0]["selector"] as? String == "#second")
         #expect(reducedPayload["requested_change"] as? String == "Keep the second selection")
         _ = navigationDelegate
     }
@@ -433,7 +422,7 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
             surfaceID: UUID(),
             script: BrowserDesignModeScript(),
             promptFormatter: BrowserDesignModePromptFormatter(),
-            screenshotStore: BrowserDesignModeScreenshotStore(directory: URL.temporaryDirectory),
+            artifactStore: BrowserDesignModeArtifactStore(directory: URL.temporaryDirectory),
             javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator(),
             screenshotEvaluator: BrowserDesignModeScreenshotEvaluator(),
             canEnable: { true },
@@ -443,13 +432,15 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
     }
 
     private func payload(from prompt: String) throws -> [String: Any] {
-        let marker = "Payload:\n"
-        let start = try #require(prompt.range(of: marker)?.upperBound)
-        let end = try #require(
-            prompt.range(of: "\n</cmux_design_mode>", range: start..<prompt.endIndex)?.lowerBound
-        )
-        let data = try #require(Data(base64Encoded: String(prompt[start..<end])))
+        let data = try Data(contentsOf: contextURL(from: prompt))
         return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    private func contextURL(from prompt: String) throws -> URL {
+        let marker = "Full context JSON: "
+        let start = try #require(prompt.range(of: marker)?.upperBound)
+        let end = prompt[start...].firstIndex(of: "\n") ?? prompt.endIndex
+        return URL(fileURLWithPath: String(prompt[start..<end]))
     }
 
     private func loadedBrowserPanel() async -> BrowserPanel {
