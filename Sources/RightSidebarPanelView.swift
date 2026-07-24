@@ -19,6 +19,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
     case sessions
     case feed
     case dock
+    case agents
     case customSidebar = "custom-sidebar"
 
     var label: String {
@@ -28,6 +29,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Vault")
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
         case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
+        case .agents: return String(localized: "rightSidebar.mode.agents", defaultValue: "Subrouter")
         case .customSidebar: return String(localized: "rightSidebar.mode.customSidebar", defaultValue: "Custom")
         }
     }
@@ -39,6 +41,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .sessions: return "books.vertical"
         case .feed: return "dot.radiowaves.left.and.right"
         case .dock: return "dock.rectangle"
+        case .agents: return "person.2"
         case .customSidebar: return "wand.and.stars"
         }
     }
@@ -50,6 +53,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .sessions: return .switchRightSidebarToSessions
         case .feed: return .switchRightSidebarToFeed
         case .dock: return .switchRightSidebarToDock
+        case .agents: return .switchRightSidebarToAgents
         case .customSidebar: return nil
         }
     }
@@ -75,7 +79,7 @@ enum FileExplorerRootSyncPolicy {
         switch mode {
         case .files, .find:
             return true
-        case .sessions, .feed, .dock, .customSidebar:
+        case .sessions, .feed, .dock, .agents, .customSidebar:
             return false
         }
     }
@@ -136,6 +140,8 @@ struct RightSidebarPanelView: View {
     private var feedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
     @AppStorage(RightSidebarBetaFeatureSettings.dockEnabledKey)
     private var dockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
+    @AppStorage(SubrouterIntegrationSettings.enabledKey)
+    private var subrouterEnabled = SubrouterIntegrationSettings.defaultEnabled
 
     // Re-reading the observable store inside modeBar causes SwiftUI to
     // track the pending count so the badge updates live when hooks push
@@ -144,12 +150,32 @@ struct RightSidebarPanelView: View {
         FeedCoordinator.shared.store?.pending.count ?? 0
     }
 
+    // Observable read so the badge updates live when polling flags an
+    // active account as cooked or nearly exhausted.
+    private var agentsAttentionCount: Int {
+        SubrouterAppRuntime.shared.store.snapshot.attentionCount
+    }
+
     private var availableModes: [RightSidebarMode] {
-        RightSidebarMode.availableModes(feedEnabled: feedEnabled, dockEnabled: dockEnabled)
+        RightSidebarMode.availableModes(
+            feedEnabled: feedEnabled,
+            dockEnabled: dockEnabled,
+            // Observable read: the mode bar updates live when the feature
+            // flag flips (Internal Flags window or a PostHog payload).
+            agentsEnabled: CmuxFeatureFlags.shared.isSubrouterUIEnabled && subrouterEnabled
+        )
     }
 
     private var modeBarItems: [RightSidebarModeBarItem] {
         availableModes.map { RightSidebarModeBarItem(kind: .mode($0)) }
+    }
+
+    private func modeBarBadgeCount(for mode: RightSidebarMode?) -> Int {
+        switch mode {
+        case .feed: return feedPendingCount
+        case .agents: return agentsAttentionCount
+        default: return 0
+        }
     }
 
     private var focusShortcutHintAnimationValue: Bool {
@@ -211,6 +237,14 @@ struct RightSidebarPanelView: View {
         }
         .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: dockEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
+        .onChange(of: subrouterEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
+        // The rollout flag also gates the Agents mode: when PostHog or the
+        // Internal Flags window flips it off while .agents is selected, the
+        // selection must move to an available mode, not sit on a hidden
+        // panel. Observable read: body already tracks it via availableModes.
+        .onChange(of: CmuxFeatureFlags.shared.isSubrouterUIEnabled) { _, _ in
+            refreshModeAvailabilityAndFocusIfNeeded()
+        }
     }
 
     private var modeBar: some View {
@@ -226,7 +260,7 @@ struct RightSidebarPanelView: View {
                         isSelected: item.isSelected(
                             mode: fileExplorerState.mode
                         ),
-                        badgeCount: item.mode == .feed ? feedPendingCount : 0,
+                        badgeCount: modeBarBadgeCount(for: item.mode),
                         shortcutHint: shortcut,
                         showsShortcutHint: ShortcutHintTitlebarPolicy.shouldShow(
                             shortcut: shortcut,
@@ -401,6 +435,11 @@ struct RightSidebarPanelView: View {
                 FeedPanelView()
             case .dock:
                 dockPanel(windowAppearance: windowAppearance)
+            case .agents:
+                SubrouterAgentsPanelHostView(
+                    isSidebarVisible: fileExplorerState.isVisible,
+                    tabManager: tabManager
+                )
             case .customSidebar:
                 EmptyView()
             }

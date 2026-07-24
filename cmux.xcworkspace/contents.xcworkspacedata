@@ -175,6 +175,12 @@
          location = "group:CmuxSidebarProviderKit">
       </FileRef>
       <FileRef
+         location = "group:CmuxSubrouter">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSubrouterUI">
+      </FileRef>
+      <FileRef
          location = "group:CmuxSwiftRender">
       </FileRef>
       <FileRef

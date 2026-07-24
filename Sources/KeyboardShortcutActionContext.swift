@@ -183,6 +183,7 @@ extension KeyboardShortcutSettings.Action {
         switch self {
         case .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock,
+             .switchRightSidebarToAgents,
              .commandPaletteNext, .commandPalettePrevious:
             return true
         default:
@@ -202,7 +203,8 @@ extension KeyboardShortcutSettings.Action {
         case .commandPaletteNext, .commandPalettePrevious:
             return .commandPaletteVisible
         case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions,
-             .switchRightSidebarToFeed, .switchRightSidebarToDock, .fileExplorerOpenSelection,
+             .switchRightSidebarToFeed, .switchRightSidebarToDock, .switchRightSidebarToAgents,
+             .fileExplorerOpenSelection,
              .fileExplorerOpenSelectionFinderAlias:
             return .rightSidebarFocus
         case .renameTab, .renameWorkspace, .sendCtrlFToTerminal, .clearScreenKeepScrollback:

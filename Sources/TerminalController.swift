@@ -1341,6 +1341,8 @@ class TerminalController {
             return socketWorkerRemotesResponse(method: method, id: request.id, params: request.params)
         case let method where method.hasPrefix("aiAccounts."):
             return socketWorkerAIAccountsResponse(method: method, id: request.id, params: request.params)
+        case let method where method.hasPrefix("subrouter."):
+            return socketWorkerSubrouterResponse(method: method, id: request.id, params: request.params)
         default:
 #if !DEBUG
             // debug.sidebar.simulate_drag stays policy-listed in Release but
@@ -2356,6 +2358,12 @@ class TerminalController {
             "aiAccounts.list",
             "aiAccounts.upload",
             "aiAccounts.remove",
+            "subrouter.status",
+            "subrouter.accounts",
+            "subrouter.usage",
+            "subrouter.sessions",
+            "subrouter.switch",
+            "subrouter.reload",
             "window.list",
             "window.current",
             "window.focus",

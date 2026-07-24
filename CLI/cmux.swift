@@ -4220,6 +4220,15 @@ struct CMUXCLI {
         case "ai-accounts":
             try runAIAccountsCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
 
+        case "subrouter":
+            try runSubrouterNamespace(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
+
+        case "sr":
+            // Pure passthrough to the subrouter CLI (PATH install first,
+            // else the binary bundled with the app), replacing this process
+            // so interactive logins own the TTY.
+            try execSubrouter(persona: "sr", arguments: commandArgs)
+
         case "mobile":
             let sub = commandArgs.first?.lowercased()
             let rest = Array(commandArgs.dropFirst())
@@ -14943,6 +14952,8 @@ struct CMUXCLI {
             return Self.todoUsage
         case "ai-accounts":
             return Self.aiAccountsUsage
+        case "subrouter":
+            return Self.subrouterUsage
         case "ping":
             return """
             Usage: cmux ping
@@ -16748,10 +16759,10 @@ struct CMUXCLI {
               show                           Show the right sidebar
               hide                           Hide the right sidebar
               focus                          Focus the current right sidebar mode
-              set <files|find|vault|sessions|feed|dock>
+              set <files|find|vault|sessions|feed|dock|agents>
                                              Show, switch mode, and focus
               mode                           Print {"visible":bool,"mode":string}
-              files|find|vault|sessions|feed|dock
+              files|find|vault|sessions|feed|dock|agents
                                              Alias for show + set + focus
 
             Flags:
@@ -17442,7 +17453,7 @@ struct CMUXCLI {
 
         case "set":
             guard parsed.positional.count == 2 else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.setRequiresMode", defaultValue: "right-sidebar set requires a mode: files, find, vault, sessions, feed, or dock"))
+                throw CLIError(message: String(localized: "cli.rightSidebar.error.setRequiresMode", defaultValue: "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, or agents"))
             }
             let mode = parsed.positional[1].trimmingCharacters(in: .whitespacesAndNewlines)
             guard isRightSidebarCLIMode(mode) else {
@@ -17454,7 +17465,7 @@ struct CMUXCLI {
             }
             return args
 
-        case "files", "find", "vault", "sessions", "feed", "dock":
+        case "files", "find", "vault", "sessions", "feed", "dock", "agents":
             guard parsed.positional.count == 1 else {
                 throw CLIError(message: String(localized: "cli.rightSidebar.error.unexpectedArguments", defaultValue: "right-sidebar \(action) received unexpected arguments"))
             }
@@ -35160,6 +35171,7 @@ export default CMUXSessionRestore;
           vm <base|new|ls|status|snapshot|fork|restore|rm|exec|shell|ssh> [args...]    (alias: cloud)
           remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
           ai-accounts <list|upload|remove> [--team <id>] [--json]
+          subrouter <status|accounts|usage|switch|sessions|reload> [--json]
           rpc <method> [json-params]
           identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--no-caller]
           list-windows
@@ -35225,7 +35237,7 @@ export default CMUXSessionRestore;
           open-notification --id <uuid>
           jump-to-unread
           clear-notifications [--workspace <id|ref|index>] [--window <id|ref|index>]
-          right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
+          right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock|agents> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
           sidebar <validate|reload|select|open> [name]
           set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <name>] [--color <#hex>] [--priority <n>]
           clear-status <key> [--workspace <id|ref|index>] [--window <id|ref|index>]
