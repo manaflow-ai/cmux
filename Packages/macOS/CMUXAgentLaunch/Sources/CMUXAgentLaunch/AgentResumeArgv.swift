@@ -67,16 +67,29 @@ public struct AgentResumeArgv: Sendable, Equatable {
     /// the hooks fire. https://github.com/manaflow-ai/cmux/issues/5639
     ///
     /// The token guards on `[ -x … ]` rather than bare `${VAR:-codex}`: a
-    /// long-idle surface can hold the env var after macOS reaps the shim file,
-    /// and the executability guard degrades to bare `codex` (PATH resolution —
-    /// hooks lost but resume works), the same graceful fallback used when the
-    /// variable is unset outside cmux.
+    /// long-idle surface can hold the env var after macOS reaps the shim file.
+    /// Bare Codex launches degrade to PATH resolution. Captured absolute Codex
+    /// launches use an executable-aware variant that falls back to that exact
+    /// binary first, then PATH when both captured files moved.
     ///
     /// Like the claude token, this is POSIX command substitution that fish and
     /// csh/tcsh reject, so any command containing it must reach those shells
     /// wrapped via ``portableCodexResumeShellCommand(posixCommand:)``.
     public static let codexWrapperShellExecutableToken =
         "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" || printf codex)\""
+
+    private static func codexWrapperShellExecutableToken(
+        fallingBackTo capturedExecutable: String
+    ) -> String {
+        let fallback = posixSingleQuoted(capturedExecutable)
+        return "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] "
+            + "&& printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" "
+            + "|| { [ -x \(fallback) ] && printf '%s' \(fallback) || printf codex; })\""
+    }
+
+    private static func isCodexWrapperShellExecutableToken(_ value: String) -> Bool {
+        value.hasPrefix("\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ]")
+    }
 
     /// Pins a wrapper-routed resume to the exact Codex executable captured at launch.
     ///
@@ -218,7 +231,9 @@ public struct AgentResumeArgv: Sendable, Equatable {
     ) -> String {
         let rendered = renderingCodexWrapperExecutable(parts: parts, quote: quote)
         let joined = rendered.joined(separator: " ")
-        guard rendered.contains(codexWrapperShellExecutableToken) else { return joined }
+        guard rendered.contains(where: isCodexWrapperShellExecutableToken) else {
+            return joined
+        }
         return portableCodexResumeShellCommand(posixCommand: joined)
     }
 
@@ -250,7 +265,11 @@ public struct AgentResumeArgv: Sendable, Equatable {
                     }
                     rendered.append(quote("\(codexCustomExecutableEnvironmentKey)=\(part)"))
                 }
-                rendered.append(codexWrapperShellExecutableToken)
+                rendered.append(
+                    isAbsoluteCodex
+                        ? codexWrapperShellExecutableToken(fallingBackTo: part)
+                        : codexWrapperShellExecutableToken
+                )
             } else {
                 rendered.append(quote(part))
             }
