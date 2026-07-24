@@ -18,6 +18,7 @@ struct AgentStatusCloseoutRegressionTests {
             directoryHint: .isDirectory
         )
         defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let store = ClaudeHookSessionStore(
             processEnv: [
                 "CMUX_CLAUDE_HOOK_STATE_PATH": root.appending(path: "sessions.json").path
@@ -105,6 +106,7 @@ struct AgentStatusCloseoutRegressionTests {
             directoryHint: .isDirectory
         )
         defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let store = ClaudeHookSessionStore(
             processEnv: [
                 "CMUX_CLAUDE_HOOK_STATE_PATH": root.appending(path: "sessions.json").path
