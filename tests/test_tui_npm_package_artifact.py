@@ -84,12 +84,24 @@ def test_publish_workflows_restore_the_mode_preserving_archive() -> None:
         assert "--archive dist/npm-packages.tar.gz" in workflow
 
 
+def test_raw_artifacts_do_not_inherit_the_packaging_version() -> None:
+    build = (ROOT / ".github/workflows/cmux-tui-build-package.yml").read_text()
+    conditional_stamp = (
+        "CMUX_TUI_DISTRIBUTION_VERSION: "
+        "${{ (inputs.package_npm || inputs.package_pypi) && inputs.version || '' }}"
+    )
+
+    assert "CMUX_TUI_DISTRIBUTION_VERSION: ${{ inputs.version }}" not in build
+    assert build.count(conditional_stamp) == 3
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory() as directory:
         test_archive_round_trip_preserves_package_executables(Path(directory))
     with tempfile.TemporaryDirectory() as directory:
         test_extract_rejects_paths_outside_package_root(Path(directory))
     test_publish_workflows_restore_the_mode_preserving_archive()
+    test_raw_artifacts_do_not_inherit_the_packaging_version()
 
 
 if __name__ == "__main__":

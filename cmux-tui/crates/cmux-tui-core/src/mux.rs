@@ -816,6 +816,8 @@ pub struct Mux {
     terminal_create_after_materialization_lock: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     terminal_create_after_workspace_reservation: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    browser_bootstrap_before_runtime: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     cell_pixels: Mutex<(u16, u16)>,
     default_colors: Mutex<DefaultColors>,
@@ -1046,6 +1048,8 @@ impl Mux {
             terminal_create_after_materialization_lock: Mutex::new(None),
             #[cfg(test)]
             terminal_create_after_workspace_reservation: Mutex::new(None),
+            #[cfg(test)]
+            browser_bootstrap_before_runtime: Mutex::new(None),
             browser_runtime: Mutex::new(None),
             cell_pixels: Mutex::new((8, 16)),
             default_colors: Mutex::new(DefaultColors::default()),
@@ -3220,6 +3224,10 @@ impl Mux {
         let id = surface.id;
         let _ = std::thread::Builder::new().name(format!("browser-surface-{id}-bootstrap")).spawn(
             move || {
+                #[cfg(test)]
+                if let Some(hook) = mux.browser_bootstrap_before_runtime.lock().unwrap().clone() {
+                    hook();
+                }
                 let result = (|| -> anyhow::Result<()> {
                     let runtime = match runtime {
                         Some(runtime) => runtime,
@@ -9890,6 +9898,36 @@ mod tests {
         owned.set_server_shutdown_failure_for_test(false);
         assert_eq!(mux.close_all_surfaces_for_shutdown().unwrap(), 1);
         assert!(mux.shutdown_surfaces.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn server_shutdown_waits_for_async_browser_bootstrap() {
+        let mux = test_mux();
+        let (bootstrap_reached_tx, bootstrap_reached_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_bootstrap_tx, release_bootstrap_rx) = std::sync::mpsc::sync_channel(1);
+        let release_bootstrap_rx = Arc::new(Mutex::new(release_bootstrap_rx));
+        *mux.browser_bootstrap_before_runtime.lock().unwrap() = Some(Arc::new({
+            move || {
+                bootstrap_reached_tx.send(()).unwrap();
+                release_bootstrap_rx.lock().unwrap().recv().unwrap();
+            }
+        }));
+        mux.new_browser_tab("about:blank".into(), None, Some((80, 24))).unwrap();
+        bootstrap_reached_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let (shutdown_done_tx, shutdown_done_rx) = std::sync::mpsc::sync_channel(1);
+        let shutdown = std::thread::spawn({
+            let mux = mux.clone();
+            move || {
+                shutdown_done_tx.send(mux.close_all_surfaces_for_shutdown()).unwrap();
+            }
+        });
+        assert!(shutdown_done_rx.recv_timeout(Duration::from_millis(100)).is_err());
+
+        release_bootstrap_tx.send(()).unwrap();
+        assert_eq!(shutdown_done_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap(), 1);
+        shutdown.join().unwrap();
+        assert!(mux.browser_runtime.lock().unwrap().is_none());
     }
 
     #[test]

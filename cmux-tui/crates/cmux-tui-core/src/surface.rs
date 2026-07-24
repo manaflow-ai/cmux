@@ -2881,6 +2881,35 @@ mod tests {
     use super::*;
 
     #[cfg(unix)]
+    #[derive(Debug)]
+    struct CountingChildKiller(Arc<AtomicUsize>);
+
+    #[cfg(unix)]
+    impl ChildKiller for CountingChildKiller {
+        fn kill(&mut self) -> std::io::Result<()> {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        }
+
+        fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+            Box::new(Self(self.0.clone()))
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reaped_local_child_is_never_signaled_again() {
+        let signals = Arc::new(AtomicUsize::new(0));
+        let process = LocalPtyProcess::new(None, Box::new(CountingChildKiller(signals.clone())));
+        process.child_reaped.store(true, Ordering::Release);
+
+        assert!(process.request_hangup());
+        assert_eq!(signals.load(Ordering::Relaxed), 0);
+        drop(process);
+        assert_eq!(signals.load(Ordering::Relaxed), 0);
+    }
+
+    #[cfg(unix)]
     #[test]
     fn hosted_mirror_never_answers_terminal_queries() {
         let mux = Mux::new_for_test("hosted-query-authority", SurfaceOptions::default());
