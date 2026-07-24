@@ -69,7 +69,7 @@ import Testing
         #expect(store.workspaceListConnectionStatus == .connected)
     }
 
-    @Test func hiddenMarkersSelfHealPersistedFalseSavedMacHintOnScopeLoad() async throws {
+    @Test func rawDeviceIDMarkerMatchingExistingRowSurvivesMigration() async throws {
         let defaultsSuiteName = "hidden-marker-hint-migration-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: defaultsSuiteName))
         defaults.set(false, forKey: "cmux.mobile.hasKnownPairedMac")
@@ -83,7 +83,8 @@ import Testing
                         displayName: "Desk Mac",
                         host: "100.82.214.112",
                         lastSeenAt: Date(timeIntervalSince1970: 10),
-                        isActive: true
+                        isActive: true,
+                        instanceTag: "nightly"
                     ),
                 ],
             ],
@@ -105,8 +106,51 @@ import Testing
 
         #expect(store.pairedMacs.isEmpty)
         #expect(store.hasHiddenComputers)
+        #expect(store.hiddenComputers.map(\.instanceTag) == ["nightly"])
         #expect(store.hasKnownPairedMac)
         #expect(defaults.bool(forKey: "cmux.mobile.hasKnownPairedMac"))
+        #expect(await hiddenStore.load(scope: store.pairedMacScopeKey(scope)) == ["mac-a"])
+    }
+
+    @Test func pairingIDMarkerMatchingExistingRowSurvivesMigration() async throws {
+        let hiddenStore = InMemoryPairedMacHiddenStore()
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "mac-a",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: true,
+                        instanceTag: "nightly"
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            hiddenMacStore: hiddenStore
+        )
+        let scope = try #require(await store.currentScopeSnapshot())
+        let pairingID = MobilePairedMac.pairingID(
+            macDeviceID: "mac-a",
+            instanceTag: "nightly"
+        )
+        await store.rememberHiddenMacDeviceID(pairingID, scope: scope)
+
+        await store.loadPairedMacs()
+
+        let hidden = try #require(store.hiddenComputers.first)
+        #expect(store.pairedMacs.isEmpty)
+        #expect(hidden.id == pairingID)
+        #expect(hidden.macDeviceID == "mac-a")
+        #expect(hidden.instanceTag == "nightly")
+        #expect(await hiddenStore.load(scope: store.pairedMacScopeKey(scope)) == [pairingID])
     }
 
     @Test func rescanAndHideActiveMacDoesNotClearSavedMacHint() async throws {
@@ -291,99 +335,37 @@ import Testing
     }
 
     @Test
-    func discardingLegacyHiddenComputerClearsOnlyItsMarkersWithoutBackupUpload() async throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(
-            at: directory,
-            withIntermediateDirectories: true
-        )
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let inner = try MobilePairedMacStore(
-            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
-        )
-        let backup = FakeBackup()
-        let pairedStore = BackingUpPairedMacStore(
-            inner: inner,
-            backup: backup,
-            teamIDProvider: { "team-a" }
-        )
+    func rowlessLegacyMarkerIsClearedOnLoad() async throws {
         let hiddenStore = InMemoryPairedMacHiddenStore()
         let store = MobileShellComposite(
             isSignedIn: true,
-            pairedMacStore: pairedStore,
+            pairedMacStore: DelayedTeamPairedMacStore(
+                recordsByTeam: ["team-a": []],
+                blockedTeams: []
+            ),
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-a" },
             hiddenMacStore: hiddenStore
         )
         let scope = try #require(await store.currentScopeSnapshot())
-        let discardedID = MobilePairedMac.pairingID(
+        let rowlessID = MobilePairedMac.pairingID(
             macDeviceID: "mac-a",
             instanceTag: "nightly"
         )
-        let retainedID = MobilePairedMac.pairingID(
-            macDeviceID: "mac-b",
-            instanceTag: "stable"
-        )
         await store.rememberHiddenMacDeviceID(
-            discardedID,
+            rowlessID,
             scope: scope,
             includeUserWideScope: true
         )
-        await store.rememberHiddenMacDeviceID(
-            retainedID,
-            scope: scope,
-            includeUserWideScope: true
-        )
+
         await store.loadPairedMacs()
-        let discarded = try #require(
-            store.hiddenComputers.first { $0.id == discardedID }
-        )
-        #expect(discarded.requiresLegacyRecovery)
-        let uploadCountBeforeDiscard = await backup.uploadedOps().count
 
-        await store.discardLegacyHiddenComputer(discarded)
-
-        #expect(Set(store.hiddenComputers.map(\.id)) == [retainedID])
+        #expect(store.hiddenComputers.isEmpty)
+        #expect(!store.hasHiddenComputers)
         let scopedKey = store.pairedMacScopeKey(scope)
         let userWideKey = store.pairedMacScopeKey(store.userWideScope(from: scope))
-        #expect(await hiddenStore.load(scope: scopedKey) == [retainedID])
-        #expect(await hiddenStore.load(scope: userWideKey) == [retainedID])
-        #expect(await backup.uploadedOps().count == uploadCountBeforeDiscard)
-    }
-
-    @Test
-    func legacyRecoveryWithoutIrohDiscoveryReportsIrohUnavailable() async throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(
-            at: directory,
-            withIntermediateDirectories: true
-        )
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let inner = try MobilePairedMacStore(
-            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
-        )
-        let hiddenStore = InMemoryPairedMacHiddenStore()
-        let store = MobileShellComposite(
-            isSignedIn: true,
-            pairedMacStore: inner,
-            identityProvider: StaticIdentityProvider(userID: "user-1"),
-            teamIDProvider: { "team-a" },
-            hiddenMacStore: hiddenStore
-        )
-        let scope = try #require(await store.currentScopeSnapshot())
-        await store.rememberHiddenMacDeviceID(
-            MobilePairedMac.pairingID(macDeviceID: "mac-a", instanceTag: "nightly"),
-            scope: scope
-        )
-
-        let result = await store.recoverHiddenIrohMacFromAccount(
-            macDeviceID: "mac-a",
-            instanceTag: "nightly"
-        )
-
-        #expect(result == .notFound(reason: .irohUnavailable))
+        #expect(await hiddenStore.load(scope: scopedKey).isEmpty)
+        #expect(await hiddenStore.load(scope: userWideKey).isEmpty)
     }
 
     @Test func hidingMacClearsAnonymousWorkspaceSnapshotOwnedByThatMac() async throws {
@@ -743,7 +725,8 @@ import Testing
         customColor: String? = nil,
         customIcon: String? = nil,
         routes: [CmxAttachRoute]? = nil,
-        teamID: String? = "team-a"
+        teamID: String? = "team-a",
+        instanceTag: String? = nil
     ) throws -> MobilePairedMac {
         MobilePairedMac(
             macDeviceID: id,
@@ -756,7 +739,8 @@ import Testing
             teamID: teamID,
             customName: customName,
             customColor: customColor,
-            customIcon: customIcon
+            customIcon: customIcon,
+            instanceTag: instanceTag
         )
     }
 

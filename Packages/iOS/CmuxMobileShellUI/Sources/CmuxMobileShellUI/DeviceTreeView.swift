@@ -136,21 +136,11 @@ struct DeviceTreeView: View {
     private var hiddenComputersSection: some View {
         HiddenComputersSection(
             computers: store.hiddenComputers,
-            isRecoveringLegacyComputer: store.isRecoveringHiddenComputer,
             unhide: { computer in
                 await store.unhideMacDeviceID(
                     computer.macDeviceID,
                     instanceTag: computer.instanceTag
                 )
-            },
-            recoverLegacyComputer: { computer in
-                await store.recoverHiddenIrohMacFromAccount(
-                    macDeviceID: computer.macDeviceID,
-                    instanceTag: computer.instanceTag
-                )
-            },
-            discardLegacyComputer: { computer in
-                await store.discardLegacyHiddenComputer(computer)
             }
         )
     }
