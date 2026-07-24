@@ -15,6 +15,7 @@ use super::graphics::{GraphicPlacement, GraphicsState};
 /// This lets ordinary terminal draws make progress during multi-megabyte
 /// image uploads without ever interleaving bytes inside one protocol command.
 const MAX_LOCKED_GRAPHICS_WRITE_BYTES: usize = 64 * 1024;
+const CONTROL_STRING_CANCEL: u8 = 0x18;
 #[cfg(unix)]
 const OUTPUT_POLL_INTERVAL_MS: i32 = 20;
 
@@ -45,6 +46,36 @@ impl InterruptibleStdout {
         let fd = unsafe { OwnedFd::from_raw_fd(raw) };
         Ok(Self { fd })
     }
+
+    fn abort_partial_control_string(&mut self) -> io::Result<()> {
+        loop {
+            let written = unsafe {
+                libc::write(self.fd.as_raw_fd(), (&CONTROL_STRING_CANCEL as *const u8).cast(), 1)
+            };
+            if written == 1 {
+                return Ok(());
+            }
+            if written == 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::WriteZero,
+                    "terminal accepted zero cancellation bytes",
+                ));
+            }
+            let error = io::Error::last_os_error();
+            match error.raw_os_error() {
+                Some(libc::EINTR) => continue,
+                Some(libc::EAGAIN) => {
+                    let mut poll_fd =
+                        libc::pollfd { fd: self.fd.as_raw_fd(), events: libc::POLLOUT, revents: 0 };
+                    let ready = unsafe { libc::poll(&mut poll_fd, 1, OUTPUT_POLL_INTERVAL_MS) };
+                    if ready < 0 && io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
+                        return Err(io::Error::last_os_error());
+                    }
+                }
+                _ => return Err(error),
+            }
+        }
+    }
 }
 
 #[cfg(unix)]
@@ -53,6 +84,9 @@ impl GraphicsOutput for InterruptibleStdout {
         let mut offset = 0;
         while offset < bytes.len() {
             if control.is_cancelled() {
+                if offset != 0 {
+                    self.abort_partial_control_string()?;
+                }
                 return Ok(false);
             }
             let written = unsafe {
@@ -67,6 +101,9 @@ impl GraphicsOutput for InterruptibleStdout {
                 continue;
             }
             if written == 0 {
+                if offset != 0 {
+                    let _ = self.abort_partial_control_string();
+                }
                 return Err(io::Error::new(io::ErrorKind::WriteZero, "stdout accepted zero bytes"));
             }
             let error = io::Error::last_os_error();
@@ -80,7 +117,12 @@ impl GraphicsOutput for InterruptibleStdout {
                         return Err(io::Error::last_os_error());
                     }
                 }
-                _ => return Err(error),
+                _ => {
+                    if offset != 0 {
+                        let _ = self.abort_partial_control_string();
+                    }
+                    return Err(error);
+                }
             }
         }
         Ok(true)
@@ -652,6 +694,62 @@ mod tests {
             "cancelable stdout did not stop within its bounded poll interval"
         );
         drop(read_fd);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cancellation_terminates_a_partially_written_apc_before_returning() {
+        let mut raw_fds = [-1; 2];
+        assert_eq!(unsafe { libc::pipe(raw_fds.as_mut_ptr()) }, 0);
+        let read_fd = unsafe { OwnedFd::from_raw_fd(raw_fds[0]) };
+        let write_fd = unsafe { OwnedFd::from_raw_fd(raw_fds[1]) };
+        let flags = unsafe { libc::fcntl(write_fd.as_raw_fd(), libc::F_GETFL) };
+        assert!(flags >= 0);
+        assert_eq!(
+            unsafe { libc::fcntl(write_fd.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) },
+            0
+        );
+
+        let mut command = b"\x1b_Gq=2;".to_vec();
+        command.resize(256 * 1024, b'A');
+        command.extend_from_slice(b"\x1b\\");
+        let control = Arc::new(WriterControl::default());
+        let worker_control = control.clone();
+        let worker = std::thread::spawn(move || {
+            let mut output = InterruptibleStdout { fd: write_fd };
+            output.write_segment(&command, &worker_control)
+        });
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        loop {
+            let mut available: libc::c_int = 0;
+            assert_eq!(
+                unsafe { libc::ioctl(read_fd.as_raw_fd(), libc::FIONREAD, &mut available) },
+                0
+            );
+            if available > 0 {
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline, "writer never emitted its APC prefix");
+            std::thread::yield_now();
+        }
+        control.cancelled.store(true, Ordering::Release);
+
+        let mut emitted = Vec::new();
+        let mut buffer = [0_u8; 8 * 1024];
+        while !emitted.contains(&CONTROL_STRING_CANCEL) {
+            let count = unsafe {
+                libc::read(read_fd.as_raw_fd(), buffer.as_mut_ptr().cast(), buffer.len())
+            };
+            assert!(count > 0, "pipe closed before the APC cancellation byte");
+            emitted.extend_from_slice(&buffer[..count as usize]);
+        }
+        assert!(!worker.join().unwrap().unwrap());
+        assert!(emitted.starts_with(b"\x1b_Gq=2;"));
+        assert!(
+            emitted.iter().position(|byte| *byte == CONTROL_STRING_CANCEL).unwrap() < 256 * 1024,
+            "writer completed the large payload instead of canceling its partial APC"
+        );
     }
 
     #[test]

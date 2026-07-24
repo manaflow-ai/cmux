@@ -92,17 +92,25 @@ impl KittyInFlightTracker {
                     _ => KittyStreamScan::OtherApc { saw_escape: false },
                 },
                 KittyStreamScan::Kitty(mut command) => {
-                    command.push(byte);
-                    if byte == 0x9c || (command.saw_escape && byte == b'\\') {
-                        self.finish_command(command);
+                    if matches!(byte, 0x18 | 0x1a) {
+                        // CAN and SUB abort only the current control string.
+                        // Preserve a previously completed m=1 prefix so a
+                        // later continuation can still finish that upload.
                         KittyStreamScan::Ground
                     } else {
-                        command.saw_escape = byte == 0x1b;
-                        KittyStreamScan::Kitty(command)
+                        command.push(byte);
+                        if byte == 0x9c || (command.saw_escape && byte == b'\\') {
+                            self.finish_command(command);
+                            KittyStreamScan::Ground
+                        } else {
+                            command.saw_escape = byte == 0x1b;
+                            KittyStreamScan::Kitty(command)
+                        }
                     }
                 }
                 KittyStreamScan::OtherApc { saw_escape } => {
-                    if byte == 0x9c || (saw_escape && byte == b'\\') {
+                    if matches!(byte, 0x18 | 0x1a) || byte == 0x9c || (saw_escape && byte == b'\\')
+                    {
                         KittyStreamScan::Ground
                     } else {
                         KittyStreamScan::OtherApc { saw_escape: byte == 0x1b }
@@ -990,6 +998,27 @@ mod tests {
 
         tracker.write(b"\x1bc");
         assert!(tracker.replay_prefix(usize::MAX).is_empty());
+    }
+
+    #[test]
+    fn inflight_tracker_cancels_only_the_active_apc_on_can_or_sub() {
+        for cancel in [0x18, 0x1a] {
+            let first = b"\x1b_Ga=t,t=d,f=24,i=92,s=1,v=2,m=1;AAAA\x1b\\";
+            let mut tracker = KittyInFlightTracker::default();
+            tracker.write(first);
+            tracker.write(b"\x1b_Gm=0;cancelled");
+            tracker.write(&[cancel]);
+            tracker.write(b"ordinary output");
+
+            assert_eq!(
+                tracker.replay_prefix(usize::MAX),
+                first,
+                "cancel byte {cancel:#x} retained the aborted APC or following text"
+            );
+
+            tracker.write(b"\x1b_Gm=0;AAAA\x1b\\");
+            assert!(tracker.replay_prefix(usize::MAX).is_empty());
+        }
     }
 
     #[test]

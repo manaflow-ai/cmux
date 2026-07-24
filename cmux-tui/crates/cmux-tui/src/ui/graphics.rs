@@ -1,5 +1,9 @@
 use std::collections::{HashMap, HashSet};
+use std::io::Write;
 use std::sync::Arc;
+use std::time::Duration;
+#[cfg(unix)]
+use std::time::Instant;
 
 use base64::Engine as _;
 use cmux_tui_core::{Rect, SurfaceId};
@@ -703,14 +707,12 @@ fn delete_image(image_id: u32) -> Vec<u8> {
     format!("{ESC}_Ga=d,d=I,i={image_id},q=2;{ESC}\\").into_bytes()
 }
 
-pub fn detect_kitty_graphics_support() -> bool {
-    let term_program = std::env::var("TERM_PROGRAM").unwrap_or_default().to_ascii_lowercase();
-    let term = std::env::var("TERM").unwrap_or_default().to_ascii_lowercase();
-    matches!(term_program.as_str(), "ghostty" | "kitty" | "wezterm")
-        || term.contains("ghostty")
-        || term.contains("kitty")
-        || std::env::var_os("KITTY_WINDOW_ID").is_some()
-        || std::env::var_os("WEZTERM_PANE").is_some()
+pub fn probe_kitty_graphics() -> bool {
+    let mut stdout = std::io::stdout();
+    let _ = write!(stdout, "\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c");
+    let _ = stdout.flush();
+    let bytes = read_stdin_for(Duration::from_millis(180));
+    kitty_probe_succeeded(&bytes)
 }
 
 const FALLBACK_CELL_PIXELS: (u16, u16) = (8, 16);
@@ -719,8 +721,9 @@ const FALLBACK_CELL_PIXELS: (u16, u16) = (8, 16);
 /// value as a new measurement. Some outer terminals zero `ws_xpixel` and
 /// `ws_ypixel` after `TIOCSWINSZ`; in that case the last real measurement is
 /// more accurate than the synthetic startup fallback.
-pub fn detect_cell_pixels(known: Option<(u16, u16)>) -> (u16, u16) {
-    resolve_cell_pixels(known, ioctl_cell_pixels())
+pub fn detect_cell_pixels(known: Option<(u16, u16)>, query_fallback: bool) -> (u16, u16) {
+    let detected = ioctl_cell_pixels().or_else(|| query_fallback.then(query_cell_pixels).flatten());
+    resolve_cell_pixels(known, detected)
 }
 
 fn resolve_cell_pixels(known: Option<(u16, u16)>, detected: Option<(u16, u16)>) -> (u16, u16) {
@@ -752,6 +755,62 @@ fn ioctl_cell_pixels() -> Option<(u16, u16)> {
     None
 }
 
+fn query_cell_pixels() -> Option<(u16, u16)> {
+    let (cols, rows) = crossterm::terminal::size().ok()?;
+    if cols == 0 || rows == 0 {
+        return None;
+    }
+    let mut stdout = std::io::stdout();
+    let _ = write!(stdout, "\x1b[14t");
+    let _ = stdout.flush();
+    let bytes = read_stdin_for(Duration::from_millis(120));
+    let response = String::from_utf8_lossy(&bytes);
+    let start = response.find("\x1b[4;")?;
+    let tail = &response[start + 4..];
+    let end = tail.find('t')?;
+    let mut parts = tail[..end].split(';');
+    let height = parts.next()?.parse::<u32>().ok()?;
+    let width = parts.next()?.parse::<u32>().ok()?;
+    Some((((width / cols as u32).max(1)) as u16, ((height / rows as u32).max(1)) as u16))
+}
+
+#[cfg(unix)]
+fn read_stdin_for(timeout: Duration) -> Vec<u8> {
+    let start = Instant::now();
+    let mut out = Vec::new();
+    while start.elapsed() < timeout {
+        let remaining = timeout.saturating_sub(start.elapsed());
+        let poll_ms = remaining.min(Duration::from_millis(20)).as_millis() as i32;
+        let mut fd = libc::pollfd { fd: libc::STDIN_FILENO, events: libc::POLLIN, revents: 0 };
+        let ready = unsafe { libc::poll(&mut fd, 1, poll_ms) };
+        if ready <= 0 {
+            continue;
+        }
+        let mut buf = [0u8; 1024];
+        let n = unsafe { libc::read(libc::STDIN_FILENO, buf.as_mut_ptr().cast(), buf.len()) };
+        if n <= 0 {
+            break;
+        }
+        out.extend_from_slice(&buf[..n as usize]);
+        // DA1 is only a progress marker. Drain the full bounded window so a
+        // later Kitty reply cannot leak into crossterm input.
+    }
+    out
+}
+
+#[cfg(not(unix))]
+fn read_stdin_for(_timeout: Duration) -> Vec<u8> {
+    Vec::new()
+}
+
+fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack.windows(needle.len()).position(|window| window == needle)
+}
+
+fn kitty_probe_succeeded(bytes: &[u8]) -> bool {
+    find_bytes(bytes, b"_Gi=31;OK").is_some()
+}
+
 #[cfg(test)]
 mod tests {
     use base64::Engine as _;
@@ -774,6 +833,18 @@ mod tests {
     #[test]
     fn newly_detected_metrics_replace_known_metrics() {
         assert_eq!(resolve_cell_pixels(Some((8, 16)), Some((11, 23))), (11, 23));
+    }
+
+    #[test]
+    fn kitty_probe_accepts_ok_before_or_after_da1() {
+        assert!(kitty_probe_succeeded(b"\x1b_Gi=31;OK\x1b\\\x1b[?62;c"));
+        assert!(kitty_probe_succeeded(b"\x1b[?62;c\x1b_Gi=31;OK\x1b\\"));
+    }
+
+    #[test]
+    fn kitty_probe_rejects_da1_or_error_without_ok() {
+        assert!(!kitty_probe_succeeded(b"\x1b[?62;c"));
+        assert!(!kitty_probe_succeeded(b"\x1b_Gi=31;EINVAL\x1b\\"));
     }
 
     fn image(

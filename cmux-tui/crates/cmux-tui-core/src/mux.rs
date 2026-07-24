@@ -3714,10 +3714,13 @@ impl Mux {
         if let Some(hook) = self.cell_pixel_before_publish.lock().unwrap().clone() {
             hook(self.cell_pixel_size());
         }
-        // Publish only after the fan-out has settled. Surface creation holds
-        // the same lifecycle lock, so it cannot start from a metric that
-        // existing surfaces have not yet received.
-        *self.cell_pixels.lock().unwrap() = next;
+        // Keep the creation default at the last fully converged value. A
+        // caller may retry the same measurement; surfaces that already
+        // committed treat it as a no-op while failed or uncertain hosted
+        // owners reconcile through a fresh acknowledgement.
+        if update.failures.is_empty() {
+            *self.cell_pixels.lock().unwrap() = next;
+        }
         update
     }
 
@@ -7995,7 +7998,7 @@ mod tests {
     }
 
     #[test]
-    fn cell_pixel_fanout_reports_pty_failure_without_committing_that_surface() {
+    fn cell_pixel_fanout_retries_the_same_metric_before_publishing_it() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         surface.fail_next_test_master_resize();
@@ -8006,13 +8009,23 @@ mod tests {
         assert_eq!(update.failures.len(), 1);
         assert_eq!(update.failures[0].surface, surface.id);
         assert!(update.failures[0].error.contains("injected PTY master resize failure"));
-        assert_eq!(mux.cell_pixel_size(), (9, 18));
+        assert_eq!(
+            mux.cell_pixel_size(),
+            (8, 16),
+            "new surfaces must keep the last fully converged metric"
+        );
         assert_eq!(surface.test_cell_pixel_size(), (8, 16));
         let master = surface.test_master_size();
         assert_eq!(
             (master.cols, master.rows, master.pixel_width, master.pixel_height),
             (80, 24, 640, 384)
         );
+
+        let retried = mux.set_cell_pixel_size(9, 18);
+        assert!(retried.failures.is_empty());
+        assert_eq!(retried.resizes, vec![(surface.id, (80, 24), 0)]);
+        assert_eq!(mux.cell_pixel_size(), (9, 18));
+        assert_eq!(surface.test_cell_pixel_size(), (9, 18));
     }
 
     #[test]

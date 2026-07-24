@@ -2931,7 +2931,7 @@ pub struct App {
     /// Kitty graphics captured from the exact immutable terminal frame drawn
     /// for each visible surface. Graphics emission must not render again,
     /// because doing so would consume remote damage independently of text.
-    pub(crate) rendered_kitty_graphics: HashMap<SurfaceId, KittyGraphicsSnapshot>,
+    pub(crate) rendered_kitty_graphics: HashMap<SurfaceId, Arc<KittyGraphicsSnapshot>>,
     /// Surfaces whose active tabs were visible in the previous layout pass.
     /// Attach streams may outlive this set, but only members hold size leases.
     visible_size_surfaces: HashSet<SurfaceId>,
@@ -3927,11 +3927,11 @@ fn run_with_machine_updates_inner(
     // have dropped, so graphics are quiescent before terminal restoration.
     let mut terminal_restore = TerminalRestoreGuard::new(stdout_lock.clone());
 
-    let cell_pixels = crate::ui::graphics::detect_cell_pixels(None);
+    let cell_pixels = crate::ui::graphics::detect_cell_pixels(None, true);
     if session_available {
         session.set_cell_pixel_size(cell_pixels.0, cell_pixels.1);
     }
-    let graphics_supported = crate::ui::graphics::detect_kitty_graphics_support();
+    let graphics_supported = crate::ui::graphics::probe_kitty_graphics();
 
     // Crossterm input → app channel.
     let input_tx = tx.clone();
@@ -4153,6 +4153,9 @@ impl Drop for TerminalRestoreGuard {
 fn restore_terminal(stdout_lock: Option<&Arc<Mutex<()>>>) -> anyhow::Result<()> {
     let _guard = stdout_lock.map(|lock| lock.lock().unwrap());
     let mut stdout = std::io::stdout();
+    // A canceled or failed graphics write may have ended inside a Kitty APC.
+    // CAN returns the outer parser to ground before any restoration sequence.
+    let _ = stdout.write_all(&[0x18]);
     // Reset the mouse pointer shape in case we left it as a hand.
     let _ = write!(stdout, "\x1b]22;default\x07");
     // Cursor color and DECSCUSR shape are outer-terminal global state. Always
@@ -5393,16 +5396,21 @@ impl App {
             || crate::ui::toast_rect(self).is_some_and(|toast| rects_intersect(rect, toast))
     }
 
-    fn refresh_cell_pixels(&mut self, _query_fallback: bool) {
-        let next = crate::ui::graphics::detect_cell_pixels(Some(self.cell_pixels));
-        if self.cell_pixels != next {
+    fn refresh_cell_pixels(&mut self, query_fallback: bool) {
+        let next = crate::ui::graphics::detect_cell_pixels(Some(self.cell_pixels), query_fallback);
+        let changed = self.cell_pixels != next;
+        if changed {
             if !self.prepare_pty_input_before_mutation() {
                 return;
             }
             self.cell_pixels = next;
             self.browser_input.clear_resize_failures();
-            self.session.set_cell_pixel_size(next.0, next.1);
         }
+        // Repeat unchanged measurements too. The mux publishes a new global
+        // default only after every surface converges, so this reconciles a
+        // transient failure or an acknowledgement that timed out after the
+        // authoritative host committed.
+        self.session.set_cell_pixel_size(next.0, next.1);
     }
 
     fn reload_config(&mut self) {

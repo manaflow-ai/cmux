@@ -2526,7 +2526,7 @@ impl Surface {
             let mut render = pty.render.lock().unwrap();
             let shared = render.latest.clone().ok_or(ghostty_vt::Error::NoValue)?;
             let mut initial = (*shared).clone();
-            initial.frame.kitty_graphics = initial_graphics;
+            initial.frame.kitty_graphics = Arc::new(initial_graphics);
             render.taps.push(tap);
             Arc::new(initial)
         };

@@ -25,7 +25,7 @@ use std::mem::{offset_of, size_of};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -701,6 +701,10 @@ const RENDER_GRAPHIC_MAX_PLACEMENT_ARRAY_BYTES: usize = 2
     + RENDER_GRAPHIC_MAX_PLACEMENTS * RENDER_GRAPHIC_MAX_PLACEMENT_JSON_BYTES
     + (RENDER_GRAPHIC_MAX_PLACEMENTS - 1);
 const RENDER_ATTACH_MAX_BYTES: usize = 32 * 1024 * 1024;
+// Share expensive image encoding across render clients without retaining an
+// unbounded second copy of terminal pixel state process-wide.
+const RENDER_GRAPHIC_BASE64_CACHE_MAX_BYTES: usize = RENDER_GRAPHIC_MAX_ENCODED_BYTES * 2;
+const RENDER_GRAPHIC_BASE64_CACHE_MAX_ENTRIES: usize = 4_096;
 // A server-to-client frame with a 64-bit payload length adds a 10-byte header.
 const WEBSOCKET_OUTBOUND_BUFFER_MAX_BYTES: usize = RENDER_ATTACH_MAX_BYTES + 10;
 const _: () = assert!(
@@ -712,6 +716,89 @@ const OUTBOUND_CONTROL_RESERVE: usize = 256;
 const OUTBOUND_BYTE_CAPACITY: usize = RENDER_ATTACH_MAX_BYTES;
 const OUTBOUND_CONTROL_BYTE_RESERVE: usize = 16 * 1024 * 1024;
 const CLIENT_DETACH_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct RenderGraphicCacheKey {
+    data_ptr: usize,
+    data_len: usize,
+}
+
+struct RenderGraphicCacheEntry {
+    source: Weak<[u8]>,
+    encoded: Arc<str>,
+}
+
+struct RenderGraphicBase64Cache {
+    entries: HashMap<RenderGraphicCacheKey, RenderGraphicCacheEntry>,
+    insertion_order: VecDeque<RenderGraphicCacheKey>,
+    retained_bytes: usize,
+    max_bytes: usize,
+    max_entries: usize,
+}
+
+impl RenderGraphicBase64Cache {
+    fn new(max_bytes: usize, max_entries: usize) -> Self {
+        Self {
+            entries: HashMap::new(),
+            insertion_order: VecDeque::new(),
+            retained_bytes: 0,
+            max_bytes,
+            max_entries,
+        }
+    }
+
+    fn encode(&mut self, data: &Arc<[u8]>) -> Arc<str> {
+        let key = RenderGraphicCacheKey { data_ptr: data.as_ptr() as usize, data_len: data.len() };
+        if let Some(entry) = self.entries.get(&key)
+            && entry.source.upgrade().is_some_and(|source| Arc::ptr_eq(&source, data))
+        {
+            return entry.encoded.clone();
+        }
+        if let Some(stale) = self.entries.remove(&key) {
+            self.retained_bytes = self.retained_bytes.saturating_sub(stale.encoded.len());
+            self.insertion_order.retain(|candidate| *candidate != key);
+        }
+
+        // Serialize while holding the cache lock. Competing render clients
+        // wait for this one bounded encode instead of allocating duplicates.
+        let encoded: Arc<str> =
+            Arc::from(base64::engine::general_purpose::STANDARD.encode(data.as_ref()));
+        if encoded.len() > self.max_bytes || self.max_entries == 0 {
+            return encoded;
+        }
+        while self.entries.len() >= self.max_entries
+            || encoded.len() > self.max_bytes.saturating_sub(self.retained_bytes)
+        {
+            let Some(oldest) = self.insertion_order.pop_front() else {
+                break;
+            };
+            if let Some(evicted) = self.entries.remove(&oldest) {
+                self.retained_bytes = self.retained_bytes.saturating_sub(evicted.encoded.len());
+            }
+        }
+        self.retained_bytes += encoded.len();
+        self.insertion_order.push_back(key);
+        self.entries.insert(
+            key,
+            RenderGraphicCacheEntry { source: Arc::downgrade(data), encoded: encoded.clone() },
+        );
+        encoded
+    }
+}
+
+fn render_graphic_base64(data: &Arc<[u8]>) -> Arc<str> {
+    static CACHE: OnceLock<Mutex<RenderGraphicBase64Cache>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            Mutex::new(RenderGraphicBase64Cache::new(
+                RENDER_GRAPHIC_BASE64_CACHE_MAX_BYTES,
+                RENDER_GRAPHIC_BASE64_CACHE_MAX_ENTRIES,
+            ))
+        })
+        .lock()
+        .unwrap()
+        .encode(data)
+}
 
 #[derive(Clone)]
 struct OutboundStream {
@@ -2610,6 +2697,7 @@ fn render_graphics_json(
         .iter()
         .filter(|image| image_ids.is_none_or(|ids| ids.contains(&image.id)))
         .map(|image| {
+            let data = render_graphic_base64(&image.data);
             json!({
                 "id": image.id,
                 "generation": image.generation,
@@ -2619,7 +2707,7 @@ fn render_graphics_json(
                     ghostty_vt::KittyImageFormat::Rgb => "rgb",
                     ghostty_vt::KittyImageFormat::Rgba => "rgba",
                 },
-                "data": base64::engine::general_purpose::STANDARD.encode(&image.data),
+                "data": data.as_ref(),
             })
         })
         .collect::<Vec<_>>();
@@ -2682,6 +2770,7 @@ struct RenderClientState {
     size: (u16, u16),
     default_colors: (Rgb, Rgb),
     scrollback_rows: u32,
+    graphics_snapshot: Arc<ghostty_vt::KittyGraphicsSnapshot>,
     graphics_image_generations: HashMap<u32, u64>,
     graphics_placements: Vec<ghostty_vt::KittyPlacement>,
 }
@@ -2692,6 +2781,7 @@ impl RenderClientState {
             size: frame.frame.size,
             default_colors: frame.frame.default_colors,
             scrollback_rows: frame.scrollback_rows,
+            graphics_snapshot: frame.frame.kitty_graphics.clone(),
             graphics_image_generations: frame
                 .frame
                 .kitty_graphics
@@ -2736,40 +2826,43 @@ impl RenderClientState {
         if scrollback_changed {
             value["scrollback_rows"] = json!(frame.scrollback_rows);
         }
-        let graphics = &frame.frame.kitty_graphics;
-        let image_generations = graphics
-            .images
-            .iter()
-            .map(|image| (image.id, image.generation))
-            .collect::<HashMap<_, _>>();
-        let upsert_image_ids = image_generations
-            .iter()
-            .filter_map(|(&id, &generation)| {
-                (self.graphics_image_generations.get(&id) != Some(&generation)).then_some(id)
-            })
-            .collect::<HashSet<_>>();
-        let mut removed_image_ids = self
-            .graphics_image_generations
-            .keys()
-            .filter(|id| !image_generations.contains_key(id))
-            .copied()
-            .collect::<Vec<_>>();
-        removed_image_ids.sort_unstable();
-        let images_changed = !upsert_image_ids.is_empty() || !removed_image_ids.is_empty();
-        let placements_changed = self.graphics_placements != graphics.placements;
-        if images_changed || placements_changed {
-            value["graphics"] =
-                render_graphics_json(graphics, Some(&upsert_image_ids), &removed_image_ids);
+        if !Arc::ptr_eq(&self.graphics_snapshot, &frame.frame.kitty_graphics) {
+            let graphics = &frame.frame.kitty_graphics;
+            let image_generations = graphics
+                .images
+                .iter()
+                .map(|image| (image.id, image.generation))
+                .collect::<HashMap<_, _>>();
+            let upsert_image_ids = image_generations
+                .iter()
+                .filter_map(|(&id, &generation)| {
+                    (self.graphics_image_generations.get(&id) != Some(&generation)).then_some(id)
+                })
+                .collect::<HashSet<_>>();
+            let mut removed_image_ids = self
+                .graphics_image_generations
+                .keys()
+                .filter(|id| !image_generations.contains_key(id))
+                .copied()
+                .collect::<Vec<_>>();
+            removed_image_ids.sort_unstable();
+            let images_changed = !upsert_image_ids.is_empty() || !removed_image_ids.is_empty();
+            let placements_changed = self.graphics_placements != graphics.placements;
+            if images_changed || placements_changed {
+                value["graphics"] =
+                    render_graphics_json(graphics, Some(&upsert_image_ids), &removed_image_ids);
+            }
+            if images_changed {
+                self.graphics_image_generations = image_generations;
+            }
+            if placements_changed {
+                self.graphics_placements = graphics.placements.clone();
+            }
+            self.graphics_snapshot = frame.frame.kitty_graphics.clone();
         }
         self.size = frame.frame.size;
         self.default_colors = frame.frame.default_colors;
         self.scrollback_rows = frame.scrollback_rows;
-        if images_changed {
-            self.graphics_image_generations = image_generations;
-        }
-        if placements_changed {
-            self.graphics_placements = graphics.placements.clone();
-        }
         value
     }
 }
@@ -4934,6 +5027,31 @@ mod tests {
         assert!(writer.is_open());
         assert!(stream.is_open());
         eprintln!("1024x768 RGBA render-state bytes: {}", serialized.len());
+    }
+
+    #[test]
+    fn render_image_base64_cache_shares_encodes_and_evicts_within_its_byte_cap() {
+        let first_pixels: Arc<[u8]> = Arc::from([1_u8, 2, 3, 4, 5, 6]);
+        let second_pixels: Arc<[u8]> = Arc::from([7_u8, 8, 9, 10, 11, 12]);
+        let encoded_len = base64::engine::general_purpose::STANDARD.encode(&*first_pixels).len();
+        let mut cache = RenderGraphicBase64Cache::new(encoded_len, 2);
+
+        let first = cache.encode(&first_pixels);
+        let shared = cache.encode(&first_pixels);
+        assert!(Arc::ptr_eq(&first, &shared), "same immutable pixels were encoded twice");
+        assert_eq!(cache.entries.len(), 1);
+        assert_eq!(cache.retained_bytes, encoded_len);
+
+        let second = cache.encode(&second_pixels);
+        assert_eq!(cache.entries.len(), 1);
+        assert_eq!(cache.retained_bytes, encoded_len);
+        assert!(!Arc::ptr_eq(&first, &second));
+        assert!(
+            cache.entries.values().all(|entry| {
+                entry.source.upgrade().is_some_and(|source| Arc::ptr_eq(&source, &second_pixels))
+            }),
+            "byte-cap eviction retained the older image"
+        );
     }
 
     #[test]

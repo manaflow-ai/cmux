@@ -1276,7 +1276,9 @@ impl RemoteSession {
             .cloned()
             .collect::<Vec<_>>();
         Self::restore_cell_pixels(&failed_snapshots)?;
-        *self.cell_pixels.lock().unwrap() = next;
+        if failures.is_empty() {
+            *self.cell_pixels.lock().unwrap() = next;
+        }
         Ok(RemoteCellPixelUpdate { resizes, failures })
     }
 
@@ -2145,6 +2147,49 @@ mod tests {
         }
     }
 
+    struct CellPixelFanoutWriter {
+        session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
+        fail_next: bool,
+    }
+
+    impl RemoteMessageWriter for CellPixelFanoutWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+            let id = request
+                .get("id")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| io::Error::other("remote request omitted its id"))?;
+            let session = self
+                .session
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(Weak::upgrade)
+                .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+            let response = session
+                .pending
+                .lock()
+                .unwrap()
+                .remove(&id)
+                .ok_or_else(|| io::Error::other("remote request was not pending"))?;
+            let data = if std::mem::take(&mut self.fail_next) {
+                json!({
+                    "resizes": [],
+                    "failures": [{"surface": 7, "error": "injected fan-out failure"}],
+                })
+            } else {
+                json!({"resizes": [], "failures": []})
+            };
+            response
+                .send(json!({"id": id, "ok": true, "data": data}))
+                .map_err(|_| io::Error::other("remote response receiver was dropped"))
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
     struct SilentWriter;
 
     impl RemoteMessageWriter for SilentWriter {
@@ -2888,6 +2933,28 @@ mod tests {
         assert_eq!(*session.cell_pixels.lock().unwrap(), (8, 16));
         assert_eq!(*surface.cell_pixels.lock().unwrap(), (8, 16));
         assert!(session.pending.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn partial_cell_pixel_fanout_retries_before_publishing_the_remote_default() {
+        let session_slot: Arc<Mutex<Option<Weak<RemoteSession>>>> = Arc::new(Mutex::new(None));
+        let session = test_session(Box::new(CellPixelFanoutWriter {
+            session: session_slot.clone(),
+            fail_next: true,
+        }));
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
+        let surface = test_remote_pty_surface(7, 80, 24, (8, 16));
+        session.surfaces.lock().unwrap().insert(surface.id, surface.clone());
+
+        let first = session.set_cell_pixel_size(9, 18).unwrap();
+        assert_eq!(first.failures, vec![(7, "injected fan-out failure".to_string())]);
+        assert_eq!(*session.cell_pixels.lock().unwrap(), (8, 16));
+        assert_eq!(*surface.cell_pixels.lock().unwrap(), (8, 16));
+
+        let retried = session.set_cell_pixel_size(9, 18).unwrap();
+        assert!(retried.failures.is_empty());
+        assert_eq!(*session.cell_pixels.lock().unwrap(), (9, 18));
+        assert_eq!(*surface.cell_pixels.lock().unwrap(), (9, 18));
     }
 
     #[test]

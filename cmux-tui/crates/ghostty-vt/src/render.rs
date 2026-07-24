@@ -149,7 +149,7 @@ pub struct RenderFrame {
     pub cursor_color: Option<Rgb>,
     pub default_colors: (Rgb, Rgb),
     pub dirty_rows: Vec<u16>,
-    pub kitty_graphics: KittyGraphicsSnapshot,
+    pub kitty_graphics: Arc<KittyGraphicsSnapshot>,
     rows: Vec<Vec<Cell>>,
 }
 
@@ -188,7 +188,7 @@ pub struct RenderState {
     grapheme_buf: Vec<u32>,
     palette: [Rgb; 256],
     default_palette: [Rgb; 256],
-    kitty_graphics: KittyGraphicsSnapshot,
+    kitty_graphics: Arc<KittyGraphicsSnapshot>,
     kitty_pixel_cache: HashMap<u64, Arc<[u8]>>,
     kitty_terminal_instance_id: Option<u64>,
     next_frame_seq: u64,
@@ -225,7 +225,7 @@ impl RenderState {
             grapheme_buf: Vec::new(),
             palette: [Rgb::default(); 256],
             default_palette: [Rgb::default(); 256],
-            kitty_graphics: KittyGraphicsSnapshot::default(),
+            kitty_graphics: Arc::new(KittyGraphicsSnapshot::default()),
             kitty_pixel_cache: HashMap::new(),
             kitty_terminal_instance_id: None,
             next_frame_seq: 0,
@@ -244,7 +244,7 @@ impl RenderState {
             &mut self.kitty_pixel_cache,
             self.kitty_terminal_instance_id != Some(terminal_instance_id),
         )? {
-            self.kitty_graphics = graphics;
+            self.kitty_graphics = Arc::new(graphics);
         }
         self.kitty_terminal_instance_id = Some(terminal_instance_id);
         Ok(())
