@@ -282,7 +282,11 @@ extension CMUXCLIErrorOutputRegressionTests {
         processEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         processEnvironment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
         let result = runProcess(executablePath: cliPath, arguments: ["sessions", "list", "--agent", agent, "--session", sessionId, "--json"], environment: processEnvironment, timeout: 5)
-        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        // Require rather than expect: a non-zero exit means stdout holds an error message, and
+        // letting that fall through makes every caller fail on JSON parsing instead of on the real
+        // reason. That is how an unknown-agent fixture read as a decoding problem for a week.
+        try #require(!result.timedOut, Comment(rawValue: result.stdout))
+        try #require(result.status == 0, Comment(rawValue: result.stdout))
         let outputData = try #require(result.stdout.data(using: .utf8))
         let object = try #require(JSONSerialization.jsonObject(with: outputData) as? [String: Any])
         let sessions = try #require(object["sessions"] as? [[String: Any]])
@@ -318,8 +322,16 @@ extension CMUXCLIErrorOutputRegressionTests {
     }
 
     @Test func testSessionsListDoesNotInferPiFamilyFromBasenameWhenStructuredIdentityDisagrees() throws {
+        // The agent and the launcher have to be a matched pair: a captured launch command is
+        // only used when its launcher describes the requested agent, and an unmatched pair is
+        // dropped, which leaves the record with no fork argv at all instead of exercising the
+        // rule below. "omo" is opencode's wrapper launcher, so this record is forkable and its
+        // structured identity is opencode, while the executable basename is still "pi" — that
+        // disagreement is what must not promote the record into the pi family. Nothing stats
+        // /tmp/pi here, because the omo launcher answers fork support before the opencode
+        // executable probe.
         let session = try sessionsListDiagnosticSession(
-            agent: "project-agent",
+            agent: "opencode",
             launcher: "omo",
             executablePath: "/tmp/pi",
             arguments: ["/tmp/pi", "omo"]
