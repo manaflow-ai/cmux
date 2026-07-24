@@ -61,6 +61,24 @@ struct BrowserDesignModeArtifactStoreTests {
         }
     }
 
+    @Test func releaseKeepsExistingHandoffPathReadable() async throws {
+        let directory = URL.temporaryDirectory
+            .appendingPathComponent("cmux-design-mode-release-path-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = BrowserDesignModeArtifactStore(directory: directory)
+        let expected = Data([0, 1, 2])
+        let screenshotURL = try await store.saveScreenshot(
+            expected,
+            surfaceID: UUID(),
+            retention: .liveContext
+        )
+
+        await store.release(screenshotURL)
+
+        #expect(FileManager.default.fileExists(atPath: screenshotURL.path))
+        #expect(try Data(contentsOf: screenshotURL) == expected)
+    }
+
     @Test func contextJSONUsesTheScreenshotPruningLifecycle() async throws {
         let directory = URL.temporaryDirectory
             .appendingPathComponent("cmux-design-mode-context-pruning-test-\(UUID().uuidString)", isDirectory: true)
