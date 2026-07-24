@@ -2787,6 +2787,9 @@ fn handle_command(
             if exclusive && !enabled {
                 anyhow::bail!("exclusive client sizing must be enabled");
             }
+            if exclusive && target.is_none() {
+                anyhow::bail!("exclusive client sizing requires a client");
+            }
             if let Some(target) = target {
                 if exclusive {
                     mux.use_only_client_size(surface, target).ok_or_else(|| {

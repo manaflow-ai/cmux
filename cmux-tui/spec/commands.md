@@ -333,7 +333,7 @@ CLI mapping:
 | Item | Value |
 | --- | --- |
 | Verb | `set-client-sizing` |
-| Flags | `--surface <id> --client <id> --enabled <true|false>` |
+| Flags | `--surface <id> --enabled <true-or-false> [--client <id>]` |
 | Plain stdout | no output |
 | JSON stdout | exact result object |
 | Exit codes | common |

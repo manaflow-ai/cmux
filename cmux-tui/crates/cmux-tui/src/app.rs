@@ -1108,9 +1108,7 @@ impl OrderedSession {
                 // ordered worker is waiting to attach. In that case the
                 // missing mirror is the expected result of teardown, not a
                 // retryable synchronization failure.
-                if exited_surfaces.lock().unwrap().contains(&id)
-                    || (remote && session.remote_tree_is_stale())
-                {
+                if exited_surfaces.lock().unwrap().contains(&id) {
                     attach_failures.lock().unwrap().remove(&id);
                     pending.defer(SessionMutationOutcome::Success { tree: None });
                     return Ok(());

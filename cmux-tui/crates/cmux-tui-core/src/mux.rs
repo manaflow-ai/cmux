@@ -1775,15 +1775,21 @@ impl Mux {
         if !known {
             return None;
         }
-        let policy = sizing.policies.entry(surface).or_default();
         let changed = if participating {
+            let Some(policy) = sizing.policies.get_mut(&surface) else {
+                return Some(false);
+            };
             policy.excluded_clients.remove(&client)
         } else {
-            policy.excluded_clients.insert(client)
+            sizing.policies.entry(surface).or_default().excluded_clients.insert(client)
         };
         if !changed {
             return Some(false);
         }
+        let policy = sizing
+            .policies
+            .get_mut(&surface)
+            .expect("changed sizing participation must have a surface policy");
         policy.exclusive_client = None;
         if policy.excluded_clients.is_empty() {
             sizing.policies.remove(&surface);

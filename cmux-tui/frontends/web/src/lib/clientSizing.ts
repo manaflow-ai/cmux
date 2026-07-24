@@ -26,25 +26,38 @@ function surfaceSize(client: ClientInfo, surface: Id) {
   };
 }
 
+function includeMinimum(
+  minimum: PaneClientSummary["minimum"] | null,
+  size: { cols: number; rows: number },
+): PaneClientSummary["minimum"] {
+  if (minimum === null) return { cols: size.cols, rows: size.rows };
+  return {
+    cols: Math.min(minimum.cols, size.cols),
+    rows: Math.min(minimum.rows, size.rows),
+  };
+}
+
 export function paneClientSummary(clients: ClientInfo[], surface: Id | null): PaneClientSummary | null {
   if (surface === null) return null;
-  const visible = clients.filter((client) => surfaceSize(client, surface) !== null);
-  if (!visible.some((client) => client.self) || !visible.some((client) => !client.self)) return null;
-  const useExcluded = !visible.some(
-    (client) => surfaceSize(client, surface)?.sizeParticipating,
-  );
-  const participants = visible.filter(
-    (client) => useExcluded || surfaceSize(client, surface)?.sizeParticipating,
-  );
-  const sizes = participants.map((client) => {
-    const size = surfaceSize(client, surface)!;
-    return { cols: size.cols, rows: size.rows };
-  });
-  if (sizes.length === 0) return null;
-  const minimum = sizes.reduce((smallest, size) => ({
-    cols: Math.min(smallest.cols, size.cols),
-    rows: Math.min(smallest.rows, size.rows),
-  }));
+  const visible: ClientInfo[] = [];
+  let hasSelf = false;
+  let hasPeer = false;
+  let allMinimum: PaneClientSummary["minimum"] | null = null;
+  let participatingMinimum: PaneClientSummary["minimum"] | null = null;
+  for (const client of clients) {
+    const size = surfaceSize(client, surface);
+    if (size === null) continue;
+    visible.push(client);
+    hasSelf ||= client.self;
+    hasPeer ||= !client.self;
+    allMinimum = includeMinimum(allMinimum, size);
+    if (size.sizeParticipating) {
+      participatingMinimum = includeMinimum(participatingMinimum, size);
+    }
+  }
+  if (!hasSelf || !hasPeer) return null;
+  const minimum = participatingMinimum ?? allMinimum;
+  if (minimum === null) return null;
   return {
     clients: visible,
     surface,
