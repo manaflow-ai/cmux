@@ -25,7 +25,13 @@ $TMPDIR/cmux-tui-<uid>/<session>.sock
 
 The implementation uses Rust `std::env::temp_dir()` for `$TMPDIR`, appends `cmux-tui-<uid>`, and then appends `<session>.sock`. The TUI exports the resolved path to child surfaces as `CMUX_TUI_SOCKET` and legacy `CMUX_MUX_SOCKET`.
 
-The `cmux-tui` process accepts `--session <name>` to select the default socket name and `--socket <path>` to override the path.
+The `cmux-tui` process accepts `--session <name>` to select the default socket name and `--socket <path>` to override the path. The socket contains no canonical state. Workspace identity/order, mutation results/tombstones, and frontend projections are stored in SQLite under the platform state directory (macOS: `~/Library/Application Support/cmux-tui/sessions`), or under `--state <root>`. An explicit temporary `--socket` derives an isolated `<socket>.state` root unless `--state` is supplied. `--ephemeral` selects an in-memory registry and is mutually exclusive with `--state`.
+
+One process holds an exclusive cross-platform writer lease for each session
+database. SQLite uses WAL, foreign keys, `synchronous=FULL`, and macOS
+`fullfsync`. A second daemon for the same state/session fails startup instead
+of racing. Corruption or an unsupported schema also fails closed; the daemon
+never silently falls back to ephemeral state.
 
 ### Framing And Canonical Envelope
 
@@ -74,6 +80,34 @@ When binding, the server creates the runtime directory if needed, refuses to clo
 Access to the Unix socket is equivalent to access to the mux session. A client can type into PTYs, read screens, close surfaces, and change focus. Hosts must keep the runtime directory private.
 
 The Unix socket does not use the WebSocket auth preamble. Its filesystem permissions remain the access boundary.
+
+## Relay Stdio
+
+| Field | Value |
+| --- | --- |
+| status | implemented client transport primitive |
+| since | protocol 9 client |
+
+`cmux-tui relay` copies bytes between stdin/stdout and one existing local Unix session socket:
+
+```text
+cmux-tui relay --session main
+cmux-tui relay --socket /absolute/path/to/session.sock
+```
+
+Relay does not start a mux server, render a TUI, authenticate a caller, or interpret command payloads. Its stdout contains only server protocol bytes. When stdin is a terminal because a provider allocated a PTY, relay enables raw terminal mode for its lifetime to prevent echo and newline conversion. Providers should use a pipe when possible.
+
+The implemented SSH machine connector starts relay as:
+
+```text
+ssh -T [-p PORT] [-i IDENTITY_FILE] -- [USER@]HOST 'BINARY' relay --session SESSION
+```
+
+SSH supplies authentication, encryption, host verification, and process transport. The connector splits child stdout and stdin into independently owned reader and writer halves. Its JSON-lines adapter removes one line delimiter before giving a complete message to `RemoteSession` and appends one delimiter when sending. EOF cancels pending session requests and closes the child process transport.
+
+Complete-message framing is the session-client boundary. Unix sockets and relay stdio use JSON lines. WebSocket adapters use one text frame per message without adding a newline. A future transport can supply different framing without changing terminal mirroring or the machine rail.
+
+Relay grants the remote SSH principal the authority of the selected local Unix socket. Deployments must restrict SSH admission and the remote socket with the same care as direct socket access.
 
 ## WebSocket
 
