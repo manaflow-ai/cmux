@@ -8,7 +8,7 @@ extension MobileHostIrohRuntime {
         #if DEBUG
         Self.debugTransportVerificationMode(defaults: .standard)
         #else
-        .automatic
+        CmxIrohPathPreference.stored(in: .standard).transportVerificationMode
         #endif
     }
 
@@ -29,6 +29,7 @@ extension MobileHostIrohRuntime {
     }
 
     #if DEBUG
+    /// Resolves DEBUG overrides before the release-safe path preference.
     static func debugTransportVerificationMode(
         defaults: UserDefaults
     ) -> CmxIrohTransportVerificationMode {
@@ -37,9 +38,10 @@ extension MobileHostIrohRuntime {
         ), let mode = CmxIrohTransportVerificationMode(rawValue: rawValue) {
             return mode
         }
-        return defaults.bool(forKey: debugRelayOnlyDefaultsKey)
-            ? .relayOnly
-            : .automatic
+        if defaults.bool(forKey: debugRelayOnlyDefaultsKey) {
+            return .relayOnly
+        }
+        return CmxIrohPathPreference.stored(in: defaults).transportVerificationMode
     }
 
     static var isDebugRelayOnlyEnabled: Bool {

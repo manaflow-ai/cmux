@@ -16,11 +16,15 @@ mod pairing;
 pub mod provider_management;
 mod short_id;
 mod surface;
+mod workspace_registry;
 
 pub mod layout;
 pub mod platform;
 pub mod release;
 pub mod server;
+pub mod terminal_host;
+pub mod terminal_host_protocol;
+pub mod terminal_host_runtime;
 
 pub use browser::{TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
 pub use event_bus::{MuxEventBroadcaster, MuxEventReceiver};
@@ -36,7 +40,7 @@ pub use mux::{
     NotificationEvent, NotificationLevel, ProviderWorkspaceAuthority,
     ProviderWorkspaceAuthorityStatus, ProviderWorkspaceAuthorityUpdateError, RunPlacement,
     SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification, SurfaceResizeReporter,
-    TreeDelta, TreeDeltaKind, WorkspacePlacement, ZoomMode, ZoomState,
+    TreeDelta, TreeDeltaKind, WorkspaceMutationResult, WorkspacePlacement, ZoomMode, ZoomState,
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use short_id::assign_short_ids;
@@ -44,6 +48,11 @@ pub use surface::{
     AttachFrame, AttachFrameReceiver, AttachStream, BrowserAttachState, BrowserFrame,
     BrowserFrameStream, BrowserSource, BrowserStatus, DefaultColors, RenderAttachFrame,
     RenderAttachStream, Surface, SurfaceKind, SurfaceOptions, SurfaceRenderFrame, TerminalColors,
+    TerminalHostConnectionState,
+};
+pub use workspace_registry::{
+    FrontendProjection, ProjectionCommit, RegistryCommit, RegistryEvent, RegistrySnapshot,
+    RegistryWorkspace, WorkspaceMutation, WorkspaceRegistry,
 };
 
 pub use cmux_tui_cdp::BrowserMode;

@@ -76,6 +76,25 @@ export function CheckoutSpinner() {
   );
 }
 
+export function CheckoutPendingContent({
+  pending,
+  children,
+}: {
+  pending: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <>
+      <span className={pending ? "invisible" : undefined}>{children}</span>
+      {pending ? (
+        <span className="absolute inset-0 flex items-center justify-center">
+          <CheckoutSpinner />
+        </span>
+      ) : null}
+    </>
+  );
+}
+
 const PRIMARY_LINK_STYLE: CSSProperties = {
   color: "var(--button-foreground, var(--background))",
   textDecoration: "none",
@@ -104,10 +123,10 @@ export function CheckoutButton({
         start(href, event);
       }}
       aria-busy={pending}
-      className={pricingActionClassName("primary", size)}
+      className={`${pricingActionClassName("primary", size)} relative`}
       style={{ ...PRIMARY_LINK_STYLE, pointerEvents: pending ? "none" : undefined }}
     >
-      {pending ? <CheckoutSpinner /> : children}
+      <CheckoutPendingContent pending={pending}>{children}</CheckoutPendingContent>
     </a>
   );
 }

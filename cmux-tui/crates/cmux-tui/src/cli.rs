@@ -721,16 +721,10 @@ fn print_server_status(json_output: bool, probe: &crate::server_lifecycle::Serve
             "compatible": compatible,
             "server": {
                 "version": server.release.version,
-                "build_commit": server.release.build_commit,
-                "ghostty_commit": server.release.ghostty_commit,
                 "protocol": server.release.protocol,
-                "session": server.session,
-                "pid": server.pid,
             },
             "client": {
                 "version": client.version,
-                "build_commit": client.build_commit,
-                "ghostty_commit": client.ghostty_commit,
                 "protocol": client.protocol,
             },
         });
@@ -746,19 +740,16 @@ fn print_server_status(json_output: bool, probe: &crate::server_lifecycle::Serve
             }
         }
     } else {
-        let server_version = server.release.version_with_build_metadata();
-        let client_version = client.version_with_build_metadata();
         println!(
-            "{}: v{} {} {} pid={}",
+            "{}: v{} {} {}",
             messages.server_label,
-            server_version,
+            server.release.version,
             messages.protocol_label,
             server.release.protocol,
-            server.pid,
         );
         println!(
             "{}: v{} {} {}",
-            messages.client_label, client_version, messages.protocol_label, client.protocol,
+            messages.client_label, client.version, messages.protocol_label, client.protocol,
         );
         println!(
             "{}: {}",
@@ -1423,11 +1414,9 @@ fn print_empty(_: &Value, _: &mut dyn Write) -> io::Result<()> {
 fn print_identify(data: &Value, out: &mut dyn Write) -> io::Result<()> {
     writeln!(
         out,
-        "cmux-tui version={} session={} protocol={} pid={}",
+        "cmux-tui version={} protocol={}",
         data.get("version").and_then(Value::as_str).unwrap_or(""),
-        data.get("session").and_then(Value::as_str).unwrap_or(""),
         data.get("protocol").and_then(Value::as_u64).unwrap_or(0),
-        data.get("pid").and_then(Value::as_u64).unwrap_or(0)
     )
 }
 

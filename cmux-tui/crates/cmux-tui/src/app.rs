@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_core::{
-    BrowserSource, BrowserStatus, Direction, Mux, MuxEvent, PairingChallenge, PaneId, Rect,
+    BrowserSource, BrowserStatus, Direction, Mux, MuxEvent, Node, PairingChallenge, PaneId, Rect,
     SplitDir, SplitEdge, SplitId, SurfaceId, SurfaceKind, WorkspaceId, exact_split_for_pane_edge,
     layout_screen, split_sides, zellij_default_pane_layout,
 };
@@ -31,8 +31,8 @@ use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use ghostty_vt::{
-    KeyEncoder, Mods, MouseAction, MouseButton as GhosttyMouseButton, MouseInput, RenderState,
-    Screen,
+    CursorShape, KeyEncoder, Mods, MouseAction, MouseButton as GhosttyMouseButton, MouseInput,
+    RenderState, Rgb, Screen,
 };
 use ratatui::Terminal as RatatuiTerminal;
 use ratatui::backend::CrosstermBackend;
@@ -1067,6 +1067,10 @@ impl OrderedSession {
 
     fn begin_shutdown(&self) {
         self.inner.begin_shutdown();
+    }
+
+    fn daemon_shutdown_requested(&self) -> bool {
+        self.inner.daemon_shutdown_requested()
     }
 
     fn attach_surface(&self, id: SurfaceId, size: Option<(u16, u16)>) {
@@ -2144,8 +2148,8 @@ pub enum PaneEdge {
 /// One pane's screen real estate for the current frame. Every pane draws
 /// a border box in its rect; the top border row doubles as the tab bar
 /// and the scrollbar is either inside the box or on the right border.
-/// `content` is the terminal area inside the box. Rects too small for a
-/// box get `bar: None` and content = rect.
+/// `content` is the terminal area inside the box. A short rect reserves
+/// its first row for the tab bar and hides terminal content.
 #[derive(Debug, Clone, Copy)]
 pub struct PaneArea {
     pub pane: PaneId,
@@ -2825,6 +2829,12 @@ enum PtyMouseReleaseCapture {
     Failed,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OuterCursorSpec {
+    Reset,
+    Terminal { color: Rgb, shape: CursorShape, blinking: bool },
+}
+
 #[derive(Clone)]
 struct DeferredInput {
     event: Event,
@@ -2904,6 +2914,12 @@ pub struct App {
     pub tree: TreeView,
     tab_locations: HashMap<SurfaceId, [usize; 4]>,
     pub render_states: HashMap<SurfaceId, RenderState>,
+    /// Terminal grid dimensions from the frame actually drawn for each
+    /// surface. Pointer routing uses this snapshot so resize transitions do
+    /// not target blank pane margins or wait on the PTY's terminal lock.
+    pub rendered_terminal_sizes: HashMap<SurfaceId, (u16, u16)>,
+    desired_outer_cursor: OuterCursorSpec,
+    applied_outer_cursor: Option<OuterCursorSpec>,
     pub graphics_writer: Option<GraphicsWriter>,
     pub graphics_supported: bool,
     stdout_lock: Arc<Mutex<()>>,
@@ -3043,11 +3059,14 @@ fn preserve_client_view(previous: &TreeView, next: &mut TreeView) {
 
 const MIN_RAIL_WIDTH: u16 = 10;
 const MIN_CONTENT_WIDTH: u16 = 40;
+const MIN_TABBED_PANE_HEIGHT: u16 = 3;
 
 fn clamp_rail_width(desired: u16, configured_max: u16, available: u16) -> Option<u16> {
     let configured_max = if configured_max > 0 { configured_max } else { u16::MAX };
     let effective_max = available.min(configured_max);
-    (effective_max >= MIN_RAIL_WIDTH).then_some(desired.clamp(MIN_RAIL_WIDTH, effective_max))
+    // `then_some` evaluates eagerly and would clamp with min > max while the
+    // outer terminal is still publishing its initial zero-width geometry.
+    (effective_max >= MIN_RAIL_WIDTH).then(|| desired.clamp(MIN_RAIL_WIDTH, effective_max))
 }
 
 fn sidebar_layout_for(
@@ -3135,6 +3154,113 @@ fn browser_content_size_for_rect(rect: Rect, scrollbar: ScrollbarPosition) -> Op
     (content.width > 0 && content.height > 0).then_some((content.width, content.height))
 }
 
+#[derive(Clone, Copy)]
+struct SubtreeMinimumHeight {
+    full: u16,
+    bar_only: u16,
+}
+
+fn minimum_tabbed_height(node: &Node) -> SubtreeMinimumHeight {
+    match node {
+        Node::Leaf(_) => SubtreeMinimumHeight { full: MIN_TABBED_PANE_HEIGHT, bar_only: 1 },
+        Node::Split { dir: SplitDir::Right, a, b, .. } => {
+            let first = minimum_tabbed_height(a);
+            let second = minimum_tabbed_height(b);
+            SubtreeMinimumHeight {
+                full: first.full.max(second.full),
+                bar_only: first.bar_only.max(second.bar_only),
+            }
+        }
+        Node::Split { dir: SplitDir::Down, ratio, a, b, .. } => {
+            let first = minimum_tabbed_height(a);
+            let second = minimum_tabbed_height(b);
+            SubtreeMinimumHeight {
+                full: minimum_split_height(*ratio, first.full, second.full),
+                bar_only: minimum_split_height(*ratio, first.bar_only, second.bar_only),
+            }
+        }
+        Node::Stack { panes, .. } => {
+            let collapsed_headers =
+                u16::try_from(panes.len().saturating_sub(1)).unwrap_or(u16::MAX);
+            SubtreeMinimumHeight {
+                full: MIN_TABBED_PANE_HEIGHT.saturating_add(collapsed_headers),
+                bar_only: 1u16.saturating_add(collapsed_headers),
+            }
+        }
+    }
+}
+
+fn minimum_split_height(ratio: f32, first_minimum: u16, second_minimum: u16) -> u16 {
+    let fits = |height| {
+        let (first, second) =
+            split_sides(Rect { width: 1, height, ..Rect::default() }, SplitDir::Down, ratio);
+        first.height >= first_minimum && second.height >= second_minimum
+    };
+    if !fits(u16::MAX) {
+        return u16::MAX;
+    }
+
+    let mut low = first_minimum.saturating_add(second_minimum).max(2);
+    let mut high = u16::MAX;
+    while low < high {
+        let middle = low + (high - low) / 2;
+        if fits(middle) {
+            high = middle;
+        } else {
+            low = middle + 1;
+        }
+    }
+    low
+}
+
+fn vertical_split_minimum_heights(
+    node: &Node,
+    target: SplitId,
+) -> Option<(SubtreeMinimumHeight, SubtreeMinimumHeight)> {
+    match node {
+        Node::Leaf(_) | Node::Stack { .. } => None,
+        Node::Split { id, dir, a, b, .. } if *id == target => {
+            (*dir == SplitDir::Down).then(|| (minimum_tabbed_height(a), minimum_tabbed_height(b)))
+        }
+        Node::Split { a, b, .. } => vertical_split_minimum_heights(a, target)
+            .or_else(|| vertical_split_minimum_heights(b, target)),
+    }
+}
+
+fn clamp_ratio_to_minimum_heights(
+    height: u16,
+    requested: f32,
+    first_minimum: u16,
+    second_minimum: u16,
+) -> Option<f32> {
+    let minimum = (f32::from(first_minimum) / f32::from(height)).max(0.05);
+    let maximum = (f32::from(height.saturating_sub(second_minimum)) / f32::from(height)).min(0.95);
+    (minimum <= maximum).then(|| requested.clamp(minimum, maximum))
+}
+
+fn clamp_split_ratio_for_tab_bars(root: &Node, split: SplitId, height: u16, requested: f32) -> f32 {
+    let requested = requested.clamp(0.05, 0.95);
+    let Some((first_minimum, second_minimum)) = vertical_split_minimum_heights(root, split) else {
+        return requested;
+    };
+    if height == 0 {
+        return requested;
+    }
+
+    if let Some(clamped) =
+        clamp_ratio_to_minimum_heights(height, requested, first_minimum.full, second_minimum.full)
+    {
+        return clamped;
+    }
+    clamp_ratio_to_minimum_heights(
+        height,
+        requested,
+        first_minimum.bar_only,
+        second_minimum.bar_only,
+    )
+    .unwrap_or(requested)
+}
+
 fn pane_parts_for_rect(
     rect: Rect,
     scrollbar: ScrollbarPosition,
@@ -3159,6 +3285,12 @@ fn pane_parts_for_rect(
                 height: rect.height - 2,
             },
             Some(Rect { x: track_x, y: rect.y + 1, width: 1, height: rect.height - 2 }),
+        )
+    } else if rect.width > 2 && rect.height > 0 {
+        (
+            Some(Rect { height: 1, ..rect }),
+            Rect { y: rect.y.saturating_add(1), height: 0, ..rect },
+            None,
         )
     } else {
         (None, rect, None)
@@ -3746,7 +3878,7 @@ pub fn run_with_machine_updates(
         return Err(e);
     }
 
-    let cell_pixels = crate::ui::graphics::detect_cell_pixels(true);
+    let cell_pixels = crate::ui::graphics::detect_cell_pixels(None, true);
     if session_available {
         session.set_cell_pixel_size(cell_pixels.0, cell_pixels.1);
     }
@@ -3803,6 +3935,9 @@ pub fn run_with_machine_updates(
         tree: TreeView::default(),
         tab_locations: HashMap::new(),
         render_states: HashMap::new(),
+        rendered_terminal_sizes: HashMap::new(),
+        desired_outer_cursor: OuterCursorSpec::Reset,
+        applied_outer_cursor: None,
         graphics_writer,
         graphics_supported,
         stdout_lock: stdout_lock.clone(),
@@ -3916,6 +4051,9 @@ fn restore_terminal(stdout_lock: Option<&Arc<Mutex<()>>>) -> anyhow::Result<()> 
     let mut stdout = std::io::stdout();
     // Reset the mouse pointer shape in case we left it as a hand.
     let _ = write!(stdout, "\x1b]22;default\x07");
+    // Cursor color and DECSCUSR shape are outer-terminal global state. Always
+    // restore both, including panic/startup-failure paths.
+    let _ = write!(stdout, "\x1b]112\x07\x1b[0 q");
     // Restore the conventional host behavior where Shift bypasses capture.
     let _ = write!(stdout, "\x1b[>0s");
     let _ = stdout.execute(DisableBracketedPaste);
@@ -4031,7 +4169,8 @@ impl App {
         self.draw_terminal(terminal)?;
         self.emit_graphics()?;
 
-        while !self.quit && !self.shutdown_requested() {
+        while !self.quit && !self.shutdown_requested() && !self.session.daemon_shutdown_requested()
+        {
             // Block for the first event, then drain whatever queued so a
             // torrent of pty output coalesces into one frame.
             let timeout = if self.shake_frames > 0
@@ -4124,7 +4263,10 @@ impl App {
     fn shutdown_requested(&self) -> bool {
         crate::shutdown_requested()
             || self.session.shutdown_requested()
-            || self.host_mux.as_ref().is_some_and(|mux| mux.shutdown_requested())
+            || self
+                .host_mux
+                .as_ref()
+                .is_some_and(|mux| mux.shutdown_requested() || mux.daemon_shutdown_requested())
     }
 
     fn restart_machine_updates(&mut self) -> anyhow::Result<()> {
@@ -4826,6 +4968,7 @@ impl App {
             self.drag = None;
         }
         self.render_states.remove(&surface);
+        self.rendered_terminal_sizes.remove(&surface);
         self.visible_size_surfaces.remove(&surface);
         self.pending_size_releases.remove(&surface);
         self.mux_titles.remove(surface);
@@ -4951,7 +5094,28 @@ impl App {
         let lock = self.stdout_lock.clone();
         let _guard = lock.lock().unwrap();
         terminal.draw(|f| crate::ui::draw(self, f))?;
+        if let Some(sequence) =
+            outer_cursor_escape_if_changed(self.applied_outer_cursor, self.desired_outer_cursor)
+        {
+            let mut stdout = std::io::stdout();
+            stdout.write_all(sequence.as_bytes())?;
+            stdout.flush()?;
+            self.applied_outer_cursor = Some(self.desired_outer_cursor);
+        }
         Ok(())
+    }
+
+    pub(crate) fn reset_frame_cursor_spec(&mut self) {
+        self.desired_outer_cursor = OuterCursorSpec::Reset;
+    }
+
+    pub(crate) fn use_terminal_cursor_spec(
+        &mut self,
+        color: Rgb,
+        shape: CursorShape,
+        blinking: bool,
+    ) {
+        self.desired_outer_cursor = OuterCursorSpec::Terminal { color, shape, blinking };
     }
 
     fn frame_only_browser_update(&self, id: SurfaceId) -> bool {
@@ -5020,7 +5184,7 @@ impl App {
     }
 
     fn refresh_cell_pixels(&mut self, query_fallback: bool) {
-        let next = crate::ui::graphics::detect_cell_pixels(query_fallback);
+        let next = crate::ui::graphics::detect_cell_pixels(Some(self.cell_pixels), query_fallback);
         if self.cell_pixels != next {
             if !self.prepare_pty_input_before_mutation() {
                 return;
@@ -5126,7 +5290,7 @@ impl App {
             .active_screen()
             .map(|screen| {
                 if let Some(pane) = screen.zoomed_pane {
-                    layout_screen(&cmux_tui_core::Node::Leaf(pane), area, Some(pane))
+                    layout_screen(&Node::Leaf(pane), area, Some(pane))
                 } else {
                     layout_screen(&screen.layout, area, Some(screen.active_pane))
                 }
@@ -5836,6 +6000,9 @@ impl App {
             AppEvent::Input(Event::Resize(_, _)) => {
                 self.refresh_cell_pixels(false);
                 self.render_states.clear();
+                // Keep the dimensions of the frame that remains visible until
+                // the next draw publishes a replacement. Clearing this cache
+                // would briefly make newly exposed blank margins clickable.
                 self.sidebar_plugin_surface = None;
                 Ok(RenderAction::Draw)
             }
@@ -5882,6 +6049,9 @@ impl App {
                     ..
                 }),
                 Some(Drag::PtyMouse { .. })
+            ) | (
+                Event::Mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), .. }),
+                Some(Drag::WorkspaceArm { .. } | Drag::TabArm { .. })
             )
         )
     }
@@ -7408,7 +7578,6 @@ impl App {
                 // Close the active tab; the pane collapses with its last
                 // tab, so this is also "close pane" for single-tab panes.
                 if let Some(surface) = self.active_surface() {
-                    self.render_states.remove(&surface);
                     self.session.close_surface(surface);
                 }
             }
@@ -7780,7 +7949,6 @@ impl App {
             MenuAction::SplitDown(id) => self.split_pane(id, SplitDir::Down)?,
             MenuAction::CloseTab(id) => {
                 if let Some(surface) = self.tree.pane(id).and_then(|p| p.active_surface()) {
-                    self.render_states.remove(&surface);
                     self.session.close_surface(surface);
                 }
             }
@@ -8338,9 +8506,7 @@ impl App {
         {
             return PtyMousePressResult::NotOwned;
         }
-        let Some(content) = self.terminal_input_rect(&area) else {
-            return PtyMousePressResult::NotOwned;
-        };
+        let content = self.canonical_pty_content(area.surface, area.content);
         if !content.contains(x, y) {
             return PtyMousePressResult::NotOwned;
         }
@@ -8652,12 +8818,10 @@ impl App {
         {
             return false;
         }
-        let Some(content) = self.terminal_input_rect(&area) else { return false };
-        if !content.contains(x, y) {
-            return false;
-        }
+        let content = self.canonical_pty_content(area.surface, area.content);
         if action == MouseAction::Motion {
-            return self.forward_pty_mouse_motion_if_uncontended(
+            let inside = content.contains(x, y);
+            let owned = self.forward_pty_mouse_motion_if_uncontended(
                 area.surface,
                 content,
                 (x, y),
@@ -8665,6 +8829,19 @@ impl App {
                 modifiers,
                 any_button_pressed,
             );
+            // A no-button motion outside the canonical viewport is
+            // intentionally suppressed by Ghostty. Reset dedupe so re-entering
+            // through the same edge cell still reports a fresh hover sample.
+            if !inside
+                && !any_button_pressed
+                && let Some(surface) = self.session.surface(area.surface)
+            {
+                surface.reset_mouse_motion_dedupe();
+            }
+            return owned;
+        }
+        if !content.contains(x, y) {
+            return false;
         }
         self.forward_pty_mouse_to_surface(
             area.surface,
@@ -8890,14 +9067,15 @@ impl App {
             {
                 screen.active_pane = pane;
                 true
-            } else if !self.session.remote {
-                self.session.focus_pane(pane);
-                true
             } else {
-                false
+                !self.session.remote
             };
             if focused {
                 self.pane_focus_history.record(pane);
+                // Remote frontends update their mirror optimistically above,
+                // but focus is still shared session state. Forward the same
+                // mutation so every frontend receives the authoritative tree.
+                self.session.focus_pane(pane);
             }
         }
     }
@@ -8922,9 +9100,11 @@ impl App {
                     as usize;
             }
         }
-        if !self.session.remote {
-            self.session.select_tab(pane, index, delta);
-        }
+        // Attached frontends keep the immediate optimistic update above, then
+        // publish the same selection to the owner mux. Without this command a
+        // remote TUI can visibly switch tabs while every other frontend still
+        // observes the old active surface in list-workspaces.
+        self.session.select_tab(pane, index, delta);
     }
 
     fn select_screen_for_client(&mut self, index: Option<usize>, delta: Option<isize>) {
@@ -8946,9 +9126,7 @@ impl App {
         if selected && let Some(active) = self.active_pane() {
             self.pane_focus_history.record(active);
         }
-        if !self.session.remote {
-            self.session.select_screen(index, delta);
-        }
+        self.session.select_screen(index, delta);
     }
 
     fn select_workspace_for_client(&mut self, index: Option<usize>, delta: Option<isize>) {
@@ -8967,9 +9145,7 @@ impl App {
         if selected && let Some(active) = self.active_pane() {
             self.pane_focus_history.record(active);
         }
-        if !self.session.remote {
-            self.session.select_workspace(index, delta);
-        }
+        self.session.select_workspace(index, delta);
     }
 
     fn terminal_input_rect(&self, area: &PaneArea) -> Option<Rect> {
@@ -8980,7 +9156,11 @@ impl App {
         self.pane_areas
             .iter()
             .find(|area| area.surface == surface)
-            .and_then(|area| self.terminal_input_rect(area))
+            .map(|area| self.canonical_pty_content(surface, area.content))
+    }
+
+    fn canonical_pty_content(&self, surface: SurfaceId, content: Rect) -> Rect {
+        canonical_terminal_content(content, self.rendered_terminal_sizes.get(&surface).copied())
     }
 
     fn cancel_pty_release_reservation(&self) {
@@ -9790,8 +9970,14 @@ impl App {
                 1.0,
             ),
         };
+        let ratio = clamp_split_ratio_for_tab_bars(
+            &screen.layout,
+            target.split,
+            target.area.height,
+            current + delta * sign,
+        );
         if self.prepare_pty_input_before_mutation() {
-            self.session.set_split_ratio(target.split, (current + delta * sign).clamp(0.05, 0.95));
+            self.session.set_split_ratio(target.split, ratio);
         }
     }
 
@@ -9821,7 +10007,13 @@ impl App {
         if extent == 0 {
             return;
         }
-        let ratio = (coord.saturating_sub(start) as f32 / extent as f32).clamp(0.05, 0.95);
+        let requested = coord.saturating_sub(start) as f32 / extent as f32;
+        let ratio = clamp_split_ratio_for_tab_bars(
+            &screen.layout,
+            target.split,
+            target.area.height,
+            requested,
+        );
         if self.prepare_pty_input_before_mutation() {
             self.session.set_split_ratio_deferred(target.split, ratio);
         }
@@ -10041,6 +10233,10 @@ impl App {
             }
             return Ok(RenderAction::None);
         }
+        let canonical_content = self.canonical_pty_content(surface_id, area.content);
+        if !canonical_content.contains(x, y) {
+            return Ok(RenderAction::None);
+        }
         if area.content.contains(x, y)
             && self.forward_pty_mouse_at(
                 x,
@@ -10100,6 +10296,11 @@ impl App {
         }
         if self.active_pane() != Some(area.pane) {
             self.focus_pane_after_input(area.pane);
+        }
+        if self.surface_kind(area.surface) == Some(SurfaceKind::Pty)
+            && !self.canonical_pty_content(area.surface, area.content).contains(x, y)
+        {
+            return Ok(RenderAction::None);
         }
         if area.content.contains(x, y)
             && self.forward_pty_mouse_at(
@@ -10178,6 +10379,43 @@ impl App {
                 click_count: dispatch.click_count,
             },
         });
+    }
+}
+
+fn canonical_terminal_content(content: Rect, rendered_size: Option<(u16, u16)>) -> Rect {
+    let (cols, rows) = rendered_size.unwrap_or((content.width, content.height));
+    Rect {
+        x: content.x,
+        y: content.y,
+        width: content.width.min(cols),
+        height: content.height.min(rows),
+    }
+}
+
+fn outer_cursor_escape_if_changed(
+    applied: Option<OuterCursorSpec>,
+    desired: OuterCursorSpec,
+) -> Option<String> {
+    (applied != Some(desired)).then(|| outer_cursor_escape(desired))
+}
+
+fn outer_cursor_escape(spec: OuterCursorSpec) -> String {
+    match spec {
+        OuterCursorSpec::Reset => "\x1b]112\x07\x1b[0 q".to_string(),
+        OuterCursorSpec::Terminal { color, shape, blinking } => {
+            let style = match (shape, blinking) {
+                (CursorShape::Block, true) => 1,
+                (CursorShape::Block, false) => 2,
+                (CursorShape::Underline, true) => 3,
+                (CursorShape::Underline, false) => 4,
+                (CursorShape::Bar, true) => 5,
+                (CursorShape::Bar, false) => 6,
+                // DECSCUSR has no hollow-block form. A steady block preserves
+                // shape and avoids inventing blink behavior.
+                (CursorShape::BlockHollow, _) => 2,
+            };
+            format!("\x1b]12;#{:02x}{:02x}{:02x}\x07\x1b[{style} q", color.r, color.g, color.b)
+        }
     }
 }
 
@@ -10316,16 +10554,17 @@ mod tests {
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput, Drag, FocusTarget,
         ForwardMuxOutcome, MachineActionWorker, MenuAction, MenuItem, MuxTitleIngress,
-        OrderedSession, PaneArea, PaneFocusHistory, PendingSessionMutation,
-        PendingSessionMutationState, PromptTarget, PtyFailureIngress, PtyMousePressResult,
-        RailKind, RenderAction, Selection, SessionCompletion, SessionCompletionAction,
-        SessionEventSender, SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState,
-        SurfaceResizeDecision, SurfaceResizeOwnership, WorkspaceRailSelection,
-        browser_content_size_for_rect, browser_hover_forward_allowed, client_menu_item,
-        forward_mux_event, forward_mux_events, pane_context_menu_groups, pane_parts_for_rect,
-        prepare_ordered_session, preserve_client_view, rail_drag_width,
-        record_surface_resize_dispatch_result, sidebar_plugin_status_settles_passive_claim,
-        start_ordered_session,
+        OrderedSession, OuterCursorSpec, PaneArea, PaneEdge, PaneFocusHistory,
+        PendingSessionMutation, PendingSessionMutationState, PromptTarget, PtyFailureIngress,
+        PtyMousePressResult, RailKind, RenderAction, Selection, SessionCompletion,
+        SessionCompletionAction, SessionEventSender, SidebarLayout, SidebarPluginSyncClaim,
+        SidebarPluginSyncState, SurfaceResizeDecision, SurfaceResizeOwnership,
+        WorkspaceRailSelection, browser_content_size_for_rect, browser_hover_forward_allowed,
+        canonical_terminal_content, clamp_split_ratio_for_tab_bars, client_menu_item,
+        forward_mux_event, forward_mux_events, outer_cursor_escape, outer_cursor_escape_if_changed,
+        pane_context_menu_groups, pane_parts_for_rect, prepare_ordered_session,
+        preserve_client_view, rail_drag_width, record_surface_resize_dispatch_result,
+        sidebar_layout_for, sidebar_plugin_status_settles_passive_claim, start_ordered_session,
     };
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -10342,7 +10581,8 @@ mod tests {
         Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
     };
     use ghostty_vt::{
-        KeyEncoder, Mods, MouseAction, MouseButton as GhosttyMouseButton, MouseInput, RenderState,
+        CursorShape, KeyEncoder, Mods, MouseAction, MouseButton as GhosttyMouseButton, MouseInput,
+        RenderState, Rgb,
     };
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
@@ -10371,6 +10611,14 @@ mod tests {
 
     fn settled(outcome: super::SessionMutationOutcome) -> AppEvent {
         AppEvent::SessionMutationSettled { outcome, routing: false }
+    }
+
+    #[test]
+    fn zero_width_startup_hides_sidebar_without_panicking() {
+        let config = Config::default();
+        let layout = sidebar_layout_for(&config, true, false, (0, 24), None, None);
+        assert!(layout.workspace.is_none());
+        assert_eq!(layout.content.width, 0);
     }
 
     #[test]
@@ -10499,12 +10747,20 @@ mod tests {
         app.pane_areas.iter_mut().find(|area| area.pane == top_right).unwrap().rect.height = 0;
         app.move_focus(Direction::Right);
         assert_eq!(app.active_pane(), Some(bottom_right));
-        assert_eq!(Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane, left);
+        while app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            app.handle(event).unwrap();
+        }
+        assert_eq!(app.active_pane(), Some(bottom_right));
+        assert_eq!(
+            Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane,
+            bottom_right
+        );
         assert!(!app.session.has_pending_mutations());
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface);
+            mux.close_surface(surface).unwrap();
         }
     }
 
@@ -10535,7 +10791,7 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface);
+            mux.close_surface(surface).unwrap();
         }
     }
 
@@ -10565,7 +10821,7 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface);
+            mux.close_surface(surface).unwrap();
         }
     }
 
@@ -10650,8 +10906,115 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface);
+            mux.close_surface(surface).unwrap();
         }
+    }
+
+    #[test]
+    fn vertical_split_drag_keeps_nested_pane_tab_bars_visible() {
+        let mux = Mux::new("nested-pane-minimum-height-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 18))).unwrap();
+        let first = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        mux.split(first, SplitDir::Down, Some((80, 9))).unwrap();
+        assert!(mux.focus_pane(first));
+        mux.split(first, SplitDir::Down, Some((80, 5))).unwrap();
+        let nested_bottom = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((80, 19));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+
+        for y in [0, 17] {
+            app.resize_split(nested_bottom, PaneEdge::Bottom, 0, y);
+            app.session.settle_split_ratio();
+            while app.session.has_pending_mutations() {
+                app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            }
+            app.sync_layout((80, 19));
+
+            assert_eq!(app.pane_areas.len(), 3);
+            assert!(
+                app.pane_areas.iter().all(|area| area.rect.height >= 3 && area.bar.is_some()),
+                "every pane must retain its tab bar after dragging to y={y}: {:?}",
+                app.pane_areas
+                    .iter()
+                    .map(|area| (area.pane, area.rect, area.bar))
+                    .collect::<Vec<_>>()
+            );
+
+            while app.session.has_pending_mutations() {
+                app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+            }
+        }
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn ancestor_split_minimum_accounts_for_descendant_ratios() {
+        let root = Node::Split {
+            id: 1,
+            dir: SplitDir::Down,
+            ratio: 0.5,
+            a: Box::new(Node::Split {
+                id: 2,
+                dir: SplitDir::Down,
+                ratio: 0.05,
+                a: Box::new(Node::Leaf(1)),
+                b: Box::new(Node::Leaf(2)),
+            }),
+            b: Box::new(Node::Leaf(3)),
+        };
+        let clamped = clamp_split_ratio_for_tab_bars(&root, 1, 100, 0.05);
+        let mut resized = root;
+        let Node::Split { ratio, .. } = &mut resized else {
+            unreachable!();
+        };
+        *ratio = clamped;
+
+        let layout = layout_screen(&resized, Rect { x: 0, y: 0, width: 80, height: 100 }, Some(1));
+        assert!(
+            layout.panes.iter().all(|(_, rect)| rect.height >= 3),
+            "nested ratios must preserve every pane minimum: {:?}",
+            layout.panes
+        );
+    }
+
+    #[test]
+    fn infeasible_full_minimum_falls_back_to_bar_only_minimums() {
+        let root = Node::Split {
+            id: 1,
+            dir: SplitDir::Down,
+            ratio: 0.5,
+            a: Box::new(Node::Split {
+                id: 2,
+                dir: SplitDir::Down,
+                ratio: 0.5,
+                a: Box::new(Node::Leaf(1)),
+                b: Box::new(Node::Leaf(2)),
+            }),
+            b: Box::new(Node::Leaf(3)),
+        };
+        let clamped = clamp_split_ratio_for_tab_bars(&root, 1, 8, 0.05);
+        let mut resized = root;
+        let Node::Split { ratio, .. } = &mut resized else {
+            unreachable!();
+        };
+        *ratio = clamped;
+
+        let layout = layout_screen(&resized, Rect { x: 0, y: 0, width: 80, height: 8 }, Some(1));
+        assert!(
+            layout.panes.iter().all(|(_, rect)| rect.height >= 1),
+            "bar-only fallback must keep every pane visible: {:?}",
+            layout.panes
+        );
     }
 
     #[test]
@@ -10689,7 +11052,7 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
-            mux.close_surface(surface);
+            mux.close_surface(surface).unwrap();
         }
     }
 
@@ -10992,6 +11355,32 @@ mod tests {
     }
 
     #[test]
+    fn tiny_pane_reserves_its_first_row_for_the_tab_bar() {
+        for height in [1, 2] {
+            let rect = Rect { x: 4, y: 5, width: 20, height };
+            let (bar, omnibar, content, track) =
+                pane_parts_for_rect(rect, ScrollbarPosition::Border, false);
+
+            assert_eq!(bar, Some(Rect { height: 1, ..rect }));
+            assert_eq!(omnibar, None);
+            assert_eq!(content.height, 0);
+            assert_eq!(track, None);
+        }
+    }
+
+    #[test]
+    fn narrow_tall_pane_keeps_unboxed_terminal_content() {
+        let rect = Rect { x: 4, y: 5, width: 2, height: 20 };
+        let (bar, omnibar, content, track) =
+            pane_parts_for_rect(rect, ScrollbarPosition::Border, false);
+
+        assert_eq!(bar, None);
+        assert_eq!(omnibar, None);
+        assert_eq!(content, rect);
+        assert_eq!(track, None);
+    }
+
+    #[test]
     fn browser_tab_size_hint_uses_omnibar_reduced_content() {
         let rect = Rect { x: 10, y: 4, width: 80, height: 24 };
         assert_eq!(browser_content_size_for_rect(rect, ScrollbarPosition::Column), Some((77, 21)));
@@ -11158,13 +11547,13 @@ mod tests {
         assert!(app.selection.is_some());
         assert!(matches!(app.drag, Some(Drag::Select { .. })));
 
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
-    fn foreign_viewport_rejects_pty_mouse_input_outside_rendered_grid() {
+    fn pty_mouse_uses_the_canonical_rendered_grid_during_resize_margins() {
         let mux = Mux::new(
-            "foreign-viewport-mouse-test",
+            "mouse-canonical-grid-test",
             SurfaceOptions {
                 command: Some(vec![
                     "/bin/sh".to_string(),
@@ -11174,14 +11563,13 @@ mod tests {
                 ..Default::default()
             },
         );
-        let surface = mux.new_workspace(Some("work".to_string()), Some((12, 5))).unwrap();
-        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1003h\x1b[?1006h"));
 
         let mut app = test_app(Session::Local(mux.clone()));
         app.replace_tree(app.session.tree());
         let pane = app.tree.active_screen().unwrap().active_pane;
         let content = Rect { x: 2, y: 3, width: 20, height: 8 };
-        let live = Rect { x: content.x, y: content.y, width: 12, height: 5 };
         app.pane_areas.push(PaneArea {
             pane,
             surface: surface.id,
@@ -11191,104 +11579,157 @@ mod tests {
             content,
             track: None,
         });
-        app.rendered_terminal_bounds.insert(surface.id, live);
+        // The pane has already grown, but the only frame visible to the user
+        // is still 12x5. The remaining cells are renderer-owned margins.
+        app.rendered_terminal_sizes.insert(surface.id, (12, 5));
+        app.handle(AppEvent::Input(Event::Resize(40, 12))).unwrap();
+        assert_eq!(
+            app.rendered_terminal_sizes.get(&surface.id),
+            Some(&(12, 5)),
+            "outer resize must retain the dimensions of the still-visible frame"
+        );
 
-        app.handle_mouse(MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: live.x + live.width - 1,
-            row: live.y + live.height - 1,
-            modifiers: KeyModifiers::NONE,
-        })
-        .unwrap();
-        assert_eq!(app.encode_buf, b"\x1b[<0;12;5M");
-        assert!(matches!(app.drag, Some(Drag::PtyMouse { content: rect, .. }) if rect == live));
-        app.handle_mouse(MouseEvent {
-            kind: MouseEventKind::Up(MouseButton::Left),
-            column: live.x + live.width - 1,
-            row: live.y + live.height - 1,
-            modifiers: KeyModifiers::NONE,
-        })
-        .unwrap();
-
-        app.encode_buf.clear();
-        let dead_column = live.x + live.width;
-        app.handle_mouse(MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: dead_column,
-            row: live.y,
-            modifiers: KeyModifiers::NONE,
-        })
-        .unwrap();
+        let outside = (content.x + 15, content.y + 2);
+        assert_eq!(
+            app.begin_pty_mouse_drag(outside.0, outside.1, MouseButton::Left, KeyModifiers::NONE,),
+            PtyMousePressResult::NotOwned
+        );
+        assert!(app.drag.is_none());
         assert!(app.encode_buf.is_empty());
-        assert!(app.drag.is_none());
-        assert!(app.selection.is_none());
-
-        app.handle_mouse(MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Right),
-            column: dead_column,
-            row: live.y,
-            modifiers: KeyModifiers::NONE,
-        })
-        .unwrap();
-        assert!(app.menu.is_some());
-        app.menu = None;
-
-        app.handle_mouse(MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: dead_column,
-            row: live.y,
-            modifiers: KeyModifiers::SHIFT,
-        })
-        .unwrap();
-        assert!(app.selection.is_none());
-        assert!(app.drag.is_none());
-
-        app.handle_mouse(MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: live.x + 1,
-            row: live.y + 1,
-            modifiers: KeyModifiers::SHIFT,
-        })
-        .unwrap();
-        assert!(matches!(app.drag, Some(Drag::Select { content: rect, .. }) if rect == live));
-        app.handle_mouse(MouseEvent {
-            kind: MouseEventKind::Drag(MouseButton::Left),
-            column: content.x + content.width - 1,
-            row: content.y + content.height - 1,
-            modifiers: KeyModifiers::SHIFT,
-        })
-        .unwrap();
-        assert_eq!(app.selection.map(|selection| selection.head), Some((11, 4)));
-        app.handle_mouse(MouseEvent {
-            kind: MouseEventKind::Up(MouseButton::Left),
-            column: content.x + content.width - 1,
-            row: content.y + content.height - 1,
-            modifiers: KeyModifiers::SHIFT,
-        })
-        .unwrap();
-
-        app.handle_mouse(MouseEvent {
-            kind: MouseEventKind::ScrollDown,
-            column: dead_column,
-            row: live.y,
-            modifiers: KeyModifiers::NONE,
-        })
-        .unwrap();
+        assert_eq!(
+            app.handle_scroll(outside.0, outside.1, true, KeyModifiers::NONE).unwrap(),
+            RenderAction::None
+        );
+        assert!(app.encode_buf.is_empty());
+        assert_eq!(
+            app.handle_horizontal_scroll(outside.0, outside.1, true, KeyModifiers::NONE).unwrap(),
+            RenderAction::None
+        );
         assert!(app.encode_buf.is_empty());
 
-        app.rendered_terminal_bounds.remove(&surface.id);
-        app.handle_mouse(MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: live.x,
-            row: live.y,
-            modifiers: KeyModifiers::NONE,
-        })
-        .unwrap();
+        // Leaving through a blank margin suppresses no-button motion, then
+        // clears Ghostty's cell dedupe so the same edge cell reports on reentry.
+        let edge = (content.x + 11, content.y + 2);
+        assert!(app.forward_pty_mouse_at(
+            edge.0,
+            edge.1,
+            MouseAction::Motion,
+            None,
+            KeyModifiers::NONE,
+            false,
+        ));
+        assert_eq!(app.encode_buf, b"\x1b[<35;12;3M");
+        assert!(!app.forward_pty_mouse_at(
+            outside.0,
+            outside.1,
+            MouseAction::Motion,
+            None,
+            KeyModifiers::NONE,
+            false,
+        ));
         assert!(app.encode_buf.is_empty());
-        assert!(app.selection.is_none());
+        assert!(app.forward_pty_mouse_at(
+            edge.0,
+            edge.1,
+            MouseAction::Motion,
+            None,
+            KeyModifiers::NONE,
+            false,
+        ));
+        assert_eq!(app.encode_buf, b"\x1b[<35;12;3M");
+
+        // A press that starts inside keeps capture while crossing the margin;
+        // Ghostty reports the edge cell and, critically, always emits release.
+        let inside = (content.x + 4, content.y + 2);
+        assert_eq!(
+            app.begin_pty_mouse_drag(inside.0, inside.1, MouseButton::Left, KeyModifiers::NONE,),
+            PtyMousePressResult::Started
+        );
+        assert_eq!(app.encode_buf, b"\x1b[<0;5;3M");
+        assert!(app.forward_pty_mouse_drag(
+            outside.0,
+            outside.1,
+            MouseButton::Left,
+            KeyModifiers::NONE,
+        ));
+        assert_eq!(app.encode_buf, b"\x1b[<32;12;3M");
+        assert!(app.finish_pty_mouse_drag(
+            outside.0,
+            outside.1,
+            MouseButton::Left,
+            KeyModifiers::NONE,
+        ));
+        assert_eq!(app.encode_buf, b"\x1b[<0;12;3m");
         assert!(app.drag.is_none());
 
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn canonical_terminal_content_clamps_to_the_visible_pane() {
+        let content = Rect { x: 7, y: 11, width: 20, height: 8 };
+        assert_eq!(canonical_terminal_content(content, None), content);
+        assert_eq!(
+            canonical_terminal_content(content, Some((12, 5))),
+            Rect { x: 7, y: 11, width: 12, height: 5 }
+        );
+        assert_eq!(
+            canonical_terminal_content(content, Some((40, 30))),
+            content,
+            "a stale larger frame must never claim cells outside its pane"
+        );
+    }
+
+    #[test]
+    fn outer_cursor_escapes_cover_color_shape_blink_and_reset() {
+        let color = Rgb { r: 0x12, g: 0x34, b: 0x56 };
+        let terminal = |shape, blinking| OuterCursorSpec::Terminal { color, shape, blinking };
+        assert_eq!(
+            outer_cursor_escape(terminal(CursorShape::Block, true)),
+            "\x1b]12;#123456\x07\x1b[1 q"
+        );
+        assert_eq!(
+            outer_cursor_escape(terminal(CursorShape::Block, false)),
+            "\x1b]12;#123456\x07\x1b[2 q"
+        );
+        assert_eq!(
+            outer_cursor_escape(terminal(CursorShape::Underline, true)),
+            "\x1b]12;#123456\x07\x1b[3 q"
+        );
+        assert_eq!(
+            outer_cursor_escape(terminal(CursorShape::Underline, false)),
+            "\x1b]12;#123456\x07\x1b[4 q"
+        );
+        assert_eq!(
+            outer_cursor_escape(terminal(CursorShape::Bar, true)),
+            "\x1b]12;#123456\x07\x1b[5 q"
+        );
+        assert_eq!(
+            outer_cursor_escape(terminal(CursorShape::Bar, false)),
+            "\x1b]12;#123456\x07\x1b[6 q"
+        );
+        assert_eq!(
+            outer_cursor_escape(terminal(CursorShape::BlockHollow, true)),
+            "\x1b]12;#123456\x07\x1b[2 q",
+            "DECSCUSR has no hollow block, so it degrades to steady block"
+        );
+        assert_eq!(outer_cursor_escape(OuterCursorSpec::Reset), "\x1b]112\x07\x1b[0 q");
+    }
+
+    #[test]
+    fn outer_cursor_state_suppresses_redundant_global_terminal_writes() {
+        let desired = OuterCursorSpec::Terminal {
+            color: Rgb { r: 1, g: 2, b: 3 },
+            shape: CursorShape::Bar,
+            blinking: false,
+        };
+        assert!(outer_cursor_escape_if_changed(None, desired).is_some());
+        assert!(outer_cursor_escape_if_changed(Some(desired), desired).is_none());
+        assert!(outer_cursor_escape_if_changed(Some(desired), OuterCursorSpec::Reset).is_some());
+        assert!(
+            outer_cursor_escape_if_changed(Some(OuterCursorSpec::Reset), OuterCursorSpec::Reset)
+                .is_none()
+        );
     }
 
     #[test]
@@ -11337,7 +11778,7 @@ mod tests {
 
         release_tx.send(()).unwrap();
         holder.join().unwrap();
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -11398,7 +11839,7 @@ mod tests {
         input.join().unwrap();
 
         assert_eq!(result.unwrap(), PtyMousePressResult::Started);
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -11433,7 +11874,7 @@ mod tests {
         assert!(app.workspace_sidebar_focused());
         assert!(app.drag.is_none());
         assert!(app.encode_buf.is_empty());
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -11561,7 +12002,7 @@ mod tests {
             PtyInputEnqueueResult::Failed,
         );
         assert!(!encode_test_mouse_motion(&handle, input).is_empty());
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -11598,7 +12039,7 @@ mod tests {
         }))
         .unwrap();
         assert!(!encode_test_mouse_motion(&handle, input).is_empty());
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -11924,6 +12365,220 @@ mod tests {
             app.status_message.as_deref(),
             Some("Deferred input was discarded because its destination changed")
         );
+    }
+
+    #[test]
+    fn attached_tab_selection_is_published_to_owner_mux() {
+        let mux = Mux::new("attached-tab-selection-test", SurfaceOptions::default());
+        let first = mux.new_workspace(None, None).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, None).unwrap();
+        mux.select_tab(Some(pane), Some(0), None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+
+        // Exercise the attached-client branch without a socket fixture. The
+        // OrderedSession still targets the owner mux, while `remote` enables
+        // the optimistic mirror update used by `cmux-tui attach`.
+        app.session.remote = true;
+        app.select_tab_for_client(Some(pane), Some(1), None);
+        assert_eq!(app.active_surface(), Some(second.id));
+
+        events.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(mux.active_surface(), Some(second.id));
+
+        let workspace = mux.with_state(|state| state.workspaces[state.active_workspace].id);
+        mux.close_workspace(workspace);
+    }
+
+    #[test]
+    fn attached_workspace_mouse_click_uses_both_rendered_rows_and_survives_routing_refresh() {
+        let mux = Mux::new(
+            "attached-workspace-mouse-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "sleep 30".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        mux.new_workspace(Some("Alpha".to_string()), Some((80, 24))).unwrap();
+        mux.new_workspace(Some("Beta".to_string()), Some((80, 24))).unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+
+        // Exercise the attached-client branch while keeping a local owner mux
+        // available for an immediate authoritative-state assertion.
+        app.session.remote = true;
+        app.sidebar_width = 18;
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+
+        for row in 0..2 {
+            mux.select_workspace(Some(1), None);
+            // A remote replace deliberately preserves this client's view, so
+            // install the owner's reset snapshot directly between subcases.
+            app.tree = app.session.tree();
+            app.rebuild_tab_locations();
+            terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+            let mut alpha_rows = app
+                .hits
+                .iter()
+                .filter_map(|(rect, hit)| match hit {
+                    super::Hit::Workspace { index: 0, .. } => Some(*rect),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            alpha_rows.sort_by_key(|rect| rect.y);
+            assert_eq!(alpha_rows.len(), 2, "name and subtitle must both be clickable");
+            let hit = alpha_rows[row];
+            let event = |kind| {
+                AppEvent::Input(Event::Mouse(MouseEvent {
+                    kind,
+                    column: hit.x + hit.width.saturating_sub(1) / 2,
+                    row: hit.y,
+                    modifiers: KeyModifiers::NONE,
+                }))
+            };
+
+            app.handle(event(MouseEventKind::Down(MouseButton::Left))).unwrap();
+            assert!(matches!(app.drag, Some(Drag::WorkspaceArm { .. })));
+
+            // A concurrent frontend can invalidate routing after the press.
+            // The release still belongs to the armed stable workspace ID.
+            app.routing_refresh_pending = true;
+            app.handle(event(MouseEventKind::Up(MouseButton::Left))).unwrap();
+            assert_eq!(app.tree.active_workspace, 0);
+
+            let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            app.handle(settled).unwrap();
+            app.routing_refresh_pending = false;
+            assert_eq!(mux.with_state(|state| state.active_workspace), 0);
+        }
+
+        let workspaces: Vec<_> =
+            mux.with_state(|state| state.workspaces.iter().map(|workspace| workspace.id).collect());
+        for workspace in workspaces {
+            mux.close_workspace(workspace);
+        }
+    }
+
+    #[test]
+    fn attached_tab_mouse_click_uses_rendered_hit_and_survives_routing_refresh() {
+        let mux = Mux::new(
+            "attached-tab-mouse-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "sleep 30".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.session.remote = true;
+        app.replace_tree(app.session.tree());
+
+        let rect = Rect { x: 0, y: 0, width: 80, height: 23 };
+        let (bar, omnibar, content, track) =
+            pane_parts_for_rect(rect, app.config.scrollbar.position, false);
+        app.sidebar_visible = false;
+        app.sidebar_width = 0;
+        app.content_area = rect;
+        app.pane_areas =
+            vec![PaneArea { pane, surface: second.id, rect, bar, omnibar, content, track }];
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let first_tab = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| match hit {
+                super::Hit::Tab { pane: hit_pane, index: 0 } if *hit_pane == pane => Some(*rect),
+                _ => None,
+            })
+            .expect("first rendered tab hit");
+        let event = |kind| {
+            AppEvent::Input(Event::Mouse(MouseEvent {
+                kind,
+                column: first_tab.x + first_tab.width.saturating_sub(1) / 2,
+                row: first_tab.y,
+                modifiers: KeyModifiers::NONE,
+            }))
+        };
+
+        app.handle(event(MouseEventKind::Down(MouseButton::Left))).unwrap();
+        assert!(matches!(app.drag, Some(Drag::TabArm { surface, .. }) if surface == first.id));
+
+        app.routing_refresh_pending = true;
+        app.handle(event(MouseEventKind::Up(MouseButton::Left))).unwrap();
+        assert_eq!(app.active_surface(), Some(first.id));
+
+        while app.session.has_pending_mutations() {
+            let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            app.handle(settled).unwrap();
+        }
+        app.routing_refresh_pending = false;
+        assert_eq!(mux.active_surface(), Some(first.id));
+
+        let workspace = mux.with_state(|state| state.workspaces[state.active_workspace].id);
+        mux.close_workspace(workspace);
+    }
+
+    #[test]
+    fn attached_workspace_release_without_press_is_a_no_op() {
+        let mux = Mux::new(
+            "attached-workspace-release-only-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "sleep 30".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        mux.new_workspace(Some("Alpha".to_string()), Some((80, 24))).unwrap();
+        mux.new_workspace(Some("Beta".to_string()), Some((80, 24))).unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.session.remote = true;
+        app.sidebar_width = 18;
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let alpha = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| match hit {
+                super::Hit::Workspace { index: 0, .. } => Some(*rect),
+                _ => None,
+            })
+            .expect("rendered Alpha workspace hit");
+
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: alpha.x + alpha.width.saturating_sub(1) / 2,
+            row: alpha.y,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+
+        assert_eq!(app.tree.active_workspace, 1);
+        assert_eq!(mux.with_state(|state| state.active_workspace), 1);
+        assert!(events.try_recv().is_err());
+
+        let workspaces: Vec<_> =
+            mux.with_state(|state| state.workspaces.iter().map(|workspace| workspace.id).collect());
+        for workspace in workspaces {
+            mux.close_workspace(workspace);
+        }
     }
 
     #[test]
@@ -13451,10 +14106,8 @@ mod tests {
             Ok(())
         });
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        app.drag = Some(Drag::ResizeSplit {
-            horizontal: Some((1, super::PaneEdge::Right)),
-            vertical: None,
-        });
+        app.drag =
+            Some(Drag::ResizeSplit { horizontal: Some((1, PaneEdge::Right)), vertical: None });
 
         app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
             kind: MouseEventKind::Drag(MouseButton::Left),
@@ -13800,7 +14453,7 @@ mod tests {
             Some("PTY input queue is full; input was not sent")
         );
 
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -13855,7 +14508,7 @@ mod tests {
         assert!(!row_contains(buffer, 1, "•"), "tab bar dot should clear");
         assert_ne!(buffer[(0, 2)].symbol(), "•", "sidebar dot should clear");
 
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -13899,7 +14552,67 @@ mod tests {
             "plugin sidebar must register the workspace rail resize hit on the divider column"
         );
 
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn pane_cursor_and_active_border_yield_to_builtin_and_plugin_sidebars() {
+        let mux = Mux::new("sidebar-cursor-focus-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        let pane = app.tree.active_screen().unwrap().active_pane;
+        app.pane_areas.push(PaneArea {
+            pane,
+            surface: surface.id,
+            rect: Rect { x: 0, y: 0, width: 22, height: 10 },
+            bar: Some(Rect { x: 0, y: 0, width: 22, height: 1 }),
+            omnibar: None,
+            content: Rect { x: 1, y: 1, width: 20, height: 8 },
+            track: None,
+        });
+
+        for plugin in [false, true] {
+            app.config.sidebar.plugin = plugin.then(|| cmux_tui_core::SidebarPluginOptions {
+                command: vec!["/bin/sh".to_string()],
+                cwd: None,
+            });
+            app.focus = FocusTarget::Pane;
+            app.reset_frame_cursor_spec();
+            let mut pane_cursors = crate::ui::pane::DrawCursors::default();
+            let mut terminal = Terminal::new(TestBackend::new(30, 12)).unwrap();
+            terminal
+                .draw(|frame| pane_cursors = crate::ui::pane::draw_all(&mut app, frame))
+                .unwrap();
+            assert!(
+                pane_cursors.terminal.is_some(),
+                "active pane cursor missing for plugin={plugin}"
+            );
+            assert!(matches!(app.desired_outer_cursor, OuterCursorSpec::Terminal { .. }));
+            assert_eq!(
+                terminal.backend().buffer()[(0, 1)].fg,
+                app.config.theme.border_active,
+                "active pane border missing for plugin={plugin}"
+            );
+
+            app.focus = FocusTarget::WorkspaceRail;
+            app.reset_frame_cursor_spec();
+            terminal
+                .draw(|frame| pane_cursors = crate::ui::pane::draw_all(&mut app, frame))
+                .unwrap();
+            assert!(
+                pane_cursors.terminal.is_none(),
+                "sidebar leaked pane cursor for plugin={plugin}"
+            );
+            assert_eq!(app.desired_outer_cursor, OuterCursorSpec::Reset);
+            assert_eq!(
+                terminal.backend().buffer()[(0, 1)].fg,
+                app.config.theme.border_inactive,
+                "sidebar focus left pane border active for plugin={plugin}"
+            );
+        }
+
+        mux.close_surface(surface.id).unwrap();
     }
 
     fn test_mouse_motion() -> MouseInput {
@@ -13993,7 +14706,7 @@ mod tests {
         assert!(text.contains("known-sidebar-file"), "{text}");
         assert!(text.lines().next().is_some_and(|line| line.contains("• 1")), "{text}");
 
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
         std::fs::remove_dir_all(temp).unwrap();
     }
 
@@ -14029,7 +14742,7 @@ mod tests {
         app.handle_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE)).unwrap();
         assert_eq!(app.sidebar_files.query(), "áb");
 
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
         std::fs::remove_dir_all(temp).unwrap();
     }
 
@@ -14056,7 +14769,7 @@ mod tests {
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
         assert!(buffer_text(terminal.backend().buffer()).contains("toggle-marker"));
 
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
         std::fs::remove_dir_all(temp).unwrap();
     }
 
@@ -14073,7 +14786,7 @@ mod tests {
 
         app.run_action(Action::FocusSidebar).unwrap();
         assert!(!app.workspace_sidebar_focused());
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -14099,7 +14812,7 @@ mod tests {
             );
         }
 
-        mux.close_surface(surface.id);
+        mux.close_surface(surface.id).unwrap();
         std::fs::remove_dir_all(temp).unwrap();
     }
 
@@ -15898,6 +16611,14 @@ mod tests {
         host_mux.request_shutdown();
 
         assert!(app.shutdown_requested());
+
+        let daemon_host_mux = Mux::new("daemon-host", SurfaceOptions::default());
+        app.host_mux = Some(daemon_host_mux.clone());
+        assert!(!app.shutdown_requested());
+
+        daemon_host_mux.request_daemon_shutdown();
+
+        assert!(app.shutdown_requested());
     }
 
     fn test_app(session: Session) -> App {
@@ -15925,6 +16646,9 @@ mod tests {
             tree: TreeView::default(),
             tab_locations: HashMap::new(),
             render_states: HashMap::<u64, RenderState>::new(),
+            rendered_terminal_sizes: HashMap::new(),
+            desired_outer_cursor: OuterCursorSpec::Reset,
+            applied_outer_cursor: None,
             graphics_writer: None,
             graphics_supported: false,
             stdout_lock: Arc::new(Mutex::new(())),

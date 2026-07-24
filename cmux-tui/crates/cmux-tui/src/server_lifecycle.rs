@@ -20,7 +20,6 @@ const RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
 #[derive(Clone, Debug)]
 pub(crate) struct ServerIdentity {
     pub release: ReleaseIdentity,
-    pub session: String,
     pub pid: u32,
     capabilities: HashSet<String>,
 }
@@ -43,12 +42,7 @@ impl ServerIdentity {
             .filter_map(Value::as_str)
             .map(str::to_string)
             .collect();
-        Ok(Self {
-            release: ReleaseIdentity::from_protocol_data(data),
-            session: data.get("session").and_then(Value::as_str).unwrap_or("").to_string(),
-            pid,
-            capabilities,
-        })
+        Ok(Self { release: ReleaseIdentity::from_protocol_data(data), pid, capabilities })
     }
 
     pub(crate) fn supports(&self, capability: &str) -> bool {
@@ -69,10 +63,7 @@ impl ServerProbe {
             .map_err(|error| anyhow::anyhow!("transport error: {error}"))?;
         let response = read_response(reader, PROBE_REQUEST_ID)?;
         if response.get("ok").and_then(Value::as_bool) != Some(true) {
-            anyhow::bail!(
-                "{}",
-                response.get("error").and_then(Value::as_str).unwrap_or("identify failed")
-            );
+            anyhow::bail!(crate::localization::catalog().server.identity_failed);
         }
         let data = response.get("data").unwrap_or(&Value::Null);
         Ok(Self { identity: ServerIdentity::from_protocol_data(data)? })
@@ -81,9 +72,8 @@ impl ServerProbe {
     pub(crate) fn connect(
         path: &Path,
     ) -> anyhow::Result<(Self, BufReader<Box<dyn transport::Stream>>)> {
-        let stream = transport::connect(path).map_err(|error| {
-            anyhow::anyhow!("cannot connect to session socket {}: {error}", path.display())
-        })?;
+        let stream = transport::connect(path)
+            .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.connect_failed))?;
         stream.set_read_timeout(Some(RESPONSE_TIMEOUT))?;
         let mut reader = BufReader::new(stream);
         let probe = Self::inspect(&mut reader)?;
@@ -188,7 +178,7 @@ impl ServerLifecycle {
                 let error =
                     response.get("error").and_then(Value::as_str).unwrap_or("close-surface failed");
                 if !error.starts_with("unknown surface ") {
-                    anyhow::bail!("{error}");
+                    anyhow::bail!("close-surface failed");
                 }
             }
         }
@@ -219,22 +209,18 @@ pub(crate) fn validate_local_identity(data: &Value, path: &Path) -> anyhow::Resu
 pub(crate) fn incompatible_server_message(identity: &ServerIdentity, path: &Path) -> String {
     let messages = &crate::localization::catalog().server;
     let client = ReleaseIdentity::current(PROTOCOL_VERSION);
-    let (server_version, client_version) = if identity.release.version == client.version {
-        (identity.release.version_with_build_metadata(), client.version_with_build_metadata())
-    } else {
-        (identity.release.version.clone(), client.version.clone())
-    };
     let command = format!("cmux-tui server stop --socket {}", shell_quote(path));
-    let restart = messages.restart_instruction.replace("{command}", &command);
+    let restart =
+        format!("{}{}{}", messages.restart_before_command, command, messages.restart_after_command);
     format!(
         "{}\n\n{}: v{} {} {}\n{}: v{} {} {}\n\n{}\n{}\n{}",
         messages.incompatible_local_server,
         messages.server_label,
-        server_version,
+        identity.release.version,
         messages.protocol_label,
         identity.release.protocol,
         messages.client_label,
-        client_version,
+        client.version,
         messages.protocol_label,
         client.protocol,
         messages.stop_to_use,
@@ -303,7 +289,7 @@ fn read_matching_response(
 #[cfg(unix)]
 fn response_data<'a>(response: &'a Value, command: &str) -> anyhow::Result<&'a Value> {
     if response.get("ok").and_then(Value::as_bool) != Some(true) {
-        anyhow::bail!("{}", response.get("error").and_then(Value::as_str).unwrap_or(command));
+        anyhow::bail!("{command} failed");
     }
     Ok(response.get("data").unwrap_or(&Value::Null))
 }
@@ -381,7 +367,6 @@ mod tests {
                 ghostty_commit: None,
                 protocol: PROTOCOL_VERSION - 1,
             },
-            session: "test".to_string(),
             pid: 42,
             capabilities: HashSet::new(),
         };

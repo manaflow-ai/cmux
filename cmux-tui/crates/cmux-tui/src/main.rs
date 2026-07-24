@@ -252,6 +252,8 @@ USAGE:
 OPTIONS:
   --session <name>   Session name (default: main). Determines the socket path.
   --socket <path>    Explicit control socket path.
+  --state <path>     Durable session-state root (default: platform state dir).
+  --ephemeral        Keep workspace state in memory for this run only.
   --machine-provider <path>
                      Use a dynamic machine provider Unix socket.
   --machine-provider-command <program> [arg ...] --
@@ -319,6 +321,8 @@ struct Args {
     attach: bool,
     session: String,
     socket: Option<PathBuf>,
+    state: Option<PathBuf>,
+    ephemeral: bool,
     machine_provider: Option<PathBuf>,
     machine_provider_command: Option<Vec<String>>,
     cloud: bool,
@@ -352,6 +356,8 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         attach: false,
         session: "main".to_string(),
         socket: None,
+        state: None,
+        ephemeral: false,
         machine_provider: None,
         machine_provider_command: None,
         cloud: false,
@@ -433,6 +439,11 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                     args.next().ok_or_else(|| "--cloud-identity needs a value".to_string())?.into(),
                 );
             }
+            "--state" => {
+                out.state =
+                    Some(args.next().unwrap_or_else(|| usage_exit("--state needs a value")).into());
+            }
+            "--ephemeral" => out.ephemeral = true,
             "--headless" => out.headless = true,
             "--ws" => {
                 out.ws = Some(args.next().ok_or_else(|| "--ws needs a value".to_string())?);
@@ -583,6 +594,12 @@ fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
     if args.socket.is_some() {
         conflicts.push("--socket");
     }
+    if args.state.is_some() {
+        conflicts.push("--state");
+    }
+    if args.ephemeral {
+        conflicts.push("--ephemeral");
+    }
     if args.headless {
         conflicts.push("--headless");
     }
@@ -605,12 +622,24 @@ fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
 }
 
 fn main() {
+    let raw_args = std::env::args().skip(1).collect::<Vec<_>>();
+    // Private process mode used by the daemon when it launches one durable
+    // terminal host per PTY. Keep this out of public help and dispatch it
+    // before installing the interactive daemon's signal handlers: the host
+    // owns its own lifecycle and must not inherit "request mux shutdown"
+    // semantics.
+    if raw_args.first().map(String::as_str) == Some("__terminal-host") {
+        if let Err(error) = run_terminal_host_process(&raw_args[1..]) {
+            eprintln!("cmux-tui terminal host: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     if let Err(error) = harden_provider_secret_process() {
         eprintln!("cmux-tui: cannot protect machine-provider credentials: {error}");
         std::process::exit(1);
     }
     install_signal_handlers();
-    let raw_args = std::env::args().skip(1).collect::<Vec<_>>();
     #[cfg(target_os = "linux")]
     if let Some(exit_code) = provider_authority::try_run(&raw_args) {
         std::process::exit(exit_code);
@@ -684,6 +713,15 @@ fn main() {
         eprintln!("cmux-tui: {e}");
         std::process::exit(1);
     }
+}
+
+fn run_terminal_host_process(args: &[String]) -> anyhow::Result<()> {
+    cmux_tui_core::terminal_host_runtime::isolate_terminal_host_process_fds()?;
+    let stdin = io::stdin();
+    let stdout = io::stdout();
+    let mut reader = stdin.lock();
+    let mut writer = stdout.lock();
+    cmux_tui_core::terminal_host_runtime::serve_terminal_host_stdio(args, &mut reader, &mut writer)
 }
 
 fn run_attach(args: Args) -> anyhow::Result<()> {
@@ -811,6 +849,9 @@ fn run_server(
     args: Args,
     provider_workspace_authority: Option<ProviderWorkspaceAuthority>,
 ) -> anyhow::Result<()> {
+    if args.ephemeral && args.state.is_some() {
+        anyhow::bail!("--ephemeral and --state are mutually exclusive");
+    }
     #[cfg(target_os = "linux")]
     let provider_management_listener = take_provider_management_listener()?;
     #[cfg(not(target_os = "linux"))]
@@ -854,18 +895,51 @@ fn run_server(
     surface_options.extra_env.push(("CMUX_TUI_SOCKET".into(), socket_path.display().to_string()));
     surface_options.extra_env.push(("CMUX_MUX_SOCKET".into(), socket_path.display().to_string()));
 
-    let mux = match (provider_workspace_authority, provider_management_listener.is_some()) {
-        (Some(authority), false) => {
-            Mux::new_provider_managed(args.session.clone(), surface_options, authority)
-        }
-        (None, true) => Mux::new_provider_managed_pending(
-            args.session.clone(),
-            surface_options,
-            new_mux_generation()?,
-        )?,
-        (None, false) => Mux::new(args.session.clone(), surface_options),
-        (Some(_), true) => unreachable!("conflicting provider authority inputs rejected above"),
+    let state_root = if args.ephemeral {
+        None
+    } else {
+        Some(match args.state {
+            Some(path) => path,
+            None => cmux_tui_core::platform::workspace_state_dir()
+                .ok_or_else(|| anyhow::anyhow!("cannot determine durable state directory"))?,
+        })
     };
+    if let Some(state_root) = state_root.as_deref() {
+        surface_options.terminal_host_root = Some(
+            cmux_tui_core::terminal_host_runtime::terminal_host_root(state_root, &args.session),
+        );
+    }
+    let provider_management_pending = provider_management_listener.is_some();
+    let mux =
+        match (state_root.as_deref(), provider_workspace_authority, provider_management_pending) {
+            (Some(root), Some(authority), false) => Mux::open_persistent_provider_managed(
+                args.session.clone(),
+                surface_options,
+                root,
+                authority,
+            ),
+            (Some(root), None, true) => Mux::open_persistent_provider_managed_pending(
+                args.session.clone(),
+                surface_options,
+                root,
+                new_mux_generation()?,
+            ),
+            (Some(root), None, false) => {
+                Mux::open_persistent(args.session.clone(), surface_options, root)
+            }
+            (None, Some(authority), false) => {
+                Ok(Mux::new_provider_managed(args.session.clone(), surface_options, authority))
+            }
+            (None, None, true) => Mux::new_provider_managed_pending(
+                args.session.clone(),
+                surface_options,
+                new_mux_generation()?,
+            ),
+            (None, None, false) => Ok(Mux::new(args.session.clone(), surface_options)),
+            (_, Some(_), true) => {
+                unreachable!("conflicting provider authority inputs rejected above")
+            }
+        }?;
     // Headless sessions have no host terminal to query, so seed the mux from
     // Ghostty's config before any protocol client can create a surface.
     mux.set_default_colors(config.terminal_defaults);
@@ -1106,7 +1180,7 @@ fn run_headless(mux: &Arc<Mux>, socket_path: &std::path::Path) -> anyhow::Result
     // the mux reaps exited surfaces itself.
     let events = mux.subscribe();
     loop {
-        if shutdown_requested() || mux.shutdown_requested() {
+        if shutdown_requested() || mux.shutdown_requested() || mux.daemon_shutdown_requested() {
             break;
         }
         match events.recv_timeout(std::time::Duration::from_millis(250)) {

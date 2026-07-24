@@ -1,12 +1,24 @@
 name: iOS TestFlight (CMUX INTERNAL)
 
 on:
-  # Every main commit gets its own cmux INTERNAL build. Do not add a path filter:
-  # the contract is one TestFlight upload for every main change, regardless of
-  # which part of the repository changed.
+  # Automatically upload only when main changes the iOS app or a direct archive
+  # input. Manual dispatch remains available for intentional rebuilds.
   push:
     branches:
       - main
+    paths:
+      - "ios/**"
+      - "Packages/iOS/**"
+      - "Packages/Shared/**"
+      - "Sources/Mobile/**"
+      - "vendor/stack-auth-swift-sdk-prerelease/**"
+      - "ghostty"
+      - "ghostty.h"
+      - "scripts/ensure-ghosttykit.sh"
+      - "scripts/ghosttykit-checksums.txt"
+      - "scripts/install-zig-ci.sh"
+      - "scripts/validate-xcframework-archive.py"
+      - ".github/workflows/ios-testflight.yml"
   workflow_dispatch:
     inputs:
       build_number:
@@ -20,8 +32,8 @@ on:
 
 concurrency:
   # A shared group keeps only one pending run and silently replaces older pending
-  # SHAs during merge bursts. Key push runs by SHA so every main commit survives.
-  # Manual runs use run_id because an operator may intentionally rebuild a SHA.
+  # SHAs during merge bursts. Key qualifying push runs by SHA so every iOS change
+  # survives. Manual runs use run_id because an operator may intentionally rebuild.
   group: ios-testflight-${{ github.event_name == 'push' && github.sha || github.run_id }}
   cancel-in-progress: false
 
@@ -181,8 +193,9 @@ jobs:
               core.warning(`could not resolve last uploaded sha: ${e.message}`);
             }
 
-            // Push and manual runs always build. There is deliberately no SHA or
-            // path gate: every main push owns one CMUX INTERNAL upload.
+            // Push runs have already passed the workflow's iOS path filter.
+            // Manual runs are intentional rebuilds, so every event that reaches
+            // this workflow should build.
             const shouldBuild =
               context.eventName === 'push' || context.eventName === 'workflow_dispatch';
             core.setOutput('should_build', shouldBuild ? 'true' : 'false');

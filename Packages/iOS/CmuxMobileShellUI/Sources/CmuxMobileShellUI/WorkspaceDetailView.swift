@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxAgentChat
 import CmuxAgentChatUI
 import CmuxMobileBrowser
@@ -495,7 +496,7 @@ struct WorkspaceDetailView: View {
         Task { @MainActor in
             let terminalText = await GhosttySurfaceView.visibleTerminalSnapshot()
             let count = await MobileDebugLog.shared.copyToPasteboard(prepending: terminalText)
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            MobileHapticFeedback().notification(.success)
             NSLog("cmux.terminal copied %d debug log lines + visible terminal to pasteboard", count)
         }
     }
@@ -642,10 +643,10 @@ struct WorkspaceDetailView: View {
                         defaultValue: "Feedback sent"
                     )))
                 } else {
-                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    MobileHapticFeedback().notification(.success)
                 }
             case .failed:
-                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                MobileHapticFeedback().notification(.error)
                 feedbackErrorMessage = L10n.string(
                     "mobile.feedback.error",
                     defaultValue: "Could not send feedback. Check your connection and try again."
