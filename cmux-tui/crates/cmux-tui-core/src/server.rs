@@ -4772,6 +4772,29 @@ mod tests {
     }
 
     #[test]
+    fn exclusive_client_sizing_requires_a_target_client() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+
+        let error = handle_command(
+            &mux,
+            client,
+            Command::SetClientSizing {
+                surface: surface.id,
+                client: None,
+                enabled: true,
+                exclusive: true,
+            },
+            &writer,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("exclusive client sizing requires a client"));
+    }
+
+    #[test]
     fn client_sizing_command_only_changes_requested_surface() {
         let mux = test_mux();
         let current = mux.new_workspace(None, Some((120, 40))).unwrap();

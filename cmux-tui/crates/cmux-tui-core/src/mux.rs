@@ -5199,6 +5199,16 @@ mod tests {
     }
 
     #[test]
+    fn enabling_an_already_participating_client_does_not_create_a_policy() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        mux.resize_surface_for_client(surface.id, 1, 120, 40).unwrap();
+
+        assert_eq!(mux.set_client_size_participation(surface.id, 1, true), Some(false));
+        assert_eq!(mux.use_all_client_sizes(surface.id), Some(false));
+    }
+
+    #[test]
     fn local_sizing_mutations_broadcast_authoritative_client_changes() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();

@@ -12651,6 +12651,43 @@ mod tests {
     }
 
     #[test]
+    fn unrelated_stale_tree_during_attach_preserves_the_sync_failure() {
+        let session = crate::session::test_remote_session_without_provider_authority();
+        assert!(session.take_remote_tree_stale());
+        let surface = 77;
+        let (mut app, events) = test_app_with_events(session);
+        app.replace_tree(notify_tree(surface, false));
+
+        let session = app.session.inner.clone();
+        *app.session.surface_attach_after_obsolete_check.lock().unwrap() =
+            Some(Arc::new(move || {
+                session.invalidate_remote_tree();
+                session.begin_shutdown();
+            }));
+
+        app.session.attach_surface(surface, Some((80, 24)));
+
+        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            &settled,
+            AppEvent::SessionMutationSettled {
+                outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+                    surface: 77,
+                    operation: "attach",
+                    ..
+                },
+                ..
+            }
+        ));
+        app.handle(settled).unwrap();
+        assert!(app.status_message.as_deref().is_some_and(|message| {
+            message.contains("surface 77 attach failed")
+                && message.contains("remote response wait canceled for shutdown")
+        }));
+        assert!(app.session.surface_attach_failures.lock().unwrap().contains_key(&surface));
+    }
+
+    #[test]
     fn ambiguous_attach_timeout_survives_lifecycle_clear_until_reconnect() {
         let mux = Mux::new("ambiguous-attach-timeout-test", SurfaceOptions::default());
         let app = test_app(Session::Local(mux));
