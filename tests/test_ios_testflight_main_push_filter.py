@@ -198,6 +198,11 @@ def test_automatic_lane_stays_on_cmux_internal_identity() -> None:
     )
     assert f"if: {DEMO_VARIANT_GUARD}" in upload
     assert (
+        'echo "- lane: \\`beta\\` '
+        '(bundle id \\`${UPLOAD_BUNDLE_ID}\\`, ${UPLOAD_AUDIENCE})"'
+        in upload
+    )
+    assert (
         'echo "- audience: ${UPLOAD_AUDIENCE} (${UPLOAD_DISPLAY_NAME}) '
         'on the ${UPLOAD_BUNDLE_ID} app; ${UPLOAD_REVIEW_NOTE}"'
         in upload
