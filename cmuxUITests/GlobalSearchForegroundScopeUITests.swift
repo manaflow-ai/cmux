@@ -6,10 +6,19 @@ final class GlobalSearchForegroundScopeUITests: XCTestCase {
 
     private var app: XCUIApplication!
     private var appProcess: Process?
+    private var isolatedHomeURL: URL?
     private var shortcutProbeApplication: NSRunningApplication?
 
     override func setUpWithError() throws {
         continueAfterFailure = false
+        let isolatedHomeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-global-search-ui-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: isolatedHomeURL,
+            withIntermediateDirectories: true
+        )
+        self.isolatedHomeURL = isolatedHomeURL
+
         let process = Process()
         process.executableURL = URL(fileURLWithPath: try builtCmuxExecutablePath())
         process.arguments = [
@@ -19,6 +28,7 @@ final class GlobalSearchForegroundScopeUITests: XCTestCase {
         ]
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_UI_TEST_MODE"] = "1"
+        environment["CFFIXED_USER_HOME"] = isolatedHomeURL.path
         process.environment = environment
 
         let logURL = FileManager.default.temporaryDirectory
@@ -43,6 +53,10 @@ final class GlobalSearchForegroundScopeUITests: XCTestCase {
         app?.terminate()
         terminateProcess(&appProcess)
         app = nil
+        if let isolatedHomeURL {
+            try? FileManager.default.removeItem(at: isolatedHomeURL)
+            self.isolatedHomeURL = nil
+        }
     }
 
     func testBackgroundGlobalSearchShortcutIsDeliveredToForegroundApp() throws {
@@ -54,6 +68,13 @@ final class GlobalSearchForegroundScopeUITests: XCTestCase {
         try launchShortcutProbe()
 
         let probe = XCUIApplication(bundleIdentifier: Self.shortcutProbeBundleIdentifier)
+        XCTAssertTrue(
+            waitForAppToRun(probe, timeout: 10.0),
+            "Expected shortcut probe to launch. state=\(probe.state.rawValue)"
+        )
+        if probe.state != .runningForeground {
+            probe.activate()
+        }
         XCTAssertTrue(
             probe.wait(for: .runningForeground, timeout: 10.0),
             "Expected shortcut probe to be foreground. state=\(probe.state.rawValue)"
@@ -108,6 +129,18 @@ final class GlobalSearchForegroundScopeUITests: XCTestCase {
                 timeout: 8.0
             ),
             "A second foreground Cmd-Option-F must close cmux Global Search"
+        )
+    }
+
+    private func waitForAppToRun(_ application: XCUIApplication, timeout: TimeInterval) -> Bool {
+        waitForPredicate(
+            NSPredicate(
+                format: "state == %d OR state == %d",
+                XCUIApplication.State.runningBackground.rawValue,
+                XCUIApplication.State.runningForeground.rawValue
+            ),
+            object: application,
+            timeout: timeout
         )
     }
 
