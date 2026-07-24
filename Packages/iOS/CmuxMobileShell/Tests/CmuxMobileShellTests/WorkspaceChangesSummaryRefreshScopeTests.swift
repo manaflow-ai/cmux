@@ -26,4 +26,27 @@ import Testing
 
         #expect(ids.isEmpty)
     }
+
+    @Test func debounceCoalescesWorkspaceIDsAcrossCancelledSchedules() {
+        let pending = WorkspaceChangesSummaryRefreshScope.groupOnlyDelta
+            .coalesced(with: .workspaceDelta(["workspace-a", "workspace-b"]))
+            .coalesced(with: .workspaceDelta(["workspace-b", "workspace-c"]))
+
+        #expect(
+            pending.workspaceIDs(fullSnapshotWorkspaceIDs: ["workspace-z"])
+                == ["workspace-a", "workspace-b", "workspace-c"]
+        )
+    }
+
+    @Test func allWorkspacesRequestDominatesNarrowerDebounceScopes() {
+        let pending = WorkspaceChangesSummaryRefreshScope
+            .workspaceDelta(["workspace-a"])
+            .coalesced(with: .fullSnapshot)
+            .coalesced(with: .workspaceDelta(["workspace-b"]))
+
+        #expect(
+            pending.workspaceIDs(fullSnapshotWorkspaceIDs: ["workspace-a", "workspace-b"])
+                == ["workspace-a", "workspace-b"]
+        )
+    }
 }

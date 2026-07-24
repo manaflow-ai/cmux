@@ -4,7 +4,6 @@ import Foundation
 actor WorkspaceChangesAuthorizedPathCache {
     struct Snapshot: Sendable {
         let repoRoot: String
-        let diffBase: String
         let currentPaths: Set<String>
         let basePaths: Set<String>
     }

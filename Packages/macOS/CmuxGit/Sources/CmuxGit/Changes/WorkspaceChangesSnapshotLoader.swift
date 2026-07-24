@@ -29,27 +29,34 @@ struct WorkspaceChangesSnapshotLoader: Sendable {
             acceptedExitCodes: [0, 1]
         )
         let defaultRef = resolveDefaultBranch(repoRoot: repoRoot)
-        guard let branch,
-              let defaultRef,
-              branch != defaultRef,
-              defaultRef != "origin/\(branch)",
-              let mergeBase = output(
-                  arguments: ["merge-base", "HEAD", defaultRef],
-                  repoRoot: repoRoot,
-                  acceptedExitCodes: [0]
-              ) else {
-            return WorkspaceChangesScope(
-                repoRoot: repoRoot,
-                branch: branch,
-                baseRef: nil,
-                diffBase: "HEAD"
-            )
+        let baseRef: String?
+        let diffBase: String
+        if let branch,
+           let defaultRef,
+           branch != defaultRef,
+           defaultRef != "origin/\(branch)",
+           let mergeBase = output(
+               arguments: ["merge-base", "HEAD", defaultRef],
+               repoRoot: repoRoot,
+               acceptedExitCodes: [0]
+           ) {
+            baseRef = defaultRef
+            diffBase = mergeBase
+        } else {
+            baseRef = nil
+            diffBase = "HEAD"
         }
+        guard let diffBaseCommitOID = output(
+            arguments: ["rev-parse", "--verify", "\(diffBase)^{commit}"],
+            repoRoot: repoRoot,
+            acceptedExitCodes: [0]
+        ) else { return nil }
         return WorkspaceChangesScope(
             repoRoot: repoRoot,
             branch: branch,
-            baseRef: defaultRef,
-            diffBase: mergeBase
+            baseRef: baseRef,
+            diffBase: diffBase,
+            diffBaseCommitOID: diffBaseCommitOID
         )
     }
 

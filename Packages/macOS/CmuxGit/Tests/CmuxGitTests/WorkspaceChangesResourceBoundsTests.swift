@@ -17,6 +17,8 @@ import Testing
                 FakeWorkspaceChangesGitRunner.result(exitCode: 1),
             ["rev-parse", "--verify", "--quiet", "main^{commit}"]:
                 FakeWorkspaceChangesGitRunner.result("abc\n"),
+            ["rev-parse", "--verify", "HEAD^{commit}"]:
+                FakeWorkspaceChangesGitRunner.result("abc\n"),
             statusArguments: WorkspaceChangesGitResult(
                 output: Data("M\0File.swift\0".utf8),
                 exitCode: 15,

@@ -795,6 +795,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored var workspaceChangesSummaryRefreshTask: Task<Void, Never>?
     @ObservationIgnored var workspaceChangesSummaryRefreshTaskID: UUID?
     @ObservationIgnored var workspaceChangesSummaryRefreshForce = false
+    @ObservationIgnored var workspaceChangesSummaryPendingRefreshScope =
+        WorkspaceChangesSummaryRefreshScope.groupOnlyDelta
     @ObservationIgnored var workspaceChangesSummaryFetchedAtByWorkspaceID: [String: Date] = [:]
     @ObservationIgnored let workspaceChangesSummaryFetchPolicy = WorkspaceChangesSummaryFetchPolicy()
     /// Mobile state sync v2 (docs/mobile-state-sync-v2.md): full-record mirror
@@ -5744,6 +5746,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceChangesSummaryRefreshTask = nil
         workspaceChangesSummaryRefreshTaskID = nil
         workspaceChangesSummaryRefreshForce = false
+        workspaceChangesSummaryPendingRefreshScope = .groupOnlyDelta
         cancelAllTerminalReplayTasks()
     }
 

@@ -4,4 +4,5 @@ struct WorkspaceChangesScope: Sendable {
     let branch: String?
     let baseRef: String?
     let diffBase: String
+    let diffBaseCommitOID: String
 }

@@ -77,7 +77,6 @@ import Testing
     ) -> WorkspaceChangesAuthorizedPathCache.Snapshot {
         WorkspaceChangesAuthorizedPathCache.Snapshot(
             repoRoot: repoRoot,
-            diffBase: "HEAD",
             currentPaths: ["file.txt"],
             basePaths: ["file.txt"]
         )

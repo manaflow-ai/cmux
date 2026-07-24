@@ -11,7 +11,7 @@ actor WorkspaceChangesBaseContentCache {
 
     struct Key: Hashable, Sendable {
         let repoRoot: String
-        let baseRef: String
+        let baseCommitOID: String
         let path: String
     }
 

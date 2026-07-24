@@ -178,8 +178,23 @@ extension MobileShellComposite {
         guard workspaceChangesCapable,
               connectionState == .connected,
               remoteClient != nil else { return }
-        let workspaceIDs = explicitWorkspaceIDs ?? foregroundWorkspaceChangesIDs
-        guard !workspaceIDs.isEmpty else {
+        let requestedScope: WorkspaceChangesSummaryRefreshScope
+        if let explicitWorkspaceIDs {
+            guard explicitWorkspaceIDs.contains(where: { !$0.isEmpty }) else {
+                MobileDebugLog.anchormux("changes.schedule skip: no foreground workspace ids")
+                return
+            }
+            requestedScope = .workspaceDelta(explicitWorkspaceIDs)
+        } else {
+            guard !foregroundWorkspaceChangesIDs.isEmpty else {
+                MobileDebugLog.anchormux("changes.schedule skip: no foreground workspace ids")
+                return
+            }
+            requestedScope = .fullSnapshot
+        }
+        workspaceChangesSummaryPendingRefreshScope =
+            workspaceChangesSummaryPendingRefreshScope.coalesced(with: requestedScope)
+        guard workspaceChangesSummaryPendingRefreshScope != .groupOnlyDelta else {
             MobileDebugLog.anchormux("changes.schedule skip: no foreground workspace ids")
             return
         }
@@ -191,9 +206,20 @@ extension MobileShellComposite {
         workspaceChangesSummaryRefreshTask = Task { @MainActor [weak self] in
             // A bounded, cancellable delay is the intended event/list debounce.
             try? await ContinuousClock().sleep(for: .milliseconds(250))
-            guard !Task.isCancelled, let self else { return }
+            guard !Task.isCancelled,
+                  let self,
+                  self.workspaceChangesSummaryRefreshTaskID == taskID else { return }
+            let pendingScope = self.workspaceChangesSummaryPendingRefreshScope
+            self.workspaceChangesSummaryPendingRefreshScope = .groupOnlyDelta
             let shouldForce = self.workspaceChangesSummaryRefreshForce
             self.workspaceChangesSummaryRefreshForce = false
+            let workspaceIDs = pendingScope.workspaceIDs(
+                fullSnapshotWorkspaceIDs: self.foregroundWorkspaceChangesIDs
+            )
+            guard !workspaceIDs.isEmpty else {
+                self.clearWorkspaceChangesSummaryRefreshTask(id: taskID)
+                return
+            }
             await self.fetchWorkspaceChangesSummaries(
                 workspaceIDs: workspaceIDs,
                 force: shouldForce
@@ -207,6 +233,7 @@ extension MobileShellComposite {
         workspaceChangesSummaryRefreshTask = nil
         workspaceChangesSummaryRefreshTaskID = nil
         workspaceChangesSummaryRefreshForce = false
+        workspaceChangesSummaryPendingRefreshScope = .groupOnlyDelta
         workspaceChangesSummaryFetchedAtByWorkspaceID = [:]
         setWorkspaceChangeChipsByWorkspaceID([:])
     }

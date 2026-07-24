@@ -20,4 +20,19 @@ enum WorkspaceChangesSummaryRefreshScope: Sendable, Equatable {
             []
         }
     }
+
+    /// Accumulates debounce requests without allowing a later narrow request to replace earlier work.
+    func coalesced(with newerScope: Self) -> Self {
+        switch (self, newerScope) {
+        case (.fullSnapshot, _), (_, .fullSnapshot):
+            return .fullSnapshot
+        case (.groupOnlyDelta, let scope), (let scope, .groupOnlyDelta):
+            return scope
+        case (.workspaceDelta(let earlierIDs), .workspaceDelta(let newerIDs)):
+            var seen: Set<String> = []
+            return .workspaceDelta((earlierIDs + newerIDs).filter { id in
+                !id.isEmpty && seen.insert(id).inserted
+            })
+        }
+    }
 }

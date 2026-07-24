@@ -71,6 +71,7 @@ let package = Package(
                 "CmuxMobileShellReleaseGateSupport",
                 "CMUXMobileCore",
                 "CmuxAgentChat",
+                "CmuxMobileChanges",
                 "CmuxMobilePairedMac",
                 "CmuxMobileRPC",
                 "CmuxMobileShellModel",

@@ -57,9 +57,79 @@ import Testing
         )
 
         let fingerprint = try #require(diff.contentFingerprint)
+        #expect(fingerprint.hasPrefix("stat:"))
         #expect(stat.contentFingerprint == fingerprint)
         #expect(chunk.contentFingerprint == fingerprint)
         #expect(chunk.data == Data("after\n".utf8))
+    }
+
+    @Test func preAndPostDiffFingerprintMismatchReturnsAnUnstableToken() throws {
+        let before = "stat:10:100"
+        let after = "stat:11:200"
+
+        let fingerprint = try #require(
+            WorkspaceChangesContentReader().fileDiffFingerprint(
+                before: before,
+                after: after
+            )
+        )
+
+        #expect(fingerprint.hasPrefix("unstable:"))
+        #expect(fingerprint != before)
+        #expect(fingerprint != after)
+    }
+
+    @Test func fileChangingWhileGitCapturesDiffReturnsAnUnstableFingerprint() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-atomic-fingerprint-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fileURL = root.appendingPathComponent("changed.txt")
+        try Data("before\n".utf8).write(to: fileURL)
+        let diffArguments = ["diff", "-M", "--unified=3", "HEAD", "--", "changed.txt"]
+        let runner = FakeWorkspaceChangesGitRunner(
+            results: [
+                ["rev-parse", "--show-toplevel"]: FakeWorkspaceChangesGitRunner.result("\(root.path)\n"),
+                ["symbolic-ref", "--quiet", "--short", "HEAD"]: FakeWorkspaceChangesGitRunner.result("main\n"),
+                ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]:
+                    FakeWorkspaceChangesGitRunner.result(exitCode: 1),
+                ["rev-parse", "--verify", "--quiet", "origin/main^{commit}"]:
+                    FakeWorkspaceChangesGitRunner.result(exitCode: 1),
+                ["rev-parse", "--verify", "--quiet", "origin/master^{commit}"]:
+                    FakeWorkspaceChangesGitRunner.result(exitCode: 1),
+                ["rev-parse", "--verify", "--quiet", "main^{commit}"]:
+                    FakeWorkspaceChangesGitRunner.result("abc\n"),
+                ["rev-parse", "--verify", "HEAD^{commit}"]:
+                    FakeWorkspaceChangesGitRunner.result("abc\n"),
+                ["diff", "-M", "--name-status", "-z", "HEAD", "--"]:
+                    FakeWorkspaceChangesGitRunner.result("M\0changed.txt\0"),
+                ["diff", "-M", "--numstat", "-z", "HEAD", "--"]:
+                    FakeWorkspaceChangesGitRunner.result("1\t1\tchanged.txt\0"),
+                ["ls-files", "--others", "--exclude-standard", "-z"]:
+                    FakeWorkspaceChangesGitRunner.result(),
+                diffArguments: FakeWorkspaceChangesGitRunner.result(
+                    "@@ -1 +1 @@\n-before\n+replacement\n"
+                ),
+            ],
+            beforeRun: { arguments, _ in
+                if arguments == diffArguments {
+                    try Data("replacement\n".utf8).write(to: fileURL)
+                }
+            }
+        )
+
+        let diff = try await WorkspaceChangesService(runner: runner).fileDiff(
+            forDirectory: root.path,
+            path: "changed.txt"
+        )
+        let fingerprint = try #require(diff.contentFingerprint)
+        let fetchedFingerprint = WorkspaceChangesContentReader().contentFingerprint(
+            repoRoot: root.path,
+            relativePath: "changed.txt"
+        )
+
+        #expect(fingerprint.hasPrefix("unstable:"))
+        #expect(fingerprint != fetchedFingerprint)
     }
 
     @Test func renameOldPathIsAuthorizedOnlyAtBase() async throws {
@@ -92,13 +162,14 @@ import Testing
         }
     }
 
-    @Test func baseCacheServesStableSlicesWithCorrectEOFMath() async throws {
+    @Test func baseCacheUsesNewCommitOIDAfterHeadMoves() async throws {
         let repo = try WorkspaceChangesGitRepositoryFixture()
         let baseline = Data((0..<64).map(UInt8.init))
         try repo.write("payload.bin", baseline)
         try repo.git(["add", "payload.bin"])
         try repo.commit("baseline")
-        try repo.write("payload.bin", Data(repeating: 0xFF, count: baseline.count))
+        let replacement = Data(repeating: 0xFF, count: baseline.count)
+        try repo.write("payload.bin", replacement)
         let service = WorkspaceChangesService()
 
         let middle = try await service.fileFetch(
@@ -122,7 +193,7 @@ import Testing
         #expect(middle.offset == 7)
         #expect(middle.totalSize == 64)
         #expect(!middle.eof)
-        #expect(end.data == baseline.subdata(in: 60..<64))
+        #expect(end.data == replacement.subdata(in: 60..<64))
         #expect(end.offset == 60)
         #expect(end.totalSize == 64)
         #expect(end.eof)
@@ -173,10 +244,11 @@ import Testing
             ["rev-parse", "--verify", "--quiet", "origin/main^{commit}"]: FakeWorkspaceChangesGitRunner.result(exitCode: 1),
             ["rev-parse", "--verify", "--quiet", "origin/master^{commit}"]: FakeWorkspaceChangesGitRunner.result(exitCode: 1),
             ["rev-parse", "--verify", "--quiet", "main^{commit}"]: FakeWorkspaceChangesGitRunner.result("abc\n"),
+            ["rev-parse", "--verify", "HEAD^{commit}"]: FakeWorkspaceChangesGitRunner.result("abc\n"),
             ["diff", "-M", "--name-status", "-z", "HEAD", "--"]: FakeWorkspaceChangesGitRunner.result("M\0large.bin\0"),
             ["diff", "-M", "--numstat", "-z", "HEAD", "--"]: FakeWorkspaceChangesGitRunner.result("1\t1\tlarge.bin\0"),
             ["ls-files", "--others", "--exclude-standard", "-z"]: FakeWorkspaceChangesGitRunner.result(),
-            ["cat-file", "-s", "HEAD:large.bin"]: FakeWorkspaceChangesGitRunner.result("5\n"),
+            ["cat-file", "-s", "abc:large.bin"]: FakeWorkspaceChangesGitRunner.result("5\n"),
         ])
         let cache = WorkspaceChangesBaseContentCache(
             byteBudget: 4,
@@ -208,7 +280,7 @@ import Testing
         for index in 0..<6 {
             let key = WorkspaceChangesBaseContentCache.Key(
                 repoRoot: "/repo",
-                baseRef: "HEAD",
+                baseCommitOID: "abc",
                 path: "empty-\(index)"
             )
             let url = try await cache.fileURL(for: key) { destination in
@@ -233,7 +305,7 @@ import Testing
         let cache = WorkspaceChangesBaseContentCache(byteBudget: 4, temporaryDirectory: root)
         let oversized = WorkspaceChangesBaseContentCache.Key(
             repoRoot: "/repo",
-            baseRef: "HEAD",
+            baseCommitOID: "abc",
             path: "oversized"
         )
 
@@ -251,12 +323,12 @@ import Testing
 
         let second = WorkspaceChangesBaseContentCache.Key(
             repoRoot: "/repo",
-            baseRef: "HEAD",
+            baseCommitOID: "abc",
             path: "second"
         )
         let third = WorkspaceChangesBaseContentCache.Key(
             repoRoot: "/repo",
-            baseRef: "HEAD",
+            baseCommitOID: "abc",
             path: "third"
         )
         let secondURL = try await cache.fileURL(for: second) { destination in

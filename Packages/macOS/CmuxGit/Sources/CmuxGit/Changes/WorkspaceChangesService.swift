@@ -144,6 +144,10 @@ public struct WorkspaceChangesService: Sendable {
             arguments = ["diff", "-M", "--unified=3", scope.diffBase, "--", normalizedPath]
             acceptedExitCodes = [0]
         }
+        let fingerprintBefore = currentContentFingerprint(
+            repoRoot: scope.repoRoot,
+            path: normalizedPath
+        )
         let truncator = WorkspaceDiffTruncator(requestedMaximumLines: maxLines)
         guard let result = run(
             arguments,
@@ -152,15 +156,19 @@ public struct WorkspaceChangesService: Sendable {
         ), acceptedExitCodes.contains(result.exitCode) || result.standardOutputWasTruncated else {
             throw WorkspaceChangesServiceError.gitFailure
         }
+        let fingerprintAfter = currentContentFingerprint(
+            repoRoot: scope.repoRoot,
+            path: normalizedPath
+        )
         let bounded = truncator.truncate(String(decoding: result.output, as: UTF8.self))
         return fileDiffValue(
             file: file,
             unifiedDiff: bounded.text,
             truncated: bounded.truncated || result.standardOutputWasTruncated,
             totalLineCount: result.standardOutputWasTruncated ? nil : bounded.totalLineCount,
-            contentFingerprint: currentContentFingerprint(
-                repoRoot: scope.repoRoot,
-                path: normalizedPath
+            contentFingerprint: contentReader.fileDiffFingerprint(
+                before: fingerprintBefore,
+                after: fingerprintAfter
             )
         )
     }
@@ -182,13 +190,16 @@ public struct WorkspaceChangesService: Sendable {
         path: String,
         revision: WorkspaceChangesFileRevision
     ) async throws -> WorkspaceChangesFileStat {
-        let fileURL = try await authorizedFileURL(
+        let location = try await authorizedFileLocation(
             forDirectory: directory,
             path: path,
             revision: revision
         )
         do {
-            return try contentReader.stat(path: fileURL.path)
+            return try contentReader.stat(
+                repoRoot: location.repoRoot,
+                relativePath: location.relativePath
+            )
         } catch ArtifactByteReader.Error.fileNotFound {
             throw WorkspaceChangesServiceError.fileNotFound
         } catch {
@@ -217,7 +228,7 @@ public struct WorkspaceChangesService: Sendable {
         offset: Int64,
         length: Int
     ) async throws -> WorkspaceChangesFileChunk {
-        let fileURL = try await authorizedFileURL(
+        let location = try await authorizedFileLocation(
             forDirectory: directory,
             path: path,
             revision: revision
@@ -225,7 +236,8 @@ public struct WorkspaceChangesService: Sendable {
         let clampedLength = ChatArtifactTransferPolicy.defaultPolicy.clampedChunkLength(length)
         do {
             return try contentReader.fetch(
-                path: fileURL.path,
+                repoRoot: location.repoRoot,
+                relativePath: location.relativePath,
                 offset: max(0, offset),
                 length: clampedLength
             )
@@ -241,11 +253,11 @@ public struct WorkspaceChangesService: Sendable {
         pthread_main_np() == 0
     }
 
-    private nonisolated func authorizedFileURL(
+    private nonisolated func authorizedFileLocation(
         forDirectory directory: String,
         path: String,
         revision: WorkspaceChangesFileRevision
-    ) async throws -> URL {
+    ) async throws -> (repoRoot: String, relativePath: String) {
         guard let scope = snapshotLoader.resolveScope(forDirectory: directory) else {
             throw WorkspaceChangesServiceError.notARepository
         }
@@ -260,16 +272,15 @@ public struct WorkspaceChangesService: Sendable {
 
         switch revision {
         case .current:
-            return URL(fileURLWithPath: authorization.repoRoot, isDirectory: true)
-                .appendingPathComponent(normalizedPath, isDirectory: false)
+            return (authorization.repoRoot, normalizedPath)
         case .base:
             let key = WorkspaceChangesBaseContentCache.Key(
                 repoRoot: authorization.repoRoot,
-                baseRef: authorization.diffBase,
+                baseCommitOID: scope.diffBaseCommitOID,
                 path: normalizedPath
             )
             let runner = self.runner
-            let object = "\(authorization.diffBase):\(normalizedPath)"
+            let object = "\(scope.diffBaseCommitOID):\(normalizedPath)"
             let repoURL = URL(fileURLWithPath: authorization.repoRoot, isDirectory: true)
             let sizeResult = try runner.run(
                 arguments: ["cat-file", "-s", object],
@@ -282,7 +293,7 @@ public struct WorkspaceChangesService: Sendable {
                   await baseContentCache.permitsEntry(size: blobSize) else {
                 throw WorkspaceChangesServiceError.gitFailure
             }
-            return try await baseContentCache.fileURL(for: key) { destination in
+            let fileURL = try await baseContentCache.fileURL(for: key) { destination in
                 let result = try runner.run(
                     arguments: ["show", object],
                     in: repoURL,
@@ -295,6 +306,7 @@ public struct WorkspaceChangesService: Sendable {
                 }
                 return blobSize
             }
+            return (fileURL.deletingLastPathComponent().path, fileURL.lastPathComponent)
         }
     }
 
@@ -316,7 +328,6 @@ public struct WorkspaceChangesService: Sendable {
         })
         let authorization = WorkspaceChangesAuthorizedPathCache.Snapshot(
             repoRoot: scope.repoRoot,
-            diffBase: scope.diffBase,
             currentPaths: currentPaths,
             basePaths: basePaths
         )
@@ -365,9 +376,7 @@ public struct WorkspaceChangesService: Sendable {
         repoRoot: String,
         path: String
     ) -> String? {
-        let fileURL = URL(fileURLWithPath: repoRoot, isDirectory: true)
-            .appendingPathComponent(path, isDirectory: false)
-        return contentReader.contentFingerprint(path: fileURL.path)
+        contentReader.contentFingerprint(repoRoot: repoRoot, relativePath: path)
     }
 
     private nonisolated func run(

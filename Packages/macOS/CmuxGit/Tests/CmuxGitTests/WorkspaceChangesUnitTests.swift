@@ -63,6 +63,37 @@ import Testing
         }
     }
 
+    @Test func contentReaderRejectsComponentSwappedToOutsideSymlinkAfterValidation() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-content-root-\(UUID().uuidString)", isDirectory: true)
+        let outside = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-content-outside-\(UUID().uuidString)", isDirectory: true)
+        let directory = root.appendingPathComponent("nested", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: outside)
+        }
+        try Data("inside".utf8).write(to: directory.appendingPathComponent("secret.txt"))
+        try Data("outside".utf8).write(to: outside.appendingPathComponent("secret.txt"))
+        let validatedPath = try WorkspaceChangesPathValidator().validatedPath(
+            "nested/secret.txt",
+            repoRoot: root.path
+        )
+        try FileManager.default.removeItem(at: directory)
+        try FileManager.default.createSymbolicLink(at: directory, withDestinationURL: outside)
+
+        #expect(throws: (any Error).self) {
+            try WorkspaceChangesContentReader().fetch(
+                repoRoot: root.path,
+                relativePath: validatedPath,
+                offset: 0,
+                length: 1_024
+            )
+        }
+    }
+
     @Test func summaryCacheExpiresUsingInjectedClock() async {
         let clock = TestWorkspaceChangesClock()
         let cache = WorkspaceChangesSummaryCache(ttl: .seconds(15), clock: clock)
@@ -94,6 +125,7 @@ import Testing
             ["rev-parse", "--verify", "--quiet", "origin/master^{commit}"]: FakeWorkspaceChangesGitRunner.result(exitCode: 1),
             ["rev-parse", "--verify", "--quiet", "main^{commit}"]: FakeWorkspaceChangesGitRunner.result("abc\n"),
             ["merge-base", "HEAD", "main"]: FakeWorkspaceChangesGitRunner.result("base-sha\n"),
+            ["rev-parse", "--verify", "base-sha^{commit}"]: FakeWorkspaceChangesGitRunner.result("base-sha\n"),
             ["diff", "-M", "--name-status", "-z", "base-sha", "--"]: FakeWorkspaceChangesGitRunner.result("M\0File.swift\0"),
             ["diff", "-M", "--numstat", "-z", "base-sha", "--"]: FakeWorkspaceChangesGitRunner.result("4\t2\tFile.swift\0"),
             ["ls-files", "--others", "--exclude-standard", "-z"]: FakeWorkspaceChangesGitRunner.result(),
@@ -126,6 +158,7 @@ import Testing
             ["rev-parse", "--verify", "--quiet", "origin/main^{commit}"]: FakeWorkspaceChangesGitRunner.result(exitCode: 1),
             ["rev-parse", "--verify", "--quiet", "origin/master^{commit}"]: FakeWorkspaceChangesGitRunner.result(exitCode: 1),
             ["rev-parse", "--verify", "--quiet", "main^{commit}"]: FakeWorkspaceChangesGitRunner.result("abc\n"),
+            ["rev-parse", "--verify", "HEAD^{commit}"]: FakeWorkspaceChangesGitRunner.result("abc\n"),
             ["diff", "-M", "--name-status", "-z", "HEAD", "--"]: FakeWorkspaceChangesGitRunner.result(statuses),
             ["diff", "-M", "--numstat", "-z", "HEAD", "--"]: FakeWorkspaceChangesGitRunner.result(numstat),
             ["ls-files", "--others", "--exclude-standard", "-z"]: FakeWorkspaceChangesGitRunner.result(),
@@ -226,6 +259,7 @@ import Testing
             ["rev-parse", "--verify", "--quiet", "origin/main^{commit}"]: FakeWorkspaceChangesGitRunner.result(exitCode: 1),
             ["rev-parse", "--verify", "--quiet", "origin/master^{commit}"]: FakeWorkspaceChangesGitRunner.result(exitCode: 1),
             ["rev-parse", "--verify", "--quiet", "main^{commit}"]: FakeWorkspaceChangesGitRunner.result("abc\n"),
+            ["rev-parse", "--verify", "HEAD^{commit}"]: FakeWorkspaceChangesGitRunner.result("abc\n"),
             ["diff", "-M", "--name-status", "-z", "HEAD", "--"]: FakeWorkspaceChangesGitRunner.result(statuses),
             ["diff", "-M", "--numstat", "-z", "HEAD", "--"]: FakeWorkspaceChangesGitRunner.result(numstat),
             ["ls-files", "--others", "--exclude-standard", "-z"]: FakeWorkspaceChangesGitRunner.result("zzz-untracked.txt\0"),

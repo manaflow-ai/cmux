@@ -151,9 +151,15 @@ extension MobileShellComposite {
         workspaceID: String,
         path: String
     ) async throws -> (data: Data, fingerprints: [String?]) {
+        let chunkLength = ChatArtifactTransferPolicy.defaultPolicy.maxRawChunkBytes
+        let downloadPolicy = WorkspaceChangesExpansionDownloadPolicy(
+            byteLimit: Self.workspaceChangesExpansionByteLimit,
+            chunkLength: chunkLength
+        )
         var offset: Int64 = 0
         var result = Data()
         var fingerprints: [String?] = []
+        var receivedChunkCount = 0
         while true {
             try Task.checkCancellation()
             let response = try await workspaceChangesFileFetchResponse(
@@ -161,9 +167,16 @@ extension MobileShellComposite {
                 path: path,
                 revision: .current,
                 offset: offset,
-                length: ChatArtifactTransferPolicy.defaultPolicy.maxRawChunkBytes
+                length: chunkLength
             )
             let chunk = response.value
+            receivedChunkCount += 1
+            try downloadPolicy.validate(
+                totalSize: chunk.totalSize,
+                accumulatedByteCount: result.count,
+                nextChunkByteCount: chunk.data.count,
+                receivedChunkCount: receivedChunkCount
+            )
             fingerprints.append(response.contentFingerprint)
             if result.isEmpty, chunk.totalSize > 0, chunk.totalSize <= Int64(Int.max) {
                 result.reserveCapacity(Int(chunk.totalSize))
