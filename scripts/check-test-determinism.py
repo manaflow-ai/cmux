@@ -239,11 +239,14 @@ _BIND_HINTS = ("bind", "connect", "connect_ex", "createServer")
 _SHELL_BARE_SLEEP = re.compile(
     r"""(?x)
     (?:
-        ^ | [;&|({] | (?<!\\)\$\(| (?<!\\)`
-      | \b(?:if|elif|while|until|then|do|else)\b
-      | (?<!\S)!
+        ^ | (?<!\\)[;&|({] | (?<!\\)\$\(| (?<!\\)`
     )
-    \s* (?:time(?:\s+-p)?\s+)? sleep (?=\s|$)
+    \s*
+    (?:!\s*)?
+    (?:(?:if|elif|while|until|then|do|else)\b\s*)?
+    (?:!\s*)?
+    (?:time(?:\s+-p)?\s+)?
+    sleep (?=\s|$)
   | ^\s* [^;&|()]+ (?:\|[^;&|()]+)* \) \s* sleep (?=\s|$)
     """
 )
@@ -1181,6 +1184,158 @@ def _mask_shell_heredoc_expansions(
     return "".join(masked)
 
 
+def _shell_arithmetic_ranges(
+    line: str,
+    initial_depth: int,
+) -> tuple[list[tuple[int, int]], int]:
+    """Return shell ``((...))`` ranges so shifts are not parsed as heredocs."""
+    ranges: list[tuple[int, int]] = []
+    depth = initial_depth
+    range_start: Optional[int] = 0 if depth else None
+    index = 0
+    while index < len(line):
+        if depth == 0:
+            if line.startswith("$((", index):
+                range_start = index
+                index += 1
+            elif line.startswith("((", index):
+                range_start = index
+            else:
+                index += 1
+                continue
+
+        char = line[index]
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0 and range_start is not None:
+                ranges.append((range_start, index + 1))
+                range_start = None
+        index += 1
+
+    if depth > 0 and range_start is not None:
+        ranges.append((range_start, len(line)))
+    return ranges, depth
+
+
+def _shell_real_sleep_positions(
+    masked_lines: list[str],
+) -> dict[int, set[int]]:
+    positions: dict[int, set[int]] = {}
+    for line_index, line in enumerate(masked_lines):
+        for match in _SHELL_BARE_SLEEP.finditer(line):
+            positions.setdefault(line_index, set()).add(
+                match.start() + match.group().rfind("sleep")
+            )
+    return positions
+
+
+@dataclass
+class _ShellCommandSubstitutionFrame:
+    kind: str
+    depth: int
+    outer_assertion: bool
+    command_assertion: bool = False
+
+
+def _shell_asserted_substitution_sleep_positions(
+    masked_lines: list[str],
+    sleep_positions: dict[int, set[int]],
+) -> dict[int, set[int]]:
+    """Locate sleeps evaluated as arguments to an enclosing assert command."""
+    result: dict[int, set[int]] = {}
+    frames: list[_ShellCommandSubstitutionFrame] = []
+    top_level_assertion = False
+
+    def current_command_assertion() -> bool:
+        if frames:
+            return frames[-1].command_assertion
+        return top_level_assertion
+
+    def set_current_command_assertion(value: bool) -> None:
+        nonlocal top_level_assertion
+        if frames:
+            frames[-1].command_assertion = value
+        else:
+            top_level_assertion = value
+
+    for line_index, line in enumerate(masked_lines):
+        assertion_starts = {
+            match.start() for match in _ASSERT_TOKEN.finditer(line)
+        }
+        line_sleep_positions = sleep_positions.get(line_index, set())
+        index = 0
+        while index < len(line):
+            if index in assertion_starts:
+                set_current_command_assertion(True)
+            if index in line_sleep_positions and any(
+                frame.outer_assertion for frame in frames
+            ):
+                result.setdefault(line_index, set()).add(index)
+
+            if line.startswith("$((", index):
+                index += 3
+                continue
+            if line.startswith("$(", index):
+                inherited_assertion = (
+                    current_command_assertion()
+                    or any(frame.outer_assertion for frame in frames)
+                )
+                frames.append(
+                    _ShellCommandSubstitutionFrame(
+                        "paren",
+                        1,
+                        inherited_assertion,
+                    )
+                )
+                index += 2
+                continue
+
+            char = line[index]
+            if char == "`":
+                if frames and frames[-1].kind == "backtick":
+                    frames.pop()
+                else:
+                    inherited_assertion = (
+                        current_command_assertion()
+                        or any(frame.outer_assertion for frame in frames)
+                    )
+                    frames.append(
+                        _ShellCommandSubstitutionFrame(
+                            "backtick",
+                            1,
+                            inherited_assertion,
+                        )
+                    )
+                index += 1
+                continue
+
+            if frames and frames[-1].kind == "paren":
+                if char == "(":
+                    frames[-1].depth += 1
+                elif char == ")":
+                    frames[-1].depth -= 1
+                    if frames[-1].depth == 0:
+                        frames.pop()
+                    index += 1
+                    continue
+
+            if line.startswith(("&&", "||"), index):
+                set_current_command_assertion(False)
+                index += 2
+                continue
+            if char in ";|":
+                set_current_command_assertion(False)
+            index += 1
+
+        top_level_assertion = False
+        if frames:
+            frames[-1].command_assertion = False
+
+    return result
+
+
 @dataclass
 class _SwiftStringFrame:
     hash_count: int
@@ -1291,6 +1446,79 @@ def _mask_swift_noncode(lines: list[str]) -> list[str]:
     return masked_lines
 
 
+_JS_REGEX_PREFIX_CHARS = frozenset("([{,:;=!?&|+-*%^~<>")
+_JS_REGEX_PREFIX_WORDS = frozenset(
+    (
+        "await",
+        "case",
+        "delete",
+        "do",
+        "else",
+        "in",
+        "instanceof",
+        "new",
+        "of",
+        "return",
+        "throw",
+        "typeof",
+        "void",
+        "yield",
+    )
+)
+
+
+def _mask_javascript_regex_literals(line: str) -> str:
+    """Mask high-confidence JavaScript regex literals on one physical line."""
+    masked = list(line)
+    index = 0
+    while index < len(line):
+        if line[index] != "/":
+            index += 1
+            continue
+
+        previous = index - 1
+        while previous >= 0 and line[previous].isspace():
+            previous -= 1
+        can_start = previous < 0 or line[previous] in _JS_REGEX_PREFIX_CHARS
+        if not can_start and previous >= 0 and (
+            line[previous].isalnum() or line[previous] in "_$"
+        ):
+            word_end = previous + 1
+            word_start = previous
+            while word_start >= 0 and (
+                line[word_start].isalnum()
+                or line[word_start] in "_$"
+            ):
+                word_start -= 1
+            can_start = line[word_start + 1 : word_end] in _JS_REGEX_PREFIX_WORDS
+        if not can_start:
+            index += 1
+            continue
+
+        cursor = index + 1
+        in_character_class = False
+        while cursor < len(line):
+            char = line[cursor]
+            if char == "\\":
+                cursor += 2
+                continue
+            if char == "[":
+                in_character_class = True
+            elif char == "]":
+                in_character_class = False
+            elif char == "/" and not in_character_class:
+                cursor += 1
+                while cursor < len(line) and line[cursor].isalpha():
+                    cursor += 1
+                masked[index:cursor] = " " * (cursor - index)
+                index = cursor
+                break
+            cursor += 1
+        else:
+            index += 1
+    return "".join(masked)
+
+
 def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
     """Replace quoted strings and comments while preserving line positions."""
     if path_suffix == ".swift":
@@ -1303,6 +1531,7 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
     shell_interpolations: list[tuple[str, int]] = []
     shell_heredocs: list[tuple[str, bool, bool]] = []
     shell_heredoc_expansions: list[_ShellExpansionFrame] = []
+    shell_arithmetic_depth = 0
     hash_comments = path_suffix in (".py", ".sh")
     marker_pattern = (
         _HASH_NONCODE_MARKER if hash_comments else _SLASH_NONCODE_MARKER
@@ -1489,8 +1718,19 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
             quote = None
         masked_line = "".join(masked)
         if path_suffix == ".sh":
+            arithmetic_ranges, shell_arithmetic_depth = (
+                _shell_arithmetic_ranges(
+                    masked_line,
+                    shell_arithmetic_depth,
+                )
+            )
             for heredoc in _SHELL_HEREDOC_START.finditer(line):
                 if masked_line[heredoc.start() : heredoc.start() + 2] != "<<":
+                    continue
+                if any(
+                    start <= heredoc.start() < end
+                    for start, end in arithmetic_ranges
+                ):
                     continue
                 delimiter = (
                     heredoc.group("single")
@@ -1508,6 +1748,11 @@ def _mask_noncode(lines: list[str], path_suffix: str) -> list[str]:
                 )
         masked_lines.append(masked_line)
 
+    if path_suffix in _JS_SUFFIXES:
+        return [
+            _mask_javascript_regex_literals(line)
+            for line in masked_lines
+        ]
     return masked_lines
 
 
@@ -1519,6 +1764,7 @@ def detect_sleep_then_assert(
     known_sleep_lines: Optional[set[int]] = None,
     known_sleep_positions: Optional[dict[int, set[int]]] = None,
     known_sleep_end_lines: Optional[dict[int, int]] = None,
+    assertion_enclosed_sleep_positions: Optional[dict[int, set[int]]] = None,
 ) -> bool:
     """Sleep on lines[idx] followed by an assertion within 3 non-blank lines."""
     line = masked_lines[idx]
@@ -1554,6 +1800,12 @@ def detect_sleep_then_assert(
     if raise_if is not None:
         assertion_starts.add(raise_if.start())
     for sleep_start in sleep_starts:
+        if (
+            assertion_enclosed_sleep_positions is not None
+            and sleep_start
+            in assertion_enclosed_sleep_positions.get(idx, set())
+        ):
+            return True
         for assertion_start in assertion_starts:
             if assertion_start > sleep_start:
                 return True
@@ -1625,6 +1877,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
     )
     known_sleep_positions: Optional[dict[int, set[int]]] = None
     known_sleep_end_lines: Optional[dict[int, int]] = None
+    assertion_enclosed_sleep_positions: Optional[dict[int, set[int]]] = None
     known_sleep_lines: Optional[set[int]] = None
     if suffix == ".py" and has_sleep_candidate:
         known_sleep_positions = {}
@@ -1638,7 +1891,16 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
     elif suffix in _JS_SUFFIXES and has_sleep_candidate:
         known_sleep_positions = _javascript_real_sleep_positions(masked_lines)
         known_sleep_lines = set(known_sleep_positions)
-    if known_sleep_positions is not None:
+    elif suffix == ".sh" and has_sleep_candidate:
+        known_sleep_positions = _shell_real_sleep_positions(masked_lines)
+        known_sleep_lines = set(known_sleep_positions)
+        assertion_enclosed_sleep_positions = (
+            _shell_asserted_substitution_sleep_positions(
+                masked_lines,
+                known_sleep_positions,
+            )
+        )
+    if known_sleep_positions is not None and suffix != ".sh":
         known_sleep_end_lines = _sleep_call_end_lines(
             masked_lines,
             known_sleep_positions,
@@ -1676,6 +1938,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
                 known_sleep_lines,
                 known_sleep_positions,
                 known_sleep_end_lines,
+                assertion_enclosed_sleep_positions,
             )
         ):
             findings.append(Finding(rel_posix, line_no, RULE_SLEEP_THEN_ASSERT, snippet))
