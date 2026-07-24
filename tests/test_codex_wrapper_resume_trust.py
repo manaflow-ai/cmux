@@ -26,7 +26,12 @@ def make_executable(path: Path, contents: str) -> None:
 
 
 class CodexWrapperResumeTrustTests(unittest.TestCase):
-    def run_wrapper(self, arguments: list[str]) -> tuple[list[str], str, subprocess.CompletedProcess[str]]:
+    def run_wrapper(
+        self,
+        arguments: list[str],
+        *,
+        resume_helper_mode: str = "override",
+    ) -> tuple[list[str], str, subprocess.CompletedProcess[str]]:
         with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as raw:
             root = Path(raw)
             wrapper = root / "cmux-codex-wrapper"
@@ -64,7 +69,17 @@ case "${{@: -1}}" in
     printf '%s\\0' --enable hooks
     ;;
   inject-resume-args)
-    printf '%s\\0' -c '{TRUST_OVERRIDE}'
+    case "${{FAKE_RESUME_HELPER_MODE:-override}}" in
+      empty)
+        ;;
+      partial)
+        printf '%s\\0' -c
+        exit 17
+        ;;
+      override)
+        printf '%s\\0' -c '{TRUST_OVERRIDE}'
+        ;;
+    esac
     ;;
 esac
 """,
@@ -81,6 +96,7 @@ esac
                     "CMUX_SURFACE_ID": "surface:test",
                     "FAKE_CODEX_ARGS_LOG": str(args_log),
                     "FAKE_CMUX_LOG": str(cmux_log),
+                    "FAKE_RESUME_HELPER_MODE": resume_helper_mode,
                 }
             )
             try:
@@ -166,6 +182,25 @@ esac
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn('"cmux_resume_rebind":true', logged_cmux_calls)
+
+    def test_resume_helper_empty_or_failed_partial_output_is_discarded(self) -> None:
+        for mode in ("empty", "partial"):
+            with self.subTest(mode=mode):
+                args, _, result = self.run_wrapper(
+                    ["resume", SESSION_ID],
+                    resume_helper_mode=mode,
+                )
+
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(
+                    args,
+                    [
+                        "--enable",
+                        "hooks",
+                        "resume",
+                        SESSION_ID,
+                    ],
+                )
 
 
 if __name__ == "__main__":
