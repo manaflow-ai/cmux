@@ -14,9 +14,9 @@ final class AgentCursorPointerView: NSView {
         wantsLayer = true
         layer?.masksToBounds = false
         layerContentsRedrawPolicy = .onSetNeedsDisplay
-        setAccessibilityElement(true)
-        setAccessibilityRole(.image)
-        setAccessibilityIdentifier("AgentCursorPointer")
+        // This is a decorative mirror of the real pointer. Exposing it makes
+        // every animated frame change observable as an accessibility-tree update.
+        setAccessibilityElement(false)
     }
 
     @available(*, unavailable)

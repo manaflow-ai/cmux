@@ -565,17 +565,14 @@ final class ComputerUseCursorOverlayController {
         panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         panel.alphaValue = 0
+        // Keep the animated decorative window out of the accessibility hierarchy.
+        // Its frame and ordering change throughout every cursor glide.
+        panel.setAccessibilityElement(false)
 
         let pointer = AgentCursorPointerView(
             frame: CGRect(origin: .zero, size: ComputerUseCursorOverlayGeometry.windowSize)
         )
         pointer.autoresizingMask = [.width, .height]
-        pointer.setAccessibilityLabel(
-            String(
-                localized: "computerUse.cursorOverlay.accessibilityLabel",
-                defaultValue: "Computer-use cursor"
-            )
-        )
         panel.contentView = pointer
 
         self.panel = panel
