@@ -14,18 +14,53 @@ import Testing
         let status: Int32
         let stdout: String
         let timedOut: Bool
+        /// Defaulted so existing call sites are unaffected. A process killed by a signal reports
+        /// `.uncaughtSignal`, and its `terminationStatus` is the signal number — indistinguishable
+        /// from an ordinary non-zero exit if you only look at the status.
+        var terminationReason: Process.TerminationReason = .exit
+
+        var diedFromSignal: Bool { terminationReason == .uncaughtSignal }
+
+        var diagnostics: String {
+            "status=\(status) reason=\(diedFromSignal ? "uncaughtSignal" : "exit") "
+                + "timedOut=\(timedOut) stdout=\(stdout.isEmpty ? "<empty>" : stdout)"
+        }
     }
 
     @Test func testCLIErrorPathDoesNotCrashWhenStderrIsClosed() throws {
         let cliPath = try bundledCLIPath()
+        // Pin the socket and the home directory. Without CMUX_SOCKET_PATH the CLI's resolution can
+        // fall back to a machine-global marker file and reach whatever app happens to be running,
+        // which would make this test's exit code depend on the machine rather than on the CLI.
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-stderr-closed-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let socketPath = home.appendingPathComponent("cmux.sock").path
+
+        // `exec` so the process we wait on is the CLI itself. Without it the shell is the child, and
+        // a shell reports a signalled child as an ordinary exit with status 128+signal — which would
+        // hide the very crash this test exists to catch.
         let result = runShell(
-            "CMUX_CLI_SENTRY_DISABLED=1 \(shellSingleQuote(cliPath)) definitely-not-a-command 2>&-",
+            "CMUX_CLI_SENTRY_DISABLED=1 "
+                + "CMUX_SOCKET_PATH=\(shellSingleQuote(socketPath)) "
+                + "CFFIXED_USER_HOME=\(shellSingleQuote(home.path)) "
+                + "HOME=\(shellSingleQuote(home.path)) "
+                + "exec \(shellSingleQuote(cliPath)) definitely-not-a-command 2>&-",
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 1, result.stdout)
-        XCTAssertTrue(result.stdout.contains("Usage:"), result.stdout)
+        // What is guarded here is a crash, not an exit code. cc4a6109d8 replaced
+        // FileHandle.standardError.write — which raises, and aborts the process, when stderr is
+        // closed — with a raw Darwin.write that returns -1 on EBADF. So the oracle is that the CLI
+        // exited on its own terms rather than dying from a signal.
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertFalse(result.diedFromSignal, result.diagnostics)
+        // 2 is the unknown-command exit and it is deterministic now the socket is pinned. Asserting
+        // the exact code rather than merely non-zero keeps this from passing when the CLI fails for
+        // some unrelated reason. Nothing is asserted about stdout: the message goes to stderr, which
+        // this test deliberately closes.
+        XCTAssertEqual(result.status, 2, result.diagnostics)
     }
 
     @Test func testAgentTeamsHelpDoesNotLaunchExternalAgentCLI() throws {
@@ -1440,7 +1475,8 @@ import Testing
         return ProcessRunResult(
             status: process.terminationStatus,
             stdout: String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
-            timedOut: timedOut
+            timedOut: timedOut,
+            terminationReason: process.terminationReason
         )
     }
 
@@ -1486,7 +1522,8 @@ import Testing
         return ProcessRunResult(
             status: process.terminationStatus,
             stdout: String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
-            timedOut: timedOut
+            timedOut: timedOut,
+            terminationReason: process.terminationReason
         )
     }
 
