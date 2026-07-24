@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
@@ -222,8 +223,13 @@ extension CMUXCLI {
         }
     }
 
+    static let stdinDrainingHookNoOpShellCommand = "cat >/dev/null 2>/dev/null || true; echo '{}'"
+
     private static func shellNoOpSnippet(_ noOpCommand: String) -> String {
-        noOpCommand == "echo '{}'" ? noOpCommand : "{ \(noOpCommand); }"
+        let command = noOpCommand == "echo '{}'"
+            ? stdinDrainingHookNoOpShellCommand
+            : noOpCommand
+        return "{ \(command); }"
     }
 
     private static let grokPinnedHookMarker = "cmux-grok-hook-v2"
@@ -304,7 +310,7 @@ extension CMUXCLI {
         } else {
             dispatch = "command -v cmux >/dev/null 2>&1 && \(fallbackInvocation) || \(noOpSnippet)"
         }
-        return ": \(pinnedHookMarker(for: def)); \(shellTraceStart); printenv \(def.disableEnvVar) | grep -qx 1 && { \(shellTraceDisabled); \(noOpCommand); } || { \(dispatch); cmux_hook_status=$?; \(shellTraceExit); exit $cmux_hook_status; }"
+        return ": \(pinnedHookMarker(for: def)); \(shellTraceStart); printenv \(def.disableEnvVar) | grep -qx 1 && { \(shellTraceDisabled); \(noOpSnippet); } || { \(dispatch); cmux_hook_status=$?; \(shellTraceExit); exit $cmux_hook_status; }"
     }
 
     private static func pinnedHookInvocation(
@@ -417,12 +423,26 @@ extension CMUXCLI {
         if usesPinnedHookDispatch(def), command.contains(pinnedHookMarker(for: def)) {
             return true
         }
+        if def.name == "codex", isCmuxOwnedCodexHookScriptCommand(command) {
+            return true
+        }
         if def.events.contains(where: { hookCommandString(for: def, event: $0) == command })
             || def.feedHookEvents.contains(where: { feedHookCommandString(for: def, agentEvent: $0) == command })
         {
             return true
         }
         return includeLegacy && isLegacyCmuxOwnedHookCommand(command, for: def)
+    }
+
+    private static func isCmuxOwnedCodexHookScriptCommand(_ command: String) -> Bool {
+        guard let hooksDirectory = codexHookScriptsDirectory() else { return false }
+        let url = URL(fileURLWithPath: command, isDirectory: false)
+        let name = url.lastPathComponent
+        let isGeneratedName = CodexHookScriptName(filename: name) != nil
+            || (name.hasPrefix("cmux-codex-hook-") && name.hasSuffix(".sh"))
+        return isGeneratedName
+            && url.deletingLastPathComponent().standardizedFileURL
+                == hooksDirectory.standardizedFileURL
     }
 
     private static func isLegacyCmuxOwnedHookCommand(_ command: String, for def: AgentHookDef) -> Bool {

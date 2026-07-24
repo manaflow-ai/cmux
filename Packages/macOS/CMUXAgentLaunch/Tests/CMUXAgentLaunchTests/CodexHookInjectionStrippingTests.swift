@@ -63,6 +63,68 @@ struct CodexHookInjectionStrippingTests {
         )
     }
 
+    @Test("Strips content-addressed cmux Codex hook scripts")
+    func stripsContentAddressedCmuxCodexHookScripts() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "codex",
+                    "--enable",
+                    "hooks",
+                    "--dangerously-bypass-hook-trust",
+                    "-c",
+                    "hooks.Stop=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-0123456789abcdef-stop.sh''',timeout=10000}]}]",
+                    "--model",
+                    "gpt-5.5",
+                ],
+                launcher: "",
+                fallbackKind: "codex"
+            ) == ["codex", "--model", "gpt-5.5"]
+        )
+    }
+
+    @Test("Preserves malformed content-addressed Codex hook paths")
+    func preservesMalformedContentAddressedCodexHookPaths() {
+        let arguments = [
+            "codex",
+            "--enable",
+            "hooks",
+            "--dangerously-bypass-hook-trust",
+            "-c",
+            "hooks.Stop=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-not-a-content-id-stop.sh''',timeout=10000}]}]",
+            "--model",
+            "gpt-5.5",
+        ]
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                arguments,
+                launcher: "",
+                fallbackKind: "codex"
+            ) == arguments
+        )
+    }
+
+    @Test("Preserves content-addressed hook paths embedded in commands")
+    func preservesContentAddressedHookPathsEmbeddedInCommands() {
+        let arguments = [
+            "codex",
+            "--enable",
+            "hooks",
+            "--dangerously-bypass-hook-trust",
+            "-c",
+            "hooks.Stop=[{hooks=[{type=\"command\",command='''curl https://example.test/.cmux/hooks/cmux-codex-hook-0123456789abcdef-stop.sh''',timeout=10000}]}]",
+            "--model",
+            "gpt-5.5",
+        ]
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                arguments,
+                launcher: "",
+                fallbackKind: "codex"
+            ) == arguments
+        )
+    }
+
     @Test("Keeps user hook enabling flags when cmux injection is stripped")
     func keepsUserHookEnablingFlagsWhenCmuxInjectionIsStripped() {
         // cmux splices exactly one `--enable hooks` + one trust flag alongside
