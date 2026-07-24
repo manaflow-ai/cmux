@@ -2,6 +2,8 @@
 public struct MobileWorkspaceActionCapabilities: Equatable, Sendable {
     /// Whether rename and pin/unpin workspace actions are supported.
     public var supportsWorkspaceActions: Bool
+    /// Whether workspace description and color mutations are supported.
+    public var supportsWorkspaceMetadata: Bool
     /// Whether mark read/unread workspace actions are supported.
     public var supportsReadStateActions: Bool
     /// Whether workspace close requests are supported.
@@ -19,6 +21,7 @@ public struct MobileWorkspaceActionCapabilities: Equatable, Sendable {
     /// Create a workspace action capability snapshot.
     public init(
         supportsWorkspaceActions: Bool = false,
+        supportsWorkspaceMetadata: Bool = false,
         supportsReadStateActions: Bool = false,
         supportsCloseActions: Bool = false,
         supportsMoveActions: Bool = false,
@@ -26,6 +29,7 @@ public struct MobileWorkspaceActionCapabilities: Equatable, Sendable {
         supportsGroupCreate: Bool = false
     ) {
         self.supportsWorkspaceActions = supportsWorkspaceActions
+        self.supportsWorkspaceMetadata = supportsWorkspaceMetadata
         self.supportsReadStateActions = supportsReadStateActions
         self.supportsCloseActions = supportsCloseActions
         self.supportsMoveActions = supportsMoveActions
