@@ -11,12 +11,13 @@ import {
 } from "bun:test";
 
 // Route-level coverage for /api/stripe/founders-welcome. The webhook must send
-// the identical welcome email for BOTH qualifying checkout shapes — Founder's
-// Edition payment-link sessions (founders_edition=true) and cmux Pro
-// subscription checkouts ({ app: "cmux", plan: "pro" }, no founders key) —
-// while skipping everything else. Pro coverage is a regression guard: before
-// the pro_plan trigger, Pro sessions were skipped as not-founders and a real
-// Pro subscriber never received the welcome.
+// the identical welcome email for EVERY completed checkout session — Founder's
+// Edition payment-link sessions (founders_edition=true), cmux Pro and Team
+// subscription checkouts, and anything else — skipping only non-checkout
+// events, invalid/stale signatures, and sessions without a customer email.
+// Pro coverage is a regression guard: before the webhook welcomed every
+// checkout, Pro sessions were skipped as not-founders and a real Pro
+// subscriber never received the welcome.
 
 // Pinned by tests/test-preload.ts before @/app/env loads.
 const WEBHOOK_SECRET = process.env.STRIPE_FOUNDERS_WEBHOOK_SECRET ?? "";
@@ -179,41 +180,43 @@ describe("founders welcome route", () => {
     expect(options.idempotencyKey).toBe("founders-welcome/cs_test_pro");
   });
 
-  test("skips a Team plan checkout", async () => {
+  test("sends the identical welcome for a Team plan checkout", async () => {
     const response = await POST(
       signedRequest(
         checkoutCompletedEvent({
+          id: "cs_test_team",
           metadata: { stackTeamId: "team-1", plan: "team", app: "cmux" },
         }),
       ),
     );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
-      ok: true,
-      skipped: "not_welcome_eligible",
-    });
-    expect(resendSend).not.toHaveBeenCalled();
+    expect(await response.json()).toEqual({ ok: true, sent: true });
+    expect(resendSend).toHaveBeenCalledTimes(1);
+    expect(sentEmails[0].options.idempotencyKey).toBe(
+      "founders-welcome/cs_test_team",
+    );
   });
 
-  test("skips a pro plan for a different app", async () => {
+  test("sends the welcome for any other completed checkout (no recognized metadata)", async () => {
     const response = await POST(
       signedRequest(
         checkoutCompletedEvent({
+          id: "cs_test_other",
           metadata: { plan: "pro", app: "other" },
         }),
       ),
     );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
-      ok: true,
-      skipped: "not_welcome_eligible",
-    });
-    expect(resendSend).not.toHaveBeenCalled();
+    expect(await response.json()).toEqual({ ok: true, sent: true });
+    expect(resendSend).toHaveBeenCalledTimes(1);
+    expect(sentEmails[0].options.idempotencyKey).toBe(
+      "founders-welcome/cs_test_other",
+    );
   });
 
-  test("skips an eligible session without a customer email", async () => {
+  test("skips a session without a customer email", async () => {
     const response = await POST(
       signedRequest(checkoutCompletedEvent({ customer_details: null })),
     );

@@ -25,19 +25,21 @@ const baseParams = {
   customerName: "Ada Lovelace",
 } as const;
 
-// Founder's Edition and cmux Pro are the same tier (product decision), so both
-// checkout shapes must trigger the identical welcome email. Pro sessions carry
-// { app: "cmux", plan: "pro" } from /api/billing/checkout and no
-// founders_edition key — before the pro_plan trigger existed they were skipped
-// and a real Pro subscriber never got the welcome.
+// Every completed checkout gets the identical Founder's Edition welcome
+// (product decision: all customers get the same founders treatment), so this
+// helper only classifies the purchase shape for telemetry — it never gates the
+// send. Pro sessions carry { app: "cmux", plan: "pro" } from
+// /api/billing/checkout and no founders_edition key; before the webhook
+// welcomed every checkout they were skipped and a real Pro subscriber never
+// got the welcome.
 describe("welcomeTriggerForMetadata", () => {
-  test("founders payment-link metadata triggers as founders_edition", () => {
+  test("founders payment-link metadata classifies as founders_edition", () => {
     expect(welcomeTriggerForMetadata({ founders_edition: "true" })).toBe(
       "founders_edition",
     );
   });
 
-  test("cmux Pro checkout metadata triggers as pro_plan (no founders key)", () => {
+  test("cmux Pro checkout metadata classifies as pro_plan (no founders key)", () => {
     expect(
       welcomeTriggerForMetadata({
         stackUserId: "user-1",
@@ -57,26 +59,27 @@ describe("welcomeTriggerForMetadata", () => {
     ).toBe("founders_edition");
   });
 
-  test("team plan is excluded", () => {
+  test("cmux Team checkout metadata classifies as team_plan", () => {
     expect(
       welcomeTriggerForMetadata({
         stackTeamId: "team-1",
         plan: "team",
         app: "cmux",
       }),
-    ).toBeNull();
+    ).toBe("team_plan");
   });
 
-  test("pro plan for a different app is excluded", () => {
-    expect(welcomeTriggerForMetadata({ plan: "pro", app: "other" })).toBeNull();
-    expect(welcomeTriggerForMetadata({ plan: "pro" })).toBeNull();
-  });
-
-  test("non-true founders flag and missing metadata are excluded", () => {
-    expect(welcomeTriggerForMetadata({ founders_edition: "false" })).toBeNull();
-    expect(welcomeTriggerForMetadata({})).toBeNull();
-    expect(welcomeTriggerForMetadata(null)).toBeNull();
-    expect(welcomeTriggerForMetadata(undefined)).toBeNull();
+  test("everything else classifies as other (still welcomed)", () => {
+    expect(welcomeTriggerForMetadata({ plan: "pro", app: "other" })).toBe(
+      "other",
+    );
+    expect(welcomeTriggerForMetadata({ plan: "pro" })).toBe("other");
+    expect(welcomeTriggerForMetadata({ founders_edition: "false" })).toBe(
+      "other",
+    );
+    expect(welcomeTriggerForMetadata({})).toBe("other");
+    expect(welcomeTriggerForMetadata(null)).toBe("other");
+    expect(welcomeTriggerForMetadata(undefined)).toBe("other");
   });
 });
 

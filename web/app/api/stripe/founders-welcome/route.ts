@@ -125,11 +125,12 @@ export async function POST(request: Request) {
 
       setSpanAttributes(span, { "cmux.stripe.event_type": event.type ?? "" });
 
-      // Only react to completed checkout sessions that qualify for the welcome:
-      // either flagged Founder's Edition (payment-link metadata) or a cmux Pro
-      // subscription checkout (see welcomeTriggerForMetadata). Everything else
-      // (including renewals, which never create a checkout session) is
-      // acknowledged with 200 so Stripe stops retrying.
+      // Every completed checkout session gets the identical Founder's Edition
+      // welcome (product decision: all customers get the same founders
+      // treatment) — Founder's Edition payment-link purchases, cmux Pro and
+      // Team subscriptions, and anything else checked out on this Stripe
+      // account. Other event types (including renewals, which never create a
+      // checkout session) are acknowledged with 200 so Stripe stops retrying.
       if (event.type !== "checkout.session.completed") {
         return NextResponse.json({ ok: true, skipped: "event_type" });
       }
@@ -138,16 +139,12 @@ export async function POST(request: Request) {
       const customerEmail = session?.customer_details?.email ?? null;
       setSpanAttributes(span, {
         "cmux.stripe.is_founders": trigger === "founders_edition",
-        "cmux.stripe.welcome_trigger": trigger ?? "none",
+        "cmux.stripe.welcome_trigger": trigger,
         "cmux.stripe.has_customer_email": Boolean(customerEmail),
       });
-      if (!trigger) {
-        return NextResponse.json({ ok: true, skipped: "not_welcome_eligible" });
-      }
       if (!customerEmail) {
-        // Distinct from "not_welcome_eligible" so an eligible session that
-        // arrives without a customer email is diagnosable in telemetry rather
-        // than a silent miss.
+        // A completed session that arrives without a customer email is
+        // diagnosable in telemetry rather than a silent miss.
         return NextResponse.json({ ok: true, skipped: "no_customer_email" });
       }
 
