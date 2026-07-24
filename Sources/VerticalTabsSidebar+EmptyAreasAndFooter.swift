@@ -92,6 +92,15 @@ struct SidebarEmptyArea: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .overlay {
+                // The rows layer is above this background and keeps ownership
+                // of workspace reordering; this handle only wins in the blank
+                // area that remains below the final row.
+                WindowDragHandleView(
+                    yieldsToSiblingHits: false,
+                    onDoubleClick: createWorkspace
+                )
+            }
             .overlay(alignment: .top) {
                 if topDropIndicatorVisible {
                     Rectangle()
@@ -106,28 +115,6 @@ struct SidebarEmptyArea: View {
     @ViewBuilder
     private var dropTarget: some View {
         let base = hitTarget
-            .onTapGesture(count: 2) {
-                // When the active workspace is a remote-tmux mirror, route through
-                // performNewWorkspaceAction so a new workspace becomes a new tmux
-                // session instead of a local (orphan) workspace. Gate on the
-                // SELECTED tab, not `tabs.contains`: a dedicated remote window can
-                // be polluted with a dragged-in local workspace (move targets don't
-                // exclude dedicated windows), and `contains` would then misroute a
-                // local empty-area double-tap into spawning an unwanted tmux session.
-                if tabManager.selectedTab?.isRemoteTmuxMirror == true {
-                    _ = AppDelegate.shared?.performNewWorkspaceAction(
-                        tabManager: tabManager,
-                        debugSource: "sidebar.emptyArea.remoteTmux"
-                    )
-                } else {
-                    tabManager.addWorkspace(placementOverride: .end)
-                }
-                if let selectedId = tabManager.selectedTabId {
-                    selectedTabIds = [selectedId]
-                    lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
-                }
-                selection = .tabs
-            }
         if let tabDropDelegate {
             base
                 .sidebarEmptyAreaWorkspaceGroupContextMenu(tabManager: tabManager)
@@ -136,6 +123,29 @@ struct SidebarEmptyArea: View {
             base
                 .sidebarEmptyAreaWorkspaceGroupContextMenu(tabManager: tabManager)
         }
+    }
+
+    private func createWorkspace() {
+        // When the active workspace is a remote-tmux mirror, route through
+        // performNewWorkspaceAction so a new workspace becomes a new tmux
+        // session instead of a local (orphan) workspace. Gate on the
+        // SELECTED tab, not `tabs.contains`: a dedicated remote window can
+        // be polluted with a dragged-in local workspace (move targets don't
+        // exclude dedicated windows), and `contains` would then misroute a
+        // local empty-area double-tap into spawning an unwanted tmux session.
+        if tabManager.selectedTab?.isRemoteTmuxMirror == true {
+            _ = AppDelegate.shared?.performNewWorkspaceAction(
+                tabManager: tabManager,
+                debugSource: "sidebar.emptyArea.remoteTmux"
+            )
+        } else {
+            tabManager.addWorkspace(placementOverride: .end)
+        }
+        if let selectedId = tabManager.selectedTabId {
+            selectedTabIds = [selectedId]
+            lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
+        }
+        selection = .tabs
     }
 
     @ViewBuilder
@@ -187,7 +197,6 @@ struct ExtensionSidebarBrowserStackEmptyArea: View {
         Color.clear
             .contentShape(Rectangle())
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .onTapGesture(count: 2, perform: onNewTab)
             .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: ExtensionSidebarBrowserStackEndDropDelegate(
                 orderedRows: orderedRows,
                 draggedTabId: $draggedTabId,
@@ -195,6 +204,14 @@ struct ExtensionSidebarBrowserStackEmptyArea: View {
                 dropIndicator: $dropIndicator,
                 onMove: onMove
             ))
+            .overlay {
+                // Browser-stack rows are laid out before this bounded filler,
+                // so their reorder gestures never compete with window movement.
+                WindowDragHandleView(
+                    yieldsToSiblingHits: false,
+                    onDoubleClick: onNewTab
+                )
+            }
             .overlay(alignment: .top) {
                 if shouldShowTopDropIndicator {
                     Rectangle()
