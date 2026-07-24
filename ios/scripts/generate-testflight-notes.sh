@@ -61,8 +61,8 @@ if ! git merge-base --is-ancestor "$BASE" HEAD 2>/dev/null; then
   exit 0
 fi
 
-# iOS-affecting paths: mirror the push-trigger filter in ios-testflight.yml so the
-# notes only mention changes that could be in this build.
+# iOS-affecting paths: mirror the scheduled path gate in ios-testflight.yml so
+# the notes only mention changes that could be in this build.
 PATHS="ios Packages/iOS Packages/Shared Sources/Mobile vendor/stack-auth-swift-sdk-prerelease ghostty ghostty.h scripts/ensure-ghosttykit.sh scripts/ghosttykit-checksums.txt scripts/install-zig-ci.sh scripts/validate-xcframework-archive.py .github/workflows/ios-testflight.yml"
 
 # First-line subjects of non-merge commits in range touching those paths. Squash

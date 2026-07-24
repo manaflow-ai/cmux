@@ -157,8 +157,8 @@ jobs:
       - name: Validate TestFlight notes generator
         run: python3 tests/test_ios_testflight_notes.py
 
-      - name: Validate CMUX INTERNAL main-push path filter
-        run: python3 tests/test_ios_testflight_main_push_filter.py
+      - name: Validate CMUX INTERNAL scheduled upload gate
+        run: python3 tests/test_ios_testflight_schedule.py
 
       - name: Validate external TestFlight group assignment helper
         run: python3 tests/test_ios_testflight_external_distribution.py
