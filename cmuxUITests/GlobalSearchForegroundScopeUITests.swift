@@ -6,7 +6,7 @@ final class GlobalSearchForegroundScopeUITests: XCTestCase {
 
     private var app: XCUIApplication!
     private var appProcess: Process?
-    private var shortcutProbeProcess: Process?
+    private var shortcutProbeApplication: NSRunningApplication?
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -38,7 +38,8 @@ final class GlobalSearchForegroundScopeUITests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
-        terminateProcess(&shortcutProbeProcess)
+        shortcutProbeApplication?.terminate()
+        shortcutProbeApplication = nil
         app?.terminate()
         terminateProcess(&appProcess)
         app = nil
@@ -50,20 +51,9 @@ final class GlobalSearchForegroundScopeUITests: XCTestCase {
         let globalSearchField = app.textFields["GlobalSearchSearchField"].firstMatch
         XCTAssertFalse(globalSearchField.exists, "Global Search should start closed")
 
-        let probeExecutableURL = try builtShortcutProbeExecutableURL()
-        let probeProcess = Process()
-        probeProcess.executableURL = probeExecutableURL
-        try probeProcess.run()
-        shortcutProbeProcess = probeProcess
+        try launchShortcutProbe()
 
         let probe = XCUIApplication(bundleIdentifier: Self.shortcutProbeBundleIdentifier)
-        XCTAssertTrue(
-            waitForAppToRun(probe, timeout: 10.0),
-            "Expected shortcut probe to launch. state=\(probe.state.rawValue)"
-        )
-        if probe.state != .runningForeground {
-            probe.activate()
-        }
         XCTAssertTrue(
             probe.wait(for: .runningForeground, timeout: 10.0),
             "Expected shortcut probe to be foreground. state=\(probe.state.rawValue)"
@@ -121,18 +111,6 @@ final class GlobalSearchForegroundScopeUITests: XCTestCase {
         )
     }
 
-    private func waitForAppToRun(_ application: XCUIApplication, timeout: TimeInterval) -> Bool {
-        waitForPredicate(
-            NSPredicate(
-                format: "state == %d OR state == %d",
-                XCUIApplication.State.runningBackground.rawValue,
-                XCUIApplication.State.runningForeground.rawValue
-            ),
-            object: application,
-            timeout: timeout
-        )
-    }
-
     private func waitForAppToLeaveForeground(_ application: XCUIApplication, timeout: TimeInterval) -> Bool {
         waitForPredicate(
             NSPredicate(format: "state != %d", XCUIApplication.State.runningForeground.rawValue),
@@ -169,18 +147,34 @@ final class GlobalSearchForegroundScopeUITests: XCTestCase {
         return executablePath
     }
 
-    private func builtShortcutProbeExecutableURL() throws -> URL {
-        let executableURL = builtProductsDirectory()
+    private func launchShortcutProbe() throws {
+        let applicationURL = builtProductsDirectory()
             .appendingPathComponent("ShortcutProbe.app")
-            .appendingPathComponent("Contents/MacOS/ShortcutProbe")
-        guard FileManager.default.isExecutableFile(atPath: executableURL.path) else {
+        guard FileManager.default.fileExists(atPath: applicationURL.path) else {
             throw NSError(
                 domain: "GlobalSearchForegroundScopeUITests",
                 code: 2,
-                userInfo: [NSLocalizedDescriptionKey: "Could not locate shortcut probe at \(executableURL.path)"]
+                userInfo: [NSLocalizedDescriptionKey: "Could not locate shortcut probe at \(applicationURL.path)"]
             )
         }
-        return executableURL
+
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        configuration.createsNewApplicationInstance = true
+        configuration.allowsRunningApplicationSubstitution = false
+        let launchExpectation = expectation(description: "Launch shortcut probe application")
+        var launchError: Error?
+        NSWorkspace.shared.openApplication(at: applicationURL, configuration: configuration) {
+            [weak self] application, error in
+            self?.shortcutProbeApplication = application
+            launchError = error
+            launchExpectation.fulfill()
+        }
+        wait(for: [launchExpectation], timeout: 10.0)
+        if let launchError {
+            throw launchError
+        }
+        XCTAssertNotNil(shortcutProbeApplication, "Expected NSWorkspace to launch shortcut probe")
     }
 
     private func builtProductsDirectory() -> URL {
