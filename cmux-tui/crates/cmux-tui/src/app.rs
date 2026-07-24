@@ -8429,7 +8429,9 @@ impl App {
         else {
             return;
         };
-        let modifiers = browser_modifiers(key.modifiers);
+        let Some(modifiers) = browser_modifiers(key.modifiers) else {
+            return;
+        };
         let _ = self.browser_input.enqueue(BrowserInputEvent {
             surface_id,
             surface: surface.clone(),
@@ -10667,7 +10669,10 @@ fn outer_cursor_escape(spec: OuterCursorSpec) -> String {
     }
 }
 
-fn browser_modifiers(modifiers: KeyModifiers) -> u32 {
+fn browser_modifiers(modifiers: KeyModifiers) -> Option<u32> {
+    if modifiers.contains(KeyModifiers::HYPER) {
+        return None;
+    }
     let mut out = 0;
     if modifiers.contains(KeyModifiers::ALT) {
         out |= 1;
@@ -10675,13 +10680,13 @@ fn browser_modifiers(modifiers: KeyModifiers) -> u32 {
     if modifiers.contains(KeyModifiers::CONTROL) {
         out |= 2;
     }
-    if modifiers.contains(KeyModifiers::SUPER) {
+    if modifiers.intersects(KeyModifiers::SUPER | KeyModifiers::META) {
         out |= 4;
     }
     if modifiers.contains(KeyModifiers::SHIFT) {
         out |= 8;
     }
-    out
+    Some(out)
 }
 
 fn browser_only_action(action: Action) -> bool {

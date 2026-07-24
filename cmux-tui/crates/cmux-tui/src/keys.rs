@@ -130,7 +130,10 @@ impl KeyboardInput {
     }
 }
 
-pub fn mods_from(m: KeyModifiers) -> Mods {
+fn mods_from(m: KeyModifiers) -> Option<Mods> {
+    if m.intersects(KeyModifiers::HYPER | KeyModifiers::META) {
+        return None;
+    }
     let mut mods = Mods::default();
     if m.contains(KeyModifiers::SHIFT) {
         mods = mods | Mods::SHIFT;
@@ -144,7 +147,7 @@ pub fn mods_from(m: KeyModifiers) -> Mods {
     if m.contains(KeyModifiers::SUPER) {
         mods = mods | Mods::SUPER;
     }
-    mods
+    Some(mods)
 }
 
 fn state_mods(state: KeyEventState) -> Mods {
@@ -287,7 +290,7 @@ pub fn key_input_from(event: &KeyEvent) -> Option<KeyInput> {
         // end to end. Skip for now.
         KeyEventKind::Release => return None,
     };
-    let mods = mods_from(event.modifiers) | state_mods(event.state);
+    let mods = mods_from(event.modifiers)? | state_mods(event.state);
 
     let mut input = KeyInput { mods, action: Some(action), ..Default::default() };
 
