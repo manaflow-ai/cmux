@@ -188,6 +188,27 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "time sleep 1\n"
                 'assert "$actual" "$expected"\n'
             ),
+            "shell-arithmetic-before-sleep.sh": (
+                "mask=$((1 << 3))\n"
+                "sleep 1\n"
+                'assert "$actual" "$expected"\n'
+            ),
+            "shell-multiline-arithmetic-before-sleep.sh": (
+                "mask=$((\n"
+                "    1 << 3\n"
+                "))\n"
+                "sleep 1\n"
+                'assert "$actual" "$expected"\n'
+            ),
+            "shell-assert-substitution.sh": (
+                'assert "$(prepare; sleep 1)"\n'
+            ),
+            "shell-assert-multiline-substitution.sh": (
+                'assert "$(\n'
+                "prepare\n"
+                "sleep 1\n"
+                ')"\n'
+            ),
         }
 
         result = self.run_checker(fixtures)
@@ -195,11 +216,16 @@ class DeterminismCheckerCLITests(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         for relative_path in fixtures:
             line = (
+                4
+                if relative_path
+                == "shell-multiline-arithmetic-before-sleep.sh"
+                else
                 3
                 if relative_path
                 in (
                     "swift-multiline-interpolation.swift",
                     "swift-raw-multiline-interpolation.swift",
+                    "shell-assert-multiline-substitution.sh",
                 )
                 else
                 2
@@ -208,6 +234,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "shell-shebang.sh",
                     "template-multiline-interpolation.ts",
                     "js-comment-close.ts",
+                    "shell-arithmetic-before-sleep.sh",
                 )
                 else 1
             )
@@ -857,6 +884,22 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     f"case \"$state\" in {long_case_pattern}) sleepX 1 ;; esac\n"
                     'assert "$actual" "$expected"\n'
                 ),
+                "reserved-word-argument.sh": (
+                    "printf '%s\\n' if sleep 1\n"
+                    'assert "$actual" "$expected"\n'
+                ),
+                "escaped-semicolon-argument.sh": (
+                    "printf '%s\\n' \\; sleep 1\n"
+                    'assert "$actual" "$expected"\n'
+                ),
+                "escaped-pipe-argument.sh": (
+                    "printf '%s\\n' \\| sleep 1\n"
+                    'assert "$actual" "$expected"\n'
+                ),
+                "escaped-paren-argument.sh": (
+                    "printf '%s\\n' \\( sleep 1\n"
+                    'assert "$actual" "$expected"\n'
+                ),
             },
             timeout=2,
         )
@@ -944,6 +987,17 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     ")\n"
                     "expect(finished).toBe(true)\n"
                 ),
+                "regex-in-timeout.ts": (
+                    "setTimeout(\n"
+                    "    () => {\n"
+                    "        const pattern = /\\)/\n"
+                    "        doWork()\n"
+                    "        finish()\n"
+                    "    },\n"
+                    "    1\n"
+                    ")\n"
+                    "expect(finished).toBe(true)\n"
+                ),
             }
         )
 
@@ -952,6 +1006,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             "multiline-bun.ts",
             "multiline-timeout.ts",
             "continued-timeout.ts",
+            "regex-in-timeout.ts",
         ):
             self.assertIn(
                 f"fixtures/{relative_path}:1: sleep-then-assert:",
