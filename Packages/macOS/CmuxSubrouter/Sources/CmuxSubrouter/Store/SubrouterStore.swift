@@ -286,15 +286,23 @@ public final class SubrouterStore {
     /// returned snapshot reflects daemon state from after the call. Used by
     /// switches and the socket verbs.
     ///
-    /// - Parameter reason: A short diagnostic tag.
+    /// - Parameters:
+    ///   - reason: A short diagnostic tag.
+    ///   - includingSessions: Whether to fetch `/_subrouter/sessions`.
+    ///     Verbs that never read sessions (accounts, usage) pass `false`
+    ///     to skip that endpoint's whole-history transfer; the previous
+    ///     sessions stay in the snapshot.
     /// - Returns: The refreshed snapshot.
     @discardableResult
-    public func performFreshRefresh(reason: String) async -> SubrouterSnapshot {
+    public func performFreshRefresh(
+        reason: String,
+        includingSessions: Bool = true
+    ) async -> SubrouterSnapshot {
         guard configurationStorage.isEnabled else { return snapshot }
         while let inFlight = refreshTask {
             await inFlight.value
         }
-        startRefresh(reason: reason, includeSessions: true)
+        startRefresh(reason: reason, includeSessions: includingSessions)
         if let started = refreshTask {
             await started.value
         }

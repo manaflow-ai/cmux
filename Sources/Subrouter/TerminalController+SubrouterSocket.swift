@@ -40,13 +40,13 @@ extension TerminalController {
             }
         case "subrouter.accounts":
             return v2AsyncResultCall(id: id, timeoutSeconds: 30) {
-                await Self.subrouterRefreshResult(requiresHealthyDaemon: true) { snapshot, _ in
+                await Self.subrouterRefreshResult(requiresHealthyDaemon: true, includeSessions: false) { snapshot, _ in
                     ["accounts": snapshot.usageStatuses.map { Self.subrouterAccountPayload($0, includeWindows: false) }]
                 }
             }
         case "subrouter.usage":
             return v2AsyncResultCall(id: id, timeoutSeconds: 30) {
-                await Self.subrouterRefreshResult(requiresHealthyDaemon: true) { snapshot, _ in
+                await Self.subrouterRefreshResult(requiresHealthyDaemon: true, includeSessions: false) { snapshot, _ in
                     ["accounts": snapshot.usageStatuses.map { Self.subrouterAccountPayload($0, includeWindows: true) }]
                 }
             }
@@ -88,13 +88,19 @@ extension TerminalController {
     /// never deactivates the app, and these commands must answer for the
     /// registry's current server.
     ///
-    /// - Parameter requiresHealthyDaemon: Data verbs (`accounts`, `usage`,
-    ///   `sessions`) pass `true` so an unreachable daemon becomes an error
-    ///   instead of silently serving retained (stale or empty) snapshot
-    ///   data; `status` passes `false` because reporting the failure state
-    ///   is its job.
+    /// - Parameters:
+    ///   - requiresHealthyDaemon: Data verbs (`accounts`, `usage`,
+    ///     `sessions`) pass `true` so an unreachable daemon becomes an error
+    ///     instead of silently serving retained (stale or empty) snapshot
+    ///     data; `status` passes `false` because reporting the failure state
+    ///     is its job.
+    ///   - includeSessions: Verbs that never read sessions (`accounts`,
+    ///     `usage`) pass `false` to skip the sessions endpoint's
+    ///     whole-history transfer; `status` (session_count) and `sessions`
+    ///     keep the full fetch.
     private nonisolated static func subrouterRefreshResult(
         requiresHealthyDaemon: Bool,
+        includeSessions: Bool = true,
         _ payload: @Sendable (SubrouterSnapshot, SubrouterConfiguration) -> [String: Any]
     ) async -> TerminalController.V2CallResult {
         let runtime = await MainActor.run { SubrouterAppRuntime.shared }
@@ -102,7 +108,7 @@ extension TerminalController {
         let store = await MainActor.run { runtime.store }
         let configuration = await MainActor.run { store.configuration }
         guard configuration.isEnabled else { return Self.subrouterDisabledError }
-        let snapshot = await store.performFreshRefresh(reason: "socket")
+        let snapshot = await store.performFreshRefresh(reason: "socket", includingSessions: includeSessions)
         if requiresHealthyDaemon {
             if !snapshot.daemonState.isHealthy {
                 return .err(

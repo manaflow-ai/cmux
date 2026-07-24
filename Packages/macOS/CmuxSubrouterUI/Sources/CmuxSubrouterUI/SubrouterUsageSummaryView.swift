@@ -29,8 +29,17 @@ struct SubrouterUsageSummaryView: View {
     }
 
     private func trailingText(window: SubrouterUsageWindow, percent: Double) -> String {
-        if account.quotaAssessment != .ok, let reset = window.shortResetText {
-            return reset
+        // The countdown must come from the window that actually blocks the
+        // account (the assessment's associated window): with both the 5h
+        // and weekly windows saturated, `constrainingWindow` is commonly
+        // the short one, but the account stays down until the weekly reset.
+        switch account.quotaAssessment {
+        case .cooked(let blocking), .tempCooked(let blocking):
+            if let reset = blocking.shortResetText {
+                return reset
+            }
+        case .ok:
+            break
         }
         return String(
             localized: "subrouter.usage.percentUsed",

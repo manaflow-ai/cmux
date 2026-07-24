@@ -110,4 +110,11 @@ extension SubrouterUsageWindow {
     public var isNearlyExhausted: Bool {
         clampedUsedPercent >= Self.nearlyExhaustedPercent
     }
+
+    /// `sr.go`'s `isModelScopedWindow`: the window limits one model/feature
+    /// pool (nonempty `Feature`), so its saturation does not make the whole
+    /// account unusable.
+    public var isModelScoped: Bool {
+        !feature.trimmingCharacters(in: .whitespaces).isEmpty
+    }
 }

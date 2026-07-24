@@ -62,14 +62,31 @@ import Testing
         #expect(SubrouterQuotaAssessment.assess([opus]) == .cooked(opus))
     }
 
-    @Test func featureScopedCodexWindowsClassifyByLength() {
+    @Test func modelScopedWeeklySaturationDoesNotCookTheAccount() {
+        // sr.go's cookedFromWindows skips Feature-scoped windows: draining
+        // one model's weekly pool leaves the account usable for the rest.
         let sparkWeekly = SubrouterUsageWindow(
             name: "GPT-5.3-Codex-Spark/secondary",
             usedPercent: 100,
             limitWindowSeconds: 7 * 24 * 3600,
             feature: "GPT-5.3-Codex-Spark"
         )
-        #expect(SubrouterQuotaAssessment.assess([sparkWeekly]) == .cooked(sparkWeekly))
+        #expect(SubrouterQuotaAssessment.assess([sparkWeekly]) == .ok)
+        #expect(SubrouterQuotaAssessment.assess([sparkWeekly, codexWeekly(100)])
+            == .cooked(codexWeekly(100)))
+    }
+
+    @Test func modelScopedShortWindowStillTempCooks() {
+        // tempCookedFromWindows applies no model-scope filter, so a
+        // feature-scoped short window at 100% still reads temp-cooked.
+        let sparkPrimary = SubrouterUsageWindow(
+            name: "GPT-5.3-Codex-Spark/primary",
+            usedPercent: 100,
+            limitWindowSeconds: 5 * 3600,
+            resetAfterSeconds: 3600,
+            feature: "GPT-5.3-Codex-Spark"
+        )
+        #expect(SubrouterQuotaAssessment.assess([sparkPrimary]) == .tempCooked(sparkPrimary))
     }
 
     @Test func firstSaturatedLongWindowWinsInDaemonOrder() {
