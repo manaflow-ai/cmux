@@ -39,6 +39,7 @@ type SnapshotSelection = {
   tag_name?: string;
   react_components?: string[];
   react_prop_keys?: string[];
+  react_source?: string;
   text_content?: string;
   text_editable?: boolean;
   dom_snippet?: string;
@@ -974,6 +975,60 @@ describe("browser design-mode runtime", () => {
     expect(snap.selection?.react_components).toEqual(["ResultCard", "SearchList"]);
     expect(snap.selection?.react_prop_keys).toEqual(["title", "userEmail"]);
     expect(JSON.stringify(snap)).not.toContain("s3cr3t-user-data");
+  });
+
+  test("selection captures React source location from the nearest fiber _debugSource", () => {
+    const { dom, runtime } = fixture(`<main><button id="b">B</button></main>`);
+    const button = dom.window.document.querySelector("#b") as HTMLElement;
+    function PrimaryButton() {}
+    const fiber = {
+      type: "button",
+      memoizedProps: { children: "B" },
+      return: {
+        type: PrimaryButton,
+        memoizedProps: { children: null },
+        _debugSource: { fileName: "src/components/Button.tsx", lineNumber: 42, columnNumber: 8 },
+        return: null,
+      },
+    };
+    (button as unknown as Record<string, unknown>)["__reactFiber$abc123"] = fiber;
+
+    const snap = runtime.select("#b");
+
+    expect(snap.selection?.react_components).toEqual(["PrimaryButton"]);
+    expect(snap.selection?.react_source).toBe("src/components/Button.tsx:42:8");
+  });
+
+  test("selection omits column when absent and stays empty without source info", () => {
+    const { dom, runtime } = fixture(`<main><button id="b">B</button><button id="c">C</button></main>`);
+    const withLineOnly = dom.window.document.querySelector("#b") as HTMLElement;
+    function Card() {}
+    (withLineOnly as unknown as Record<string, unknown>)["__reactFiber$x"] = {
+      type: Card,
+      memoizedProps: {},
+      _debugSource: { fileName: "src/Card.tsx", lineNumber: 7 },
+      return: null,
+    };
+    expect(runtime.select("#b").selection?.react_source).toBe("src/Card.tsx:7");
+
+    const noSource = dom.window.document.querySelector("#c") as HTMLElement;
+    function Plain() {}
+    (noSource as unknown as Record<string, unknown>)["__reactFiber$y"] = {
+      type: Plain,
+      memoizedProps: {},
+      return: null,
+    };
+    expect(runtime.select("#c").selection?.react_source).toBe("");
+  });
+
+  test("selection falls back to a data-source DOM stamp when no fiber source exists", () => {
+    const { runtime } = fixture(
+      `<main><button id="b" data-source="src/Login.tsx:10:4">B</button></main>`,
+    );
+
+    const snap = runtime.select("#b");
+
+    expect(snap.selection?.react_source).toBe("src/Login.tsx:10:4");
   });
 
   test("selections carry an absolute xpath and support hover-clear and flash", () => {
