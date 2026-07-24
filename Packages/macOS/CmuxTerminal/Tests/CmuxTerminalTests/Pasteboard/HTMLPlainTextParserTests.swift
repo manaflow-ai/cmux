@@ -29,6 +29,48 @@ struct HTMLPlainTextParserTests {
         #expect(parser.plainText(from: html) == "Visible")
     }
 
+    @Test("does not mistake an attribute URL slash for a self-closing script")
+    func omitsScriptWithTrailingSlashInUnquotedAttribute() {
+        let parser = HTMLPlainTextParser()
+        let html = """
+        <script src=http://example.com/>hidden</script>
+        <div>Visible</div>
+        """
+
+        #expect(parser.plainText(from: html) == "Visible")
+    }
+
+    @Test("preserves visible text around malformed angle brackets")
+    func preservesVisibleTextAroundMalformedAngleBrackets() {
+        let parser = HTMLPlainTextParser()
+        #expect(
+            parser.plainText(
+                from: "<p>2 < 3 and 5 > 4</p><p>Still visible</p>"
+            ) == "2 < 3 and 5 > 4\nStill visible"
+        )
+    }
+
+    @Test("script source text cannot consume the closing tag")
+    func scriptSourceTextCannotConsumeClosingTag() {
+        let parser = HTMLPlainTextParser()
+        let html = """
+        <script>if (value < "quoted") { hidden() }</script>
+        <p>Visible</p>
+        """
+
+        #expect(parser.plainText(from: html) == "Visible")
+    }
+
+    @Test("decodes common non-ASCII named entities")
+    func decodesCommonNonASCIINamedEntities() {
+        let parser = HTMLPlainTextParser()
+        #expect(
+            parser.plainText(
+                from: "<p>Caf&eacute; &euro; &ldquo;quoted&rdquo;</p>"
+            ) == "Café € “quoted”"
+        )
+    }
+
     @Test("preserves block and line-break boundaries")
     func preservesBlockAndLineBreakBoundaries() {
         let parser = HTMLPlainTextParser()

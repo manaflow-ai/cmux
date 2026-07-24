@@ -106,6 +106,18 @@ struct PasteboardTextContentsTests {
         )
     }
 
+    @Test func convertsUTF8HTMLDataToPlainText() {
+        let pasteboard = DataOnlyHTMLPasteboard(
+            html: "<p>Data-only &amp; responsive</p>"
+        )
+        let service = TerminalPasteboardService()
+
+        #expect(
+            service.stringContents(from: pasteboard)
+                == "Data-only & responsive"
+        )
+    }
+
     @Test func hasStringIsFalseForUnsupportedLocationAndEmptyBoard() {
         let service = TerminalPasteboardService()
         #expect(!service.hasString(for: ghostty_clipboard_e(rawValue: 99)))
