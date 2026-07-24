@@ -3305,13 +3305,10 @@ mod tests {
             }
             term.vt_write(b"visible");
         });
-        let authoritative_before =
-            surface.with_terminal(|term| term.viewport_text().unwrap()).unwrap();
         let attach = surface.attach_stream().unwrap();
         let mut mirror =
             Terminal::new(attach.cols, attach.rows, 10_000, Callbacks::default()).unwrap();
         mirror.vt_write(&attach.replay);
-        let mirror_before = mirror.viewport_text().unwrap();
         while events.try_recv().is_ok() {}
 
         surface.clear_history().unwrap();
@@ -3322,12 +3319,22 @@ mod tests {
             panic!("clear did not reach the attach mirror");
         };
         mirror.vt_write(&bytes);
-        surface.with_terminal(|term| {
-            assert_eq!(term.history_rows(), 0);
-            assert_eq!(term.viewport_text().unwrap(), authoritative_before);
-        });
+        let authoritative_after = surface
+            .with_terminal(|term| {
+                assert_eq!(term.history_rows(), 0);
+                term.viewport_text().unwrap()
+            })
+            .unwrap();
+        assert!(
+            !authoritative_after.contains("history-"),
+            "completed visible rows survived clear-history: {authoritative_after:?}"
+        );
+        assert!(
+            authoritative_after.ends_with("visible"),
+            "active row did not survive clear-history: {authoritative_after:?}"
+        );
         assert_eq!(mirror.history_rows(), 0);
-        assert_eq!(mirror.viewport_text().unwrap(), mirror_before);
+        assert_eq!(mirror.viewport_text().unwrap(), authoritative_after);
         assert!(events.try_iter().any(|event| matches!(event, MuxEvent::SurfaceOutput(1))));
     }
 
@@ -3512,22 +3519,21 @@ mod tests {
             Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
         let writer = CapturingWriter::default();
         replace_local_writer(&surface, Box::new(writer.clone()));
-        let before = surface
-            .with_terminal(|term| {
-                for line in 0..40 {
-                    term.vt_write(format!("history-{line}\r\n").as_bytes());
-                }
-                term.vt_write(b"foreground-input");
-                assert!(term.history_rows() > 0);
-                term.viewport_text().unwrap()
-            })
-            .unwrap();
+        surface.with_terminal(|term| {
+            for line in 0..40 {
+                term.vt_write(format!("history-{line}\r\n").as_bytes());
+            }
+            term.vt_write(b"foreground-input");
+            assert!(term.history_rows() > 0);
+        });
 
         surface.clear_history().unwrap();
 
         surface.with_terminal(|term| {
             assert_eq!(term.history_rows(), 0);
-            assert_eq!(term.viewport_text().unwrap(), before);
+            let viewport = term.viewport_text().unwrap();
+            assert!(viewport.contains("foreground-input"));
+            assert!(!viewport.contains("history-"));
         });
         assert!(writer.0.lock().unwrap().is_empty());
     }

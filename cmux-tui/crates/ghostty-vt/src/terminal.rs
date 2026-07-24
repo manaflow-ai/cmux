@@ -1729,10 +1729,10 @@ impl Terminal {
     /// Clear retained history and complete rows before the active prompt
     /// without writing bytes to the child process.
     ///
-    /// Cursor movement is applied only when OSC 133 identifies a visible
-    /// prompt row and the cursor can be restored without losing pending-wrap
-    /// or origin-mode state. Otherwise this fails closed to scrollback-only
-    /// erasure, preserving every visible row.
+    /// OSC 133 identifies the full prompt when available. Without shell
+    /// metadata, the current soft-wrapped logical line is preserved. Cursor
+    /// movement is skipped when pending-wrap or origin-mode state cannot be
+    /// restored exactly.
     pub fn clear_history_preserving_prompt(&mut self) -> Vec<u8> {
         const CLEAR_SCROLLBACK: &[u8] = b"\x1b[3J";
 
@@ -1745,20 +1745,26 @@ impl Terminal {
             self.vt_write(&clear);
             return clear;
         };
-        if !self.cursor_is_at_prompt() || self.cursor_pending_wrap() || self.mode(6, false) {
+        if self.cursor_pending_wrap() || self.mode(6, false) {
             self.vt_write(&clear);
             return clear;
         }
-        let Some(prompt_y) = self.active_prompt_start_row(cursor_y) else {
+        let preserve_from_y = if self.cursor_is_at_prompt() {
+            self.active_prompt_start_row(cursor_y)
+                .or_else(|| self.active_logical_line_start_row(cursor_y))
+        } else {
+            self.active_logical_line_start_row(cursor_y)
+        };
+        let Some(preserve_from_y) = preserve_from_y else {
             self.vt_write(&clear);
             return clear;
         };
-        if prompt_y == 0 {
+        if preserve_from_y == 0 {
             self.vt_write(&clear);
             return clear;
         }
 
-        for row in 0..prompt_y {
+        for row in 0..preserve_from_y {
             clear.extend_from_slice(format!("\x1b[{};1H\x1b[2K", u32::from(row) + 1).as_bytes());
         }
         clear.extend_from_slice(
@@ -1783,6 +1789,29 @@ impl Terminal {
             prompt_y -= 1;
         }
         Some(prompt_y)
+    }
+
+    fn active_logical_line_start_row(&self, mut y: u16) -> Option<u16> {
+        while y > 0 && self.active_row_wrap_continuation(y)? {
+            y -= 1;
+        }
+        Some(y)
+    }
+
+    fn active_row_wrap_continuation(&self, y: u16) -> Option<bool> {
+        let grid_ref = self.grid_ref(sys::GHOSTTY_POINT_TAG_ACTIVE, 0, u64::from(y))?;
+        let mut row = sys::GhosttyRow::default();
+        check(unsafe { sys::ghostty_grid_ref_row(&grid_ref, &mut row) }).ok()?;
+        let mut continuation = false;
+        check(unsafe {
+            sys::ghostty_row_get(
+                row,
+                sys::GHOSTTY_ROW_DATA_WRAP_CONTINUATION,
+                (&mut continuation as *mut bool).cast(),
+            )
+        })
+        .ok()?;
+        Some(continuation)
     }
 
     fn active_row_prompt_semantic(&self, y: u16) -> Option<sys::GhosttyRowSemanticPrompt> {
