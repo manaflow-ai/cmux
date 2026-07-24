@@ -220,8 +220,8 @@ struct CodexResumeTrustPolicyTests {
         )
     }
 
-    @Test("A custom project-root decision remains authoritative from a nested cwd")
-    func customProjectRootDecisionRemainsAuthoritative() throws {
+    @Test("A custom marker root does not decide the TUI trust screen")
+    func customProjectRootDecisionDoesNotDecideTrustScreen() throws {
         let fileManager = FileManager.default
         let projectRoot = fileManager.temporaryDirectory
             .appendingPathComponent(
@@ -244,34 +244,26 @@ struct CodexResumeTrustPolicyTests {
         )
         defer { try? fileManager.removeItem(at: projectRoot) }
 
-        let response: [String: Any] = [
-            "id": 2,
-            "result": [
-                "config": [
-                    "project_root_markers": [".cmux-project-root"],
-                    "projects": [
-                        projectRoot.path: ["trust_level": "trusted"],
-                    ],
-                ],
-                "origins": [:],
-                "layers": NSNull(),
-            ],
-        ]
-        let responseData = try JSONSerialization.data(withJSONObject: response)
-        let output = try #require(String(data: responseData, encoding: .utf8))
-        let effectiveConfiguration = try #require(
-            policy.effectiveProjectTrustConfiguration(appServerOutput: output)
-        )
+        let canonicalNestedDirectory = nestedDirectory.path.withCString {
+            pointer -> String in
+            guard let resolved = Darwin.realpath(pointer, nil) else {
+                return nestedDirectory.path
+            }
+            defer { free(resolved) }
+            return String(cString: resolved)
+        }
 
         #expect(
             policy.undecidedProjectOverride(
                 arguments: ["codex", "resume", "SID"],
                 currentDirectory: nestedDirectory.path,
                 repositoryRoot: nil,
-                effectiveProjectDecisionPaths: effectiveConfiguration
-                    .projectDecisionPaths,
-                projectRootMarkers: effectiveConfiguration.projectRootMarkers
-            ).isEmpty
+                effectiveProjectDecisionPaths: [projectRoot.path],
+                projectRootMarkers: [".cmux-project-root"]
+            ) == [
+                "-c",
+                #"projects={"\#(canonicalNestedDirectory)"={trust_level="untrusted"}}"#,
+            ]
         )
     }
 

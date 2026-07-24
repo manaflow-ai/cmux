@@ -31,6 +31,7 @@ class CodexWrapperResumeTrustTests(unittest.TestCase):
         arguments: list[str],
         *,
         resume_helper_mode: str = "override",
+        hostile_bash_on_path: bool = False,
     ) -> tuple[list[str], str, subprocess.CompletedProcess[str]]:
         with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as raw:
             root = Path(raw)
@@ -40,6 +41,7 @@ class CodexWrapperResumeTrustTests(unittest.TestCase):
             args_log = root / "args.bin"
             cmux_log = root / "cmux.log"
             socket_path = root / "cmux.sock"
+            hostile_bin = root / "hostile-bin"
 
             shutil.copy2(SOURCE_WRAPPER, wrapper)
             wrapper.chmod(0o755)
@@ -105,6 +107,15 @@ esac
                     "FAKE_RESUME_HELPER_MODE": resume_helper_mode,
                 }
             )
+            if hostile_bash_on_path:
+                hostile_bin.mkdir()
+                make_executable(
+                    hostile_bin / "bash",
+                    """#!/bin/sh
+exit 97
+""",
+                )
+                env["PATH"] = f"{hostile_bin}:{env.get('PATH', '')}"
             try:
                 result = subprocess.run(
                     [str(wrapper), *arguments],
@@ -117,8 +128,12 @@ esac
             finally:
                 live_socket.close()
 
-            args = args_log.read_bytes().rstrip(b"\0").decode().split("\0")
-            return args, cmux_log.read_text(), result
+            args = (
+                args_log.read_bytes().rstrip(b"\0").decode().split("\0")
+                if args_log.exists()
+                else []
+            )
+            return args, cmux_log.read_text() if cmux_log.exists() else "", result
 
     def test_resume_trust_override_is_appended_after_resume_arguments(self) -> None:
         args, logged_cmux_calls, result = self.run_wrapper(
@@ -254,6 +269,15 @@ esac
         self.assertIn("hooks codex inject-args", logged_cmux_calls)
         self.assertNotIn("hooks codex inject-resume-args", logged_cmux_calls)
         self.assertNotIn('"cmux_resume_rebind":true', logged_cmux_calls)
+
+    def test_project_path_cannot_replace_wrapper_interpreter(self) -> None:
+        args, _, result = self.run_wrapper(
+            ["--yolo"],
+            hostile_bash_on_path=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(args, ["--enable", "hooks", "--yolo"])
 
     def test_resume_helper_empty_or_failed_partial_output_is_discarded(self) -> None:
         for mode in ("empty", "partial", "truncated", "wrong_arity"):

@@ -1981,6 +1981,89 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCodexTurnFromNewerProcessWinsDelayedResumeRebindAndOlderHooks() throws {
+        let context = try makeClaudeHookContext(name: "codex-newer-turn-before-rebind")
+        defer { context.cleanup() }
+
+        let sessionId = "newer-turn-before-rebind-session"
+        let oldPID = Int(Darwin.getpid())
+        let resumedProcess = Process()
+        let resumedProcessInput = Pipe()
+        resumedProcess.executableURL = URL(fileURLWithPath: "/bin/cat")
+        resumedProcess.standardInput = resumedProcessInput
+        try resumedProcess.run()
+        defer {
+            try? resumedProcessInput.fileHandleForWriting.close()
+            if resumedProcess.isRunning {
+                resumedProcess.terminate()
+            }
+            resumedProcess.waitUntilExit()
+        }
+        let resumedPID = Int(resumedProcess.processIdentifier)
+        let launchEnvironment = codexLaunchEnvironment(
+            context: context,
+            sessionId: sessionId
+        )
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 96)
+
+        let initialStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: launchEnvironment.merging([
+                "CMUX_CODEX_PID": String(oldPID),
+            ], uniquingKeysWith: { _, new in new })
+        )
+        XCTAssertEqual(initialStart.status, 0, initialStart.stderr)
+
+        let interruptedPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"interrupted-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"before crash"}"#,
+            extraEnvironment: launchEnvironment.merging([
+                "CMUX_CODEX_PID": String(oldPID),
+            ], uniquingKeysWith: { _, new in new })
+        )
+        XCTAssertEqual(interruptedPrompt.status, 0, interruptedPrompt.stderr)
+
+        let resumedPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"resumed-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"after restore"}"#,
+            extraEnvironment: launchEnvironment.merging([
+                "CMUX_CODEX_PID": String(resumedPID),
+            ], uniquingKeysWith: { _, new in new })
+        )
+        XCTAssertEqual(resumedPrompt.status, 0, resumedPrompt.stderr)
+
+        let delayedRebind = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","cmux_resume_rebind":true}"#,
+            extraEnvironment: launchEnvironment.merging([
+                "CMUX_CODEX_PID": String(resumedPID),
+            ], uniquingKeysWith: { _, new in new })
+        )
+        XCTAssertEqual(delayedRebind.status, 0, delayedRebind.stderr)
+
+        let staleOldPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"stale-old-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"late old hook"}"#,
+            extraEnvironment: launchEnvironment.merging([
+                "CMUX_CODEX_PID": String(oldPID),
+            ], uniquingKeysWith: { _, new in new })
+        )
+        XCTAssertEqual(staleOldPrompt.status, 0, staleOldPrompt.stderr)
+
+        let record = try readCodexHookSession(sessionId, context: context)
+        XCTAssertEqual(record["pid"] as? Int, resumedPID)
+        XCTAssertEqual(record["activePromptDepth"] as? Int, 1)
+        XCTAssertEqual(record["activePromptTurnId"] as? String, "resumed-turn")
+        XCTAssertEqual(record["activePromptTurnIds"] as? [String], ["resumed-turn"])
+        XCTAssertEqual(record["lastPromptTurnId"] as? String, "resumed-turn")
+    }
+
     func testDelayedOlderCodexResumeCannotReplaceNewerActiveProcess() throws {
         let context = try makeClaudeHookContext(name: "codex-delayed-resume-generation")
         defer { context.cleanup() }

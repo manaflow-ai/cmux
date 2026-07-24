@@ -324,7 +324,7 @@ struct AgentResumeArgvTests {
             "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" "
             + "|| { [ -x '/opt/company/bin/codex' ] && printf '%s' '/opt/company/bin/codex' || printf codex; })\""
         let absoluteSubstituted =
-            "'env' 'CODEX_HOME=/tmp/codex home' 'CMUX_CUSTOM_CODEX_PATH=/opt/company/bin/codex' "
+            "'/usr/bin/env' 'CODEX_HOME=/tmp/codex home' 'CMUX_CUSTOM_CODEX_PATH=/opt/company/bin/codex' "
             + "\(absoluteWrapperToken) 'resume' 'SID'"
         #expect(
             AgentResumeArgv.renderedPortableCodexResumeShellCommand(
@@ -369,13 +369,27 @@ struct AgentResumeArgvTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let capturedCodex = root.appendingPathComponent("codex", isDirectory: false)
+        let hostileEnv = root.appendingPathComponent("env", isDirectory: false)
+        let hostileEnvMarker = root.appendingPathComponent(
+            "hostile-env-ran",
+            isDirectory: false
+        )
         try """
         #!/bin/sh
         printf '%s\n' "$*"
         """.write(to: capturedCodex, atomically: true, encoding: .utf8)
+        try """
+        #!/bin/sh
+        touch '\(hostileEnvMarker.path)'
+        exit 97
+        """.write(to: hostileEnv, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o755],
             ofItemAtPath: capturedCodex.path
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: hostileEnv.path
         )
 
         let quote: (String) -> String = {
@@ -392,7 +406,7 @@ struct AgentResumeArgvTests {
         environment["CMUX_CODEX_WRAPPER_SHIM"] = root
             .appendingPathComponent("missing-wrapper", isDirectory: false)
             .path
-        environment["PATH"] = "/usr/bin:/bin"
+        environment["PATH"] = "\(root.path):/usr/bin:/bin"
         process.environment = environment
         let stdout = Pipe()
         process.standardOutput = stdout
@@ -402,6 +416,7 @@ struct AgentResumeArgvTests {
         process.waitUntilExit()
 
         #expect(process.terminationStatus == 0)
+        #expect(!FileManager.default.fileExists(atPath: hostileEnvMarker.path))
         #expect(
             String(
                 data: stdout.fileHandleForReading.readDataToEndOfFile(),
