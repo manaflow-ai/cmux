@@ -49,6 +49,7 @@ pub struct PtyInputEvent {
     pub surface_id: SurfaceId,
     pub surface: SurfaceHandle,
     pub bytes: PtyInputBytes,
+    retained_bytes: usize,
     pub kind: PtyInputKind,
     mutation: Option<Box<dyn FnOnce() -> anyhow::Result<()> + Send>>,
     after_operation: Option<Box<dyn FnOnce() + Send>>,
@@ -73,6 +74,7 @@ impl PtyInputEvent {
             surface_id,
             surface,
             bytes,
+            retained_bytes: 0,
             kind,
             mutation: None,
             after_operation: None,
@@ -118,8 +120,7 @@ impl PtyInputEvent {
     ) -> Self {
         Self::mutation_for_surface(
             label,
-            coalesce_key,
-            None,
+            PtyMutationIdentity { coalesce_key, ..Default::default() },
             remote,
             on_superseded,
             after_operation,
@@ -129,8 +130,7 @@ impl PtyInputEvent {
 
     fn mutation_for_surface(
         label: &'static str,
-        coalesce_key: Option<(&'static str, u64)>,
-        failure_surface_id: Option<SurfaceId>,
+        identity: PtyMutationIdentity,
         remote: bool,
         on_superseded: Option<Box<dyn FnOnce() + Send>>,
         after_operation: Option<Box<dyn FnOnce() + Send>>,
@@ -140,17 +140,22 @@ impl PtyInputEvent {
             surface_id: 0,
             surface: SurfaceHandle::RemoteBrowserUnsupported,
             bytes: PtyInputBytes::new(),
+            retained_bytes: identity.retained_bytes,
             kind: PtyInputKind::Mutation,
             mutation: Some(Box::new(operation)),
             after_operation,
             on_superseded,
             label,
-            coalesce_key,
-            failure_surface_id,
+            coalesce_key: identity.coalesce_key,
+            failure_surface_id: identity.failure_surface_id,
             remote,
             reservation_id: None,
             remote_release_attempts: 0,
         }
+    }
+
+    fn queued_byte_len(&self) -> usize {
+        self.bytes.len().saturating_add(self.retained_bytes)
     }
 }
 
@@ -248,6 +253,7 @@ pub struct PtyInputSender {
 struct PtyMutationIdentity {
     coalesce_key: Option<(&'static str, u64)>,
     failure_surface_id: Option<SurfaceId>,
+    retained_bytes: usize,
 }
 
 impl PtyInputDispatcher {
@@ -345,7 +351,7 @@ impl PtyInputSender {
         if state.remote_failed && event.remote {
             return (PtyInputEnqueueResult::Failed, None);
         }
-        if event.bytes.len() > MAX_QUEUED_BYTES {
+        if event.queued_byte_len() > MAX_QUEUED_BYTES {
             return (PtyInputEnqueueResult::Oversized, None);
         }
         let reserves_release = event.kind == PtyInputKind::Press;
@@ -446,6 +452,7 @@ impl PtyInputSender {
             PtyMutationIdentity {
                 coalesce_key: Some((label, surface_id)),
                 failure_surface_id: Some(surface_id),
+                ..Default::default()
             },
             remote,
             None,
@@ -454,16 +461,21 @@ impl PtyInputSender {
         )
     }
 
-    pub fn enqueue_surface_operation(
+    pub fn enqueue_surface_operation_with_retained_bytes(
         &self,
         label: &'static str,
         surface_id: SurfaceId,
         remote: bool,
+        retained_bytes: usize,
         operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
     ) -> PtyInputEnqueueResult {
         self.enqueue_mutation(
             label,
-            PtyMutationIdentity { failure_surface_id: Some(surface_id), ..Default::default() },
+            PtyMutationIdentity {
+                failure_surface_id: Some(surface_id),
+                retained_bytes,
+                ..Default::default()
+            },
             remote,
             None,
             None,
@@ -482,8 +494,7 @@ impl PtyInputSender {
     ) -> PtyInputEnqueueResult {
         let result = self.enqueue(PtyInputEvent::mutation_for_surface(
             label,
-            identity.coalesce_key,
-            identity.failure_surface_id,
+            identity,
             remote,
             on_superseded,
             after_operation,
@@ -566,7 +577,7 @@ fn enqueue_bounded_with_evictions(
         for index in (0..events.len()).rev() {
             if events[index].coalesce_key == Some(key) {
                 let previous = events.remove(index).unwrap();
-                *queued_bytes = queued_bytes.saturating_sub(previous.bytes.len());
+                *queued_bytes = queued_bytes.saturating_sub(previous.queued_byte_len());
                 replaced = Some((index, previous));
                 break;
             }
@@ -580,18 +591,18 @@ fn enqueue_bounded_with_evictions(
             previous.kind == PtyInputKind::Motion && previous.surface_id == event.surface_id
         })
     {
-        let previous_len = events.back().unwrap().bytes.len();
+        let previous_len = events.back().unwrap().queued_byte_len();
         let projected_bytes = queued_bytes.saturating_sub(previous_len)
-            + event.bytes.len()
+            + event.queued_byte_len()
             + release_reservations.len() * RESERVED_RELEASE_BYTES;
         if projected_bytes > max_bytes {
             if let Some((index, previous)) = replaced.take() {
-                *queued_bytes += previous.bytes.len();
+                *queued_bytes += previous.queued_byte_len();
                 events.insert(index, previous);
             }
             return BoundedEnqueueOutcome { accepted: false, evicted, superseded: None };
         }
-        *queued_bytes = queued_bytes.saturating_sub(previous_len) + event.bytes.len();
+        *queued_bytes = queued_bytes.saturating_sub(previous_len) + event.queued_byte_len();
         *events.back_mut().unwrap() = event;
         let superseded = replaced.as_mut().and_then(|(_, previous)| previous.on_superseded.take());
         return BoundedEnqueueOutcome { accepted: true, evicted, superseded };
@@ -619,7 +630,7 @@ fn enqueue_bounded_with_evictions(
         projected -= 1;
     }
     let mut projected_bytes = *queued_bytes
-        + event.bytes.len()
+        + event.queued_byte_len()
         + (release_reservations.len() + usize::from(event.kind == PtyInputKind::Press))
             * RESERVED_RELEASE_BYTES;
     if consumes_reservation {
@@ -629,15 +640,15 @@ fn enqueue_bounded_with_evictions(
         let Some(index) = events.iter().position(|queued| queued.kind == PtyInputKind::Motion)
         else {
             if let Some((index, previous)) = replaced.take() {
-                *queued_bytes += previous.bytes.len();
+                *queued_bytes += previous.queued_byte_len();
                 events.insert(index, previous);
             }
             return BoundedEnqueueOutcome { accepted: false, evicted, superseded: None };
         };
         let removed = events.remove(index).unwrap();
-        *queued_bytes = queued_bytes.saturating_sub(removed.bytes.len());
+        *queued_bytes = queued_bytes.saturating_sub(removed.queued_byte_len());
         projected -= 1;
-        projected_bytes = projected_bytes.saturating_sub(removed.bytes.len());
+        projected_bytes = projected_bytes.saturating_sub(removed.queued_byte_len());
         evicted.push(PtyOperationFailure {
             surface_id: Some(removed.surface_id),
             kind: Some(PtyInputKind::Motion),
@@ -660,10 +671,10 @@ fn enqueue_bounded_with_evictions(
     }
 
     if merge_stream {
-        *queued_bytes += event.bytes.len();
+        *queued_bytes += event.queued_byte_len();
         events.back_mut().unwrap().bytes.extend_from_slice(&event.bytes);
     } else {
-        *queued_bytes += event.bytes.len();
+        *queued_bytes += event.queued_byte_len();
         events.push_back(event);
     }
     let superseded = replaced.as_mut().and_then(|(_, previous)| previous.on_superseded.take());
@@ -683,7 +694,7 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
             let event = state.events.pop_front().unwrap();
             state.in_flight =
                 Some(InFlightInput { surface_id: event.surface_id, kind: event.kind });
-            state.queued_bytes = state.queued_bytes.saturating_sub(event.bytes.len());
+            state.queued_bytes = state.queued_bytes.saturating_sub(event.queued_byte_len());
             event
         };
         let kind = (event.kind != PtyInputKind::Mutation).then_some(event.kind);
@@ -811,7 +822,7 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
 
 fn requeue_ambiguous_release(state: &mut QueueState, event: PtyInputEvent) {
     debug_assert_eq!(event.kind, PtyInputKind::Release);
-    state.queued_bytes += event.bytes.len();
+    state.queued_bytes += event.queued_byte_len();
     state.events.push_front(event);
 }
 
@@ -851,7 +862,7 @@ fn prune_to_recovery_releases(
             delivery: PtyOperationDelivery::KnownNotDelivered,
         });
     }
-    state.queued_bytes = releases.iter().map(|event| event.bytes.len()).sum();
+    state.queued_bytes = releases.iter().map(PtyInputEvent::queued_byte_len).sum();
     state.events = releases;
     canceled
 }
@@ -866,6 +877,17 @@ mod tests {
             SurfaceHandle::RemoteBrowserUnsupported,
             SmallVec::from_slice(&[bytes]),
             kind,
+        )
+    }
+
+    fn mutation_with_retained_bytes(retained_bytes: usize) -> PtyInputEvent {
+        PtyInputEvent::mutation_for_surface(
+            "retained payload",
+            PtyMutationIdentity { retained_bytes, ..Default::default() },
+            false,
+            None,
+            None,
+            || Ok(()),
         )
     }
 
@@ -1080,6 +1102,33 @@ mod tests {
             1024,
         ));
         assert_eq!(events.len(), 4);
+    }
+
+    #[test]
+    fn retained_mutation_payload_counts_toward_the_byte_limit() {
+        let mut events = VecDeque::new();
+        let mut queued_bytes = 0;
+        let mut releases = ReleaseReservations::default();
+
+        assert!(enqueue_bounded(
+            &mut events,
+            &mut queued_bytes,
+            &mut releases,
+            mutation_with_retained_bytes(6),
+            8,
+            10,
+        ));
+        assert!(!enqueue_bounded(
+            &mut events,
+            &mut queued_bytes,
+            &mut releases,
+            mutation_with_retained_bytes(5),
+            8,
+            10,
+        ));
+
+        assert_eq!(queued_bytes, 6);
+        assert_eq!(events.len(), 1);
     }
 
     #[test]

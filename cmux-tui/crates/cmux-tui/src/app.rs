@@ -1953,10 +1953,12 @@ impl OrderedSession {
 
     pub fn clear_history_or_send_key(&self, surface: SurfaceId, fallback_key: KeyInput) {
         let session = self.inner.clone();
-        self.operations.enqueue_surface_operation(
+        let retained_bytes = fallback_key.utf8.capacity();
+        self.operations.enqueue_surface_operation_with_retained_bytes(
             "clear terminal history",
             surface,
             self.remote,
+            retained_bytes,
             move || session.clear_history_or_send_key(surface, &fallback_key),
         );
     }
