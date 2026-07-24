@@ -3069,9 +3069,7 @@ impl Mux {
     /// Atomically restore every connected or reporting client for one terminal.
     pub fn use_all_client_sizes(&self, surface: SurfaceId) -> Option<bool> {
         let _lifecycle = self.lock_client_sizing_lifecycle();
-        if self.surface(surface).is_none() {
-            return None;
-        }
+        self.surface(surface)?;
         let mut sizing = self.client_sizing.lock().unwrap();
         let attached_clients = self.control_clients.attached_client_ids_for_surface(surface);
         let Some(_) = sizing.policies.remove(&surface) else {
