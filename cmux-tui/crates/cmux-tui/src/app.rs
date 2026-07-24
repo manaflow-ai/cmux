@@ -12664,6 +12664,17 @@ mod tests {
     }
 
     #[test]
+    fn host_resize_without_ioctl_pixels_preserves_last_queried_cell_measurement() {
+        let mux = Mux::new("resize-cell-pixel-preservation-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.cell_pixels = (11, 19);
+
+        app.handle(AppEvent::Input(Event::Resize(120, 40))).unwrap();
+
+        assert_eq!(app.cell_pixels, (11, 19));
+    }
+
+    #[test]
     fn superseded_client_refresh_results_are_ignored() {
         let mux = Mux::new("stale-client-refresh-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
