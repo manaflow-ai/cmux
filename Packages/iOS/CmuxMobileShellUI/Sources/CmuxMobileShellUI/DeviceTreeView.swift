@@ -176,20 +176,23 @@ struct DeviceTreeView: View {
         )
     }
 
+    /// A quiet, footer-style destructive action: centered red text with no
+    /// icon and no card background, so the rare whole-phone action does not
+    /// compete with the computer rows above it.
     private var forgetAllComputersSection: some View {
         Section {
             Button(role: .destructive) {
                 showingForgetAllConfirmation = true
             } label: {
-                Label(
-                    L10n.string(
-                        "mobile.computers.forgetAll",
-                        defaultValue: "Forget All Computers"
-                    ),
-                    systemImage: "minus.circle"
-                )
+                Text(L10n.string(
+                    "mobile.computers.forgetAll",
+                    defaultValue: "Forget All Computers"
+                ))
+                .font(.subheadline)
+                .frame(maxWidth: .infinity)
             }
             .accessibilityIdentifier("MobileComputersForgetAll")
+            .listRowBackground(Color.clear)
         }
     }
 
