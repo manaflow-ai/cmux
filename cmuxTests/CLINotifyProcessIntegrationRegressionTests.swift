@@ -168,11 +168,56 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             """
         )
 
+        var gitEnvironment = ProcessInfo.processInfo.environment
+        gitEnvironment.removeValue(forKey: "GIT_DIR")
+        gitEnvironment.removeValue(forKey: "GIT_WORK_TREE")
+        let separateGitDirectory = root.appendingPathComponent(
+            "separate-git-metadata",
+            isDirectory: true
+        )
+        let gitInit = runProcess(
+            executablePath: "/usr/bin/git",
+            arguments: [
+                "init",
+                "--separate-git-dir",
+                separateGitDirectory.path,
+                root.path,
+            ],
+            environment: gitEnvironment,
+            timeout: 2
+        )
+        XCTAssertFalse(gitInit.timedOut, gitInit.stderr)
+        XCTAssertEqual(gitInit.status, 0, gitInit.stderr)
+
+        environment.removeValue(forKey: "CMUX_TEST_REJECT_STATIC_CATALOG")
+        environment["CMUX_TEST_EMPTY_PROJECTS"] = "1"
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root
+            .appendingPathComponent("separate-git-state", isDirectory: true)
+            .path
+        let separateGitProbe = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "inject-resume-args"],
+            environment: environment,
+            timeout: 2
+        )
+
+        XCTAssertFalse(separateGitProbe.timedOut, separateGitProbe.stderr)
+        XCTAssertEqual(separateGitProbe.status, 0, separateGitProbe.stderr)
+        XCTAssertTrue(
+            separateGitProbe.stdout.contains(
+                #"projects={"\#(canonicalRoot)"={trust_level="untrusted"}}"#
+            ),
+            "A valid separate Git metadata directory must not suppress the unattended resume override: \(separateGitProbe.stdout)"
+        )
+
+        try FileManager.default.removeItem(
+            at: root.appendingPathComponent(".git", isDirectory: false)
+        )
+        try FileManager.default.removeItem(at: separateGitDirectory)
         try FileManager.default.createDirectory(
             at: root.appendingPathComponent(".git", isDirectory: true),
             withIntermediateDirectories: false
         )
-        environment["CMUX_TEST_EMPTY_PROJECTS"] = "1"
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root
             .appendingPathComponent("repository-state", isDirectory: true)
             .path
