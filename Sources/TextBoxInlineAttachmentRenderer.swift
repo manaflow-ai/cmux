@@ -170,8 +170,11 @@ final class TextBoxInlineAttachmentRenderer {
             pixelSize: pixelSize,
             pointSize: pointSize
         )
-        guard runningThumbnailTasks[request] == nil,
-              queuedThumbnailRequestSet.insert(request).inserted else {
+        if let runningTask = runningThumbnailTasks[request],
+           !runningTask.isCancelled {
+            return
+        }
+        guard queuedThumbnailRequestSet.insert(request).inserted else {
             return
         }
         cancelThumbnailRequests(
@@ -184,7 +187,10 @@ final class TextBoxInlineAttachmentRenderer {
 
     private func startQueuedThumbnailRequests() {
         while runningThumbnailTasks.count < Self.maximumConcurrentThumbnailRequests,
-              let request = queuedThumbnailRequests.popLast() {
+              let requestIndex = queuedThumbnailRequests.lastIndex(where: {
+                  runningThumbnailTasks[$0] == nil
+              }) {
+            let request = queuedThumbnailRequests.remove(at: requestIndex)
             queuedThumbnailRequestSet.remove(request)
             guard activeAttachmentIDs.contains(request.attachmentID) else { continue }
 

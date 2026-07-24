@@ -3270,7 +3270,7 @@ final class TextBoxInputTextView: NSTextView {
     private var attachmentPreviewCharacterIndex: Int?
     var focusedAttachmentCharacterIndex: Int?
     private weak var renderedFocusedInlineAttachment: TextBoxInlineTextAttachment?
-    private var inlineAttachmentsByID: [UUID: TextBoxInlineTextAttachment] = [:]
+    private var inlineAttachmentsByID: [UUID: [TextBoxInlineTextAttachment]] = [:]
     private var inlineAttachmentRendererStorage: TextBoxInlineAttachmentRenderer?
     private var inlineAttachmentRenderer: TextBoxInlineAttachmentRenderer {
         if let inlineAttachmentRendererStorage {
@@ -3476,7 +3476,7 @@ final class TextBoxInputTextView: NSTextView {
                 preservingActiveInlineAttachments: false
             )
         }
-        discardInlineAttachmentRendering(for: attachments)
+        discardAllInlineAttachmentRendering()
         invalidatePendingAttachmentUploads()
         dismissMentionCompletions()
         clearAttachmentFocus(dismissPreview: true)
@@ -3745,7 +3745,7 @@ final class TextBoxInputTextView: NSTextView {
         let appearance = effectiveAppearance
         let backingScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
         var attachmentIDs: Set<UUID> = []
-        var attachmentsByID: [UUID: TextBoxInlineTextAttachment] = [:]
+        var attachmentsByID: [UUID: [TextBoxInlineTextAttachment]] = [:]
         var focusedInlineAttachment: TextBoxInlineTextAttachment?
         attributed.enumerateAttribute(
             .attachment,
@@ -3754,7 +3754,7 @@ final class TextBoxInputTextView: NSTextView {
         ) { value, range, _ in
             guard let attachment = value as? TextBoxInlineTextAttachment else { return }
             attachmentIDs.insert(attachment.textBoxAttachment.id)
-            attachmentsByID[attachment.textBoxAttachment.id] = attachment
+            attachmentsByID[attachment.textBoxAttachment.id, default: []].append(attachment)
             let isFocused = isAttachmentFocused(at: range.location)
             attachment.refreshCell(
                 font: font,
@@ -3795,15 +3795,21 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func refreshInlineAttachmentCell(forAttachmentID attachmentID: UUID) {
-        guard let attachment = inlineAttachmentsByID[attachmentID] else { return }
-        attachment.refreshCell(
-            font: font ?? GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize),
-            foregroundColor: textColor ?? .labelColor,
-            isFocused: attachment.isFocused,
-            renderer: inlineAttachmentRenderer,
-            appearance: effectiveAppearance,
-            backingScale: window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
-        )
+        guard let attachments = inlineAttachmentsByID[attachmentID] else { return }
+        let font = font ?? GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
+        let foregroundColor = textColor ?? .labelColor
+        let appearance = effectiveAppearance
+        let backingScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
+        for attachment in attachments {
+            attachment.refreshCell(
+                font: font,
+                foregroundColor: foregroundColor,
+                isFocused: attachment.isFocused,
+                renderer: inlineAttachmentRenderer,
+                appearance: appearance,
+                backingScale: backingScale
+            )
+        }
         // Placeholder and normalized thumbnails have identical geometry, so no layout pass is needed.
         needsDisplay = true
     }
@@ -3935,7 +3941,7 @@ final class TextBoxInputTextView: NSTextView {
         super.mouseDown(with: event)
     }
 
-    fileprivate func handleInlineAttachmentCellClick(
+    func handleInlineAttachmentCellClick(
         attachment: TextBoxAttachment,
         characterIndex: Int,
         clickCount: Int,
@@ -5147,8 +5153,9 @@ final class TextBoxInputTextView: NSTextView {
             return
         }
 
-        let removedAttachments = inlineAttachments(in: range)
-        discardInlineAttachmentRendering(for: removedAttachments)
+        let removedInlineAttachments = inlineTextAttachments(in: range)
+        let removedAttachments = removedInlineAttachments.map(\.textBoxAttachment)
+        discardInlineAttachmentRendering(for: removedInlineAttachments)
         suppressAutomaticAttachmentFileCleanup = true
         defer { suppressAutomaticAttachmentFileCleanup = false }
         insertText("", replacementRange: range)
@@ -5164,23 +5171,28 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func inlineAttachments(in range: NSRange) -> [TextBoxAttachment] {
+        inlineTextAttachments(in: range).map(\.textBoxAttachment)
+    }
+
+    private func inlineTextAttachments(in range: NSRange) -> [TextBoxInlineTextAttachment] {
         guard isValidSelectedRange(range),
               range.length > 0 else {
             return []
         }
-        var result: [TextBoxAttachment] = []
+        var result: [TextBoxInlineTextAttachment] = []
         attributedString().enumerateAttribute(.attachment, in: range, options: []) { value, _, _ in
             guard let attachment = value as? TextBoxInlineTextAttachment else { return }
-            result.append(attachment.textBoxAttachment)
+            result.append(attachment)
         }
         return result
     }
 
     private func queueAutomaticAttachmentFileCleanup(in range: NSRange) {
         guard !suppressAutomaticAttachmentFileCleanup else { return }
-        let removedAttachments = inlineAttachments(in: range)
-        guard !removedAttachments.isEmpty else { return }
-        discardInlineAttachmentRendering(for: removedAttachments)
+        let removedInlineAttachments = inlineTextAttachments(in: range)
+        guard !removedInlineAttachments.isEmpty else { return }
+        discardInlineAttachmentRendering(for: removedInlineAttachments)
+        let removedAttachments = removedInlineAttachments.map(\.textBoxAttachment)
         for attachment in removedAttachments {
             guard attachment.cleanupLocalURLWhenDisposed,
                   let localURL = attachment.localURL else { continue }
@@ -5195,13 +5207,37 @@ final class TextBoxInputTextView: NSTextView {
         cleanupRemovedAttachmentFiles(attachments)
     }
 
-    private func discardInlineAttachmentRendering(for attachments: [TextBoxAttachment]) {
-        let attachmentIDs = Set(attachments.map(\.id))
-        guard !attachmentIDs.isEmpty else { return }
-        for attachmentID in attachmentIDs {
-            inlineAttachmentsByID.removeValue(forKey: attachmentID)
+    private func discardInlineAttachmentRendering(
+        for removedAttachments: [TextBoxInlineTextAttachment]
+    ) {
+        let removedByID = Dictionary(
+            grouping: removedAttachments,
+            by: \.textBoxAttachment.id
+        )
+        var attachmentIDsWithoutOccurrences: Set<UUID> = []
+        for (attachmentID, removedOccurrences) in removedByID {
+            let removedIdentities = Set(removedOccurrences.map(ObjectIdentifier.init))
+            guard var remainingOccurrences = inlineAttachmentsByID[attachmentID] else {
+                continue
+            }
+            remainingOccurrences.removeAll {
+                removedIdentities.contains(ObjectIdentifier($0))
+            }
+            if remainingOccurrences.isEmpty {
+                inlineAttachmentsByID.removeValue(forKey: attachmentID)
+                attachmentIDsWithoutOccurrences.insert(attachmentID)
+            } else {
+                inlineAttachmentsByID[attachmentID] = remainingOccurrences
+            }
         }
-        inlineAttachmentRendererStorage?.removeAttachments(withIDs: attachmentIDs)
+        inlineAttachmentRendererStorage?.removeAttachments(
+            withIDs: attachmentIDsWithoutOccurrences
+        )
+    }
+
+    private func discardAllInlineAttachmentRendering() {
+        inlineAttachmentsByID.removeAll()
+        inlineAttachmentRendererStorage?.retainAttachments(withIDs: [])
     }
 
     private func installAttachmentKeyDownMonitorIfNeeded() {
@@ -5260,7 +5296,7 @@ final class TextBoxInputTextView: NSTextView {
             appearance: effectiveAppearance,
             backingScale: window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
         )
-        inlineAttachmentsByID[attachment.id] = inlineAttachment
+        inlineAttachmentsByID[attachment.id, default: []].append(inlineAttachment)
         let attributed = NSMutableAttributedString(
             attachment: inlineAttachment
         )
