@@ -6,6 +6,24 @@ import Testing
 @MainActor
 struct SidebarFocusBoundaryLifecycleTests {
     @Test
+    func visibilityMutationNotifiesBeforePublishedStateChanges() {
+        let state = SidebarState(isVisible: true)
+        var requestedValues: [Bool] = []
+        var valuesDuringNotification: [Bool] = []
+        state.installVisibilityWillChangeHandler(ownerId: UUID()) { requestedValue in
+            requestedValues.append(requestedValue)
+            valuesDuringNotification.append(state.isVisible)
+        }
+
+        state.setVisible(false)
+        state.setVisible(false)
+
+        #expect(requestedValues == [false])
+        #expect(valuesDuringNotification == [true])
+        #expect(!state.isVisible)
+    }
+
+    @Test
     func windowlessStaleHostCallbackDoesNotEraseMountedReplacement() {
         let root = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 180))
         let window = NSWindow(

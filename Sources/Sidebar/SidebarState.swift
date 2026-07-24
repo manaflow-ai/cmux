@@ -4,12 +4,7 @@ import CoreGraphics
 import Foundation
 
 final class SidebarState: ObservableObject {
-    @Published var isVisible: Bool {
-        willSet {
-            guard newValue != isVisible else { return }
-            visibilityWillChange?(newValue)
-        }
-    }
+    @Published var isVisible: Bool
     @Published var persistedWidth: CGFloat
     private var visibilityWillChangeOwnerId: UUID?
     private var visibilityWillChange: ((Bool) -> Void)?
@@ -21,7 +16,13 @@ final class SidebarState: ObservableObject {
     }
 
     func toggle() {
-        isVisible.toggle()
+        setVisible(!isVisible)
+    }
+
+    func setVisible(_ nextValue: Bool) {
+        guard nextValue != isVisible else { return }
+        visibilityWillChange?(nextValue)
+        isVisible = nextValue
     }
 
     func installVisibilityWillChangeHandler(
