@@ -237,7 +237,7 @@ Errors:
 | `shutdown is only available over the local session socket` | Request arrived over WebSocket |
 | `bad request: ...` | Malformed request envelope |
 
-CLI mapping: `cmux-tui server stop`; `cmux-tui server status` uses `identify` and does not issue this command. A newer Unix client falls back to signaling the PID reported by `identify` when an older server does not implement `shutdown`.
+CLI mapping: `cmux-tui server stop`; `cmux-tui server status` uses `identify` and does not issue this command. When an older Unix server does not implement `shutdown`, a newer client closes every surface reported by `list-workspaces` before signaling the PID reported by `identify`. If orderly pane cleanup fails, the client leaves the server running and reports the failure.
 
 Example:
 

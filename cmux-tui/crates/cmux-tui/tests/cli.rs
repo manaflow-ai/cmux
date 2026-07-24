@@ -376,6 +376,47 @@ fn server_stop_falls_back_when_an_older_server_rejects_shutdown() {
             })
         )
         .unwrap();
+
+        request.clear();
+        reader.read_line(&mut request).unwrap();
+        let list_request: serde_json::Value = serde_json::from_str(&request).unwrap();
+        assert_eq!(list_request["cmd"].as_str(), Some("list-workspaces"));
+        writeln!(
+            stream,
+            "{}",
+            serde_json::json!({
+                "id": list_request["id"],
+                "ok": true,
+                "data": {
+                    "workspaces": [{
+                        "screens": [{
+                            "panes": [{
+                                "tabs": [{"surface": 41}, {"surface": 42}],
+                            }],
+                        }],
+                    }],
+                },
+            })
+        )
+        .unwrap();
+
+        for expected_surface in [41, 42] {
+            request.clear();
+            reader.read_line(&mut request).unwrap();
+            let close_request: serde_json::Value = serde_json::from_str(&request).unwrap();
+            assert_eq!(close_request["cmd"].as_str(), Some("close-surface"));
+            assert_eq!(close_request["surface"].as_u64(), Some(expected_surface));
+            writeln!(
+                stream,
+                "{}",
+                serde_json::json!({
+                    "id": close_request["id"],
+                    "ok": true,
+                    "data": {},
+                })
+            )
+            .unwrap();
+        }
     });
 
     let output = Command::new(bin())
@@ -387,6 +428,88 @@ fn server_stop_falls_back_when_an_older_server_rejects_shutdown() {
 
     assert_success(&output);
     assert!(!pane_process.wait().unwrap().success());
+    server.join().unwrap();
+    let _ = fs::remove_file(&socket);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn server_stop_does_not_signal_an_older_server_when_pane_cleanup_fails() {
+    let dir = unique_temp_dir("legacy-server-cleanup-failure");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let listener = transport::listen(&socket).unwrap();
+    let mut server_process =
+        Command::new("yes").stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+    let server_pid = server_process.id();
+    let server = std::thread::spawn(move || {
+        let mut stream = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone_box().unwrap());
+        let mut request = String::new();
+        reader.read_line(&mut request).unwrap();
+        let identify_request: serde_json::Value = serde_json::from_str(&request).unwrap();
+        writeln!(
+            stream,
+            "{}",
+            serde_json::json!({
+                "id": identify_request["id"],
+                "ok": true,
+                "data": {
+                    "app": "cmux-tui",
+                    "session": "test",
+                    "pid": server_pid,
+                    "version": "0.0.0-stale",
+                    "protocol": 8,
+                },
+            })
+        )
+        .unwrap();
+
+        request.clear();
+        reader.read_line(&mut request).unwrap();
+        writeln!(
+            stream,
+            "{}",
+            serde_json::json!({
+                "id": serde_json::Value::Null,
+                "ok": false,
+                "error": "bad request",
+            })
+        )
+        .unwrap();
+
+        request.clear();
+        reader.read_line(&mut request).unwrap();
+        let list_request: serde_json::Value = serde_json::from_str(&request).unwrap();
+        assert_eq!(list_request["cmd"].as_str(), Some("list-workspaces"));
+        writeln!(
+            stream,
+            "{}",
+            serde_json::json!({
+                "id": list_request["id"],
+                "ok": false,
+                "error": "cleanup unavailable",
+            })
+        )
+        .unwrap();
+    });
+
+    let output = Command::new(bin())
+        .args(["server", "stop", "--socket"])
+        .arg(&socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("could not close pane processes before stopping the older server")
+    );
+    assert!(server_process.try_wait().unwrap().is_none());
+    server_process.kill().unwrap();
+    server_process.wait().unwrap();
     server.join().unwrap();
     let _ = fs::remove_file(&socket);
     let _ = fs::remove_dir_all(&dir);

@@ -35,6 +35,8 @@ pub(crate) struct ServerMessages {
     pub stopped: &'static str,
     pub missing_action: &'static str,
     pub unknown_action: &'static str,
+    #[cfg(unix)]
+    pub legacy_cleanup_failed: &'static str,
     pub shutdown_unsupported: &'static str,
     pub shutdown_timed_out: &'static str,
 }
@@ -180,6 +182,8 @@ static ENGLISH: Catalog = Catalog {
         stopped: "Stopped the cmux-tui server.",
         missing_action: "server needs an action: status or stop",
         unknown_action: "unknown server action",
+        #[cfg(unix)]
+        legacy_cleanup_failed: "could not close pane processes before stopping the older server",
         shutdown_unsupported: "this server cannot be stopped by this client",
         shutdown_timed_out: "the server did not stop within 10 seconds",
     },
@@ -278,6 +282,8 @@ static JAPANESE: Catalog = Catalog {
         stopped: "cmux-tui サーバーを停止しました。",
         missing_action: "server には status または stop の操作が必要です",
         unknown_action: "不明な server 操作",
+        #[cfg(unix)]
+        legacy_cleanup_failed: "古いサーバーを停止する前にペインのプロセスを終了できませんでした",
         shutdown_unsupported: "このクライアントからこのサーバーを停止できません",
         shutdown_timed_out: "10 秒以内にサーバーが停止しませんでした",
     },

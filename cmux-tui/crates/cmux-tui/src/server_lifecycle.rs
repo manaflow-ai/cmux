@@ -11,6 +11,10 @@ use serde_json::{Value, json};
 
 const PROBE_REQUEST_ID: u64 = 0;
 const SHUTDOWN_REQUEST_ID: u64 = 1;
+#[cfg(unix)]
+const LEGACY_LIST_REQUEST_ID: u64 = 2;
+#[cfg(unix)]
+const LEGACY_CLOSE_REQUEST_ID_START: u64 = 3;
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Debug)]
@@ -141,19 +145,54 @@ impl ServerLifecycle {
             Err(error) => return Err(error),
         };
         if !accepted {
-            self.stop_legacy_server().context("failed to signal the older server")?;
+            self.stop_legacy_server()?;
         }
         wait_for_disconnect(&mut self.reader).context("failed while waiting for the server to stop")
     }
 
     #[cfg(unix)]
-    fn stop_legacy_server(&self) -> anyhow::Result<()> {
+    fn stop_legacy_server(&mut self) -> anyhow::Result<()> {
+        self.close_legacy_surfaces().with_context(|| {
+            crate::localization::catalog().server.legacy_cleanup_failed.to_string()
+        })?;
         terminate_legacy_server(self.probe.identity.pid)
+            .context("failed to signal the older server")
     }
 
     #[cfg(not(unix))]
-    fn stop_legacy_server(&self) -> anyhow::Result<()> {
+    fn stop_legacy_server(&mut self) -> anyhow::Result<()> {
         anyhow::bail!(crate::localization::catalog().server.shutdown_unsupported)
+    }
+
+    #[cfg(unix)]
+    fn close_legacy_surfaces(&mut self) -> anyhow::Result<()> {
+        write_json_line(
+            self.reader.get_mut(),
+            &json!({"id": LEGACY_LIST_REQUEST_ID, "cmd": "list-workspaces"}),
+        )
+        .map_err(|error| anyhow::anyhow!("transport error: {error}"))?;
+        let response = read_response(&mut self.reader, LEGACY_LIST_REQUEST_ID)?;
+        let data = response_data(&response, "list-workspaces")?;
+
+        for (index, surface) in legacy_surface_ids(data).into_iter().enumerate() {
+            let request_id = LEGACY_CLOSE_REQUEST_ID_START
+                .checked_add(u64::try_from(index)?)
+                .ok_or_else(|| anyhow::anyhow!("too many surfaces to close"))?;
+            write_json_line(
+                self.reader.get_mut(),
+                &json!({"id": request_id, "cmd": "close-surface", "surface": surface}),
+            )
+            .map_err(|error| anyhow::anyhow!("transport error: {error}"))?;
+            let response = read_response(&mut self.reader, request_id)?;
+            if response.get("ok").and_then(Value::as_bool) != Some(true) {
+                let error =
+                    response.get("error").and_then(Value::as_str).unwrap_or("close-surface failed");
+                if !error.starts_with("unknown surface ") {
+                    anyhow::bail!("{error}");
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -261,6 +300,31 @@ fn read_matching_response(
     }
 }
 
+#[cfg(unix)]
+fn response_data<'a>(response: &'a Value, command: &str) -> anyhow::Result<&'a Value> {
+    if response.get("ok").and_then(Value::as_bool) != Some(true) {
+        anyhow::bail!("{}", response.get("error").and_then(Value::as_str).unwrap_or(command));
+    }
+    Ok(response.get("data").unwrap_or(&Value::Null))
+}
+
+#[cfg(unix)]
+fn legacy_surface_ids(data: &Value) -> Vec<u64> {
+    let mut surfaces = Vec::new();
+    for workspace in data.get("workspaces").and_then(Value::as_array).into_iter().flatten() {
+        for screen in workspace.get("screens").and_then(Value::as_array).into_iter().flatten() {
+            for pane in screen.get("panes").and_then(Value::as_array).into_iter().flatten() {
+                for tab in pane.get("tabs").and_then(Value::as_array).into_iter().flatten() {
+                    if let Some(surface) = tab.get("surface").and_then(Value::as_u64) {
+                        surfaces.push(surface);
+                    }
+                }
+            }
+        }
+    }
+    surfaces
+}
+
 fn wait_for_disconnect(reader: &mut BufReader<Box<dyn transport::Stream>>) -> anyhow::Result<()> {
     let deadline = Instant::now() + RESPONSE_TIMEOUT;
     let mut line = String::new();
@@ -339,5 +403,22 @@ mod tests {
         terminate_legacy_server(child.id()).unwrap();
 
         assert!(!child.wait().unwrap().success());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn legacy_surface_ids_follow_the_workspace_tree() {
+        let data = json!({
+            "workspaces": [{
+                "screens": [{
+                    "panes": [
+                        {"tabs": [{"surface": 11}, {"surface": 12}]},
+                        {"tabs": [{"surface": 13}]},
+                    ],
+                }],
+            }],
+        });
+
+        assert_eq!(legacy_surface_ids(&data), [11, 12, 13]);
     }
 }
