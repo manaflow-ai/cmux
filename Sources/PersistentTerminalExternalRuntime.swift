@@ -1446,12 +1446,6 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
         await frontendEventRouter.waitForConfigDeliveryCount(count)
     }
 
-    func debugWaitForDrainIdleForTesting() async {
-        while let drainTask {
-            await drainTask.value
-        }
-    }
-
     func debugHandleRendererEventForTesting(
         _ event: TerminalBackendRendererEvent
     ) async {

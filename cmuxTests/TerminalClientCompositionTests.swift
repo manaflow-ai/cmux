@@ -1636,7 +1636,6 @@ struct TerminalClientCompositionTests {
         )
         #expect(runtime.enqueue(.resize(viewport)).accepted)
         await client.waitForMutationCount(1)
-        await runtime.debugWaitForDrainIdleForTesting()
 
         let recordedInitial = await client.lastMutation()
         let initial = try #require(recordedInitial)
