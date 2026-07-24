@@ -84,7 +84,10 @@ struct ClaudeHookLifecycleCleanupTests {
             "SessionEnd must not clear the foreign pane the polluted record named; saw \(commands)"
         )
         #expect(
-            commands.contains("clear_notifications --tab=\(Self.liveWorkspaceId) --panel=\(Self.liveSurfaceId)"),
+            commands.contains {
+                $0.hasPrefix("clear_notifications --tab=\(Self.liveWorkspaceId) --panel=\(Self.liveSurfaceId) ")
+                    && $0.contains("--agent-status-key=claude_code")
+            },
             "A same-workspace live retarget must clear only the real pane; saw \(commands)"
         )
         #expect(
@@ -146,7 +149,10 @@ struct ClaudeHookLifecycleCleanupTests {
             "SessionEnd must clear agent pid/status on the pane's current workspace; saw \(commands)"
         )
         #expect(
-            commands.contains("clear_notifications --tab=\(newWorkspaceId) --panel=\(Self.liveSurfaceId)"),
+            commands.contains {
+                $0.hasPrefix("clear_notifications --tab=\(newWorkspaceId) --panel=\(Self.liveSurfaceId) ")
+                    && $0.contains("--agent-status-key=claude_code")
+            },
             "A re-homed SessionEnd clear must be scoped to the moved pane, not wipe sibling panes in the destination workspace; saw \(commands)"
         )
         #expect(
@@ -191,7 +197,10 @@ struct ClaudeHookLifecycleCleanupTests {
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         assertSuccessfulHook(result)
         let commands = context.state.snapshot()
-        #expect(commands.contains("clear_notifications --tab=\(Self.liveWorkspaceId) --panel=\(Self.liveSurfaceId)"))
+        #expect(commands.contains {
+            $0.hasPrefix("clear_notifications --tab=\(Self.liveWorkspaceId) --panel=\(Self.liveSurfaceId) ")
+                && $0.contains("--agent-status-key=claude_code")
+        })
         #expect(!commands.contains("clear_notifications --tab=\(Self.liveWorkspaceId)"))
     }
 
@@ -228,7 +237,10 @@ struct ClaudeHookLifecycleCleanupTests {
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         assertSuccessfulHook(result)
         let commands = context.state.snapshot()
-        #expect(commands.contains("clear_notifications --tab=\(newWorkspaceId) --panel=\(Self.liveSurfaceId)"))
+        #expect(commands.contains {
+            $0.hasPrefix("clear_notifications --tab=\(newWorkspaceId) --panel=\(Self.liveSurfaceId) ")
+                && $0.contains("--agent-status-key=claude_code")
+        })
         #expect(!commands.contains("clear_notifications --tab=\(newWorkspaceId)"))
     }
 
@@ -287,7 +299,10 @@ struct ClaudeHookLifecycleCleanupTests {
             !commands.contains { $0.contains("--panel=\(Self.fallbackSurfaceId)") },
             "PreToolUse must not mutate the old workspace's focused pane; saw \(commands)"
         )
-        #expect(commands.contains("clear_notifications --tab=\(newWorkspaceId) --panel=\(Self.liveSurfaceId)"))
+        #expect(commands.contains {
+            $0.hasPrefix("clear_notifications --tab=\(newWorkspaceId) --panel=\(Self.liveSurfaceId) ")
+                && $0.contains("--agent-status-key=claude_code")
+        })
         #expect(!commands.contains("clear_notifications --tab=\(newWorkspaceId)"))
         let record = try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)
         #expect(record?["workspaceId"] as? String == newWorkspaceId, "Session record must re-home, not re-pollute")

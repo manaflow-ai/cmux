@@ -232,6 +232,7 @@ struct CompletedRestoredAgentGenerationTests {
         RestorableAgentSessionIndex.Entry(
             snapshot: snapshot,
             lifecycle: .running,
+            runtimeStatusEventTime: nil,
             updatedAt: updatedAt,
             processLiveness: .running,
             processIDs: [Int(identity.pid)],

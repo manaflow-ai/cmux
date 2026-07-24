@@ -82,6 +82,7 @@ extension DockSocketLifecycleTests {
             shellActivityState: shellActivityState,
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
             resumeBinding: resumeBinding,
+            resumeBindingEventTime: nil,
             agentRuntime: agentRuntime,
             isRemoteTerminal: false,
             remoteRelayPort: nil,

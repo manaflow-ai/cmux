@@ -21,7 +21,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "OK\n")
         XCTAssertTrue(
-            context.state.commands.contains { $0 == "clear_notifications --tab=\(context.workspaceId) --panel=\(context.surfaceId)" },
+            context.state.commands.contains {
+                $0.hasPrefix("clear_notifications --tab=\(context.workspaceId) --panel=\(context.surfaceId) ")
+                    && $0.contains("--agent-status-key=claude_code")
+                    && $0.contains("--agent-event-time=")
+            },
             "Expected clear SessionStart to clear only the current pane, saw \(context.state.commands)"
         )
         XCTAssertTrue(
@@ -9253,7 +9257,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             unlink(socketPath)
         }
 
-        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
+        let mockServer = startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
@@ -9303,6 +9307,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 )
             }
         }
+        defer { mockServer.shutdown() }
 
         var environment = ProcessInfo.processInfo.environment
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {

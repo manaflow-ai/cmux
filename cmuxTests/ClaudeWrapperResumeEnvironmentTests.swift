@@ -85,6 +85,9 @@ import Testing
 
         let recorded = try String(contentsOf: recordURL, encoding: .utf8)
         #expect(recorded.contains("--settings"), Comment(rawValue: recorded))
+        #expect(recorded.contains("CMUX_AGENT_HOOK_CAPTURED_AT="), Comment(rawValue: recorded))
+        #expect(recorded.contains("hooks claude stop"), Comment(rawValue: recorded))
+        #expect(recorded.contains("hooks claude pre-tool-use"), Comment(rawValue: recorded))
         #expect(recorded.contains("--resume claude-session-123"), Comment(rawValue: recorded))
         for key in sessionIdentityKeys {
             #expect(recorded.contains("\(key)=<unset>"), Comment(rawValue: recorded))
@@ -93,6 +96,284 @@ import Testing
             #expect(recorded.contains("\(key)=inherited-parent-value"), Comment(rawValue: recorded))
         }
         #expect(recorded.contains("CLAUDE_CODE_USE_VERTEX=1"), Comment(rawValue: recorded))
+    }
+
+    @Test func claudeFallbackHookTimesIncreaseWithoutWaitingForLegacyClockLock() throws {
+        let fileManager = FileManager.default
+        let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let wrapperURL = repoRoot.appendingPathComponent("Resources/bin/cmux-claude-wrapper", isDirectory: false)
+        let sandbox = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-claude-hook-time-\(String(UUID().uuidString.prefix(8)))", isDirectory: true)
+        let binDir = sandbox.appendingPathComponent("bin", isDirectory: true)
+        let toolBin = sandbox.appendingPathComponent("hook-tools", isDirectory: true)
+        let homeDir = sandbox.appendingPathComponent("home", isDirectory: true)
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: toolBin, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: homeDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: sandbox) }
+
+        let socketURL = sandbox.appendingPathComponent("cmux.sock", isDirectory: false)
+        let socketFD = try bindUnixSocket(at: socketURL.path)
+        defer {
+            Darwin.close(socketFD)
+            unlink(socketURL.path)
+        }
+
+        let argvURL = sandbox.appendingPathComponent("claude-argv.bin", isDirectory: false)
+        try writeExecutable(
+            binDir.appendingPathComponent("claude", isDirectory: false),
+            """
+            #!/usr/bin/env bash
+            : "${CMUX_TEST_ARGV_PATH:?}"
+            printf '%s\\0' "$@" > "$CMUX_TEST_ARGV_PATH"
+            """
+        )
+        let capturedAtURL = sandbox.appendingPathComponent("captured-at.txt", isDirectory: false)
+        let fakeCmuxURL = binDir.appendingPathComponent("cmux", isDirectory: false)
+        try writeExecutable(
+            fakeCmuxURL,
+            """
+            #!/bin/sh
+            if [ "${1:-}" = "--socket" ] && [ "${3:-}" = "ping" ]; then
+              exit 0
+            fi
+            printf '%s\\n' "${CMUX_AGENT_HOOK_CAPTURED_AT:-}" >> "${CMUX_TEST_CAPTURED_AT:?}"
+            """
+        )
+
+        let wrapper = Process()
+        wrapper.executableURL = wrapperURL
+        wrapper.environment = [
+            "PATH": "\(binDir.path):/usr/bin:/bin",
+            "HOME": homeDir.path,
+            "TMPDIR": sandbox.path,
+            "CMUX_SURFACE_ID": UUID().uuidString,
+            "CMUX_SOCKET_PATH": socketURL.path,
+            "CMUX_BUNDLED_CLI_PATH": fakeCmuxURL.path,
+            "CMUX_TEST_ARGV_PATH": argvURL.path,
+            "CMUX_TEST_CAPTURED_AT": capturedAtURL.path,
+        ]
+        wrapper.standardInput = FileHandle.nullDevice
+        wrapper.standardOutput = FileHandle.nullDevice
+        wrapper.standardError = FileHandle.nullDevice
+        try runWithBoundedWait(wrapper, shellDescription: "cmux-claude-wrapper settings capture")
+
+        let argv = try Data(contentsOf: argvURL)
+            .split(separator: 0)
+            .compactMap { String(data: Data($0), encoding: .utf8) }
+        let settingsIndex = try #require(argv.firstIndex(of: "--settings"))
+        let settings = try #require(argv.indices.contains(settingsIndex + 1) ? argv[settingsIndex + 1] : nil)
+        let settingsObject = try #require(
+            JSONSerialization.jsonObject(with: Data(settings.utf8)) as? [String: Any]
+        )
+        let hooks = try #require(settingsObject["hooks"] as? [String: Any])
+        let preToolUseMatchers = try #require(hooks["PreToolUse"] as? [[String: Any]])
+        let cronCreatePreToolUse = try #require(
+            preToolUseMatchers.first { ($0["matcher"] as? String) == "CronCreate" }
+        )
+        let cronCreateHooks = try #require(cronCreatePreToolUse["hooks"] as? [[String: Any]])
+        let cronCreateGuard = try #require(cronCreateHooks.first {
+            ($0["command"] as? String)?.contains("hooks claude cron-create-guard") == true
+        })
+        #expect(
+            cronCreateGuard["async"] as? Bool != true,
+            "CronCreate must wait for cmux to reject unsupported durable cron requests"
+        )
+        let ordinaryPreToolUse = try #require(
+            preToolUseMatchers.first { ($0["matcher"] as? String) == "" }
+        )
+        let ordinaryPreToolUseHooks = try #require(ordinaryPreToolUse["hooks"] as? [[String: Any]])
+        let statusHook = try #require(ordinaryPreToolUseHooks.first {
+            ($0["command"] as? String)?.contains("hooks claude pre-tool-use") == true
+        })
+        let statusHookCommand = try #require(statusHook["command"] as? String)
+        #expect(
+            statusHook["async"] == nil,
+            "PreToolUse must reserve its event order synchronously before detaching status bookkeeping"
+        )
+        let stopMatchers = try #require(hooks["Stop"] as? [[String: Any]])
+        let stopHooks = try #require(stopMatchers.first?["hooks"] as? [[String: Any]])
+        let command = try #require(stopHooks.first?["command"] as? String)
+
+        let orderingOutputURL = sandbox.appendingPathComponent("pre-tool-ordering.txt", isDirectory: false)
+        let orderingCmuxURL = binDir.appendingPathComponent("ordering-cmux", isDirectory: false)
+        let orderingClockRoot = sandbox.appendingPathComponent("pre-tool-ordering-clock", isDirectory: true)
+        try fileManager.createDirectory(at: orderingClockRoot, withIntermediateDirectories: false)
+        try writeExecutable(
+            orderingCmuxURL,
+            """
+            #!/bin/sh
+            case " $* " in
+              *" hooks claude pre-tool-use "*) /bin/sleep 1 ;;
+            esac
+            printf '%s|%s\\n' "$*" "${CMUX_AGENT_HOOK_CAPTURED_AT:-}" >> "${CMUX_TEST_ORDERING_OUTPUT:?}"
+            /bin/cat >/dev/null
+            """
+        )
+        let orderingEnvironment = [
+            "PATH": "\(binDir.path):/usr/bin:/bin",
+            "TMPDIR": orderingClockRoot.path,
+            "CMUX_CLAUDE_HOOK_CMUX_BIN": orderingCmuxURL.path,
+            "CMUX_TEST_ORDERING_OUTPUT": orderingOutputURL.path,
+        ]
+        let preToolUse = Process()
+        let preToolUseInput = Pipe()
+        preToolUse.executableURL = URL(fileURLWithPath: "/bin/sh")
+        preToolUse.arguments = ["-c", statusHookCommand]
+        preToolUse.environment = orderingEnvironment
+        preToolUse.standardInput = preToolUseInput
+        preToolUse.standardOutput = FileHandle.nullDevice
+        preToolUse.standardError = FileHandle.nullDevice
+        preToolUseInput.fileHandleForWriting.write(Data(#"{"tool_name":"Bash"}"#.utf8))
+        try preToolUseInput.fileHandleForWriting.close()
+        let preToolUseStartedAt = Date()
+        try runWithBoundedWait(preToolUse, shellDescription: "Claude PreToolUse admission shim")
+        #expect(
+            Date().timeIntervalSince(preToolUseStartedAt) < 0.75,
+            "PreToolUse admission must return before the detached cmux bookkeeping finishes"
+        )
+
+        let stop = Process()
+        stop.executableURL = URL(fileURLWithPath: "/bin/sh")
+        stop.arguments = ["-c", command]
+        stop.environment = orderingEnvironment
+        stop.standardInput = FileHandle.nullDevice
+        stop.standardOutput = FileHandle.nullDevice
+        stop.standardError = FileHandle.nullDevice
+        try runWithBoundedWait(stop, shellDescription: "Claude Stop ordering probe")
+        #expect(waitForCondition(timeout: 3) {
+            guard let text = try? String(contentsOf: orderingOutputURL, encoding: .utf8) else { return false }
+            return text.split(whereSeparator: \.isNewline).count == 2
+        })
+        let orderingLines = try String(contentsOf: orderingOutputURL, encoding: .utf8)
+            .split(whereSeparator: \.isNewline)
+            .map(String.init)
+        let preToolUseLine = try #require(orderingLines.first { $0.contains("hooks claude pre-tool-use") })
+        let stopLine = try #require(orderingLines.first { $0.contains("hooks claude stop") })
+        let preToolUseTime = try #require(
+            preToolUseLine.split(separator: "|").last.flatMap { TimeInterval(String($0)) }
+        )
+        let stopTime = try #require(
+            stopLine.split(separator: "|").last.flatMap { TimeInterval(String($0)) }
+        )
+        #expect(preToolUseTime < stopTime)
+
+        try verifyAgentHookClockSamplesOnlyAfterLockAcquisition(
+            commandBody: command,
+            root: sandbox.appendingPathComponent("clock-lock-order", isDirectory: true)
+        )
+        try verifyAgentHookClockSurvivesBackwardWallClock(
+            commandBody: command,
+            root: sandbox.appendingPathComponent("clock-wall-rollback", isDirectory: true)
+        )
+
+        for (tool, target) in [
+            ("chmod", "/bin/chmod"),
+            ("mkdir", "/bin/mkdir"),
+            ("mktemp", "/usr/bin/mktemp"),
+            ("mv", "/bin/mv"),
+            ("printenv", "/usr/bin/printenv"),
+            ("rm", "/bin/rm"),
+            ("rmdir", "/bin/rmdir"),
+            ("sleep", "/bin/sleep"),
+        ] {
+            try fileManager.createSymbolicLink(
+                at: toolBin.appendingPathComponent(tool, isDirectory: false),
+                withDestinationURL: URL(fileURLWithPath: target)
+            )
+        }
+        let fakeDateURL = toolBin.appendingPathComponent("date", isDirectory: false)
+        try writeExecutable(fakeDateURL, "#!/bin/sh\nprintf '1699999999\\n'\n")
+        let monotonicClockDirectory = sandbox.appendingPathComponent("cmux-agent-hook-clock-v2", isDirectory: true)
+        let monotonicClockState = monotonicClockDirectory.appendingPathComponent("state", isDirectory: false)
+        let seededMicros: Int64 = 1_700_000_000_123_456
+        try fileManager.createDirectory(at: monotonicClockDirectory, withIntermediateDirectories: false)
+        try "\(seededMicros)\n".write(to: monotonicClockState, atomically: true, encoding: .utf8)
+        let clockStateURL = sandbox.appendingPathComponent("cmux-agent-hook-time.state", isDirectory: false)
+        let clockStateVictimURL = sandbox.appendingPathComponent("clock-state-victim.txt", isDirectory: false)
+        try "1700000000 0\n".write(to: clockStateVictimURL, atomically: true, encoding: .utf8)
+        try fileManager.createSymbolicLink(at: clockStateURL, withDestinationURL: clockStateVictimURL)
+        let legacyLockURL = sandbox.appendingPathComponent("cmux-agent-hook-time.lock", isDirectory: true)
+        try fileManager.createDirectory(at: legacyLockURL, withIntermediateDirectories: false)
+        try "\(ProcessInfo.processInfo.processIdentifier)\n".write(
+            to: legacyLockURL.appendingPathComponent("owner"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "1699999999\n".write(
+            to: legacyLockURL.appendingPathComponent("started"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let hook = Process()
+        hook.executableURL = URL(fileURLWithPath: "/bin/sh")
+        hook.arguments = ["-c", Array(repeating: command, count: 4).joined(separator: "; ")]
+        hook.environment = [
+            "PATH": toolBin.path,
+            "TMPDIR": sandbox.path,
+            "CMUX_AGENT_HOOK_DATE_BIN": fakeDateURL.path,
+            "CMUX_CLAUDE_HOOK_CMUX_BIN": fakeCmuxURL.path,
+            "CMUX_TEST_CAPTURED_AT": capturedAtURL.path,
+        ]
+        hook.standardInput = FileHandle.nullDevice
+        hook.standardOutput = FileHandle.nullDevice
+        hook.standardError = FileHandle.nullDevice
+        try runWithBoundedWait(hook, shellDescription: "Claude fallback hook timestamps", timeout: 1)
+
+        #expect(try String(contentsOf: clockStateVictimURL, encoding: .utf8) == "1700000000 0\n")
+        #expect(try clockStateURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink == true)
+        #expect(fileManager.fileExists(atPath: legacyLockURL.path))
+
+        let rawTimes = try String(contentsOf: capturedAtURL, encoding: .utf8)
+            .split(whereSeparator: \.isNewline)
+            .map(String.init)
+        #expect(rawTimes.count == 4)
+        let times = try rawTimes.map { try #require(Double($0)) }
+        #expect(times.allSatisfy { $0.isFinite && $0 > 0 })
+        let maximumAcceptedCaptureTime = Date().timeIntervalSince1970 + 5 * 60
+        #expect(
+            times.allSatisfy { $0 <= maximumAcceptedCaptureTime },
+            "A poisoned future clock state must not become the emitted ordering watermark"
+        )
+        for (earlier, later) in zip(times, times.dropFirst()) {
+            #expect(earlier < later, Comment(rawValue: rawTimes.joined(separator: ",")))
+        }
+
+        try fileManager.removeItem(at: monotonicClockDirectory)
+        let attackerClockDirectory = sandbox.appendingPathComponent("attacker-clock", isDirectory: true)
+        let attackerClockState = attackerClockDirectory.appendingPathComponent("state", isDirectory: false)
+        try fileManager.createDirectory(at: attackerClockDirectory, withIntermediateDirectories: false)
+        try "\(seededMicros)\n".write(to: attackerClockState, atomically: true, encoding: .utf8)
+        try fileManager.createSymbolicLink(
+            at: monotonicClockDirectory,
+            withDestinationURL: attackerClockDirectory
+        )
+
+        let untrustedClockHook = Process()
+        untrustedClockHook.executableURL = URL(fileURLWithPath: "/bin/sh")
+        untrustedClockHook.arguments = ["-c", command]
+        untrustedClockHook.environment = [
+            "PATH": toolBin.path,
+            "TMPDIR": sandbox.path,
+            "CMUX_AGENT_HOOK_DATE_BIN": fakeDateURL.path,
+            "CMUX_CLAUDE_HOOK_CMUX_BIN": fakeCmuxURL.path,
+            "CMUX_TEST_CAPTURED_AT": capturedAtURL.path,
+        ]
+        untrustedClockHook.standardInput = FileHandle.nullDevice
+        untrustedClockHook.standardOutput = FileHandle.nullDevice
+        untrustedClockHook.standardError = FileHandle.nullDevice
+        try runWithBoundedWait(untrustedClockHook, shellDescription: "Claude untrusted clock fallback", timeout: 1)
+
+        let capturedTimes = try String(contentsOf: capturedAtURL, encoding: .utf8)
+            .split(whereSeparator: \.isNewline)
+            .map(String.init)
+        #expect(
+            capturedTimes.count == 5,
+            "An untrusted primary clock must fall back to a separate private clock instead of dropping ordering metadata"
+        )
+        #expect(try #require(Double(capturedTimes[4])) > 0)
+        #expect(try String(contentsOf: attackerClockState, encoding: .utf8) == "\(seededMicros)\n")
     }
 
     private func runWithBoundedWait(

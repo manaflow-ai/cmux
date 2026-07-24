@@ -26,27 +26,12 @@ extension TerminalController: ControlSidebarContext {
         priority: Int,
         format: ControlSidebarMetadataFormat,
         panelID: UUID?,
-        pid: Int32?
+        pid: Int32?,
+        agentEventTime: TimeInterval? = nil
     ) {
         let appFormat = SidebarMetadataFormat(rawValue: format.rawValue) ?? .plain
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, tab in
-            guard Self.shouldReplaceStatusEntry(
-                current: tab.statusEntries[key],
-                key: key,
-                value: value,
-                icon: icon,
-                color: color,
-                url: url,
-                priority: priority,
-                format: appFormat
-            ) else {
-                // Still update PID tracking even if the status display hasn't changed.
-                if let pid {
-                    tab.recordAgentPID(key: key, pid: pid, panelId: panelID)
-                }
-                return
-            }
-            tab.statusEntries[key] = SidebarStatusEntry(
+            tab.upsertSidebarStatusEntry(
                 key: key,
                 value: value,
                 icon: icon,
@@ -54,11 +39,10 @@ extension TerminalController: ControlSidebarContext {
                 url: url,
                 priority: priority,
                 format: appFormat,
-                timestamp: Date()
+                panelId: panelID,
+                pid: pid,
+                agentEventTime: agentEventTime
             )
-            if let pid {
-                tab.recordAgentPID(key: key, pid: pid, panelId: panelID)
-            }
         }
     }
 
@@ -73,13 +57,16 @@ extension TerminalController: ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         pid: Int32,
-        panelID: UUID?
+        panelID: UUID?,
+        agentEventTime: TimeInterval? = nil
     ) {
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, tab in
             let didReplaceAgentRuntime = tab.recordAgentPID(
                 key: key,
                 pid: pid,
-                panelId: panelID
+                panelId: panelID,
+                agentEventTime: agentEventTime,
+                enforceAgentEventOrdering: true
             )
             if didReplaceAgentRuntime, let panelId = panelID {
                 TerminalNotificationStore.shared.clearNotifications(
@@ -89,6 +76,10 @@ extension TerminalController: ControlSidebarContext {
                 )
             }
         }
+    }
+
+    nonisolated func controlSidebarInvalidAgentEventTimeError(_ raw: String) -> String {
+        invalidAgentEventTimeError(raw)
     }
 
     nonisolated func controlSidebarParseAgentLifecycle(_ raw: String) -> String? {
@@ -153,14 +144,21 @@ extension TerminalController: ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         lifecycleRawValue: String,
-        panelID: UUID?
+        panelID: UUID?,
+        agentEventTime: TimeInterval? = nil
     ) {
         guard let lifecycle = AgentHibernationLifecycleState(rawValue: lifecycleRawValue) else {
             // Unreachable: the coordinator only forwards a value this app produced.
             return
         }
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, tab in
-            tab.setAgentLifecycle(key: key, panelId: panelID, lifecycle: lifecycle)
+            tab.setAgentLifecycle(
+                key: key,
+                panelId: panelID,
+                lifecycle: lifecycle,
+                agentEventTime: agentEventTime,
+                enforceAgentEventOrdering: true
+            )
         }
     }
 
@@ -218,13 +216,16 @@ extension TerminalController: ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         panelID: UUID?,
-        clearStatus: Bool
+        clearStatus: Bool,
+        agentEventTime: TimeInterval?
     ) {
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, tab in
             tab.clearAgentPID(
                 key: key,
                 panelId: panelID,
-                clearStatus: clearStatus
+                clearStatus: clearStatus,
+                agentEventTime: agentEventTime,
+                enforceAgentEventOrdering: true
             )
         }
     }

@@ -2,6 +2,7 @@ import Darwin
 import Foundation
 import Testing
 import Bonsplit
+import CmuxSidebar
 import CmuxTerminal
 
 #if canImport(cmux_DEV)
@@ -33,6 +34,16 @@ struct AgentHibernationTests {
         let response = TerminalController.shared.handleSocketLine("set_agent_lifecycle fake-agent idle")
 
         expectTrue(response.contains("Unsupported agent lifecycle key"))
+    }
+
+    @MainActor
+    @Test
+    func testSocketStatusRejectsOutOfRangeAgentEventTime() {
+        let response = TerminalController.shared.handleSocketLine(
+            "set_status codex Running --agent-event-time=1e300"
+        )
+
+        expectTrue(response.contains("must be between 2000-01-01 and 5 minutes from now"))
     }
 
     @MainActor
@@ -275,6 +286,184 @@ struct AgentHibernationTests {
         expectEqual(workspace.agentHibernationLifecycleState(panelId: secondPanelId, fallback: nil), .running)
     }
 
+    @MainActor
+    @Test
+    func testClearingAgentPIDPreservesSiblingPanelsPIDLessStatus() throws {
+        let workspace = Workspace()
+        let clearingPanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.paneId(forPanelId: clearingPanelId))
+        let statusOwnerPanelId = try #require(workspace.newTerminalSurface(inPane: paneId, focus: false)).id
+
+        workspace.recordAgentPID(
+            key: "codex.clearing-session",
+            pid: 111,
+            panelId: clearingPanelId,
+            refreshPorts: false
+        )
+        workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: statusOwnerPanelId,
+            lifecycle: .running,
+            agentEventTime: 1_893_456_200
+        )
+        workspace.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex",
+            value: "Running",
+            icon: "bolt.fill",
+            color: "#4C8DFF",
+            agentEventTime: 1_893_456_200,
+            agentOwnerPanelID: statusOwnerPanelId
+        )
+
+        expectTrue(workspace.clearAgentPID(
+            key: "codex.clearing-session",
+            panelId: clearingPanelId,
+            clearStatus: true,
+            refreshPorts: false
+        ))
+
+        expectEqual(workspace.statusEntries["codex"]?.value, "Running")
+        expectEqual(workspace.statusEntries["codex"]?.agentOwnerPanelID, statusOwnerPanelId)
+    }
+
+    @MainActor
+    @Test
+    func testMovingPanelDoesNotTransferSiblingOwnedStatus() throws {
+        let source = Workspace()
+        let movingPanelId = try #require(source.focusedPanelId)
+        let paneId = try #require(source.paneId(forPanelId: movingPanelId))
+        let statusOwnerPanelId = try #require(source.newTerminalSurface(inPane: paneId, focus: false)).id
+
+        source.recordAgentPID(
+            key: "codex.moving-session",
+            pid: 111,
+            panelId: movingPanelId,
+            refreshPorts: false
+        )
+        source.recordAgentPID(
+            key: "codex.owner-session",
+            pid: 222,
+            panelId: statusOwnerPanelId,
+            refreshPorts: false
+        )
+        source.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex",
+            value: "Running",
+            icon: "bolt.fill",
+            color: "#4C8DFF",
+            agentEventTime: 1_893_456_300,
+            agentOwnerPanelID: statusOwnerPanelId
+        )
+
+        let detached = try #require(source.detachSurface(panelId: movingPanelId))
+        let destination = Workspace()
+        let destinationPaneId = try #require(destination.bonsplitController.focusedPaneId)
+        expectEqual(
+            destination.attachDetachedSurface(detached, inPane: destinationPaneId, focus: false),
+            movingPanelId
+        )
+
+        expectEqual(source.statusEntries["codex"]?.agentOwnerPanelID, statusOwnerPanelId)
+        expectNil(destination.statusEntries["codex"])
+    }
+
+    @MainActor
+    @Test
+    func testMovingPanelTransfersPIDLessPanelOwnedStatus() throws {
+        let source = Workspace()
+        let movingPanelId = try #require(source.focusedPanelId)
+        let eventTime: TimeInterval = 1_893_456_400
+        source.setAgentLifecycle(
+            key: "codex",
+            panelId: movingPanelId,
+            lifecycle: .running,
+            agentEventTime: eventTime
+        )
+        source.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex",
+            value: "Running",
+            icon: "bolt.fill",
+            color: "#4C8DFF",
+            agentEventTime: eventTime,
+            agentOwnerPanelID: movingPanelId
+        )
+
+        let detached = try #require(source.detachSurface(panelId: movingPanelId))
+        let destination = Workspace()
+        let destinationPaneId = try #require(destination.bonsplitController.focusedPaneId)
+        expectEqual(
+            destination.attachDetachedSurface(detached, inPane: destinationPaneId, focus: false),
+            movingPanelId
+        )
+
+        expectNil(source.statusEntries["codex"])
+        expectEqual(destination.statusEntries["codex"]?.value, "Running")
+        expectEqual(destination.statusEntries["codex"]?.agentOwnerPanelID, movingPanelId)
+        expectEqual(
+            destination.agentLifecycleEventTimesByPanelId[movingPanelId]?["codex"],
+            eventTime
+        )
+    }
+
+    @MainActor
+    @Test
+    func testMovingPanelLeavesWorkspaceScopedStatusInSourceWorkspace() throws {
+        let source = Workspace()
+        let movingPanelId = try #require(source.focusedPanelId)
+        let replacement = source.upsertSidebarStatusEntry(
+            key: "build",
+            value: "Compiling",
+            icon: "hammer",
+            color: "#FF9500",
+            url: nil,
+            priority: 80,
+            format: .plain,
+            panelId: nil,
+            pid: nil,
+            agentEventTime: nil
+        )
+        expectEqual(replacement, .replace)
+        expectNil(source.statusEntries["build"]?.agentOwnerPanelID)
+
+        let detached = try #require(source.detachSurface(panelId: movingPanelId))
+        let destination = Workspace()
+        let destinationPaneId = try #require(destination.bonsplitController.focusedPaneId)
+        expectEqual(
+            destination.attachDetachedSurface(detached, inPane: destinationPaneId, focus: false),
+            movingPanelId
+        )
+
+        expectEqual(source.statusEntries["build"]?.value, "Compiling")
+        expectNil(source.statusEntries["build"]?.agentOwnerPanelID)
+        expectNil(destination.statusEntries["build"])
+    }
+
+    @MainActor
+    @Test
+    func testRegisteredAgentLifecycleRejectsStaleEventTime() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let key = "registered-agent"
+
+        expectTrue(workspace.setAgentLifecycle(
+            key: key,
+            panelId: panelId,
+            lifecycle: .running,
+            agentEventTime: 200,
+            enforceAgentEventOrdering: true
+        ))
+        expectFalse(workspace.setAgentLifecycle(
+            key: key,
+            panelId: panelId,
+            lifecycle: .idle,
+            agentEventTime: 100,
+            enforceAgentEventOrdering: true
+        ))
+
+        expectEqual(workspace.agentLifecycleStatesByPanelId[panelId]?[key], .running)
+        expectEqual(workspace.agentLifecycleEventTimesByPanelId[panelId]?[key], 200)
+    }
+
     @Test
     func testSessionIndexLoadsAgentLifecycleFromHookStore() throws {
         let home = FileManager.default.temporaryDirectory
@@ -376,6 +565,287 @@ struct AgentHibernationTests {
         expectEqual(index.lifecycle(workspaceId: workspaceId, panelId: panelId), .idle)
         expectEqual(index.processIDs(workspaceId: workspaceId, panelId: panelId), [pid])
         expectTrue(index.hasLiveProcess(workspaceId: workspaceId, panelId: panelId))
+    }
+
+    @MainActor
+    @Test
+    func testLiveIdleHookObservationReconcilesStuckRunningSidebarStatus() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-hibernation-idle-reconcile-\(UUID().uuidString)", isDirectory: true)
+        let storeURL = RestorableAgentKind.codex.hookStoreFileURL(homeDirectory: home.path)
+        try FileManager.default.createDirectory(at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let pid = Int(ProcessInfo.processInfo.processIdentifier)
+        let sessionId = "codex-live-idle-reconcile"
+        let hookUpdatedAt: TimeInterval = 1
+        workspace.recordAgentPID(key: "codex.\(sessionId)", pid: pid_t(pid), panelId: panelId, refreshPorts: false)
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
+        workspace.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex",
+            value: "Running",
+            icon: "bolt.fill",
+            color: "#4C8DFF"
+        )
+
+        let jsonObject: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": workspace.id.uuidString,
+                    "surfaceId": panelId.uuidString,
+                    "cwd": "/tmp/repo",
+                    "pid": pid,
+                    "agentLifecycle": "idle",
+                    "runtimeStatus": "idle",
+                    "updatedAt": hookUpdatedAt,
+                    "launchCommand": [
+                        "launcher": "codex",
+                        "executablePath": "/usr/local/bin/codex",
+                        "arguments": ["/usr/local/bin/codex"],
+                        "workingDirectory": "/tmp/repo",
+                    ],
+                ],
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: jsonObject, options: [.prettyPrinted])
+        try data.write(to: storeURL, options: .atomic)
+
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: home.path,
+            fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [:],
+            processArgumentsProvider: { requestedPID in
+                requestedPID == pid
+                    ? CmuxTopProcessArguments(
+                        arguments: ["/usr/local/bin/codex"],
+                        environment: [
+                            "CMUX_WORKSPACE_ID": workspace.id.uuidString,
+                            "CMUX_SURFACE_ID": panelId.uuidString,
+                            "CMUX_AGENT_LAUNCH_KIND": RestorableAgentKind.codex.rawValue,
+                        ]
+                    )
+                    : nil
+            }
+        )
+
+        expectEqual(index.lifecycle(workspaceId: workspace.id, panelId: panelId), .idle)
+        expectFalse(index.hasLiveProcess(workspaceId: workspace.id, panelId: panelId))
+
+        expectNotNil(workspace.restorableAgentForHibernation(panelId: panelId, index: index))
+
+        expectEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .idle)
+        expectEqual(workspace.statusEntries["codex"]?.value, "Idle")
+    }
+
+    @MainActor
+    @Test
+    func testLiveIdleHookObservationDoesNotOverwriteNewerRunningEvent() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-hibernation-stale-idle-reconcile-\(UUID().uuidString)", isDirectory: true)
+        let storeURL = RestorableAgentKind.codex.hookStoreFileURL(homeDirectory: home.path)
+        try FileManager.default.createDirectory(at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let pid = Int(ProcessInfo.processInfo.processIdentifier)
+        let sessionId = "codex-stale-idle-reconcile"
+        let staleIdleEventTime: TimeInterval = 100
+        let newerRunningEventTime: TimeInterval = 200
+        let laterBookkeepingTime: TimeInterval = 300
+        workspace.recordAgentPID(key: "codex.\(sessionId)", pid: pid_t(pid), panelId: panelId, refreshPorts: false)
+        workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: panelId,
+            lifecycle: .running,
+            agentEventTime: newerRunningEventTime
+        )
+        workspace.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex",
+            value: "Running",
+            icon: "bolt.fill",
+            color: "#4C8DFF",
+            agentEventTime: newerRunningEventTime
+        )
+
+        let jsonObject: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": workspace.id.uuidString,
+                    "surfaceId": panelId.uuidString,
+                    "cwd": "/tmp/repo",
+                    "pid": pid,
+                    "agentLifecycle": "idle",
+                    "runtimeStatus": "idle",
+                    "runtimeStatusEventTime": staleIdleEventTime,
+                    "updatedAt": laterBookkeepingTime,
+                    "launchCommand": [
+                        "launcher": "codex",
+                        "executablePath": "/usr/local/bin/codex",
+                        "arguments": ["/usr/local/bin/codex"],
+                        "workingDirectory": "/tmp/repo",
+                    ],
+                ],
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: jsonObject, options: [.prettyPrinted])
+        try data.write(to: storeURL, options: .atomic)
+
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: home.path,
+            fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [:],
+            processArgumentsProvider: { requestedPID in
+                requestedPID == pid
+                    ? CmuxTopProcessArguments(
+                        arguments: ["/usr/local/bin/codex"],
+                        environment: [
+                            "CMUX_WORKSPACE_ID": workspace.id.uuidString,
+                            "CMUX_SURFACE_ID": panelId.uuidString,
+                            "CMUX_AGENT_LAUNCH_KIND": RestorableAgentKind.codex.rawValue,
+                        ]
+                    )
+                    : nil
+            }
+        )
+
+        let observation = try #require(index.entry(workspaceId: workspace.id, panelId: panelId))
+        workspace.reconcileLiveIdleAgentStatus(panelId: panelId, observation: observation)
+
+        expectEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .running)
+        expectEqual(workspace.statusEntries["codex"]?.value, "Running")
+        expectEqual(workspace.statusEntries["codex"]?.agentEventTime, newerRunningEventTime)
+    }
+
+    @MainActor
+    @Test
+    func testLiveIdleReconciliationDoesNotOverwriteAnotherPanelsRunningStatus() throws {
+        let workspace = Workspace()
+        let idlePanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.paneId(forPanelId: idlePanelId))
+        let runningPanelId = try #require(workspace.newTerminalSurface(inPane: paneId, focus: false)).id
+
+        workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: idlePanelId,
+            lifecycle: .running,
+            agentEventTime: 100
+        )
+        workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: runningPanelId,
+            lifecycle: .running,
+            agentEventTime: 300
+        )
+        workspace.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex",
+            value: "Running",
+            icon: "bolt.fill",
+            color: "#4C8DFF",
+            agentEventTime: 300,
+            agentOwnerPanelID: runningPanelId
+        )
+        let observation = RestorableAgentSessionIndex.Entry(
+            snapshot: SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: "idle-panel-with-shared-running-status",
+                workingDirectory: "/tmp/repo",
+                launchCommand: nil
+            ),
+            lifecycle: .idle,
+            runtimeStatusEventTime: 200,
+            updatedAt: 200,
+            processLiveness: .unknown,
+            processIDs: [],
+            agentProcessIDs: [],
+            agentProcessIdentities: [:]
+        )
+
+        workspace.reconcileLiveIdleAgentStatus(panelId: idlePanelId, observation: observation)
+
+        expectEqual(workspace.agentHibernationLifecycleState(panelId: idlePanelId, fallback: nil), .idle)
+        expectEqual(workspace.agentHibernationLifecycleState(panelId: runningPanelId, fallback: nil), .running)
+        expectEqual(workspace.statusEntries["codex"]?.value, "Running")
+        expectEqual(workspace.statusEntries["codex"]?.agentEventTime, 300)
+        expectEqual(workspace.statusEntries["codex"]?.agentOwnerPanelID, runningPanelId)
+    }
+
+    @MainActor
+    @Test
+    func testLegacyIdleBookkeepingCannotOverwriteTimestampedRunningWatermark() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let runningEventTime: TimeInterval = 200
+        workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: panelId,
+            lifecycle: .running,
+            agentEventTime: runningEventTime
+        )
+        workspace.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex",
+            value: "Running",
+            icon: "bolt.fill",
+            color: "#4C8DFF",
+            agentEventTime: runningEventTime
+        )
+        let observation = RestorableAgentSessionIndex.Entry(
+            snapshot: SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: "legacy-idle-bookkeeping",
+                workingDirectory: "/tmp/repo",
+                launchCommand: nil
+            ),
+            lifecycle: .idle,
+            runtimeStatusEventTime: nil,
+            updatedAt: 300,
+            processLiveness: .unknown,
+            processIDs: [],
+            agentProcessIDs: [],
+            agentProcessIdentities: [:]
+        )
+
+        workspace.reconcileLiveIdleAgentStatus(panelId: panelId, observation: observation)
+
+        expectEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .running)
+        expectEqual(workspace.statusEntries["codex"]?.value, "Running")
+        expectEqual(workspace.statusEntries["codex"]?.agentEventTime, runningEventTime)
+    }
+
+    @MainActor
+    @Test
+    func testUntimestampedLifecycleCallerCanUpdateAfterTimestampedHookState() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+
+        workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: panelId,
+            lifecycle: .running,
+            agentEventTime: 200
+        )
+
+        expectTrue(
+            workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .needsInput)
+        )
+        expectEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .needsInput)
+        expectFalse(
+            workspace.setAgentLifecycle(
+                key: "codex",
+                panelId: panelId,
+                lifecycle: .idle,
+                agentEventTime: 100
+            )
+        )
+        expectEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .needsInput)
     }
 
     @Test

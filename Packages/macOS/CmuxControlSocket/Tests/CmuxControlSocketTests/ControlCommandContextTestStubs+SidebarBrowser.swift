@@ -58,7 +58,8 @@ extension ControlSidebarContext {
         priority: Int,
         format: ControlSidebarMetadataFormat,
         panelID: UUID?,
-        pid: Int32?
+        pid: Int32?,
+        agentEventTime: TimeInterval?
     ) {}
 
     nonisolated func controlSidebarScheduleStatusClear(target: ControlSidebarTabTarget, key: String) {}
@@ -67,8 +68,13 @@ extension ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         pid: Int32,
-        panelID: UUID?
+        panelID: UUID?,
+        agentEventTime: TimeInterval?
     ) {}
+
+    nonisolated func controlSidebarInvalidAgentEventTimeError(_ raw: String) -> String {
+        "ERROR: Invalid agent event time '\(raw)' - must be between 2000-01-01 and 5 minutes from now"
+    }
 
     nonisolated func controlSidebarParseAgentLifecycle(_ raw: String) -> String? { nil }
 
@@ -82,7 +88,8 @@ extension ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         lifecycleRawValue: String,
-        panelID: UUID?
+        panelID: UUID?,
+        agentEventTime: TimeInterval?
     ) {}
 
     func controlSidebarSetWorkspaceLoading(
@@ -97,7 +104,8 @@ extension ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         panelID: UUID?,
-        clearStatus: Bool
+        clearStatus: Bool,
+        agentEventTime: TimeInterval?
     ) {}
 
     nonisolated func controlSidebarScheduleMetadataBlockUpsert(

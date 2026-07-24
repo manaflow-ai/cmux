@@ -214,6 +214,7 @@ struct DockWorkingDirectoryInheritanceTests {
     ) -> Workspace.DetachedSurfaceTransfer {
         Workspace.DetachedSurfaceTransfer(
             sourceWorkspaceId: sourceWorkspaceId,
+            sessionRestoreSourceWorkspaceId: nil,
             panelId: panel.id,
             panel: panel,
             title: panel.displayTitle,
@@ -237,6 +238,7 @@ struct DockWorkingDirectoryInheritanceTests {
             shellActivityState: nil,
             restoredResumeSessionWorkingDirectory: nil,
             resumeBinding: nil,
+            resumeBindingEventTime: nil,
             agentRuntime: nil,
             isRemoteTerminal: true,
             remoteRelayPort: nil,

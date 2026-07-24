@@ -85,6 +85,11 @@ extension DockSplitStore {
         let preservedCompletedGeneration = restoredAgentLifecycle.completedGeneration(panelId: panelId)
             ?? preservedTransfer?.restoredAgentCompletedGeneration
         let preservedResumeBinding = surfaceResumeBindingsByPanelId[panelId] ?? preservedTransfer?.resumeBinding
+        let preservedResumeBindingEventTime = [
+            surfaceResumeBindingEventTimesByPanelId[panelId],
+            preservedTransfer?.resumeBindingEventTime,
+            preservedResumeBinding?.updatedAt,
+        ].compactMap { $0 }.max()
         let preservedResumeSessionDirectory = restoredResumeSessionWorkingDirectoriesByPanelId[panelId]
             ?? preservedTransfer?.restoredResumeSessionWorkingDirectory
         let kind = (panel.panelType == .browser) ? "browser" : "terminal"
@@ -210,6 +215,7 @@ extension DockSplitStore {
             shellActivityState: transferredShellActivityState,
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
             resumeBinding: resumeBinding,
+            resumeBindingEventTime: preservedResumeBindingEventTime,
             agentRuntime: agentProvenExited ? nil : preservedTransfer?.agentRuntime,
             isRemoteTerminal: preservedTransfer?.isRemoteTerminal ?? false,
             remoteRelayPort: preservedTransfer?.remoteRelayPort,

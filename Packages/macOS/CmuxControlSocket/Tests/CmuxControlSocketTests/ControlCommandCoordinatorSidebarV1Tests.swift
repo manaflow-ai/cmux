@@ -44,4 +44,55 @@ struct ControlCommandCoordinatorSidebarV1Tests {
             #expect(context.workspaceLoadingCall == nil)
         }
     }
+
+    @Test func setStatusRejectsMalformedAgentEventTimeBeforeMutation() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_status",
+            args: "codex Running --agent-event-time=not-a-time"
+        )
+
+        #expect(response == "ERROR: Invalid agent event time 'not-a-time' - must be between 2000-01-01 and 5 minutes from now")
+    }
+
+    @Test func setAgentPIDRejectsMalformedAgentEventTimeBeforeMutation() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_agent_pid",
+            args: "claude_code 42424 --agent-event-time=not-a-time"
+        )
+
+        #expect(response == "ERROR: Invalid agent event time 'not-a-time' - must be between 2000-01-01 and 5 minutes from now")
+    }
+
+    @Test(arguments: ["1", "1e300", "4102444801"])
+    func setStatusRejectsOutOfRangeAgentEventTime(rawEventTime: String) {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_status",
+            args: "codex Running --agent-event-time=\(rawEventTime)"
+        )
+
+        #expect(
+            response == "ERROR: Invalid agent event time '\(rawEventTime)' - must be between 2000-01-01 and 5 minutes from now"
+        )
+    }
+
+    @Test func setStatusRejectsPlausibleEpochThatIsFarInTheFuture() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_status",
+            args: "codex Running --agent-event-time=4102444800"
+        )
+
+        #expect(response?.hasPrefix("ERROR: Invalid agent event time") == true)
+    }
 }

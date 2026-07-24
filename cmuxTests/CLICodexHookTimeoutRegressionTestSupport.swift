@@ -3,6 +3,9 @@ import Foundation
 import Darwin
 import Testing
 
+@_silgen_name("flock")
+private func cmuxTestFlock(_ fileDescriptor: Int32, _ operation: Int32) -> Int32
+
 struct InstalledHookEntry {
     let eventName: String
     let command: String
@@ -210,30 +213,30 @@ func runCodexHookProcess(
     timeout: TimeInterval
 ) -> CodexHookProcessRunResult {
     let process = Process()
-    let stdoutPipe = Pipe()
-    let stderrPipe = Pipe()
-    let stdinPipe = standardInput == nil ? nil : Pipe()
-    process.executableURL = URL(fileURLWithPath: executablePath)
-    process.arguments = arguments
-    process.environment = environment
-    process.standardInput = stdinPipe ?? FileHandle.nullDevice
-    process.standardOutput = stdoutPipe
-    process.standardError = stderrPipe
-
+    let capture: ProcessTestFileCapture
     do {
-        try process.run()
+        capture = try ProcessTestFileCapture(standardInput: standardInput)
     } catch {
         return CodexHookProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
     }
-    if let standardInput, let stdinPipe {
-        stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
-        try? stdinPipe.fileHandleForWriting.close()
-    }
+    defer { capture.cleanup() }
+    process.executableURL = URL(fileURLWithPath: executablePath)
+    process.arguments = arguments
+    process.environment = environment
+    capture.attach(to: process)
 
     let exitSignal = DispatchSemaphore(value: 0)
-    DispatchQueue.global(qos: .userInitiated).async {
-        process.waitUntilExit()
+    process.terminationHandler = { _ in
         exitSignal.signal()
+    }
+
+    do {
+        try process.run()
+        capture.closeParentHandles()
+    } catch {
+        process.terminationHandler = nil
+        capture.closeParentHandles()
+        return CodexHookProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
     }
 
     let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
@@ -244,13 +247,12 @@ func runCodexHookProcess(
             _ = exitSignal.wait(timeout: .now() + 1)
         }
     }
+    process.terminationHandler = nil
 
-    let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-    let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
     return CodexHookProcessRunResult(
-        status: process.terminationStatus,
-        stdout: String(data: stdoutData, encoding: .utf8) ?? "",
-        stderr: String(data: stderrData, encoding: .utf8) ?? "",
+        status: process.isRunning ? SIGKILL : process.terminationStatus,
+        stdout: capture.standardOutput(),
+        stderr: capture.standardError(),
         timedOut: timedOut
     )
 }
@@ -266,6 +268,15 @@ func waitForFile(_ url: URL, containing expected: String, timeout: TimeInterval)
     return false
 }
 
+func waitForFileLineCount(_ url: URL, count expectedCount: Int, timeout: TimeInterval) -> Bool {
+    waitForCondition(timeout: timeout) {
+        guard let content = try? String(contentsOf: url, encoding: .utf8) else {
+            return false
+        }
+        return content.split(whereSeparator: \.isNewline).count >= expectedCount
+    }
+}
+
 func waitForCondition(timeout: TimeInterval, pollInterval: TimeInterval = 0.02, _ condition: () -> Bool) -> Bool {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
@@ -275,4 +286,198 @@ func waitForCondition(timeout: TimeInterval, pollInterval: TimeInterval = 0.02, 
         Thread.sleep(forTimeInterval: pollInterval)
     }
     return condition()
+}
+
+func verifyAgentHookClockSamplesOnlyAfterLockAcquisition(
+    commandBody: String,
+    root: URL,
+    lockHoldDuration: TimeInterval = 1.1
+) throws {
+    let clockShell = try agentHookCaptureClockShell(in: commandBody)
+    let fileManager = FileManager.default
+    let clockDirectory = root.appendingPathComponent("cmux-agent-hook-clock-v2", isDirectory: true)
+    let lockURL = clockDirectory.appendingPathComponent("lock", isDirectory: false)
+    let outputURL = root.appendingPathComponent("captured-at.txt", isDirectory: false)
+    try fileManager.createDirectory(at: clockDirectory, withIntermediateDirectories: true)
+    _ = fileManager.createFile(atPath: lockURL.path, contents: Data())
+    try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: clockDirectory.path)
+
+    let lockFD = Darwin.open(lockURL.path, O_RDWR | O_CLOEXEC)
+    guard lockFD >= 0 else {
+        throw NSError(domain: "cmux.tests.agent-hook-clock", code: Int(errno))
+    }
+    defer { Darwin.close(lockFD) }
+    guard cmuxTestFlock(lockFD, LOCK_EX) == 0 else {
+        throw NSError(domain: "cmux.tests.agent-hook-clock", code: Int(errno))
+    }
+    var ownsLock = true
+    defer {
+        if ownsLock {
+            _ = cmuxTestFlock(lockFD, LOCK_UN)
+        }
+    }
+
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/bin/sh")
+    process.arguments = ["-c", "\(clockShell) > \(shellQuoteForAgentHookClockTest(outputURL.path))"]
+    process.environment = [
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        "TMPDIR": root.path,
+    ]
+    process.standardInput = FileHandle.nullDevice
+    process.standardOutput = FileHandle.nullDevice
+    process.standardError = FileHandle.nullDevice
+    let exited = DispatchSemaphore(value: 0)
+    process.terminationHandler = { _ in exited.signal() }
+    try process.run()
+    defer {
+        if process.isRunning {
+            process.terminate()
+        }
+    }
+
+    let clockReachedLock = waitForCondition(timeout: 3) {
+        processTreeContainsExecutable(rootPID: process.processIdentifier, named: "lockf")
+    }
+    try #require(clockReachedLock, "Agent hook clock never reached its shared lock")
+    Thread.sleep(forTimeInterval: lockHoldDuration)
+    let unlockBoundary = Date().timeIntervalSince1970
+
+    guard cmuxTestFlock(lockFD, LOCK_UN) == 0 else {
+        throw NSError(domain: "cmux.tests.agent-hook-clock", code: Int(errno))
+    }
+    ownsLock = false
+    if exited.wait(timeout: .now() + 3) == .timedOut {
+        process.terminate()
+        throw NSError(domain: "cmux.tests.agent-hook-clock", code: Int(ETIMEDOUT))
+    }
+    let rawValue = try String(contentsOf: outputURL, encoding: .utf8)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    let capturedTime = try #require(TimeInterval(rawValue))
+    #expect(capturedTime.isFinite && capturedTime > 0, Comment(rawValue: rawValue))
+    #expect(
+        capturedTime >= unlockBoundary,
+        "Agent hook clock captured its timestamp before acquiring its shared lock"
+    )
+}
+
+func verifyAgentHookClockSurvivesBackwardWallClock(
+    commandBody: String,
+    root: URL
+) throws {
+    let clockShell = try agentHookCaptureClockShell(in: commandBody)
+    let fileManager = FileManager.default
+    let clockDirectory = root.appendingPathComponent("cmux-agent-hook-clock-v2", isDirectory: true)
+    let stateURL = clockDirectory.appendingPathComponent("state", isDirectory: false)
+    let outputURL = root.appendingPathComponent("rollback-captured-at.txt", isDirectory: false)
+    try fileManager.createDirectory(at: clockDirectory, withIntermediateDirectories: true)
+    try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: clockDirectory.path)
+
+    let logicalDate = Date().addingTimeInterval(10 * 60)
+    let seededMicros = Int64(logicalDate.timeIntervalSince1970 * 1_000_000)
+    try "\(seededMicros)\n".write(to: stateURL, atomically: true, encoding: .utf8)
+    try fileManager.setAttributes([.modificationDate: logicalDate], ofItemAtPath: stateURL.path)
+
+    for _ in 0..<2 {
+        let run = runCodexHookProcess(
+            executablePath: "/bin/sh",
+            arguments: [
+                "-c",
+                "{ ( \(clockShell) ); printf '\\n'; } >> \(shellQuoteForAgentHookClockTest(outputURL.path))",
+            ],
+            environment: [
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "TMPDIR": root.path,
+            ],
+            timeout: 3
+        )
+        #expect(!run.timedOut, Comment(rawValue: run.stderr))
+        #expect(run.status == 0, Comment(rawValue: run.stderr))
+    }
+
+    let rawValues = try String(contentsOf: outputURL, encoding: .utf8)
+        .split(whereSeparator: \.isNewline)
+        .map(String.init)
+    try #require(rawValues.count == 2)
+    let firstRawValue = try #require(rawValues.first)
+    let secondRawValue = try #require(rawValues.dropFirst().first)
+    let firstValue = try #require(TimeInterval(firstRawValue))
+    let secondValue = try #require(TimeInterval(secondRawValue))
+    let seededTime = TimeInterval(seededMicros) / 1_000_000
+    #expect(
+        firstValue > seededTime,
+        "A trusted pre-rollback watermark must remain authoritative after wall time moves backward"
+    )
+    #expect(
+        secondValue > firstValue,
+        "The shared clock must remain strictly increasing throughout the rollback interval"
+    )
+}
+
+private func agentHookCaptureClockShell(in commandBody: String) throws -> String {
+    let prefixes = [
+        #"hook_captured_at="$("#,
+        #"CMUX_AGENT_HOOK_CAPTURED_AT="$("#,
+    ]
+    for prefix in prefixes {
+        guard let prefixRange = commandBody.range(of: prefix) else { continue }
+        let bodyStart = prefixRange.upperBound
+        guard let bodyEnd = commandBody.range(of: #")""#, range: bodyStart..<commandBody.endIndex) else {
+            break
+        }
+        return String(commandBody[bodyStart..<bodyEnd.lowerBound])
+    }
+    throw NSError(domain: "cmux.tests.agent-hook-clock", code: Int(ENOENT))
+}
+
+private func processTreeContainsExecutable(rootPID: Int32, named executableName: String) -> Bool {
+    let process = Process()
+    let pipe = Pipe()
+    process.executableURL = URL(fileURLWithPath: "/bin/ps")
+    process.arguments = ["-axo", "pid=,ppid=,comm="]
+    process.standardInput = FileHandle.nullDevice
+    process.standardOutput = pipe
+    process.standardError = FileHandle.nullDevice
+    let data: Data
+    do {
+        try process.run()
+        data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+    } catch {
+        return false
+    }
+    guard let output = String(data: data, encoding: .utf8) else { return false }
+
+    var parentByPID: [Int32: Int32] = [:]
+    var matchingPIDs: [Int32] = []
+    for line in output.split(whereSeparator: \.isNewline) {
+        let fields = line.split(maxSplits: 2, whereSeparator: \.isWhitespace)
+        guard fields.count == 3,
+              let pid = Int32(fields[0]),
+              let parentPID = Int32(fields[1]) else {
+            continue
+        }
+        parentByPID[pid] = parentPID
+        let executable = URL(fileURLWithPath: String(fields[2])).lastPathComponent
+        if executable == executableName {
+            matchingPIDs.append(pid)
+        }
+    }
+
+    for pid in matchingPIDs {
+        var currentPID = pid
+        var visited: Set<Int32> = []
+        while let parentPID = parentByPID[currentPID], visited.insert(currentPID).inserted {
+            if parentPID == rootPID {
+                return true
+            }
+            guard parentPID > 1 else { break }
+            currentPID = parentPID
+        }
+    }
+    return false
+}
+
+private func shellQuoteForAgentHookClockTest(_ value: String) -> String {
+    "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }

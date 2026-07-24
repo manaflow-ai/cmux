@@ -228,6 +228,13 @@ public protocol ControlSurfaceContext: AnyObject {
 
     // MARK: - resume.set / get / clear
 
+    /// The app-bundle-resolved localized error for an invalid resume-binding
+    /// agent event time. The package requests this string through the seam so
+    /// `String(localized:)` never resolves against the package bundle.
+    ///
+    /// - Returns: The invalid agent-event-time error message.
+    nonisolated func controlSurfaceInvalidAgentEventTimeError() -> String
+
     /// Sets a resume binding for `surface.resume.set`. The app resolves the
     /// target, runs the (possibly blocking, app-bundle-localized) approval flow,
     /// and stores the binding.
@@ -261,13 +268,15 @@ public protocol ControlSurfaceContext: AnyObject {
     ///   - routing: The routing selectors (with the surface-resume precedence).
     ///   - expectedCheckpointID: The optional expected checkpoint guard.
     ///   - expectedSource: The optional expected source guard.
+    ///   - agentEventTime: The trusted hook event time used for mutation ordering.
     /// - Returns: The resume resolution.
     func controlSurfaceResumeClear(
         routing: ControlRoutingSelectors,
         explicitTargetID: UUID?,
         hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
-        expectedSource: String?
+        expectedSource: String?,
+        agentEventTime: TimeInterval?
     ) -> ControlSurfaceResumeResolution
 
     // MARK: - report_tty / report_pwd / report_shell_state / ports_kick

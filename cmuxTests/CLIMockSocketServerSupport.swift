@@ -1,5 +1,111 @@
 import XCTest
 import Darwin
+import Dispatch
+
+final class MockSocketServerToken: @unchecked Sendable {
+    private let lifetime: MockSocketServerLifetime
+
+    fileprivate init(lifetime: MockSocketServerLifetime) {
+        self.lifetime = lifetime
+    }
+
+    func shutdown() {
+        lifetime.shutdownAndWait()
+    }
+
+    deinit {
+        shutdown()
+    }
+}
+
+private final class MockSocketServerLifetime: @unchecked Sendable {
+    private struct Storage {
+        var listenerFD: Int32
+        var clientFDs: Set<Int32> = []
+        var stopped = false
+    }
+
+    private let lock = NSLock()
+    private let workers = DispatchGroup()
+    private var storage: Storage
+
+    init(duplicating listenerFD: Int32) {
+        storage = Storage(listenerFD: Darwin.dup(listenerFD))
+    }
+
+    func beginAcceptLoop() -> Int32? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !storage.stopped, storage.listenerFD >= 0 else { return nil }
+        workers.enter()
+        return storage.listenerFD
+    }
+
+    func finishAcceptLoop(listenerFD: Int32) {
+        var fdToClose: Int32 = -1
+        lock.lock()
+        if storage.listenerFD == listenerFD {
+            storage.listenerFD = -1
+            fdToClose = listenerFD
+        }
+        lock.unlock()
+
+        if fdToClose >= 0 {
+            Darwin.close(fdToClose)
+        }
+        workers.leave()
+    }
+
+    func beginClient(_ clientFD: Int32) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !storage.stopped else { return false }
+        storage.clientFDs.insert(clientFD)
+        workers.enter()
+        return true
+    }
+
+    func finishClient(_ clientFD: Int32) {
+        lock.lock()
+        storage.clientFDs.remove(clientFD)
+        lock.unlock()
+        workers.leave()
+    }
+
+    func shutdownAndWait() {
+        let listenerFD: Int32
+        let clientFDs: [Int32]
+
+        lock.lock()
+        if storage.stopped {
+            listenerFD = -1
+            clientFDs = []
+        } else {
+            storage.stopped = true
+            listenerFD = storage.listenerFD
+            storage.listenerFD = -1
+            clientFDs = Array(storage.clientFDs)
+        }
+        lock.unlock()
+
+        if listenerFD >= 0 {
+            Darwin.shutdown(listenerFD, SHUT_RDWR)
+            Darwin.close(listenerFD)
+        }
+        for clientFD in clientFDs {
+            Darwin.shutdown(clientFD, SHUT_RDWR)
+        }
+        workers.wait()
+    }
+}
+
+private final class MockSocketServerExpectation: XCTestExpectation, @unchecked Sendable {
+    var serverToken: MockSocketServerToken?
+
+    deinit {
+        serverToken?.shutdown()
+    }
+}
 
 extension CMUXOpenCommandTests {
     func openTypedDiffSession(payload: [String: Any], cliPath: String) throws -> String {
@@ -94,9 +200,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         func fulfill(_ expectation: XCTestExpectation) {
             lock.lock()
-            defer { lock.unlock() }
-            guard !didFulfill else { return }
+            guard !didFulfill else {
+                lock.unlock()
+                return
+            }
             didFulfill = true
+            lock.unlock()
             expectation.fulfill()
         }
     }
@@ -125,59 +234,75 @@ extension CLINotifyProcessIntegrationRegressionTests {
         fulfillWhen: (@Sendable (String) -> Bool)? = nil,
         handler: @escaping @Sendable (String) -> String?
     ) -> XCTestExpectation {
-        let handled = expectation(description: "cli mock socket handled")
+        let handled = MockSocketServerExpectation(description: "cli mock socket handled")
         let fulfillmentGate = MockSocketFulfillmentGate()
-        for _ in 0..<max(1, connectionCount) {
-            DispatchQueue.global(qos: .userInitiated).async {
-                func fulfillOnce() {
-                    fulfillmentGate.fulfill(handled)
-                }
+        let token = startScopedMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            connectionCount: connectionCount,
+            fulfillWhen: fulfillWhen,
+            fulfillOnce: { [weak handled] in
+                guard let handled else { return }
+                fulfillmentGate.fulfill(handled)
+            },
+            handler: handler
+        )
+        handled.serverToken = token
+        return handled
+    }
 
+    private func startScopedMockServer(
+        listenerFD: Int32,
+        state: MockSocketServerState,
+        connectionCount: Int,
+        fulfillWhen: (@Sendable (String) -> Bool)?,
+        fulfillOnce: @escaping @Sendable () -> Void,
+        handler: @escaping @Sendable (String) -> String?
+    ) -> MockSocketServerToken {
+        let lifetime = MockSocketServerLifetime(duplicating: listenerFD)
+        let token = MockSocketServerToken(lifetime: lifetime)
+        guard let ownedListenerFD = lifetime.beginAcceptLoop() else {
+            XCTFail("Could not duplicate CLI mock socket listener: \(String(cString: strerror(errno)))")
+            return token
+        }
+
+        Thread.detachNewThread {
+            defer { lifetime.finishAcceptLoop(listenerFD: ownedListenerFD) }
+            var acceptedConnections = 0
+            while acceptedConnections < max(1, connectionCount) {
                 var clientAddr = sockaddr_un()
                 var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
                 let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
                     ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                        Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+                        Darwin.accept(ownedListenerFD, sockaddrPtr, &clientAddrLen)
                     }
+                }
+                if clientFD < 0, errno == EINTR {
+                    continue
                 }
                 guard clientFD >= 0 else {
                     fulfillOnce()
                     return
                 }
-                defer {
+                guard lifetime.beginClient(clientFD) else {
                     Darwin.close(clientFD)
-                    fulfillOnce()
+                    return
                 }
+                acceptedConnections += 1
 
-                var pending = Data()
-                var buffer = [UInt8](repeating: 0, count: 4096)
-                while true {
-                    let count = Darwin.read(clientFD, &buffer, buffer.count)
-                    if count < 0 {
-                        if errno == EINTR { continue }
-                        return
-                    }
-                    if count == 0 { return }
-                    pending.append(buffer, count: count)
-
-                    while let newlineRange = pending.firstRange(of: Data([0x0A])) {
-                        let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
-                        pending.removeSubrange(0...newlineRange.lowerBound)
-                        guard let line = String(data: lineData, encoding: .utf8) else { continue }
-                        state.append(line)
-                        if fulfillWhen?(line) == true {
-                            fulfillOnce()
-                        }
-                        guard let responsePayload = handler(line) else { continue }
-                        let response = responsePayload + "\n"
-                        _ = response.withCString { ptr in
-                            Darwin.write(clientFD, ptr, strlen(ptr))
-                        }
-                    }
+                Thread.detachNewThread {
+                    Self.handleMockSocketClient(
+                        clientFD: clientFD,
+                        lifetime: lifetime,
+                        state: state,
+                        fulfillWhen: fulfillWhen,
+                        fulfillOnce: fulfillOnce,
+                        handler: handler
+                    )
                 }
             }
         }
-        return handled
+        return token
     }
 
     func startDetachedMockServer(
@@ -185,44 +310,69 @@ extension CLINotifyProcessIntegrationRegressionTests {
         state: MockSocketServerState,
         connectionCount: Int = 1,
         handler: @escaping @Sendable (String) -> String
+    ) -> MockSocketServerToken {
+        startDetachedMockServerAllowingNoResponse(
+            listenerFD: listenerFD,
+            state: state,
+            connectionCount: connectionCount
+        ) { line in
+            handler(line)
+        }
+    }
+
+    func startDetachedMockServerAllowingNoResponse(
+        listenerFD: Int32,
+        state: MockSocketServerState,
+        connectionCount: Int = 1,
+        handler: @escaping @Sendable (String) -> String?
+    ) -> MockSocketServerToken {
+        startScopedMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            connectionCount: connectionCount,
+            fulfillWhen: nil,
+            fulfillOnce: {},
+            handler: handler
+        )
+    }
+
+    private static func handleMockSocketClient(
+        clientFD: Int32,
+        lifetime: MockSocketServerLifetime,
+        state: MockSocketServerState,
+        fulfillWhen: (@Sendable (String) -> Bool)?,
+        fulfillOnce: @escaping @Sendable () -> Void,
+        handler: @escaping @Sendable (String) -> String?
     ) {
-        for _ in 0..<max(1, connectionCount) {
-            DispatchQueue.global(qos: .userInitiated).async {
-                var clientAddr = sockaddr_un()
-                var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
-                let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
-                    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                        Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
-                    }
-                }
-                guard clientFD >= 0 else {
-                    return
-                }
-                defer {
-                    Darwin.close(clientFD)
-                }
+        defer {
+            Darwin.close(clientFD)
+            lifetime.finishClient(clientFD)
+            fulfillOnce()
+        }
 
-                var pending = Data()
-                var buffer = [UInt8](repeating: 0, count: 4096)
-                while true {
-                    let count = Darwin.read(clientFD, &buffer, buffer.count)
-                    if count < 0 {
-                        if errno == EINTR { continue }
-                        return
-                    }
-                    if count == 0 { return }
-                    pending.append(buffer, count: count)
+        var pending = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while true {
+            let count = Darwin.read(clientFD, &buffer, buffer.count)
+            if count < 0 {
+                if errno == EINTR { continue }
+                return
+            }
+            if count == 0 { return }
+            pending.append(buffer, count: count)
 
-                    while let newlineRange = pending.firstRange(of: Data([0x0A])) {
-                        let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
-                        pending.removeSubrange(0...newlineRange.lowerBound)
-                        guard let line = String(data: lineData, encoding: .utf8) else { continue }
-                        state.append(line)
-                        let response = handler(line) + "\n"
-                        _ = response.withCString { ptr in
-                            Darwin.write(clientFD, ptr, strlen(ptr))
-                        }
-                    }
+            while let newlineRange = pending.firstRange(of: Data([0x0A])) {
+                let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
+                pending.removeSubrange(0...newlineRange.lowerBound)
+                guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                state.append(line)
+                if fulfillWhen?(line) == true {
+                    fulfillOnce()
+                }
+                guard let responsePayload = handler(line) else { continue }
+                let response = responsePayload + "\n"
+                _ = response.withCString { ptr in
+                    Darwin.write(clientFD, ptr, strlen(ptr))
                 }
             }
         }
@@ -244,7 +394,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         state: MockSocketServerState,
         surfaceId: String,
         connectionCount: Int
-    ) {
+    ) -> MockSocketServerToken {
         startDetachedMockServer(listenerFD: listenerFD, state: state, connectionCount: connectionCount) { line in
             self.agentHookMockResponse(line: line, surfaceId: surfaceId)
         }

@@ -25,6 +25,19 @@ struct WorkspaceSidebarProcessTitleObservationTests {
         )
     }
 
+    @Test func agentEventWatermarkDoesNotPublishVisibleRuntimeChange() {
+        let model = WorkspaceSidebarAgentRuntimeObservationModel()
+        let observations = model.changes()
+        let panelID = UUID()
+        model.setAgentLifecycleStatesByPanelId([panelID: ["codex": .running]])
+        let visibleGeneration = model.changeGeneration
+
+        model.setAgentLifecycleEventTimesByPanelId([panelID: ["codex": 123]])
+
+        #expect(model.changeGeneration == visibleGeneration)
+        withExtendedLifetime(observations) {}
+    }
+
     @Test func processTitlePublicationPrunesTerminatedObservationBurst() {
         let scheduler = ManualProcessTitleSettleScheduler()
         let model = WorkspaceSidebarProcessTitleObservationModel(
