@@ -1174,6 +1174,17 @@ impl Relay {
                     if changed.is_ok() {
                         let notice = shutdown.borrow().clone();
                         if let Some(notice) = notice {
+                            // Closing a circuit is ordered after every frame
+                            // the peer already accepted for forwarding. Stop
+                            // new producers, then flush the bounded FIFO so a
+                            // final protocol response cannot be overtaken by
+                            // the peer-disconnected control message.
+                            outbound.close();
+                            while let Some(message) = outbound.recv().await {
+                                if !Self::write_outbound(&mut socket, message).await {
+                                    return;
+                                }
+                            }
                             if let Some(error) = notice.error
                                 && let Ok(text) = serde_json::to_string(&error)
                             {
@@ -1194,21 +1205,24 @@ impl Relay {
                         let _ = socket.send(Message::Close(None)).await;
                         return;
                     };
-                    let result = match message {
-                        Outbound::Control(control) => match serde_json::to_string(&control) {
-                            Ok(text) => socket.send(Message::Text(text.into())).await,
-                            Err(_) => return,
-                        },
-                        Outbound::Binary(frame) => {
-                            socket.send(Message::Binary(frame.bytes.clone())).await
-                        }
-                        Outbound::Pong(bytes) => socket.send(Message::Pong(bytes)).await,
-                    };
-                    if result.is_err() {
+                    if !Self::write_outbound(&mut socket, message).await {
                         return;
                     }
                 }
             }
+        }
+    }
+
+    async fn write_outbound(socket: &mut SplitSink<WebSocket, Message>, message: Outbound) -> bool {
+        match message {
+            Outbound::Control(control) => match serde_json::to_string(&control) {
+                Ok(text) => socket.send(Message::Text(text.into())).await.is_ok(),
+                Err(_) => false,
+            },
+            Outbound::Binary(frame) => {
+                socket.send(Message::Binary(frame.bytes.clone())).await.is_ok()
+            }
+            Outbound::Pong(bytes) => socket.send(Message::Pong(bytes)).await.is_ok(),
         }
     }
 }
