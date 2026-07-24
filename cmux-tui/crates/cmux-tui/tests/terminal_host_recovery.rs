@@ -1627,7 +1627,9 @@ fn failed_terminate_and_rejected_resize_leave_live_record_discoverable() {
     assert_eq!(resized.flags, FLAG_COLORS_FOLLOW);
     assert_eq!(&resized.payload[..4], &[120, 0, 40, 0]);
     let replay_len = u32::from_le_bytes(resized.payload[4..8].try_into().unwrap()) as usize;
-    assert_eq!(resized.payload.len(), 8 + replay_len);
+    let alias_count_offset = 8 + replay_len;
+    assert_eq!(resized.payload.len(), alias_count_offset + 2);
+    assert_eq!(&resized.payload[alias_count_offset..], &0u16.to_le_bytes());
     let colors = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
     assert_eq!(colors.sequence, renderer.next_sequence);
     renderer.next_sequence = renderer.next_sequence.wrapping_add(1);
@@ -1828,7 +1830,9 @@ fn negotiated_viewer_size_ack_skips_unchanged_replay_and_follows_changed_pair() 
     renderer.next_sequence = renderer.next_sequence.wrapping_add(1);
     assert_eq!(&resized.payload[..4], &[70, 0, 20, 0]);
     let replay_len = u32::from_le_bytes(resized.payload[4..8].try_into().unwrap()) as usize;
-    assert_eq!(resized.payload.len(), 8 + replay_len);
+    let alias_count_offset = 8 + replay_len;
+    assert_eq!(resized.payload.len(), alias_count_offset + 2);
+    assert_eq!(&resized.payload[alias_count_offset..], &0u16.to_le_bytes());
     let colors = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
     assert_eq!(colors.kind, MessageKind::Colors);
     assert_eq!(colors.flags, 0);
