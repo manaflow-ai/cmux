@@ -840,9 +840,7 @@ pub(crate) async fn send_link_ready(
 async fn receive_control<T: for<'de> Deserialize<'de>>(
     link: &dyn FrameLink,
 ) -> Result<T, ConnectionError> {
-    let payload = link.receive().await?.ok_or_else(|| {
-        ConnectionError::Protocol("daemon closed before link-ready metadata".into())
-    })?;
+    let payload = link.receive().await?.ok_or(LinkError::Closed)?;
     serde_json::from_slice(&payload).map_err(|error| ConnectionError::Protocol(error.to_string()))
 }
 
