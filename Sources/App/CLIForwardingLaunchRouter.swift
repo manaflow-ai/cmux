@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Darwin
 import Foundation
 import os
@@ -7,31 +8,13 @@ nonisolated private let cliForwardingLogger = Logger(subsystem: "com.cmuxterm.ap
 enum CLIForwardingLaunchRouter {
     private static let guardKey = "CMUX_CLI_FORWARDED"
 
-    /// How a launch of the GUI binary should be routed.
-    enum ForwardingDecision: Equatable {
-        /// GUI-style argv (no subcommand, `-psn_...`/`-` flags, `cmux://`
-        /// URLs, launch sentinels): proceed with the normal app launch.
-        case launchGUI
-        /// CLI-style argv on a first pass: exec the bundled CLI.
-        case forwardToBundledCLI
-        /// CLI-style argv but the forwarding guard is already set: forwarding
-        /// resolved back to this GUI binary (mispackaged bundle, or the guard
-        /// leaked into the caller's environment). Booting the GUI here leaves
-        /// a faceless app instance in the event loop forever — agent hook
-        /// invocations (`cmux claude-hook …`) then pile up one idle GUI
-        /// process per hook event — so fail closed with an error instead.
-        case failForwardingLoop
-    }
-
-    /// Classifies a launch of the GUI binary: GUI-style argv launches the
-    /// app, first-pass CLI argv forwards to the bundled CLI, and CLI argv
-    /// with the forwarding guard already set is a forwarding loop.
+    /// Classifies a launch of the GUI binary via the pure policy in
+    /// CMUXAgentLaunch; this router keeps only the exec/exit glue.
     static func forwardingDecision(
         arguments argv: [String],
         forwardingGuardIsSet: Bool
-    ) -> ForwardingDecision {
-        guard shouldForwardToBundledCLI(arguments: argv) else { return .launchGUI }
-        return forwardingGuardIsSet ? .failForwardingLoop : .forwardToBundledCLI
+    ) -> CLIForwardingDecision {
+        CLIForwardingLaunchPolicy.decision(arguments: argv, forwardingGuardIsSet: forwardingGuardIsSet)
     }
 
     /// If `argv` looks like a CLI invocation, exec the bundled CLI at
@@ -90,17 +73,9 @@ enum CLIForwardingLaunchRouter {
         Darwin.exit(127)
     }
 
+    /// Delegates the pure argv classification to CMUXAgentLaunch.
     static func shouldForwardToBundledCLI(arguments argv: [String]) -> Bool {
-        guard argv.count > 1 else { return false }
-
-        let first = argv[1]
-        if first.isEmpty || first.hasPrefix("-") { return false }
-        if first.contains("://") { return false }
-
-        let guiLaunchSentinels: Set<String> = ["DEV", "STAGING", "NIGHTLY"]
-        if guiLaunchSentinels.contains(first) { return false }
-
-        return true
+        CLIForwardingLaunchPolicy.shouldForwardToBundledCLI(arguments: argv)
     }
 
     static func bundledCLIURL(
