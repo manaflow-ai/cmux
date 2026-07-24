@@ -11541,14 +11541,15 @@ mod tests {
         DeferredReplayDisposition, Drag, FocusTarget, ForwardMuxOutcome, MachineActionWorker,
         MenuAction, MenuItem, MutationImpact, MuxTitleIngress, OrderedSession, OuterCursorSpec,
         PaneArea, PaneEdge, PaneFocusHistory, PendingSessionMutation, PendingSessionMutationState,
-        PointerRoutePhase, Prompt, PromptTarget, PtyFailureIngress, PtyMousePressResult, RailKind,
-        RenderAction, RenderedPointerFrame, Selection, SessionCompletion, SessionCompletionAction,
-        SessionEventSender, SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState,
-        SurfaceResizeDecision, SurfaceResizeOwnership, WorkspaceRailSelection,
-        browser_content_size_for_rect, browser_hover_forward_allowed, canonical_terminal_content,
-        clamp_split_ratio_for_tab_bars, client_menu_item, forward_mux_event, forward_mux_events,
-        outer_cursor_escape, outer_cursor_escape_if_changed, pane_context_menu_groups,
-        pane_parts_for_rect, prepare_ordered_session, preserve_client_view, rail_drag_width,
+        PointerRouteIdentity, PointerRoutePhase, Prompt, PromptTarget, PtyFailureIngress,
+        PtyMousePressResult, RailKind, RenderAction, RenderedMenuLevel, RenderedPointerFrame,
+        Selection, SessionCompletion, SessionCompletionAction, SessionEventSender, SidebarLayout,
+        SidebarPluginSyncClaim, SidebarPluginSyncState, SurfaceResizeDecision,
+        SurfaceResizeOwnership, WorkspaceRailSelection, browser_content_size_for_rect,
+        browser_hover_forward_allowed, canonical_terminal_content, clamp_split_ratio_for_tab_bars,
+        client_menu_item, forward_mux_event, forward_mux_events, outer_cursor_escape,
+        outer_cursor_escape_if_changed, pane_context_menu_groups, pane_parts_for_rect,
+        prepare_ordered_session, preserve_client_view, rail_drag_width,
         record_surface_resize_dispatch_result, sidebar_layout_for,
         sidebar_plugin_status_settles_passive_claim, start_ordered_session,
     };
@@ -13045,6 +13046,139 @@ mod tests {
         );
         assert!(app.encode_buf.is_empty());
         mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn guarded_mouse_encoding_rejects_a_changed_terminal_snapshot() {
+        let (mux, surface) = test_mux("atomic-mouse-semantics-test", None);
+        let app = test_app(Session::Local(mux.clone()));
+        let handle = app.session.surface(surface.id).expect("local PTY handle");
+        let expected = surface
+            .with_terminal(|terminal| terminal.pointer_semantic_snapshot())
+            .expect("PTY terminal snapshot");
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1003h\x1b[?1006h"));
+
+        let mut output = Vec::new();
+        let encoded = handle.encode_mouse_if_semantics(expected, test_mouse_motion(), &mut output);
+
+        assert!(encoded.is_none(), "a stale rendered token must fail at the encoding boundary");
+        assert!(output.is_empty());
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn menu_pointer_routes_share_the_committed_snapshot() {
+        let levels: Arc<[RenderedMenuLevel]> = vec![RenderedMenuLevel {
+            rect: Rect { x: 2, y: 2, width: 20, height: 3 },
+            scroll_offset: 0,
+            items: vec![MenuItem::Submenu {
+                label: "nested".to_string(),
+                items: vec![MenuItem::Action(MenuAction::NewTab(7))],
+            }],
+        }]
+        .into();
+        let frame = RenderedPointerFrame { menu: Some(levels.clone()), ..Default::default() };
+
+        let route = frame.route_for_mouse(&MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 3,
+            row: 3,
+            modifiers: KeyModifiers::NONE,
+        });
+
+        let PointerRouteIdentity::Menu { levels: routed, .. } = route else {
+            panic!("pointer should route through the committed menu");
+        };
+        assert!(
+            Arc::ptr_eq(&levels, &routed),
+            "motion routing must clone only the Arc, not menu items"
+        );
+    }
+
+    #[test]
+    fn deferred_tab_press_cannot_retarget_a_replacement_surface_at_the_same_index() {
+        let mux = Mux::new("stable-tab-route-test", SurfaceOptions::default());
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_visible = false;
+        app.sync_layout((80, 24));
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let first_tab = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| match hit {
+                super::Hit::Tab { pane: hit_pane, index: 0 } if *hit_pane == pane => Some(*rect),
+                _ => None,
+            })
+            .expect("first tab hit");
+        let press = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: first_tab.x + first_tab.width.saturating_sub(1) / 2,
+            row: first_tab.y,
+            modifiers: KeyModifiers::NONE,
+        };
+
+        app.pointer_route_phase = PointerRoutePhase::DrawPending;
+        app.handle(AppEvent::Input(Event::Mouse(press))).unwrap();
+        assert_eq!(app.deferred_input.len(), 1);
+
+        app.tree.pane_mut(pane).unwrap().tabs.swap(0, 1);
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        app.replay_deferred_input().unwrap();
+
+        assert!(
+            app.drag.is_none(),
+            "the old tab press must not arm the replacement surface at the same index"
+        );
+        mux.close_surface(first.id).unwrap();
+        mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
+    fn deferred_click_fails_closed_after_pointer_map_generation_changes() {
+        let mux = Mux::new("pointer-map-generation-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 24))).unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_visible = false;
+        app.sync_layout((80, 24));
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let new_screen = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| (*hit == super::Hit::NewScreen).then_some(*rect))
+            .expect("new screen hit");
+        let screen_count = app.tree.active_workspace().unwrap().screens.len();
+
+        app.pointer_route_phase = PointerRoutePhase::DrawPending;
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: new_screen.x,
+            row: new_screen.y,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+        assert_eq!(app.deferred_input.len(), 1);
+
+        app.session.pending_mutation_with_impact(MutationImpact::PointerMap).supersede();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        app.replay_deferred_input().unwrap();
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+
+        assert_eq!(
+            app.tree.active_workspace().unwrap().screens.len(),
+            screen_count,
+            "a click from an older pointer-map generation must not create a screen"
+        );
+        let workspace = mux.with_state(|state| state.workspaces[state.active_workspace].id);
+        mux.close_workspace(workspace);
     }
 
     #[test]
