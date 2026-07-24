@@ -1080,7 +1080,7 @@ impl RemoteSession {
             CLEAR_HISTORY_KEY_CAPABILITY,
             "clear-history",
         )?;
-        self.clear_history_request(surface, Some(ProtocolKeyInput::from(fallback_key)))
+        self.clear_history_request(surface, Some(ProtocolKeyInput::try_from(fallback_key)?))
     }
 
     fn clear_history_request(

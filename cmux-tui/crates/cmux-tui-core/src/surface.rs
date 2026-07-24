@@ -1010,9 +1010,12 @@ impl Surface {
                 if encoded.is_empty() {
                     return Ok(());
                 }
-                let submission = pty.begin_prompt_submission(&encoded);
+                let submission = input_may_submit_prompt(&encoded)
+                    .then(|| pty.begin_prompt_submission_with_terminal(&term));
                 let result = writer.write_all(&encoded).and_then(|()| writer.flush());
-                pty.finish_prompt_submission(submission, result.is_ok());
+                if let Some(submission) = submission {
+                    pty.finish_prompt_submission_with_terminal(submission, result.is_ok(), &term);
+                }
                 return result.map_err(Into::into);
             }
             let prompt_metadata_ready = pty.prompt_metadata_ready(&term);
@@ -1471,14 +1474,28 @@ impl PtySurface {
         if !input_may_submit_prompt(bytes) {
             return None;
         }
-        let revision_before_write = self.term.lock().unwrap().prompt_semantic_revision();
+        let term = self.term.lock().unwrap();
+        Some(self.begin_prompt_submission_with_terminal(&term))
+    }
+
+    fn begin_prompt_submission_with_terminal(&self, term: &Terminal) -> PromptSubmission {
+        let revision_before_write = term.prompt_semantic_revision();
         *self.prompt_submission.lock().unwrap() = PromptSubmissionState::Writing;
-        Some(PromptSubmission { revision_before_write })
+        PromptSubmission { revision_before_write }
     }
 
     fn finish_prompt_submission(&self, submission: Option<PromptSubmission>, succeeded: bool) {
         let Some(submission) = submission else { return };
         let term = self.term.lock().unwrap();
+        self.finish_prompt_submission_with_terminal(submission, succeeded, &term);
+    }
+
+    fn finish_prompt_submission_with_terminal(
+        &self,
+        submission: PromptSubmission,
+        succeeded: bool,
+        term: &Terminal,
+    ) {
         let revision = term.prompt_semantic_revision();
         let next = if succeeded
             && revision != submission.revision_before_write
@@ -1490,7 +1507,6 @@ impl PtySurface {
             // prompt redraw blocked until output proves the child advanced.
             PromptSubmissionState::AwaitingPromptMarker(revision)
         };
-        drop(term);
         *self.prompt_submission.lock().unwrap() = next;
     }
 
@@ -2032,10 +2048,9 @@ mod tests {
             ..Default::default()
         };
         let (finished_tx, finished_rx) = std::sync::mpsc::channel();
-        let worker_surface = surface.clone();
 
         std::thread::spawn(move || {
-            let _ = finished_tx.send(worker_surface.clear_history_or_encode_key(Some(&input)));
+            let _ = finished_tx.send(surface.clear_history_or_encode_key(Some(&input)));
         });
         finished_rx
             .recv_timeout(Duration::from_millis(250))
