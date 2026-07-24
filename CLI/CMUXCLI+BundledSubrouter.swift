@@ -59,8 +59,13 @@ extension CMUXCLI {
         if current != fingerprint || !fileManager.isExecutableFile(atPath: binaryURL.path) {
             do {
                 try fileManager.createDirectory(at: installDir, withIntermediateDirectories: true)
-                let staging = installDir.appendingPathComponent(".subrouter.extracting")
-                try? fileManager.removeItem(at: staging)
+                // Per-process staging name: two concurrent `cmux sr` runs
+                // must never interleave writes into one staging file, or the
+                // extracted binary is corrupt.
+                let staging = installDir.appendingPathComponent(
+                    ".subrouter.extracting.\(ProcessInfo.processInfo.processIdentifier)"
+                )
+                defer { try? fileManager.removeItem(at: staging) }
                 // gunzip -c preserves the embedded ad-hoc code signature.
                 let gunzip = Process()
                 gunzip.executableURL = URL(fileURLWithPath: "/usr/bin/gunzip")
@@ -69,13 +74,12 @@ extension CMUXCLI {
                 gunzip.standardOutput = try FileHandle(forWritingTo: staging)
                 try gunzip.run()
                 gunzip.waitUntilExit()
-                guard gunzip.terminationStatus == 0 else {
-                    try? fileManager.removeItem(at: staging)
-                    return nil
-                }
+                guard gunzip.terminationStatus == 0 else { return nil }
                 try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: staging.path)
-                _ = try? fileManager.removeItem(at: binaryURL)
-                try fileManager.moveItem(at: staging, to: binaryURL)
+                // rename(2) atomically replaces any binary a concurrent
+                // extraction just installed; both stagings hold the same
+                // bundled version, so last-writer-wins is safe.
+                guard rename(staging.path, binaryURL.path) == 0 else { return nil }
                 try fingerprint.write(to: fingerprintURL, atomically: true, encoding: .utf8)
             } catch {
                 return nil
@@ -112,7 +116,10 @@ extension CMUXCLI {
             try fileManager.createDirectory(at: homeBin, withIntermediateDirectories: true)
             for name in ["subrouter", "sr"] {
                 let link = homeBin.appendingPathComponent(name)
-                if fileManager.fileExists(atPath: link.path) { continue }
+                // attributesOfItem does not traverse symlinks: any existing
+                // entry — a user install, or even a broken symlink — is the
+                // user's and must never be replaced.
+                if (try? fileManager.attributesOfItem(atPath: link.path)) != nil { continue }
                 try fileManager.createSymbolicLink(
                     atPath: link.path,
                     withDestinationPath: extracted

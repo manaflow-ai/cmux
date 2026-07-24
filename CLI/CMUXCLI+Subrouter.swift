@@ -188,8 +188,16 @@ extension CMUXCLI {
             print("Starting the local subrouter daemon…")
             let daemonSetup = CLIProcessRunner.runProcess(executablePath: srPath, arguments: ["install-daemon"], timeout: 60)
             if daemonSetup.status == 0 {
-                Thread.sleep(forTimeInterval: 1.5)
-                statusResponse = try? client.sendV2(method: "subrouter.status")
+                // Poll readiness instead of one fixed sleep: stop as soon
+                // as the daemon reports healthy, give up after ~5s.
+                for _ in 0..<10 {
+                    Thread.sleep(forTimeInterval: 0.5)
+                    statusResponse = try? client.sendV2(method: "subrouter.status")
+                    if let daemon = statusResponse?["daemon"] as? [String: Any],
+                       (daemon["state"] as? String) == "healthy" {
+                        break
+                    }
+                }
             } else {
                 print("  ✗ install-daemon failed; run `\(srPath) install-daemon` manually.")
             }
