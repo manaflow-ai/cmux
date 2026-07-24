@@ -12,12 +12,12 @@ struct WorkspaceNavigationRow: View {
     /// shared ``WorkspaceRow``.
     var previewLineLimit: Int = MobileDisplaySettings.defaultWorkspacePreviewLineCount
     var unreadIndicatorLeftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift
-    var profilePictureLeftShift: Double = MobileDisplaySettings.defaultProfilePictureLeftShift
-    var profilePictureSize: Double = MobileDisplaySettings.defaultProfilePictureSize
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     /// Rename the workspace on the Mac. When `nil` (e.g. previews) the rename
     /// affordance is hidden.
     var renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)? = nil
+    /// Customize the workspace's name, description, color, and pin state on the Mac.
+    var customizeWorkspace: WorkspaceCustomizationAction? = nil
     /// Pin or unpin the workspace on the Mac. When `nil` the pin affordance is
     /// hidden.
     var setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil
@@ -36,6 +36,7 @@ struct WorkspaceNavigationRow: View {
     var confirmCloseWorkspace: ((MobileWorkspacePreview.ID) -> Void)? = nil
 
     @State private var isRenaming = false
+    @State private var isCustomizing = false
 
     var body: some View {
         rowTarget
@@ -67,9 +68,34 @@ struct WorkspaceNavigationRow: View {
         .accessibilityIdentifier("MobileWorkspaceRow-\(workspace.id.rawValue)")
         .accessibilityLabel(workspace.name)
         .accessibilityValue(workspace.accessibilitySummary(connectionStatus: connectionStatus))
+        .accessibilityActions {
+            if customizeWorkspace != nil {
+                Button(L10n.string("mobile.workspace.customize.action", defaultValue: "Customize")) {
+                    isCustomizing = true
+                }
+            } else if renameWorkspace != nil {
+                Button(L10n.string("mobile.workspace.rename.action", defaultValue: "Rename")) {
+                    isRenaming = true
+                }
+            }
+            if let setPinned {
+                Button(
+                    workspace.isPinned
+                        ? L10n.string("mobile.workspace.unpin", defaultValue: "Unpin")
+                        : L10n.string("mobile.workspace.pin", defaultValue: "Pin")
+                ) {
+                    setPinned(workspace.id, !workspace.isPinned)
+                }
+            }
+        }
         .sheet(isPresented: $isRenaming) {
             WorkspaceRenameSheet(currentName: workspace.name) { newName in
                 renameWorkspace?(workspace.id, newName)
+            }
+        }
+        .sheet(isPresented: $isCustomizing) {
+            WorkspaceCustomizationSheet(workspace: workspace) { initialDraft, submittedDraft in
+                await customizeWorkspace?(workspace.id, initialDraft, submittedDraft) ?? .failure()
             }
         }
         .confirmationDialog(
@@ -118,9 +144,7 @@ struct WorkspaceNavigationRow: View {
             isSelected: navigationStyle == .sidebar && isSelected,
             wrapWorkspaceTitles: wrapWorkspaceTitles,
             previewLineLimit: previewLineLimit,
-            unreadIndicatorLeftShift: unreadIndicatorLeftShift,
-            profilePictureLeftShift: profilePictureLeftShift,
-            profilePictureSize: profilePictureSize
+            unreadIndicatorLeftShift: unreadIndicatorLeftShift
         )
     }
 
@@ -138,7 +162,17 @@ struct WorkspaceNavigationRow: View {
             }
             .accessibilityIdentifier("MobileWorkspacePinButton-\(workspace.id.rawValue)")
         }
-        if renameWorkspace != nil {
+        if customizeWorkspace != nil {
+            Button {
+                isCustomizing = true
+            } label: {
+                Label(
+                    L10n.string("mobile.workspace.customize.action", defaultValue: "Customize"),
+                    systemImage: "slider.horizontal.3"
+                )
+            }
+            .accessibilityIdentifier("MobileWorkspaceCustomizeButton-\(workspace.id.rawValue)")
+        } else if renameWorkspace != nil {
             Button {
                 isRenaming = true
             } label: {

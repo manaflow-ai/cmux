@@ -217,7 +217,7 @@ extension MobileHostIrohRuntime {
                     return
                 }
                 let diagnosticSessionID = await self.makeDiagnosticSessionID()
-                let diagnosticLog = await self.diagnosticLog
+                let diagnosticLog = self.diagnosticLog
                 diagnosticLog.record(DiagnosticEvent(
                     .admissionSucceeded,
                     a: DiagnosticTransportKind.iroh.rawValue
@@ -258,7 +258,8 @@ extension MobileHostIrohRuntime {
                         await laneRouter.stop()
                     }
                 )
-                let exit = await connectionSupervisor.run()
+                let observedExit = await connectionSupervisor.run()
+                let exit = await session.connectionExit(resolving: observedExit)
                 diagnosticLog.record(DiagnosticEvent(
                     .transportSessionLifecycle,
                     a: exit.lifecycle.rawValue,
