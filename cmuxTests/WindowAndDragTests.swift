@@ -3358,6 +3358,19 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         )
     }
 
+    func testWorkspaceFloatingDockStashRailRestsHalfOutsideScreen() throws {
+        let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
+        let rail = try XCTUnwrap(WorkspaceFloatingDockStashLayout.railFrame(
+            visibleScreenFrame: screen,
+            itemCount: 1
+        ))
+
+        XCTAssertEqual(
+            screen.intersection(rail).width,
+            WorkspaceFloatingDockStashLayout.railWidth / 2
+        )
+    }
+
     func testWorkspaceFloatingDockStashAnimationKeepsBonsplitWindowSize() {
         let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
         let window = CGRect(x: 240, y: 180, width: 620, height: 420)
