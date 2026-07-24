@@ -386,6 +386,77 @@ struct AgentStatusRuntimeGenerationTests {
         #expect(workspace.agentStatusRuntimeIsCurrent(event: replacementEvent, panelId: panelId))
     }
 
+    @Test @MainActor func movingPanePreservesExistingRuntimeLifecycleEvidence() throws {
+        let source = Workspace()
+        let destination = Workspace()
+        let panelID = try #require(source.focusedPanelId)
+        let pid = getpid()
+        defer {
+            source.clearAllAgentPIDs(refreshPorts: false)
+            destination.clearAllAgentPIDs(refreshPorts: false)
+        }
+        source.recordAgentPID(
+            key: "claude_code.session",
+            pid: pid,
+            panelId: panelID,
+            refreshPorts: false
+        )
+        #expect(source.setAgentLifecycle(
+            key: "claude_code",
+            panelId: panelID,
+            lifecycle: .running
+        ))
+        let originalEvidence = try #require(
+            source.sidebarAgentRuntimeObservation.agentStatusLedger
+                .evidenceForPanel(panelID)["claude_code"]
+        )
+
+        let transfer = try #require(source.detachSurface(panelId: panelID))
+        let destinationPaneID = try #require(destination.bonsplitController.allPaneIds.first)
+        #expect(destination.attachDetachedSurface(
+            transfer,
+            inPane: destinationPaneID,
+            focus: false
+        ) == panelID)
+
+        let adoptedEvidence = destination.sidebarAgentRuntimeObservation.agentStatusLedger
+            .evidenceForPanel(panelID)["claude_code"]
+        #expect(adoptedEvidence == originalEvidence)
+        #expect(destination.agentLifecycleStatesByPanelId[panelID]?["claude_code"] == .running)
+    }
+
+    @Test @MainActor func staleRemoteNeedsInputDegradesWhenProcessLivenessIsUnverifiable() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let remotePID: pid_t = 987_654
+        let observedAt = Date.now
+        defer { workspace.clearAllAgentPIDs(refreshPorts: false) }
+        workspace.trackRemoteTerminalSurface(panelID)
+        workspace.recordAgentPID(
+            key: "codex.remote-session",
+            pid: remotePID,
+            panelId: panelID,
+            refreshPorts: false
+        )
+        let signal = try #require(AgentStatusHookEventSignal(event: WorkstreamEvent(
+            sessionId: "codex-remote-session",
+            hookEventName: .permissionRequest,
+            source: "codex",
+            ppid: Int(remotePID),
+            receivedAt: observedAt,
+            extraFieldsJSON: #"{"_cmux_agent_status_signal":"needsInput","_cmux_agent_pid_namespace":"remote"}"#
+        )))
+        #expect(workspace.noteAgentStatusHookSignal(signal, panelId: panelID))
+
+        workspace.reconcileAgentStatuses(
+            panelId: panelID,
+            now: observedAt.addingTimeInterval(301)
+        )
+
+        #expect(workspace.agentLifecycleStatesByPanelId[panelID]?["codex"] == .unknown)
+        #expect(workspace.statusEntries["codex"] == nil)
+    }
+
     @Test func needsInputRemainsConfidentForLiveRuntimeUntilCounterSignal() {
         let evidence = AgentStatusEvidence(
             lifecycle: .needsInput,
