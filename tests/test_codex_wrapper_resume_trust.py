@@ -37,6 +37,7 @@ class CodexWrapperResumeTrustTests(unittest.TestCase):
         hostile_codex_on_path: bool = False,
         effective_project_codex_on_path: bool = False,
         project_codex_passthrough: bool = False,
+        custom_codex_is_symlink: bool = False,
     ) -> tuple[list[str], str, subprocess.CompletedProcess[str]]:
         with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as raw:
             root = Path(raw)
@@ -68,14 +69,22 @@ class CodexWrapperResumeTrustTests(unittest.TestCase):
             working_directory.mkdir()
             (effective_project / ".git").mkdir(parents=True)
             real_codex.parent.mkdir(parents=True, exist_ok=True)
+            real_codex_target = (
+                real_codex.with_name("codex.js")
+                if custom_codex_is_symlink
+                else real_codex
+            )
             make_executable(
-                real_codex,
+                real_codex_target,
                 """#!/bin/bash
 printf '%s\\0' "$@" > "$FAKE_CODEX_ARGS_LOG"
 printf 'codex-path=%s\\n' "$PATH" >> "$FAKE_CMUX_LOG"
+printf 'launch-executable=%s\\n' "${CMUX_AGENT_LAUNCH_EXECUTABLE:-}" >> "$FAKE_CMUX_LOG"
 sleep 0.2
 """,
             )
+            if custom_codex_is_symlink:
+                real_codex.symlink_to(real_codex_target.name)
             make_executable(
                 fake_cmux,
                 f"""#!/usr/bin/env bash
@@ -400,6 +409,19 @@ printf '%s\\0' "$@" > "$FAKE_CODEX_ARGS_LOG"
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(args, ["--enable", "hooks", "--yolo"])
         self.assertNotIn("hostile-codex-ran", logged_cmux_calls)
+
+    def test_symlink_install_preserves_codex_launch_identity(self) -> None:
+        _, logged_cmux_calls, result = self.run_wrapper(
+            ["--yolo"],
+            trusted_codex_from_custom_path=True,
+            custom_codex_is_symlink=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertRegex(
+            logged_cmux_calls,
+            r"(?m)^launch-executable=.*/Library/pnpm/codex$",
+        )
 
     def test_effective_cd_project_cannot_select_codex_before_trust(self) -> None:
         args, logged_cmux_calls, result = self.run_wrapper(
