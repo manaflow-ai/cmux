@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 import ImageIO
 
-nonisolated struct TextBoxInlineAttachmentThumbnailNormalizer:
+struct TextBoxInlineAttachmentThumbnailNormalizer:
     TextBoxInlineAttachmentThumbnailNormalizing
 {
     func normalizedThumbnail(

@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-nonisolated struct TextBoxInlineAttachmentThumbnailRequest: Hashable, Sendable {
+struct TextBoxInlineAttachmentThumbnailRequest: Hashable, Sendable {
     let attachmentID: UUID
     let source: TextBoxInlineAttachmentThumbnailSource
     let pixelSize: TextBoxInlineAttachmentThumbnailSize

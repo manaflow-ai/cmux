@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated struct TextBoxInlineAttachmentThumbnailPixels: Sendable {
+struct TextBoxInlineAttachmentThumbnailPixels: Sendable {
     let size: TextBoxInlineAttachmentThumbnailSize
     let bytesPerRow: Int
     let rgba8: Data

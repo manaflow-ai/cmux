@@ -119,7 +119,7 @@ import Testing
 }
 
 // The source actor serializes writes, and the test reads only after awaiting both calls.
-nonisolated private final class RecordingThumbnailNormalizer:
+private final class RecordingThumbnailNormalizer:
     TextBoxInlineAttachmentThumbnailNormalizing,
     @unchecked Sendable
 {

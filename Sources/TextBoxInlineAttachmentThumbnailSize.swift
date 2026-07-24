@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated struct TextBoxInlineAttachmentThumbnailSize: Hashable, Sendable {
+struct TextBoxInlineAttachmentThumbnailSize: Hashable, Sendable {
     let width: Int
     let height: Int
 

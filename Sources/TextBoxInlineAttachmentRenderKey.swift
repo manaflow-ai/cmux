@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated struct TextBoxInlineAttachmentRenderKey: Hashable {
+struct TextBoxInlineAttachmentRenderKey: Hashable {
     let attachmentID: UUID
     let displayName: String
     let fontName: String
