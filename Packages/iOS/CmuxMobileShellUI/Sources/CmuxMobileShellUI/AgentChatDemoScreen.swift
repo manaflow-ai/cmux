@@ -68,6 +68,7 @@ struct AgentChatDemoScreen: View {
                 isEnabled: true,
                 workspaceName: inlineWorkspaceTitle ?? "",
                 hasUnread: false,
+                canCustomizeWorkspace: false,
                 canRenameWorkspace: true,
                 canToggleReadState: true,
                 canCloseWorkspace: false,

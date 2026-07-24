@@ -528,6 +528,7 @@ final class DockSplitStore: BonsplitDelegate {
     // MARK: - Tab metadata subscriptions
 
     func installSubscription(for panel: any Panel, tracksTerminalTitle: Bool) {
+        installAttentionFlashRouting(for: panel)
         if let browser = panel as? BrowserPanel {
             let cancellable = Publishers.CombineLatest4(
                 browser.$pageTitle.removeDuplicates(),
