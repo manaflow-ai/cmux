@@ -35,6 +35,11 @@ struct BrowserPortalFirstRevealScrollTests {
             backing: .buffered,
             defer: false
         )
+        // AppKit releases a closed window unless the owner opts out. Three tests in this
+        // suite call close() on this fixture's window, and without this the close
+        // over-releases and kills the test host, which loses this suite's verdict and
+        // every shard-mate's with it.
+        window.isReleasedWhenClosed = false
         window.contentView = contentView
         let anchor = NSView(frame: anchorFrame)
         contentView.addSubview(anchor)
