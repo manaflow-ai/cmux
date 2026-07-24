@@ -3447,6 +3447,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         presenter.refresh()
 
         XCTAssertTrue(presenter.owns(window: originalWindow))
+        XCTAssertTrue(originalWindow.isVisible)
         XCTAssertTrue(originalWindow.contentView === originalContent)
 
         dock.setStashed(false)
