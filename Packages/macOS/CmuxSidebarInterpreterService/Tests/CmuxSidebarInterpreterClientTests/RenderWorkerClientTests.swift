@@ -219,6 +219,41 @@ import Testing
         await client.shutdown()
     }
 
+    /// A stopped worker must not turn the host-side blocking-I/O bridge into an
+    /// unbounded retained-message queue. Once its bounded mailbox is full, the
+    /// pump fails the generation so supervision can close the pipe and recover.
+    @Test func writePumpRejectsOverflowInsteadOfGrowingWithoutBound() throws {
+        let pipe = Pipe()
+        let channel = try LengthPrefixedMessageChannel(
+            readFD: pipe.fileHandleForReading.fileDescriptor,
+            writeFD: pipe.fileHandleForWriting.fileDescriptor
+        )
+        let pump = RenderWorkerWritePump(channel: channel, generation: 1)
+        let failures = LockedFailureRecorder()
+        let payload = Data(count: 128 * 1024)
+
+        for _ in 0..<128 {
+            pump.enqueue(
+                RenderWorkerOutboundWrite(
+                    data: payload,
+                    remainingRelaunches: 0,
+                    ackSequence: nil
+                )
+            ) {
+                failures.record()
+            }
+        }
+
+        #expect(
+            failures.count == 1,
+            "mailbox overflow must fail one generation instead of retaining every message"
+        )
+
+        pump.cancel()
+        try pipe.fileHandleForReading.close()
+        try pipe.fileHandleForWriting.close()
+    }
+
     private func waitForContextReset(
         _ client: RenderWorkerClient,
         after initialContext: UInt32,
@@ -234,6 +269,21 @@ import Testing
             try? await Task.sleep(for: .milliseconds(50))
         }
         return false
+    }
+}
+
+private final class LockedFailureRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedCount = 0
+
+    var count: Int {
+        lock.withLock { recordedCount }
+    }
+
+    func record() {
+        lock.withLock {
+            recordedCount += 1
+        }
     }
 }
 
