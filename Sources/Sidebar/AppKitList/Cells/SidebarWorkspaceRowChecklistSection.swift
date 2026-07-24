@@ -313,6 +313,11 @@ final class SidebarRowChecklistSection: NSView {
         if let addAction = addRow.detachPresentation(commitEdits: commitEdits) {
             postUpdateActions.append(addAction)
         }
+        for line in orderedLines {
+            if let action = line.detachPresentation(commitEdits: commitEdits) {
+                postUpdateActions.append(action)
+            }
+        }
         summaryLine.resetForReuse()
         if popoverPresenter.isShown {
             popoverPresenter.close()

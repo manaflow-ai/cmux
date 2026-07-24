@@ -344,6 +344,43 @@ struct SidebarWorkspaceRowSuspensionTests {
         #expect(edits.first?.text == "Updated while closing")
     }
 
+    @Test
+    func emptyChecklistItemDraftCancellationDefersUntilAfterDetachment() throws {
+        let item = WorkspaceChecklistItem(text: "Original checklist item")
+        let model = Self.makeModel(
+            checklistItems: [item],
+            isChecklistExpanded: true,
+            editingChecklistItemId: item.id
+        )
+        var endedItemIds: [UUID] = []
+        var edits: [(UUID, String)] = []
+        let cell = SidebarWorkspaceRowTableCellView()
+        cell.configure(
+            model: model,
+            actions: Self.makeActions(
+                model: model,
+                onChecklistEditItem: { edits.append(($0, $1)) },
+                onEndChecklistItemEdit: { endedItemIds.append($0) }
+            ),
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+        let field = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? SidebarRowChecklistFocusField }
+                .first { $0.accessibilityIdentifier() == "SidebarChecklistEditItemField" }
+        )
+        field.stringValue = "   "
+
+        let postUpdateActions = cell.detachPresentation(commitEdits: true)
+
+        #expect(endedItemIds.isEmpty)
+        for action in postUpdateActions { action() }
+        #expect(endedItemIds == [item.id])
+        #expect(edits.isEmpty)
+    }
+
     private static func descendants(of view: NSView) -> [NSView] {
         view.subviews + view.subviews.flatMap { descendants(of: $0) }
     }
