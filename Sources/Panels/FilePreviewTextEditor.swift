@@ -336,6 +336,12 @@ final class SavingTextView: NSTextView {
     }
 
     private func handleEditorShortcut(_ event: NSEvent) -> Bool {
+        if hasMarkedText(),
+           shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
+            clearPendingShortcutChordPrefixes()
+            return false
+        }
+
         let candidates = editorShortcutCandidates()
         if let pendingPrefix = pendingEditorShortcutChordPrefix {
             pendingEditorShortcutChordPrefix = nil

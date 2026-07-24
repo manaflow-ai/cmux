@@ -231,15 +231,24 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
                 option: true,
                 control: false
             )
+            let event = try #require(makeKeyEvent(
+                modifierFlags: [.option],
+                characters: "¥",
+                charactersIgnoringModifiers: "y",
+                keyCode: 16,
+                windowNumber: testWindow.windowNumber
+            ))
+            try withTemporaryShortcut(action: .switchRightSidebarToFiles, shortcut: reboundBack) {
+                #expect(appDelegate.rightSidebarModeShortcut(for: event) == nil)
+                textView.unmarkText()
+                #expect(appDelegate.rightSidebarModeShortcut(for: event) == .files)
+                textView.setMarkedText(
+                    "marked",
+                    selectedRange: NSRange(location: 6, length: 0),
+                    replacementRange: NSRange(location: NSNotFound, length: 0)
+                )
+            }
             try withTemporaryShortcut(action: .focusHistoryBack, shortcut: reboundBack) {
-                let event = try #require(makeKeyEvent(
-                    modifierFlags: [.option],
-                    characters: "¥",
-                    charactersIgnoringModifiers: "y",
-                    keyCode: 16,
-                    windowNumber: testWindow.windowNumber
-                ))
-
                 #expect(!appDelegate.debugHandleCustomShortcut(event: event))
                 #expect(manager.selectedTabId == selectedWorkspace.id)
                 #expect(testWindow.performKeyEquivalent(with: event))

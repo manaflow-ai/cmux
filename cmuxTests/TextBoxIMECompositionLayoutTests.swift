@@ -8,8 +8,77 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite("TextBox IME composition layout")
+@Suite("TextBox IME composition layout", .serialized)
 struct TextBoxIMECompositionLayoutTests {
+    @Test("printable Option shortcuts defer to active IME composition")
+    @MainActor
+    func printableOptionShortcutDefersDuringMarkedText() throws {
+        let action = KeyboardShortcutSettings.Action.focusTextBoxInput
+        let defaults = UserDefaults.standard
+        let originalPersistedShortcut = defaults.object(forKey: action.defaultsKey)
+        let originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
+            prefix: "cmux-text-box-ime-shortcut"
+        )
+        defer {
+            if let originalPersistedShortcut {
+                defaults.set(originalPersistedShortcut, forKey: action.defaultsKey)
+            } else {
+                defaults.removeObject(forKey: action.defaultsKey)
+            }
+            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+        }
+
+        let textView = makeTextView()
+        var toggleFocusCount = 0
+        textView.onToggleFocus = {
+            toggleFocusCount += 1
+        }
+        textView.setMarkedText(
+            "かな",
+            selectedRange: NSRange(location: 2, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+        #expect(textView.hasMarkedText())
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "y", command: false, shift: false, option: true, control: false),
+            for: action
+        )
+        let optionEvent = try #require(makeKeyEvent(
+            modifierFlags: [.option],
+            characters: "¥",
+            charactersIgnoringModifiers: "y",
+            keyCode: 16
+        ))
+        #expect(!textView.handleConfiguredTextBoxShortcut(optionEvent))
+        #expect(toggleFocusCount == 0)
+
+        let modifiedShortcuts: [(StoredShortcut, NSEvent.ModifierFlags, String)] = [
+            (
+                StoredShortcut(key: "y", command: true, shift: false, option: false, control: false),
+                [.command],
+                "y"
+            ),
+            (
+                StoredShortcut(key: "y", command: false, shift: false, option: false, control: true),
+                [.control],
+                "\u{19}"
+            ),
+        ]
+        for (shortcut, modifierFlags, characters) in modifiedShortcuts {
+            KeyboardShortcutSettings.setShortcut(shortcut, for: action)
+            let event = try #require(makeKeyEvent(
+                modifierFlags: modifierFlags,
+                characters: characters,
+                charactersIgnoringModifiers: "y",
+                keyCode: 16
+            ))
+            #expect(textView.handleConfiguredTextBoxShortcut(event))
+        }
+        #expect(toggleFocusCount == 2)
+        #expect(textView.hasMarkedText())
+    }
+
     @Test("marked text has synchronous caret geometry and reflows before commit")
     @MainActor
     func markedTextReflowsBeforeCommit() {
@@ -165,6 +234,27 @@ struct TextBoxIMECompositionLayoutTests {
         textView.textContainerInset = TextBoxLayout.textInset
         textView.textContainer?.lineFragmentPadding = 0
         return textView
+    }
+
+    @MainActor
+    private func makeKeyEvent(
+        modifierFlags: NSEvent.ModifierFlags,
+        characters: String,
+        charactersIgnoringModifiers: String,
+        keyCode: UInt16
+    ) -> NSEvent? {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifierFlags,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: charactersIgnoringModifiers,
+            isARepeat: false,
+            keyCode: keyCode
+        )
     }
 
     @MainActor
