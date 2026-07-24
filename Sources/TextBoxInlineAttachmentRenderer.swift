@@ -27,6 +27,12 @@ final class TextBoxInlineAttachmentRenderer {
         self.onThumbnailReady = onThumbnailReady
     }
 
+    deinit {
+        for task in runningThumbnailTasks.values {
+            task.cancel()
+        }
+    }
+
     func image(
         for attachment: TextBoxAttachment,
         font: NSFont,
@@ -143,15 +149,6 @@ final class TextBoxInlineAttachmentRenderer {
             !attachmentIDs.contains($0.key)
         }
         cancelThumbnailRequests(forAttachmentIDs: attachmentIDs)
-    }
-
-    func cancelAllThumbnailRequests() {
-        activeAttachmentIDs.removeAll()
-        queuedThumbnailRequests.removeAll()
-        queuedThumbnailRequestSet.removeAll()
-        for task in runningThumbnailTasks.values {
-            task.cancel()
-        }
     }
 
     private func requestThumbnail(

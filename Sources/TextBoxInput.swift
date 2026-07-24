@@ -3315,7 +3315,6 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     deinit {
-        inlineAttachmentRendererStorage?.cancelAllThumbnailRequests()
         mentionCompletionWarmupTask?.cancel()
         removeMentionCompletionWindowObservers()
         dismissMentionCompletions()
