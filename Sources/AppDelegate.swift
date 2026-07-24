@@ -15203,7 +15203,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            browserResponderHasMarkedText(shortcutWindow?.firstResponder) {
             return nil
         }
-        KeyboardShortcutSettingsObserver.shared.rightSidebarModeShortcutMatcher.modeShortcut(for: event) { [self] action in
+        return KeyboardShortcutSettingsObserver.shared.rightSidebarModeShortcutMatcher.modeShortcut(for: event) { [self] action in
             shortcutWhenClauseAllows(action: action, event: event)
         }
     }
