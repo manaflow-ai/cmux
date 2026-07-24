@@ -24,6 +24,10 @@ by cmux Browser, exact cursor state for process-separated terminal mirrors,
 mutable-default color reset semantics, and the product-main renderer/link
 fixes described below.
 
+Its universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-c55514dd52d806e9aa661ee20381aa19c91c1c09-crashsubdir-cmux-crash-v1
+and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
+
 ### External frontend rendering and recovery
 
 - Commits:
