@@ -5148,6 +5148,7 @@ final class TextBoxInputTextView: NSTextView {
         }
 
         let removedAttachments = inlineAttachments(in: range)
+        discardInlineAttachmentRendering(for: removedAttachments)
         suppressAutomaticAttachmentFileCleanup = true
         defer { suppressAutomaticAttachmentFileCleanup = false }
         insertText("", replacementRange: range)
