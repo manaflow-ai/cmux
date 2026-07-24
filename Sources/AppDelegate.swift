@@ -3555,6 +3555,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         context.tabManager.restoreSessionSnapshot(snapshot.tabManager, workspaceCreateIdempotencyCache: TerminalController.shared.workspaceCreateIdempotencyCache)
+        context.restoreWindowDockSessionSnapshot(snapshot)
         // Seed restored per-config frames for later configuration switches.
         if let configFrames = snapshot.configFrames {
             windowConfigFrames[context.windowId] = SessionConfigFrameRing(entries: configFrames)
@@ -3641,63 +3642,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         guard !availableDisplays.isEmpty else { return frame }
 
+        let resolvedFrame: CGRect
         if let targetDisplay = display(for: displaySnapshot, in: availableDisplays) {
-            if shouldPreserveExactFrame(
+            if canReuseSavedDisplayCoordinates(
                 frame: frame,
                 displaySnapshot: displaySnapshot,
                 targetDisplay: targetDisplay
             ) {
-                return preservingOrClampingExactFrame(frame, targetDisplay: targetDisplay, availableDisplays: availableDisplays, minWidth: minWidth, minHeight: minHeight)
+                resolvedFrame = frame
+            } else {
+                resolvedFrame = resolvedWindowFrame(
+                    frame: frame,
+                    displaySnapshot: displaySnapshot,
+                    targetDisplay: targetDisplay,
+                    minWidth: minWidth,
+                    minHeight: minHeight
+                )
             }
-            return resolvedWindowFrame(
-                frame: frame,
-                displaySnapshot: displaySnapshot,
-                availableDisplays: availableDisplays,
-                targetDisplay: targetDisplay,
-                minWidth: minWidth,
-                minHeight: minHeight
-            )
-        }
-
-        if let intersectingDisplay = availableDisplays.first(where: { $0.visibleFrame.intersects(frame) }) {
-            return clampFrame(
-                frame,
-                within: intersectingDisplay.visibleFrame,
-                minWidth: minWidth,
-                minHeight: minHeight
-            )
-        }
-
-        guard let fallbackDisplay else { return frame }
-        if let sourceReference = displaySnapshot?.visibleFrame?.cgRect ?? displaySnapshot?.frame?.cgRect {
-            return remappedFrame(
+        } else if availableDisplays.contains(where: { $0.visibleFrame.intersects(frame) }) {
+            resolvedFrame = frame
+        } else if let fallbackDisplay,
+                  let sourceReference = displaySnapshot?.visibleFrame?.cgRect ?? displaySnapshot?.frame?.cgRect {
+            resolvedFrame = remappedFrame(
                 frame,
                 from: sourceReference,
                 to: fallbackDisplay.visibleFrame,
                 minWidth: minWidth,
                 minHeight: minHeight
             )
+        } else if let fallbackDisplay,
+                  !availableDisplays.contains(where: { $0.visibleFrame.intersects(frame) }) {
+            resolvedFrame = centeredFrame(
+                frame,
+                in: fallbackDisplay.visibleFrame,
+                minWidth: minWidth,
+                minHeight: minHeight
+            )
+        } else {
+            resolvedFrame = frame
         }
 
-        return centeredFrame(
-            frame,
-            in: fallbackDisplay.visibleFrame,
-            minWidth: minWidth,
-            minHeight: minHeight
-        )
+        // Display identity and overlap with current displays decide whether the
+        // saved coordinates can be reused or must first be remapped. Visibility
+        // is a separate invariant: every restored candidate passes through the
+        // same fit core used after live display-topology changes.
+        return MainWindowVisibleFrameFitCore().fittedFrame(
+            for: resolvedFrame,
+            displays: availableDisplays,
+            minimumWidth: minWidth,
+            minimumHeight: minHeight
+        ) ?? resolvedFrame
     }
 
     private nonisolated static func resolvedWindowFrame(
         frame: CGRect,
         displaySnapshot: SessionDisplaySnapshot?,
-        availableDisplays: [SessionDisplayGeometry],
         targetDisplay: SessionDisplayGeometry,
         minWidth: CGFloat,
         minHeight: CGFloat
     ) -> CGRect {
-        let fitCore = MainWindowVisibleFrameFitCore()
         if targetDisplay.visibleFrame.intersects(frame) {
-            return fitCore.fittedFrame(for: frame, displays: availableDisplays, minimumWidth: minWidth, minimumHeight: minHeight) ?? frame
+            return frame
         }
 
         if let sourceReference = displaySnapshot?.visibleFrame?.cgRect ?? displaySnapshot?.frame?.cgRect {
@@ -3788,7 +3793,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return clampFrame(centered, within: visibleFrame, minWidth: minWidth, minHeight: minHeight)
     }
 
-    private nonisolated static func shouldPreserveExactFrame(
+    private nonisolated static func canReuseSavedDisplayCoordinates(
         frame: CGRect,
         displaySnapshot: SessionDisplaySnapshot?,
         targetDisplay: SessionDisplayGeometry
@@ -4467,10 +4472,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> (snapshot: AppSessionSnapshot?, removedCrashDiagnosticState: Bool) {
         let contexts = sortedMainWindowContextsForSessionSnapshot()
-
         guard !contexts.isEmpty else { return (nil, false) }
         let restorableAgentIndex = suppliedRestorableAgentIndex ?? RestorableAgentSessionIndex.load()
-
         var windows: [SessionWindowSnapshot] = []
         var removedCrashDiagnosticState = false
         let createdAt = Date().timeIntervalSince1970
@@ -4484,11 +4487,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // A window whose live workspaces are only remote-tmux mirrors needs
             // live SSH control connections and should not restore as an empty
             // shell. If local workspaces were dragged in, keep those snapshots.
-            if windowSnapshot.tabManager.workspaces.isEmpty,
-               !context.tabManager.tabs.isEmpty,
-               context.tabManager.tabs.allSatisfy(\.isRemoteTmuxMirror) {
-                continue
-            }
+            if windowSnapshot.omitsRemoteMirrorOnlyWindow(liveWorkspaces: context.tabManager.tabs) { continue }
 
             let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(
                 from: AppSessionSnapshot(
@@ -4543,7 +4542,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 selection: SessionSidebarSelection(selection: context.sidebarSelectionState.selection),
                 width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(context.sidebarState.persistedWidth))
             ),
-            configFrames: windowConfigFrames[context.windowId]?.entries
+            configFrames: windowConfigFrames[context.windowId]?.entries,
+            dock: context.windowDockSessionSnapshot(includeScrollback: includeScrollback, restorableAgentIndex: restorableAgentIndex, surfaceResumeBindingIndex: surfaceResumeBindingIndex)
         )
     }
 
@@ -8902,6 +8902,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             fileExplorerState: fileExplorerState,
             cmuxConfigStore: cmuxConfigStore
         )
+        restoreWindowDockSessionSnapshot(forWindowId: windowId, from: sessionWindowSnapshot, excludingStableIdentities: excludingStableIdentitiesFromSessionSnapshot)
         publishCmuxWindowLifecycle(name: "window.created", windowId: windowId, origin: "create")
         installFileDropOverlay(on: window, tabManager: tabManager)
         if !shouldActivate || TerminalController.shouldSuppressSocketCommandActivation() {

@@ -74,7 +74,9 @@ extension TerminalController {
                     v2NonEmptyString($0.surface.debugTmuxStartCommand())
                 },
                 isTerminal: terminal != nil,
-                resumeBinding: nil,
+                resumeBinding: controlResumeBinding(
+                    from: dock.surfaceResumeBinding(panelId: panel.id)
+                ),
                 dockScopeRawValue: dock.scope.rawValue
             )
         }
