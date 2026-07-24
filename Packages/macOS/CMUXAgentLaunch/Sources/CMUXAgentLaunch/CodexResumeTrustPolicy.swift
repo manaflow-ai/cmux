@@ -1,14 +1,28 @@
 import Darwin
 import Foundation
 
+public struct CodexEffectiveProjectTrustConfiguration: Sendable, Equatable {
+    public let projectDecisionPaths: Set<String>
+    public let projectRootMarkers: [String]
+
+    fileprivate init(
+        projectDecisionPaths: Set<String>,
+        projectRootMarkers: [String]
+    ) {
+        self.projectDecisionPaths = projectDecisionPaths
+        self.projectRootMarkers = projectRootMarkers
+    }
+}
+
 /// Keeps unattended Codex resume non-interactive without granting project trust.
 ///
-/// Codex prompts when the active working directory and its repository root have
-/// no explicit project trust decision. A cmux auto-resume cannot answer that
-/// prompt safely, so an undecided resume receives an invocation-only `untrusted`
-/// override. The caller supplies project decisions from Codex's own effective
-/// configuration, preserving system, enterprise, managed, user, profile,
-/// project, and command-line layers.
+/// Codex prompts when the active working directory, its detected project root,
+/// and its repository root have no explicit project trust decision. A cmux
+/// auto-resume cannot answer that prompt safely, so an undecided resume receives
+/// an invocation-only `untrusted` override. The caller supplies project
+/// decisions and project-root markers from Codex's own effective configuration,
+/// preserving system, enterprise, managed, user, profile, project, and
+/// command-line layers.
 public struct CodexResumeTrustPolicy: Sendable, Equatable {
     public init() {}
 
@@ -19,7 +33,8 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
         arguments: [String],
         currentDirectory: String,
         repositoryRoot: String?,
-        effectiveProjectDecisionPaths: Set<String>
+        effectiveProjectDecisionPaths: Set<String>,
+        projectRootMarkers: [String] = [".git"]
     ) -> [String] {
         guard isResumeInvocation(arguments: arguments) else { return [] }
 
@@ -29,8 +44,14 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
         )
         guard let currentDirectory else { return [] }
 
+        let projectRoot = detectedProjectRoot(
+            currentDirectory: currentDirectory,
+            markers: projectRootMarkers
+        )
         var candidates = Set<String>()
-        for path in [currentDirectory, repositoryRoot].compactMap({ normalizedAbsolutePath($0) }) {
+        for path in [currentDirectory, projectRoot, repositoryRoot]
+            .compactMap({ normalizedAbsolutePath($0) })
+        {
             candidates.insert(path)
             candidates.insert(canonicalProjectPath(path))
         }
@@ -149,15 +170,17 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
         return result
     }
 
-    /// Extracts decided project paths from a `config/read` JSONL response.
+    /// Extracts project trust inputs from a `config/read` JSONL response.
     ///
-    /// Missing `projects` is a valid empty configuration. Malformed output,
-    /// an RPC error, or an unexpected `projects` shape returns nil so the caller
-    /// can fail closed and leave Codex's trust picker intact.
-    public func effectiveProjectDecisionPaths(
+    /// Missing `projects` is a valid empty configuration. Missing or null
+    /// `project_root_markers` uses Codex's default `.git` marker, while an
+    /// explicit empty array disables root detection. Malformed output, an RPC
+    /// error, or an unexpected shape returns nil so the caller can fail closed
+    /// and leave Codex's trust picker intact.
+    public func effectiveProjectTrustConfiguration(
         appServerOutput: String,
         responseID: Int = 2
-    ) -> Set<String>? {
+    ) -> CodexEffectiveProjectTrustConfiguration? {
         for line in appServerOutput.split(whereSeparator: \.isNewline) {
             guard let data = String(line).data(using: .utf8),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -169,37 +192,68 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
                   let config = result["config"] as? [String: Any] else {
                 return nil
             }
-            guard let rawProjects = config["projects"] else {
-                return []
-            }
-            if rawProjects is NSNull {
-                return []
-            }
-            guard let projects = rawProjects as? [String: Any] else {
-                return nil
+
+            let projectRootMarkers: [String]
+            if let rawMarkers = config["project_root_markers"],
+               !(rawMarkers is NSNull)
+            {
+                guard let markers = rawMarkers as? [Any] else {
+                    return nil
+                }
+                var parsedMarkers: [String] = []
+                for marker in markers {
+                    guard let marker = marker as? String else {
+                        return nil
+                    }
+                    parsedMarkers.append(marker)
+                }
+                projectRootMarkers = parsedMarkers
+            } else {
+                projectRootMarkers = [".git"]
             }
 
             var decisions = Set<String>()
-            for (path, rawProject) in projects {
-                guard let project = rawProject as? [String: Any] else {
+            if let rawProjects = config["projects"],
+               !(rawProjects is NSNull)
+            {
+                guard let projects = rawProjects as? [String: Any] else {
                     return nil
                 }
-                guard let rawTrustLevel = project["trust_level"] else {
-                    continue
+                for (path, rawProject) in projects {
+                    guard let project = rawProject as? [String: Any] else {
+                        return nil
+                    }
+                    guard let rawTrustLevel = project["trust_level"] else {
+                        continue
+                    }
+                    guard let trustLevel = rawTrustLevel as? String,
+                          trustLevel == "trusted" || trustLevel == "untrusted" else {
+                        return nil
+                    }
+                    guard let normalized = normalizedAbsolutePath(path) else {
+                        continue
+                    }
+                    decisions.insert(normalized)
+                    decisions.insert(canonicalProjectPath(normalized))
                 }
-                guard let trustLevel = rawTrustLevel as? String,
-                      trustLevel == "trusted" || trustLevel == "untrusted" else {
-                    return nil
-                }
-                guard let normalized = normalizedAbsolutePath(path) else {
-                    continue
-                }
-                decisions.insert(normalized)
-                decisions.insert(canonicalProjectPath(normalized))
             }
-            return decisions
+            return CodexEffectiveProjectTrustConfiguration(
+                projectDecisionPaths: decisions,
+                projectRootMarkers: projectRootMarkers
+            )
         }
         return nil
+    }
+
+    /// Compatibility projection for callers that only need decided paths.
+    public func effectiveProjectDecisionPaths(
+        appServerOutput: String,
+        responseID: Int = 2
+    ) -> Set<String>? {
+        effectiveProjectTrustConfiguration(
+            appServerOutput: appServerOutput,
+            responseID: responseID
+        )?.projectDecisionPaths
     }
 
     /// Resolves Codex's effective working root, including a global or
@@ -464,6 +518,30 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
             "--all",
             "--include-non-interactive",
         ]
+    }
+
+    private func detectedProjectRoot(
+        currentDirectory: String,
+        markers: [String]
+    ) -> String {
+        guard !markers.isEmpty else { return currentDirectory }
+
+        var ancestor = currentDirectory
+        while true {
+            for marker in markers {
+                let markerPath = (ancestor as NSString)
+                    .appendingPathComponent(marker)
+                if FileManager.default.fileExists(atPath: markerPath) {
+                    return ancestor
+                }
+            }
+
+            let parent = (ancestor as NSString).deletingLastPathComponent
+            guard !parent.isEmpty, parent != ancestor else {
+                return currentDirectory
+            }
+            ancestor = parent
+        }
     }
 
     private func normalizedAbsolutePath(_ path: String?) -> String? {
