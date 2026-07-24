@@ -191,4 +191,38 @@ import Testing
         #expect(rebased.customColorHex == "#222222")
         #expect(rebased.isPinned)
     }
+
+    @Test func retryDisplayStaysDirtyAgainstAuthoritativeBaselineAfterPartialFailure() {
+        let initial = WorkspaceCustomizationDraft(
+            name: "Original",
+            customDescription: "Old description",
+            customColorHex: "#111111",
+            isPinned: false
+        )
+        let submitted = WorkspaceCustomizationDraft(
+            name: "Renamed",
+            customDescription: "Pending description",
+            customColorHex: "#222222",
+            isPinned: true
+        )
+        let authoritativeAfterDescriptionFailure = WorkspaceCustomizationDraft(
+            name: "Renamed",
+            customDescription: "Old description",
+            customColorHex: "#111111",
+            isPinned: false
+        )
+
+        let retryDisplay = submitted.rebasingUntouchedFields(
+            from: authoritativeAfterDescriptionFailure,
+            comparedTo: initial
+        )
+        let dirtyFields = retryDisplay.dirtyFields(
+            comparedTo: authoritativeAfterDescriptionFailure
+        )
+
+        #expect(!dirtyFields.name)
+        #expect(dirtyFields.customDescription)
+        #expect(dirtyFields.customColorHex)
+        #expect(dirtyFields.isPinned)
+    }
 }

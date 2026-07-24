@@ -89,12 +89,13 @@ extension WorkspaceShellView {
                 let refreshedDraft = store.workspaces
                     .first(where: { $0.id == id })
                     .map(WorkspaceCustomizationDraft.init(workspace:)) ?? landedDraft
-                let authoritativeDraft = submittedDraft.rebasingUntouchedFields(
+                let displayDraft = submittedDraft.rebasingUntouchedFields(
                     from: refreshedDraft,
                     comparedTo: initialDraft
                 )
                 return .failure(
-                    rebasedTo: authoritativeDraft == initialDraft ? nil : authoritativeDraft,
+                    rebasedTo: refreshedDraft == initialDraft ? nil : refreshedDraft,
+                    displaying: displayDraft == refreshedDraft ? nil : displayDraft,
                     failure: failure
                 )
             }

@@ -226,7 +226,7 @@ struct WorkspaceCustomizationSheet: View {
             guard !Task.isCancelled else { return }
             saveTask = nil
             if let rebasedDraft = result.rebasedDraft {
-                applyRebasedDraft(rebasedDraft, submittedDraft: submittedDraft)
+                applyRebasedDraft(rebasedDraft, displayDraft: result.displayDraft)
             }
             if result.succeeded {
                 dismiss()
@@ -238,12 +238,9 @@ struct WorkspaceCustomizationSheet: View {
 
     private func applyRebasedDraft(
         _ rebasedDraft: WorkspaceCustomizationDraft,
-        submittedDraft: WorkspaceCustomizationDraft
+        displayDraft: WorkspaceCustomizationDraft?
     ) {
-        let displayDraft = submittedDraft.rebasingUntouchedFields(
-            from: rebasedDraft,
-            comparedTo: initialDraft
-        )
+        let displayDraft = displayDraft ?? rebasedDraft
         initialDraft = rebasedDraft
         name = displayDraft.name
         customDescription = displayDraft.customDescription ?? ""

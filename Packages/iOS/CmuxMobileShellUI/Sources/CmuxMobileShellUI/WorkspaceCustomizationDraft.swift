@@ -107,21 +107,25 @@ struct WorkspaceCustomizationSaveFailure: Equatable {
 struct WorkspaceCustomizationSaveResult: Equatable {
     let succeeded: Bool
     let rebasedDraft: WorkspaceCustomizationDraft?
+    let displayDraft: WorkspaceCustomizationDraft?
     let failure: WorkspaceCustomizationSaveFailure?
 
     static let success = WorkspaceCustomizationSaveResult(
         succeeded: true,
         rebasedDraft: nil,
+        displayDraft: nil,
         failure: nil
     )
 
     static func failure(
         rebasedTo rebasedDraft: WorkspaceCustomizationDraft? = nil,
+        displaying displayDraft: WorkspaceCustomizationDraft? = nil,
         failure: WorkspaceCustomizationSaveFailure? = nil
     ) -> WorkspaceCustomizationSaveResult {
         WorkspaceCustomizationSaveResult(
             succeeded: false,
             rebasedDraft: rebasedDraft,
+            displayDraft: displayDraft,
             failure: failure
         )
     }
