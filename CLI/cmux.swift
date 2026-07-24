@@ -1020,7 +1020,7 @@ final class ClaudeHookSessionStore {
         // the OS can reuse a numeric PID.
         if allowResumedProcessReplacement,
            let incomingPID,
-           resumedProcessGenerationIsNewer(
+           resumedProcessCanReplace(
                incomingPID: incomingPID,
                than: record
            ) {
@@ -1039,19 +1039,32 @@ final class ClaudeHookSessionStore {
         return incomingPID == existingPID
     }
 
-    private func resumedProcessGenerationIsNewer(
+    private func resumedProcessCanReplace(
         incomingPID: Int,
         than record: ClaudeHookSessionRecord
     ) -> Bool {
-        guard let incoming = processStartIdentity(pid: incomingPID),
-              let existingSeconds = record.pidStartSeconds,
-              let existingMicroseconds = record.pidStartMicroseconds else {
+        guard let incoming = processStartIdentity(pid: incomingPID) else {
             return false
         }
-        if incoming.seconds != existingSeconds {
-            return incoming.seconds > existingSeconds
+        if let existingSeconds = record.pidStartSeconds,
+           let existingMicroseconds = record.pidStartMicroseconds {
+            if incoming.seconds != existingSeconds {
+                return incoming.seconds > existingSeconds
+            }
+            return incoming.microseconds > existingMicroseconds
         }
-        return incoming.microseconds > existingMicroseconds
+
+        // Older cmux CLIs can decode and rewrite the shared store without the
+        // optional generation fields. Preserve crash recovery for those records
+        // only when the previous owner is a distinct, dead PID. A live or reused
+        // PID and a missing PID remain ambiguous and fail closed.
+        guard let existingPID = record.pid,
+              existingPID > 0,
+              existingPID != incomingPID,
+              processStartIdentity(pid: existingPID) == nil else {
+            return false
+        }
+        return true
     }
 
     private func clearCodexSessionStartTurnState(on record: inout ClaudeHookSessionRecord) {

@@ -230,12 +230,16 @@ public struct CodexResumeTrustPolicy: Sendable, Equatable {
     /// quoted TOML key segments. Only an unquoted path without dots is an
     /// effective dotted `projects.<path>.trust_level` override.
     private func projectPathFromEffectiveCLITrustKey(_ key: String) -> String? {
-        guard key.hasPrefix("projects."),
-              key.hasSuffix(".trust_level") else {
+        let prefix = "projects."
+        let suffix = ".trust_level"
+        guard key.hasPrefix(prefix),
+              key.hasSuffix(suffix),
+              key.count >= prefix.count + suffix.count else {
             return nil
         }
-        let start = key.index(key.startIndex, offsetBy: "projects.".count)
-        let end = key.index(key.endIndex, offsetBy: -".trust_level".count)
+        let start = key.index(key.startIndex, offsetBy: prefix.count)
+        let end = key.index(key.endIndex, offsetBy: -suffix.count)
+        guard start <= end else { return nil }
         let path = String(key[start..<end])
         guard path.hasPrefix("/"),
               !path.contains(".") else {
