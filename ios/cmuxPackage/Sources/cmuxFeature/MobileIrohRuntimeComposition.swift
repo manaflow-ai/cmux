@@ -53,7 +53,8 @@ final class MobileIrohConnectionReadinessSignal {
 @MainActor
 public final class MobileIrohRuntimeComposition:
     CmxIrohDeferredTransportProviding,
-    MobileIrohMacDiscovering
+    MobileIrohMacDiscovering,
+    MobileIrohMacForgetting
 {
     enum SettingsError: Error, Equatable {
         case unavailable
@@ -2502,7 +2503,59 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
     }
 }
 
+/// Failure surfaced when a hidden computer cannot be forgotten.
+enum MobileIrohForgetError: Error {
+    /// No account is authenticated, so no bindings can be revoked.
+    case notAuthenticated
+}
+
 extension MobileIrohRuntimeComposition {
+    /// Revokes every non-revoked binding for one saved computer.
+    ///
+    /// Uses a direct authenticated broker (no endpoint/runtime required), so an
+    /// offline Mac's binding is still listed by ``CmxIrohClientBrokerServing/discover()``
+    /// and can be revoked. Matches by canonical device id, and by exact tag when
+    /// the caller knows the app instance, then revokes each match. A no-match
+    /// discovery is treated as already-forgotten and succeeds.
+    public func forgetComputer(macDeviceID: String, instanceTag: String?) async throws {
+        guard let accountID = observedAccountID ?? activeAccountID else {
+            throw MobileIrohForgetError.notAuthenticated
+        }
+        let broker = try makeBrokerBundle(
+            accountID: accountID,
+            tokenSource: liveBrokerTokenSource()
+        ).client
+        let snapshot = try await broker.discover()
+        let canonicalTarget = cmxCanonicalDeviceID(macDeviceID)
+        let matches = snapshot.bindings.filter { binding in
+            guard cmxCanonicalDeviceID(binding.deviceID) == canonicalTarget else {
+                return false
+            }
+            if let instanceTag { return binding.tag == instanceTag }
+            return true
+        }
+        for binding in matches {
+            try await broker.revoke(bindingID: binding.bindingID)
+        }
+    }
+
+    /// Broker token source backed by auth's live token pair, matching the
+    /// activation path so a forget revoke authenticates the same way.
+    private func liveBrokerTokenSource() -> CmxIrohBrokerTokenSource {
+        CmxIrohBrokerTokenSource(
+            accessToken: { [weak auth] in
+                guard let auth,
+                      let tokens = try? await auth.currentTokens() else { return nil }
+                return tokens.accessToken
+            },
+            refreshToken: { [weak auth] in
+                guard let auth,
+                      let tokens = try? await auth.currentTokens() else { return nil }
+                return tokens.refreshToken
+            }
+        )
+    }
+
     public func setIrohPathPreference(
         _ preference: CmxIrohPathPreference
     ) async throws {

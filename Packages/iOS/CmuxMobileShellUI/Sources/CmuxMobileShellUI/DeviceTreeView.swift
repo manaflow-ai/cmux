@@ -4,6 +4,7 @@ import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
+import CmuxMobileToast
 import SwiftUI
 
 /// The Computers screen: the Macs signed in to the user's account, each shown
@@ -24,6 +25,9 @@ struct DeviceTreeView: View {
     /// Present the add-device (pairing) flow. `nil` hides the add affordance.
     var showAddDevice: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
+    /// App-wide toast layer (injected by `.toastHost` at the root and inherited
+    /// into this sheet), used to surface a failed Forget without mutating the row.
+    @Environment(ToastCenter.self) private var toasts
 
     /// The user's computers as immutable snapshots, sourced from the paired-Mac
     /// backup (`pairedMacs`) — this feature's source of truth, the same set that
@@ -141,6 +145,22 @@ struct DeviceTreeView: View {
                     computer.macDeviceID,
                     instanceTag: computer.instanceTag
                 )
+            },
+            forget: { computer in
+                let forgot = await store.forgetHiddenComputer(computer)
+                if !forgot {
+                    toasts.present(.failure(
+                        L10n.string(
+                            "mobile.computers.forget.failureMessage",
+                            defaultValue: "It's still signed in. Check your connection and try again."
+                        ),
+                        title: L10n.string(
+                            "mobile.computers.forget.failureTitle",
+                            defaultValue: "Couldn't forget computer"
+                        ),
+                        coalescingKey: "computers.forget.failure"
+                    ))
+                }
             }
         )
     }

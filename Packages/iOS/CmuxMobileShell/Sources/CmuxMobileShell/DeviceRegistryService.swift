@@ -79,18 +79,38 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     ///
     /// A cmux-GENERATED persisted UUID (NOT `identifierForVendor`, which resets
     /// when the last cmux app is removed, and NOT a hardware fingerprint).
-    /// Persisted in `UserDefaults` so it survives relaunch and reinstall, is
-    /// cross-platform, and is user-renamable via its display name. Mirrors the
+    /// Stored in a device-only Keychain item so it survives an app reinstall
+    /// (iOS `UserDefaults` does not): the iroh binding slot is keyed on
+    /// `(user, device, tag)`, so a returning phone must present the same device
+    /// id to overwrite its own binding in place instead of stranding a new one.
+    /// A pre-Keychain `UserDefaults` id is migrated on first read. Mirrors the
     /// Mac side's `MobileHostIdentity.deviceID()`. The phone sends this id when
-    /// it registers itself as a device; the key-pinning phase will anchor a
-    /// pinned key to it for revoke.
-    /// - Parameter defaults: Persistence store (injected for tests).
+    /// it registers itself as a device; the pinned key is anchored to it for
+    /// revoke.
+    /// - Parameter defaults: Legacy persistence store (injected for tests).
     public static func deviceID(defaults: UserDefaults = .standard) -> String {
-        if let existing = defaults.string(forKey: deviceIDKey),
-           !existing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return existing
+        deviceID(store: KeychainDeviceIdentityStore(), defaults: defaults)
+    }
+
+    /// Testable core of ``deviceID(defaults:)`` with an injectable identity store.
+    static func deviceID(store: any DeviceIdentityStoring, defaults: UserDefaults) -> String {
+        // Keychain is authoritative because it survives an app reinstall, keeping
+        // the iroh (user, device, tag) slot stable.
+        if let stored = store.read()?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !stored.isEmpty {
+            return stored
+        }
+        // Adopt a pre-Keychain UserDefaults id so existing installs keep their slot.
+        if let legacy = defaults.string(forKey: deviceIDKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !legacy.isEmpty {
+            store.write(legacy)
+            return legacy
         }
         let generated = UUID().uuidString.lowercased()
+        store.write(generated)
+        // Mirror to UserDefaults so a build predating Keychain storage still
+        // finds the same id after a downgrade.
         defaults.set(generated, forKey: deviceIDKey)
         return generated
     }

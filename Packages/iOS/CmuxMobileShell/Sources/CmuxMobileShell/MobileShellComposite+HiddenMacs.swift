@@ -146,6 +146,62 @@ extension MobileShellComposite {
         }
     }
 
+    /// Revokes a hidden computer's account bindings, then drops its local row.
+    ///
+    /// The revoke is the meaningful action: it removes the binding from every
+    /// device on the account. On success the paired-Mac row and its hidden
+    /// marker are cleared so the computer disappears from every section; a Mac
+    /// that is still online re-registers a fresh binding and reappears on its
+    /// next connect. Returns `false` (leaving the row untouched) when no forget
+    /// capability is wired or the revoke fails, so the caller can surface an
+    /// error instead of a silent no-op.
+    public func forgetHiddenComputer(_ computer: MobileHiddenComputer) async -> Bool {
+        guard let personalIrohForget else { return false }
+        do {
+            try await personalIrohForget.forgetComputer(
+                macDeviceID: computer.macDeviceID,
+                instanceTag: computer.instanceTag
+            )
+        } catch {
+            hiddenMacsLog.error(
+                "forget hidden computer revoke failed: \(String(describing: error), privacy: .private)"
+            )
+            return false
+        }
+        await removeStoredPairedMacRow(
+            macDeviceID: computer.macDeviceID,
+            instanceTag: computer.instanceTag
+        )
+        return true
+    }
+
+    /// Clears one pairing's hidden marker and stored row so it fully disappears.
+    ///
+    /// The marker is cleared first so that when a still-online Mac re-registers,
+    /// a stale local marker does not re-hide the fresh row.
+    private func removeStoredPairedMacRow(
+        macDeviceID: String,
+        instanceTag: String?
+    ) async {
+        guard let scope = await currentScopeSnapshot() else { return }
+        await clearHiddenMacDeviceID(
+            macDeviceID,
+            instanceTag: instanceTag,
+            scope: scope
+        )
+        if let pairedMacStore {
+            try? await pairedMacStore.remove(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag,
+                stackUserID: scope.userID,
+                teamID: scope.teamID
+            )
+        }
+        guard await isScopeCurrent(scope) else { return }
+        await loadPairedMacs()
+        await loadRegistryDevices()
+    }
+
     /// Unhides one stored pairing immediately without requiring network access.
     public func unhideMacDeviceID(
         _ macDeviceID: String,

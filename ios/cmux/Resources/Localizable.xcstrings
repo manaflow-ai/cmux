@@ -1378,6 +1378,91 @@
         }
       }
     },
+    "mobile.computers.forget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forget"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登録解除"
+          }
+        }
+      }
+    },
+    "mobile.computers.forget.confirmMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It's removed from all your devices. If it's still online, it reappears the next time it connects."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのデバイスから削除されます。オンラインのままの場合は、次回接続時に再表示されます。"
+          }
+        }
+      }
+    },
+    "mobile.computers.forget.confirmTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forget this computer?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコンピュータの登録を解除しますか？"
+          }
+        }
+      }
+    },
+    "mobile.computers.forget.failureMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It's still signed in. Check your connection and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだサインインしています。接続を確認してもう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.computers.forget.failureTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't forget computer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登録を解除できませんでした"
+          }
+        }
+      }
+    },
     "mobile.computers.noRoute": {
       "extractionState": "manual",
       "localizations": {

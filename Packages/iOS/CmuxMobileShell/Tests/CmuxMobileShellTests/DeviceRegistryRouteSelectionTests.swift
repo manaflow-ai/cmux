@@ -276,12 +276,54 @@ import Testing
         let suite = "test.deviceRegistry.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
+        let store = InMemoryDeviceIdentityStore()
 
-        let first = DeviceRegistryService.deviceID(defaults: defaults)
-        let second = DeviceRegistryService.deviceID(defaults: defaults)
+        let first = DeviceRegistryService.deviceID(store: store, defaults: defaults)
+        let second = DeviceRegistryService.deviceID(store: store, defaults: defaults)
         #expect(first == second)
         #expect(!first.isEmpty)
         // Stable across a fresh accessor reading the same store (relaunch proxy).
         #expect(UUID(uuidString: first) != nil)
+        // The generated id is persisted to the authoritative (Keychain) store.
+        #expect(store.read() == first)
+    }
+
+    @Test func deviceIdentityMigratesLegacyUserDefaultsValue() {
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let legacy = "legacy-device-id-\(UUID().uuidString.lowercased())"
+        defaults.set(legacy, forKey: "cmux.deviceRegistry.iosDeviceID")
+        let store = InMemoryDeviceIdentityStore()
+
+        let resolved = DeviceRegistryService.deviceID(store: store, defaults: defaults)
+        // The pre-Keychain id is preserved, not replaced, so the binding slot survives.
+        #expect(resolved == legacy)
+        // And it is promoted into the authoritative store for future reads.
+        #expect(store.read() == legacy)
+    }
+
+    @Test func deviceIdentitySurvivesUserDefaultsWipe() {
+        // Reinstall proxy: Keychain retains the id, UserDefaults is empty.
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let kept = "kept-device-id-\(UUID().uuidString.lowercased())"
+        let store = InMemoryDeviceIdentityStore(seed: kept)
+
+        let resolved = DeviceRegistryService.deviceID(store: store, defaults: defaults)
+        #expect(resolved == kept)
+    }
+
+    @Test func deviceIdentityKeychainWinsOverUserDefaults() {
+        // If both stores hold a value, the Keychain (authoritative) one wins.
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("stale-userdefaults-id", forKey: "cmux.deviceRegistry.iosDeviceID")
+        let store = InMemoryDeviceIdentityStore(seed: "authoritative-keychain-id")
+
+        let resolved = DeviceRegistryService.deviceID(store: store, defaults: defaults)
+        #expect(resolved == "authoritative-keychain-id")
     }
 }

@@ -660,6 +660,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Live same-account Iroh discovery. This is distinct from route refresh so
     /// only a current broker response may initiate a first pairing.
     let personalIrohDiscovery: (any MobileIrohMacDiscovering)?
+    /// Revokes a hidden computer's account bindings when the user forgets it.
+    /// Optional so tests and non-iOS hosts run without the transport graph; when
+    /// `nil`, the Forget action is a no-op and the row stays put.
+    let personalIrohForget: (any MobileIrohMacForgetting)?
     /// Live presence subscription (the `workers/presence` Durable Object edge).
     /// Optional and failure-tolerant like the registry: when `nil` or down, the
     /// device tree simply keeps its registry "last seen" hints.
@@ -1050,6 +1054,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairedMacRestoreBoundary: PairedMacRestoreBoundary? = nil,
         deviceRegistry: (any DeviceRegistryRefreshing)? = nil,
         personalIrohDiscovery: (any MobileIrohMacDiscovering)? = nil,
+        personalIrohForget: (any MobileIrohMacForgetting)? = nil,
         presence: (any PresenceSubscribing)? = nil,
         clientIDRepository: MobileClientIDRepository = MobileClientIDRepository(defaults: .standard),
         identityProvider: (any MobileIdentityProviding)? = nil,
@@ -1084,6 +1089,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pairedMacRestoreBoundary = pairedMacRestoreBoundary
         self.deviceRegistry = deviceRegistry
         self.personalIrohDiscovery = personalIrohDiscovery
+        self.personalIrohForget = personalIrohForget
         self.presence = presence
         self.identityProvider = identityProvider
         self.teamIDProvider = teamIDProvider
