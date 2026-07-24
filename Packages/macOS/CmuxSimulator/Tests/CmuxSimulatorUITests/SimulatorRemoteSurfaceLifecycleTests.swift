@@ -174,6 +174,36 @@ struct SimulatorRemoteSurfaceLifecycleTests {
         ) == 0xFF_77_88_99)
     }
 
+    @Test("Frame publication signals wake a static pipeline without display polling")
+    func publicationSignalsWakeStaticPipeline() async throws {
+        let source = SignaledSimulatorFrameSurfaceSource(snapshot: simulatorFrameSnapshot(
+            pixel: 0xFF_12_34_56,
+            sequence: 1
+        ))
+        var completionCount = 0
+        let pipeline = SimulatorFramePresentationPipeline(
+            source: source,
+            presentationDidComplete: { completionCount += 1 }
+        )
+        defer { pipeline.invalidate() }
+
+        _ = pipeline.displayTick()
+        try await waitUntil { completionCount == 1 }
+        #expect(pipeline.displayTick()?.sequence == 1)
+        let staticAvailabilityChecks = source.availabilityCheckCount
+
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(source.availabilityCheckCount == staticAvailabilityChecks)
+
+        source.publish(simulatorFrameSnapshot(
+            pixel: 0xFF_65_43_21,
+            sequence: 2
+        ))
+        try await waitUntil { completionCount == 2 }
+
+        #expect(pipeline.displayTick()?.sequence == 2)
+    }
+
     @Test("Frame polling follows the host display cadence")
     func framePollingFollowsDisplayCadence() {
         #expect(SimulatorRemoteSurfaceView.presentationTimerIntervalNanoseconds(
@@ -486,6 +516,54 @@ private final class SequencedSimulatorFrameSurfaceSource:
         lock.withLock {
             guard sequence.map({ snapshot.sequence > $0 }) ?? true else { return nil }
             copies += 1
+            return snapshot
+        }
+    }
+}
+
+private final class SignaledSimulatorFrameSurfaceSource:
+    SimulatorFrameSurfaceReading,
+    @unchecked Sendable
+{
+    private let lock = NSLock()
+    private var snapshot: SimulatorFrameSnapshot
+    private var publicationHandler: (@Sendable () -> Void)?
+    private var availabilityChecks = 0
+
+    init(snapshot: SimulatorFrameSnapshot) {
+        self.snapshot = snapshot
+    }
+
+    var availabilityCheckCount: Int {
+        lock.withLock { availabilityChecks }
+    }
+
+    @discardableResult
+    func setFramePublicationHandler(
+        _ handler: (@Sendable () -> Void)?
+    ) -> Bool {
+        lock.withLock { publicationHandler = handler }
+        return true
+    }
+
+    func publish(_ snapshot: SimulatorFrameSnapshot) {
+        let handler = lock.withLock {
+            self.snapshot = snapshot
+            return publicationHandler
+        }
+        handler?()
+    }
+
+    func hasPublishedFrame(after sequence: UInt64?) -> Bool {
+        lock.withLock {
+            availabilityChecks += 1
+            return sequence.map { snapshot.sequence > $0 } ?? true
+        }
+    }
+
+    func copyLatestFrame(after sequence: UInt64?) async -> SimulatorFrameSnapshot? {
+        lock.withLock {
+            guard sequence.map({ snapshot.sequence > $0 }) ?? true else { return nil }
             return snapshot
         }
     }

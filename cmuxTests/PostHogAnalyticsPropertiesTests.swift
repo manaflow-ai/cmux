@@ -99,6 +99,20 @@ struct PostHogAnalyticsPropertiesTests {
         #expect(!CmuxFeatureFlags.coerceBoolFlagValue(nil, default: false))
     }
 
+    @Test("feature flag control plane rejects partial errored responses")
+    func featureFlagControlPlaneRejectsPartialErroredResponses() throws {
+        let flag = try #require(CmuxFeatureFlags.allFlags.first {
+            !$0.defaultWhenUnavailable
+        })
+        let payload = try JSONSerialization.data(withJSONObject: [
+            "featureFlags": [flag.key: true],
+            "featureFlagPayloads": [:],
+            "errorsWhileComputingFlags": true,
+        ])
+
+        #expect(CmuxFeatureFlags.postHogControlPlaneFlagValues(from: payload) == nil)
+    }
+
     @MainActor
     @Test("feature flag resolution prefers remote, then override, then default")
     func featureFlagResolutionPrecedence() throws {
