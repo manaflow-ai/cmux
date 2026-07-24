@@ -14373,6 +14373,44 @@ mod tests {
     }
 
     #[test]
+    fn pointer_motion_waits_for_pending_cell_pixel_geometry() {
+        let mux = Mux::new("cell-pixel-pointer-barrier-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        app.session.operations.enqueue_session_mutation(
+            "block before cell pixel geometry",
+            false,
+            move || {
+                started_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+                Ok(())
+            },
+        );
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        // refresh_cell_pixels publishes this scale before its ordered session
+        // mutation updates browser geometry.
+        app.cell_pixels = (12, 24);
+        app.session.set_cell_pixel_size(12, 24);
+        let motion = MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 9,
+            row: 3,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle(AppEvent::Input(Event::Mouse(motion))).unwrap();
+        let hover = app.hover;
+        let pending_motion = app.pending_pointer_motion.map(|pending| pending.event);
+        let routing_pending = app.session.has_pending_routing_mutations();
+        release_tx.send(()).unwrap();
+
+        assert_eq!(hover, None, "motion must not use the new scale before geometry settles");
+        assert_eq!(pending_motion, Some(motion));
+        assert!(routing_pending, "cell pixel geometry must participate in pointer routing");
+    }
+
+    #[test]
     fn discrete_pointer_waits_behind_earlier_deferred_input() {
         let mux = Mux::new("ordered-discrete-pointer-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
