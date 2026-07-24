@@ -7967,7 +7967,10 @@ impl App {
             Action::CloseTab => {
                 // Close the active tab; the pane collapses with its last
                 // tab, so this is also "close pane" for single-tab panes.
-                if let Some(surface) = self.active_surface() {
+                if let Some(surface) = pane
+                    .and_then(|pane| self.tree.pane(pane))
+                    .and_then(|pane| pane.active_surface())
+                {
                     self.session.close_surface(surface);
                 }
             }
