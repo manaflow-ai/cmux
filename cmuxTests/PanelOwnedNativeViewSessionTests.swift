@@ -93,15 +93,19 @@ final class PanelOwnedNativeViewSessionTests: XCTestCase {
             .appendingPathComponent("cmux-7311-quicklook-a-\(UUID().uuidString).txt")
         let secondURL = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("cmux-7311-quicklook-b-\(UUID().uuidString).txt")
-        try "first".write(to: firstURL, atomically: true, encoding: .utf8)
-        try "second".write(to: secondURL, atomically: true, encoding: .utf8)
         defer {
             try? FileManager.default.removeItem(at: firstURL)
             try? FileManager.default.removeItem(at: secondURL)
         }
+        try "first".write(to: firstURL, atomically: true, encoding: .utf8)
+        try "second".write(to: secondURL, atomically: true, encoding: .utf8)
 
         let firstPanel = FilePreviewPanel(workspaceId: UUID(), filePath: firstURL.path)
         let secondPanel = FilePreviewPanel(workspaceId: UUID(), filePath: secondURL.path)
+        defer {
+            firstPanel.close()
+            secondPanel.close()
+        }
         let session = FilePreviewQuickLookSession()
         let container = try XCTUnwrap(session.view(
             panel: firstPanel,
@@ -118,8 +122,6 @@ final class PanelOwnedNativeViewSessionTests: XCTestCase {
         window.isReleasedWhenClosed = false
         defer {
             session.dismantle(container)
-            firstPanel.close()
-            secondPanel.close()
             window.close()
         }
 
@@ -137,22 +139,24 @@ final class PanelOwnedNativeViewSessionTests: XCTestCase {
         )
 
         let freshPreviewView = try XCTUnwrap(container.livePreviewView())
+        let freshPreviewItem = try XCTUnwrap(freshPreviewView.previewItem)
         XCTAssertFalse(freshPreviewView === stalePreviewView)
+        XCTAssertEqual(freshPreviewItem.previewItemURL, secondURL)
         XCTAssertNil(stalePreviewView.previewItem)
     }
 
     func testQuickLookReusePolicyRetiresInnerPreviewMissingFromMountedContainer() {
-        XCTAssertTrue(FilePreviewQuickLookReusePolicy.shouldRetire(
+        XCTAssertTrue(FilePreviewQuickLookContainerView.shouldRetire(
             didDetachFromWindow: false,
             containerHasWindow: true,
             previewHasWindow: false
         ))
-        XCTAssertFalse(FilePreviewQuickLookReusePolicy.shouldRetire(
+        XCTAssertFalse(FilePreviewQuickLookContainerView.shouldRetire(
             didDetachFromWindow: false,
             containerHasWindow: false,
             previewHasWindow: false
         ))
-        XCTAssertFalse(FilePreviewQuickLookReusePolicy.shouldRetire(
+        XCTAssertFalse(FilePreviewQuickLookContainerView.shouldRetire(
             didDetachFromWindow: false,
             containerHasWindow: true,
             previewHasWindow: true

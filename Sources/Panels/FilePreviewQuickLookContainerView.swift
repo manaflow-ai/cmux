@@ -6,34 +6,6 @@ enum FilePreviewQuickLookStaleReason: String {
     case missingFromMountedContainer = "missing-from-mounted-container"
 }
 
-enum FilePreviewQuickLookReusePolicy {
-    static func staleReason(
-        didDetachFromWindow: Bool,
-        containerHasWindow: Bool,
-        previewHasWindow: Bool
-    ) -> FilePreviewQuickLookStaleReason? {
-        if didDetachFromWindow {
-            return .detachedFromWindow
-        }
-        if containerHasWindow, !previewHasWindow {
-            return .missingFromMountedContainer
-        }
-        return nil
-    }
-
-    static func shouldRetire(
-        didDetachFromWindow: Bool,
-        containerHasWindow: Bool,
-        previewHasWindow: Bool
-    ) -> Bool {
-        staleReason(
-            didDetachFromWindow: didDetachFromWindow,
-            containerHasWindow: containerHasWindow,
-            previewHasWindow: previewHasWindow
-        ) != nil
-    }
-}
-
 /// Stable host for a `QLPreviewView`.
 ///
 /// SwiftUI keeps the `NSView` returned from `makeNSView` mounted across tab
@@ -48,6 +20,34 @@ enum FilePreviewQuickLookReusePolicy {
 final class FilePreviewQuickLookContainerView: QLPreviewView {
     private var previewView: TrackedQLPreviewView?
 
+    /// Classifies whether an existing inner preview is safe to reuse.
+    static func staleReason(
+        didDetachFromWindow: Bool,
+        containerHasWindow: Bool,
+        previewHasWindow: Bool
+    ) -> FilePreviewQuickLookStaleReason? {
+        if didDetachFromWindow {
+            return .detachedFromWindow
+        }
+        if containerHasWindow, !previewHasWindow {
+            return .missingFromMountedContainer
+        }
+        return nil
+    }
+
+    /// Returns whether the inner preview must be replaced before assignment.
+    static func shouldRetire(
+        didDetachFromWindow: Bool,
+        containerHasWindow: Bool,
+        previewHasWindow: Bool
+    ) -> Bool {
+        staleReason(
+            didDetachFromWindow: didDetachFromWindow,
+            containerHasWindow: containerHasWindow,
+            previewHasWindow: previewHasWindow
+        ) != nil
+    }
+
     private init?(previewFrame: NSRect) {
         super.init(frame: previewFrame, style: .normal)
     }
@@ -57,6 +57,7 @@ final class FilePreviewQuickLookContainerView: QLPreviewView {
         nil
     }
 
+    /// Creates an empty stable host for a replaceable inner preview.
     static func make() -> FilePreviewQuickLookContainerView? {
         FilePreviewQuickLookContainerView(previewFrame: .zero)
     }
@@ -74,6 +75,7 @@ final class FilePreviewQuickLookContainerView: QLPreviewView {
         }
     }
 
+    /// Assigns an item only after validating or replacing the inner preview.
     @discardableResult
     func setLivePreviewItem(_ item: QLPreviewItem) -> QLPreviewView? {
         guard let previewView = livePreviewView() else { return nil }
@@ -87,7 +89,7 @@ final class FilePreviewQuickLookContainerView: QLPreviewView {
     /// `QLPreviewView` itself fails to initialize.
     func livePreviewView() -> QLPreviewView? {
         if let previewView {
-            let staleReason = FilePreviewQuickLookReusePolicy.staleReason(
+            let staleReason = Self.staleReason(
                 didDetachFromWindow: previewView.didDetachFromWindow,
                 containerHasWindow: window != nil,
                 previewHasWindow: previewView.window != nil
