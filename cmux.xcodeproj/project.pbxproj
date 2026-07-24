@@ -877,6 +877,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		FEED0000000000000000F002 /* FeedCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F001 /* FeedCoordinator.swift */; };
 		A8628B310000000000000001 /* FeedCoordinatorTestHooks.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8628C310000000000000001 /* FeedCoordinatorTestHooks.swift */; };
 		FEEDC0DEC0DEC0DEC0DE0001 /* FeedCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEEDC0DEC0DEC0DEC0DE0002 /* FeedCoordinatorTests.swift */; };
+		FEEDC1A60000000000000001 /* FeedDeliveryTargetProbeStrategy.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEEDC1A60000000000000002 /* FeedDeliveryTargetProbeStrategy.swift */; };
+		FEEDC1A60000000000000003 /* FeedDeliveryTargetProbeStrategy.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEEDC1A60000000000000002 /* FeedDeliveryTargetProbeStrategy.swift */; };
 		FEED49850000000000000001 /* FeedEventClassificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED49850000000000000002 /* FeedEventClassificationTests.swift */; };
 		FEEDC1A50000000000000001 /* FeedEventClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEEDC1A50000000000000002 /* FeedEventClassifier.swift */; };
 		FEEDC1A50000000000000003 /* FeedEventClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEEDC1A50000000000000002 /* FeedEventClassifier.swift */; };
@@ -2146,6 +2148,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D7632B13A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7632B14A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift */; };
 		C0DE43000000000000000007 /* Workspace+AgentChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE43000000000000000008 /* Workspace+AgentChat.swift */; };
 		A6AC73020000000000000001 /* Workspace+AgentLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC73020000000000000002 /* Workspace+AgentLifecycle.swift */; };
+		A8628B130000000000000013 /* Workspace+AgentNotificationSuppression.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8628C130000000000000013 /* Workspace+AgentNotificationSuppression.swift */; };
 		A8628B100000000000000010 /* Workspace+AgentPIDNamespace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8628C100000000000000010 /* Workspace+AgentPIDNamespace.swift */; };
 		A8628B0A000000000000000A /* Workspace+AgentRuntimeTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8628C0A000000000000000A /* Workspace+AgentRuntimeTransfer.swift */; };
 		A8628B060000000000000006 /* Workspace+AgentStatusReconciliation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8628C060000000000000006 /* Workspace+AgentStatusReconciliation.swift */; };
@@ -3141,6 +3144,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		FEED0000000000000000F001 /* FeedCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedCoordinator.swift; sourceTree = "<group>"; };
 		A8628C310000000000000001 /* FeedCoordinatorTestHooks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedCoordinatorTestHooks.swift; sourceTree = "<group>"; };
 		FEEDC0DEC0DEC0DEC0DE0002 /* FeedCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedCoordinatorTests.swift; sourceTree = "<group>"; };
+		FEEDC1A60000000000000002 /* FeedDeliveryTargetProbeStrategy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedDeliveryTargetProbeStrategy.swift; sourceTree = "<group>"; };
 		FEED49850000000000000002 /* FeedEventClassificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedEventClassificationTests.swift; sourceTree = "<group>"; };
 		FEEDC1A50000000000000002 /* FeedEventClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedEventClassifier.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F004 /* FeedPanelView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedPanelView.swift; sourceTree = "<group>"; };
@@ -4390,6 +4394,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D7632B14A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/WKWebView+CmuxPrintOperation.swift"; sourceTree = "<group>"; };
 		C0DE43000000000000000008 /* Workspace+AgentChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AgentChat.swift"; sourceTree = "<group>"; };
 		A6AC73020000000000000002 /* Workspace+AgentLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AgentLifecycle.swift"; sourceTree = "<group>"; };
+		A8628C130000000000000013 /* Workspace+AgentNotificationSuppression.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentStatus/Workspace+AgentNotificationSuppression.swift"; sourceTree = "<group>"; };
 		A8628C100000000000000010 /* Workspace+AgentPIDNamespace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentStatus/Workspace+AgentPIDNamespace.swift"; sourceTree = "<group>"; };
 		A8628C0A000000000000000A /* Workspace+AgentRuntimeTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentStatus/Workspace+AgentRuntimeTransfer.swift"; sourceTree = "<group>"; };
 		A8628C060000000000000006 /* Workspace+AgentStatusReconciliation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentStatus/Workspace+AgentStatusReconciliation.swift"; sourceTree = "<group>"; };
@@ -5263,6 +5268,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A8628C050000000000000005 /* AgentStatusRuntimeLedger.swift */,
 				A8628C110000000000000011 /* AgentStatusRuntimeLiveness.swift */,
 				A8628C120000000000000012 /* AgentStatusRuntimeRegistrationSource.swift */,
+				A8628C130000000000000013 /* Workspace+AgentNotificationSuppression.swift */,
 				A8628C060000000000000006 /* Workspace+AgentStatusReconciliation.swift */,
 				A8628C070000000000000007 /* TabManager+AgentStatusReconciliation.swift */,
 				A8628C080000000000000008 /* TerminalController+AgentStatusReconciliation.swift */,
@@ -6230,6 +6236,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D8628E070000000000000007 /* ClaudeHookSessionStore+CodexRuntimeStatusOrdering.swift */,
 				A76110010000000000000002 /* AgentHookNotificationPolicy.swift */,
 				FEEDC1A50000000000000002 /* FeedEventClassifier.swift */,
+				FEEDC1A60000000000000002 /* FeedDeliveryTargetProbeStrategy.swift */,
 				B900004BA1B2C3D4E5F60719 /* CLISocketPathResolver.swift */,
 				A6AC720A0000000000000002 /* WorkspaceLoadingArguments.swift */,
 				C510C1E00000000000000001 /* SocketOperationTelemetry.swift */,
@@ -8706,6 +8713,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D7632B13A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift in Sources */,
 				C0DE43000000000000000007 /* Workspace+AgentChat.swift in Sources */,
 				A6AC73020000000000000001 /* Workspace+AgentLifecycle.swift in Sources */,
+				A8628B130000000000000013 /* Workspace+AgentNotificationSuppression.swift in Sources */,
 				A8628B100000000000000010 /* Workspace+AgentPIDNamespace.swift in Sources */,
 				A8628B0A000000000000000A /* Workspace+AgentRuntimeTransfer.swift in Sources */,
 				A8628B060000000000000006 /* Workspace+AgentStatusReconciliation.swift in Sources */,
@@ -8882,6 +8890,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D8628D160000000000000016 /* CodexPermissionTransitionEffect.swift in Sources */,
 				D8628D030000000000000003 /* CodexPermissionTransitionMachine.swift in Sources */,
 				C0DECAFE0000000000000001 /* CodexTeamsApprovalBridge.swift in Sources */,
+				FEEDC1A60000000000000001 /* FeedDeliveryTargetProbeStrategy.swift in Sources */,
 				FEEDC1A50000000000000001 /* FeedEventClassifier.swift in Sources */,
 				A5FB1308 /* JSONCObjectEditor+Remove.swift in Sources */,
 				A5FB1312 /* JSONCObjectEditor+Set.swift in Sources */,
@@ -9204,6 +9213,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D3622100A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift in Sources */,
 				E50320010000000000000001 /* ExtensionWorktreeSpawnArgsTests.swift in Sources */,
 				FEEDC0DEC0DEC0DEC0DE0001 /* FeedCoordinatorTests.swift in Sources */,
+				FEEDC1A60000000000000003 /* FeedDeliveryTargetProbeStrategy.swift in Sources */,
 				FEED49850000000000000001 /* FeedEventClassificationTests.swift in Sources */,
 				FEEDC1A50000000000000003 /* FeedEventClassifier.swift in Sources */,
 				D0B10018A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift in Sources */,

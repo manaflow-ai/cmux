@@ -1,15 +1,10 @@
 import Bonsplit
-import CmuxSettings
 import CmuxCore
 import Darwin
 import Foundation
 import CmuxSidebar
 
 extension Workspace {
-    private static let structuredAgentHookStatusKeys = AgentHibernationLifecycleStatusKeys.allowedStatusKeys
-    private static let managedSubagentEnvironmentKey = "CMUX_AGENT_MANAGED_SUBAGENT"
-    private static let truthyStartupEnvironmentValues: Set<String> = ["1", "true", "yes", "on", "enabled"]
-
     var agentPIDs: [String: pid_t] {
         get { sidebarAgentRuntimeObservation.agentPIDs }
         set { sidebarAgentRuntimeObservation.setAgentPIDs(newValue) }
@@ -277,35 +272,6 @@ extension Workspace {
             startSeconds: Int64(info.pbi_start_tvsec),
             startMicroseconds: Int64(info.pbi_start_tvusec)
         )
-    }
-
-    func suppressesRawTerminalNotification(panelId: UUID?) -> Bool {
-        guard let panelId else {
-            return false
-        }
-
-        if AgentIntegrationSettingsStore(defaults: .standard).suppressesSubagentNotifications,
-           terminalPanelHasManagedSubagentStartupEnvironment(panelId: panelId) {
-            return true
-        }
-
-        let panelKeys = agentPIDKeysByPanelId[panelId] ?? []
-        return panelKeys.contains { isStructuredAgentHookPIDKey($0) }
-    }
-
-    private func terminalPanelHasManagedSubagentStartupEnvironment(panelId: UUID) -> Bool {
-        guard let rawValue = terminalPanel(for: panelId)?
-            .surface
-            .startupEnvironmentValue(Self.managedSubagentEnvironmentKey)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased() else {
-            return false
-        }
-        return Self.truthyStartupEnvironmentValues.contains(rawValue)
-    }
-
-    private func isStructuredAgentHookPIDKey(_ key: String) -> Bool {
-        Self.structuredAgentHookStatusKeys.contains(agentStatusKey(forAgentPIDKey: key))
     }
 
     @discardableResult
