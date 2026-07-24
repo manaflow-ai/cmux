@@ -610,7 +610,7 @@ pub(crate) fn parse_csi_u_encoded_key_code(buffer: &[u8]) -> io::Result<Option<I
     let input_event = if shifted_key.is_some() || base_layout_key.is_some() || !text.is_empty() {
         Event::EnhancedKey(EnhancedKeyEvent { key_event, shifted_key, base_layout_key, text })
     } else {
-        Event::Key(key_event)
+        Event::Key(key_event.normalize_case())
     };
 
     Ok(Some(InternalEvent::Event(input_event)))
