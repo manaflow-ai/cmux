@@ -12639,8 +12639,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func currentConfiguredShortcutChordActions() -> [KeyboardShortcutSettings.Action] {
         KeyboardShortcutSettings.Action.allCases.filter { action in
-            // Carbon owns the opt-in hotkey and never routes through AppKit's local handler.
-            guard !action.isSystemWideHotkey && action.allowsChordShortcut else { return false }
+            // Carbon owns the opt-in hotkey, while Global Search has a cached
+            // foreground route before generic chord handling.
+            guard !action.isSystemWideHotkey,
+                  action != .globalSearch,
+                  action.allowsChordShortcut else {
+                return false
+            }
             guard !action.isBrowserContentShortcut else { return false }
             return KeyboardShortcutSettings.shortcut(for: action).hasChord
         }
@@ -12915,7 +12920,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
             let shortcutWindow = resolvedShortcutEventWindow(event) ?? shortcutRoutingActiveWindow
-            if browserResponderHasMarkedText(shortcutWindow?.firstResponder) {
+            if shortcutResponderHasMarkedText(shortcutWindow?.firstResponder) {
                 clearConfiguredShortcutChordState()
                 return false
             }
@@ -13252,6 +13257,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
+        // Active marked text owns every non-Command event, regardless of which
+        // NSTextInputClient has focus. Command shortcuts remain available while
+        // composing because Command is not part of IME input sequences.
+        let shortcutWindowForMarkedText =
+            resolvedShortcutEventWindow(event)
+            ?? event.window
+            ?? shortcutRoutingActiveWindow
+            ?? shortcutRoutingKeyWindow
+        let shortcutResponderForMarkedText = shortcutWindowForMarkedText?.firstResponder
+        if !normalizedFlags.contains(.command) {
+            if let ghosttyView = shortcutResponderForMarkedText.cmuxStrictOwningGhosttyView(),
+               ghosttyView.hasMarkedText() {
+                return false
+            }
+            if shortcutResponderHasMarkedText(shortcutResponderForMarkedText) {
+                return false
+            }
+        }
+
+        if matchCachedGlobalSearchShortcut(event: event) {
+            toggleGlobalSearchPalette()
+            return true
+        }
+
+        let globalSearchAction = KeyboardShortcutSettings.Action.globalSearch
+        let globalSearchShortcut = KeyboardShortcutSettingsObserver.shared.globalSearchShortcut
+        if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+           globalSearchShortcut.hasChord,
+           matchShortcutStroke(event: event, stroke: globalSearchShortcut.firstStroke),
+           shortcutWhenClauseAllows(action: globalSearchAction, event: event) {
+            pendingConfiguredShortcutChord = PendingConfiguredShortcutChord(
+                firstStroke: globalSearchShortcut.firstStroke,
+                windowNumber: configuredShortcutChordWindowNumber(for: event)
+            )
+            return true
+        }
+
         if shouldConsumeShortcutWhileCommandPaletteVisible(
             isCommandPaletteVisible: commandPaletteEffectiveInTargetWindow,
             normalizedFlags: normalizedFlags,
@@ -13276,27 +13318,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return false
             }
         }
-
-        // When the terminal has active IME composition (e.g. Korean, Japanese, Chinese
-        // input), don't intercept non-Cmd key events — let them flow through to the
-        // input method. Cmd-based shortcuts (Cmd+T, Cmd+Shift+L, etc.) should still
-        // work during composition since Cmd is never part of IME input sequences.
-        if !normalizedFlags.contains(.command),
-           let ghosttyView = (shortcutRoutingKeyWindow?.firstResponder).cmuxStrictOwningGhosttyView(),
-           ghosttyView.hasMarkedText() {
-            return false
-        }
-
-        let shortcutWindowForMarkedText = resolvedShortcutEventWindow(event) ?? event.window ?? shortcutRoutingActiveWindow
-        if browserOmnibarShouldBypassShortcutRoutingForMarkedText(
-            hasFocusedAddressBar: hasFocusedAddressBarInShortcutContext,
-            firstResponderHasMarkedText: browserResponderHasMarkedText(shortcutWindowForMarkedText?.firstResponder),
-            flags: event.modifierFlags
-        ) {
-            return false
-        }
-
-        if matchCachedGlobalSearchShortcut(event: event) { toggleGlobalSearchPalette(); return true }
 
         // When the notifications popover is open, Escape should dismiss it immediately.
         if flags.isEmpty, event.keyCode == 53, titlebarAccessoryController.dismissNotificationsPopoverIfShown() {
@@ -15188,11 +15209,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func matchCachedGlobalSearchShortcut(event: NSEvent) -> Bool {
         let action = KeyboardShortcutSettings.Action.globalSearch
-        if !shortcutWhenClauseAllows(action: action, event: event) { return false }
-        return matchConfiguredShortcut(
+        guard matchConfiguredShortcut(
             event: event,
             shortcut: KeyboardShortcutSettingsObserver.shared.globalSearchShortcut
-        )
+        ) else {
+            return false
+        }
+        return shortcutWhenClauseAllows(action: action, event: event)
     }
 
     /// Whether `action`'s effective `when` clause (its `shortcuts.when` override,
@@ -15209,7 +15232,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func rightSidebarModeShortcut(for event: NSEvent) -> RightSidebarMode? {
         let shortcutWindow = resolvedShortcutEventWindow(event) ?? event.window ?? shortcutRoutingActiveWindow
         if shortcutRoutingShouldBypassForPrintableOptionText(event: event),
-           browserResponderHasMarkedText(shortcutWindow?.firstResponder) {
+           shortcutResponderHasMarkedText(shortcutWindow?.firstResponder) {
             return nil
         }
         return KeyboardShortcutSettingsObserver.shared.rightSidebarModeShortcutMatcher.modeShortcut(for: event) { [self] action in
@@ -17058,7 +17081,7 @@ private extension NSWindow {
         let firstResponderWebView = self.firstResponder.flatMap {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
         }
-        let firstResponderHasMarkedText = browserResponderHasMarkedText(self.firstResponder)
+        let firstResponderHasMarkedText = shortcutResponderHasMarkedText(self.firstResponder)
         let firstResponderIsCommandPaletteFieldEditor = Self.cmuxCommandPaletteOwnsFieldEditor(
             self.firstResponder as? NSTextView,
             in: self
@@ -17340,7 +17363,7 @@ private extension NSWindow {
                 if cmuxForceDispatchKeyDownOnce(
                     event,
                     to: omnibarResponder,
-                    reason: browserResponderHasMarkedText(omnibarResponder)
+                    reason: shortcutResponderHasMarkedText(omnibarResponder)
                         ? "browser arrow restored focused omnibar with marked text"
                         : "browser arrow restored focused omnibar"
                 ) {
