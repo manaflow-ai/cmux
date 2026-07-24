@@ -318,12 +318,38 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "time.sleep(0.1)\n"
                 'rendered = f"{self.assertTrue(done)}"\n'
             ),
+            "fstring-sleep-before-assertion.py": (
+                'rendered = f"{time.sleep(0.1)}"\n'
+                "self.assertTrue(done)\n"
+            ),
             "heredoc-case-substitution.sh": (
                 "cat <<EOF\n"
                 '$(case "$state" in\n'
                 "ready) sleep 1 ;;\n"
                 "esac)\n"
                 "EOF\n"
+                'assert "$ready"\n'
+            ),
+            "nested-multiline-substitutions.sh": (
+                'value="$(\n'
+                'echo "$(\n'
+                'echo "$(\n'
+                "sleep 1\n"
+                ')"\n'
+                ')"\n'
+                ')"\n'
+                'assert "$ready"\n'
+            ),
+            "case-keyword-pattern-alternative.sh": (
+                'case "$state" in\n'
+                "ready|case) DELAY=1 sleep 1 ;;\n"
+                "esac\n"
+                'assert "$ready"\n'
+            ),
+            "esac-keyword-pattern-alternative.sh": (
+                'case "$state" in\n'
+                "ready|esac) DELAY=1 sleep 1 ;;\n"
+                "esac\n"
                 'assert "$ready"\n'
             ),
             "shell-expansion-suffix-before-sleep.sh": (
@@ -413,6 +439,7 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "deferred-global-write.py",
                     "mixed-quoted-heredoc-then-sleep.sh",
                     "quoted-backslash-heredoc-then-sleep.sh",
+                    "nested-multiline-substitutions.sh",
                 )
                 else
                 3
@@ -440,6 +467,8 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "heredoc-arithmetic-command-substitution.sh",
                     "comment-prefixed-fstring.py",
                     "comment-prefixed-heredoc-substitution.sh",
+                    "case-keyword-pattern-alternative.sh",
+                    "esac-keyword-pattern-alternative.sh",
                 )
                 else 1
             )
