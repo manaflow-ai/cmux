@@ -365,7 +365,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                     }
                 }
                 if Self.shouldSeedSinglePaneDisplay(for: window) {
-                    connection.seedPane(paneId: firstPaneId)
+                    connection.seedPane(paneId: firstPaneId, clearScrollback: true)
                 }
                 panelId = panel.id
                 displayPanelWasCreated = true
