@@ -172,13 +172,166 @@ struct WorkspaceAdjacentPaneMoveTests {
         #expect(browser.webView === webView)
     }
 
-    @Test func allActionsAreNoOpsWithASinglePane() throws {
+    @Test(arguments: [
+        SurfacePaneMovement.left,
+        .right,
+        .up,
+        .down,
+    ])
+    func missingDirectionalDestinationCreatesEqualSplit(
+        _ movement: SurfacePaneMovement
+    ) throws {
+        let workspace = Workspace()
+        let movedPanelId = try #require(workspace.focusedPanelId)
+        let sourcePaneId = try #require(
+            workspace.paneId(forPanelId: movedPanelId)
+        )
+        let movedTerminal = try #require(
+            workspace.panels[movedPanelId] as? TerminalPanel
+        )
+        let expectation = try #require(
+            directionalSplitExpectation(for: movement)
+        )
+
+        #expect(workspace.moveFocusedSurface(to: movement))
+        #expect(workspace.bonsplitController.allPaneIds.count == 2)
+
+        let destinationPaneId = try #require(
+            workspace.paneId(forPanelId: movedPanelId)
+        )
+        #expect(destinationPaneId != sourcePaneId)
+        #expect((workspace.panels[movedPanelId] as? TerminalPanel) === movedTerminal)
+        #expect(workspace.focusedPanelId == movedPanelId)
+        #expect(workspace.bonsplitController.focusedPaneId == destinationPaneId)
+
+        let replacementPanelId = try #require(
+            panelOrder(in: workspace, paneId: sourcePaneId).only
+        )
+        #expect(replacementPanelId != movedPanelId)
+        #expect(workspace.panels[replacementPanelId] is TerminalPanel)
+
+        guard case .split(let split) = workspace.bonsplitController.treeSnapshot() else {
+            Issue.record("Expected a split for \(movement)")
+            return
+        }
+        #expect(split.orientation == expectation.orientation)
+        #expect(abs(split.dividerPosition - 0.5) < 0.000_1)
+        #expect(
+            paneId(in: split.first) ==
+                (expectation.insertFirst ? destinationPaneId.id : sourcePaneId.id)
+        )
+        #expect(
+            paneId(in: split.second) ==
+                (expectation.insertFirst ? sourcePaneId.id : destinationPaneId.id)
+        )
+    }
+
+    @Test(arguments: [
+        SurfacePaneMovement.left,
+        .right,
+        .up,
+        .down,
+    ])
+    func missingDirectionalDestinationPreservesParentExtent(
+        _ movement: SurfacePaneMovement
+    ) throws {
+        let workspace = Workspace()
+        let movedPanelId = try #require(workspace.focusedPanelId)
+        let sourcePaneId = try #require(
+            workspace.paneId(forPanelId: movedPanelId)
+        )
+        let expectation = try #require(
+            directionalSplitExpectation(for: movement)
+        )
+        let parentOrientation: SplitOrientation =
+            expectation.orientation == "horizontal" ? .vertical : .horizontal
+        let untouchedPanel = try #require(
+            workspace.newTerminalSplit(
+                from: movedPanelId,
+                orientation: parentOrientation,
+                focus: false,
+                initialDividerPosition: 0.3
+            )
+        )
+        let untouchedPaneId = try #require(
+            workspace.paneId(forPanelId: untouchedPanel.id)
+        )
+        workspace.focusPanel(movedPanelId)
+
+        #expect(workspace.moveFocusedSurface(to: movement))
+        let destinationPaneId = try #require(
+            workspace.paneId(forPanelId: movedPanelId)
+        )
+
+        guard case .split(let root) = workspace.bonsplitController.treeSnapshot() else {
+            Issue.record("Expected the parent split for \(movement)")
+            return
+        }
+        #expect(
+            root.orientation ==
+                (parentOrientation == .horizontal ? "horizontal" : "vertical")
+        )
+        #expect(abs(root.dividerPosition - 0.3) < 0.000_1)
+
+        guard case .split(let sourceRegion) = root.first,
+              case .pane(let untouchedPane) = root.second else {
+            Issue.record("Expected only the source region to split for \(movement)")
+            return
+        }
+        #expect(sourceRegion.orientation == expectation.orientation)
+        #expect(abs(sourceRegion.dividerPosition - 0.5) < 0.000_1)
+        #expect(UUID(uuidString: untouchedPane.id) == untouchedPaneId.id)
+        #expect(
+            paneId(in: sourceRegion.first) ==
+                (expectation.insertFirst ? destinationPaneId.id : sourcePaneId.id)
+        )
+        #expect(
+            paneId(in: sourceRegion.second) ==
+                (expectation.insertFirst ? sourcePaneId.id : destinationPaneId.id)
+        )
+    }
+
+    @Test func missingDestinationPreservesBrowserAndWebViewIdentity() throws {
+        let workspace = Workspace()
+        let terminalPanelId = try #require(workspace.focusedPanelId)
+        let sourcePaneId = try #require(
+            workspace.paneId(forPanelId: terminalPanelId)
+        )
+        let browser = try #require(
+            workspace.newBrowserSurface(
+                inPane: sourcePaneId,
+                focus: true,
+                creationPolicy: .restoration
+            )
+        )
+        let webView = browser.webView
+        #expect(workspace.closePanel(terminalPanelId, force: true))
+
+        #expect(workspace.moveFocusedSurface(to: .right))
+        let destinationPaneId = try #require(
+            workspace.paneId(forPanelId: browser.id)
+        )
+
+        #expect(destinationPaneId != sourcePaneId)
+        #expect((workspace.panels[browser.id] as? BrowserPanel) === browser)
+        #expect(browser.webView === webView)
+        #expect(workspace.focusedPanelId == browser.id)
+        #expect(workspace.bonsplitController.focusedPaneId == destinationPaneId)
+
+        let replacementPanelId = try #require(
+            panelOrder(in: workspace, paneId: sourcePaneId).only
+        )
+        #expect(replacementPanelId != browser.id)
+        #expect(workspace.panels[replacementPanelId] is TerminalPanel)
+    }
+
+    @Test func previousAndNextAreNoOpsWithASinglePane() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
         let paneId = try #require(workspace.paneId(forPanelId: panelId))
         let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
 
-        for movement in SurfacePaneMovement.allCases {
+        for movement in [SurfacePaneMovement.previous, .next] {
             #expect(!workspace.moveFocusedSurface(to: movement))
         }
 
@@ -208,6 +361,34 @@ struct WorkspaceAdjacentPaneMoveTests {
         workspace.bonsplitController.configuration = configuration
 
         #expect(!workspace.moveFocusedSurface(to: .right))
+        #expect(workspace.bonsplitController.zoomedPaneId == sourcePaneId)
+        #expect(workspace.paneId(forPanelId: movedPanelId) == sourcePaneId)
+        #expect(workspace.focusedPanelId == movedPanelId)
+    }
+
+    @Test func failedDirectionalSplitRestoresZoomAndLayout() throws {
+        let workspace = Workspace()
+        let movedPanelId = try #require(workspace.focusedPanelId)
+        let sourcePaneId = try #require(
+            workspace.paneId(forPanelId: movedPanelId)
+        )
+        _ = try #require(
+            workspace.newTerminalSplit(
+                from: movedPanelId,
+                orientation: .vertical,
+                focus: false
+            )
+        )
+        workspace.focusPanel(movedPanelId)
+        #expect(workspace.toggleSplitZoom(panelId: movedPanelId))
+        let treeBeforeMove = workspace.bonsplitController.treeSnapshot()
+
+        var configuration = workspace.bonsplitController.configuration
+        configuration.allowCrossPaneTabMove = false
+        workspace.bonsplitController.configuration = configuration
+
+        #expect(!workspace.moveFocusedSurface(to: .right))
+        #expect(workspace.bonsplitController.treeSnapshot() == treeBeforeMove)
         #expect(workspace.bonsplitController.zoomedPaneId == sourcePaneId)
         #expect(workspace.paneId(forPanelId: movedPanelId) == sourcePaneId)
         #expect(workspace.focusedPanelId == movedPanelId)
@@ -314,5 +495,22 @@ struct WorkspaceAdjacentPaneMoveTests {
         workspace.bonsplitController.tabs(inPane: paneId).compactMap {
             workspace.panelIdFromSurfaceId($0.id)
         }
+    }
+
+    private func directionalSplitExpectation(
+        for movement: SurfacePaneMovement
+    ) -> (orientation: String, insertFirst: Bool)? {
+        switch movement {
+        case .left: ("horizontal", true)
+        case .right: ("horizontal", false)
+        case .up: ("vertical", true)
+        case .down: ("vertical", false)
+        case .previous, .next: nil
+        }
+    }
+
+    private func paneId(in node: ExternalTreeNode) -> UUID? {
+        guard case .pane(let pane) = node else { return nil }
+        return UUID(uuidString: pane.id)
     }
 }
