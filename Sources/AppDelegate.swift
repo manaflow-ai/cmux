@@ -13876,6 +13876,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 return matchConfiguredShortcut(event: event, action: action)
             }
+        let matchingEqualizeActionIsExplicit =
+            equalizeSplitsMatches
+            && KeyboardShortcutSettings.hasExplicitShortcutOverride(for: .equalizeSplits)
+        // Equalize moved to a previously free default. Preserve an older
+        // explicit binding on that stroke until the user explicitly assigns
+        // equalize there too.
+        let matchingExplicitActionShouldPreemptEqualizeDefault =
+            equalizeSplitsMatches
+            && !matchingEqualizeActionIsExplicit
+            && KeyboardShortcutSettings.Action.allCases.contains { action in
+                guard action != .equalizeSplits,
+                      KeyboardShortcutSettings.hasExplicitShortcutOverride(for: action) else {
+                    return false
+                }
+                return matchConfiguredShortcut(event: event, action: action)
+            }
         if fontSizeActionMatches && !matchingExplicitActionShouldPreemptFontSizeDefault {
             let routedContext = preferredMainWindowContextForShortcutRouting(event: event)
             let routedManager = routedContext?.tabManager ?? tabManager
@@ -13891,7 +13907,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
             return true
         }
-        if equalizeSplitsMatches { performEqualizeSplitsShortcut(); return true }
+        if equalizeSplitsMatches && !matchingExplicitActionShouldPreemptEqualizeDefault {
+            performEqualizeSplitsShortcut()
+            return true
+        }
         // Canvas layout actions share one executor with the palette, View
         // menu, and the canvas.* socket verbs.
         for action in KeyboardShortcutSettings.Action.canvasActions {
