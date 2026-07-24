@@ -10806,6 +10806,36 @@ mod tests {
     }
 
     #[test]
+    fn infeasible_full_minimum_falls_back_to_bar_only_minimums() {
+        let root = Node::Split {
+            id: 1,
+            dir: SplitDir::Down,
+            ratio: 0.5,
+            a: Box::new(Node::Split {
+                id: 2,
+                dir: SplitDir::Down,
+                ratio: 0.5,
+                a: Box::new(Node::Leaf(1)),
+                b: Box::new(Node::Leaf(2)),
+            }),
+            b: Box::new(Node::Leaf(3)),
+        };
+        let clamped = clamp_split_ratio_for_tab_bars(&root, 1, 8, 0.05);
+        let mut resized = root;
+        let Node::Split { ratio, .. } = &mut resized else {
+            unreachable!();
+        };
+        *ratio = clamped;
+
+        let layout = layout_screen(&resized, Rect { x: 0, y: 0, width: 80, height: 8 }, Some(1));
+        assert!(
+            layout.panes.iter().all(|(_, rect)| rect.height >= 1),
+            "bar-only fallback must keep every pane visible: {:?}",
+            layout.panes
+        );
+    }
+
+    #[test]
     fn alt_n_rejects_a_new_pane_with_no_visible_content() {
         let (mux, _) = test_mux("alt-n-zero-content-test", None);
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
@@ -11154,6 +11184,18 @@ mod tests {
             assert_eq!(content.height, 0);
             assert_eq!(track, None);
         }
+    }
+
+    #[test]
+    fn narrow_tall_pane_keeps_unboxed_terminal_content() {
+        let rect = Rect { x: 4, y: 5, width: 2, height: 20 };
+        let (bar, omnibar, content, track) =
+            pane_parts_for_rect(rect, ScrollbarPosition::Border, false);
+
+        assert_eq!(bar, None);
+        assert_eq!(omnibar, None);
+        assert_eq!(content, rect);
+        assert_eq!(track, None);
     }
 
     #[test]
