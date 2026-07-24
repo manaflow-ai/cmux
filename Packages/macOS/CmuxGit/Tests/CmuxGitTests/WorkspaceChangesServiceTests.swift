@@ -72,7 +72,13 @@ import Testing
         #expect(file.oldPath == "old-name.txt")
         #expect(diff.status == .renamed)
         #expect(diff.oldPath == "old-name.txt")
-        #expect(!diff.unifiedDiff.isEmpty)
+        // A pure `git mv` must come back as a PAIRED rename diff (similarity
+        // headers, empty hunk body), not a full-file addition. Git filters
+        // pathspecs before rename detection, so a diff invoked with only the
+        // new path degrades to `new file mode` with every line as `+`.
+        #expect(diff.unifiedDiff.contains("rename from old-name.txt"))
+        #expect(diff.unifiedDiff.contains("rename to new-name.txt"))
+        #expect(!diff.unifiedDiff.contains("+enough content for rename detection"))
     }
 
     @Test func binaryFileHasZeroLineCountsAndEmptyDiff() async throws {
