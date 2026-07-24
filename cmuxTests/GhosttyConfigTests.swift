@@ -2343,6 +2343,18 @@ final class BrowserNewTabNavigationSeedTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelRemoteStoreTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        // A local browser panel resolves its website data store through the
+        // last-used browser profile, and only the built-in default profile maps
+        // to `WKWebsiteDataStore.default()`. That selection is persisted in
+        // `UserDefaults`, so a profile some other test switched to (in this run
+        // or an earlier one) leaves the local-panel checks below resolving a
+        // leftover profile's store. Pin the built-in default so this suite
+        // tests store scoping instead of machine state.
+        BrowserProfileStore.shared.noteUsed(BrowserProfileStore.shared.builtInDefaultProfileID)
+    }
+
     func testRemoteWorkspacePanelsShareWorkspaceScopedWebsiteDataStore() {
         let localPanel = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
         let remoteWorkspaceId = UUID()

@@ -333,16 +333,27 @@ final class BrowserPanelVisualAutomationRestoreHostTests: XCTestCase {
         )
         defer { panel.close() }
 
-        let deadline = Date().addingTimeInterval(1.0)
-        while panel.webView.isLoading,
-              RunLoop.main.run(mode: .default, before: deadline),
-              Date() < deadline {}
+        // The discard blocker reads the panel's debounced `isLoading` indicator, not the raw
+        // WebKit flag. When WebKit finishes faster than `minLoadingIndicatorDuration` (0.35s),
+        // the panel keeps `isLoading` true and clears it from a queued work item, so waiting
+        // only on `webView.isLoading` leaves a "loading" blocker armed on any machine slow
+        // enough that the load is still in flight at the first check. Wait for both, and drain
+        // the run loop in the body: `run(mode:before:)` returns false when it cannot start,
+        // which as a loop condition exits while the page is still loading.
+        let deadline = Date().addingTimeInterval(30.0)
+        while panel.webView.isLoading || panel.isLoading, Date() < deadline {
+            _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
         XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+        XCTAssertFalse(panel.isLoading, "Timed out waiting for the loading indicator to clear")
 
         panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
         let originalWebView = panel.webView
 
-        XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
+        XCTAssertTrue(
+            panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt),
+            "blockers: \(panel.webViewLifecycleTopPayload()["discard_blockers"] as? [String] ?? [])"
+        )
         XCTAssertFalse(panel.webView === originalWebView)
         XCTAssertNil(panel.webView.superview)
         XCTAssertFalse(panel.hasBackgroundPreloadHost)

@@ -45,7 +45,15 @@ struct RenderableSystemSymbolTests {
             weight: .medium
         ))
         #expect(image.isTemplate)
-        #expect(image.size == NSSize(width: 1, height: 1))
+        // pointSize 0 is clamped to 1pt before rasterizing. The raster size AppKit hands back
+        // for a 1pt symbol is a platform detail (2x2 on macOS 15.7 and 26.5), so compare
+        // against a 1pt configuration rather than hardcoding it. Without the clamp the 0pt
+        // configuration rasterizes at the symbol's default 16x16 and this still fails.
+        let clampedBase = try #require(NSImage(systemSymbolName: "questionmark.circle", accessibilityDescription: nil))
+        let clampedConfiguration = NSImage.SymbolConfiguration(pointSize: 1, weight: .medium)
+        let clampedImage = try #require(clampedBase.withSymbolConfiguration(clampedConfiguration))
+        #expect(clampedImage.size.width > 0 && clampedImage.size.height > 0)
+        #expect(image.size == clampedImage.size)
     }
 
     @Test @MainActor func configuredAppKitImagePreservesConfiguredSizeForNonSquareSymbols() throws {
