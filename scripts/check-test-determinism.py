@@ -1438,8 +1438,13 @@ def _parse_shell_heredoc_word(
             index += 1
             while index < len(line) and line[index] != '"':
                 if line[index] == "\\" and index + 1 < len(line):
-                    delimiter.append(line[index + 1])
-                    index += 2
+                    escaped = line[index + 1]
+                    if escaped in '$`"\\':
+                        delimiter.append(escaped)
+                        index += 2
+                    else:
+                        delimiter.append("\\")
+                        index += 1
                 else:
                     delimiter.append(line[index])
                     index += 1
@@ -1498,7 +1503,7 @@ def _shell_arithmetic_ranges(
 
 
 _SHELL_COMMAND_START = re.compile(
-    r"^|(?<!\\)\$\(|(?<!\\)[;&|({`]"
+    r"^|(?<!\\)\$\(|(?<!\\)[;&|(){`]"
 )
 _SHELL_CONTROL_PREFIX = re.compile(
     r"(?:if|elif|while|until|then|do|else)\b"
@@ -1631,7 +1636,7 @@ def _shell_function_declaration_at(line: str, sleep_position: int) -> bool:
     index += 1
     while index < len(line) and line[index].isspace():
         index += 1
-    return index < len(line) and line[index] == "{"
+    return index == len(line) or line[index] == "{"
 
 
 def _shell_real_sleep_positions(
