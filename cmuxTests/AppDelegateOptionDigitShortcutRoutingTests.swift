@@ -27,7 +27,7 @@ private final class OptionDigitFocusableTestView: NSView {
 struct AppDelegateOptionDigitShortcutRoutingTests {
 #if DEBUG
     @Test
-    func optionDigitWorkspaceNumberShortcutBeatsPrintableOptionTextBypass() throws {
+    func optionDigitWorkspaceNumberShortcutBeatsUnmatchedOptionRouting() throws {
         try withIsolatedShortcutRoutingState {
             let appDelegate = try #require(AppDelegate.shared)
             let windowId = appDelegate.createMainWindow()
@@ -46,7 +46,7 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
 
                 #expect(
                     appDelegate.debugHandleCustomShortcut(event: event),
-                    "Explicit Option+digit workspace bindings should route before printable Option text bypass"
+                    "Explicit Option+digit workspace bindings should route before unmatched Option input"
                 )
                 #expect(
                     manager.selectedTabId == secondWorkspace.id,
@@ -94,14 +94,14 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
                 )
                 #expect(
                     manager.selectedTabId == secondWorkspace.id,
-                    "Option+2 should select workspace 2 before the terminal fast path receives printable Option text"
+                    "Option+2 should select workspace 2 before unmatched Option input reaches the terminal"
                 )
             }
         }
     }
 
     @Test
-    func inactiveOptionDigitWorkspaceWhenClauseStillForwardsPrintableOptionText() throws {
+    func inactiveOptionDigitWorkspaceWhenClauseStillForwardsOptionInput() throws {
         try withIsolatedShortcutRoutingState {
             let appDelegate = try #require(AppDelegate.shared)
             let directoryURL = FileManager.default.temporaryDirectory
@@ -152,10 +152,71 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
 
             #expect(
                 testWindow.performKeyEquivalent(with: event),
-                "Inactive Option+digit workspace bindings should leave printable Option text forwarding intact"
+                "Inactive Option+digit workspace bindings should leave Option input forwarding intact"
             )
-            #expect(focusableView.keyDownCallCount == 1, "Printable Option text should be forwarded to the text responder")
+            #expect(focusableView.keyDownCallCount == 1, "Option input should be forwarded to the text responder")
             #expect(focusableView.lastKeyDownCharactersIgnoringModifiers == "2")
+        }
+    }
+
+    @Test
+    func configuredOptionTextShortcutBeatsUnmatchedOptionRouting() throws {
+        try withIsolatedShortcutRoutingState {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let testWindow = try #require(self.window(withId: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspaceCountBefore = manager.tabs.count
+            let optionQShortcut = StoredShortcut(
+                key: "q",
+                command: false,
+                shift: false,
+                option: true,
+                control: false
+            )
+
+            try withTemporaryShortcut(action: .newTab, shortcut: optionQShortcut) {
+                let keyDown = try #require(NSEvent.keyEvent(
+                    with: .keyDown,
+                    location: .zero,
+                    modifierFlags: [.option],
+                    timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: testWindow.windowNumber,
+                    context: nil,
+                    characters: "@",
+                    charactersIgnoringModifiers: "q",
+                    isARepeat: false,
+                    keyCode: 12
+                ))
+                let keyUp = try #require(NSEvent.keyEvent(
+                    with: .keyUp,
+                    location: .zero,
+                    modifierFlags: [.option],
+                    timestamp: keyDown.timestamp + 0.01,
+                    windowNumber: testWindow.windowNumber,
+                    context: nil,
+                    characters: "@",
+                    charactersIgnoringModifiers: "q",
+                    isARepeat: false,
+                    keyCode: 12
+                ))
+
+                #expect(
+                    appDelegate.debugHandleShortcutMonitorEvent(event: keyDown),
+                    "An exact Option+Q binding must route before unmatched Option text reaches AppKit"
+                )
+                RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+                #expect(
+                    manager.tabs.count == workspaceCountBefore + 1,
+                    "The configured cmux shortcut must win even when the layout gives Option+Q printable text"
+                )
+                #expect(
+                    appDelegate.debugHandleShortcutMonitorEvent(event: keyUp),
+                    "A shortcut-owned key press must also own its matching physical key release"
+                )
+            }
         }
     }
 

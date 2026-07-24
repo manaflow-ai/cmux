@@ -1,7 +1,7 @@
-import XCTest
 import AppKit
 import Carbon.HIToolbox
 import CmuxTerminal
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -10,11 +10,350 @@ import CmuxTerminal
 #endif
 
 @MainActor
-final class CJKIMEMarkedSelectionTests: XCTestCase {
+@Suite(.serialized)
+struct CJKIMEMarkedSelectionTests {
     private struct HostedTerminalWindow {
         let surface: TerminalSurface
         let window: NSWindow
         let surfaceView: GhosttyNSView
+    }
+
+    private struct RecordedKey: Equatable {
+        let keyCode: UInt32
+        let text: String?
+        let composing: Bool
+    }
+
+    @Test func selectedRangeTracksMarkedTextSelection() {
+        let view = GhosttyNSView(frame: .zero)
+
+        view.setMarkedText(
+            "にほんご",
+            selectedRange: NSRange(location: 2, length: 1),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+
+        #expect(view.selectedRange() == NSRange(location: 2, length: 1))
+        view.unmarkText()
+        #expect(view.selectedRange() == NSRange(location: 0, length: 0))
+    }
+
+    @Test(arguments: [
+        ("とうきょう", NSRange(location: 2, length: 2), "きょ"),
+        ("ㄓㄨ", NSRange(location: 0, length: 2), "ㄓㄨ"),
+        ("안녕하세요", NSRange(location: 2, length: 2), "하세"),
+    ])
+    func attributedSubstringUsesMarkedText(
+        markedText: String,
+        range: NSRange,
+        expected: String
+    ) {
+        let view = GhosttyNSView(frame: .zero)
+        view.setMarkedText(
+            markedText,
+            selectedRange: NSRange(location: range.location, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+
+        var actualRange = NSRange(location: NSNotFound, length: 0)
+        let substring = view.attributedSubstring(
+            forProposedRange: range,
+            actualRange: &actualRange
+        )
+
+        #expect(actualRange == range)
+        #expect(substring?.string == expected)
+    }
+
+    @Test func keyDownThatStartsPreeditIsOwnedByTextInput() throws {
+        let hostedTerminal = try makeHostedTerminalWindow()
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        let previousTextInputHandler = GhosttyNSView.debugTextInputEventHandler
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputHandler
+            hostedTerminal.window.orderOut(nil)
+            withExtendedLifetime(hostedTerminal.surface) {}
+        }
+
+        GhosttyNSView.debugTextInputEventHandler = { candidateView, _ in
+            guard candidateView === hostedTerminal.surfaceView else { return false }
+            candidateView.setMarkedText(
+                "ㄓ",
+                selectedRange: NSRange(location: 1, length: 0),
+                replacementRange: NSRange(location: NSNotFound, length: 0)
+            )
+            return true
+        }
+
+        var recordedKeys: [RecordedKey] = []
+        var releasedKeyCodes: [UInt32] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            if keyEvent.action == GHOSTTY_ACTION_PRESS {
+                recordedKeys.append(RecordedKey(
+                    keyCode: keyEvent.keycode,
+                    text: keyEvent.text.map(String.init(cString:)),
+                    composing: keyEvent.composing
+                ))
+            } else if keyEvent.action == GHOSTTY_ACTION_RELEASE {
+                releasedKeyCodes.append(keyEvent.keycode)
+            }
+        }
+
+        let event = try keyEvent(
+            text: "5",
+            keyCode: UInt16(kVK_ANSI_5),
+            windowNumber: hostedTerminal.window.windowNumber
+        )
+        hostedTerminal.window.makeFirstResponder(hostedTerminal.surfaceView)
+        hostedTerminal.surfaceView.keyDown(with: event)
+        let keyUp = try #require(NSEvent.keyEvent(
+            with: .keyUp,
+            location: event.locationInWindow,
+            modifierFlags: event.modifierFlags,
+            timestamp: event.timestamp + 0.01,
+            windowNumber: event.windowNumber,
+            context: nil,
+            characters: event.characters ?? "",
+            charactersIgnoringModifiers: event.charactersIgnoringModifiers ?? "",
+            isARepeat: false,
+            keyCode: event.keyCode
+        ))
+        hostedTerminal.surfaceView.keyUp(with: keyUp)
+
+        #expect(hostedTerminal.surfaceView.hasMarkedText())
+        #expect(recordedKeys.isEmpty)
+        #expect(releasedKeyCodes.isEmpty)
+    }
+
+    @Test func textInputConsumptionWithoutCallbacksDoesNotSynthesizeFallback() throws {
+        let hostedTerminal = try makeHostedTerminalWindow()
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        let previousTextInputHandler = GhosttyNSView.debugTextInputEventHandler
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputHandler
+            hostedTerminal.window.orderOut(nil)
+            withExtendedLifetime(hostedTerminal.surface) {}
+        }
+
+        GhosttyNSView.debugTextInputEventHandler = { candidateView, _ in
+            candidateView === hostedTerminal.surfaceView
+        }
+
+        var pressedKeyCodes: [UInt32] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
+            pressedKeyCodes.append(keyEvent.keycode)
+        }
+
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.shift],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: hostedTerminal.window.windowNumber,
+            context: nil,
+            characters: " ",
+            charactersIgnoringModifiers: " ",
+            isARepeat: false,
+            keyCode: UInt16(kVK_Space)
+        ))
+        hostedTerminal.window.makeFirstResponder(hostedTerminal.surfaceView)
+        hostedTerminal.surfaceView.keyDown(with: event)
+
+        #expect(pressedKeyCodes.isEmpty)
+    }
+
+    @Test func textInputCommandAfterPreeditCommitDoesNotReplayPhysicalKey() throws {
+        let hostedTerminal = try makeHostedTerminalWindow()
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        let previousTextInputHandler = GhosttyNSView.debugTextInputEventHandler
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputHandler
+            hostedTerminal.window.orderOut(nil)
+            withExtendedLifetime(hostedTerminal.surface) {}
+        }
+
+        hostedTerminal.surfaceView.setMarkedText(
+            "preedit",
+            selectedRange: NSRange(location: 7, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+        GhosttyNSView.debugTextInputEventHandler = { candidateView, _ in
+            guard candidateView === hostedTerminal.surfaceView else { return false }
+            candidateView.insertText(
+                "committed",
+                replacementRange: NSRange(location: NSNotFound, length: 0)
+            )
+            candidateView.doCommand(by: NSSelectorFromString("insertNewline:"))
+            return true
+        }
+
+        var recordedKeys: [RecordedKey] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
+            recordedKeys.append(RecordedKey(
+                keyCode: keyEvent.keycode,
+                text: keyEvent.text.map(String.init(cString:)),
+                composing: keyEvent.composing
+            ))
+        }
+
+        let event = try keyEvent(
+            text: "\r",
+            keyCode: UInt16(kVK_Return),
+            windowNumber: hostedTerminal.window.windowNumber
+        )
+        hostedTerminal.window.makeFirstResponder(hostedTerminal.surfaceView)
+        hostedTerminal.surfaceView.keyDown(with: event)
+
+        #expect(recordedKeys == [
+            RecordedKey(keyCode: 0, text: "committed", composing: false),
+        ])
+    }
+
+    @Test func committedPreeditTextPrecedesReplayedNavigationKey() throws {
+        let hostedTerminal = try makeHostedTerminalWindow()
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        let previousTextInputHandler = GhosttyNSView.debugTextInputEventHandler
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputHandler
+            hostedTerminal.window.orderOut(nil)
+            withExtendedLifetime(hostedTerminal.surface) {}
+        }
+
+        hostedTerminal.surfaceView.setMarkedText(
+            "한",
+            selectedRange: NSRange(location: 1, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+        GhosttyNSView.debugTextInputEventHandler = { candidateView, _ in
+            guard candidateView === hostedTerminal.surfaceView else { return false }
+            candidateView.insertText(
+                "한",
+                replacementRange: NSRange(location: NSNotFound, length: 0)
+            )
+            return true
+        }
+
+        var recordedKeys: [RecordedKey] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
+            recordedKeys.append(RecordedKey(
+                keyCode: keyEvent.keycode,
+                text: keyEvent.text.map(String.init(cString:)),
+                composing: keyEvent.composing
+            ))
+        }
+
+        let event = try keyEvent(
+            text: "\u{F703}",
+            keyCode: UInt16(kVK_RightArrow),
+            windowNumber: hostedTerminal.window.windowNumber
+        )
+        hostedTerminal.window.makeFirstResponder(hostedTerminal.surfaceView)
+        hostedTerminal.surfaceView.keyDown(with: event)
+
+        #expect(recordedKeys == [
+            RecordedKey(keyCode: 0, text: "한", composing: false),
+            RecordedKey(keyCode: UInt32(kVK_RightArrow), text: nil, composing: false),
+        ])
+    }
+
+    @Test func postCommitReplayPolicyMatchesGhosttyNavigationSemantics() throws {
+        let view = GhosttyNSView(frame: .zero)
+        let probes: [(UInt16, NSEvent.ModifierFlags, Bool)] = [
+            (UInt16(kVK_DownArrow), [], true),
+            (UInt16(kVK_RightArrow), [], true),
+            (UInt16(kVK_UpArrow), [], true),
+            (UInt16(kVK_LeftArrow), [], false),
+            (UInt16(kVK_LeftArrow), [.shift], true),
+            (UInt16(kVK_Return), [], false),
+        ]
+
+        for (keyCode, modifiers, expected) in probes {
+            let event = try #require(NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: modifiers,
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: 0,
+                context: nil,
+                characters: "",
+                charactersIgnoringModifiers: "",
+                isARepeat: false,
+                keyCode: keyCode
+            ))
+
+            #expect(
+                view.replaysPhysicalKeyAfterPreeditCommit(event) == expected,
+                "keyCode=\(keyCode) modifiers=\(modifiers.rawValue)"
+            )
+        }
+    }
+
+    @Test(arguments: [
+        "你",
+        "臺",
+        "한",
+        "日本",
+        "ф",
+        "ع",
+        "ש",
+        "क",
+        "ก",
+        "a\u{301}",
+        "👨🏽‍💻",
+    ])
+    func insertTextCommitsWithoutInspectingLanguage(_ text: String) {
+        let view = GhosttyNSView(frame: .zero)
+        defer { view.setKeyTextAccumulatorForTesting(nil) }
+
+        view.setKeyTextAccumulatorForTesting([])
+        view.setMarkedText(
+            "preedit",
+            selectedRange: NSRange(location: 7, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+        view.insertText(
+            text,
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+
+        #expect(!view.hasMarkedText())
+        #expect(view.keyTextAccumulatorForTesting == [text])
+    }
+
+    @Test func insertTextCommitDoesNotInferStateFromReplacementRange() {
+        let replacementRanges = [
+            NSRange(location: NSNotFound, length: 0),
+            NSRange(location: 0, length: 0),
+            NSRange(location: 0, length: 7),
+            NSRange(location: 99, length: 99),
+        ]
+
+        for replacementRange in replacementRanges {
+            let view = GhosttyNSView(frame: .zero)
+            view.setKeyTextAccumulatorForTesting([])
+            view.setMarkedText(
+                "preedit",
+                selectedRange: NSRange(location: 7, length: 0),
+                replacementRange: NSRange(location: NSNotFound, length: 0)
+            )
+
+            view.insertText("committed", replacementRange: replacementRange)
+
+            #expect(!view.hasMarkedText())
+            #expect(view.keyTextAccumulatorForTesting == ["committed"])
+            view.setKeyTextAccumulatorForTesting(nil)
+        }
     }
 
     private func makeHostedTerminalWindow() throws -> HostedTerminalWindow {
@@ -27,27 +366,23 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
             workingDirectory: nil
         )
         let hostedView = surface.hostedView
-
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
-
-        let contentView = try XCTUnwrap(window.contentView)
+        let contentView = try #require(window.contentView)
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
-
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
         contentView.layoutSubtreeIfNeeded()
         hostedView.setVisibleInUI(true)
         hostedView.setActive(true)
-        RunLoop.current.run(until: Date.now.addingTimeInterval(0.05))
 
-        let surfaceView = try XCTUnwrap(findGhosttyNSView(in: hostedView))
+        let surfaceView = try #require(findGhosttyNSView(in: hostedView))
         return HostedTerminalWindow(
             surface: surface,
             window: window,
@@ -55,8 +390,12 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
-    private func keyEvent(text: String, keyCode: UInt16, windowNumber: Int) throws -> NSEvent {
-        try XCTUnwrap(NSEvent.keyEvent(
+    private func keyEvent(
+        text: String,
+        keyCode: UInt16,
+        windowNumber: Int
+    ) throws -> NSEvent {
+        try #require(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: [],
@@ -68,405 +407,5 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
             isARepeat: false,
             keyCode: keyCode
         ))
-    }
-
-    private struct KoreanArrowProbe {
-        let text: String
-        let keyCode: UInt16
-        let selectionBefore: NSRange
-        let selectionAfter: NSRange
-    }
-
-    func testSelectedRangeReturnsEmptyRangeWithoutSelectionOrMarkedText() {
-        let view = GhosttyNSView(frame: .zero)
-        let range = view.selectedRange()
-        XCTAssertEqual(range, NSRange(location: 0, length: 0))
-    }
-
-    func testSelectedRangeTracksMarkedTextSelection() {
-        let view = GhosttyNSView(frame: .zero)
-
-        view.setMarkedText(
-            "にほんご",
-            selectedRange: NSRange(location: 2, length: 1),
-            replacementRange: NSRange(location: NSNotFound, length: 0)
-        )
-
-        XCTAssertEqual(
-            view.selectedRange(),
-            NSRange(location: 2, length: 1),
-            "selectedRange should mirror the IME caret/selection inside marked text"
-        )
-    }
-
-    func testSelectedRangeReturnsEmptyRangeAfterCompositionEnds() {
-        let view = GhosttyNSView(frame: .zero)
-
-        view.setMarkedText(
-            "東京",
-            selectedRange: NSRange(location: 1, length: 0),
-            replacementRange: NSRange(location: NSNotFound, length: 0)
-        )
-        view.unmarkText()
-
-        XCTAssertEqual(view.selectedRange(), NSRange(location: 0, length: 0))
-    }
-
-    func testAttributedSubstringReturnsMarkedTextSegment() {
-        let view = GhosttyNSView(frame: .zero)
-        view.setMarkedText(
-            "とうきょう",
-            selectedRange: NSRange(location: 3, length: 0),
-            replacementRange: NSRange(location: NSNotFound, length: 0)
-        )
-
-        var actualRange = NSRange(location: NSNotFound, length: 0)
-        let substring = view.attributedSubstring(
-            forProposedRange: NSRange(location: 2, length: 2),
-            actualRange: &actualRange
-        )
-
-        XCTAssertEqual(actualRange, NSRange(location: 2, length: 2))
-        XCTAssertEqual(substring?.string, "きょ")
-    }
-
-    func testTraditionalChineseZhuyinMarkedTextSelectionAndSubstring() {
-        let view = GhosttyNSView(frame: .zero)
-        view.setMarkedText(
-            "ㄓㄨ",
-            selectedRange: NSRange(location: 2, length: 0),
-            replacementRange: NSRange(location: NSNotFound, length: 0)
-        )
-
-        XCTAssertEqual(view.selectedRange(), NSRange(location: 2, length: 0))
-
-        var actualRange = NSRange(location: NSNotFound, length: 0)
-        let substring = view.attributedSubstring(
-            forProposedRange: NSRange(location: 0, length: 2),
-            actualRange: &actualRange
-        )
-
-        XCTAssertEqual(actualRange, NSRange(location: 0, length: 2))
-        XCTAssertEqual(substring?.string, "ㄓㄨ")
-    }
-
-    func testSuppressesTerminalForwardingWhenZhuyinStartsMarkedText() {
-        let view = GhosttyNSView(frame: .zero)
-
-        XCTAssertTrue(
-            view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
-                markedTextBefore: "",
-                markedSelectionBefore: NSRange(location: NSNotFound, length: 0),
-                markedTextAfter: "ㄓ",
-                markedSelectionAfter: NSRange(location: 1, length: 0),
-                accumulatedText: []
-            )
-        )
-    }
-
-    func testKeyDownDoesNotForwardWhenZhuyinStartsMarkedText() throws {
-        let hostedTerminal = try makeHostedTerminalWindow()
-        let terminalSurface = hostedTerminal.surface
-        let window = hostedTerminal.window
-        let surfaceView = hostedTerminal.surfaceView
-        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
-        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
-        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
-        defer {
-            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
-            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
-            cjkIMEInterpretKeyEventsHook = previousInterpretHook
-            window.orderOut(nil)
-            withExtendedLifetime(terminalSurface) {}
-        }
-
-        KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.TCIM.Zhuyin"
-        installCJKIMEInterpretKeyEventsSwizzle()
-        cjkIMEInterpretKeyEventsHook = { candidateView, _ in
-            guard candidateView === surfaceView else { return false }
-            candidateView.setMarkedText(
-                "ㄓ",
-                selectedRange: NSRange(location: 1, length: 0),
-                replacementRange: NSRange(location: NSNotFound, length: 0)
-            )
-            return true
-        }
-
-        var forwardedPressCount = 0
-        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
-            previousKeyEventObserver?(keyEvent)
-            guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
-            forwardedPressCount += 1
-        }
-
-        let event = try keyEvent(text: "5", keyCode: 23, windowNumber: window.windowNumber)
-
-        window.makeFirstResponder(surfaceView)
-        withExtendedLifetime(terminalSurface) {
-            surfaceView.keyDown(with: event)
-        }
-
-        XCTAssertTrue(surfaceView.hasMarkedText(), "Zhuyin keyDown should start marked text")
-        XCTAssertEqual(
-            forwardedPressCount,
-            0,
-            "AppKit-consumed Zhuyin marked-text changes must not forward a duplicate Ghostty key"
-        )
-    }
-
-    func testKeyDownForKoreanPostCompositionHorizontalArrowsForwardsToTerminal() throws {
-        let hostedTerminal = try makeHostedTerminalWindow()
-        let terminalSurface = hostedTerminal.surface
-        let window = hostedTerminal.window
-        let surfaceView = hostedTerminal.surfaceView
-        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
-        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
-        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
-        defer {
-            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
-            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
-            cjkIMEInterpretKeyEventsHook = previousInterpretHook
-            window.orderOut(nil)
-            withExtendedLifetime(terminalSurface) {}
-        }
-
-        let probes = [
-            KoreanArrowProbe(
-                text: "\u{F702}",
-                keyCode: UInt16(kVK_LeftArrow),
-                selectionBefore: NSRange(location: 5, length: 0),
-                selectionAfter: NSRange(location: 4, length: 0)
-            ),
-            KoreanArrowProbe(
-                text: "\u{F703}",
-                keyCode: UInt16(kVK_RightArrow),
-                selectionBefore: NSRange(location: 4, length: 0),
-                selectionAfter: NSRange(location: 5, length: 0)
-            ),
-        ]
-        var selectionAfterByKeyCode: [UInt16: NSRange] = [:]
-        for probe in probes {
-            selectionAfterByKeyCode[probe.keyCode] = probe.selectionAfter
-        }
-
-        AppDelegate.installWindowResponderSwizzlesForTesting()
-        KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.Korean.2SetKorean"
-        installCJKIMEInterpretKeyEventsSwizzle()
-        cjkIMEInterpretKeyEventsHook = { candidateView, events in
-            guard candidateView === surfaceView,
-                  let event = events.first,
-                  let selectionAfter = selectionAfterByKeyCode[event.keyCode] else {
-                return false
-            }
-            candidateView.setMarkedText(
-                "안녕하세요",
-                selectedRange: selectionAfter,
-                replacementRange: NSRange(location: NSNotFound, length: 0)
-            )
-            return true
-        }
-
-        var forwardedPressKeyCodes: [UInt32] = []
-        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
-            previousKeyEventObserver?(keyEvent)
-            guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
-            forwardedPressKeyCodes.append(keyEvent.keycode)
-        }
-
-        window.makeFirstResponder(surfaceView)
-        try withExtendedLifetime(terminalSurface) {
-            for probe in probes {
-                surfaceView.setMarkedText(
-                    "안녕하세요",
-                    selectedRange: probe.selectionBefore,
-                    replacementRange: NSRange(location: NSNotFound, length: 0)
-                )
-                let event = try keyEvent(
-                    text: probe.text,
-                    keyCode: probe.keyCode,
-                    windowNumber: window.windowNumber
-                )
-                window.sendEvent(event)
-                XCTAssertEqual(
-                    surfaceView.selectedRange(),
-                    probe.selectionAfter,
-                    "Korean 2-Set arrow handling should apply the IME marked-selection update"
-                )
-            }
-        }
-
-        XCTAssertEqual(
-            forwardedPressKeyCodes,
-            probes.map { UInt32($0.keyCode) },
-            "Korean 2-Set Left/Right after Hangul composition should reach the terminal cursor path"
-        )
-    }
-
-    func testSuppressesZhuyinMarkedTextDownArrowAfterTextInputHandling() throws {
-        let view = GhosttyNSView(frame: .zero)
-        let event = try keyEvent(
-            text: "\u{F701}",
-            keyCode: UInt16(kVK_DownArrow),
-            windowNumber: 0
-        )
-
-        XCTAssertTrue(
-            view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
-                markedTextBefore: "ㄓㄨ",
-                markedSelectionBefore: NSRange(location: 2, length: 0),
-                markedTextAfter: "ㄓㄨ",
-                markedSelectionAfter: NSRange(location: 2, length: 0),
-                accumulatedText: [],
-                event: event,
-                inputSourceId: "com.apple.inputmethod.TCIM.Zhuyin"
-            ),
-            "Zhuyin Down belongs to the IME candidate menu and should not also move the terminal cursor"
-        )
-    }
-
-    func testDoesNotSuppressIdleZhuyinNavigationKeyWithoutMarkedText() throws {
-        let view = GhosttyNSView(frame: .zero)
-        let probes: [(text: String, keyCode: UInt16)] = [
-            ("\u{F701}", UInt16(kVK_DownArrow)),
-            (" ", UInt16(kVK_Space)),
-        ]
-
-        for probe in probes {
-            let event = try keyEvent(
-                text: probe.text,
-                keyCode: probe.keyCode,
-                windowNumber: 0
-            )
-
-            XCTAssertFalse(
-                view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
-                    markedTextBefore: "",
-                    markedSelectionBefore: NSRange(location: NSNotFound, length: 0),
-                    markedTextAfter: "",
-                    markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
-                    accumulatedText: [],
-                    event: event,
-                    inputSourceId: "com.apple.inputmethod.TCIM.Zhuyin"
-                ),
-                "Idle Zhuyin navigation keys should still reach the terminal when no composition is active"
-            )
-        }
-    }
-
-    func testBuffersZhuyinComponentInsertTextAsPreedit() {
-        let view = GhosttyNSView(frame: .zero)
-        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
-        defer {
-            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
-            view.setKeyTextAccumulatorForTesting(nil)
-        }
-
-        KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.TCIM.Zhuyin"
-        view.setKeyTextAccumulatorForTesting([])
-
-        view.insertText("ㄉ", replacementRange: NSRange(location: NSNotFound, length: 0))
-        view.insertText("ㄚ", replacementRange: NSRange(location: NSNotFound, length: 0))
-        view.insertText("ˋ", replacementRange: NSRange(location: NSNotFound, length: 0))
-        view.insertText("ˊ", replacementRange: NSRange(location: 2, length: 1))
-
-        XCTAssertTrue(view.hasMarkedText(), "Zhuyin components inserted by Apple IME should stay in editable preedit")
-        XCTAssertEqual(view.attributedString().string, "ㄉㄚˊ")
-        XCTAssertEqual(view.selectedRange(), NSRange(location: 3, length: 0))
-        XCTAssertEqual(
-            view.keyTextAccumulatorForTesting,
-            [],
-            "Raw Zhuyin components must not be committed to the terminal before candidate selection"
-        )
-    }
-
-    func testBuffersZhuyinComponentInsertTextAtMarkedSelection() {
-        let view = GhosttyNSView(frame: .zero)
-        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
-        defer {
-            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
-            view.setKeyTextAccumulatorForTesting(nil)
-        }
-
-        KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.TCIM.Zhuyin"
-        view.setKeyTextAccumulatorForTesting([])
-        view.setMarkedText(
-            "ㄉㄚ",
-            selectedRange: NSRange(location: 1, length: 0),
-            replacementRange: NSRange(location: NSNotFound, length: 0)
-        )
-
-        view.insertText("ㄅ", replacementRange: NSRange(location: NSNotFound, length: 0))
-
-        XCTAssertEqual(view.attributedString().string, "ㄉㄅㄚ")
-        XCTAssertEqual(view.selectedRange(), NSRange(location: 2, length: 0))
-        XCTAssertEqual(
-            view.keyTextAccumulatorForTesting,
-            [],
-            "Raw Zhuyin insertion inside preedit should not commit to the terminal"
-        )
-    }
-
-    func testCommittedZhuyinCandidateStillReachesTerminalAccumulator() {
-        let view = GhosttyNSView(frame: .zero)
-        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
-        defer {
-            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
-            view.setKeyTextAccumulatorForTesting(nil)
-        }
-
-        KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.TCIM.Zhuyin"
-        view.setKeyTextAccumulatorForTesting([])
-        view.setMarkedText(
-            "ㄉㄚˋ",
-            selectedRange: NSRange(location: 3, length: 0),
-            replacementRange: NSRange(location: NSNotFound, length: 0)
-        )
-
-        view.insertText("大", replacementRange: NSRange(location: 0, length: 3))
-
-        XCTAssertFalse(view.hasMarkedText(), "Committed Zhuyin candidate should end preedit")
-        XCTAssertEqual(view.keyTextAccumulatorForTesting, ["大"])
-    }
-
-    func testSuppressesTerminalForwardingWhenZhuyinMarkedTextChanges() {
-        let view = GhosttyNSView(frame: .zero)
-
-        XCTAssertTrue(
-            view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
-                markedTextBefore: "ㄓ",
-                markedSelectionBefore: NSRange(location: 1, length: 0),
-                markedTextAfter: "ㄓㄨ",
-                markedSelectionAfter: NSRange(location: 2, length: 0),
-                accumulatedText: []
-            )
-        )
-    }
-
-    func testDoesNotSuppressCommittedIMEInsertText() {
-        let view = GhosttyNSView(frame: .zero)
-
-        XCTAssertFalse(
-            view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
-                markedTextBefore: "ㄓㄨ",
-                markedSelectionBefore: NSRange(location: 2, length: 0),
-                markedTextAfter: "",
-                markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
-                accumulatedText: ["注"]
-            )
-        )
-    }
-
-    func testDoesNotSuppressNormalTerminalKeyWhenIMEDidNothing() {
-        let view = GhosttyNSView(frame: .zero)
-
-        XCTAssertFalse(
-            view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
-                markedTextBefore: "",
-                markedSelectionBefore: NSRange(location: NSNotFound, length: 0),
-                markedTextAfter: "",
-                markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
-                accumulatedText: []
-            )
-        )
     }
 }

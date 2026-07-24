@@ -798,6 +798,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var lifecycleSnapshotObservers: [NSObjectProtocol] = []
     private var windowKeyObservers: [NSObjectProtocol] = []
     private var shortcutMonitor: Any?
+    private var shortcutMonitorOwnedKeyCodes: Set<UInt16> = []
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
     private var mobileHostSettingsObserver: NSObjectProtocol?
@@ -12472,6 +12473,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let shortcutStart = ProcessInfo.processInfo.systemUptime
                 let handledByShortcut = cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: self)
                     || self.handleCustomShortcut(event: event)
+                let consumedByShortcut = self.shortcutMonitorConsumesKeyDown(
+                    event,
+                    handledByShortcut: handledByShortcut
+                )
 #if DEBUG
                 shortcutMs = (ProcessInfo.processInfo.systemUptime - shortcutStart) * 1000.0
                 CmuxTypingTiming.logDuration(
@@ -12499,7 +12504,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     extra: "handled=\(handledByShortcut ? 1 : 0)"
                 )
 #endif
-                if handledByShortcut {
+                if consumedByShortcut {
 #if DEBUG
                     cmuxDebugLog("  → consumed by handleCustomShortcut")
 #endif
@@ -12508,11 +12513,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return event // Pass through
             }
             self.handleBrowserOmnibarSelectionRepeatLifecycleEvent(event)
-            if self.clearEscapeSuppressionForKeyUp(event: event, consumeIfSuppressed: true) {
+            let consumedShortcutRelease = self.shortcutMonitorConsumesKeyUp(event)
+            let consumedEscapeRelease = self.clearEscapeSuppressionForKeyUp(
+                event: event,
+                consumeIfSuppressed: true
+            )
+            if consumedShortcutRelease || consumedEscapeRelease {
                 return nil
             }
             return event
         }
+    }
+
+    private func shortcutMonitorConsumesKeyDown(
+        _ event: NSEvent,
+        handledByShortcut: Bool
+    ) -> Bool {
+        guard event.type == .keyDown else { return false }
+
+        if !event.isARepeat {
+            shortcutMonitorOwnedKeyCodes.remove(event.keyCode)
+        }
+        if handledByShortcut {
+            shortcutMonitorOwnedKeyCodes.insert(event.keyCode)
+            return true
+        }
+        return event.isARepeat && shortcutMonitorOwnedKeyCodes.contains(event.keyCode)
+    }
+
+    private func shortcutMonitorConsumesKeyUp(_ event: NSEvent) -> Bool {
+        guard event.type == .keyUp else { return false }
+        return shortcutMonitorOwnedKeyCodes.remove(event.keyCode) != nil
+    }
+
+    func resetShortcutMonitorPressOwnership() {
+        shortcutMonitorOwnedKeyCodes.removeAll()
     }
 
     private func installShortcutDefaultsObserver() {
@@ -13207,10 +13242,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            titlebarAccessoryController.isNotificationsPopoverShown(),
            (notificationStore?.notifications.isEmpty ?? false) {
             return true
-        }
-
-        if shouldBypassPrintableOptionTextForShortcutRouting(event: event) {
-            return false
         }
 
         let canvasSurfaceDigitShortcutIsActive =
@@ -14945,10 +14976,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
         if event.type == .keyDown {
-            return handleCustomShortcut(event: event)
+            return shortcutMonitorConsumesKeyDown(
+                event,
+                handledByShortcut: handleCustomShortcut(event: event)
+            )
         }
         handleBrowserOmnibarSelectionRepeatLifecycleEvent(event)
-        return clearEscapeSuppressionForKeyUp(event: event, consumeIfSuppressed: true)
+        let consumedShortcutRelease = shortcutMonitorConsumesKeyUp(event)
+        let consumedEscapeRelease = clearEscapeSuppressionForKeyUp(
+            event: event,
+            consumeIfSuppressed: true
+        )
+        return consumedShortcutRelease || consumedEscapeRelease
     }
 
     func debugMatchesConfiguredShortcut(
@@ -15133,22 +15172,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> Int? {
         if let digit = numberedConfiguredShortcutDigit(event: event, action: action), shortcutWhenClauseAllows(action: action, event: event) { return digit }
         return nil
-    }
-
-    fileprivate func shouldBypassPrintableOptionTextForShortcutRouting(event: NSEvent) -> Bool {
-        guard shortcutRoutingShouldBypassForPrintableOptionText(event: event) else {
-            return false
-        }
-
-        if routableNumberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) != nil {
-            return false
-        }
-
-        if routableNumberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) != nil {
-            return false
-        }
-
-        return true
     }
 
     private func tabManagerForNumberedShortcut(event: NSEvent) -> TabManager? {
@@ -16978,18 +17001,26 @@ private extension NSWindow {
             return true
         }
         let browserWebKitKeyDownReentry = firstResponderWebView != nil && cmuxBrowserWebKitKeyDownDispatchIsActive()
-        if AppDelegate.shared?.shouldBypassPrintableOptionTextForShortcutRouting(event: event) == true {
+        if event.cmuxIsOptionTextInputCandidate {
             if browserWebKitKeyDownReentry { return false }
+            if AppDelegate.shared?.handleRoutableNumberedShortcutKeyEquivalent(event) == true {
+                return true
+            }
+            if AppDelegate.shared?.handleConfiguredShortcutKeyEquivalent(event) == true {
+                return true
+            }
+
             let textInputTarget: NSResponder? = firstResponderGhosttyView
                 ?? firstResponderWebView
                 ?? self.firstResponder
             if let textInputTarget, textInputTarget !== self {
-                if cmuxForceDispatchKeyDownOnce(event, to: textInputTarget, reason: "printable Option text") {
+                if cmuxForceDispatchKeyDownOnce(
+                    event,
+                    to: textInputTarget,
+                    reason: "unmatched Option input"
+                ) {
                     return true
                 }
-                // Same event already in flight on this stack (WebKit replay /
-                // macOS 26 NSWindow.keyDown re-entry): decline so default
-                // AppKit handling proceeds instead of looping.
                 return false
             }
             return false

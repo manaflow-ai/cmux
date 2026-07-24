@@ -43,7 +43,13 @@ struct GhosttyPhysicalInputFocusReassertionTests {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
         }
 
-        GhosttyNSView.debugTextInputEventHandler = { _, _ in true }
+        GhosttyNSView.debugTextInputEventHandler = { view, _ in
+            view.insertText(
+                "a",
+                replacementRange: NSRange(location: NSNotFound, length: 0)
+            )
+            return true
+        }
         var forwardedText: String?
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
             previousKeyEventObserver?(keyEvent)
