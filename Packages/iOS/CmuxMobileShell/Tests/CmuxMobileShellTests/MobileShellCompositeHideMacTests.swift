@@ -279,6 +279,151 @@ import Testing
         #expect(restored.customIcon == "laptopcomputer")
     }
 
+    @Test(arguments: ["stable", "nightly"])
+    func hidingTaggedRowLeavesSiblingInstanceVisible(hiddenTag: String) async throws {
+        let siblingTag = hiddenTag == "stable" ? "nightly" : "stable"
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "shared-mac",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        port: 50922,
+                        lastSeenAt: Date(timeIntervalSince1970: 20),
+                        isActive: true,
+                        instanceTag: "stable"
+                    ),
+                    try Self.pairedMac(
+                        id: "shared-mac",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        port: 50923,
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: false,
+                        instanceTag: "nightly"
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await store.loadPairedMacs()
+        let representative = try #require(
+            store.displayPairedMacs.first { $0.instanceTag == hiddenTag }
+        )
+
+        await store.hideStoredPairedMacEntries(
+            representativeID: representative.id,
+            aliasIDs: store.pairedMacAliasIDs(
+                for: representative.macDeviceID,
+                instanceTag: representative.instanceTag
+            )
+        )
+
+        #expect(store.pairedMacs.map(\.instanceTag) == [siblingTag])
+        #expect(store.displayPairedMacs.map(\.instanceTag) == [siblingTag])
+        #expect(store.hiddenComputers.map(\.instanceTag) == [hiddenTag])
+        #expect(
+            store.connectionState
+                == (hiddenTag == "stable" ? .disconnected : .connected)
+        )
+    }
+
+    @Test func hidingActiveTaggedRowPrunesOnlyItsPairingWorkspaceState() async throws {
+        let stableID = MobilePairedMac.pairingID(
+            macDeviceID: "shared-mac",
+            instanceTag: "stable"
+        )
+        let nightlyID = MobilePairedMac.pairingID(
+            macDeviceID: "shared-mac",
+            instanceTag: "nightly"
+        )
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "shared-mac",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        port: 50922,
+                        lastSeenAt: Date(timeIntervalSince1970: 20),
+                        isActive: true,
+                        instanceTag: "stable"
+                    ),
+                    try Self.pairedMac(
+                        id: "shared-mac",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        port: 50923,
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: false,
+                        instanceTag: "nightly"
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await store.loadPairedMacs()
+        store.setWorkspaceStatesForTesting([
+            stableID: MacWorkspaceState(
+                macDeviceID: stableID,
+                workspaces: [
+                    MobileWorkspacePreview(
+                        id: "stable-workspace",
+                        macDeviceID: stableID,
+                        name: "Stable",
+                        terminals: []
+                    ),
+                ],
+                status: .connected
+            ),
+            nightlyID: MacWorkspaceState(
+                macDeviceID: nightlyID,
+                workspaces: [
+                    MobileWorkspacePreview(
+                        id: "nightly-workspace",
+                        macDeviceID: nightlyID,
+                        name: "Nightly",
+                        terminals: []
+                    ),
+                ],
+                status: .connected
+            ),
+        ], foregroundMacDeviceID: "shared-mac")
+        let stable = try #require(
+            store.displayPairedMacs.first { $0.instanceTag == "stable" }
+        )
+
+        await store.hideStoredPairedMacEntries(
+            representativeID: stable.id,
+            aliasIDs: store.pairedMacAliasIDs(
+                for: stable.macDeviceID,
+                instanceTag: stable.instanceTag
+            )
+        )
+
+        #expect(store.connectionState == .disconnected)
+        #expect(store.foregroundMacDeviceIDForTesting() == nil)
+        #expect(store.displayPairedMacs.map(\.instanceTag) == ["nightly"])
+        #expect(store.workspaces.map(\.rpcWorkspaceID.rawValue) == ["nightly-workspace"])
+    }
+
     @Test func hideKeepsSQLiteRowAndCreatesNoPendingDeleteOrTombstone() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
