@@ -18,7 +18,9 @@ typedef struct {
 bool ghostty_surface_clear_selection(void *surface);
 
 void *ghostty_config_new(void);
+void *ghostty_config_clone(void *config);
 void ghostty_config_free(void *config);
+void ghostty_config_finalize(void *config);
 void ghostty_config_load_string(
     void *config,
     const char *contents,
@@ -32,7 +34,10 @@ bool ghostty_config_get(
 uint32_t ghostty_config_diagnostics_count(void *config);
 void ghostty_config_get_diagnostic(void);
 void ghostty_string_free(ghostty_string_s string);
-void ghostty_surface_binding_action(void);
+bool ghostty_surface_binding_action(
+    void *surface,
+    const char *action,
+    uintptr_t action_len);
 void ghostty_surface_config_new(void);
 void ghostty_surface_free(void);
 void ghostty_surface_free_text(void);
@@ -63,7 +68,7 @@ void ghostty_surface_set_size(void);
 void ghostty_surface_size(void);
 void ghostty_surface_text(void);
 void ghostty_surface_text_input(void);
-void ghostty_surface_update_config(void);
+void ghostty_surface_update_config(void *surface, void *config);
 ghostty_string_s ghostty_surface_tty_name(void *surface);
 
 void cmux_test_ghostty_runtime_stubs_reset(void);
@@ -74,5 +79,6 @@ uint32_t cmux_test_ghostty_renderer_realized_call_count(void);
 bool cmux_test_ghostty_renderer_realized_call_value(uint32_t index);
 void cmux_test_ghostty_renderer_realized_set_result(bool result);
 bool cmux_test_ghostty_renderer_release_was_occluded(void);
+bool cmux_test_ghostty_surface_last_update_wait_after_command(void *surface);
 
 #endif

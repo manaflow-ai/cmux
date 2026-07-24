@@ -322,6 +322,50 @@ struct TerminalFontZoomSessionPersistenceTests {
         )
     }
 
+    @Test("Dock-only workspace font-size adjustment seeds its first main terminal")
+    func dockOnlyWorkspaceFontSizeAdjustmentSeedsFirstMainTerminal() throws {
+        let workspace = Workspace()
+        let firstPanelID = try #require(workspace.focusedPanelId)
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        _ = try #require(
+            workspace.newBrowserSurface(
+                inPane: paneID,
+                url: URL(string: "about:blank"),
+                focus: false,
+                creationPolicy: .restoration
+            )
+        )
+        #expect(workspace.closePanel(firstPanelID, force: true))
+
+        let dockPanel = TerminalPanel(
+            workspaceId: workspace.id,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        dockPanel.surface.recordCurrentFontSizeLineage(
+            TerminalFontSizeLineage(basePoints: 5, isExplicitOverride: true)
+        )
+        workspace.dockSplit.panels[dockPanel.id] = dockPanel
+
+        #expect(workspace.adjustTerminalFontSizes(byRuntimePoints: -1) == 1)
+        #expect(
+            TabManager().inheritedTerminalConfigForNewWorkspace(workspace: workspace)?
+                .fontSizeLineage
+                == TerminalFontSizeLineage(basePoints: 4, isExplicitOverride: true)
+        )
+
+        let inheritedPanel = try #require(
+            workspace.newTerminalSurface(
+                inPane: paneID,
+                focus: false,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+        )
+        #expect(
+            inheritedPanel.surface.fontSizeLineageSnapshot()
+                == TerminalFontSizeLineage(basePoints: 4, isExplicitOverride: true)
+        )
+    }
+
     @Test("workspace font-size adjustment reaches remote tmux mirrors and seeds new panes")
     func workspaceFontSizeAdjustmentIncludesRemoteTmuxMirrors() throws {
         let workspace = Workspace()

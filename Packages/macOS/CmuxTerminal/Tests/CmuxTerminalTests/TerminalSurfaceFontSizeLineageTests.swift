@@ -4,6 +4,9 @@ import GhosttyKit
 import Testing
 @testable import CmuxTerminal
 
+@_silgen_name("cmux_test_ghostty_surface_last_update_wait_after_command")
+private func surfaceLastUpdateWaitsAfterCommand(_ surface: ghostty_surface_t) -> Bool
+
 @MainActor
 @Suite struct TerminalSurfaceFontSizeLineageTests {
     @Test func initialNonExplicitTemplateSeedsFirstRuntimeCreation() {
@@ -106,6 +109,42 @@ import Testing
         #expect(surface.runtimeCreationConfigTemplate().fontSizeLineage == lineage)
     }
 
+    @Test func deferredSurfaceUsesCurrentConfiguredFallbackAfterReset() throws {
+        var template = CmuxSurfaceConfigTemplate()
+        template.setFontSize(6, isExplicitOverride: true)
+        let surface = makeSurface(configTemplate: template)
+
+        #expect(surface.resetFontSize(toConfiguredRuntimePoints: 12))
+        #expect(surface.adjustFontSize(byRuntimePoints: -1, fallbackRuntimePoints: 16))
+
+        #expect(
+            try #require(surface.fontSizeLineageSnapshot())
+                == TerminalFontSizeLineage(basePoints: 15, isExplicitOverride: true)
+        )
+    }
+
+    @Test func liveResetPreservesPerSurfaceWaitAfterCommand() throws {
+        let runtimeConfig = try #require(ghostty_config_new())
+        defer { ghostty_config_free(runtimeConfig) }
+
+        var template = CmuxSurfaceConfigTemplate()
+        template.setFontSize(6, isExplicitOverride: true)
+        template.waitAfterCommand = true
+        let surface = makeSurface(
+            configTemplate: template,
+            engine: FakeTerminalEngine(runtimeConfig: runtimeConfig)
+        )
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 1, alignment: 1)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        defer {
+            surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+        }
+
+        #expect(surface.resetFontSize(toConfiguredRuntimePoints: 12))
+        #expect(surfaceLastUpdateWaitsAfterCommand(runtimeSurface))
+    }
+
     @Test func staleRuntimePointerFallsBackToDurableLineageAdjustment() throws {
         var template = CmuxSurfaceConfigTemplate()
         template.setFontSize(12, isExplicitOverride: true)
@@ -139,7 +178,8 @@ import Testing
 
     private func makeSurface(
         configTemplate: CmuxSurfaceConfigTemplate,
-        globalFontMagnificationPercent: Int = 100
+        globalFontMagnificationPercent: Int = 100,
+        engine: FakeTerminalEngine = FakeTerminalEngine()
     ) -> TerminalSurface {
         let nativeView = FakeTerminalSurfaceNativeView(
             frame: NSRect(x: 0, y: 0, width: 800, height: 600)
@@ -152,7 +192,7 @@ import Testing
             runtimeSpawnPolicy: .pacedSessionRestore,
             dependencies: TerminalSurfaceRuntimeDependencies(
                 registry: FakeSurfaceRegistry(),
-                engine: FakeTerminalEngine(),
+                engine: engine,
                 viewProvider: FakeTerminalSurfaceViewProvider(
                     surfaceView: nativeView,
                     paneHost: paneHost
