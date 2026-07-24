@@ -188,6 +188,16 @@ Chrome 136 and newer reject CDP remote debugging on the OS-default profile direc
 | --- | --- | --- | --- |
 | `scrollbar.position` | `"column"` or `"border"` | `"column"` | Dedicated scrollbar column or right-border overlay |
 
+## Layout
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `layout.mode` | `"tiled"` or `"scrolling"` | `"tiled"` | Tiled panes or viewport-width horizontal columns |
+
+Scrolling mode turns each horizontal split into adjacent full-width columns. Vertical splits remain visible within their column. The active column is shown, and the status bar displays a horizontal track when another column exists. Horizontal split ratios remain stored in the shared screen tree and take effect again when this client returns to tiled mode.
+
+`Ctrl-b g` toggles modes for the current TUI process. Set `{"layout":{"mode":"scrolling"}}` to start that client in scrolling mode. Other attached clients keep their own presentation mode.
+
 ## Server
 
 | Key | Type | Default | Effect |
@@ -227,6 +237,7 @@ WebSocket clients pair through a six-digit browser/TUI comparison by default. We
 | `keys.toggle-sidebar` | chord string or array or `"none"` | `"s"` | Toggle sidebar |
 | `keys.toggle-sidebar-view` | chord string or array or `"none"` | `"e"` | Toggle the built-in files/workspaces view; a plugin still takes precedence |
 | `keys.focus-sidebar` | chord string or array or `"none"` | `"S"` | Focus the built-in sidebar or sidebar plugin; a prefixed command returns focus to the pane |
+| `keys.toggle-scrolling-layout` | chord string or array or `"none"` | `"g"` | Toggle this client between tiled and horizontal scrolling layouts |
 | `keys.focus-next-pane` | chord string or array or `"none"` | `"o"` | Cycle to the next pane in the current screen |
 | `keys.focus-left` | chord string or array or `"none"` | `["h","left","alt+h","alt+left"]` | Focus left |
 | `keys.focus-right` | chord string or array or `"none"` | `["l","right","alt+l","alt+right"]` | Focus right |
