@@ -2229,6 +2229,88 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testDelayedOlderCodexStopCannotRetireNewerProcessMonitorLease() throws {
+        let context = try makeClaudeHookContext(name: "codex-stale-stop-lease")
+        defer { context.cleanup() }
+        let sessionId = "stale-stop-lease-session"
+        let turnId = "shared-turn"
+        let olderPID = Int(Darwin.getpid())
+        let deadPID = Int(Int32.max)
+        let newerProcess = Process()
+        let newerProcessInput = Pipe()
+        newerProcess.executableURL = URL(fileURLWithPath: "/bin/cat")
+        newerProcess.standardInput = newerProcessInput
+        try newerProcess.run()
+        defer {
+            try? newerProcessInput.fileHandleForWriting.close()
+            if newerProcess.isRunning {
+                newerProcess.terminate()
+            }
+            newerProcess.waitUntilExit()
+        }
+        let newerPID = Int(newerProcess.processIdentifier)
+        try writeCodexRebindState(
+            context: context,
+            sessionId: sessionId,
+            pid: deadPID
+        )
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+
+        let newerEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId).merging([
+            "CMUX_CODEX_PID": String(newerPID),
+        ], uniquingKeysWith: { _, new in new })
+        let acceptedResume = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","cmux_resume_rebind":true}"#,
+            extraEnvironment: newerEnvironment
+        )
+        XCTAssertFalse(acceptedResume.timedOut, acceptedResume.stderr)
+        XCTAssertEqual(acceptedResume.status, 0, acceptedResume.stderr)
+
+        let prompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"\#(turnId)","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
+            extraEnvironment: newerEnvironment
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let leaseDirectory = context.root.appendingPathComponent("codex-monitor-leases", isDirectory: true)
+        let leaseURLs = try FileManager.default.contentsOfDirectory(
+            at: leaseDirectory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+        let leaseURL = try XCTUnwrap(leaseURLs.first)
+        let activeLease = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: leaseURL)) as? [String: Any]
+        )
+        XCTAssertEqual(activeLease["sessionId"] as? String, sessionId)
+        XCTAssertEqual(activeLease["turnId"] as? String, turnId)
+        XCTAssertNil(activeLease["retiredAt"])
+
+        let staleStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"\#(turnId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"late old stop"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId).merging([
+                "CMUX_CODEX_PID": String(olderPID),
+            ], uniquingKeysWith: { _, new in new })
+        )
+        XCTAssertFalse(staleStop.timedOut, staleStop.stderr)
+        XCTAssertEqual(staleStop.status, 0, staleStop.stderr)
+
+        let leaseAfterStaleStop = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: leaseURL)) as? [String: Any]
+        )
+        XCTAssertNil(
+            leaseAfterStaleStop["retiredAt"],
+            "A Stop rejected from an older process generation must not retire the newer process's monitor lease."
+        )
+    }
+
     func testDelayedSameGenerationCodexResumeCannotClearActiveTurn() throws {
         let context = try makeClaudeHookContext(name: "codex-same-generation-active")
         defer { context.cleanup() }
