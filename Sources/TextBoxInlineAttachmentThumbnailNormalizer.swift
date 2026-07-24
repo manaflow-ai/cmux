@@ -9,6 +9,7 @@ nonisolated struct TextBoxInlineAttachmentThumbnailNormalizer:
         for fileURL: URL,
         pixelSize: TextBoxInlineAttachmentThumbnailSize
     ) -> TextBoxInlineAttachmentThumbnailPixels? {
+        guard !isCurrentTaskCancelled() else { return nil }
         let sourceOptions = [
             kCGImageSourceShouldCache: false
         ] as CFDictionary
@@ -26,7 +27,8 @@ nonisolated struct TextBoxInlineAttachmentThumbnailNormalizer:
             source,
             0,
             thumbnailOptions
-        ), let sRGB = CGColorSpace(name: CGColorSpace.sRGB) else {
+        ), !isCurrentTaskCancelled(),
+           let sRGB = CGColorSpace(name: CGColorSpace.sRGB) else {
             return nil
         }
 
@@ -51,12 +53,16 @@ nonisolated struct TextBoxInlineAttachmentThumbnailNormalizer:
             sourceThumbnail,
             in: CGRect(x: 0, y: 0, width: pixelSize.width, height: pixelSize.height)
         )
-        guard let data = context.data else { return nil }
+        guard !isCurrentTaskCancelled(), let data = context.data else { return nil }
 
         return TextBoxInlineAttachmentThumbnailPixels(
             size: pixelSize,
             bytesPerRow: bytesPerRow,
             rgba8: Data(bytes: data, count: bytesPerRow * pixelSize.height)
         )
+    }
+
+    private func isCurrentTaskCancelled() -> Bool {
+        withUnsafeCurrentTask { $0?.isCancelled == true }
     }
 }

@@ -1,20 +1,25 @@
 import AppKit
+import CmuxFoundation
 import CoreGraphics
 import Foundation
 
 @MainActor
 final class TextBoxInlineAttachmentRenderer {
+    private static let maximumConcurrentThumbnailRequests = 2
+
     private let onThumbnailReady: @MainActor (UUID) -> Void
-    private var renderedImages: [TextBoxInlineAttachmentRenderKey: NSImage] = [:]
+    private var renderedImages: [
+        UUID: [TextBoxInlineAttachmentRenderKey: [Bool: NSImage]]
+    ] = [:]
     private var normalizedThumbnails: [
         UUID: [TextBoxInlineAttachmentThumbnailSize: NSImage]
     ] = [:]
-    private var pendingThumbnailSizes: [
-        UUID: Set<TextBoxInlineAttachmentThumbnailSize>
+    private var queuedThumbnailRequests: [TextBoxInlineAttachmentThumbnailRequest] = []
+    private var queuedThumbnailRequestSet: Set<TextBoxInlineAttachmentThumbnailRequest> = []
+    private var runningThumbnailTasks: [
+        TextBoxInlineAttachmentThumbnailRequest: Task<Void, Never>
     ] = [:]
-    private var failedThumbnailSizes: [
-        UUID: Set<TextBoxInlineAttachmentThumbnailSize>
-    ] = [:]
+    private var failedThumbnailSizes: [UUID: TextBoxInlineAttachmentThumbnailSize] = [:]
     private var thumbnailGenerations: [UUID: UInt64] = [:]
     private var activeAttachmentIDs: Set<UUID> = []
 
@@ -80,7 +85,6 @@ final class TextBoxInlineAttachmentRenderer {
             fontTraits: font.fontDescriptor.symbolicTraits.rawValue,
             foregroundComponents: foregroundComponents,
             accentComponents: accentComponents,
-            isFocused: isFocused,
             appearanceName: appearance.name.rawValue,
             backingScale: scale,
             width: width,
@@ -88,7 +92,7 @@ final class TextBoxInlineAttachmentRenderer {
             iconSize: iconSize,
             thumbnailGeneration: thumbnailGenerations[attachment.id, default: 0]
         )
-        if let cached = renderedImages[key] {
+        if let cached = renderedImages[attachment.id]?[key]?[isFocused] {
             return cached
         }
 
@@ -104,19 +108,16 @@ final class TextBoxInlineAttachmentRenderer {
             appearance: appearance,
             backingScale: scale
         )
-        renderedImages[key] = image
+        var focusVariants = renderedImages[attachment.id]?[key] ?? [:]
+        focusVariants[isFocused] = image
+        renderedImages[attachment.id] = [key: focusVariants]
         return image
     }
 
     func retainAttachments(withIDs attachmentIDs: Set<UUID>) {
         activeAttachmentIDs = attachmentIDs
-        renderedImages = renderedImages.filter {
-            attachmentIDs.contains($0.key.attachmentID)
-        }
+        renderedImages = renderedImages.filter { attachmentIDs.contains($0.key) }
         normalizedThumbnails = normalizedThumbnails.filter {
-            attachmentIDs.contains($0.key)
-        }
-        pendingThumbnailSizes = pendingThumbnailSizes.filter {
             attachmentIDs.contains($0.key)
         }
         failedThumbnailSizes = failedThumbnailSizes.filter {
@@ -124,6 +125,32 @@ final class TextBoxInlineAttachmentRenderer {
         }
         thumbnailGenerations = thumbnailGenerations.filter {
             attachmentIDs.contains($0.key)
+        }
+        cancelThumbnailRequests(excludingAttachmentIDs: attachmentIDs)
+    }
+
+    func removeAttachments(withIDs attachmentIDs: Set<UUID>) {
+        guard !attachmentIDs.isEmpty else { return }
+        activeAttachmentIDs.subtract(attachmentIDs)
+        renderedImages = renderedImages.filter { !attachmentIDs.contains($0.key) }
+        normalizedThumbnails = normalizedThumbnails.filter {
+            !attachmentIDs.contains($0.key)
+        }
+        failedThumbnailSizes = failedThumbnailSizes.filter {
+            !attachmentIDs.contains($0.key)
+        }
+        thumbnailGenerations = thumbnailGenerations.filter {
+            !attachmentIDs.contains($0.key)
+        }
+        cancelThumbnailRequests(forAttachmentIDs: attachmentIDs)
+    }
+
+    func cancelAllThumbnailRequests() {
+        activeAttachmentIDs.removeAll()
+        queuedThumbnailRequests.removeAll()
+        queuedThumbnailRequestSet.removeAll()
+        for task in runningThumbnailTasks.values {
+            task.cancel()
         }
     }
 
@@ -134,29 +161,100 @@ final class TextBoxInlineAttachmentRenderer {
         pointSize: NSSize
     ) {
         activeAttachmentIDs.insert(attachmentID)
-        guard failedThumbnailSizes[attachmentID]?.contains(pixelSize) != true else {
+        guard failedThumbnailSizes[attachmentID] != pixelSize else {
             return
         }
-        let insertion = pendingThumbnailSizes[attachmentID, default: []].insert(pixelSize)
-        guard insertion.inserted else { return }
-
-        Task { [weak self] in
-            let pixels = await source.thumbnail(pixelSize: pixelSize)
-            guard !Task.isCancelled, let self else { return }
-            pendingThumbnailSizes[attachmentID]?.remove(pixelSize)
-            guard activeAttachmentIDs.contains(attachmentID) else { return }
-            guard let pixels,
-                  let thumbnail = image(from: pixels, pointSize: pointSize) else {
-                failedThumbnailSizes[attachmentID, default: []].insert(pixelSize)
-                return
-            }
-            normalizedThumbnails[attachmentID, default: [:]][pixelSize] = thumbnail
-            thumbnailGenerations[attachmentID, default: 0] &+= 1
-            renderedImages = renderedImages.filter {
-                $0.key.attachmentID != attachmentID
-            }
-            onThumbnailReady(attachmentID)
+        let request = TextBoxInlineAttachmentThumbnailRequest(
+            attachmentID: attachmentID,
+            source: source,
+            pixelSize: pixelSize,
+            pointSize: pointSize
+        )
+        guard runningThumbnailTasks[request] == nil,
+              queuedThumbnailRequestSet.insert(request).inserted else {
+            return
         }
+        cancelThumbnailRequests(
+            forAttachmentID: attachmentID,
+            excludingPixelSize: pixelSize
+        )
+        queuedThumbnailRequests.append(request)
+        startQueuedThumbnailRequests()
+    }
+
+    private func startQueuedThumbnailRequests() {
+        while runningThumbnailTasks.count < Self.maximumConcurrentThumbnailRequests,
+              let request = queuedThumbnailRequests.popLast() {
+            queuedThumbnailRequestSet.remove(request)
+            guard activeAttachmentIDs.contains(request.attachmentID) else { continue }
+
+            let task = Task { [weak self] in
+                let pixels = await request.source.thumbnail(pixelSize: request.pixelSize)
+                let wasCancelled = Task.isCancelled
+                guard let self else { return }
+                completeThumbnailRequest(
+                    request,
+                    pixels: wasCancelled ? nil : pixels,
+                    wasCancelled: wasCancelled
+                )
+            }
+            runningThumbnailTasks[request] = task
+        }
+    }
+
+    private func completeThumbnailRequest(
+        _ request: TextBoxInlineAttachmentThumbnailRequest,
+        pixels: TextBoxInlineAttachmentThumbnailPixels?,
+        wasCancelled: Bool
+    ) {
+        runningThumbnailTasks.removeValue(forKey: request)
+        defer { startQueuedThumbnailRequests() }
+        guard !wasCancelled,
+              activeAttachmentIDs.contains(request.attachmentID) else {
+            return
+        }
+        guard let pixels,
+              let thumbnail = image(from: pixels, pointSize: request.pointSize) else {
+            failedThumbnailSizes[request.attachmentID] = request.pixelSize
+            return
+        }
+
+        normalizedThumbnails[request.attachmentID] = [request.pixelSize: thumbnail]
+        failedThumbnailSizes.removeValue(forKey: request.attachmentID)
+        thumbnailGenerations[request.attachmentID, default: 0] &+= 1
+        renderedImages.removeValue(forKey: request.attachmentID)
+        onThumbnailReady(request.attachmentID)
+    }
+
+    private func cancelThumbnailRequests(excludingAttachmentIDs attachmentIDs: Set<UUID>) {
+        cancelThumbnailRequests { !attachmentIDs.contains($0.attachmentID) }
+    }
+
+    private func cancelThumbnailRequests(forAttachmentIDs attachmentIDs: Set<UUID>) {
+        cancelThumbnailRequests { attachmentIDs.contains($0.attachmentID) }
+    }
+
+    private func cancelThumbnailRequests(
+        forAttachmentID attachmentID: UUID,
+        excludingPixelSize pixelSize: TextBoxInlineAttachmentThumbnailSize
+    ) {
+        cancelThumbnailRequests {
+            $0.attachmentID == attachmentID && $0.pixelSize != pixelSize
+        }
+    }
+
+    private func cancelThumbnailRequests(
+        matching shouldCancel: (TextBoxInlineAttachmentThumbnailRequest) -> Bool
+    ) {
+        queuedThumbnailRequests.removeAll { request in
+            guard shouldCancel(request) else { return false }
+            queuedThumbnailRequestSet.remove(request)
+            return true
+        }
+        for (request, task) in runningThumbnailTasks where shouldCancel(request) {
+            task.cancel()
+        }
+        startQueuedThumbnailRequests()
     }
 
     private func renderImage(
@@ -301,7 +399,7 @@ final class TextBoxInlineAttachmentRenderer {
 
     private func colorComponents(_ color: NSColor) -> [CGFloat] {
         guard let resolved = color.usingColorSpace(.sRGB) else {
-            return [color.alphaComponent]
+            return [0, 0, 0, color.alphaComponent]
         }
         return [
             resolved.redComponent,

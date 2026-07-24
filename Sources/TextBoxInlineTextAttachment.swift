@@ -2,6 +2,7 @@ import AppKit
 
 final class TextBoxInlineTextAttachment: NSTextAttachment {
     let textBoxAttachment: TextBoxAttachment
+    private(set) var isFocused = false
 
     init(
         attachment: TextBoxAttachment,
@@ -36,6 +37,7 @@ final class TextBoxInlineTextAttachment: NSTextAttachment {
         appearance: NSAppearance,
         backingScale: CGFloat
     ) {
+        self.isFocused = isFocused
         let image = renderer.image(
             for: textBoxAttachment,
             font: font,

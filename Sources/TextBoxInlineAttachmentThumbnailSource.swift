@@ -3,10 +3,9 @@ import Foundation
 actor TextBoxInlineAttachmentThumbnailSource {
     private let fileURL: URL
     private let normalizer: any TextBoxInlineAttachmentThumbnailNormalizing
-    private var thumbnails: [
-        TextBoxInlineAttachmentThumbnailSize: TextBoxInlineAttachmentThumbnailPixels
-    ] = [:]
-    private var failedSizes: Set<TextBoxInlineAttachmentThumbnailSize> = []
+    private var cachedSize: TextBoxInlineAttachmentThumbnailSize?
+    private var cachedThumbnail: TextBoxInlineAttachmentThumbnailPixels?
+    private var failedSize: TextBoxInlineAttachmentThumbnailSize?
 
     init(
         fileURL: URL,
@@ -20,19 +19,28 @@ actor TextBoxInlineAttachmentThumbnailSource {
     func thumbnail(
         pixelSize: TextBoxInlineAttachmentThumbnailSize
     ) -> TextBoxInlineAttachmentThumbnailPixels? {
-        if let thumbnail = thumbnails[pixelSize] {
-            return thumbnail
+        guard !isCurrentTaskCancelled() else { return nil }
+        if cachedSize == pixelSize {
+            return cachedThumbnail
         }
-        guard !failedSizes.contains(pixelSize) else { return nil }
+        guard failedSize != pixelSize else { return nil }
 
-        guard let thumbnail = normalizer.normalizedThumbnail(
+        let thumbnail = normalizer.normalizedThumbnail(
             for: fileURL,
             pixelSize: pixelSize
-        ) else {
-            failedSizes.insert(pixelSize)
+        )
+        guard !isCurrentTaskCancelled() else { return nil }
+        guard let thumbnail else {
+            failedSize = pixelSize
             return nil
         }
-        thumbnails[pixelSize] = thumbnail
+        cachedSize = pixelSize
+        cachedThumbnail = thumbnail
+        failedSize = nil
         return thumbnail
+    }
+
+    private func isCurrentTaskCancelled() -> Bool {
+        withUnsafeCurrentTask { $0?.isCancelled == true }
     }
 }

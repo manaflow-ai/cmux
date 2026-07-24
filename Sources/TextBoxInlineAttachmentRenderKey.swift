@@ -8,7 +8,6 @@ nonisolated struct TextBoxInlineAttachmentRenderKey: Hashable {
     let fontTraits: UInt32
     let foregroundComponents: [CGFloat]
     let accentComponents: [CGFloat]
-    let isFocused: Bool
     let appearanceName: String
     let backingScale: CGFloat
     let width: CGFloat

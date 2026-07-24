@@ -3270,9 +3270,17 @@ final class TextBoxInputTextView: NSTextView {
     private var attachmentPreviewCharacterIndex: Int?
     var focusedAttachmentCharacterIndex: Int?
     private weak var renderedFocusedInlineAttachment: TextBoxInlineTextAttachment?
-    private lazy var inlineAttachmentRenderer = TextBoxInlineAttachmentRenderer {
-        [weak self] attachmentID in
-        self?.refreshInlineAttachmentCells(forAttachmentID: attachmentID)
+    private var inlineAttachmentsByID: [UUID: TextBoxInlineTextAttachment] = [:]
+    private var inlineAttachmentRendererStorage: TextBoxInlineAttachmentRenderer?
+    private var inlineAttachmentRenderer: TextBoxInlineAttachmentRenderer {
+        if let inlineAttachmentRendererStorage {
+            return inlineAttachmentRendererStorage
+        }
+        let renderer = TextBoxInlineAttachmentRenderer { [weak self] attachmentID in
+            self?.refreshInlineAttachmentCell(forAttachmentID: attachmentID)
+        }
+        inlineAttachmentRendererStorage = renderer
+        return renderer
     }
     private var attachmentKeyDownMonitor: Any?
     private var preserveAttachmentFocusOnNextResign = false
@@ -3307,6 +3315,7 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     deinit {
+        inlineAttachmentRendererStorage?.cancelAllThumbnailRequests()
         mentionCompletionWarmupTask?.cancel()
         removeMentionCompletionWindowObservers()
         dismissMentionCompletions()
@@ -3460,12 +3469,14 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     func clearContent(cleanupAttachmentFiles: Bool = true) {
+        let attachments = inlineAttachments()
         if cleanupAttachmentFiles {
             cleanupDisposableAttachmentFiles(
-                inlineAttachments(),
+                attachments,
                 preservingActiveInlineAttachments: false
             )
         }
+        discardInlineAttachmentRendering(for: attachments)
         invalidatePendingAttachmentUploads()
         dismissMentionCompletions()
         clearAttachmentFocus(dismissPreview: true)
@@ -3734,6 +3745,7 @@ final class TextBoxInputTextView: NSTextView {
         let appearance = effectiveAppearance
         let backingScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
         var attachmentIDs: Set<UUID> = []
+        var attachmentsByID: [UUID: TextBoxInlineTextAttachment] = [:]
         var focusedInlineAttachment: TextBoxInlineTextAttachment?
         attributed.enumerateAttribute(
             .attachment,
@@ -3742,6 +3754,7 @@ final class TextBoxInputTextView: NSTextView {
         ) { value, range, _ in
             guard let attachment = value as? TextBoxInlineTextAttachment else { return }
             attachmentIDs.insert(attachment.textBoxAttachment.id)
+            attachmentsByID[attachment.textBoxAttachment.id] = attachment
             let isFocused = isAttachmentFocused(at: range.location)
             attachment.refreshCell(
                 font: font,
@@ -3755,6 +3768,7 @@ final class TextBoxInputTextView: NSTextView {
                 focusedInlineAttachment = attachment
             }
         }
+        inlineAttachmentsByID = attachmentsByID
         inlineAttachmentRenderer.retainAttachments(withIDs: attachmentIDs)
         renderedFocusedInlineAttachment = focusedInlineAttachment
         normalizeTextBaselineOffsets()
@@ -3780,31 +3794,17 @@ final class TextBoxInputTextView: NSTextView {
         renderedFocusedInlineAttachment = currentFocusedAttachment
     }
 
-    private func refreshInlineAttachmentCells(forAttachmentID attachmentID: UUID) {
-        let attributed = attributedString()
-        let appearance = effectiveAppearance
-        let backingScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
-        let font = font ?? GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
-        let foregroundColor = textColor ?? .labelColor
-        attributed.enumerateAttribute(
-            .attachment,
-            in: NSRange(location: 0, length: attributed.length),
-            options: []
-        ) { value, range, _ in
-            guard let attachment = value as? TextBoxInlineTextAttachment,
-                  attachment.textBoxAttachment.id == attachmentID else {
-                return
-            }
-            attachment.refreshCell(
-                font: font,
-                foregroundColor: foregroundColor,
-                isFocused: isAttachmentFocused(at: range.location),
-                renderer: inlineAttachmentRenderer,
-                appearance: appearance,
-                backingScale: backingScale
-            )
-            layoutManager?.invalidateDisplay(forCharacterRange: range)
-        }
+    private func refreshInlineAttachmentCell(forAttachmentID attachmentID: UUID) {
+        guard let attachment = inlineAttachmentsByID[attachmentID] else { return }
+        attachment.refreshCell(
+            font: font ?? GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize),
+            foregroundColor: textColor ?? .labelColor,
+            isFocused: attachment.isFocused,
+            renderer: inlineAttachmentRenderer,
+            appearance: effectiveAppearance,
+            backingScale: window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
+        )
+        // Placeholder and normalized thumbnails have identical geometry, so no layout pass is needed.
         needsDisplay = true
     }
 
@@ -4712,6 +4712,10 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func synchronizeAfterUndoRedo() {
+        refreshInlineAttachmentCells(
+            font: font ?? GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize),
+            foregroundColor: textColor ?? .labelColor
+        )
         normalizeTextBaselineOffsets()
         recenterSingleLineTextContainer()
         didChangeText()
@@ -5175,6 +5179,7 @@ final class TextBoxInputTextView: NSTextView {
         guard !suppressAutomaticAttachmentFileCleanup else { return }
         let removedAttachments = inlineAttachments(in: range)
         guard !removedAttachments.isEmpty else { return }
+        discardInlineAttachmentRendering(for: removedAttachments)
         for attachment in removedAttachments {
             guard attachment.cleanupLocalURLWhenDisposed,
                   let localURL = attachment.localURL else { continue }
@@ -5187,6 +5192,15 @@ final class TextBoxInputTextView: NSTextView {
         let attachments = Array(pendingAutomaticAttachmentFileCleanup.values)
         pendingAutomaticAttachmentFileCleanup.removeAll(keepingCapacity: true)
         cleanupRemovedAttachmentFiles(attachments)
+    }
+
+    private func discardInlineAttachmentRendering(for attachments: [TextBoxAttachment]) {
+        let attachmentIDs = Set(attachments.map(\.id))
+        guard !attachmentIDs.isEmpty else { return }
+        for attachmentID in attachmentIDs {
+            inlineAttachmentsByID.removeValue(forKey: attachmentID)
+        }
+        inlineAttachmentRendererStorage?.removeAttachments(withIDs: attachmentIDs)
     }
 
     private func installAttachmentKeyDownMonitorIfNeeded() {
@@ -5237,15 +5251,17 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     func inlineAttachmentAttributedString(for attachment: TextBoxAttachment) -> NSAttributedString {
+        let inlineAttachment = TextBoxInlineTextAttachment(
+            attachment: attachment,
+            font: font ?? GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize),
+            foregroundColor: textColor ?? .labelColor,
+            renderer: inlineAttachmentRenderer,
+            appearance: effectiveAppearance,
+            backingScale: window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
+        )
+        inlineAttachmentsByID[attachment.id] = inlineAttachment
         let attributed = NSMutableAttributedString(
-            attachment: TextBoxInlineTextAttachment(
-                attachment: attachment,
-                font: font ?? GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize),
-                foregroundColor: textColor ?? .labelColor,
-                renderer: inlineAttachmentRenderer,
-                appearance: effectiveAppearance,
-                backingScale: window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
-            )
+            attachment: inlineAttachment
         )
         attributed.addAttribute(
             .baselineOffset,

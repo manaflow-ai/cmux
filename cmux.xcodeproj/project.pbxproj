@@ -1984,6 +1984,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		5330B0215330B0215330B021 /* TextBoxInlineAttachmentThumbnailNormalizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5330B0225330B0225330B022 /* TextBoxInlineAttachmentThumbnailNormalizer.swift */; };
 		5330B0315330B0315330B031 /* TextBoxInlineAttachmentThumbnailNormalizing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5330B0325330B0325330B032 /* TextBoxInlineAttachmentThumbnailNormalizing.swift */; };
 		5330B0415330B0415330B041 /* TextBoxInlineAttachmentThumbnailPixels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5330B0425330B0425330B042 /* TextBoxInlineAttachmentThumbnailPixels.swift */; };
+		5330B0915330B0915330B091 /* TextBoxInlineAttachmentThumbnailRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5330B0925330B0925330B092 /* TextBoxInlineAttachmentThumbnailRequest.swift */; };
 		5330B0515330B0515330B051 /* TextBoxInlineAttachmentThumbnailSize.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5330B0525330B0525330B052 /* TextBoxInlineAttachmentThumbnailSize.swift */; };
 		5330B0615330B0615330B061 /* TextBoxInlineAttachmentThumbnailSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5330B0625330B0625330B062 /* TextBoxInlineAttachmentThumbnailSource.swift */; };
 		5330B0815330B0815330B081 /* TextBoxInlineTextAttachment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5330B0825330B0825330B082 /* TextBoxInlineTextAttachment.swift */; };
@@ -4173,6 +4174,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		5330B0225330B0225330B022 /* TextBoxInlineAttachmentThumbnailNormalizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInlineAttachmentThumbnailNormalizer.swift; sourceTree = "<group>"; };
 		5330B0325330B0325330B032 /* TextBoxInlineAttachmentThumbnailNormalizing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInlineAttachmentThumbnailNormalizing.swift; sourceTree = "<group>"; };
 		5330B0425330B0425330B042 /* TextBoxInlineAttachmentThumbnailPixels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInlineAttachmentThumbnailPixels.swift; sourceTree = "<group>"; };
+		5330B0925330B0925330B092 /* TextBoxInlineAttachmentThumbnailRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInlineAttachmentThumbnailRequest.swift; sourceTree = "<group>"; };
 		5330B0525330B0525330B052 /* TextBoxInlineAttachmentThumbnailSize.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInlineAttachmentThumbnailSize.swift; sourceTree = "<group>"; };
 		5330B0625330B0625330B062 /* TextBoxInlineAttachmentThumbnailSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInlineAttachmentThumbnailSource.swift; sourceTree = "<group>"; };
 		5330B0825330B0825330B082 /* TextBoxInlineTextAttachment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInlineTextAttachment.swift; sourceTree = "<group>"; };
@@ -5047,6 +5049,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				5330B0425330B0425330B042 /* TextBoxInlineAttachmentThumbnailPixels.swift */,
 				5330B0525330B0525330B052 /* TextBoxInlineAttachmentThumbnailSize.swift */,
 				5330B0625330B0625330B062 /* TextBoxInlineAttachmentThumbnailSource.swift */,
+				5330B0925330B0925330B092 /* TextBoxInlineAttachmentThumbnailRequest.swift */,
 				5330B0825330B0825330B082 /* TextBoxInlineTextAttachment.swift */,
 				C0DE7B310000000000000002 /* TextBoxMentionCachedIndex.swift */,
 				C0DE7B250000000000000002 /* TextBoxMentionCandidate.swift */,
@@ -8424,6 +8427,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				5330B0215330B0215330B021 /* TextBoxInlineAttachmentThumbnailNormalizer.swift in Sources */,
 				5330B0315330B0315330B031 /* TextBoxInlineAttachmentThumbnailNormalizing.swift in Sources */,
 				5330B0415330B0415330B041 /* TextBoxInlineAttachmentThumbnailPixels.swift in Sources */,
+				5330B0915330B0915330B091 /* TextBoxInlineAttachmentThumbnailRequest.swift in Sources */,
 				5330B0515330B0515330B051 /* TextBoxInlineAttachmentThumbnailSize.swift in Sources */,
 				5330B0615330B0615330B061 /* TextBoxInlineAttachmentThumbnailSource.swift in Sources */,
 				5330B0815330B0815330B081 /* TextBoxInlineTextAttachment.swift in Sources */,
