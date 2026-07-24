@@ -7,7 +7,7 @@ use std::io::{self, BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Sender, channel};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -39,6 +39,14 @@ const REMOTE_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
 const REMOTE_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 #[cfg(test)]
 const REMOTE_REQUEST_TIMEOUT: Duration = Duration::from_millis(100);
+#[cfg(not(test))]
+const REMOTE_ATTACH_IDLE_TIMEOUT: Duration = Duration::from_secs(10);
+#[cfg(test)]
+const REMOTE_ATTACH_IDLE_TIMEOUT: Duration = Duration::from_millis(250);
+#[cfg(not(test))]
+const REMOTE_ATTACH_MAX_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+#[cfg(test)]
+const REMOTE_ATTACH_MAX_TIMEOUT: Duration = Duration::from_secs(3);
 
 fn zeroize_string(value: &mut str) {
     // NUL is valid UTF-8, so the serialized request can be cleared in place
@@ -493,10 +501,17 @@ struct SubscriptionRecoveryState {
     in_flight: bool,
 }
 
+#[derive(Clone, Copy)]
+enum RequestDeadline {
+    Standard,
+    Attach,
+}
+
 pub struct RemoteSession {
     writer: Mutex<Box<dyn RemoteMessageWriter>>,
     pending: Mutex<HashMap<u64, Sender<Value>>>,
     next_id: AtomicU64,
+    read_progress: AtomicU64,
     shutdown: AtomicBool,
     surfaces: Mutex<HashMap<SurfaceId, Arc<RemoteSurface>>>,
     exited_surfaces: Mutex<HashSet<SurfaceId>>,
@@ -521,6 +536,17 @@ pub struct RemoteSession {
 /// their native message boundaries.
 pub trait RemoteMessageReader: Send {
     fn receive(&mut self) -> io::Result<Option<String>>;
+
+    fn receive_with_progress(
+        &mut self,
+        on_progress: &mut dyn FnMut(),
+    ) -> io::Result<Option<String>> {
+        let message = self.receive()?;
+        if message.is_some() {
+            on_progress();
+        }
+        Ok(message)
+    }
 }
 
 /// Send complete JSON protocol messages over one transport.
@@ -556,19 +582,53 @@ struct JsonLineReader {
     inner: BufReader<Box<dyn transport::Stream>>,
 }
 
+pub(crate) fn read_json_line_with_progress<R: BufRead>(
+    reader: &mut R,
+    on_progress: &mut dyn FnMut(),
+) -> io::Result<Option<String>> {
+    let mut bytes = Vec::new();
+    loop {
+        let (consumed, complete) = {
+            let available = reader.fill_buf()?;
+            if available.is_empty() {
+                break;
+            }
+            let complete_at = available.iter().position(|byte| *byte == b'\n');
+            let consumed = complete_at.map_or(available.len(), |index| index + 1);
+            bytes.extend_from_slice(&available[..consumed]);
+            (consumed, complete_at.is_some())
+        };
+        reader.consume(consumed);
+        on_progress();
+        if complete {
+            break;
+        }
+    }
+
+    if bytes.is_empty() {
+        return Ok(None);
+    }
+    if bytes.last() == Some(&b'\n') {
+        bytes.pop();
+        if bytes.last() == Some(&b'\r') {
+            bytes.pop();
+        }
+    }
+    String::from_utf8(bytes)
+        .map(Some)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+}
+
 impl RemoteMessageReader for JsonLineReader {
     fn receive(&mut self) -> io::Result<Option<String>> {
-        let mut message = String::new();
-        if self.inner.read_line(&mut message)? == 0 {
-            return Ok(None);
-        }
-        if message.ends_with('\n') {
-            message.pop();
-            if message.ends_with('\r') {
-                message.pop();
-            }
-        }
-        Ok(Some(message))
+        self.receive_with_progress(&mut || {})
+    }
+
+    fn receive_with_progress(
+        &mut self,
+        on_progress: &mut dyn FnMut(),
+    ) -> io::Result<Option<String>> {
+        read_json_line_with_progress(&mut self.inner, on_progress)
     }
 }
 
@@ -636,6 +696,7 @@ impl RemoteSession {
             writer: Mutex::new(writer),
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
+            read_progress: AtomicU64::new(0),
             shutdown: AtomicBool::new(false),
             surfaces: Mutex::new(HashMap::new()),
             exited_surfaces: Mutex::new(HashSet::new()),
@@ -655,7 +716,12 @@ impl RemoteSession {
 
         let reader_session = Arc::downgrade(&session);
         std::thread::Builder::new().name("remote-reader".into()).spawn(move || {
-            while let Ok(Some(message)) = reader.receive() {
+            let mut report_progress = || {
+                if let Some(session) = reader_session.upgrade() {
+                    session.read_progress.fetch_add(1, Ordering::Release);
+                }
+            };
+            while let Ok(Some(message)) = reader.receive_with_progress(&mut report_progress) {
                 let Ok(value) = serde_json::from_str::<Value>(&message) else { continue };
                 let Some(session) = reader_session.upgrade() else { break };
                 session.handle_line(value);
@@ -1126,8 +1192,17 @@ impl RemoteSession {
         self.frame_logs.lock().unwrap().entry(surface).or_default().push(line);
     }
 
-    pub fn request(&self, mut cmd: Value) -> anyhow::Result<Value> {
+    pub fn request(&self, cmd: Value) -> anyhow::Result<Value> {
+        self.request_with_deadline(cmd, RequestDeadline::Standard)
+    }
+
+    fn request_with_deadline(
+        &self,
+        mut cmd: Value,
+        deadline: RequestDeadline,
+    ) -> anyhow::Result<Value> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let initial_read_progress = self.read_progress.load(Ordering::Acquire);
         cmd["id"] = json!(id);
         let mut message = serde_json::to_string(&cmd)
             .map_err(RemoteRequestError::Encode)
@@ -1154,14 +1229,14 @@ impl RemoteSession {
             return Err(RemoteRequestError::Shutdown.into());
         }
 
-        let response = match rx.recv_timeout(REMOTE_REQUEST_TIMEOUT) {
+        let response = match self.wait_for_response(rx, deadline, initial_read_progress) {
             Ok(response) => response,
-            Err(_) => {
+            Err(error) => {
                 // Drop the pending entry so a half-open session does not
                 // accumulate abandoned senders (and a late response is
                 // not delivered to a receiver nobody holds).
                 self.pending.lock().unwrap().remove(&id);
-                return Err(RemoteRequestError::Timeout.into());
+                return Err(error.into());
             }
         };
         if response.get("shutdown").and_then(Value::as_bool) == Some(true) {
@@ -1172,6 +1247,55 @@ impl RemoteSession {
         } else {
             let error = response.get("error").and_then(|v| v.as_str()).unwrap_or("unknown error");
             Err(RemoteRequestError::Rejected(error.to_string()).into())
+        }
+    }
+
+    fn wait_for_response(
+        &self,
+        rx: Receiver<Value>,
+        deadline: RequestDeadline,
+        mut read_progress: u64,
+    ) -> Result<Value, RemoteRequestError> {
+        if matches!(deadline, RequestDeadline::Standard) {
+            return match rx.recv_timeout(REMOTE_REQUEST_TIMEOUT) {
+                Ok(response) => Ok(response),
+                Err(RecvTimeoutError::Timeout) => Err(RemoteRequestError::Timeout),
+                Err(RecvTimeoutError::Disconnected) if self.shutdown.load(Ordering::Acquire) => {
+                    Err(RemoteRequestError::Shutdown)
+                }
+                Err(RecvTimeoutError::Disconnected) => Err(RemoteRequestError::Timeout),
+            };
+        }
+
+        let started = Instant::now();
+        let maximum_deadline = started + REMOTE_ATTACH_MAX_TIMEOUT;
+        let mut idle_deadline = started + REMOTE_ATTACH_IDLE_TIMEOUT;
+        loop {
+            let now = Instant::now();
+            if now >= maximum_deadline {
+                return Err(RemoteRequestError::Timeout);
+            }
+            let next_deadline = idle_deadline.min(maximum_deadline);
+            match rx.recv_timeout(next_deadline.saturating_duration_since(now)) {
+                Ok(response) => return Ok(response),
+                Err(RecvTimeoutError::Disconnected) if self.shutdown.load(Ordering::Acquire) => {
+                    return Err(RemoteRequestError::Shutdown);
+                }
+                Err(RecvTimeoutError::Disconnected) => return Err(RemoteRequestError::Timeout),
+                Err(RecvTimeoutError::Timeout) => {}
+            }
+            if self.shutdown.load(Ordering::Acquire) {
+                return Err(RemoteRequestError::Shutdown);
+            }
+            let current_progress = self.read_progress.load(Ordering::Acquire);
+            if current_progress != read_progress {
+                read_progress = current_progress;
+                idle_deadline = Instant::now() + REMOTE_ATTACH_IDLE_TIMEOUT;
+                continue;
+            }
+            if Instant::now() >= idle_deadline {
+                return Err(RemoteRequestError::Timeout);
+            }
         }
     }
 
@@ -1431,8 +1555,20 @@ impl RemoteSession {
         surface.update_browser_source(source);
         self.surfaces.lock().unwrap().insert(id, surface.clone());
         // The vt-state event that follows fills the mirror.
-        if let Err(error) = self.request(json!({"cmd": "attach-surface", "surface": id})) {
+        if let Err(error) = self.request_with_deadline(
+            json!({"cmd": "attach-surface", "surface": id}),
+            RequestDeadline::Attach,
+        ) {
             self.surfaces.lock().unwrap().remove(&id);
+            if error
+                .downcast_ref::<RemoteRequestError>()
+                .is_some_and(RemoteRequestError::is_timeout)
+            {
+                // The server registers the stream before it queues the attach
+                // response. Closing the connection is the only protocol-level
+                // cancellation that guarantees a timed-out stream is released.
+                self.disconnect_transport();
+            }
             return Err(error);
         }
         if let Some(recovery) = self.surface_overflow_recovery.lock().unwrap().get_mut(&id) {
@@ -1748,6 +1884,7 @@ fn test_session_with_provider_context(
         writer: Mutex::new(Box::new(NoopWriter)),
         pending: Mutex::new(HashMap::new()),
         next_id: AtomicU64::new(1),
+        read_progress: AtomicU64::new(0),
         shutdown: AtomicBool::new(false),
         surfaces: Mutex::new(HashMap::new()),
         exited_surfaces: Mutex::new(HashSet::new()),
@@ -2069,6 +2206,7 @@ mod tests {
             writer: Mutex::new(writer),
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
+            read_progress: AtomicU64::new(0),
             shutdown: AtomicBool::new(false),
             surfaces: Mutex::new(HashMap::new()),
             exited_surfaces: Mutex::new(HashSet::new()),

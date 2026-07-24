@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::sync::Arc;
@@ -50,10 +51,12 @@ pub enum GraphicData {
 }
 
 impl GraphicData {
-    fn base64(&self) -> String {
+    fn base64(&self) -> Cow<'_, str> {
         match self {
-            Self::Base64(encoded) => encoded.to_string(),
-            Self::Bytes(bytes) => base64::engine::general_purpose::STANDARD.encode(bytes),
+            Self::Base64(encoded) => Cow::Borrowed(encoded),
+            Self::Bytes(bytes) => {
+                Cow::Owned(base64::engine::general_purpose::STANDARD.encode(bytes))
+            }
         }
     }
 }

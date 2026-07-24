@@ -2,9 +2,9 @@
 
 use std::collections::HashSet;
 use std::ffi::OsString;
+use std::io::{self, BufReader, Write};
 #[cfg(test)]
-use std::io::Read;
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{BufRead, Read};
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
 #[cfg(unix)]
@@ -24,6 +24,7 @@ use crate::machine::{
 use crate::process_diagnostics::BoundedDiagnosticBuffer;
 use crate::session::{
     RemoteMessageReader, RemoteMessageWriter, RemoteSession, RemoteTransport, Session,
+    read_json_line_with_progress,
 };
 
 const SSH_DIAGNOSTIC_BYTES: usize = 4096;
@@ -444,23 +445,29 @@ struct ProcessReader {
     process: Arc<Process>,
 }
 
+impl ProcessReader {
+    fn receive_inner(&mut self, on_progress: &mut dyn FnMut()) -> io::Result<Option<String>> {
+        let _keep_alive = &self.process;
+        let message = read_json_line_with_progress(&mut self.inner, on_progress)?;
+        if message.is_none()
+            && let Some(diagnostic) = self.process.diagnostic_after_stdout_eof()
+        {
+            return Err(io::Error::other(format!("ssh transport closed: {diagnostic}")));
+        }
+        Ok(message)
+    }
+}
+
 impl RemoteMessageReader for ProcessReader {
     fn receive(&mut self) -> io::Result<Option<String>> {
-        let _keep_alive = &self.process;
-        let mut message = String::new();
-        if self.inner.read_line(&mut message)? == 0 {
-            if let Some(diagnostic) = self.process.diagnostic_after_stdout_eof() {
-                return Err(io::Error::other(format!("ssh transport closed: {diagnostic}")));
-            }
-            return Ok(None);
-        }
-        if message.ends_with('\n') {
-            message.pop();
-            if message.ends_with('\r') {
-                message.pop();
-            }
-        }
-        Ok(Some(message))
+        self.receive_inner(&mut || {})
+    }
+
+    fn receive_with_progress(
+        &mut self,
+        on_progress: &mut dyn FnMut(),
+    ) -> io::Result<Option<String>> {
+        self.receive_inner(on_progress)
     }
 }
 

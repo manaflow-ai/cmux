@@ -2722,6 +2722,7 @@ fn render_graphics_json(
     graphics: &ghostty_vt::KittyGraphicsSnapshot,
     image_ids: Option<&HashSet<u32>>,
     removed_image_ids: &[u32],
+    include_placements: bool,
 ) -> Value {
     let images = graphics
         .images
@@ -2742,37 +2743,38 @@ fn render_graphics_json(
             })
         })
         .collect::<Vec<_>>();
-    let placements = graphics
-        .placements
-        .iter()
-        .map(|placement| {
-            json!({
-                "image_id": placement.image_id,
-                "placement_id": placement.placement_id,
-                "ordinal": placement.key.ordinal,
-                "x_offset": placement.x_offset,
-                "y_offset": placement.y_offset,
-                "source_x": placement.source_x,
-                "source_y": placement.source_y,
-                "source_width": placement.source_width,
-                "source_height": placement.source_height,
-                "columns": placement.columns,
-                "rows": placement.rows,
-                "grid_cols": placement.grid_cols,
-                "grid_rows": placement.grid_rows,
-                "pixel_width": placement.pixel_width,
-                "pixel_height": placement.pixel_height,
-                "viewport_col": placement.viewport_col,
-                "viewport_row": placement.viewport_row,
-                "viewport_visible": placement.viewport_visible,
-                "z": placement.z,
-            })
-        })
-        .collect::<Vec<_>>();
-    let mut value = json!({
-        "generation": graphics.generation,
-        "placements": placements,
-    });
+    let mut value = json!({ "generation": graphics.generation });
+    if include_placements {
+        value["placements"] = json!(
+            graphics
+                .placements
+                .iter()
+                .map(|placement| {
+                    json!({
+                        "image_id": placement.image_id,
+                        "placement_id": placement.placement_id,
+                        "ordinal": placement.key.ordinal,
+                        "x_offset": placement.x_offset,
+                        "y_offset": placement.y_offset,
+                        "source_x": placement.source_x,
+                        "source_y": placement.source_y,
+                        "source_width": placement.source_width,
+                        "source_height": placement.source_height,
+                        "columns": placement.columns,
+                        "rows": placement.rows,
+                        "grid_cols": placement.grid_cols,
+                        "grid_rows": placement.grid_rows,
+                        "pixel_width": placement.pixel_width,
+                        "pixel_height": placement.pixel_height,
+                        "viewport_col": placement.viewport_col,
+                        "viewport_row": placement.viewport_row,
+                        "viewport_visible": placement.viewport_visible,
+                        "z": placement.z,
+                    })
+                })
+                .collect::<Vec<_>>()
+        );
+    }
     if image_ids.is_none() || !images.is_empty() {
         value["images"] = json!(images);
     }
@@ -2802,6 +2804,7 @@ fn render_state_json(
             &frame.frame.kitty_graphics,
             None,
             &[],
+            true,
         ),
     })
 }
@@ -2896,6 +2899,7 @@ impl RenderClientState {
                     graphics,
                     Some(&upsert_image_ids),
                     &removed_image_ids,
+                    placements_changed,
                 );
             }
             if images_changed {
@@ -5163,7 +5167,7 @@ mod tests {
             images: Vec::new(),
             placements: vec![placement],
         };
-        let serialized = render_graphics_json(&RenderService::new(), &graphics, None, &[]);
+        let serialized = render_graphics_json(&RenderService::new(), &graphics, None, &[], true);
         let placement_bytes = serde_json::to_string(&serialized["placements"][0]).unwrap().len();
         let placement_array_bytes = 2
             + placement_bytes * RENDER_GRAPHIC_MAX_PLACEMENTS

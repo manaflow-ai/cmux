@@ -5,6 +5,7 @@ import type {
   RenderGraphicImage,
   RenderGraphicPlacement,
   RenderGraphics,
+  RenderGraphicsDelta,
   RenderRow,
   RenderStateEvent,
 } from "cmux/browser";
@@ -85,7 +86,7 @@ function snapshotGraphics(
   return {
     generation: graphics.generation,
     images: (graphics.images ?? []).map((image) => ({ ...image })),
-    placements: graphics.placements.map((placement) => ({ ...placement })),
+    placements: (graphics.placements ?? []).map((placement) => ({ ...placement })),
   };
 }
 
@@ -126,7 +127,7 @@ function mergeImages(
 
 function applyGraphicsDelta(
   previous: RenderGraphicsModel,
-  graphics: RenderGraphics | undefined,
+  graphics: RenderGraphicsDelta | undefined,
 ): RenderGraphicsModel {
   if (graphics === undefined) return previous;
   const images = mergeImages(
@@ -134,7 +135,8 @@ function applyGraphicsDelta(
     graphics.images ?? [],
     graphics.removed_image_ids ?? [],
   );
-  const placements = samePlacements(previous.placements, graphics.placements)
+  const placements = graphics.placements === undefined
+    || samePlacements(previous.placements, graphics.placements)
     ? previous.placements
     : graphics.placements.map((placement) => ({ ...placement }));
   if (graphics.generation === previous.generation

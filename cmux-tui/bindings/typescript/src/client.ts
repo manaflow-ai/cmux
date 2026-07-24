@@ -863,10 +863,13 @@ export class CmuxClient {
       throw new CmuxProtocolError(`${event.event} graphics is not an object`);
     }
     const placements = (graphics as { placements?: unknown }).placements;
-    if (!Array.isArray(placements)) {
+    if (placements === undefined && event.event === "render-state") {
       throw new CmuxProtocolError(`${event.event} graphics placements is not an array`);
     }
-    if (placements.length > RENDER_GRAPHIC_MAX_PLACEMENTS) {
+    if (placements !== undefined && !Array.isArray(placements)) {
+      throw new CmuxProtocolError(`${event.event} graphics placements is not an array`);
+    }
+    if (Array.isArray(placements) && placements.length > RENDER_GRAPHIC_MAX_PLACEMENTS) {
       throw new CmuxProtocolError(
         `${event.event} graphics exceeds ${RENDER_GRAPHIC_MAX_PLACEMENTS} placements`,
       );

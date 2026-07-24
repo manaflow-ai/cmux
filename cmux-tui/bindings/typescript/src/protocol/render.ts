@@ -84,12 +84,17 @@ export interface RenderGraphicPlacement {
  *
  * `placements` replaces the previous placement set. `images` upserts by image
  * id, while `removed_image_ids` deletes cached images. Omitted change fields
- * preserve the previous image cache.
+ * preserve their previous values. Initial render-state snapshots always carry
+ * placements.
  */
-export interface RenderGraphics {
+export interface RenderGraphicsDelta {
   generation: number;
   images?: RenderGraphicImage[];
   removed_image_ids?: number[];
+  placements?: RenderGraphicPlacement[];
+}
+
+export interface RenderGraphics extends RenderGraphicsDelta {
   placements: RenderGraphicPlacement[];
 }
 
@@ -119,5 +124,5 @@ export interface RenderDeltaEvent {
   scrollback_rows?: number;
   rows: RenderRow[];
   /** Incremental graphics changes, omitted when only text or cursor state changed. */
-  graphics?: RenderGraphics;
+  graphics?: RenderGraphicsDelta;
 }

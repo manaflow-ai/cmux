@@ -23,6 +23,7 @@ use ghostty_vt::{MouseInput, RenderState, Terminal};
 use serde::Deserialize;
 use serde_json::json;
 
+pub(crate) use remote::read_json_line_with_progress;
 pub use remote::{
     RemoteMessageReader, RemoteMessageWriter, RemoteSession, RemoteSurface, RemoteTransport,
 };

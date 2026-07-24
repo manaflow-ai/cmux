@@ -58,6 +58,7 @@ export function useDecodedRenderGraphicImages(
     let canceled = false;
     let worker: Worker | null = null;
     let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+    let settled = false;
     const complete = (response: RenderGraphicsDecodeResponse) => {
       if (canceled || response.requestId !== requestId) return;
       for (const result of response.results) {
@@ -73,11 +74,18 @@ export function useDecodedRenderGraphicImages(
       }
       setRevision((value) => value + 1);
     };
-
-    if (typeof Worker === "undefined") {
+    const runFallback = () => {
+      if (canceled || settled) return;
+      settled = true;
+      worker?.terminate();
+      worker = null;
       fallbackTimer = setTimeout(() => {
         complete({ requestId, results: decodeWithoutWorker(pending) });
       }, 0);
+    };
+
+    if (typeof Worker === "undefined") {
+      runFallback();
     } else {
       try {
         worker = new Worker(
@@ -85,23 +93,24 @@ export function useDecodedRenderGraphicImages(
           { type: "module" },
         );
         worker.onmessage = (event: MessageEvent<RenderGraphicsDecodeResponse>) => {
+          if (event.data.requestId !== requestId) {
+            runFallback();
+            return;
+          }
+          settled = true;
           complete(event.data);
           worker?.terminate();
           worker = null;
         };
-        worker.onerror = () => {
-          worker?.terminate();
-          worker = null;
-        };
+        worker.onerror = runFallback;
+        worker.onmessageerror = runFallback;
         const request: RenderGraphicsDecodeRequest = {
           requestId,
           images: [...pending],
         };
         worker.postMessage(request);
       } catch {
-        fallbackTimer = setTimeout(() => {
-          complete({ requestId, results: decodeWithoutWorker(pending) });
-        }, 0);
+        runFallback();
       }
     }
 
