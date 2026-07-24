@@ -119,8 +119,10 @@ impl TreeView {
             .find(|tab| tab.surface == id)
     }
 
-    /// Resolve either the numeric protocol id or the short id shown by the
-    /// TUI and CLI.
+    /// Resolve either a canonical decimal protocol id or the short id shown
+    /// by the TUI and CLI. Six-digit references beginning with zero use the
+    /// fixed-width short-id namespace, so their meaning cannot change as
+    /// colliding numeric surfaces exit.
     pub fn resolve_surface(
         &self,
         reference: &str,
@@ -132,16 +134,18 @@ impl TreeView {
                 .flat_map(|screen| screen.panes.iter())
                 .flat_map(|pane| pane.tabs.iter())
         };
-        let short = tabs().find(|tab| tab.short_id == reference).map(|tab| tab.surface);
-        let numeric = reference
-            .parse::<SurfaceId>()
-            .ok()
-            .and_then(|numeric| tabs().find(|tab| tab.surface == numeric).map(|tab| tab.surface));
-        match (short, numeric) {
-            (Some(short), Some(numeric)) if short != numeric => Err(AmbiguousSurfaceReference),
-            (Some(surface), _) | (_, Some(surface)) => Ok(Some(surface)),
-            (None, None) => Ok(None),
+        if reference.bytes().all(|byte| byte.is_ascii_digit()) {
+            if reference.len() == 6 && reference.starts_with('0') {
+                return Ok(tabs().find(|tab| tab.short_id == reference).map(|tab| tab.surface));
+            }
+            if reference.len() > 1 && reference.starts_with('0') {
+                return Err(AmbiguousSurfaceReference);
+            }
+            return Ok(reference.parse::<SurfaceId>().ok().and_then(|numeric| {
+                tabs().find(|tab| tab.surface == numeric).map(|tab| tab.surface)
+            }));
         }
+        Ok(tabs().find(|tab| tab.short_id == reference).map(|tab| tab.surface))
     }
 
     /// Select the workspace, screen, pane, and tab containing a surface.

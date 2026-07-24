@@ -61,7 +61,7 @@ use crate::session::{
 };
 use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
 use crate::ui::graphics::GraphicPlacement;
-use crate::ui::graphics_writer::GraphicsWriter;
+use crate::ui::graphics_writer::{GraphicsWriter, StdoutLock};
 use crate::ui::input::{InputEvent, TextInput};
 use crate::ui::{
     thumb_geometry, viewport_drag_offset, viewport_jump_offset, viewport_thumb_geometry,
@@ -3139,7 +3139,7 @@ pub struct App {
     applied_outer_cursor: Option<OuterCursorSpec>,
     pub graphics_writer: Option<GraphicsWriter>,
     pub graphics_supported: bool,
-    stdout_lock: Arc<Mutex<()>>,
+    stdout_lock: Arc<StdoutLock>,
     pub pane_areas: Vec<PaneArea>,
     pane_focus_history: PaneFocusHistory,
     /// Terminal cells actually represented by the last rendered snapshot.
@@ -4092,7 +4092,7 @@ pub fn run_with_machine_updates(
             session_generation,
             surface_only,
         )?;
-    let stdout_lock = Arc::new(Mutex::new(()));
+    let stdout_lock = Arc::new(StdoutLock::new(()));
     let machine_action_worker = machine_controller
         .map(|controller| MachineActionWorker::spawn(controller, tx.clone()))
         .transpose()?;
@@ -4100,7 +4100,7 @@ pub fn run_with_machine_updates(
     // Crossterm input → app channel.
     enable_raw_mode()?;
     if let Err(e) = (|| -> anyhow::Result<()> {
-        let _guard = stdout_lock.lock().unwrap();
+        let _guard = stdout_lock.lock();
         let mut stdout = std::io::stdout();
         stdout.execute(EnterAlternateScreen)?;
         stdout.execute(EnableMouseCapture)?;
@@ -4288,15 +4288,15 @@ pub fn run_with_machine_updates(
     Ok(outcome)
 }
 
-fn restore_terminal(stdout_lock: Option<&Arc<Mutex<()>>>) -> anyhow::Result<()> {
-    let _guard = stdout_lock.map(|lock| lock.lock().unwrap());
+fn restore_terminal(stdout_lock: Option<&Arc<StdoutLock>>) -> anyhow::Result<()> {
+    let _guard = stdout_lock.map(|lock| lock.lock());
     restore_terminal_unlocked()
 }
 
-fn with_panic_stdout_lock(stdout_lock: &Arc<Mutex<()>>, restore: impl FnOnce()) {
-    // A render panic can occur while this thread owns stdout_lock. Panic
-    // cleanup must never try to acquire that same non-reentrant mutex.
-    let _guard = stdout_lock.try_lock().ok();
+fn with_panic_stdout_lock(stdout_lock: &Arc<StdoutLock>, restore: impl FnOnce()) {
+    // Render panics may recurse on the owner thread. Reentrant acquisition
+    // preserves that path while still waiting for a different stdout writer.
+    let _guard = stdout_lock.lock();
     restore();
 }
 
@@ -5352,7 +5352,7 @@ impl App {
         terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::Stdout>>,
     ) -> anyhow::Result<()> {
         let lock = self.stdout_lock.clone();
-        let _guard = lock.lock().unwrap();
+        let _guard = lock.lock();
         terminal.draw(|f| crate::ui::draw(self, f))?;
         if let Some(sequence) =
             outer_cursor_escape_if_changed(self.applied_outer_cursor, self.desired_outer_cursor)
@@ -5518,7 +5518,7 @@ impl App {
 
     fn write_window_title(&self, title: &str) -> anyhow::Result<()> {
         let lock = self.stdout_lock.clone();
-        let _guard = lock.lock().unwrap();
+        let _guard = lock.lock();
         let mut stdout = std::io::stdout();
         stdout.write_all(&cmux_tui_core::server::window_title_osc(title))?;
         stdout.flush()?;
@@ -8278,6 +8278,9 @@ impl App {
     fn activate_menu(&mut self, action: MenuAction) -> anyhow::Result<()> {
         match action {
             MenuAction::TogglePaneZoom { pane, .. } => {
+                if self.active_pane() != Some(pane) {
+                    self.focus_pane_after_input(pane);
+                }
                 self.run_action_for_pane(Action::ZoomPane, Some(pane))?;
                 return Ok(());
             }
@@ -9763,7 +9766,7 @@ impl App {
         self.pointer_shape = want_pointer;
         let shape = if want_pointer { "pointer" } else { "default" };
         let lock = self.stdout_lock.clone();
-        let _guard = lock.lock().unwrap();
+        let _guard = lock.lock();
         let mut stdout = std::io::stdout();
         let _ = write!(stdout, "\x1b]22;{shape}\x07");
         let _ = stdout.flush();
@@ -10395,7 +10398,7 @@ impl App {
     fn copy_text_to_clipboard(&self, text: &str) {
         let encoded = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
         let lock = self.stdout_lock.clone();
-        let _guard = lock.lock().unwrap();
+        let _guard = lock.lock();
         let mut stdout = std::io::stdout();
         let _ = write!(stdout, "\x1b]52;c;{encoded}\x07");
         let _ = stdout.flush();
@@ -11215,7 +11218,7 @@ mod tests {
         PendingSessionMutation, PendingSessionMutationState, PromptTarget, PtyFailureIngress,
         PtyMousePressResult, RailKind, RenderAction, Selection, SessionCompletion,
         SessionCompletionAction, SessionEventSender, ShortcutHelp, SidebarLayout,
-        SidebarPluginSyncClaim, SidebarPluginSyncState, SurfaceResizeDecision,
+        SidebarPluginSyncClaim, SidebarPluginSyncState, StdoutLock, SurfaceResizeDecision,
         SurfaceResizeOwnership, WorkspaceRailSelection, browser_content_size_for_rect,
         browser_hover_forward_allowed, canonical_terminal_content, clamp_split_ratio_for_tab_bars,
         client_menu_item, forward_mux_event, forward_mux_events, outer_cursor_escape,
@@ -11282,12 +11285,12 @@ mod tests {
 
     #[test]
     fn panic_restore_waits_for_a_concurrent_stdout_owner() {
-        let lock = Arc::new(Mutex::new(()));
+        let lock = Arc::new(StdoutLock::new(()));
         let (held_tx, held_rx) = std::sync::mpsc::sync_channel(1);
         let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
         let owner_lock = lock.clone();
         let owner = std::thread::spawn(move || {
-            let _guard = owner_lock.lock().unwrap();
+            let _guard = owner_lock.lock();
             held_tx.send(()).unwrap();
             release_rx.recv().unwrap();
         });
@@ -11304,6 +11307,13 @@ mod tests {
         restorer.join().unwrap();
 
         assert!(!restored_while_owned, "panic cleanup bypassed another stdout owner");
+
+        let _owner_guard = lock.lock();
+        let reentrant_restore = AtomicBool::new(false);
+        with_panic_stdout_lock(&lock, || {
+            reentrant_restore.store(true, Ordering::SeqCst);
+        });
+        assert!(reentrant_restore.load(Ordering::SeqCst));
     }
 
     #[test]
@@ -18118,7 +18128,7 @@ mod tests {
             applied_outer_cursor: None,
             graphics_writer: None,
             graphics_supported: false,
-            stdout_lock: Arc::new(Mutex::new(())),
+            stdout_lock: Arc::new(StdoutLock::new(())),
             pane_areas: Vec::new(),
             pane_focus_history: PaneFocusHistory::default(),
             rendered_terminal_bounds: HashMap::new(),

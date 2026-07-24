@@ -68,7 +68,7 @@ Future commands may opt into stdin only when their command block says so. By def
 
 ### Id Arguments
 
-Protocol v5 CLI arguments for ids are numeric. Protocol v6 accepts numeric ids and short ids for any `IdRef` parameter. Numeric-looking strings are rejected as ambiguous when short-id mode is active.
+Protocol v5 CLI arguments for ids are numeric. Protocol v6 accepts numeric ids and short ids for any `IdRef` parameter. Canonical decimal strings resolve as numeric ids. Six-character strings beginning with zero use the fixed-width short-id namespace. Other digit-only strings with leading zeroes are rejected, so reference meaning cannot change when live ids change.
 
 ### Selector Arguments
 

@@ -672,9 +672,7 @@ impl RemoteSession {
         }
         let surface = value.get("surface").and_then(Value::as_u64);
         match event {
-            "tree-changed"
-            | "layout-changed"
-            | "client-attached"
+            "client-attached"
             | "client-changed"
             | "client-detached"
             | "client-list-invalidated" => false,
