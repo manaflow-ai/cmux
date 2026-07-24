@@ -140,6 +140,22 @@ const requireVercelProductionValue = (name: string): z.ZodType<string | undefine
       });
     }
   });
+const requireEnabledShareProductionValue = (
+  name: string,
+): z.ZodType<string | undefined> =>
+  z.string().min(1).optional().superRefine((value, context) => {
+    if (
+      isVercelProductionDeployment &&
+      trimEnv(process.env.CMUX_SHARE_JWT_PRIVATE_KEY_PEM) &&
+      !value
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          `${name} is required when multiplayer sharing is enabled in Vercel production`,
+      });
+    }
+  });
 
 const stackEnv = (
   value: string | undefined,
@@ -265,6 +281,21 @@ export const env = createEnv({
     // Optional dedicated rule. Preferences deliberately fall back to the token
     // rule so existing deployments keep one shared account-scoped limiter.
     CMUX_RELAY_PREFERENCES_RATE_LIMIT_ID: z.string().min(1).optional(),
+    // Multiplayer workspace sharing is disabled when the signing key is
+    // absent. Once enabled in production, both credential-issuance routes must
+    // have Vercel Firewall rules. Runtime handlers also fail closed on Vercel
+    // when either configured rule is missing or unavailable.
+    CMUX_SHARE_JWT_PRIVATE_KEY_PEM:
+      z.string().min(64).max(16_384).optional(),
+    CMUX_SHARE_SESSION_CREATE_RATE_LIMIT_ID:
+      requireEnabledShareProductionValue(
+        "CMUX_SHARE_SESSION_CREATE_RATE_LIMIT_ID",
+      ),
+    CMUX_SHARE_TOKEN_RATE_LIMIT_ID: requireEnabledShareProductionValue(
+      "CMUX_SHARE_TOKEN_RATE_LIMIT_ID",
+    ),
+    CMUX_SHARE_WS_BASE_URL: z.string().url().optional(),
+    CMUX_SHARE_PAGE_BASE_URL: z.string().url().optional(),
   },
   client: {
     NEXT_PUBLIC_STACK_PROJECT_ID: z.string().min(1),
@@ -326,6 +357,17 @@ export const env = createEnv({
     CMUX_RELAY_PREFERENCES_RATE_LIMIT_ID: trimEnv(
       process.env.CMUX_RELAY_PREFERENCES_RATE_LIMIT_ID,
     ),
+    CMUX_SHARE_JWT_PRIVATE_KEY_PEM: trimEnv(
+      process.env.CMUX_SHARE_JWT_PRIVATE_KEY_PEM,
+    ),
+    CMUX_SHARE_SESSION_CREATE_RATE_LIMIT_ID: trimEnv(
+      process.env.CMUX_SHARE_SESSION_CREATE_RATE_LIMIT_ID,
+    ),
+    CMUX_SHARE_TOKEN_RATE_LIMIT_ID: trimEnv(
+      process.env.CMUX_SHARE_TOKEN_RATE_LIMIT_ID,
+    ),
+    CMUX_SHARE_WS_BASE_URL: trimEnv(process.env.CMUX_SHARE_WS_BASE_URL),
+    CMUX_SHARE_PAGE_BASE_URL: trimEnv(process.env.CMUX_SHARE_PAGE_BASE_URL),
     NEXT_PUBLIC_STACK_PROJECT_ID: stackEnv(
       process.env.NEXT_PUBLIC_STACK_PROJECT_ID,
       "00000000-0000-4000-8000-000000000000"

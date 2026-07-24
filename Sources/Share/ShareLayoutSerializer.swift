@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxWorkspaceShare
 import Foundation
 
 /// Serializes one workspace's visible pane layout into the share protocol's

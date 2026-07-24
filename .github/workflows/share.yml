@@ -1,8 +1,10 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 # CI/CD for the workspace sharing service (workers/share).
 #
-# Manual runs test and deploy the service to Cloudflare. `wrangler deploy`
-# applies the Durable Object migrations declared in wrangler.toml atomically
-# with the code upload.
+# Pull requests touching the service run its tests and dry-run both deploy
+# configurations. Manual runs from main also deploy to Cloudflare.
+# `wrangler deploy` applies the Durable Object migrations declared in
+# wrangler.toml atomically with the code upload.
 #
 # Required repository secrets (deploy job):
 #   CLOUDFLARE_API_TOKEN   API token with Workers Scripts:Edit on the account
@@ -15,6 +17,10 @@
 name: share
 
 on:
+  pull_request:
+    paths:
+      - ".github/workflows/share.yml"
+      - "workers/share/**"
   workflow_dispatch:
 
 permissions:
@@ -49,8 +55,12 @@ jobs:
       - name: Unit tests
         run: bun test
 
-      - name: Wrangler dry-run build
-        run: bunx wrangler deploy --dry-run --outdir dist
+      - name: Wrangler dry-run builds
+        run: |
+          bunx wrangler deploy --dry-run \
+            --outdir "$RUNNER_TEMP/cmux-share-wrangler-production"
+          bunx wrangler deploy --config wrangler.dev.toml --dry-run \
+            --outdir "$RUNNER_TEMP/cmux-share-wrangler-development"
 
   deploy:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'

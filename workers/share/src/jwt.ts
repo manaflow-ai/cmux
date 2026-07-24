@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Offline verification of share tokens minted by the web API.
 //
 // Mirrors the iroh relay token system (`web/services/relay/token.ts` mints,
@@ -5,6 +6,8 @@
 // `iss=cmux`, `aud=cmux-share`, `sub=<stack user id>`, short TTL, bound to a
 // specific share code via the `code` claim. The worker holds only the public
 // key, so it never talks to Stack or the web app on the hot path.
+
+import { isIdentityEmail, isProtocolId } from "./protocol";
 
 export interface ShareClaims {
   /** Stack user id. */
@@ -69,10 +72,17 @@ export function validateClaims(
 ): ShareClaims | null {
   if (payload.iss !== SHARE_JWT_ISSUER) return null;
   if (payload.aud !== SHARE_JWT_AUDIENCE) return null;
-  if (typeof payload.exp !== "number" || payload.exp * 1000 <= nowMs) return null;
-  if (typeof payload.sub !== "string" || !payload.sub) return null;
-  if (typeof payload.code !== "string" || payload.code !== expectedCode) return null;
+  if (
+    typeof payload.exp !== "number" ||
+    !Number.isFinite(payload.exp) ||
+    payload.exp * 1000 <= nowMs
+  ) {
+    return null;
+  }
+  if (!isProtocolId(payload.sub)) return null;
+  if (!isProtocolId(payload.code) || payload.code !== expectedCode) return null;
   const email = typeof payload.email === "string" ? payload.email : "";
+  if (!isIdentityEmail(email)) return null;
   return {
     sub: payload.sub,
     email,

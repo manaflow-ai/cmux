@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // cmux share worker: routes WebSocket connects to the per-session Durable
 // Object after verifying the share token offline (Ed25519, minted by the web
 // API — see src/jwt.ts). Structure mirrors workers/presence.
@@ -5,10 +6,12 @@
 import type { ShareWorkerEnv } from "./do";
 import { ShareSession } from "./do";
 import { verifyShareToken } from "./jwt";
+import { utf8ByteLength } from "./protocol";
 
 export { ShareSession };
 
 const WS_PATH = /^\/v1\/share\/sessions\/([A-Za-z0-9]{8,64})\/ws$/;
+const MAX_BEARER_TOKEN_BYTES = 8 * 1024;
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -44,7 +47,9 @@ export default {
       const token =
         url.searchParams.get("token") ??
         (bearer?.toLowerCase().startsWith("bearer ") ? bearer.slice(7).trim() : null);
-      if (!token) return json({ error: "unauthorized" }, 401);
+      if (!token || utf8ByteLength(token) > MAX_BEARER_TOKEN_BYTES) {
+        return json({ error: "unauthorized" }, 401);
+      }
       const claims = await verifyShareToken(token, code, env.SHARE_JWT_PUBLIC_KEY);
       if (!claims) return json({ error: "unauthorized" }, 401);
 

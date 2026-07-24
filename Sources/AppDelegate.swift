@@ -780,6 +780,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // machine lives in `FocusedNotificationMarker` (behind `FocusedNotificationResolving`).
     /// The auth graph, injected once via `configure(...)` at app startup.
     private(set) var auth: MacAuthComposition?
+    /// The process-wide workspace-share coordinator, composed once and
+    /// injected into every main-window `ContentView`.
+    lazy var shareSessionController = ShareSessionController { [weak self] in
+        self?.auth?.coordinator
+    }
     /// Strongly-held observers for every active TabManager. Each observer owns
     /// Combine subscriptions that publish workspace.updated to mobile clients.
     private var mobileWorkspaceListObservers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
@@ -2002,6 +2007,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         CloudVMActionLauncher.shared.terminateAll()
         CmuxSSHURLProcessLauncher.shared.terminateAll()
         MobileHostService.shared.stop()
+        shareSessionController.stopSharing()
         TerminalController.shared.stop()
         GhosttyApp.terminalPasteboard.cleanupAllOwnedTemporaryImageFiles()
         VSCodeServeWebController.shared.stop()
@@ -8663,6 +8669,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
         let root = ContentView(updateViewModel: updateViewModel, windowId: windowId)
+            .environment(shareSessionController)
             .environmentObject(tabManager)
             .environmentObject(notificationStore)
             .environmentObject(notificationStore.sidebarUnread)
@@ -16196,6 +16203,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         mainWindowVisibilityController.discardClosedWindow(window)
 
         guard let removed = unregisterMainWindowContext(for: window) else { return }
+        stopWorkspaceShareIfOwned(by: removed.tabManager)
         windowConfigFrames.removeValue(forKey: removed.windowId)
         publishCmuxWindowLifecycle(name: "window.closed", windowId: removed.windowId, origin: "appkit_close")
         commandPaletteWindowStore.removeWindow(removed.windowId)
@@ -16231,6 +16239,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 preserveManualRestoreBackupOnMissingPrimary: closingWindowIsCrashDiagnostic
             )
         }
+    }
+
+    /// Keeps process-wide sharing alive when an unrelated main window closes,
+    /// and tears it down when the exact owner window is retired.
+    func stopWorkspaceShareIfOwned(by tabManager: TabManager) {
+        shareSessionController.stopSharing(ifOwnedBy: tabManager)
     }
 
     private func closeWindowSnapshotPruningCrashDiagnostics(

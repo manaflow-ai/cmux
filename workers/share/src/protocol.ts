@@ -1,10 +1,62 @@
-// cmux share protocol v1 — see PROTOCOL.md for the narrative spec.
-// These types are the single source of truth for the DO and the web viewer;
-// the Swift host mirrors them in ShareProtocol.swift.
+// SPDX-License-Identifier: GPL-3.0-or-later
+// cmux share protocol v1. See PROTOCOL.md for the narrative spec.
 
 export const PROTO_VERSION = 1;
 
+/** Wire and state bounds. Keep these in the protocol layer so the DO,
+ * deterministic core, and tests enforce the same limits. */
+/** Client-to-server JSON stays small so parsing untrusted input is cheap. */
+export const MAX_CLIENT_JSON_FRAME_BYTES = 64 * 1024;
+/** Compatibility alias for existing callers. */
+export const MAX_JSON_FRAME_BYTES = MAX_CLIENT_JSON_FRAME_BYTES;
+/** Server JSON at or above this UTF-8 size is an invariant violation. */
+export const MAX_SERVER_JSON_FRAME_BYTES = 1024 * 1024;
+/** Complete binary grid frame, including kind/id header. The bound is
+ * exclusive: byteLength at or above 1 MiB is rejected. */
+export const MAX_BINARY_FRAME_BYTES = 1024 * 1024;
+export const MAX_SHARED_WORKSPACES = 1;
+export const MAX_LAYOUT_PANES = 128;
+export const MAX_LAYOUT_DEPTH = 16;
+export const MAX_ID_BYTES = 256;
+export const MAX_EMAIL_BYTES = 320;
+export const MAX_TITLE_BYTES = 512;
+export const MAX_CHAT_TEXT_BYTES = 4_000;
+export const MAX_TERMINAL_INPUT_BYTES = 16 * 1024;
+export const MAX_ACK_NONCE_BYTES = 64;
+
+const encoder = new TextEncoder();
+
+export function utf8ByteLength(value: string): number {
+  return encoder.encode(value).byteLength;
+}
+
+function boundedString(value: unknown, maxBytes: number, allowEmpty = false): value is string {
+  return (
+    typeof value === "string" &&
+    (allowEmpty || value.length > 0) &&
+    value.length <= maxBytes &&
+    utf8ByteLength(value) <= maxBytes
+  );
+}
+
+/** IDs are opaque, but Unicode controls (especially NUL, used in subscription
+ * keys) are never valid and would make logs/state ambiguous. */
+export function isProtocolId(value: unknown): value is string {
+  return (
+    boundedString(value, MAX_ID_BYTES) &&
+    !/\p{Cc}/u.test(value)
+  );
+}
+
+export function isIdentityEmail(value: unknown): value is string {
+  return boundedString(value, MAX_EMAIL_BYTES, true) && !/\p{Cc}/u.test(value);
+}
+
 export type Role = "editor" | "viewer";
+
+export function isRole(value: unknown): value is Role {
+  return value === "editor" || value === "viewer";
+}
 
 export interface PaneRef {
   /** Workspace id as the host reports it, e.g. "workspace:3". */
@@ -47,7 +99,8 @@ export interface SharedWorkspace {
   title: string;
 }
 
-/** Pane-tree snapshot for one workspace, mirroring the host's split layout. */
+/** Pane-tree snapshot for one workspace, mirroring the host's split layout.
+ * Non-terminal leaves remain visible placeholders in v1. */
 export type LayoutNode =
   | {
       kind: "split";
@@ -60,7 +113,6 @@ export type LayoutNode =
   | {
       kind: "pane";
       pane: string;
-      /** "agent" is an agent-chat session pane (composer co-editing target). */
       content: "terminal" | "browser" | "agent" | "other";
       /** Terminal geometry so the viewer can size its grid canvas. */
       cols?: number;
@@ -76,22 +128,6 @@ export interface WorkspaceLayout {
 // ---------------------------------------------------------------------------
 // Guest -> DO
 
-/** One text edit against a compose field at a specific revision. */
-export interface ComposeOp {
-  /** Codepoint position the edit applies at. */
-  p: number;
-  /** Number of codepoints to delete at `p`. */
-  d?: number;
-  /** Text to insert at `p` (after the delete). */
-  i?: string;
-}
-
-export interface ComposeCaret {
-  user: string;
-  start: number;
-  end: number;
-}
-
 export type GuestMessage =
   | { t: "hello"; proto: number }
   | { t: "cursor"; pos: CursorPos | null }
@@ -99,42 +135,14 @@ export type GuestMessage =
   | { t: "input"; ws: string; pane: string; data: string }
   | { t: "sub"; ws: string; pane: string }
   | { t: "unsub"; ws: string; pane: string }
-  | { t: "focus"; ws: string | null }
-  | { t: "follow"; user: string | null }
-  /**
-   * Multiplayer textbox (slice 2): edits against the composer of pane
-   * `field`, based on host revision `rev`. The host is the single serializer
-   * (rebases stale ops) and answers with `compose-state`. Editor role only.
-   */
-  | { t: "compose"; field: string; rev: number; ops: ComposeOp[]; caret?: { start: number; end: number } }
-  /**
-   * Interactive browser panes (slice 3): pointer/keyboard events forwarded
-   * into the host's webview. Pane-relative normalized coords. Editor role
-   * only; the host re-validates against the shared-surface set.
-   */
-  | {
-      t: "pointer";
-      ws: string;
-      pane: string;
-      action: "move" | "down" | "up" | "wheel";
-      x: number;
-      y: number;
-      button?: number;
-      dx?: number;
-      dy?: number;
-    }
-  | {
-      t: "webkey";
-      ws: string;
-      pane: string;
-      key: string;
-      code: string;
-      down: boolean;
-      alt?: boolean;
-      ctrl?: boolean;
-      meta?: boolean;
-      shift?: boolean;
-    };
+  | { t: "focus"; ws: string | null };
+
+/** Delivery acknowledgements are valid from either client role and are
+ * consumed by the Durable Object before the session core sees the message. */
+export interface AckMessage {
+  t: "ack";
+  nonce: string;
+}
 
 // ---------------------------------------------------------------------------
 // Host -> DO
@@ -154,10 +162,8 @@ export type HostMessage =
   | { t: "role"; user: string; role: Role }
   | { t: "cursor"; pos: CursorPos | null }
   | { t: "chat"; text: string; bubble?: CursorPos }
-  /** Which shared workspace the host is viewing (drives follow-the-host). */
+  /** Which shared workspace the host is viewing. */
   | { t: "focus"; ws: string | null }
-  /** Authoritative composer state after applying (rebased) ops. */
-  | { t: "compose-state"; field: string; rev: number; text: string; carets: ComposeCaret[] }
   | { t: "end" };
 
 // ---------------------------------------------------------------------------
@@ -175,6 +181,7 @@ export interface SessionSnapshot {
 
 export type ServerMessage =
   | SessionSnapshot
+  | { t: "ack-request"; nonce: string }
   | { t: "access-pending" }
   | { t: "access-denied" }
   | { t: "access-request"; user: string; email: string }
@@ -195,60 +202,319 @@ export type ServerMessage =
       t: "session-ended";
       reason: "host-stopped" | "host-gone" | "expired";
     }
-  | { t: "compose-state"; field: string; rev: number; text: string; carets: ComposeCaret[] }
-  // Relayed to the host only:
+  // Relayed to the host only. The user always comes from the verified socket
+  // attachment, never a caller-supplied JSON field.
   | { t: "guest-input"; user: string; ws: string; pane: string; data: string }
-  | {
-      t: "guest-compose";
-      user: string;
-      field: string;
-      rev: number;
-      ops: ComposeOp[];
-      caret?: { start: number; end: number };
-    }
-  | {
-      t: "guest-pointer";
-      user: string;
-      ws: string;
-      pane: string;
-      action: "move" | "down" | "up" | "wheel";
-      x: number;
-      y: number;
-      button?: number;
-      dx?: number;
-      dy?: number;
-    }
-  | {
-      t: "guest-webkey";
-      user: string;
-      ws: string;
-      pane: string;
-      key: string;
-      code: string;
-      down: boolean;
-      alt?: boolean;
-      ctrl?: boolean;
-      meta?: boolean;
-      shift?: boolean;
-    }
   | { t: "guest-sub"; ws: string; pane: string; count: number }
   | { t: "error"; code: string; message: string };
 
 // ---------------------------------------------------------------------------
-// Binary frames: [kindTag u8][wsLen u8][ws utf8][paneLen u8][pane utf8][payload]
+// Runtime JSON validation
+
+type JsonRecord = Record<string, unknown>;
+
+function record(value: unknown): JsonRecord | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as JsonRecord)
+    : null;
+}
+
+/** ACK nonces are opaque, short UTF-8 strings. Unicode control characters are
+ * excluded so a nonce is safe in logs and every supported client agrees on
+ * the same wire bound. */
+export function isAckNonce(value: unknown): value is string {
+  return (
+    boundedString(value, MAX_ACK_NONCE_BYTES) &&
+    !/\p{Cc}/u.test(value)
+  );
+}
+
+export function parseAckMessage(value: unknown): AckMessage | null {
+  const obj = record(value);
+  return obj &&
+    Object.keys(obj).length === 2 &&
+    Object.hasOwn(obj, "t") &&
+    Object.hasOwn(obj, "nonce") &&
+    obj.t === "ack" &&
+    isAckNonce(obj.nonce)
+    ? { t: "ack", nonce: obj.nonce }
+    : null;
+}
+
+function finiteNormalized(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
+}
+
+export function parseCursorPos(value: unknown): CursorPos | null {
+  const obj = record(value);
+  if (
+    !obj ||
+    !isProtocolId(obj.ws) ||
+    !isProtocolId(obj.pane) ||
+    !finiteNormalized(obj.x) ||
+    !finiteNormalized(obj.y)
+  ) {
+    return null;
+  }
+  return { ws: obj.ws, pane: obj.pane, x: obj.x, y: obj.y };
+}
+
+export function isCursorPos(value: unknown): value is CursorPos {
+  return parseCursorPos(value) !== null;
+}
+
+export function parseSharedWorkspaces(value: unknown): SharedWorkspace[] | null {
+  if (!Array.isArray(value) || value.length > MAX_SHARED_WORKSPACES) return null;
+  const ids = new Set<string>();
+  const out: SharedWorkspace[] = [];
+  for (const item of value) {
+    const obj = record(item);
+    if (
+      !obj ||
+      !isProtocolId(obj.id) ||
+      !boundedString(obj.title, MAX_TITLE_BYTES, true) ||
+      ids.has(obj.id)
+    ) {
+      return null;
+    }
+    ids.add(obj.id);
+    out.push({ id: obj.id, title: obj.title });
+  }
+  return out;
+}
+
+function optionalDimension(value: unknown): number | undefined | null {
+  if (value === undefined) return undefined;
+  return Number.isSafeInteger(value) && (value as number) > 0 && (value as number) <= 10_000
+    ? (value as number)
+    : null;
+}
+
+export function parseWorkspaceLayout(value: unknown): WorkspaceLayout | null {
+  const obj = record(value);
+  if (!obj || !isProtocolId(obj.ws)) return null;
+  if (obj.tree === null) return { ws: obj.ws, tree: null };
+
+  let panes = 0;
+  const paneIds = new Set<string>();
+
+  const parseNode = (candidate: unknown, depth: number): LayoutNode | null => {
+    if (depth > MAX_LAYOUT_DEPTH) return null;
+    const node = record(candidate);
+    if (!node) return null;
+
+    if (node.kind === "split") {
+      if (
+        (node.axis !== "h" && node.axis !== "v") ||
+        typeof node.ratio !== "number" ||
+        !Number.isFinite(node.ratio) ||
+        node.ratio <= 0 ||
+        node.ratio >= 1
+      ) {
+        return null;
+      }
+      const a = parseNode(node.a, depth + 1);
+      const b = parseNode(node.b, depth + 1);
+      if (!a || !b) return null;
+      return { kind: "split", axis: node.axis, ratio: node.ratio, a, b };
+    }
+
+    if (
+      node.kind !== "pane" ||
+      !isProtocolId(node.pane) ||
+      paneIds.has(node.pane) ||
+      (node.content !== "terminal" &&
+        node.content !== "browser" &&
+        node.content !== "agent" &&
+        node.content !== "other")
+    ) {
+      return null;
+    }
+    panes += 1;
+    if (panes > MAX_LAYOUT_PANES) return null;
+    paneIds.add(node.pane);
+    const cols = optionalDimension(node.cols);
+    const rows = optionalDimension(node.rows);
+    if (cols === null || rows === null) return null;
+    if (node.title !== undefined && !boundedString(node.title, MAX_TITLE_BYTES, true)) return null;
+    return {
+      kind: "pane",
+      pane: node.pane,
+      content: node.content,
+      ...(cols === undefined ? {} : { cols }),
+      ...(rows === undefined ? {} : { rows }),
+      ...(node.title === undefined ? {} : { title: node.title }),
+    };
+  };
+
+  const tree = parseNode(obj.tree, 1);
+  return tree ? { ws: obj.ws, tree } : null;
+}
+
+export function parseWorkspaceLayouts(value: unknown): WorkspaceLayout[] | null {
+  if (!Array.isArray(value) || value.length > MAX_SHARED_WORKSPACES) return null;
+  const ids = new Set<string>();
+  const out: WorkspaceLayout[] = [];
+  for (const item of value) {
+    const layout = parseWorkspaceLayout(item);
+    if (!layout || ids.has(layout.ws)) return null;
+    ids.add(layout.ws);
+    out.push(layout);
+  }
+  return out;
+}
+
+/** Iterative lookup avoids trusting layout depth even when called on restored
+ * state or directly from a unit test. */
+export function isCurrentTerminalPane(
+  layouts: readonly WorkspaceLayout[],
+  ws: string,
+  pane: string,
+): boolean {
+  const tree = layouts.find((layout) => layout.ws === ws)?.tree;
+  if (!tree) return false;
+  const stack: LayoutNode[] = [tree];
+  let visited = 0;
+  while (stack.length > 0 && visited <= MAX_LAYOUT_PANES * 2) {
+    const node = stack.pop();
+    if (!node) continue;
+    visited += 1;
+    if (node.kind === "pane") {
+      if (node.pane === pane) return node.content === "terminal";
+    } else {
+      stack.push(node.a, node.b);
+    }
+  }
+  return false;
+}
+
+function parseBubble(value: unknown): CursorPos | undefined | null {
+  if (value === undefined) return undefined;
+  return parseCursorPos(value);
+}
+
+export function parseGuestMessage(value: unknown): GuestMessage | null {
+  const obj = record(value);
+  if (!obj || typeof obj.t !== "string") return null;
+  switch (obj.t) {
+    case "hello":
+      return Number.isSafeInteger(obj.proto) ? { t: "hello", proto: obj.proto as number } : null;
+    case "cursor": {
+      if (obj.pos === null) return { t: "cursor", pos: null };
+      const pos = parseCursorPos(obj.pos);
+      return pos ? { t: "cursor", pos } : null;
+    }
+    case "chat": {
+      if (!boundedString(obj.text, MAX_CHAT_TEXT_BYTES, true)) return null;
+      const bubble = parseBubble(obj.bubble);
+      if (bubble === null) return null;
+      return {
+        t: "chat",
+        text: obj.text,
+        ...(bubble === undefined ? {} : { bubble }),
+      };
+    }
+    case "input":
+      return isProtocolId(obj.ws) &&
+        isProtocolId(obj.pane) &&
+        boundedString(obj.data, MAX_TERMINAL_INPUT_BYTES)
+        ? { t: "input", ws: obj.ws, pane: obj.pane, data: obj.data }
+        : null;
+    case "sub":
+    case "unsub":
+      return isProtocolId(obj.ws) && isProtocolId(obj.pane)
+        ? { t: obj.t, ws: obj.ws, pane: obj.pane }
+        : null;
+    case "focus":
+      return obj.ws === null || isProtocolId(obj.ws)
+        ? { t: "focus", ws: obj.ws as string | null }
+        : null;
+    default:
+      // Composer, follow, browser control, and other future verbs are not v1.
+      return null;
+  }
+}
+
+export function parseHostMessage(value: unknown): HostMessage | null {
+  const obj = record(value);
+  if (!obj || typeof obj.t !== "string") return null;
+  switch (obj.t) {
+    case "hello": {
+      if (!Number.isSafeInteger(obj.proto)) return null;
+      const shared = parseSharedWorkspaces(obj.shared);
+      const layouts = parseWorkspaceLayouts(obj.layouts);
+      if (!shared || !layouts) return null;
+      const sharedIds = new Set(shared.map((workspace) => workspace.id));
+      if (layouts.some((layout) => !sharedIds.has(layout.ws))) return null;
+      return { t: "hello", proto: obj.proto as number, shared, layouts };
+    }
+    case "layout": {
+      const layout = parseWorkspaceLayout(obj.layout);
+      return layout ? { t: "layout", layout } : null;
+    }
+    case "shared": {
+      const shared = parseSharedWorkspaces(obj.shared);
+      return shared ? { t: "shared", shared } : null;
+    }
+    case "approve":
+    case "role":
+      return isProtocolId(obj.user) && isRole(obj.role)
+        ? { t: obj.t, user: obj.user, role: obj.role }
+        : null;
+    case "deny":
+    case "kick":
+      return isProtocolId(obj.user) ? { t: obj.t, user: obj.user } : null;
+    case "cursor": {
+      if (obj.pos === null) return { t: "cursor", pos: null };
+      const pos = parseCursorPos(obj.pos);
+      return pos ? { t: "cursor", pos } : null;
+    }
+    case "chat": {
+      if (!boundedString(obj.text, MAX_CHAT_TEXT_BYTES, true)) return null;
+      const bubble = parseBubble(obj.bubble);
+      if (bubble === null) return null;
+      return {
+        t: "chat",
+        text: obj.text,
+        ...(bubble === undefined ? {} : { bubble }),
+      };
+    }
+    case "focus":
+      return obj.ws === null || isProtocolId(obj.ws)
+        ? { t: "focus", ws: obj.ws as string | null }
+        : null;
+    case "end":
+      return { t: "end" };
+    default:
+      return null;
+  }
+}
+
+export function decodeClientJson(text: string): unknown | null {
+  if (text.length >= MAX_JSON_FRAME_BYTES || utf8ByteLength(text) >= MAX_JSON_FRAME_BYTES) {
+    return null;
+  }
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+export function decodeGuestMessage(text: string): GuestMessage | null {
+  const value = decodeClientJson(text);
+  return value === null ? null : parseGuestMessage(value);
+}
+
+export function decodeHostMessage(text: string): HostMessage | null {
+  const value = decodeClientJson(text);
+  return value === null ? null : parseHostMessage(value);
+}
+
+// ---------------------------------------------------------------------------
+// Binary grid frames: [kindTag u8][wsLen u8][ws utf8][paneLen u8][pane utf8][payload]
 
 export const BINARY_KIND_GRID = 0x01;
-/**
- * Pixel/video frame for non-terminal panes (slice 2). Payload:
- * [codec u8][flags u8][data]. codec 1 = H.264 Annex B (flags bit0 =
- * keyframe; parameter sets inline on keyframes so WebCodecs decodes without
- * out-of-band description), codec 2 = still image (JPEG or WebP; the viewer
- * sniffs, flags unused).
- */
-export const BINARY_KIND_PIXEL = 0x02;
-export const PIXEL_CODEC_H264_ANNEXB = 1;
-export const PIXEL_CODEC_STILL = 2;
-export const PIXEL_FLAG_KEYFRAME = 0x01;
 
 export interface BinaryHeader {
   kind: number;
@@ -264,13 +530,17 @@ export function encodeBinaryHeader(
   pane: string,
   payload: Uint8Array,
 ): Uint8Array {
-  const enc = new TextEncoder();
-  const wsB = enc.encode(ws);
-  const paneB = enc.encode(pane);
+  if (!Number.isInteger(kind) || kind < 0 || kind > 255 || !isProtocolId(ws) || !isProtocolId(pane)) {
+    throw new Error("invalid binary frame header");
+  }
+  const wsB = encoder.encode(ws);
+  const paneB = encoder.encode(pane);
   if (wsB.length > 255 || paneB.length > 255) {
     throw new Error("ws/pane id too long for binary header");
   }
-  const out = new Uint8Array(3 + wsB.length + paneB.length + payload.length);
+  const length = 3 + wsB.length + paneB.length + payload.length;
+  if (length >= MAX_BINARY_FRAME_BYTES) throw new Error("binary frame too large");
+  const out = new Uint8Array(length);
   let o = 0;
   out[o++] = kind;
   out[o++] = wsB.length;
@@ -284,7 +554,7 @@ export function encodeBinaryHeader(
 }
 
 export function decodeBinaryHeader(buf: Uint8Array): BinaryHeader | null {
-  if (buf.length < 3) return null;
+  if (buf.length < 3 || buf.length >= MAX_BINARY_FRAME_BYTES) return null;
   const kind = buf[0] ?? 0;
   const wsLen = buf[1] ?? 0;
   const wsStart = 2;
@@ -294,8 +564,12 @@ export function decodeBinaryHeader(buf: Uint8Array): BinaryHeader | null {
   const paneStart = paneLenOffset + 1;
   const payloadOffset = paneStart + paneLen;
   if (payloadOffset > buf.length) return null;
-  const dec = new TextDecoder();
-  const ws = dec.decode(buf.subarray(wsStart, wsStart + wsLen));
-  const pane = dec.decode(buf.subarray(paneStart, paneStart + paneLen));
-  return { kind, ws, pane, payloadOffset };
+  try {
+    const dec = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
+    const ws = dec.decode(buf.subarray(wsStart, wsStart + wsLen));
+    const pane = dec.decode(buf.subarray(paneStart, paneStart + paneLen));
+    return isProtocolId(ws) && isProtocolId(pane) ? { kind, ws, pane, payloadOffset } : null;
+  } catch {
+    return null;
+  }
 }

@@ -1,10 +1,9 @@
 "use client";
 
-// Root client component for cmux.com/share/<code>: cmux-shaped shell
-// (sidebar of shared workspaces + workspace pane area), remote cursors, and
-// the floating session chat.
+// Root client component for cmux.com/share/<code>: one server-selected
+// workspace, its exact split tree, remote cursors, and floating session chat.
 
-import { useRef, useState, type ReactNode } from "react";
+import { useCallback, useRef, useState, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
 
 import { participantColor } from "./share-colors";
@@ -14,10 +13,67 @@ import { CursorLayer } from "./share-cursors";
 import {
   createPaneRectRegistry,
   LayoutView,
+  paneKeyOf,
+  paneRefFromKey,
   PaneRegistryProvider,
 } from "./share-panes";
-import type { CursorPos, Participant } from "./share-protocol";
+import {
+  MAX_CHAT_TEXT_CHARS,
+  type CursorPos,
+  type Participant,
+} from "./share-protocol";
 import { useShareClient, useStoreValue } from "./use-store";
+
+interface KeydownListenerTarget {
+  addEventListener(type: "keydown", listener: (event: KeyboardEvent) => void): void;
+  removeEventListener(type: "keydown", listener: (event: KeyboardEvent) => void): void;
+}
+
+export function installKeydownListener(
+  target: KeydownListenerTarget,
+  listener: (event: KeyboardEvent) => void,
+): () => void {
+  target.addEventListener("keydown", listener);
+  return () => target.removeEventListener("keydown", listener);
+}
+
+function elementTarget(target: EventTarget | null): Element | null {
+  return target &&
+    typeof (target as Element).getAttribute === "function" &&
+    typeof (target as Element).tagName === "string"
+    ? (target as Element)
+    : null;
+}
+
+/** True when slash belongs to the currently focused editing surface. */
+export function hasEditableShortcutFocus(target: EventTarget | null): boolean {
+  let element = elementTarget(target);
+  while (element) {
+    if (element.getAttribute("role")?.toLowerCase() === "textbox") return true;
+    const contentEditable = element.getAttribute("contenteditable");
+    if (contentEditable !== null) return contentEditable.toLowerCase() !== "false";
+    if (element.tagName === "INPUT" || element.tagName === "TEXTAREA") {
+      const control = element as HTMLInputElement | HTMLTextAreaElement;
+      return !control.disabled && !control.readOnly;
+    }
+    element = element.parentElement;
+  }
+  return false;
+}
+
+export function shouldOpenBubbleShortcut({
+  key,
+  hasEditableFocus,
+  hasPointer,
+  hasDraft,
+}: {
+  key: string;
+  hasEditableFocus: boolean;
+  hasPointer: boolean;
+  hasDraft: boolean;
+}): boolean {
+  return key === "/" && !hasEditableFocus && hasPointer && !hasDraft;
+}
 
 export function ShareViewer({ code }: { code: string }): ReactNode {
   const client = useShareClient(code);
@@ -75,11 +131,60 @@ function ActiveViewer({ client }: { client: ShareClient }): ReactNode {
     clientX: number;
     clientY: number;
   } | null>(null);
-  const lastPointer = useRef<{ pos: CursorPos; clientX: number; clientY: number } | null>(null);
+  const bubbleDraftRef = useRef(bubbleDraft);
+  const lastPointer = useRef<{ pos: CursorPos; clientX: number; clientY: number } | null>(
+    null,
+  );
+  const shortcutCleanupRef = useRef<(() => void) | null>(null);
+
+  const mountWorkspace = useCallback(
+    (element: HTMLElement | null): void => {
+      shortcutCleanupRef.current?.();
+      shortcutCleanupRef.current = null;
+      setWorkspaceEl(element);
+      if (!element) return;
+      const ownerWindow = element.ownerDocument.defaultView;
+      if (!ownerWindow) return;
+      shortcutCleanupRef.current = installKeydownListener(ownerWindow, (event) => {
+        const pointer = lastPointer.current;
+        const paneElement = pointer
+          ? registry.get(paneKeyOf(pointer.pos.ws, pointer.pos.pane))
+          : null;
+        const hasPointer =
+          pointer !== null &&
+          paneElement !== null &&
+          element.contains(paneElement);
+        const hasEditableFocus =
+          hasEditableShortcutFocus(element.ownerDocument.activeElement) ||
+          hasEditableShortcutFocus(event.target);
+        if (
+          !shouldOpenBubbleShortcut({
+            key: event.key,
+            hasEditableFocus,
+            hasPointer,
+            hasDraft: bubbleDraftRef.current !== null,
+          }) ||
+          !pointer
+        ) {
+          return;
+        }
+        event.preventDefault();
+        const rect = element.getBoundingClientRect();
+        const draft = {
+          pos: pointer.pos,
+          clientX: pointer.clientX - rect.left,
+          clientY: pointer.clientY - rect.top,
+        };
+        bubbleDraftRef.current = draft;
+        setBubbleDraft(draft);
+      });
+    },
+    [registry],
+  );
 
   const activeLayout = session.activeWs ? (session.layouts[session.activeWs] ?? null) : null;
   const canType = session.you?.role === "editor";
-  const host = session.participants.find((p) => p.isHost);
+  const host = session.participants.find((participant) => participant.isHost);
 
   return (
     <div className="flex h-dvh flex-col bg-[#0a0a0a] font-mono text-[13px] text-[#ededed]">
@@ -102,153 +207,97 @@ function ActiveViewer({ client }: { client: ShareClient }): ReactNode {
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1">
-        <aside className="flex w-52 shrink-0 flex-col border-r border-neutral-800">
-          <p className="px-3 pb-1 pt-3 text-[10px] uppercase tracking-wider text-neutral-500">
-            {t("workspaces")}
-          </p>
-          <nav className="min-h-0 flex-1 overflow-y-auto">
-            {session.shared.map((workspace) => {
-              const here = session.participants.filter(
-                (p) => p.connected && p.focusWs === workspace.id,
-              );
-              const selected = workspace.id === session.activeWs;
-              return (
-                <button
-                  key={workspace.id}
-                  type="button"
-                  onClick={() => client.setActiveWorkspace(workspace.id)}
-                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs ${
-                    selected
-                      ? "bg-neutral-800/80 text-white"
-                      : "text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200"
-                  }`}
-                >
-                  <span className="truncate">{workspace.title || workspace.id}</span>
-                  <span className="ml-auto flex gap-1">
-                    {here.map((p) => (
-                      <span
-                        key={p.user}
-                        title={p.email}
-                        className="h-2 w-2 rounded-full"
-                        style={{ backgroundColor: participantColor(p.color) }}
-                      />
-                    ))}
-                  </span>
-                </button>
-              );
-            })}
-          </nav>
-          <p className="px-3 pb-1 pt-2 text-[10px] uppercase tracking-wider text-neutral-500">
-            {t("participants")}
-          </p>
-          <div className="max-h-48 overflow-y-auto pb-2">
-            {session.participants.map((p) => (
-              <ParticipantRow
-                key={p.user}
-                participant={p}
-                self={p.user === session.you?.user}
-                following={session.followUser === p.user}
-                onFollowToggle={() =>
-                  client.follow(session.followUser === p.user ? null : p.user)
-                }
-              />
-            ))}
-          </div>
-        </aside>
-
-        <main
-          ref={setWorkspaceEl}
-          className="relative min-w-0 flex-1"
-          onPointerMove={(e) => {
-            const target = (e.target as HTMLElement).closest<HTMLElement>("[data-share-pane]");
-            const key = target?.dataset.sharePane;
-            if (!target || !key) return;
-            const [ws, pane] = key.split(" ");
-            if (!ws || !pane) return;
-            const rect = target.getBoundingClientRect();
-            lastPointer.current = {
-              pos: {
-                ws,
-                pane,
-                x: Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)),
-                y: Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height)),
-              },
-              clientX: e.clientX,
-              clientY: e.clientY,
-            };
-            // One shared path for presence cursors across every pane kind.
-            client.sendCursor(lastPointer.current.pos);
-          }}
-          onPointerLeave={() => {
-            lastPointer.current = null;
-            client.sendCursor(null);
-          }}
-          onKeyDown={(e) => {
-            // "/" over the workspace (not while typing into a pane or input)
-            // opens a Figma-style bubble at the pointer.
-            if (e.key !== "/" || bubbleDraft) return;
-            const tag = (e.target as HTMLElement).tagName;
-            if (tag === "INPUT" || tag === "TEXTAREA") return;
-            if ((e.target as HTMLElement).getAttribute("role") === "textbox") return;
-            if (!lastPointer.current || !workspaceEl) return;
-            e.preventDefault();
-            const rect = workspaceEl.getBoundingClientRect();
-            setBubbleDraft({
-              pos: lastPointer.current.pos,
-              clientX: lastPointer.current.clientX - rect.left,
-              clientY: lastPointer.current.clientY - rect.top,
-            });
-          }}
-          tabIndex={-1}
-        >
-          {session.activeWs ? (
-            <PaneRegistryProvider value={registry}>
-              <LayoutView
-                client={client}
-                ws={session.activeWs}
-                node={activeLayout?.tree ?? null}
-                canType={canType}
-                participants={session.participants}
-                selfUser={session.you?.user ?? null}
-              />
-            </PaneRegistryProvider>
-          ) : (
-            <div className="flex h-full items-center justify-center text-xs text-neutral-500">
-              {t("noWorkspaces")}
-            </div>
-          )}
-
-          <CursorLayer
-            cursors={cursors}
-            participants={session.participants}
-            selfUser={session.you?.user ?? null}
-            activeWs={session.activeWs}
-            registry={registry}
-            container={workspaceEl}
-          />
-
-          {bubbleDraft ? (
-            <BubbleComposer
-              x={bubbleDraft.clientX}
-              y={bubbleDraft.clientY}
-              color={participantColor(session.you?.color ?? 0)}
-              onSubmit={(text) => {
-                client.sendChat(text, bubbleDraft.pos);
-                setBubbleDraft(null);
-              }}
-              onCancel={() => setBubbleDraft(null)}
+      <main
+        ref={mountWorkspace}
+        className="relative min-h-0 min-w-0 flex-1"
+        onPointerMove={(event) => {
+          const target = (event.target as HTMLElement).closest<HTMLElement>(
+            "[data-share-pane]",
+          );
+          const key = target?.dataset.sharePane;
+          if (!target || !key) {
+            if (lastPointer.current) {
+              lastPointer.current = null;
+              client.sendCursor(null);
+            }
+            return;
+          }
+          const paneRef = paneRefFromKey(key);
+          if (!paneRef) {
+            if (lastPointer.current) {
+              lastPointer.current = null;
+              client.sendCursor(null);
+            }
+            return;
+          }
+          const [ws, pane] = paneRef;
+          const rect = target.getBoundingClientRect();
+          lastPointer.current = {
+            pos: {
+              ws,
+              pane,
+              x: Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)),
+              y: Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height)),
+            },
+            clientX: event.clientX,
+            clientY: event.clientY,
+          };
+          client.sendCursor(lastPointer.current.pos);
+        }}
+        onPointerLeave={() => {
+          lastPointer.current = null;
+          client.sendCursor(null);
+        }}
+        tabIndex={-1}
+      >
+        {session.activeWs ? (
+          <PaneRegistryProvider value={registry}>
+            <LayoutView
+              client={client}
+              ws={session.activeWs}
+              node={activeLayout?.tree ?? null}
+              canType={canType}
             />
-          ) : null}
+          </PaneRegistryProvider>
+        ) : (
+          <div className="flex h-full items-center justify-center text-xs text-neutral-500">
+            {t("emptyWorkspace")}
+          </div>
+        )}
 
-          <ChatPanel
-            chat={session.chat}
-            participants={session.participants}
-            selfUser={session.you?.user ?? null}
-            onSend={(text) => client.sendChat(text)}
+        <CursorLayer
+          cursors={cursors}
+          participants={session.participants}
+          selfUser={session.you?.user ?? null}
+          activeWs={session.activeWs}
+          registry={registry}
+          container={workspaceEl}
+        />
+
+        {bubbleDraft ? (
+          <BubbleComposer
+            x={bubbleDraft.clientX}
+            y={bubbleDraft.clientY}
+            color={participantColor(session.you?.color ?? 0)}
+            onSubmit={(text) => {
+              client.sendChat(text, bubbleDraft.pos);
+              bubbleDraftRef.current = null;
+              setBubbleDraft(null);
+            }}
+            onCancel={() => {
+              bubbleDraftRef.current = null;
+              setBubbleDraft(null);
+            }}
           />
-        </main>
-      </div>
+        ) : null}
+
+        <ChatPanel
+          chat={session.chat}
+          participants={session.participants}
+          selfUser={session.you?.user ?? null}
+          onSend={(text) => client.sendChat(text)}
+        />
+      </main>
     </div>
   );
 }
@@ -257,57 +306,17 @@ function ParticipantDots({ participants }: { participants: Participant[] }): Rea
   return (
     <div className="flex -space-x-1">
       {participants
-        .filter((p) => p.connected)
-        .map((p) => (
+        .filter((participant) => participant.connected)
+        .map((participant) => (
           <span
-            key={p.user}
-            title={p.email}
+            key={participant.user}
+            title={participant.email}
             className="h-4 w-4 rounded-full border border-[#0a0a0a] text-center text-[9px] font-semibold leading-4 text-white"
-            style={{ backgroundColor: participantColor(p.color) }}
+            style={{ backgroundColor: participantColor(participant.color) }}
           >
-            {(p.email || p.user).slice(0, 1).toUpperCase()}
+            {(participant.email || participant.user).slice(0, 1).toUpperCase()}
           </span>
         ))}
-    </div>
-  );
-}
-
-function ParticipantRow({
-  participant,
-  self,
-  following,
-  onFollowToggle,
-}: {
-  participant: Participant;
-  self: boolean;
-  following: boolean;
-  onFollowToggle: () => void;
-}): ReactNode {
-  const t = useTranslations("share");
-  return (
-    <div className="flex items-center gap-2 px-3 py-1 text-[11px]">
-      <span
-        className={`h-2 w-2 shrink-0 rounded-full ${participant.connected ? "" : "opacity-30"}`}
-        style={{ backgroundColor: participantColor(participant.color) }}
-      />
-      <span className={`truncate ${participant.connected ? "text-neutral-300" : "text-neutral-600"}`}>
-        {participant.email || participant.user}
-        {participant.isHost ? ` · ${t("hostBadge")}` : ""}
-        {self ? ` · ${t("chatYou")}` : ""}
-      </span>
-      {!self && participant.connected ? (
-        <button
-          type="button"
-          onClick={onFollowToggle}
-          className={`ml-auto shrink-0 rounded px-1.5 py-0.5 text-[10px] ${
-            following
-              ? "bg-[#2d8cff] text-white"
-              : "text-neutral-500 hover:bg-neutral-800 hover:text-neutral-300"
-          }`}
-        >
-          {following ? t("followingLabel") : t("followLabel")}
-        </button>
-      ) : null}
     </div>
   );
 }
@@ -330,20 +339,21 @@ function BubbleComposer({
   return (
     <div style={{ position: "absolute", left: x, top: y, zIndex: 60 }}>
       <input
-        ref={(el) => el?.focus()}
+        ref={(element) => element?.focus()}
         value={text}
-        onChange={(e) => setText(e.target.value)}
+        maxLength={MAX_CHAT_TEXT_CHARS}
+        onChange={(event) => setText(event.target.value)}
         onBlur={onCancel}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
             if (text.trim()) onSubmit(text);
             else onCancel();
-          } else if (e.key === "Escape") {
-            e.preventDefault();
+          } else if (event.key === "Escape") {
+            event.preventDefault();
             onCancel();
           }
-          e.stopPropagation();
+          event.stopPropagation();
         }}
         placeholder={t("bubblePlaceholder")}
         className="w-56 rounded-2xl rounded-tl-sm border-0 px-3 py-2 text-xs text-white shadow-xl outline-none placeholder:text-white/60"

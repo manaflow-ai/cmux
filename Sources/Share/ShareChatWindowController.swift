@@ -18,6 +18,7 @@ final class ShareChatWindowController: NSObject {
             defer: false
         )
         super.init()
+        panel.identifier = NSUserInterfaceItemIdentifier("cmux.shareSession")
         panel.title = String(localized: "share.chat.title", defaultValue: "Share Session")
         panel.isReleasedWhenClosed = false
         panel.level = .floating

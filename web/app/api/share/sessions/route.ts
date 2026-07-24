@@ -6,6 +6,16 @@
 
 import type { KeyObject } from "node:crypto";
 
+import { checkRateLimit } from "@vercel/firewall";
+
+import {
+  enforceShareRateLimit,
+  jsonResponse,
+  requireShareSigningKey,
+  runShareEffect,
+  shareErrorResponse,
+  type ShareRateLimitCheck,
+} from "../../../../services/share/http";
 import {
   unauthorized,
   verifyRequest,
@@ -22,11 +32,16 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const SHARE_SESSION_CREATE_RETRY_AFTER_SECONDS = 10 * 60;
+
 export interface ShareSessionCreateDeps {
   readonly verifyRequest: (request: Request) => Promise<AuthedUser | null>;
   readonly signingKey: () => KeyObject | null;
   readonly nowSeconds: () => number;
   readonly generateCode: () => string;
+  readonly checkRateLimit: ShareRateLimitCheck;
+  readonly rateLimitRuleId: () => string | undefined;
+  readonly isVercel: () => boolean;
 }
 
 const productionDeps: ShareSessionCreateDeps = {
@@ -34,40 +49,58 @@ const productionDeps: ShareSessionCreateDeps = {
   signingKey: shareSigningKey,
   nowSeconds: () => Math.floor(Date.now() / 1000),
   generateCode: generateShareCode,
+  checkRateLimit,
+  rateLimitRuleId: () => process.env.CMUX_SHARE_SESSION_CREATE_RATE_LIMIT_ID,
+  isVercel: () => process.env.VERCEL === "1",
 };
-
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
-}
 
 export async function handleShareSessionCreate(
   request: Request,
   deps: ShareSessionCreateDeps,
 ): Promise<Response> {
-  const user = await deps.verifyRequest(request);
-  if (!user) return unauthorized();
-  const key = deps.signingKey();
-  if (!key) return json({ error: "share_not_configured" }, 503);
-  const code = deps.generateCode();
-  const { token, expiresAt } = mintShareToken({
-    sub: user.id,
-    email: user.primaryEmail ?? "",
-    code,
-    host: true,
-    create: true,
-    key,
-    nowSeconds: deps.nowSeconds(),
-  });
-  return json({
-    code,
-    token,
-    expiresAt,
-    wsUrl: shareSessionWsUrl(code),
-    shareUrl: sharePageUrl(code),
-  });
+  try {
+    const user = await deps.verifyRequest(request);
+    if (!user) return unauthorized();
+    const key = await runShareEffect(
+      requireShareSigningKey(deps.signingKey()),
+    );
+    const rateLimitRuleId = deps.rateLimitRuleId();
+    const isVercel = deps.isVercel();
+    await runShareEffect(enforceShareRateLimit({
+      request,
+      ruleId: rateLimitRuleId,
+      check: deps.checkRateLimit,
+      isVercel,
+      retryAfterSeconds: SHARE_SESSION_CREATE_RETRY_AFTER_SECONDS,
+    }));
+    await runShareEffect(enforceShareRateLimit({
+      request,
+      rateLimitKey: user.id,
+      ruleId: rateLimitRuleId,
+      check: deps.checkRateLimit,
+      isVercel,
+      retryAfterSeconds: SHARE_SESSION_CREATE_RETRY_AFTER_SECONDS,
+    }));
+    const code = deps.generateCode();
+    const { token, expiresAt } = mintShareToken({
+      sub: user.id,
+      email: user.primaryEmail ?? "",
+      code,
+      host: true,
+      create: true,
+      key,
+      nowSeconds: deps.nowSeconds(),
+    });
+    return jsonResponse({
+      code,
+      token,
+      expiresAt,
+      wsUrl: shareSessionWsUrl(code),
+      shareUrl: sharePageUrl(code),
+    });
+  } catch (error) {
+    return shareErrorResponse(error);
+  }
 }
 
 export async function POST(request: Request): Promise<Response> {

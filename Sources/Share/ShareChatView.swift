@@ -1,18 +1,19 @@
+import CmuxWorkspaceShare
 import SwiftUI
 
-/// Share-session chat panel content: status header, workspace-sharing
-/// toggles, the chat feed (with inline access requests), participants, and
-/// the message input. Rows below the ForEach boundaries receive value
-/// snapshots plus action closures only (snapshot-boundary rule).
+/// Share-session chat panel content for the one focused shared workspace.
+/// Rows below `ForEach` boundaries receive value snapshots and actions only.
 struct ShareChatView: View {
-    @ObservedObject var controller: ShareSessionController
+    let controller: ShareSessionController
     @State private var draft: String = ""
 
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
-            workspacesSection
+            if let errorText = controller.lastErrorText {
+                Divider()
+                errorBanner(errorText)
+            }
             Divider()
             feedSection
             Divider()
@@ -72,32 +73,22 @@ struct ShareChatView: View {
         .padding(.vertical, 8)
     }
 
-    // MARK: - Workspaces
-
-    private var workspacesSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(String(localized: "share.chat.workspacesHeader", defaultValue: "Shared Workspaces"))
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 10)
-                .padding(.top, 6)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(controller.workspaceRows) { row in
-                        ShareWorkspaceToggleRow(
-                            title: row.title,
-                            isShared: row.isShared,
-                            setShared: { [id = row.id] isShared in
-                                ShareSessionController.shared.setWorkspaceShared(id: id, isShared: isShared)
-                            }
-                        )
-                    }
-                }
-                .padding(.horizontal, 10)
-            }
-            .frame(maxHeight: 84)
-            .padding(.bottom, 6)
+    private func errorBanner(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 7) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .accessibilityHidden(true)
+            Text(text)
+                .font(.system(size: 11, weight: .medium))
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.orange.opacity(0.12))
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("share.errorBanner")
     }
 
     // MARK: - Feed
@@ -119,10 +110,10 @@ struct ShareChatView: View {
                         ShareFeedRow(
                             item: item,
                             approve: { user, role in
-                                ShareSessionController.shared.approve(user: user, role: role)
+                                controller.approve(user: user, role: role)
                             },
                             deny: { user in
-                                ShareSessionController.shared.deny(user: user)
+                                controller.deny(user: user)
                             }
                         )
                         .id(item.id)
@@ -155,10 +146,10 @@ struct ShareChatView: View {
                         ShareParticipantRow(
                             participant: participant,
                             setRole: { user, role in
-                                ShareSessionController.shared.setRole(user: user, role: role)
+                                controller.setRole(user: user, role: role)
                             },
                             kick: { user in
-                                ShareSessionController.shared.kick(user: user)
+                                controller.kick(user: user)
                             }
                         )
                     }
@@ -198,21 +189,6 @@ struct ShareChatView: View {
 }
 
 // MARK: - Rows (value snapshots + closures only)
-
-private struct ShareWorkspaceToggleRow: View {
-    let title: String
-    let isShared: Bool
-    let setShared: (Bool) -> Void
-
-    var body: some View {
-        Toggle(isOn: Binding(get: { isShared }, set: setShared)) {
-            Text(title)
-                .font(.system(size: 11))
-                .lineLimit(1)
-        }
-        .toggleStyle(.checkbox)
-    }
-}
 
 private struct ShareFeedRow: View {
     let item: ShareFeedItem

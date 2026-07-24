@@ -1,4 +1,5 @@
 import CmuxAuthRuntime
+import CmuxWorkspaceShare
 import Foundation
 
 /// Web API client for the share-session endpoints. Mirrors `VMClient`'s auth
@@ -21,24 +22,36 @@ struct ShareTokenResult: Decodable, Sendable {
     let wsUrl: String
 }
 
-enum ShareSessionAPIError: Error, CustomStringConvertible {
+enum ShareSessionAPIError: Error, CustomStringConvertible, Sendable {
     case notSignedIn
-    case httpStatus(Int, String)
+    case httpStatus(Int, retryAfter: Duration?)
     case malformedResponse(String)
 
     var description: String {
         switch self {
         case .notSignedIn:
             return "Not signed in to cmux."
-        case .httpStatus(let code, let body):
-            return "Share API request failed (HTTP \(code)): \(body)"
+        case .httpStatus(let code, _):
+            return "Share API request failed (HTTP \(code))."
         case .malformedResponse(let message):
             return "Share API returned an unreadable response: \(message)"
+        }
+    }
+
+    var lifecycleFailure: WorkspaceShareSessionLifecycle.Failure {
+        switch self {
+        case .notSignedIn:
+            return .http(statusCode: 401, retryAfter: nil)
+        case .httpStatus(let statusCode, let retryAfter):
+            return .http(statusCode: statusCode, retryAfter: retryAfter)
+        case .malformedResponse:
+            return .invalidEndpoint
         }
     }
 }
 
 actor ShareSessionAPI {
+    private static let maximumResponseBytes = 64 * 1_024
     private let session: URLSession
     private let auth: AuthCoordinator
 
@@ -60,13 +73,26 @@ actor ShareSessionAPI {
     /// `POST /api/share/sessions` — mint the share code and host token.
     func createSession() async throws -> ShareSessionCreateResult {
         let data = try await request("POST", path: "/api/share/sessions", jsonBody: [:])
-        return try decode(ShareSessionCreateResult.self, from: data)
+        let result = try decode(ShareSessionCreateResult.self, from: data)
+        guard WorkspaceShareGrantValidator.isValidCode(result.code),
+              WorkspaceShareGrantValidator.isValidToken(result.token),
+              WorkspaceShareGrantValidator.isValidExpiration(result.expiresAt),
+              WorkspaceShareGrantValidator.webSocketURL(from: result.wsUrl) != nil,
+              WorkspaceShareGrantValidator.sharePageURL(from: result.shareUrl) != nil else {
+            throw ShareSessionAPIError.malformedResponse(
+                "share grant fields failed validation"
+            )
+        }
+        return result
     }
 
     /// `POST /api/share/sessions/<code>/token` with `{"host": true}` — a fresh
     /// host-claim token for reconnecting after the create-time token expired.
     func hostToken(code: String) async throws -> ShareTokenResult {
-        guard let encoded = code.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+        guard WorkspaceShareGrantValidator.isValidCode(code),
+              let encoded = code.addingPercentEncoding(
+                  withAllowedCharacters: .urlPathAllowed
+              ) else {
             throw ShareSessionAPIError.malformedResponse("share code is not URL-encodable")
         }
         let data = try await request(
@@ -74,7 +100,15 @@ actor ShareSessionAPI {
             path: "/api/share/sessions/\(encoded)/token",
             jsonBody: ["host": true]
         )
-        return try decode(ShareTokenResult.self, from: data)
+        let result = try decode(ShareTokenResult.self, from: data)
+        guard WorkspaceShareGrantValidator.isValidToken(result.token),
+              WorkspaceShareGrantValidator.isValidExpiration(result.expiresAt),
+              WorkspaceShareGrantValidator.webSocketURL(from: result.wsUrl) != nil else {
+            throw ShareSessionAPIError.malformedResponse(
+                "share token fields failed validation"
+            )
+        }
+        return result
     }
 
     private func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
@@ -97,7 +131,14 @@ actor ShareSessionAPI {
             throw ShareSessionAPIError.notSignedIn
         }
 
-        guard var components = URLComponents(url: Self.baseURL, resolvingAgainstBaseURL: false) else {
+        let baseURL = Self.baseURL
+        guard WorkspaceShareGrantValidator.sharePageURL(
+            from: baseURL.absoluteString
+        ) != nil,
+        var components = URLComponents(
+            url: baseURL,
+            resolvingAgainstBaseURL: false
+        ) else {
             throw ShareSessionAPIError.malformedResponse("bad share API base URL")
         }
         components.path = (components.path.hasSuffix("/")
@@ -117,14 +158,62 @@ actor ShareSessionAPI {
             req.httpBody = try JSONSerialization.data(withJSONObject: jsonBody, options: [])
         }
 
-        let (data, response) = try await session.data(for: req)
+        let (bytes, response) = try await session.bytes(for: req)
         guard let http = response as? HTTPURLResponse else {
+            bytes.task.cancel()
             throw ShareSessionAPIError.malformedResponse("non-HTTP response")
         }
         guard (200...299).contains(http.statusCode) else {
-            let body = String(data: data.prefix(512), encoding: .utf8) ?? ""
-            throw ShareSessionAPIError.httpStatus(http.statusCode, body)
+            let retryAfter = Self.retryAfter(
+                from: http.value(forHTTPHeaderField: "Retry-After")
+            )
+            bytes.task.cancel()
+            throw ShareSessionAPIError.httpStatus(
+                http.statusCode,
+                retryAfter: retryAfter
+            )
         }
-        return data
+        if response.expectedContentLength > Self.maximumResponseBytes {
+            bytes.task.cancel()
+            throw ShareSessionAPIError.malformedResponse(
+                "share API response exceeded its byte limit"
+            )
+        }
+        var data = Data()
+        if response.expectedContentLength > 0 {
+            data.reserveCapacity(
+                min(Int(response.expectedContentLength), Self.maximumResponseBytes)
+            )
+        }
+        do {
+            for try await byte in bytes {
+                guard data.count < Self.maximumResponseBytes else {
+                    bytes.task.cancel()
+                    throw ShareSessionAPIError.malformedResponse(
+                        "share API response exceeded its byte limit"
+                    )
+                }
+                data.append(byte)
+            }
+            return data
+        } catch let error as ShareSessionAPIError {
+            throw error
+        } catch {
+            bytes.task.cancel()
+            throw error
+        }
+    }
+
+    private static func retryAfter(from rawValue: String?) -> Duration? {
+        guard let rawValue else { return nil }
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty,
+              value.utf8.count <= 4,
+              value.utf8.allSatisfy({ (48...57).contains($0) }),
+              let seconds = Int(value),
+              (1...3_600).contains(seconds) else {
+            return nil
+        }
+        return .seconds(seconds)
     }
 }

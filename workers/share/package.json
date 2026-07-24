@@ -1,13 +1,14 @@
 {
   "name": "cmux-share-worker",
   "private": true,
+  "license": "GPL-3.0-or-later",
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "test": "bun test",
     "typecheck": "tsgo --noEmit && tsgo --noEmit -p tsconfig.test.json",
-    "check": "bun run typecheck && bun test && wrangler deploy --dry-run --outdir dist"
+    "check": "bun run typecheck && bun test && wrangler deploy --dry-run --outdir dist/production && wrangler deploy --config wrangler.dev.toml --dry-run --outdir dist/development"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260525.0",

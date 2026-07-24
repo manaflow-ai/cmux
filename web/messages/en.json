@@ -4773,12 +4773,9 @@
     "hostDisconnected": "host disconnected",
     "roleEditor": "can edit",
     "roleViewer": "view only",
-    "workspaces": "Workspaces",
     "participants": "People",
     "hostBadge": "host",
     "chatYou": "you",
-    "followLabel": "Follow",
-    "followingLabel": "Following",
     "chatTitle": "Session chat",
     "chatCollapse": "Collapse chat",
     "chatEmpty": "No messages yet. Press / over the workspace to chat at your cursor.",
@@ -4786,10 +4783,6 @@
     "bubblePlaceholder": "Say something…",
     "emptyWorkspace": "This workspace has no panes.",
     "browserPanePlaceholder": "Browser pane (sharing coming soon)",
-    "panePlaceholder": "This pane type isn't shareable yet",
-    "noWorkspaces": "No shared workspaces.",
-    "composerLabel": "Shared composer",
-    "composerPlaceholder": "Compose together…",
-    "pixelViewOnlyBadge": "view only"
+    "panePlaceholder": "This pane type isn't shareable yet"
   }
 }

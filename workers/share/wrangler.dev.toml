@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Shared dev instance of the share worker. Deploy with:
 #   wrangler deploy --config wrangler.dev.toml
 # Never deploy with `--name`: that detaches from this config and can steal the
@@ -10,6 +11,12 @@ workers_dev = true
 
 [observability]
 enabled = true
+
+[observability.logs]
+enabled = true
+# Browser bearer tokens ride the query string. Keep explicit redacted Worker
+# logs, but never let automatic invocation logs capture request URLs.
+invocation_logs = false
 
 [[durable_objects.bindings]]
 name = "SHARE_SESSION"

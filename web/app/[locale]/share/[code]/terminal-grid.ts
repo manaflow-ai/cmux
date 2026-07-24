@@ -10,9 +10,8 @@ import type {
   GridCursor,
   GridStyle,
   GridRowSpan,
-  RenderGridFrame,
 } from "./share-protocol";
-import { RENDER_GRID_FORMAT } from "./share-protocol";
+import { normalizeRenderGridFrame } from "./share-protocol";
 
 const DEFAULT_BG = "#0a0a0a";
 const DEFAULT_FG = "#ededed";
@@ -39,8 +38,9 @@ export class TerminalGridModel {
   private seenFull = false;
 
   /** Returns false when the frame was unusable (bad format or delta-before-full). */
-  apply(frame: RenderGridFrame): boolean {
-    if (frame.format !== RENDER_GRID_FORMAT) return false;
+  apply(value: unknown): boolean {
+    const frame = normalizeRenderGridFrame(value);
+    if (!frame) return false;
     const full = frame.full !== false;
     if (!full && !this.seenFull) return false; // deltas need a base
     if (full) {
@@ -85,7 +85,10 @@ export class TerminalGridModel {
     for (const row of touched) {
       this.spansByRow[row]?.sort((a, b) => a.column - b.column);
     }
-    if (frame.cursor) this.cursor = frame.cursor;
+    // The producer's optional cursor is authoritative for every snapshot.
+    // Leaving the previous value in place paints a ghost cursor after the
+    // terminal hides it.
+    this.cursor = frame.cursor ?? null;
     this.generation += 1;
     return true;
   }

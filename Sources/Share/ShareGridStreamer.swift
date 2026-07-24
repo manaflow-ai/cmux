@@ -1,6 +1,13 @@
 import CMUXMobileCore
 import CmuxTerminal
+import CmuxWorkspaceShare
 import Foundation
+import os
+
+nonisolated private let shareGridStreamerLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "WorkspaceShareGrid"
+)
 
 /// Streams per-pane render-grid frames to the share socket, but only for
 /// panes with at least one subscribed guest (driven by `guest-sub` messages).
@@ -10,7 +17,7 @@ import Foundation
 @MainActor
 final class ShareGridStreamer {
     /// Encoded binary grid frame ready for the socket.
-    var sendBinary: ((Data) -> Void)?
+    var sendBinary: ((Data) -> Bool)?
 
     private struct PaneSubscription {
         var ws: String
@@ -28,6 +35,7 @@ final class ShareGridStreamer {
     private var pendingThemeSurfaceIDs = Set<UUID>()
     private var hasPendingThemeInvalidation = false
     private var isEmitFlushScheduled = false
+    private var emitFlushTask: Task<Void, Never>?
     private var emissionStatesBySurfaceID: [UUID: MobileTerminalRenderGridEmissionState] = [:]
     private var terminalThemesBySurfaceID: [UUID: TerminalTheme] = [:]
     private var terminalConfigThemesBySurfaceID: [UUID: TerminalTheme] = [:]
@@ -104,6 +112,8 @@ final class ShareGridStreamer {
         hasPendingThemeInvalidation = false
         pendingThemeSurfaceIDs.removeAll()
         isEmitFlushScheduled = false
+        emitFlushTask?.cancel()
+        emitFlushTask = nil
         clearEmissionCaches()
     }
 
@@ -113,6 +123,7 @@ final class ShareGridStreamer {
         }
         releaseFrameDemand?()
         releaseTickDemand?()
+        emitFlushTask?.cancel()
     }
 
     /// Applies a `guest-sub` update. Any count increase (including 0 -> N)
@@ -191,12 +202,13 @@ final class ShareGridStreamer {
     private func scheduleEmitFlush() {
         guard !isEmitFlushScheduled else { return }
         isEmitFlushScheduled = true
-        Task { @MainActor [weak self] in
+        emitFlushTask = Task { @MainActor [weak self] in
             self?.flushUpdates()
         }
     }
 
     private func flushUpdates() {
+        emitFlushTask = nil
         isEmitFlushScheduled = false
         guard hasAnySubscribers else { return }
         let surfaceIDs = pendingSurfaceIDs
@@ -283,15 +295,24 @@ final class ShareGridStreamer {
         guard let emission = try? themedFrame.renderGridEmission(
             comparedTo: emissionStatesBySurfaceID[surfaceID]
         ) else { return }
-        emissionStatesBySurfaceID[surfaceID] = emission.state
         guard let payload = try? JSONEncoder().encode(emission.frame),
               let binary = ShareBinaryFrame.encode(
-                kind: ShareProtocolConstants.binaryKindGrid,
-                ws: subscription.ws,
-                pane: surfaceID.uuidString,
-                payload: payload
-              ) else { return }
-        sendBinary?(binary)
+                  kind: ShareProtocolConstants.binaryKindGrid,
+                  ws: subscription.ws,
+                  pane: surfaceID.uuidString,
+                  payload: payload
+              ),
+              sendBinary?(binary) == true else {
+            // The client did not receive this state. Clearing the comparison
+            // cache makes the next render notification reconcile with a full
+            // frame instead of emitting a delta from unsent state.
+            clearEmissionCache(surfaceID: surfaceID)
+            shareGridStreamerLogger.warning(
+                "A render-grid frame was rejected before share transport admission"
+            )
+            return
+        }
+        emissionStatesBySurfaceID[surfaceID] = emission.state
         #if DEBUG
         cmuxDebugLog(
             "share.render_grid surface=\(surfaceID.uuidString.prefix(8)) full=\(emission.frame.full) " +

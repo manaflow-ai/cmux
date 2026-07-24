@@ -1,4 +1,5 @@
 import AppKit
+import CmuxWorkspaceShare
 import Foundation
 
 /// Renders remote guest cursors over the Mac's terminal panes and forwards
@@ -26,6 +27,7 @@ final class ShareCursorOverlayController {
         var email: String
         var colorIndex: Int
         var pos: ShareCursorPos?
+        var bubbleText: String?
     }
 
     /// Resolve the pane's live content view for `(ws, pane)` UUID strings.
@@ -40,19 +42,113 @@ final class ShareCursorOverlayController {
 
     private var cursorsByUser: [String: RemoteCursor] = [:]
     private var viewsByUser: [String: ShareCursorPointerView] = [:]
+    private var bubbleExpiryTasks: [String: Task<Void, Never>] = [:]
+    private var bubbleGenerations: [String: UInt64] = [:]
+    private var nextBubbleGeneration: UInt64 = 1
     private var mouseMonitor: Any?
     private var lastHostSendUptime: TimeInterval = 0
     private var lastHostSendWasNil = true
     private static let hostSendMinInterval: TimeInterval = 1.0 / 30.0
+    private let bubbleLifetime: Duration
+
+    init(bubbleLifetime: Duration = .seconds(5)) {
+        self.bubbleLifetime = bubbleLifetime
+    }
 
     // MARK: - Remote cursors in
 
+    var remoteUserIDs: Set<String> {
+        Set(cursorsByUser.keys)
+    }
+
     func updateRemoteCursor(user: String, email: String, colorIndex: Int, pos: ShareCursorPos?) {
-        cursorsByUser[user] = RemoteCursor(email: email, colorIndex: colorIndex, pos: pos)
+        let existing = cursorsByUser[user]
+        if pos == nil {
+            clearRemoteBubble(user: user)
+        }
+        cursorsByUser[user] = RemoteCursor(
+            email: email,
+            colorIndex: colorIndex,
+            pos: pos,
+            bubbleText: pos == nil ? nil : existing?.bubbleText
+        )
         reposition(user: user)
     }
 
+    /// Presents one already-admitted guest bubble at its validated terminal
+    /// anchor. The overlay keeps only a bounded display prefix; panel chat
+    /// retains the complete protocol-bounded message.
+    @discardableResult
+    func showRemoteBubble(
+        user: String,
+        email: String,
+        colorIndex: Int,
+        text: String,
+        anchor: ShareCursorPos
+    ) -> Bool {
+        guard !text.isEmpty,
+              text.utf8.count <= ShareProtocolConstants.maximumChatTextBytes,
+              anchor.x.isFinite,
+              anchor.y.isFinite,
+              (0...1).contains(anchor.x),
+              (0...1).contains(anchor.y),
+              resolvePaneView?(anchor.ws, anchor.pane) != nil else {
+            return false
+        }
+
+        let boundedText = ShareCursorPointerView.boundedBubbleText(text)
+        var cursor = cursorsByUser[user] ?? RemoteCursor(
+            email: email,
+            colorIndex: colorIndex,
+            pos: anchor,
+            bubbleText: nil
+        )
+        cursor.email = email
+        cursor.colorIndex = colorIndex
+        cursor.pos = anchor
+        cursor.bubbleText = boundedText
+        cursorsByUser[user] = cursor
+
+        bubbleExpiryTasks.removeValue(forKey: user)?.cancel()
+        let generation = nextBubbleGeneration
+        nextBubbleGeneration &+= 1
+        bubbleGenerations[user] = generation
+        let lifetime = bubbleLifetime
+        bubbleExpiryTasks[user] = Task { @MainActor [weak self] in
+            do {
+                try await ContinuousClock().sleep(for: lifetime)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            self?.expireRemoteBubble(user: user, generation: generation)
+        }
+        reposition(user: user)
+        return true
+    }
+
+    /// Generation matching prevents a cancelled timer from clearing a newer
+    /// bubble from the same participant.
+    func expireRemoteBubble(user: String, generation: UInt64) {
+        guard bubbleGenerations[user] == generation else { return }
+        bubbleGenerations.removeValue(forKey: user)
+        bubbleExpiryTasks.removeValue(forKey: user)
+        guard var cursor = cursorsByUser[user] else { return }
+        cursor.bubbleText = nil
+        cursorsByUser[user] = cursor
+        viewsByUser[user]?.setBubbleText(nil)
+    }
+
+    func remoteBubbleText(for user: String) -> String? {
+        cursorsByUser[user]?.bubbleText
+    }
+
+    func remoteBubbleGeneration(for user: String) -> UInt64? {
+        bubbleGenerations[user]
+    }
+
     func removeRemoteUser(_ user: String) {
+        clearRemoteBubble(user: user)
         cursorsByUser.removeValue(forKey: user)
         viewsByUser.removeValue(forKey: user)?.removeFromSuperview()
     }
@@ -67,6 +163,11 @@ final class ShareCursorOverlayController {
 
     func teardown() {
         uninstallMouseMonitor()
+        for task in bubbleExpiryTasks.values {
+            task.cancel()
+        }
+        bubbleExpiryTasks.removeAll()
+        bubbleGenerations.removeAll()
         for view in viewsByUser.values {
             view.removeFromSuperview()
         }
@@ -101,15 +202,27 @@ final class ShareCursorOverlayController {
         view.isHidden = false
     }
 
+    private func clearRemoteBubble(user: String) {
+        bubbleExpiryTasks.removeValue(forKey: user)?.cancel()
+        bubbleGenerations.removeValue(forKey: user)
+        if var cursor = cursorsByUser[user] {
+            cursor.bubbleText = nil
+            cursorsByUser[user] = cursor
+        }
+        viewsByUser[user]?.setBubbleText(nil)
+    }
+
     private func ensureView(user: String, cursor: RemoteCursor) -> ShareCursorPointerView {
         if let existing = viewsByUser[user] {
             existing.setName(cursor.email)
+            existing.setBubbleText(cursor.bubbleText)
             return existing
         }
         let view = ShareCursorPointerView(
             color: Self.color(forIndex: cursor.colorIndex),
             name: cursor.email
         )
+        view.setBubbleText(cursor.bubbleText)
         viewsByUser[user] = view
         return view
     }

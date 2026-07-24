@@ -1,3 +1,4 @@
+import AppKit
 import CmuxCommandPalette
 import Foundation
 
@@ -7,7 +8,11 @@ extension CommandPaletteContextKeys {
 }
 
 extension ContentView {
-    static func commandPaletteShareCommandContributions() -> [CommandPaletteCommandContribution] {
+    static func commandPaletteShareCommandContributions(
+        isFeatureEnabled: Bool
+    ) -> [CommandPaletteCommandContribution] {
+        guard isFeatureEnabled else { return [] }
+
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
             { _ in value }
         }
@@ -17,10 +22,11 @@ extension ContentView {
                 commandId: "palette.shareWorkspaces",
                 title: constant(String(
                     localized: "command.shareWorkspaces.title",
-                    defaultValue: "Share Workspaces…"
+                    defaultValue: "Share Workspace…"
                 )),
                 subtitle: constant(String(localized: "command.share.subtitle", defaultValue: "Share")),
-                keywords: ["share", "multiplayer", "collab", "collaborate", "invite", "session", "live"]
+                keywords: ["share", "multiplayer", "collab", "collaborate", "invite", "session", "live"],
+                when: { !$0.bool(CommandPaletteContextKeys.shareSessionActive) }
             ),
             CommandPaletteCommandContribution(
                 commandId: "palette.stopSharing",
@@ -38,10 +44,19 @@ extension ContentView {
 
     func registerShareCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
         registry.register(commandId: "palette.shareWorkspaces") {
-            ShareSessionController.shared.startSharing()
+            guard CmuxFeatureFlags.shared.isMultiplayerShareUIEnabled else { return }
+            guard let focusedWorkspace = tabManager.selectedWorkspace else {
+                NSSound.beep()
+                return
+            }
+            shareSessionController.startSharing(
+                tabManager: tabManager,
+                focusedWorkspace: focusedWorkspace
+            )
         }
         registry.register(commandId: "palette.stopSharing") {
-            ShareSessionController.shared.stopSharing()
+            guard CmuxFeatureFlags.shared.isMultiplayerShareUIEnabled else { return }
+            shareSessionController.stopSharing()
         }
     }
 }

@@ -5,13 +5,21 @@ import AppKit
 /// flipped so the pointer tip sits at the view origin; it never intercepts
 /// mouse events.
 final class ShareCursorPointerView: NSView {
+    static let maximumBubbleTextBytes = 512
+
     private static let pointerSize: CGFloat = 20
     private static let unitViewBox: CGFloat = 13
     private static let chipFont = NSFont.systemFont(ofSize: 9, weight: .semibold)
     private static let chipPadding = NSSize(width: 5, height: 2)
+    private static let bubbleFont = NSFont.systemFont(ofSize: 12)
+    private static let bubblePadding = NSSize(width: 9, height: 6)
+    private static let bubbleMaximumTextWidth: CGFloat = 240
+    private static let bubbleMaximumLines: CGFloat = 4
+    private static let bubbleGap: CGFloat = 4
 
     private let color: NSColor
     private var name: String
+    private(set) var bubbleText: String?
 
     init(color: NSColor, name: String) {
         self.color = color
@@ -38,17 +46,91 @@ final class ShareCursorPointerView: NSView {
         needsDisplay = true
     }
 
+    func setBubbleText(_ newText: String?) {
+        let bounded = newText.map(Self.boundedBubbleText)
+        let normalized = bounded?.isEmpty == false ? bounded : nil
+        guard normalized != bubbleText else { return }
+        bubbleText = normalized
+        sizeToFitContent()
+        needsDisplay = true
+    }
+
+    static func boundedBubbleText(_ text: String) -> String {
+        guard text.utf8.count > maximumBubbleTextBytes else { return text }
+        let suffix = "…"
+        let budget = maximumBubbleTextBytes - suffix.utf8.count
+        var end = text.startIndex
+        var usedBytes = 0
+        while end < text.endIndex {
+            let next = text.index(after: end)
+            let characterBytes = text[end..<next].utf8.count
+            guard usedBytes + characterBytes <= budget else { break }
+            usedBytes += characterBytes
+            end = next
+        }
+        return String(text[..<end]) + suffix
+    }
+
     private var chipTextSize: NSSize {
         (name as NSString).size(withAttributes: [.font: Self.chipFont])
     }
 
-    private func sizeToFitContent() {
+    private var chipRect: NSRect {
         let text = chipTextSize
-        let chipWidth = ceil(text.width) + Self.chipPadding.width * 2
-        let chipHeight = ceil(text.height) + Self.chipPadding.height * 2
+        return NSRect(
+            x: Self.pointerSize * 0.7,
+            y: Self.pointerSize * 0.9 - Self.chipPadding.height,
+            width: ceil(text.width) + Self.chipPadding.width * 2,
+            height: ceil(text.height) + Self.chipPadding.height * 2
+        )
+    }
+
+    private var bubbleTextSize: NSSize? {
+        guard let bubbleText else { return nil }
+        let lineHeight = ceil(
+            Self.bubbleFont.ascender
+                - Self.bubbleFont.descender
+                + Self.bubbleFont.leading
+        )
+        let bounds = (bubbleText as NSString).boundingRect(
+            with: NSSize(
+                width: Self.bubbleMaximumTextWidth,
+                height: .greatestFiniteMagnitude
+            ),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: Self.bubbleFont]
+        )
+        return NSSize(
+            width: min(
+                Self.bubbleMaximumTextWidth,
+                max(1, ceil(bounds.width))
+            ),
+            height: min(
+                lineHeight * Self.bubbleMaximumLines,
+                max(lineHeight, ceil(bounds.height))
+            )
+        )
+    }
+
+    private var bubbleRect: NSRect? {
+        guard let textSize = bubbleTextSize else { return nil }
+        return NSRect(
+            x: Self.pointerSize * 0.7,
+            y: chipRect.maxY + Self.bubbleGap,
+            width: textSize.width + Self.bubblePadding.width * 2,
+            height: textSize.height + Self.bubblePadding.height * 2
+        )
+    }
+
+    private func sizeToFitContent() {
+        let bubbleRect = bubbleRect
         setFrameSize(NSSize(
-            width: max(Self.pointerSize, Self.pointerSize * 0.7 + chipWidth),
-            height: Self.pointerSize * 0.9 + chipHeight
+            width: max(
+                Self.pointerSize,
+                chipRect.maxX,
+                bubbleRect?.maxX ?? 0
+            ),
+            height: max(chipRect.maxY, bubbleRect?.maxY ?? 0)
         ))
     }
 
@@ -67,16 +149,11 @@ final class ShareCursorPointerView: NSView {
         path.fill()
 
         drawNameChip()
+        drawBubble()
     }
 
     private func drawNameChip() {
-        let text = chipTextSize
-        let chipRect = NSRect(
-            x: Self.pointerSize * 0.7,
-            y: Self.pointerSize * 0.9 - Self.chipPadding.height,
-            width: ceil(text.width) + Self.chipPadding.width * 2,
-            height: ceil(text.height) + Self.chipPadding.height * 2
-        )
+        let chipRect = chipRect
         let chip = NSBezierPath(roundedRect: chipRect, xRadius: 4, yRadius: 4)
         color.setFill()
         chip.fill()
@@ -86,6 +163,37 @@ final class ShareCursorPointerView: NSView {
                 y: chipRect.minY + Self.chipPadding.height
             ),
             withAttributes: [.font: Self.chipFont, .foregroundColor: NSColor.white]
+        )
+    }
+
+    private func drawBubble() {
+        guard let bubbleText, let bubbleRect else { return }
+        let bubble = NSBezierPath(
+            roundedRect: bubbleRect,
+            xRadius: 9,
+            yRadius: 9
+        )
+        color.withAlphaComponent(0.96).setFill()
+        bubble.fill()
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byWordWrapping
+        let textRect = bubbleRect.insetBy(
+            dx: Self.bubblePadding.width,
+            dy: Self.bubblePadding.height
+        )
+        (bubbleText as NSString).draw(
+            with: textRect,
+            options: [
+                .usesLineFragmentOrigin,
+                .usesFontLeading,
+                .truncatesLastVisibleLine,
+            ],
+            attributes: [
+                .font: Self.bubbleFont,
+                .foregroundColor: NSColor.white,
+                .paragraphStyle: paragraph,
+            ]
         )
     }
 

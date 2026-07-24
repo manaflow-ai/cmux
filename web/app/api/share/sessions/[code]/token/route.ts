@@ -1,15 +1,20 @@
-// Mint a connection token for an existing share code. Cookie auth is allowed —
-// this is the browser path behind cmux.com/share/<code>. Whether the code
-// refers to a live session is the Durable Object's decision at connect time;
-// a token for a dead code is a signed 404.
-//
-// A `{"host": true}` body asks for a host-claim token; the host Mac uses this
-// to reconnect after its create-time token expires. Minting it for any caller
-// is safe: the session DO rejects a host-claim connection whose user id is
-// not the session creator, so the claim only works for the actual host.
+// Mint a connection token for an existing share code. Browser guests use
+// cookie auth and can only receive host=false. A native bearer caller may ask
+// for host=true to refresh the host grant for the same code.
 
 import type { KeyObject } from "node:crypto";
 
+import { checkRateLimit } from "@vercel/firewall";
+
+import { readBoundedJsonObject } from "../../../../../../services/apns/routePolicy";
+import {
+  enforceShareRateLimit,
+  jsonResponse,
+  requireShareSigningKey,
+  runShareEffect,
+  shareErrorResponse,
+  type ShareRateLimitCheck,
+} from "../../../../../../services/share/http";
 import {
   unauthorized,
   verifyRequest,
@@ -25,51 +30,92 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const MAX_BODY_BYTES = 1_024;
+const SHARE_TOKEN_RETRY_AFTER_SECONDS = 60;
+
 export interface ShareGuestTokenDeps {
-  readonly verifyRequest: (request: Request) => Promise<AuthedUser | null>;
+  readonly verifyGuestRequest: (
+    request: Request,
+  ) => Promise<AuthedUser | null>;
+  readonly verifyNativeRequest: (
+    request: Request,
+  ) => Promise<AuthedUser | null>;
   readonly signingKey: () => KeyObject | null;
   readonly nowSeconds: () => number;
+  readonly checkRateLimit: ShareRateLimitCheck;
+  readonly rateLimitRuleId: () => string | undefined;
+  readonly isVercel: () => boolean;
 }
 
 const productionDeps: ShareGuestTokenDeps = {
-  verifyRequest: (request) => verifyRequest(request, { allowCookie: true }),
+  verifyGuestRequest: (request) =>
+    verifyRequest(request, { allowCookie: true }),
+  verifyNativeRequest: (request) =>
+    verifyRequest(request, { allowCookie: false }),
   signingKey: shareSigningKey,
   nowSeconds: () => Math.floor(Date.now() / 1000),
+  checkRateLimit,
+  rateLimitRuleId: () => process.env.CMUX_SHARE_TOKEN_RATE_LIMIT_ID,
+  isVercel: () => process.env.VERCEL === "1",
 };
-
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
-}
 
 export async function handleShareGuestToken(
   request: Request,
   code: string,
   deps: ShareGuestTokenDeps,
 ): Promise<Response> {
-  if (!isValidShareCode(code)) return json({ error: "invalid_code" }, 400);
-  const user = await deps.verifyRequest(request);
-  if (!user) return unauthorized();
-  const key = deps.signingKey();
-  if (!key) return json({ error: "share_not_configured" }, 503);
-  let host = false;
-  try {
-    const body = (await request.json()) as { host?: unknown };
-    host = body.host === true;
-  } catch {
-    // No/invalid body means a plain guest token.
+  if (!isValidShareCode(code)) {
+    return jsonResponse({ error: "invalid_code" }, 400);
   }
-  const { token, expiresAt } = mintShareToken({
-    sub: user.id,
-    email: user.primaryEmail ?? "",
-    code,
-    host,
-    key,
-    nowSeconds: deps.nowSeconds(),
-  });
-  return json({ token, expiresAt, wsUrl: shareSessionWsUrl(code) });
+  try {
+    const body = await readBoundedJsonObject(request, MAX_BODY_BYTES);
+    if (!body.ok) {
+      return jsonResponse(
+        { error: body.error },
+        body.error === "request_too_large" ? 413 : 400,
+      );
+    }
+    const host = body.value.host === true;
+    const user = host
+      ? await deps.verifyNativeRequest(request)
+      : await deps.verifyGuestRequest(request);
+    if (!user) return unauthorized();
+    const key = await runShareEffect(
+      requireShareSigningKey(deps.signingKey()),
+    );
+    const rateLimitRuleId = deps.rateLimitRuleId();
+    const isVercel = deps.isVercel();
+    await runShareEffect(enforceShareRateLimit({
+      request,
+      ruleId: rateLimitRuleId,
+      check: deps.checkRateLimit,
+      isVercel,
+      retryAfterSeconds: SHARE_TOKEN_RETRY_AFTER_SECONDS,
+    }));
+    await runShareEffect(enforceShareRateLimit({
+      request,
+      rateLimitKey: `${user.id}:${code}`,
+      ruleId: rateLimitRuleId,
+      check: deps.checkRateLimit,
+      isVercel,
+      retryAfterSeconds: SHARE_TOKEN_RETRY_AFTER_SECONDS,
+    }));
+    const { token, expiresAt } = mintShareToken({
+      sub: user.id,
+      email: user.primaryEmail ?? "",
+      code,
+      host,
+      key,
+      nowSeconds: deps.nowSeconds(),
+    });
+    return jsonResponse({
+      token,
+      expiresAt,
+      wsUrl: shareSessionWsUrl(code),
+    });
+  } catch (error) {
+    return shareErrorResponse(error);
+  }
 }
 
 export async function POST(

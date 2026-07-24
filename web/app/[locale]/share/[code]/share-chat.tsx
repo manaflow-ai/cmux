@@ -3,11 +3,15 @@
 // Floating session chat, bottom-right of the workspace. Bubbles typed at the
 // cursor land in this same stream (one message list, two entry points).
 
-import { useRef, useState, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
 
 import { participantColor } from "./share-colors";
-import type { ChatMessage, Participant } from "./share-protocol";
+import {
+  MAX_CHAT_TEXT_CHARS,
+  type ChatMessage,
+  type Participant,
+} from "./share-protocol";
 
 export function ChatPanel({
   chat,
@@ -26,7 +30,15 @@ export function ChatPanel({
   // Message count at the moment the panel was collapsed; unread only exists
   // while collapsed, so no per-render bookkeeping is needed.
   const [seenCount, setSeenCount] = useState(0);
-  const listRef = useRef<HTMLDivElement | null>(null);
+  const newestMessageId = chat.at(-1)?.id ?? null;
+  const mountMessageList = useCallback(
+    (element: HTMLDivElement | null): void => {
+      if (element) {
+        element.scrollTop = newestMessageId === null ? 0 : element.scrollHeight;
+      }
+    },
+    [newestMessageId],
+  );
   const byUser = new Map(participants.map((p) => [p.user, p]));
 
   if (!open) {
@@ -71,10 +83,7 @@ export function ChatPanel({
         </button>
       </div>
       <div
-        ref={(el) => {
-          listRef.current = el;
-          if (el) el.scrollTop = el.scrollHeight;
-        }}
+        ref={mountMessageList}
         className="flex-1 space-y-2 overflow-y-auto px-3 py-2"
       >
         {chat.length === 0 ? (
@@ -105,6 +114,7 @@ export function ChatPanel({
       >
         <input
           value={draft}
+          maxLength={MAX_CHAT_TEXT_CHARS}
           onChange={(e) => setDraft(e.target.value)}
           placeholder={t("chatPlaceholder")}
           className="w-full rounded border border-border bg-transparent px-2 py-1.5 text-xs outline-none placeholder:text-muted focus:border-[#2d8cff]/60"

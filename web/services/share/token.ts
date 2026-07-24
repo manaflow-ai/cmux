@@ -18,7 +18,7 @@ export const SHARE_TOKEN_ISS = "cmux";
 export const SHARE_TOKEN_AUD = "cmux-share";
 export const SHARE_TOKEN_TTL_SECONDS = 300; // short-lived; clients refresh on reconnect
 
-/** 22 base62 chars ≈ 131 bits of entropy: unguessable, single-session. */
+/** 22 modulo-mapped base62 chars provide about 125 bits of min-entropy. */
 export const SHARE_CODE_LENGTH = 22;
 const SHARE_CODE_ALPHABET =
   "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
@@ -28,7 +28,7 @@ export function generateShareCode(): string {
   const bytes = randomBytes(SHARE_CODE_LENGTH);
   let code = "";
   for (let i = 0; i < SHARE_CODE_LENGTH; i += 1) {
-    // 256 % 62 bias is ~0.5% per char; irrelevant at 131 bits.
+    // The modulo bias is included in the conservative min-entropy estimate.
     code += SHARE_CODE_ALPHABET[(bytes[i] as number) % SHARE_CODE_ALPHABET.length];
   }
   return code;

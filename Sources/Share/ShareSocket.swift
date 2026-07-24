@@ -1,239 +1,589 @@
+import CmuxWorkspaceShare
 import Foundation
+import os
 
-/// WebSocket transport for the host's share-session connection.
-///
-/// One `URLSessionWebSocketTask` at a time; JSON text frames plus binary grid
-/// frames out, JSON text frames in. Reconnects with exponential backoff,
-/// minting a fresh host token via `ShareSessionAPI` before every reconnect
-/// attempt (the create-time token is short-TTL). All callbacks fire on the
-/// main actor.
-@MainActor
-final class ShareSocket {
-    struct Endpoint: Sendable {
-        var wsUrl: String
-        var token: String
+nonisolated private let shareSocketLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "WorkspaceShareSocket"
+)
+
+/// Actor-isolated WebSocket transport for one host share session.
+actor ShareSocket {
+    enum SendResult: Equatable, Sendable {
+        case admitted
+        case invalid
+        case backpressured
+
+        var wasAdmitted: Bool {
+            self == .admitted
+        }
     }
 
-    /// Fired after the socket (re)opens; the controller re-sends `hello`.
-    var onOpen: (() -> Void)?
-    var onText: ((String) -> Void)?
-    var onConnectionStateChange: ((Bool) -> Void)?
+    struct Endpoint: Sendable {
+        let wsUrl: String
+        let token: String
+    }
 
+    enum Event: Sendable {
+        case opened(connection: UInt64)
+        case text(String, connection: UInt64, sequence: UInt64)
+        case connectionStateChanged(Bool)
+        case stopped
+    }
+
+    private enum Outbound: Sendable {
+        case text(String)
+        case data(Data)
+
+        var byteCount: Int {
+            switch self {
+            case .text(let text):
+                return text.utf8.count
+            case .data(let data):
+                return data.count
+            }
+        }
+
+        var message: URLSessionWebSocketTask.Message {
+            switch self {
+            case .text(let text):
+                return .string(text)
+            case .data(let data):
+                return .data(data)
+            }
+        }
+    }
+
+    private struct PendingOutbound: Sendable {
+        let outbound: Outbound
+        let completion: CheckedContinuation<Bool, Never>?
+    }
+
+    nonisolated let events: AsyncStream<Event>
+
+    private let eventContinuation: AsyncStream<Event>.Continuation
+    nonisolated private let outboundWakeContinuation: AsyncStream<Void>.Continuation
+    private let outboundWakeStream: AsyncStream<Void>
+    nonisolated private let outboundMailbox:
+        WorkspaceShareOutboundMailbox<PendingOutbound>
     private let initialEndpoint: Endpoint
     private let refreshEndpoint: @Sendable () async throws -> Endpoint
+    private let lifecycle: WorkspaceShareSessionLifecycle
+    nonisolated private let outboundValidator =
+        WorkspaceShareOutboundMessageValidator()
+
     private var runTask: Task<Void, Never>?
-    private var task: URLSessionWebSocketTask?
+    private var outboundWakeTask: Task<Void, Never>?
+    private var sendTask: Task<Void, Never>?
+    private var webSocketTask: URLSessionWebSocketTask?
     private var urlSession: URLSession?
     private var isStopped = false
+    private var didUseInitialEndpoint = false
+    private var connectionNeedsHandshake = false
+    private var nextConnectionGeneration: UInt64 = 1
+    private var activeConnectionGeneration: UInt64?
 
-    init(endpoint: Endpoint, refresh: @escaping @Sendable () async throws -> Endpoint) {
+    init(
+        endpoint: Endpoint,
+        refresh: @escaping @Sendable () async throws -> Endpoint,
+        lifecycle: WorkspaceShareSessionLifecycle = WorkspaceShareSessionLifecycle(),
+        maximumPendingMessages: Int = 256,
+        maximumPendingBytes: Int = 4 * 1_024 * 1_024
+    ) {
+        let eventPair = AsyncStream.makeStream(
+            of: Event.self,
+            bufferingPolicy: .bufferingNewest(512)
+        )
+        let wakePair = AsyncStream.makeStream(
+            of: Void.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        self.events = eventPair.stream
+        self.eventContinuation = eventPair.continuation
+        self.outboundWakeStream = wakePair.stream
+        self.outboundWakeContinuation = wakePair.continuation
+        self.outboundMailbox = WorkspaceShareOutboundMailbox(
+            maximumMessages: maximumPendingMessages,
+            maximumBytes: maximumPendingBytes,
+            reservedControlMessages: 16,
+            reservedControlBytes: 64 * 1_024,
+            reservedAcknowledgementMessages: 128,
+            reservedAcknowledgementBytes: 64 * 1_024
+        )
         self.initialEndpoint = endpoint
         self.refreshEndpoint = refresh
+        self.lifecycle = lifecycle
     }
 
     func start() {
         guard runTask == nil, !isStopped else { return }
-        runTask = Task { @MainActor [weak self] in
-            await self?.runLoop()
+        let outboundWakeStream = outboundWakeStream
+        outboundWakeTask = Task { [weak self] in
+            for await _ in outboundWakeStream {
+                guard let self, !Task.isCancelled else { return }
+                await self.startSendTaskIfNeeded()
+            }
+        }
+        let lifecycle = lifecycle
+        runTask = Task { [weak self] in
+            await lifecycle.start()
+            let states = await lifecycle.states()
+            for await state in states {
+                guard let self, !Task.isCancelled else { return }
+                switch state {
+                case .connecting(let attempt):
+                    await self.connect(attempt: attempt)
+                case .idle, .connected, .reconnecting:
+                    continue
+                case .stopped:
+                    await self.emitPermanentStop()
+                    return
+                }
+            }
         }
     }
 
-    /// Cleanly closes the connection and stops reconnecting.
-    func stop() {
+    func stop() async {
         guard !isStopped else { return }
         isStopped = true
+        await lifecycle.stop()
         runTask?.cancel()
         runTask = nil
-        task?.cancel(with: .normalClosure, reason: nil)
-        task = nil
+        outboundWakeContinuation.finish()
+        outboundWakeTask?.cancel()
+        outboundWakeTask = nil
+        sendTask?.cancel()
+        webSocketTask?.cancel(with: .normalClosure, reason: nil)
+        webSocketTask = nil
+        connectionNeedsHandshake = false
+        activeConnectionGeneration = nil
         urlSession?.invalidateAndCancel()
         urlSession = nil
-        onConnectionStateChange?(false)
+        resumeDiscarded(outboundMailbox.stop())
+        eventContinuation.yield(.connectionStateChanged(false))
+        eventContinuation.finish()
     }
 
-    func send(_ message: ShareHostMessage) {
-        guard let data = try? JSONEncoder().encode(message),
-              let text = String(data: data, encoding: .utf8) else { return }
-        send(text: text)
-    }
-
-    func send(text: String) {
-        task?.send(.string(text)) { error in
-            #if DEBUG
-            if let error {
-                cmuxDebugLog("share.socket send text failed: \(error.localizedDescription)")
-            }
-            #endif
+    @discardableResult
+    nonisolated func send(_ message: ShareHostMessage) -> SendResult {
+        guard let message = outboundValidator.prepareForTransport(message),
+              let (outbound, priority) = Self.encode(message) else {
+            shareSocketLogger.error("Dropping an unencodable share protocol message")
+            return .invalid
         }
+        return admit(outbound, priority: priority) ? .admitted : .backpressured
     }
 
-    func send(data: Data) {
-        task?.send(.data(data)) { error in
-            #if DEBUG
-            if let error {
-                cmuxDebugLog("share.socket send data failed: \(error.localizedDescription)")
-            }
-            #endif
+    /// Admits a hello caused by an already-accepted `resync` after its ACK.
+    ///
+    /// Unlike a new-connection hello, replay work uses the control lane so it
+    /// cannot overtake the acknowledgement that released resync credit.
+    @discardableResult
+    nonisolated func sendResyncHello(
+        shared: [ShareSharedWorkspace],
+        layouts: [ShareWorkspaceLayout]
+    ) -> SendResult {
+        let message = ShareHostMessage.hello(shared: shared, layouts: layouts)
+        guard let message = outboundValidator.prepareForTransport(message),
+              let (outbound, _) = Self.encode(message) else {
+            shareSocketLogger.error("Dropping an invalid share resync hello")
+            return .invalid
         }
+        return admit(outbound, priority: .control)
+            ? .admitted
+            : .backpressured
     }
 
-    // MARK: - Connection loop
-
-    private func runLoop() async {
-        var endpoint = initialEndpoint
-        var attempt = 0
-        var isFirstAttempt = true
-        while !Task.isCancelled, !isStopped {
-            if !isFirstAttempt {
-                // Backoff, then refresh the short-TTL host token before dialing.
-                let delay = Self.backoffSeconds(attempt: attempt)
-                attempt += 1
-                do {
-                    try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-                } catch { return }
-                guard !isStopped else { return }
-                do {
-                    endpoint = try await refreshEndpoint()
-                } catch {
-                    #if DEBUG
-                    cmuxDebugLog("share.socket token refresh failed: \(error)")
-                    #endif
-                    continue
-                }
-                guard !isStopped else { return }
-            }
-            isFirstAttempt = false
-
-            guard let url = Self.connectionURL(endpoint: endpoint) else {
-                #if DEBUG
-                cmuxDebugLog("share.socket invalid wsUrl: \(endpoint.wsUrl)")
-                #endif
-                return
-            }
-
-            let delegate = ShareSocketOpenDelegate()
-            let configuration = URLSessionConfiguration.ephemeral
-            configuration.timeoutIntervalForRequest = 15
-            let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
-            let socketTask = session.webSocketTask(with: url)
-            urlSession = session
-            task = socketTask
-            socketTask.resume()
-
-            let opened = await delegate.waitForOpen()
-            guard !isStopped else {
-                session.invalidateAndCancel()
-                return
-            }
-            guard opened else {
-                session.invalidateAndCancel()
-                if task === socketTask { task = nil; urlSession = nil }
-                continue
-            }
-
-            attempt = 0
-            onConnectionStateChange?(true)
-            onOpen?()
-            await receiveLoop(socketTask)
-            onConnectionStateChange?(false)
-            session.invalidateAndCancel()
-            if task === socketTask {
-                task = nil
-                urlSession = nil
-            }
+    @discardableResult
+    nonisolated func send(data: Data) -> SendResult {
+        guard data.count < ShareProtocolConstants.binaryFrameByteLimit,
+              ShareBinaryFrame.decode(data) != nil else {
+            shareSocketLogger.warning(
+                "Dropping an invalid or oversized binary share frame"
+            )
+            return .invalid
         }
+        return admit(.data(data), priority: .bulk)
+            ? .admitted
+            : .backpressured
     }
 
-    private func receiveLoop(_ socketTask: URLSessionWebSocketTask) async {
-        while !Task.isCancelled, !isStopped {
-            let message: URLSessionWebSocketTask.Message
-            do {
-                message = try await socketTask.receive()
-            } catch {
-                #if DEBUG
-                cmuxDebugLog("share.socket receive ended: \(error.localizedDescription)")
-                #endif
-                return
-            }
-            switch message {
-            case .string(let text):
-                onText?(text)
-            case .data:
-                // The DO never sends binary frames to the host.
-                break
-            @unknown default:
-                break
-            }
-        }
-    }
-
-    private static func connectionURL(endpoint: Endpoint) -> URL? {
-        guard var components = URLComponents(string: endpoint.wsUrl) else { return nil }
-        var items = components.queryItems ?? []
-        items.removeAll { $0.name == "token" }
-        items.append(URLQueryItem(name: "token", value: endpoint.token))
-        components.queryItems = items
-        return components.url
-    }
-
-    static func backoffSeconds(attempt: Int) -> Double {
-        let base = min(30.0, 0.5 * pow(2.0, Double(min(attempt, 8))))
-        return base + Double.random(in: 0...(base * 0.25))
-    }
-}
-
-/// Bridges `URLSessionWebSocketDelegate` open/close callbacks into one
-/// awaitable open result per connection attempt. Handshake failures surface
-/// through `didCompleteWithError` (bounded by the session's request timeout).
-private final class ShareSocketOpenDelegate: NSObject, URLSessionWebSocketDelegate, @unchecked Sendable {
-    private let lock = NSLock()
-    private var result: Bool?
-    private var continuation: CheckedContinuation<Bool, Never>?
-
-    func waitForOpen() async -> Bool {
-        await withCheckedContinuation { cont in
-            lock.lock()
-            if let result {
-                lock.unlock()
-                cont.resume(returning: result)
-                return
-            }
-            continuation = cont
-            lock.unlock()
-        }
-    }
-
-    private func finish(_ opened: Bool) {
-        lock.lock()
-        guard result == nil else {
-            lock.unlock()
+    /// Sends one final protocol message, waits until URLSession accepts it,
+    /// and then permanently stops the socket.
+    func sendAndStop(_ message: ShareHostMessage) async {
+        guard let message = outboundValidator.prepareForTransport(message),
+              let (outbound, priority) = Self.encode(message) else {
+            shareSocketLogger.error("Dropping an unencodable final share protocol message")
+            await stop()
             return
         }
-        result = opened
-        let cont = continuation
-        continuation = nil
-        lock.unlock()
-        cont?.resume(returning: opened)
+        guard webSocketTask != nil, !isStopped else {
+            await stop()
+            return
+        }
+        let finalPriority:
+            WorkspaceShareOutboundMailbox<PendingOutbound>.Priority =
+                connectionNeedsHandshake ? .handshake : priority
+        _ = await withCheckedContinuation { continuation in
+            let accepted = admit(
+                outbound,
+                priority: finalPriority,
+                completion: continuation
+            )
+            if !accepted {
+                continuation.resume(returning: false)
+            }
+        }
+        await stop()
     }
 
-    func urlSession(
-        _ session: URLSession,
-        webSocketTask: URLSessionWebSocketTask,
-        didOpenWithProtocol protocol: String?
+    /// Resets reconnect escalation only when a validated snapshot belongs to
+    /// the socket generation that is still active.
+    func sessionSynchronized(connection: UInt64) async {
+        guard !isStopped,
+              webSocketTask != nil,
+              activeConnectionGeneration == connection else {
+            return
+        }
+        await lifecycle.sessionSynchronized()
+    }
+
+    /// Blocks ordinary outbound work behind the marker paired with an
+    /// accepted server payload. A second payload displaces and drops the
+    /// unresolved batch.
+    nonisolated func beginAcknowledgementBarrier() {
+        let discarded = outboundMailbox.beginAcknowledgementBarrier()
+        if !discarded.isEmpty {
+            shareSocketLogger.warning(
+                "Dropping outbound share work displaced before its acknowledgement marker"
+            )
+            resumeDiscarded(discarded)
+        }
+    }
+
+    /// Fails closed for an invalid, orphaned, or non-adjacent marker.
+    nonisolated func discardAcknowledgementBarrier() {
+        let discarded = outboundMailbox.discardAcknowledgementBarrier()
+        if !discarded.isEmpty {
+            shareSocketLogger.warning(
+                "Dropping outbound share work behind an unresolved acknowledgement marker"
+            )
+            resumeDiscarded(discarded)
+        }
+        if outboundMailbox.hasClaimablePending {
+            outboundWakeContinuation.yield(())
+        }
+    }
+
+    @discardableResult
+    private nonisolated func admit(
+        _ outbound: Outbound,
+        priority: WorkspaceShareOutboundMailbox<PendingOutbound>.Priority,
+        completion: CheckedContinuation<Bool, Never>? = nil
+    ) -> Bool {
+        let pending = PendingOutbound(
+            outbound: outbound,
+            completion: completion
+        )
+        let accepted: Bool
+        if priority == .acknowledgement {
+            accepted = outboundMailbox.admitAcknowledgementAndRelease(
+                pending,
+                byteCount: outbound.byteCount
+            )
+        } else {
+            accepted = outboundMailbox.admit(
+                pending,
+                byteCount: outbound.byteCount,
+                priority: priority
+            )
+        }
+        guard accepted else {
+            shareSocketLogger.warning(
+                "Rejecting an outbound share frame at the bounded mailbox"
+            )
+            return false
+        }
+        outboundWakeContinuation.yield(())
+        return true
+    }
+
+    private func startSendTaskIfNeeded() {
+        guard sendTask == nil,
+              webSocketTask != nil,
+              (!connectionNeedsHandshake
+                  || outboundMailbox.hasHandshakePending),
+              outboundMailbox.hasClaimablePending else {
+            return
+        }
+        sendTask = Task { [weak self] in
+            await self?.drainOutboundMailbox()
+        }
+    }
+
+    private func drainOutboundMailbox() async {
+        defer {
+            sendTask = nil
+            startSendTaskIfNeeded()
+        }
+        while !Task.isCancelled, !isStopped,
+              let task = webSocketTask,
+              let claim = outboundMailbox.claimNext() {
+            let outbound = claim.entry.payload.outbound
+            do {
+                try await task.send(outbound.message)
+                if claim.entry.priority == .handshake {
+                    connectionNeedsHandshake = false
+                }
+                outboundMailbox.complete(claim)?
+                    .payload.completion?.resume(returning: true)
+            } catch {
+                outboundMailbox.complete(claim)?
+                    .payload.completion?.resume(returning: false)
+                resumeDiscarded(outboundMailbox.discardAll())
+                shareSocketLogger.warning(
+                    "A queued share frame failed; reconnecting the share socket"
+                )
+                task.cancel(with: .goingAway, reason: nil)
+                return
+            }
+        }
+    }
+
+    private func connect(attempt: Int) async {
+        guard !isStopped else { return }
+        let endpoint: Endpoint
+        do {
+            if didUseInitialEndpoint {
+                endpoint = try await refreshEndpoint()
+            } else {
+                endpoint = initialEndpoint
+                didUseInitialEndpoint = true
+            }
+        } catch {
+            shareSocketLogger.warning(
+                "Refreshing share credentials failed on connection attempt \(attempt, privacy: .public)"
+            )
+            let failure = (error as? ShareSessionAPIError)?.lifecycleFailure
+                ?? .transport
+            await lifecycle.connectionFailed(failure)
+            return
+        }
+
+        guard let request = Self.connectionRequest(endpoint: endpoint) else {
+            shareSocketLogger.error("The share WebSocket endpoint was invalid")
+            await lifecycle.connectionFailed(.invalidEndpoint)
+            return
+        }
+
+        let delegate = ShareSocketOpenDelegate()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 15
+        let session = URLSession(
+            configuration: configuration,
+            delegate: delegate,
+            delegateQueue: nil
+        )
+        let socketTask = session.webSocketTask(with: request)
+        urlSession = session
+        webSocketTask = socketTask
+        connectionNeedsHandshake = true
+        socketTask.resume()
+
+        var openEvents = delegate.events.makeAsyncIterator()
+        guard let openEvent = await openEvents.next(), !isStopped else {
+            closeCurrentConnection(session: session, task: socketTask)
+            return
+        }
+
+        switch openEvent {
+        case .opened:
+            let staleEntries = outboundMailbox.discardAll()
+            if !staleEntries.isEmpty {
+                shareSocketLogger.info(
+                    "Discarding stale outbound work before a connection hello"
+                )
+                resumeDiscarded(staleEntries)
+            }
+            await lifecycle.connectionOpened()
+            let connection = nextConnectionGeneration
+            nextConnectionGeneration &+= 1
+            activeConnectionGeneration = connection
+            eventContinuation.yield(.connectionStateChanged(true))
+            eventContinuation.yield(.opened(connection: connection))
+            startSendTaskIfNeeded()
+            let failure = await receiveLoop(
+                socketTask,
+                connection: connection
+            )
+            eventContinuation.yield(.connectionStateChanged(false))
+            closeCurrentConnection(session: session, task: socketTask)
+            guard !isStopped else { return }
+            await lifecycle.connectionFailed(failure)
+        case .closed(let code, let reason):
+            closeCurrentConnection(session: session, task: socketTask)
+            await lifecycle.connectionFailed(
+                .webSocketClosed(code: code, reason: reason)
+            )
+        case .failed:
+            closeCurrentConnection(session: session, task: socketTask)
+            await lifecycle.connectionFailed(.transport)
+        }
+    }
+
+    private func receiveLoop(
+        _ task: URLSessionWebSocketTask,
+        connection: UInt64
+    ) async -> WorkspaceShareSessionLifecycle.Failure {
+        var sequence: UInt64 = 0
+        while !Task.isCancelled, !isStopped {
+            do {
+                switch try await task.receive() {
+                case .string(let text):
+                    let byteCount = text.utf8.count
+                    guard WorkspaceShareTextFramePolicy.acceptsServerFrame(
+                        byteCount: byteCount
+                    ) else {
+                        shareSocketLogger.warning(
+                            "Closing a share socket after an oversized server text frame"
+                        )
+                        task.cancel(with: .messageTooBig, reason: nil)
+                        return .webSocketClosed(
+                            code: ShareProtocolConstants.messageTooBigCloseCode,
+                            reason: nil
+                        )
+                    }
+                    eventContinuation.yield(.text(
+                        text,
+                        connection: connection,
+                        sequence: sequence
+                    ))
+                case .data(let data):
+                    guard data.count < ShareProtocolConstants.binaryFrameByteLimit else {
+                        shareSocketLogger.warning(
+                            "Closing a share socket after an oversized server binary frame"
+                        )
+                        task.cancel(with: .messageTooBig, reason: nil)
+                        return .webSocketClosed(
+                            code: ShareProtocolConstants.messageTooBigCloseCode,
+                            reason: nil
+                        )
+                    }
+                    // Hosts do not consume server binary messages. Counting
+                    // this frame creates a sequence gap, so a following marker
+                    // cannot acknowledge an earlier accepted JSON payload.
+                    break
+                @unknown default:
+                    break
+                }
+                guard sequence < UInt64.max else {
+                    return .webSocketClosed(code: 1_008, reason: nil)
+                }
+                sequence += 1
+            } catch {
+                shareSocketLogger.info("The share receive loop ended")
+                let code = Int(task.closeCode.rawValue)
+                let reason = ShareSocketOpenDelegate.boundedCloseReason(
+                    task.closeReason
+                )
+                return code == 0
+                    ? .transport
+                    : .webSocketClosed(code: code, reason: reason)
+            }
+        }
+        return .cancelled
+    }
+
+    private func closeCurrentConnection(
+        session: URLSession,
+        task: URLSessionWebSocketTask
     ) {
-        finish(true)
+        if webSocketTask === task {
+            sendTask?.cancel()
+            webSocketTask = nil
+            connectionNeedsHandshake = false
+            activeConnectionGeneration = nil
+            urlSession = nil
+            resumeDiscarded(outboundMailbox.discardAll())
+        }
+        session.invalidateAndCancel()
     }
 
-    func urlSession(
-        _ session: URLSession,
-        webSocketTask: URLSessionWebSocketTask,
-        didCloseWith closeCode: URLSessionWebSocketTask.CloseCode,
-        reason: Data?
+    private nonisolated func resumeDiscarded(
+        _ entries: [
+            WorkspaceShareOutboundMailbox<PendingOutbound>.Entry
+        ]
     ) {
-        finish(false)
+        for entry in entries {
+            entry.payload.completion?.resume(returning: false)
+        }
     }
 
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        finish(false)
+    private func emitPermanentStop() {
+        eventContinuation.yield(.connectionStateChanged(false))
+        eventContinuation.yield(.stopped)
+        eventContinuation.finish()
+    }
+
+    nonisolated static func connectionRequest(endpoint: Endpoint) -> URLRequest? {
+        guard WorkspaceShareGrantValidator.isValidToken(endpoint.token),
+              let validatedURL = WorkspaceShareGrantValidator.webSocketURL(
+                from: endpoint.wsUrl
+              ),
+              var components = URLComponents(
+                url: validatedURL,
+                resolvingAgainstBaseURL: false
+              ) else {
+            return nil
+        }
+        var queryItems = components.queryItems ?? []
+        queryItems.removeAll { $0.name == "token" }
+        components.queryItems = queryItems.isEmpty ? nil : queryItems
+        guard let url = components.url,
+              WorkspaceShareGrantValidator.webSocketURL(
+                from: url.absoluteString
+              ) != nil else {
+            return nil
+        }
+        var request = URLRequest(url: url)
+        request.setValue(
+            "Bearer \(endpoint.token)",
+            forHTTPHeaderField: "Authorization"
+        )
+        return request
+    }
+
+    private nonisolated static func encode(
+        _ message: ShareHostMessage
+    ) -> (
+        Outbound,
+        WorkspaceShareOutboundMailbox<PendingOutbound>.Priority
+    )? {
+        guard let data = try? JSONEncoder().encode(message),
+              WorkspaceShareTextFramePolicy.acceptsHostFrame(byteCount: data.count),
+              let text = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        let priority: WorkspaceShareOutboundMailbox<PendingOutbound>.Priority
+        switch message {
+        case .hello:
+            priority = .handshake
+        case .ack:
+            priority = .acknowledgement
+        default:
+            priority = .control
+        }
+        return (.text(text), priority)
+    }
+
+    deinit {
+        runTask?.cancel()
+        outboundWakeContinuation.finish()
+        outboundWakeTask?.cancel()
+        sendTask?.cancel()
+        webSocketTask?.cancel(with: .goingAway, reason: nil)
+        urlSession?.invalidateAndCancel()
+        resumeDiscarded(outboundMailbox.stop())
+        eventContinuation.finish()
     }
 }

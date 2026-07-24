@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Live-session guest probe for dogfooding the Mac host: joins an existing
 // share session as a guest (token minted directly with the dev private key),
 // prints what a browser guest would receive, subscribes to the first terminal
@@ -95,6 +96,15 @@ ws.onmessage = (event) => {
     return;
   }
   const msg = JSON.parse(event.data) as Record<string, unknown>;
+  if (msg.t === "ack-request") {
+    if (typeof msg.nonce !== "string" || msg.nonce.length === 0) {
+      console.error("invalid ACK request");
+      ws.close(4400);
+      return;
+    }
+    ws.send(JSON.stringify({ t: "ack", nonce: msg.nonce }));
+    return;
+  }
   switch (msg.t) {
     case "access-pending":
       console.log("access-pending: waiting for the host to approve in the Mac chat window…");

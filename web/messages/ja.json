@@ -4683,12 +4683,9 @@
     "hostDisconnected": "ホストが切断されました",
     "roleEditor": "編集可能",
     "roleViewer": "閲覧のみ",
-    "workspaces": "ワークスペース",
     "participants": "参加者",
     "hostBadge": "ホスト",
     "chatYou": "自分",
-    "followLabel": "フォロー",
-    "followingLabel": "フォロー中",
     "chatTitle": "セッションチャット",
     "chatCollapse": "チャットを折りたたむ",
     "chatEmpty": "メッセージはまだありません。ワークスペース上で / を押すとカーソル位置でチャットできます。",
@@ -4696,10 +4693,6 @@
     "bubblePlaceholder": "コメントを入力…",
     "emptyWorkspace": "このワークスペースにはペインがありません。",
     "browserPanePlaceholder": "ブラウザペイン（共有は近日対応）",
-    "panePlaceholder": "このペインタイプはまだ共有できません",
-    "noWorkspaces": "共有中のワークスペースはありません。",
-    "composerLabel": "共同コンポーザー",
-    "composerPlaceholder": "一緒に入力…",
-    "pixelViewOnlyBadge": "閲覧のみ"
+    "panePlaceholder": "このペインタイプはまだ共有できません"
   }
 }
