@@ -102,9 +102,12 @@ extension TerminalController {
                     throw invalidSimulatorOperation(String(
                         localized: "cli.simulator.error.noSelectedDevice",
                         defaultValue: "The Simulator pane has no selected device"
-                    ))
+                ))
                 }
                 let selectedDevice = coordinator.selectedDevice
+                let selectedDeviceState = coordinator.status == .streaming
+                    ? SimulatorDeviceState.booted
+                    : selectedDevice?.state ?? .unknown
                 var values: [String: JSONValue] = [
                     "simulator_id": .string(deviceID),
                     "device_name": selectedDevice.map { .string($0.name) } ?? .null,
@@ -115,7 +118,7 @@ extension TerminalController {
                         ?? persistedDeviceTypeIdentifier.map(JSONValue.string)
                         ?? .null,
                     "family": selectedDevice.map { .string($0.family.rawValue) } ?? .null,
-                    "state": .string(selectedDevice?.state.rawValue ?? SimulatorDeviceState.unknown.rawValue),
+                    "state": .string(selectedDeviceState.rawValue),
                 ]
                 if let display = coordinator.display {
                     values["orientation"] = .string(display.orientation.rawValue)
