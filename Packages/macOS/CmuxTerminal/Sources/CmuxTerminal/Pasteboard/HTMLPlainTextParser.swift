@@ -138,12 +138,6 @@ struct HTMLPlainTextParser: Sendable {
         return normalized.isEmpty ? nil : normalized
     }
 
-    private struct ParsedTag {
-        let name: String
-        let isClosing: Bool
-        let isSelfClosing: Bool
-    }
-
     private func endOfTag(
         in html: String,
         startingAt openingBracket: String.Index
@@ -166,7 +160,7 @@ struct HTMLPlainTextParser: Sendable {
         return nil
     }
 
-    private func parsedTag(_ rawTag: String) -> ParsedTag? {
+    private func parsedTag(_ rawTag: String) -> HTMLPlainTextTag? {
         var tag = rawTag.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !tag.isEmpty,
               tag.first != "!",
@@ -187,7 +181,7 @@ struct HTMLPlainTextParser: Sendable {
                 || character == ":"
         }.lowercased()
         guard !name.isEmpty else { return nil }
-        return ParsedTag(
+        return HTMLPlainTextTag(
             name: name,
             isClosing: isClosing,
             isSelfClosing: isSelfClosing
