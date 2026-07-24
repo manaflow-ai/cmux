@@ -13,15 +13,18 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The submodule pinned by this branch is
-`98288feb22e7625f3ec0856573107b814686ab5f`, the current
+`50ad1963d9c73ee957932ccb4d26bf6d15575ee7`, the current
 `manaflow-ai/ghostty` `main`. The complete renderer scheduling hardening landed
 through https://github.com/manaflow-ai/ghostty/pull/136 after the initial
 bounded-turn fix in https://github.com/manaflow-ai/ghostty/pull/135. Reliable
 external redraw delivery and surface lifetime retention landed through
 https://github.com/manaflow-ai/ghostty/pull/139. Embedder userdata ownership
 and callback lifetime hardening landed through
-https://github.com/manaflow-ai/ghostty/pull/140. The
-cumulative external frontend integration landed through
+https://github.com/manaflow-ai/ghostty/pull/140. Serial frame-lease rotation
+landed through https://github.com/manaflow-ai/ghostty/pull/145. Dead PTY reader
+and child cleanup landed through
+https://github.com/manaflow-ai/ghostty/pull/143. The cumulative external
+frontend integration landed through
 https://github.com/manaflow-ai/ghostty/pull/128, and the earlier stacked PRs
 https://github.com/manaflow-ai/ghostty/pull/127,
 https://github.com/manaflow-ai/ghostty/pull/123, and
@@ -36,7 +39,7 @@ renderer mailbox drain turn so continuous producers cannot starve lifecycle
 processing or rendering.
 
 Its universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-98288feb22e7625f3ec0856573107b814686ab5f-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-50ad1963d9c73ee957932ccb4d26bf6d15575ee7-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Bounded renderer mailbox turns and continuation recovery
@@ -185,6 +188,28 @@ and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
     one-release-per-acquired-lease semantics, and the atomic recovery snapshot.
     Platform enum values and the combined surface ABI are externally consumed
     and must not be renumbered implicitly.
+
+### Serial frame-lease rotation
+
+- Commits:
+  - `3a43d5edc` (test: require serial frame slot rotation)
+  - `fcafac572` (fix: rotate serial frame leases)
+  - `50ad1963d` (merge the frame-lease rotation fix)
+- File:
+  - `src/renderer/frame_lease.zig`
+- Summary:
+  - Rotates the free-slot search after every successful acquisition. A serial
+    producer therefore presents distinct IOSurface objects even when each Metal
+    frame completes before the next input event.
+  - Preserves exact-slot ownership, generation tokens, out-of-order release
+    safety, and semaphore backpressure; only the choice among currently free
+    slots changes.
+  - Prevents Core Animation from deduplicating repeated assignments of one
+    IOSurface while its pixels change underneath it, which otherwise batches
+    low-rate terminal echo until unrelated layer activity triggers recomposition.
+  - Conflict note: future lease-pool refactors must retain round-robin selection
+    among free slots. A fixed first-free scan reintroduces serial-render stalls
+    even when every GPU completion and renderer wake is timely.
 
 ### Cursor visual and replay continuity state
 
