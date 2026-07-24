@@ -459,6 +459,23 @@ actor ShareSocket {
         recordedCriticalBackpressureCancellationIDs
     }
 
+    func hasPendingOutboundForTesting() -> Bool {
+        outboundMailbox.hasPending
+    }
+
+    func completeNextOutboundForTesting() -> Bool {
+        guard let claim = outboundMailbox.claimNext() else {
+            return false
+        }
+        outboundMailbox.complete(claim)?
+            .payload.completion?.resume(returning: true)
+        return true
+    }
+
+    func isStoppedForTesting() -> Bool {
+        isStopped
+    }
+
     func setBeforeCriticalBackpressureLifecycleStateForTesting(
         _ hook: @escaping @Sendable () async -> Void
     ) {

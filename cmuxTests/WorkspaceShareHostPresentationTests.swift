@@ -571,6 +571,51 @@ struct WorkspaceShareSocketRequestTests {
         await socket.stop()
     }
 
+    @Test("Manual stop bypasses an unresolved acknowledgement barrier")
+    func manualStopBypassesAcknowledgementBarrier() async throws {
+        let socket = ShareSocket(
+            endpoint: ShareSocket.Endpoint(
+                wsUrl: "ws://127.0.0.1:1/connect",
+                token: "valid-token"
+            ),
+            refresh: {
+                ShareSocket.Endpoint(
+                    wsUrl: "ws://127.0.0.1:1/connect",
+                    token: "valid-token"
+                )
+            }
+        )
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let task = session.webSocketTask(
+            with: try #require(URL(string: "ws://127.0.0.1:1/current"))
+        )
+
+        await socket.installWebSocketTaskForTesting(
+            task,
+            connection: 1
+        )
+        #expect(socket.beginAcknowledgementBarrier(connection: 1))
+
+        let stopTask = Task {
+            await socket.sendAndStop(.end)
+        }
+        for _ in 0..<100
+        where !(await socket.hasPendingOutboundForTesting()) {
+            await Task.yield()
+        }
+
+        let claimedFinalMessage =
+            await socket.completeNextOutboundForTesting()
+        if !claimedFinalMessage {
+            await socket.stop()
+        }
+
+        #expect(claimedFinalMessage)
+        #expect(await stopTask.value)
+        #expect(await socket.isStoppedForTesting())
+    }
+
     private func waitForReconnect(
         _ lifecycle: WorkspaceShareSessionLifecycle
     ) async -> Bool {
