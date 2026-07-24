@@ -322,12 +322,16 @@ extension CMUXCLIErrorOutputRegressionTests {
     }
 
     @Test func testSessionsListDoesNotInferPiFamilyFromBasenameWhenStructuredIdentityDisagrees() throws {
+        // The agent and the launcher have to be a matched pair: a captured launch command is
+        // only used when its launcher describes the requested agent, and an unmatched pair is
+        // dropped, which leaves the record with no fork argv at all instead of exercising the
+        // rule below. "omo" is opencode's wrapper launcher, so this record is forkable and its
+        // structured identity is opencode, while the executable basename is still "pi" — that
+        // disagreement is what must not promote the record into the pi family. Nothing stats
+        // /tmp/pi here, because the omo launcher answers fork support before the opencode
+        // executable probe.
         let session = try sessionsListDiagnosticSession(
-            // Any non-pi-family catalog agent serves here; the property under test is that a
-            // /tmp/pi basename must not promote this record into the pi family. "project-agent"
-            // is not in the catalog at all, so the CLI rejected it before emitting any JSON and
-            // this test could never have run its assertions.
-            agent: "grok",
+            agent: "opencode",
             launcher: "omo",
             executablePath: "/tmp/pi",
             arguments: ["/tmp/pi", "omo"]
