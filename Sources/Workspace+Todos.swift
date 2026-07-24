@@ -17,8 +17,8 @@ extension Workspace {
         var anyAgentRunning = false
         for (panelId, states) in agentLifecycleStatesByPanelId where panels[panelId] != nil {
             for state in states.values {
-                if state == .needsInput { anyAgentNeedsInput = true }
-                if state == .running { anyAgentRunning = true }
+                if state.needsUserAttention { anyAgentNeedsInput = true }
+                if state.isActivelyRunning { anyAgentRunning = true }
             }
         }
         let pullRequests = sidebarPullRequestsInDisplayOrder()

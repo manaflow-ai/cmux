@@ -7,6 +7,88 @@ import Darwin
 #endif
 
 final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
+    func testClaudeWrapperInstallsStopFailureHookAsTurnEndSignal() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-wrapper-stopfailure-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let socketPath = root.appendingPathComponent("cmux.sock", isDirectory: false).path
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let fakeCmuxURL = root.appendingPathComponent("cmux", isDirectory: false)
+        try """
+        #!/bin/sh
+        if [ "$1" = "--socket" ]; then
+          shift
+          shift
+        fi
+        if [ "$1" = "ping" ]; then
+          exit 0
+        fi
+        printf '{}\\n'
+        exit 0
+        """.write(to: fakeCmuxURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCmuxURL.path)
+
+        let fakeClaudeURL = root.appendingPathComponent("real-claude", isDirectory: false)
+        try """
+        #!/bin/sh
+        while [ "$#" -gt 0 ]; do
+          if [ "$1" = "--settings" ]; then
+            shift
+            printf '%s\\n' "$1"
+            exit 0
+          fi
+          shift
+        done
+        echo "missing --settings" >&2
+        exit 66
+        """.write(to: fakeClaudeURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeClaudeURL.path)
+
+        let sourceRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let wrapperURL = sourceRoot.appendingPathComponent("Resources/bin/cmux-claude-wrapper", isDirectory: false)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["HOME"] = root.path
+        environment["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCmuxURL.path
+        environment["CMUX_CUSTOM_CLAUDE_PATH"] = fakeClaudeURL.path
+        environment["CMUX_CLAUDE_HOOKS_DISABLED"] = "0"
+
+        let result = runProcess(
+            executablePath: wrapperURL.path,
+            arguments: [],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let settingsData = try XCTUnwrap(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8))
+        let settings = try XCTUnwrap(JSONSerialization.jsonObject(with: settingsData) as? [String: Any])
+        let hooks = try XCTUnwrap(settings["hooks"] as? [String: Any])
+        let stopFailureGroups = try XCTUnwrap(hooks["StopFailure"] as? [[String: Any]])
+        let stopFailureCommands = stopFailureGroups
+            .compactMap { $0["hooks"] as? [[String: Any]] }
+            .flatMap { $0 }
+            .compactMap { $0["command"] as? String }
+
+        XCTAssertTrue(
+            stopFailureCommands.contains { $0.contains("hooks claude stop-failure") },
+            "StopFailure must invoke the stop-failure subcommand so interrupt cleanup skips completion notification, saw \(stopFailureCommands)"
+        )
+    }
+
     func testClaudeClearSessionStartMarksWorkspaceRunning() throws {
         let context = try makeClaudeHookContext(name: "claude-clear-running")
         defer { context.cleanup() }
@@ -169,7 +251,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         XCTAssertTrue(
             context.state.commands.contains {
-                $0.hasPrefix("set_agent_lifecycle claude_code needsInput --tab=\(context.workspaceId)")
+                $0.hasPrefix("set_agent_lifecycle claude_code waiting --tab=\(context.workspaceId)")
                     && $0.contains("--panel=\(context.surfaceId)")
             },
             "ExitPlanMode PreToolUse must drive Needs input, saw \(context.state.commands)"
@@ -199,7 +281,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
 
         let record = try readClaudeHookSession("exitplan-session", context: context)
-        XCTAssertEqual(record["agentLifecycle"] as? String, "needsInput")
+        XCTAssertEqual(record["agentLifecycle"] as? String, "waiting")
         XCTAssertEqual(
             (record["lastBody"] as? String)?.contains("echo hi"), true,
             "Expected the saved needs-input body to summarize the plan, saw \(record["lastBody"] ?? "nil")"
@@ -228,7 +310,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         XCTAssertTrue(
             context.state.commands.contains {
-                $0.hasPrefix("set_agent_lifecycle claude_code needsInput --tab=\(context.workspaceId)")
+                $0.hasPrefix("set_agent_lifecycle claude_code waiting --tab=\(context.workspaceId)")
                     && $0.contains("--panel=\(context.surfaceId)")
             },
             "AskUserQuestion PreToolUse must drive Needs input, saw \(context.state.commands)"
@@ -258,7 +340,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
 
         let record = try readClaudeHookSession("askquestion-session", context: context)
-        XCTAssertEqual(record["agentLifecycle"] as? String, "needsInput")
+        XCTAssertEqual(record["agentLifecycle"] as? String, "waiting")
         XCTAssertEqual(
             (record["lastBody"] as? String)?.contains("Which color"), true,
             "Expected the saved needs-input body to carry the question text, saw \(record["lastBody"] ?? "nil")"
@@ -284,7 +366,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         XCTAssertTrue(
             context.state.commands.contains {
-                $0.hasPrefix("set_agent_lifecycle claude_code needsInput --tab=\(context.workspaceId)")
+                $0.hasPrefix("set_agent_lifecycle claude_code waiting --tab=\(context.workspaceId)")
             },
             "AskUserQuestion PreToolUse must drive Needs input in every mode, saw \(context.state.commands)"
         )
@@ -531,7 +613,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         XCTAssertFalse(
             context.state.commands.contains {
-                $0.hasPrefix("set_status claude_code Idle ") && $0.contains("--tab=\(context.workspaceId)")
+                $0.hasPrefix("set_status claude_code Completed ") && $0.contains("--tab=\(context.workspaceId)")
             },
             "Expected stale Stop from old session not to clobber the clear session, saw \(context.state.commands)"
         )
@@ -1776,7 +1858,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "Parent Codex Stop should still notify, saw \(parentStopCommands)"
         )
         XCTAssertTrue(
-            parentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            parentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Completed ") },
             "Parent Codex Stop should mark Codex idle, saw \(parentStopCommands)"
         )
     }
@@ -1826,7 +1908,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let notificationCommands = Array(context.state.commands.dropFirst(notificationStart))
         XCTAssertTrue(
             notificationCommands.contains {
-                $0.hasPrefix("set_agent_lifecycle codex needsInput --tab=\(context.workspaceId)")
+                $0.hasPrefix("set_agent_lifecycle codex waiting --tab=\(context.workspaceId)")
                     && $0.contains("--panel=\(context.surfaceId)")
             },
             "Notification requiring user input must correct the visible lifecycle, saw \(notificationCommands)"
@@ -1835,7 +1917,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
         sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
         record = try XCTUnwrap(sessions[sessionId] as? [String: Any])
-        XCTAssertEqual(record["agentLifecycle"] as? String, "needsInput")
+        XCTAssertEqual(record["agentLifecycle"] as? String, "waiting")
     }
 
     func testGenericAgentStaleIdleStopDoesNotOverwriteNewerRunningLifecycle() throws {
@@ -1878,11 +1960,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let staleStopCommands = Array(context.state.commands.dropFirst(staleStopStart))
         XCTAssertFalse(
-            staleStopCommands.contains { $0.hasPrefix("set_agent_lifecycle codex idle ") },
+            staleStopCommands.contains { $0.hasPrefix("set_agent_lifecycle codex completed ") },
             "A stale Stop from an older session must not mark the surface idle, saw \(staleStopCommands)"
         )
         XCTAssertFalse(
-            staleStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            staleStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Completed ") },
             "A stale Stop from an older session must not replace the newer Running status, saw \(staleStopCommands)"
         )
         XCTAssertFalse(
@@ -1938,11 +2020,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let staleNotificationCommands = Array(context.state.commands.dropFirst(staleNotificationStart))
         XCTAssertFalse(
-            staleNotificationCommands.contains { $0.hasPrefix("set_agent_lifecycle codex idle ") },
+            staleNotificationCommands.contains { $0.hasPrefix("set_agent_lifecycle codex completed ") },
             "A stale idle notification must not mark the newer session idle, saw \(staleNotificationCommands)"
         )
         XCTAssertFalse(
-            staleNotificationCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            staleNotificationCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Completed ") },
             "A stale idle notification must not replace the newer Running status, saw \(staleNotificationCommands)"
         )
         XCTAssertFalse(
@@ -2014,7 +2096,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "The parent Stop must still notify after a legacy child Stop without a turn_id, saw \(parentStopCommands)"
         )
         XCTAssertTrue(
-            parentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            parentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Completed ") },
             "The parent Stop must still mark Codex idle after a legacy child Stop without a turn_id, saw \(parentStopCommands)"
         )
     }
@@ -2089,7 +2171,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "The generic parent Stop must still notify after its nested child, saw \(parentStopCommands)"
         )
         XCTAssertTrue(
-            parentStopCommands.contains { $0.hasPrefix("set_status gemini ") && $0.contains(" Idle ") },
+            parentStopCommands.contains { $0.hasPrefix("set_status gemini ") && $0.contains(" Completed ") },
             "The generic parent Stop must still mark Gemini idle, saw \(parentStopCommands)"
         )
     }
@@ -2194,7 +2276,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "The parent Stop must still notify after mixed anonymous depth, saw \(parentStopCommands)"
         )
         XCTAssertTrue(
-            parentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            parentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Completed ") },
             "The parent Stop must still mark Codex idle after mixed anonymous depth, saw \(parentStopCommands)"
         )
     }
@@ -2255,7 +2337,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "The parent Stop must still notify after a child Stop supplies a new turn_id, saw \(parentStopCommands)"
         )
         XCTAssertTrue(
-            parentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            parentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Completed ") },
             "The parent Stop must still mark Codex idle after a child Stop supplies a new turn_id, saw \(parentStopCommands)"
         )
     }
@@ -2308,7 +2390,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "A stale prompt depth from an interrupted prior turn must not suppress the current top-level completion notification, saw \(stopCommands)"
         )
         XCTAssertTrue(
-            stopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            stopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Completed ") },
             "A stale prompt depth from an interrupted prior turn must not leave Codex marked running, saw \(stopCommands)"
         )
     }
@@ -2374,7 +2456,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "A late terminal prior turn must not suppress the current top-level completion notification, saw \(currentStopCommands)"
         )
         XCTAssertTrue(
-            currentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            currentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Completed ") },
             "A late terminal prior turn must not leave Codex marked running after the current Stop, saw \(currentStopCommands)"
         )
     }
@@ -2811,7 +2893,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "The depth-only parent Stop must notify after its child turn stops, saw \(parentStopCommands)"
         )
         XCTAssertTrue(
-            parentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            parentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Completed ") },
             "The depth-only parent Stop must mark Codex idle, saw \(parentStopCommands)"
         )
     }
@@ -3142,7 +3224,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "A Stop after a missed prompt-submit must clear terminal stale turns and notify, saw \(currentStopCommands)"
         )
         XCTAssertTrue(
-            currentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            currentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Completed ") },
             "A Stop after a missed prompt-submit must mark Codex idle, saw \(currentStopCommands)"
         )
     }
@@ -3205,7 +3287,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "A missed prompt-submit Stop must clear a fully terminal stored stack and notify, saw \(currentStopCommands)"
         )
         XCTAssertTrue(
-            currentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            currentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Completed ") },
             "A missed prompt-submit Stop must clear a fully terminal stored stack and mark Codex idle, saw \(currentStopCommands)"
         )
     }

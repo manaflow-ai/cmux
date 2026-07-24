@@ -82,6 +82,12 @@ struct FeedEventClassificationTests {
         #expect(classify("claude", "PermissionRequest", tool: "AskUserQuestion").name == "AskUserQuestion")
     }
 
+    @Test func claudeStopFailureMapsToStopTelemetry() {
+        let stopFailure = classify("claude", "StopFailure")
+        #expect(stopFailure.name == "Stop")
+        #expect(stopFailure.actionable == false)
+    }
+
     @Test func claudeLifecycleFeedEventsStayTelemetryAndPreserveNames() {
         for event in ["PostToolUse", "PreCompact", "PostCompact", "SubagentStart", "SubagentStop"] {
             let classification = classify("claude", event, tool: "Bash")

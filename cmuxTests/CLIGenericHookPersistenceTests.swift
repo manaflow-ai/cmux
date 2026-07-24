@@ -369,7 +369,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Antigravity Stop with active background work should keep the session running, saw \(backgroundStopCommands)"
         )
         XCTAssertFalse(
-            backgroundStopCommands.contains { $0.contains("set_status antigravity Idle") },
+            backgroundStopCommands.contains { $0.contains("set_status antigravity Completed") },
             "Antigravity Stop with active background work must not mark idle, saw \(backgroundStopCommands)"
         )
 
@@ -388,7 +388,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Idle-classified Antigravity notifications must not double-notify while background work is active, saw \(backgroundDuplicateCommands)"
         )
         XCTAssertFalse(
-            backgroundDuplicateCommands.contains { $0.contains("set_status antigravity Idle") },
+            backgroundDuplicateCommands.contains { $0.contains("set_status antigravity Completed") },
             "Idle-classified Antigravity notifications must not override the running status while background work is active, saw \(backgroundDuplicateCommands)"
         )
 
@@ -424,7 +424,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Antigravity idle notifications without fullyIdle must publish instead of staying suppressed, saw \(missingFullyIdleNotificationCommands)"
         )
         XCTAssertFalse(
-            missingFullyIdleNotificationCommands.contains { $0.contains("set_status antigravity Idle") },
+            missingFullyIdleNotificationCommands.contains { $0.contains("set_status antigravity Completed") },
             "Antigravity idle notifications must not reset the shared status while another background session is running, saw \(missingFullyIdleNotificationCommands)"
         )
 
@@ -447,7 +447,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Expected Antigravity stop to publish a turn-completion notification, saw \(stopCommands)"
         )
         XCTAssertTrue(
-            stopCommands.contains { $0.contains("set_status antigravity Idle") },
+            stopCommands.contains { $0.contains("set_status antigravity Completed") },
             "Expected Antigravity stop to leave the session idle, saw \(stopCommands)"
         )
 
@@ -628,7 +628,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Expected Hermes completion notification to use extra.assistant_response, saw \(stopCommands)"
         )
         XCTAssertTrue(
-            stopCommands.contains { $0.contains("set_status hermes-agent Idle") },
+            stopCommands.contains { $0.contains("set_status hermes-agent Completed") },
             "Expected Hermes completion to leave status idle, saw \(stopCommands)"
         )
 
@@ -1413,7 +1413,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Grok Stop should not publish a generic completion notification; Notification carries the real message. Saw \(stopCommands)"
         )
         XCTAssertTrue(
-            stopCommands.contains { $0.contains("set_status grok Idle") },
+            stopCommands.contains { $0.contains("set_status grok Completed") },
             "Expected Grok Stop to keep task-manager status idle, saw \(stopCommands)"
         )
 
@@ -1434,7 +1434,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Expected Grok Notification to forward the payload message, saw \(notificationCommands)"
         )
         XCTAssertTrue(
-            notificationCommands.contains { $0.contains("set_status grok Idle") },
+            notificationCommands.contains { $0.contains("set_status grok Completed") },
             "Expected completion notification to leave Grok idle, saw \(notificationCommands)"
         )
 
@@ -1478,7 +1478,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Grok generic completion notifications should still fire before there is an assistant response, saw \(preAssistantGenericCommands)"
         )
         XCTAssertTrue(
-            preAssistantGenericCommands.contains { $0.contains("set_status grok Idle") },
+            preAssistantGenericCommands.contains { $0.contains("set_status grok Completed") },
             "Expected generic completion without an assistant response to leave Grok idle, saw \(preAssistantGenericCommands)"
         )
         json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
@@ -1521,7 +1521,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Expected Grok Stop fallback to publish the cwd-scoped assistant response when Grok only emits internal Notification events, saw \(enrichedStopCommands)"
         )
         XCTAssertTrue(
-            enrichedStopCommands.contains { $0.contains("set_status grok Idle") },
+            enrichedStopCommands.contains { $0.contains("set_status grok Completed") },
             "Expected enriched Grok Stop to leave Grok idle, saw \(enrichedStopCommands)"
         )
 
@@ -1642,7 +1642,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Grok completion Notification must not double-notify after Stop fallback already published the completion, saw \(genericCompletionCommands)"
         )
         XCTAssertTrue(
-            genericCompletionCommands.contains { $0.contains("set_status grok Idle") },
+            genericCompletionCommands.contains { $0.contains("set_status grok Completed") },
             "Expected enriched completion notification to leave Grok idle, saw \(genericCompletionCommands)"
         )
 
@@ -1759,7 +1759,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Grok completion notifications must not read another cwd's latest session, saw \(scopedMissCommands)"
         )
         XCTAssertTrue(
-            scopedMissCommands.contains { $0.contains("set_status grok Idle") },
+            scopedMissCommands.contains { $0.contains("set_status grok Completed") },
             "Expected scoped completion without transcript to leave Grok idle, saw \(scopedMissCommands)"
         )
 
@@ -2054,12 +2054,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             )
             if thread.index == 1 {
                 XCTAssertFalse(
-                    stopCommands.contains { $0.contains("set_status grok Idle") },
+                    stopCommands.contains { $0.contains("set_status grok Completed") },
                     "First Grok thread must not reset shared status while thread 2 is still running, saw \(stopCommands)"
                 )
             } else {
                 XCTAssertTrue(
-                    stopCommands.contains { $0.contains("set_status grok Idle") },
+                    stopCommands.contains { $0.contains("set_status grok Completed") },
                     "Expected final Grok Stop to leave Grok idle, saw \(stopCommands)"
                 )
             }
@@ -2165,7 +2165,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Expected Grok Stop without cwd to notify with a generic completion body, saw \(stopCommands)"
         )
         XCTAssertTrue(
-            stopCommands.contains { $0.contains("set_status grok Idle") },
+            stopCommands.contains { $0.contains("set_status grok Completed") },
             "Expected Grok Stop without cwd to leave Grok idle, saw \(stopCommands)"
         )
 
@@ -2277,7 +2277,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "Expected Grok completion notification for prompt \(index), saw \(notificationCommands)"
             )
             XCTAssertTrue(
-                notificationCommands.contains { $0.contains("set_status grok Idle") },
+                notificationCommands.contains { $0.contains("set_status grok Completed") },
                 "Expected Grok completion for prompt \(index) to leave Grok idle, saw \(notificationCommands)"
             )
         }
@@ -2426,7 +2426,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "Expected Grok completion notification for chat message \(index), saw \(notificationCommands)"
             )
             XCTAssertTrue(
-                notificationCommands.contains { $0.contains("set_status grok Idle") },
+                notificationCommands.contains { $0.contains("set_status grok Completed") },
                 "Expected Grok completion for chat message \(index) to leave Grok idle, saw \(notificationCommands)"
             )
 
@@ -2595,7 +2595,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Expected completing Grok session to notify its own surface, saw \(completionCommands)"
         )
         XCTAssertFalse(
-            completionCommands.contains { $0.contains("set_status grok Idle") },
+            completionCommands.contains { $0.contains("set_status grok Completed") },
             "Completing Grok session must not reset the shared Grok status while a sibling session is running, saw \(completionCommands)"
         )
     }
@@ -2691,7 +2691,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(completion.stdout, "{}\n")
 
         XCTAssertTrue(
-            state.commands.contains { $0.contains("set_status grok Idle") },
+            state.commands.contains { $0.contains("set_status grok Completed") },
             "Dead PID running records must not keep the shared Grok status running, saw \(state.commands)"
         )
 
