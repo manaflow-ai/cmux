@@ -273,6 +273,28 @@ where
     reader.poll(timeout, filter)
 }
 
+/// Polls and consumes one matching internal event while holding the reader lock,
+/// so a successful bounded poll cannot turn into an unbounded second wait.
+pub(crate) fn poll_read_internal<F>(
+    timeout: Option<Duration>,
+    filter: &F,
+) -> std::io::Result<Option<InternalEvent>>
+where
+    F: Filter,
+{
+    let (mut reader, timeout) = if let Some(timeout) = timeout {
+        let poll_timeout = PollTimeout::new(Some(timeout));
+        if let Some(reader) = try_lock_internal_event_reader_for(timeout) {
+            (reader, poll_timeout.leftover())
+        } else {
+            return Ok(None);
+        }
+    } else {
+        (lock_internal_event_reader(), None)
+    };
+    reader.poll_read(timeout, filter)
+}
+
 /// Reads a single `InternalEvent`.
 pub(crate) fn read_internal<F>(filter: &F) -> std::io::Result<InternalEvent>
 where

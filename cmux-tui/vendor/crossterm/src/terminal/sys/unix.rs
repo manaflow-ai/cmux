@@ -209,10 +209,10 @@ fn query_keyboard_enhancement_flags_nonraw() -> io::Result<Option<KeyboardEnhanc
 fn query_keyboard_enhancement_flags_raw() -> io::Result<Option<KeyboardEnhancementFlags>> {
     use crate::event::{
         filter::{KeyboardEnhancementFlagsFilter, PrimaryDeviceAttributesFilter},
-        poll_internal, read_internal, InternalEvent,
+        InternalEvent,
     };
     use std::io::Write;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     // This is the recommended method for testing support for the keyboard enhancement protocol.
     // We send a query for the flags supported by the terminal and then the primary device attributes
@@ -224,6 +224,8 @@ fn query_keyboard_enhancement_flags_raw() -> io::Result<Option<KeyboardEnhanceme
     // ESC [ ? u        Query progressive keyboard enhancement flags (kitty protocol).
     // ESC [ c          Query primary device attributes.
     const QUERY: &[u8] = b"\x1B[?u\x1B[c";
+    const RESPONSE_TIMEOUT: Duration = Duration::from_millis(2000);
+    let deadline = Instant::now() + RESPONSE_TIMEOUT;
 
     let result = File::open("/dev/tty").and_then(|mut file| {
         file.write_all(QUERY)?;
@@ -235,27 +237,33 @@ fn query_keyboard_enhancement_flags_raw() -> io::Result<Option<KeyboardEnhanceme
         stdout.flush()?;
     }
 
-    loop {
-        match poll_internal(Some(Duration::from_millis(2000)), &KeyboardEnhancementFlagsFilter) {
-            Ok(true) => {
-                match read_internal(&KeyboardEnhancementFlagsFilter) {
-                    Ok(InternalEvent::KeyboardEnhancementFlags(current_flags)) => {
-                        // Flush the PrimaryDeviceAttributes out of the event queue.
-                        read_internal(&PrimaryDeviceAttributesFilter).ok();
-                        return Ok(Some(current_flags));
-                    }
-                    _ => return Ok(None),
-                }
+    match next_keyboard_query_response(deadline, &KeyboardEnhancementFlagsFilter)? {
+        InternalEvent::PrimaryDeviceAttributes => Ok(None),
+        InternalEvent::KeyboardEnhancementFlags(current_flags) => {
+            match next_keyboard_query_response(deadline, &PrimaryDeviceAttributesFilter)? {
+                InternalEvent::PrimaryDeviceAttributes => Ok(Some(current_flags)),
+                _ => unreachable!("primary device attribute filter returned another event"),
             }
-            Ok(false) => {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    "The keyboard enhancement status could not be read within a normal duration",
-                ));
-            }
-            Err(_) => {}
         }
+        _ => unreachable!("keyboard enhancement filter returned another event"),
     }
+}
+
+#[cfg(feature = "events")]
+fn next_keyboard_query_response(
+    deadline: std::time::Instant,
+    filter: &impl crate::event::filter::Filter,
+) -> io::Result<crate::event::InternalEvent> {
+    let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+    crate::event::poll_read_internal(Some(remaining), filter)?.ok_or_else(keyboard_query_timeout)
+}
+
+#[cfg(feature = "events")]
+fn keyboard_query_timeout() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::TimedOut,
+        "The keyboard enhancement status could not be read within a normal duration",
+    )
 }
 
 /// execute tput with the given argument and parse

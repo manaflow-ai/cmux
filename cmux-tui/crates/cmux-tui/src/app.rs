@@ -3956,7 +3956,7 @@ pub fn run_with_machine_updates(
         let _guard = stdout_lock.lock().unwrap();
         let mut stdout = std::io::stdout();
         stdout.execute(EnterAlternateScreen)?;
-        host_keyboard_protocol = negotiate_host_keyboard_protocol(&mut stdout)?;
+        negotiate_host_keyboard_protocol(&mut stdout, &mut host_keyboard_protocol)?;
         stdout.execute(EnableMouseCapture)?;
         // Ask the host terminal to report Shift-modified mouse events so
         // Shift remains cmux's selection/context-menu escape while the inner
@@ -4173,25 +4173,29 @@ fn enable_host_keyboard_protocol(
 
 fn negotiate_host_keyboard_protocol(
     stdout: &mut impl Write,
-) -> std::io::Result<HostKeyboardProtocolOwnership> {
-    negotiate_host_keyboard_protocol_with(stdout, query_keyboard_enhancement_flags)
+    ownership: &mut HostKeyboardProtocolOwnership,
+) -> std::io::Result<()> {
+    negotiate_host_keyboard_protocol_with(stdout, ownership, query_keyboard_enhancement_flags)
 }
 
 fn negotiate_host_keyboard_protocol_with(
     stdout: &mut impl Write,
+    ownership: &mut HostKeyboardProtocolOwnership,
     query: impl FnOnce() -> std::io::Result<Option<KeyboardEnhancementFlags>>,
-) -> std::io::Result<HostKeyboardProtocolOwnership> {
-    let ownership = enable_host_keyboard_protocol(stdout)?;
+) -> std::io::Result<()> {
+    *ownership = enable_host_keyboard_protocol(stdout)?;
     if !ownership.pushed {
-        return Ok(ownership);
+        return Ok(());
     }
 
-    if keyboard_protocol_accepts(HOST_KEYBOARD_FLAGS, query().unwrap_or(None)) {
-        return Ok(HostKeyboardProtocolOwnership { enhanced_input: true, ..ownership });
+    if keyboard_protocol_accepts(HOST_KEYBOARD_FLAGS, query().ok().flatten()) {
+        ownership.enhanced_input = true;
+        return Ok(());
     }
 
-    disable_host_keyboard_protocol(stdout, ownership)?;
-    Ok(HostKeyboardProtocolOwnership::default())
+    disable_host_keyboard_protocol(stdout, *ownership)?;
+    *ownership = HostKeyboardProtocolOwnership::default();
+    Ok(())
 }
 
 fn disable_host_keyboard_protocol(
@@ -11024,8 +11028,9 @@ mod tests {
             | KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES
             | KeyboardEnhancementFlags::REPORT_ASSOCIATED_TEXT;
 
-        let ownership =
-            negotiate_host_keyboard_protocol_with(&mut output, || Ok(Some(accepted))).unwrap();
+        let mut ownership = super::HostKeyboardProtocolOwnership::default();
+        negotiate_host_keyboard_protocol_with(&mut output, &mut ownership, || Ok(Some(accepted)))
+            .unwrap();
         assert!(ownership.pushed);
         assert!(ownership.enhanced_input);
         disable_host_keyboard_protocol(&mut output, ownership).unwrap();
@@ -11076,11 +11081,56 @@ mod tests {
         let accepted = KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
             | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS;
 
-        let ownership =
-            negotiate_host_keyboard_protocol_with(&mut output, || Ok(Some(accepted))).unwrap();
+        let mut ownership = super::HostKeyboardProtocolOwnership::default();
+        negotiate_host_keyboard_protocol_with(&mut output, &mut ownership, || Ok(Some(accepted)))
+            .unwrap();
 
         assert_eq!(ownership, super::HostKeyboardProtocolOwnership::default());
         assert_eq!(output, b"\x1b[>29u\x1b[<1u");
+    }
+
+    #[test]
+    fn failed_host_keyboard_query_is_popped_before_legacy_fallback() {
+        let mut output = Vec::new();
+        let mut ownership = super::HostKeyboardProtocolOwnership::default();
+
+        negotiate_host_keyboard_protocol_with(&mut output, &mut ownership, || {
+            Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "missing DA1"))
+        })
+        .unwrap();
+
+        assert_eq!(ownership, super::HostKeyboardProtocolOwnership::default());
+        assert_eq!(output, b"\x1b[>29u\x1b[<1u");
+    }
+
+    #[test]
+    fn failed_keyboard_pop_keeps_cleanup_ownership_for_terminal_restore() {
+        struct RejectPop(Vec<u8>);
+
+        impl std::io::Write for RejectPop {
+            fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+                if buffer.contains(&b'<') {
+                    return Err(std::io::Error::from(std::io::ErrorKind::BrokenPipe));
+                }
+                self.0.extend_from_slice(buffer);
+                Ok(buffer.len())
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let mut output = RejectPop(Vec::new());
+        let mut ownership = super::HostKeyboardProtocolOwnership::default();
+        let error = negotiate_host_keyboard_protocol_with(&mut output, &mut ownership, || {
+            Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "missing DA1"))
+        })
+        .unwrap_err();
+
+        assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe);
+        assert!(ownership.pushed);
+        assert!(!ownership.enhanced_input);
     }
 
     #[test]

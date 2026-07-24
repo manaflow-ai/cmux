@@ -94,6 +94,21 @@ impl InternalEventReader {
         }
     }
 
+    pub(crate) fn poll_read<F>(
+        &mut self,
+        timeout: Option<Duration>,
+        filter: &F,
+    ) -> io::Result<Option<InternalEvent>>
+    where
+        F: Filter,
+    {
+        if self.poll(timeout, filter)? {
+            self.read(filter).map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+
     pub(crate) fn read<F>(&mut self, filter: &F) -> io::Result<InternalEvent>
     where
         F: Filter,
