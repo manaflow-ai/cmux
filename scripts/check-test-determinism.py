@@ -545,6 +545,14 @@ def _javascript_real_sleep_positions(
             else "sleep"
         )
         sleep_offset = match.start() + match.group().rfind(token)
+        if token == "setTimeout" and match.group().lstrip().startswith(
+            "setTimeout"
+        ):
+            previous = sleep_offset - 1
+            while previous >= 0 and text[previous].isspace():
+                previous -= 1
+            if previous >= 0 and text[previous] == ".":
+                continue
         line = text.count("\n", 0, sleep_offset)
         line_start = text.rfind("\n", 0, sleep_offset) + 1
         positions.setdefault(line, set()).add(sleep_offset - line_start)
@@ -754,42 +762,19 @@ class _PythonDeferredBindingCollector(_PythonLocalBindingCollector):
         return result
 
 
-class _PythonLoopBreakFinder(ast.NodeVisitor):
-    """Find breaks owned by one loop without entering nested scopes/loops."""
-
-    def __init__(self) -> None:
-        self.found = False
-
-    def visit_Break(self, node: ast.Break) -> None:
-        self.found = True
-
-    def visit_For(self, node: ast.For) -> None:
-        return
-
-    def visit_AsyncFor(self, node: ast.AsyncFor) -> None:
-        return
-
-    def visit_While(self, node: ast.While) -> None:
-        return
-
-    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-        return
-
-    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
-        return
-
-    def visit_Lambda(self, node: ast.Lambda) -> None:
-        return
-
-    def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        return
-
-
-def _python_block_can_break(body: list[ast.stmt]) -> bool:
-    finder = _PythonLoopBreakFinder()
+def _python_block_may_complete(body: list[ast.stmt]) -> bool:
+    """Return whether a loop body has a path reaching its lexical end."""
     for statement in body:
-        finder.visit(statement)
-    return finder.found
+        if isinstance(statement, ast.Break):
+            return False
+        if (
+            isinstance(statement, ast.If)
+            and statement.orelse
+            and not _python_block_may_complete(statement.body)
+            and not _python_block_may_complete(statement.orelse)
+        ):
+            return False
+    return True
 
 
 def _python_function_bindings(
@@ -842,6 +827,7 @@ class _PythonSleepVisitor(ast.NodeVisitor):
         self.assertion_positions: dict[int, set[int]] = {}
         self.asserted_sleep_positions: dict[int, set[int]] = {}
         self.assertion_depth = 0
+        self.loop_break_states: list[list[dict[str, str]]] = []
 
     def _resolve(self, name: str) -> Optional[str]:
         scope: Optional[_PythonScope] = self.scope
@@ -1180,15 +1166,20 @@ class _PythonSleepVisitor(ast.NodeVisitor):
         if target is not None:
             self._visit_target_expressions(target)
             self._bind_target(target)
+        self.loop_break_states.append([])
         for statement in body:
             self.visit(statement)
-        if _python_block_can_break(body):
+        states.extend(self.loop_break_states.pop())
+        if _python_block_may_complete(body):
+            for statement in orelse:
+                self.visit(statement)
             states.append(self._scope_state())
-        for statement in orelse:
-            self.visit(statement)
-        states.append(self._scope_state())
 
         self._merge_scope_states(states)
+
+    def visit_Break(self, node: ast.Break) -> None:
+        if self.loop_break_states:
+            self.loop_break_states[-1].append(self._scope_state())
 
     def visit_For(self, node: ast.For) -> None:
         self.visit(node.iter)
@@ -1734,12 +1725,11 @@ def _shell_assignment_word_end(line: str, start: int) -> Optional[int]:
     return index
 
 
-def _shell_prefixed_sleep_position(
+def _shell_command_name_position(
     raw_line: str,
-    masked_line: str,
     start: int,
-) -> Optional[int]:
-    """Find a sleep command after shell control/assignment prefix words."""
+) -> int:
+    """Return the command name after shell control/assignment prefixes."""
     index = start
     while True:
         while index < len(raw_line) and raw_line[index].isspace():
@@ -1772,6 +1762,16 @@ def _shell_prefixed_sleep_position(
         if assignment_end is None:
             break
         index = assignment_end
+    return index
+
+
+def _shell_prefixed_sleep_position(
+    raw_line: str,
+    masked_line: str,
+    start: int,
+) -> Optional[int]:
+    """Find a sleep command after shell control/assignment prefix words."""
+    index = _shell_command_name_position(raw_line, start)
 
     if (
         masked_line.startswith("sleep", index)
@@ -1782,6 +1782,22 @@ def _shell_prefixed_sleep_position(
     ):
         return index
     return None
+
+
+def _shell_assertion_is_command_position(
+    line: str,
+    assertion_start: int,
+) -> bool:
+    """Return whether an assertion-looking shell token names a command."""
+    for command_start in _SHELL_COMMAND_START.finditer(line):
+        if command_start.end() > assertion_start:
+            break
+        if (
+            _shell_command_name_position(line, command_start.end())
+            == assertion_start
+        ):
+            return True
+    return False
 
 
 def _shell_function_declaration_at(line: str, sleep_position: int) -> bool:
@@ -2685,6 +2701,15 @@ def _assertion_encloses_sleep(
     return path_suffix == ".py" and ";" not in line[assertion_end:sleep_start]
 
 
+def _is_executable_assertion_line(line: str, path_suffix: str) -> bool:
+    if path_suffix == ".sh":
+        return any(
+            _shell_assertion_is_command_position(line, match.start())
+            for match in _ASSERT_TOKEN.finditer(line)
+        )
+    return _is_assertion_line(line)
+
+
 def detect_sleep_then_assert(
     lines: list[str],
     masked_lines: list[str],
@@ -2727,6 +2752,10 @@ def detect_sleep_then_assert(
     assertions = [
         (match.start(), match.end())
         for match in _ASSERT_TOKEN.finditer(line)
+        if (
+            path_suffix != ".sh"
+            or _shell_assertion_is_command_position(line, match.start())
+        )
     ]
     raise_if = _RAISE_IF.search(line)
     if raise_if is not None:
@@ -2760,7 +2789,10 @@ def detect_sleep_then_assert(
     )
     for end_line, end_column in end_positions:
         closing_line_tail = masked_lines[end_line][end_column:]
-        if _is_assertion_line(closing_line_tail):
+        if _is_executable_assertion_line(
+            closing_line_tail,
+            path_suffix,
+        ):
             return True
         if _LOOP_HEADER.search(closing_line_tail):
             continue
@@ -2777,7 +2809,7 @@ def detect_sleep_then_assert(
             # following assert is inside a poll, not gated solely by the sleep.
             if _LOOP_HEADER.search(nxt):
                 break
-            if _is_assertion_line(nxt):
+            if _is_executable_assertion_line(nxt, path_suffix):
                 return True
     return False
 
