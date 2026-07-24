@@ -258,6 +258,20 @@ export function assetsSeoCopy(
   };
 }
 
+export function wallOfLoveSeoCopy(
+  locale: string,
+  t: SeoMessageLookup,
+) {
+  const title = locale === "en" ? t("metaTitle") : `${t("title")} — cmux`;
+  const description =
+    locale === "en" ? t("metaDescription") : t("description");
+
+  return {
+    title: seoTitle(locale, title, { minLength: 0 }),
+    description: seoDescription(locale, description),
+  };
+}
+
 export function blogIndexSeoCopy(
   locale: string,
   t: SeoMessageLookup,
