@@ -222,17 +222,39 @@ struct SimulatorPanelIntegrationTests {
         defer { panel.close() }
         workspace.panels[panel.id] = panel
         let originalPanelCount = workspace.panels.count
+        let applicationURL = URL(fileURLWithPath: "/tmp/Fixture.app")
+        let unsupportedURL = URL(fileURLWithPath: "/tmp/Fixture.txt")
 
         #expect(workspace.handleSimulatorExternalFileDrop(
-            urls: [URL(fileURLWithPath: "/tmp/Fixture.app")], panelId: panel.id
+            urls: [applicationURL], panelId: panel.id
         ) == false)
+        #expect(TerminalPaneDropTargetView.simulatorFileDropOperation(
+            urls: [applicationURL],
+            workspace: workspace,
+            panelId: panel.id
+        ) == [])
         await panel.coordinator.start()
         #expect(workspace.handleSimulatorExternalFileDrop(
-            urls: [URL(fileURLWithPath: "/tmp/Fixture.app")], panelId: panel.id
+            urls: [applicationURL], panelId: panel.id
         ) == true)
+        #expect(TerminalPaneDropTargetView.simulatorFileDropOperation(
+            urls: [applicationURL],
+            workspace: workspace,
+            panelId: panel.id
+        ) == .copy)
         #expect(workspace.handleSimulatorExternalFileDrop(
-            urls: [URL(fileURLWithPath: "/tmp/Fixture.txt")], panelId: panel.id
+            urls: [unsupportedURL], panelId: panel.id
         ) == false)
+        #expect(TerminalPaneDropTargetView.simulatorFileDropOperation(
+            urls: [unsupportedURL],
+            workspace: workspace,
+            panelId: panel.id
+        ) == [])
+        #expect(TerminalPaneDropTargetView.simulatorFileDropOperation(
+            urls: [],
+            workspace: workspace,
+            panelId: panel.id
+        ) == [])
         #expect(workspace.panels.count == originalPanelCount)
         #expect(workspace.handleSimulatorExternalFileDrop(urls: [], panelId: panel.id) == false)
 
