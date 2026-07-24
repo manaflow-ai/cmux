@@ -146,6 +146,7 @@ extension SimulatorWorkerClientTests {
             first.sharedMemoryName,
             second.sharedMemoryName,
         ])
+        let inboundCountBeforeAdoption = endpoint.inboundMessages().count
         await client.acknowledgeFrameTransportAdoption(first)
         #expect(await client.frameTransportSharedMemoryNames == [
             first.sharedMemoryName,
@@ -153,6 +154,7 @@ extension SimulatorWorkerClientTests {
         ])
         await client.acknowledgeFrameTransportAdoption(second)
         #expect(await client.frameTransportSharedMemoryNames == [second.sharedMemoryName])
+        #expect(endpoint.inboundMessages().count == inboundCountBeforeAdoption + 1)
         await client.stop()
     }
 

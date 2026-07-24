@@ -39,6 +39,44 @@ struct SimulatorRemoteSurfaceLifecycleTests {
         ) == 0xFF_12_34_56)
     }
 
+    @Test("An ordered-out host window stops polling for frames")
+    func orderedOutWindowStopsPolling() async throws {
+        let source = SequencedSimulatorFrameSurfaceSource(snapshot: simulatorFrameSnapshot(
+            pixel: 0xFF_12_34_56,
+            sequence: 1
+        ))
+        let view = SimulatorRemoteSurfaceView(frameSourceFactory: { _ in source })
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 900))
+        let window = NSWindow(
+            contentRect: root.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = root
+        view.frame = root.bounds
+        root.addSubview(view)
+        view.update(
+            frameTransport: simulatorFrameTransportDescriptor(51),
+            display: simulatorTestDisplay,
+            chrome: nil
+        )
+        try await waitUntil {
+            source.copyCount == 1
+                && simulatorFrameImageFirstPixel(view.frameLayer?.contents) == 0xFF_12_34_56
+        }
+
+        source.publish(simulatorFrameSnapshot(
+            pixel: 0xFF_65_43_21,
+            sequence: 2
+        ))
+        try await Task.sleep(for: .milliseconds(100))
+
+        #expect(!window.isVisible)
+        #expect(source.copyCount == 1)
+        withExtendedLifetime(window) {}
+    }
+
     @Test("The frame layer never presents worker-shared IOSurfaces")
     func frameLayerPresentsOnlyHostOwnedImages() async throws {
         let input = try #require(IOSurfaceCreate([
@@ -415,5 +453,40 @@ struct SimulatorRemoteSurfaceLifecycleTests {
             try await clock.sleep(for: .milliseconds(1))
         }
         Issue.record("Condition did not become true before the deadline")
+    }
+}
+
+private final class SequencedSimulatorFrameSurfaceSource:
+    SimulatorFrameSurfaceReading,
+    @unchecked Sendable
+{
+    private let lock = NSLock()
+    private var snapshot: SimulatorFrameSnapshot
+    private var copies = 0
+
+    init(snapshot: SimulatorFrameSnapshot) {
+        self.snapshot = snapshot
+    }
+
+    var copyCount: Int {
+        lock.withLock { copies }
+    }
+
+    func publish(_ snapshot: SimulatorFrameSnapshot) {
+        lock.withLock { self.snapshot = snapshot }
+    }
+
+    func hasPublishedFrame(after sequence: UInt64?) -> Bool {
+        lock.withLock {
+            sequence.map { snapshot.sequence > $0 } ?? true
+        }
+    }
+
+    func copyLatestFrame(after sequence: UInt64?) async -> SimulatorFrameSnapshot? {
+        lock.withLock {
+            guard sequence.map({ snapshot.sequence > $0 }) ?? true else { return nil }
+            copies += 1
+            return snapshot
+        }
     }
 }
