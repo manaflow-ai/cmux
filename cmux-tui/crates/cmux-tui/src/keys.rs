@@ -535,6 +535,23 @@ mod tests {
     }
 
     #[test]
+    fn unsupported_kitty_modifiers_fail_closed_for_terminal_input() {
+        for modifier in [KeyModifiers::HYPER, KeyModifiers::META] {
+            let event = EnhancedKeyEvent {
+                key_event: KeyEvent::new(KeyCode::Char('x'), modifier),
+                shifted_key: None,
+                base_layout_key: Some('x'),
+                text: "x".to_string(),
+            };
+
+            assert!(
+                key_input_from_enhanced(&event).is_none(),
+                "{modifier:?} must not be downgraded to an unmodified key"
+            );
+        }
+    }
+
+    #[test]
     fn option_generated_text_keeps_associated_text_in_kitty_mode() {
         let event = EnhancedKeyEvent {
             key_event: KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT),

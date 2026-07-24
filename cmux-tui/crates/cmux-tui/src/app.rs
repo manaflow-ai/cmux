@@ -11234,6 +11234,35 @@ mod tests {
     }
 
     #[test]
+    fn browser_preserves_meta_on_associated_key_events() {
+        let mux = Mux::new("browser-meta-associated-text-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let (dispatcher, blocked) = BrowserInputDispatcher::blocked(1);
+        app.browser_input = dispatcher;
+        let input = crate::keys::KeyboardInput::from(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('j'), KeyModifiers::META),
+            shifted_key: None,
+            base_layout_key: Some('j'),
+            text: "j".to_string(),
+        });
+
+        app.forward_browser_key_to(7, SurfaceHandle::RemoteBrowserUnsupported, &input);
+
+        let event = blocked.recv_timeout(Duration::from_secs(1));
+        assert!(matches!(
+            event.kind,
+            BrowserInputKind::Key {
+                event_type: "keyDown",
+                ref key,
+                ref code,
+                windows_virtual_key_code: 74,
+                modifiers: 4,
+                text: None,
+            } if key == "j" && code == "KeyJ"
+        ));
+    }
+
+    #[test]
     fn zero_width_startup_hides_sidebar_without_panicking() {
         let config = Config::default();
         let layout = sidebar_layout_for(&config, true, false, (0, 24), None, None);
