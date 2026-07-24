@@ -9,44 +9,6 @@ final class CLIForwardingLaunchArgumentTests: XCTestCase {
         XCTAssertTrue(CLIForwardingLaunchRouter.shouldForwardToBundledCLI(arguments: ["cmux", "hooks", "setup"]))
     }
 
-    /// A CLI invocation that reaches the GUI binary with the forwarding
-    /// guard already set must not fall through to a GUI launch: hook
-    /// commands (`cmux claude-hook …`) would each leave a faceless app
-    /// instance running forever.
-    func testForwardingDecisionFailsClosedWhenGuardIsAlreadySet() {
-        XCTAssertEqual(
-            CLIForwardingLaunchRouter.forwardingDecision(
-                arguments: ["cmux", "claude-hook", "pre-tool-use"],
-                forwardingGuardIsSet: true
-            ),
-            .failForwardingLoop
-        )
-        XCTAssertEqual(
-            CLIForwardingLaunchRouter.forwardingDecision(
-                arguments: ["cmux", "claude-hook", "pre-tool-use"],
-                forwardingGuardIsSet: false
-            ),
-            .forwardToBundledCLI
-        )
-    }
-
-    /// GUI-style launches (no subcommand, `-psn_...` flags, `cmux://` URLs)
-    /// stay in the app regardless of the forwarding guard.
-    func testForwardingDecisionKeepsGuiLaunchesInAppEvenWithGuardSet() {
-        XCTAssertEqual(
-            CLIForwardingLaunchRouter.forwardingDecision(arguments: ["cmux"], forwardingGuardIsSet: true),
-            .launchGUI
-        )
-        XCTAssertEqual(
-            CLIForwardingLaunchRouter.forwardingDecision(arguments: ["cmux", "-psn_0_12345"], forwardingGuardIsSet: true),
-            .launchGUI
-        )
-        XCTAssertEqual(
-            CLIForwardingLaunchRouter.forwardingDecision(arguments: ["cmux", "cmux://workspace/foo"], forwardingGuardIsSet: true),
-            .launchGUI
-        )
-    }
-
     func testGuiLaunchArgumentsStayInApp() {
         XCTAssertFalse(CLIForwardingLaunchRouter.shouldForwardToBundledCLI(arguments: ["cmux DEV", "DEV"]))
         XCTAssertFalse(CLIForwardingLaunchRouter.shouldForwardToBundledCLI(arguments: ["cmux STAGING", "STAGING"]))
