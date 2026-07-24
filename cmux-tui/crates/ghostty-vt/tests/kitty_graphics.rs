@@ -313,6 +313,24 @@ fn replay_aliases_follow_generation_order_and_exclude_omitted_images() {
 }
 
 #[test]
+fn replay_preserves_an_inflight_chunked_transmission_until_its_final_chunk() {
+    let mut source = terminal();
+    source.vt_write(&kitty("a=t,t=d,f=24,i=92,s=1,v=2,m=1,q=2", "////"));
+    assert!(source.kitty_graphics_snapshot().unwrap().image(92).is_none());
+
+    let replay = source.vt_replay().unwrap();
+    let mut mirror = terminal();
+    mirror.vt_write(&replay.bytes);
+    mirror.restore_kitty_image_aliases(&replay.kitty_image_aliases).unwrap();
+
+    let final_chunk = kitty("m=0,q=2", "////");
+    source.vt_write(&final_chunk);
+    mirror.vt_write(&final_chunk);
+    assert_eq!(&*source.kitty_graphics_snapshot().unwrap().image(92).unwrap().data, &[255; 6]);
+    assert_eq!(&*mirror.kitty_graphics_snapshot().unwrap().image(92).unwrap().data, &[255; 6]);
+}
+
+#[test]
 fn storage_limit_bounds_retained_pixel_data() {
     let mut terminal = terminal();
     terminal.set_kitty_image_storage_limit(8).unwrap();

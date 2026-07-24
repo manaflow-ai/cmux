@@ -1102,6 +1102,52 @@ fn byte_attach_between_transmit_and_place_keeps_the_unplaced_image() {
 }
 
 #[test]
+fn attach_resize_replay_preserves_an_inflight_kitty_transmission() {
+    let mux = Mux::new(unique_session("test-attach-inflight-kitty"), shell_opts("cat"));
+    let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
+    surface
+        .try_with_terminal(|terminal| {
+            terminal.vt_write(b"\x1b_Ga=t,t=d,f=24,i=79,s=1,v=2,m=1,q=2;////\x1b\\");
+        })
+        .unwrap();
+
+    let attach = surface.attach_stream().unwrap();
+    let mut initial =
+        ghostty_vt::Terminal::new(attach.cols, attach.rows, 1000, ghostty_vt::Callbacks::default())
+            .unwrap();
+    initial.vt_write(&attach.replay);
+    initial.restore_kitty_image_aliases(&attach.kitty_image_aliases).unwrap();
+
+    mux.resize_surface(surface.id, 21, 4).unwrap();
+    let (cols, rows, replay, aliases) = match attach.stream.recv_timeout(Duration::from_secs(2)) {
+        Ok(AttachFrame::Resized { cols, rows, replay, kitty_image_aliases, .. }) => {
+            (cols, rows, replay, kitty_image_aliases)
+        }
+        other => panic!("missing ordered resize replay: {other:?}"),
+    };
+    let mut resized =
+        ghostty_vt::Terminal::new(cols, rows, 1000, ghostty_vt::Callbacks::default()).unwrap();
+    resized.vt_write(&replay);
+    resized.restore_kitty_image_aliases(&aliases).unwrap();
+
+    let final_chunk = b"\x1b_Gm=0,q=2;////\x1b\\";
+    surface.try_with_terminal(|terminal| terminal.vt_write(final_chunk)).unwrap();
+    initial.vt_write(final_chunk);
+    resized.vt_write(final_chunk);
+    assert_eq!(
+        &*surface
+            .try_with_terminal(|terminal| {
+                terminal.kitty_graphics_snapshot().unwrap().image(79).unwrap().data.clone()
+            })
+            .unwrap(),
+        &[255; 6]
+    );
+    assert_eq!(&*initial.kitty_graphics_snapshot().unwrap().image(79).unwrap().data, &[255; 6]);
+    assert_eq!(&*resized.kitty_graphics_snapshot().unwrap().image(79).unwrap().data, &[255; 6]);
+    mux.close_surface(surface.id);
+}
+
+#[test]
 fn render_attach_snapshot_contains_preexisting_kitty_image() {
     let mux = Mux::new(unique_session("test-render-attach-kitty"), shell_opts("cat"));
     let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
