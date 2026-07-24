@@ -161,8 +161,9 @@ extension Workspace {
             rememberTerminalConfigInheritanceSource(mainTerminalPanel)
             return
         }
-        if let fallbackTerminalPanel = changedTerminalPanels.first {
-            rememberTerminalFontSizeLineageForConfigInheritance(fallbackTerminalPanel)
+        if let fallbackTerminalPanel = changedTerminalPanels.first,
+           let fallbackLineage = fallbackTerminalPanel.surface.fontSizeLineageSnapshot() {
+            rememberTerminalFontSizeLineageForConfigInheritance(fallbackLineage)
         }
     }
 }
