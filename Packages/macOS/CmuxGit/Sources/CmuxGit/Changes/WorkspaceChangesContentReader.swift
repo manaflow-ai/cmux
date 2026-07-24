@@ -5,9 +5,14 @@ internal import UniformTypeIdentifiers
 
 /// Reads authorized content and derives fingerprints from the same filesystem metadata.
 struct WorkspaceChangesContentReader: Sendable {
+    private let regularFileOpener = WorkspaceChangesRegularFileOpener()
+
     /// Reads artifact metadata and its size-and-mtime fingerprint.
     func stat(repoRoot: String, relativePath: String) throws -> WorkspaceChangesFileStat {
-        let openedFile = try openRegularFile(repoRoot: repoRoot, relativePath: relativePath)
+        let openedFile = try regularFileOpener.open(
+            repoRoot: repoRoot,
+            relativePath: relativePath
+        )
         Darwin.close(openedFile.descriptor)
         let metadata = openedFile.metadata
         let modifiedAt = Date(
@@ -38,7 +43,10 @@ struct WorkspaceChangesContentReader: Sendable {
         offset: Int64,
         length: Int
     ) throws -> WorkspaceChangesFileChunk {
-        let openedFile = try openRegularFile(repoRoot: repoRoot, relativePath: relativePath)
+        let openedFile = try regularFileOpener.open(
+            repoRoot: repoRoot,
+            relativePath: relativePath
+        )
         let descriptor = openedFile.descriptor
         let metadata = openedFile.metadata
         let flags = Darwin.fcntl(descriptor, F_GETFL, 0)
@@ -68,7 +76,7 @@ struct WorkspaceChangesContentReader: Sendable {
 
     /// Returns a fingerprint for a path that still exists, otherwise `nil`.
     func contentFingerprint(repoRoot: String, relativePath: String) -> String? {
-        guard let openedFile = try? openRegularFile(
+        guard let openedFile = try? regularFileOpener.open(
             repoRoot: repoRoot,
             relativePath: relativePath
         ) else { return nil }
@@ -82,66 +90,6 @@ struct WorkspaceChangesContentReader: Sendable {
         // the pre/post comparison intentionally accepts that residual.
         guard before == after else { return "unstable:\(UUID().uuidString)" }
         return after
-    }
-
-    private func openRegularFile(
-        repoRoot: String,
-        relativePath: String
-    ) throws -> (descriptor: Int32, metadata: Darwin.stat) {
-        let components = relativePath.split(
-            separator: "/",
-            omittingEmptySubsequences: false
-        )
-        guard !components.isEmpty,
-              components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
-            throw ArtifactByteReader.Error.fileNotFound
-        }
-
-        var directoryDescriptor = Darwin.open(
-            repoRoot,
-            O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC
-        )
-        guard directoryDescriptor >= 0 else {
-            throw ArtifactByteReader.Error.fileNotFound
-        }
-        for component in components.dropLast() {
-            let nextDescriptor = component.withCString {
-                Darwin.openat(
-                    directoryDescriptor,
-                    $0,
-                    O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC
-                )
-            }
-            guard nextDescriptor >= 0 else {
-                Darwin.close(directoryDescriptor)
-                throw ArtifactByteReader.Error.fileNotFound
-            }
-            Darwin.close(directoryDescriptor)
-            directoryDescriptor = nextDescriptor
-        }
-
-        let descriptor = components[components.index(before: components.endIndex)]
-            .withCString {
-                Darwin.openat(
-                    directoryDescriptor,
-                    $0,
-                    O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC
-                )
-            }
-        Darwin.close(directoryDescriptor)
-        guard descriptor >= 0 else {
-            throw ArtifactByteReader.Error.fileNotFound
-        }
-        var metadata = Darwin.stat()
-        guard Darwin.fstat(descriptor, &metadata) == 0 else {
-            Darwin.close(descriptor)
-            throw ArtifactByteReader.Error.fileNotFound
-        }
-        guard metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG) else {
-            Darwin.close(descriptor)
-            throw ArtifactByteReader.Error.unsupportedMedia
-        }
-        return (descriptor, metadata)
     }
 
     private func fingerprint(metadata: Darwin.stat) -> String {

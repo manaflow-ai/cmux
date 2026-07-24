@@ -160,7 +160,10 @@ public struct WorkspaceChangesSheet: View {
             }
             listState = files.isEmpty ? .empty : .loaded
         } catch is CancellationError {
-            return
+            guard RecoverableCancellationErrorPolicy().shouldPublishFailure(
+                taskIsCancelled: Task.isCancelled
+            ) else { return }
+            listState = .error
         } catch WorkspaceChangesFetchError.notARepository {
             guard !Task.isCancelled else { return }
             files = []

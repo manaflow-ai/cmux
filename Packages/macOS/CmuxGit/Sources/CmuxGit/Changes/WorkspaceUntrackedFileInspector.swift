@@ -1,4 +1,5 @@
-import Foundation
+internal import Darwin
+internal import Foundation
 
 /// Computes bounded in-process metadata for one untracked file.
 struct WorkspaceUntrackedFileInspector: Sendable {
@@ -14,6 +15,7 @@ struct WorkspaceUntrackedFileInspector: Sendable {
 
     private let perFileReadByteCount: Int
     private let aggregateReadByteCount: Int
+    private let regularFileOpener = WorkspaceChangesRegularFileOpener()
 
     init(
         perFileReadByteCount: Int = Self.maximumReadByteCount,
@@ -46,7 +48,8 @@ struct WorkspaceUntrackedFileInspector: Sendable {
                 repoRoot: repoRoot,
                 maximumReadByteCount: min(perFileReadByteCount, remainingByteCount)
             ) else {
-                return nil
+                files.append(zeroAdditionFile(path: path))
+                continue
             }
             files.append(inspection.file)
             remainingByteCount -= inspection.readByteCount
@@ -59,20 +62,29 @@ struct WorkspaceUntrackedFileInspector: Sendable {
         repoRoot: String,
         maximumReadByteCount: Int
     ) -> FileInspection? {
-        let fileURL = URL(fileURLWithPath: repoRoot, isDirectory: true)
-            .appendingPathComponent(path, isDirectory: false)
-        guard let handle = try? FileHandle(forReadingFrom: fileURL) else { return nil }
+        guard let openedFile = try? regularFileOpener.open(
+            repoRoot: repoRoot,
+            relativePath: path
+        ) else { return nil }
+        let descriptor = openedFile.descriptor
+        let flags = Darwin.fcntl(descriptor, F_GETFL, 0)
+        guard flags >= 0,
+              Darwin.fcntl(descriptor, F_SETFL, flags & ~O_NONBLOCK) >= 0 else {
+            Darwin.close(descriptor)
+            return nil
+        }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         defer { try? handle.close() }
 
-        let fileSize = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size])
-            .flatMap { ($0 as? NSNumber)?.int64Value }
+        let fileSize = max(Int64(openedFile.metadata.st_size), 0)
         var readByteCount = 0
         var newlineCount = 0
         var lastByte: UInt8?
         var isBinary = false
         var reachedEOF = false
 
-        while readByteCount < maximumReadByteCount, !Task.isCancelled {
+        while readByteCount < maximumReadByteCount {
+            guard !Task.isCancelled else { break }
             let remaining = maximumReadByteCount - readByteCount
             let chunk: Data
             do {
@@ -99,7 +111,7 @@ struct WorkspaceUntrackedFileInspector: Sendable {
             lastByte = chunk.last
         }
 
-        if let fileSize, Int64(readByteCount) >= fileSize {
+        if Int64(readByteCount) >= fileSize {
             reachedEOF = true
         }
         let additions: Int

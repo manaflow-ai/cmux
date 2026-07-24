@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CmuxGit
 
@@ -38,26 +39,60 @@ import Testing
             timeToLive: 0,
             maximumEntryCount: 64
         )
-        await cache.store(authorization(repoRoot: "/expired"))
+        let expired = authorization(directory: "/expired", repoRoot: "/expired")
+        await cache.store(
+            expired.authorizedFile,
+            for: expired.key,
+            awaitsInitialFetch: false
+        )
 
-        await cache.store(authorization(repoRoot: "/fresh"))
+        let fresh = authorization(directory: "/fresh", repoRoot: "/fresh")
+        await cache.store(
+            fresh.authorizedFile,
+            for: fresh.key,
+            awaitsInitialFetch: false
+        )
 
         #expect(await cache.entryCount() == 1)
-        #expect(await cache.snapshot(forRepoRoot: "/expired") == nil)
+        #expect(await cache.authorizedFileForFetch(key: expired.key, offset: 1) == nil)
     }
 
     @Test func authorizedPathCacheEnforcesLRUEntryBound() async {
         let cache = WorkspaceChangesAuthorizedPathCache(maximumEntryCount: 2)
-        await cache.store(authorization(repoRoot: "/a"))
-        await cache.store(authorization(repoRoot: "/b"))
-        _ = await cache.snapshot(forRepoRoot: "/a")
+        let a = authorization(directory: "/a", repoRoot: "/a")
+        let b = authorization(directory: "/b", repoRoot: "/b")
+        let c = authorization(directory: "/c", repoRoot: "/c")
+        await cache.store(a.authorizedFile, for: a.key, awaitsInitialFetch: false)
+        await cache.store(b.authorizedFile, for: b.key, awaitsInitialFetch: false)
+        _ = await cache.authorizedFileForFetch(key: a.key, offset: 1)
 
-        await cache.store(authorization(repoRoot: "/c"))
+        await cache.store(c.authorizedFile, for: c.key, awaitsInitialFetch: false)
 
         #expect(await cache.entryCount() == 2)
-        #expect(await cache.snapshot(forRepoRoot: "/a") != nil)
-        #expect(await cache.snapshot(forRepoRoot: "/b") == nil)
-        #expect(await cache.snapshot(forRepoRoot: "/c") != nil)
+        #expect(await cache.authorizedFileForFetch(key: a.key, offset: 1) != nil)
+        #expect(await cache.authorizedFileForFetch(key: b.key, offset: 1) == nil)
+        #expect(await cache.authorizedFileForFetch(key: c.key, offset: 1) != nil)
+    }
+
+    @Test func authorizationSnapshotDoesNotMatchAMovedBaseRevision() async throws {
+        let cache = WorkspaceChangesAuthorizedPathCache()
+        let old = authorization(
+            directory: "/repo",
+            repoRoot: "/repo",
+            baseCommitOID: "old-oid"
+        )
+        await cache.store(old.authorizedFile, for: old.key, awaitsInitialFetch: false)
+
+        let oldSnapshot = try #require(await cache.snapshot(
+            forRepoRoot: "/repo",
+            baseCommitOID: "old-oid"
+        ))
+
+        #expect(oldSnapshot.identity == old.authorizedFile.snapshot.identity)
+        #expect(await cache.snapshot(
+            forRepoRoot: "/repo",
+            baseCommitOID: "new-oid"
+        ) == nil)
     }
 
     private func summary(repoRoot: String) -> WorkspaceChangesSummary {
@@ -73,12 +108,36 @@ import Testing
     }
 
     private func authorization(
-        repoRoot: String
-    ) -> WorkspaceChangesAuthorizedPathCache.Snapshot {
-        WorkspaceChangesAuthorizedPathCache.Snapshot(
+        directory: String,
+        repoRoot: String,
+        baseCommitOID: String = "base-oid"
+    ) -> (
+        key: WorkspaceChangesAuthorizedPathCache.Key,
+        authorizedFile: WorkspaceChangesAuthorizedPathCache.AuthorizedFile
+    ) {
+        let key = WorkspaceChangesAuthorizedPathCache.Key(
+            directory: directory,
+            path: "file.txt",
+            revision: .current
+        )
+        let scope = WorkspaceChangesScope(
             repoRoot: repoRoot,
+            branch: "feature",
+            baseRef: "main",
+            diffBase: baseCommitOID,
+            diffBaseCommitOID: baseCommitOID
+        )
+        let snapshot = WorkspaceChangesAuthorizedPathCache.Snapshot(
+            identity: UUID(),
+            scope: scope,
             currentPaths: ["file.txt"],
             basePaths: ["file.txt"]
         )
+        let authorizedFile = WorkspaceChangesAuthorizedPathCache.AuthorizedFile(
+            snapshot: snapshot,
+            relativePath: "file.txt",
+            baseBlobSize: nil
+        )
+        return (key, authorizedFile)
     }
 }

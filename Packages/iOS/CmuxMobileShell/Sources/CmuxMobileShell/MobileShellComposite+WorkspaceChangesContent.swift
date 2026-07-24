@@ -99,10 +99,16 @@ extension MobileShellComposite {
         revision: WorkspaceChangesFileRevision,
         progress: (@Sendable (_ fetchedBytes: Int64, _ totalBytes: Int64) -> Void)? = nil
     ) async throws -> Data {
-        try await workspaceChangesContentChunks(
+        let statResponse = try await workspaceChangesFileStatResponse(
+            workspaceID: workspaceID,
+            path: path,
+            revision: revision
+        )
+        return try await workspaceChangesContentChunks(
             workspaceID: workspaceID,
             path: path,
             revision: revision,
+            expectedFingerprint: statResponse.contentFingerprint,
             collectsData: true,
             progress: progress,
             onChunk: { _ in }
@@ -130,7 +136,8 @@ extension MobileShellComposite {
             }
             let content = try await self.workspaceChangesCurrentFileContent(
                 workspaceID: workspaceID,
-                path: path
+                path: path,
+                expectedFingerprint: statResponse.contentFingerprint
             )
             guard content.data.count <= Self.workspaceChangesExpansionByteLimit else {
                 throw DiffExpansionContentError.tooLarge
@@ -149,7 +156,8 @@ extension MobileShellComposite {
 
     private func workspaceChangesCurrentFileContent(
         workspaceID: String,
-        path: String
+        path: String,
+        expectedFingerprint: String?
     ) async throws -> (data: Data, fingerprints: [String?]) {
         let chunkLength = ChatArtifactTransferPolicy.defaultPolicy.maxRawChunkBytes
         let downloadPolicy = WorkspaceChangesExpansionDownloadPolicy(
@@ -170,6 +178,10 @@ extension MobileShellComposite {
                 length: chunkLength
             )
             let chunk = response.value
+            try WorkspaceChangesContentFingerprintPolicy().validate(
+                expected: expectedFingerprint,
+                observed: response.contentFingerprint
+            )
             receivedChunkCount += 1
             try downloadPolicy.validate(
                 totalSize: chunk.totalSize,
@@ -204,10 +216,16 @@ extension MobileShellComposite {
         revision: WorkspaceChangesFileRevision,
         onChunk: @Sendable (ChatArtifactChunk) async throws -> Void
     ) async throws {
+        let statResponse = try await workspaceChangesFileStatResponse(
+            workspaceID: workspaceID,
+            path: path,
+            revision: revision
+        )
         _ = try await workspaceChangesContentChunks(
             workspaceID: workspaceID,
             path: path,
             revision: revision,
+            expectedFingerprint: statResponse.contentFingerprint,
             collectsData: false,
             progress: nil,
             onChunk: onChunk
@@ -245,6 +263,7 @@ extension MobileShellComposite {
         workspaceID: String,
         path: String,
         revision: WorkspaceChangesFileRevision,
+        expectedFingerprint: String?,
         collectsData: Bool,
         progress: (@Sendable (_ fetchedBytes: Int64, _ totalBytes: Int64) -> Void)?,
         onChunk: @Sendable (ChatArtifactChunk) async throws -> Void
@@ -253,13 +272,18 @@ extension MobileShellComposite {
             collectsData: collectsData,
             progress: progress
         ) { offset in
-            try await self.workspaceChangesFileFetch(
+            let response = try await self.workspaceChangesFileFetchResponse(
                 workspaceID: workspaceID,
                 path: path,
                 revision: revision,
                 offset: offset,
                 length: ChatArtifactTransferPolicy.defaultPolicy.maxRawChunkBytes
             )
+            try WorkspaceChangesContentFingerprintPolicy().validate(
+                expected: expectedFingerprint,
+                observed: response.contentFingerprint
+            )
+            return response.value
         } onChunk: { chunk in
             try await onChunk(chunk)
         }

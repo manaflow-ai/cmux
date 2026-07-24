@@ -193,7 +193,8 @@ public struct WorkspaceChangesService: Sendable {
         let location = try await authorizedFileLocation(
             forDirectory: directory,
             path: path,
-            revision: revision
+            revision: revision,
+            fetchOffset: nil
         )
         do {
             return try contentReader.stat(
@@ -231,7 +232,8 @@ public struct WorkspaceChangesService: Sendable {
         let location = try await authorizedFileLocation(
             forDirectory: directory,
             path: path,
-            revision: revision
+            revision: revision,
+            fetchOffset: max(0, offset)
         )
         let clampedLength = ChatArtifactTransferPolicy.defaultPolicy.clampedChunkLength(length)
         do {
@@ -248,16 +250,24 @@ public struct WorkspaceChangesService: Sendable {
         }
     }
 
-    /// Pins the SE-0338 executor-hop contract that keeps Git off the caller's actor.
-    nonisolated func executionHopsOffCallersThread() async -> Bool {
-        pthread_main_np() == 0
-    }
-
     private nonisolated func authorizedFileLocation(
         forDirectory directory: String,
         path: String,
-        revision: WorkspaceChangesFileRevision
+        revision: WorkspaceChangesFileRevision,
+        fetchOffset: Int64?
     ) async throws -> (repoRoot: String, relativePath: String) {
+        let cacheKey = WorkspaceChangesAuthorizedPathCache.Key(
+            directory: directory,
+            path: path,
+            revision: revision
+        )
+        if let fetchOffset,
+           let cached = await authorizedPathCache.authorizedFileForFetch(
+               key: cacheKey,
+               offset: fetchOffset
+           ) {
+            return try await materializedLocation(for: cached)
+        }
         guard let scope = snapshotLoader.resolveScope(forDirectory: directory) else {
             throw WorkspaceChangesServiceError.notARepository
         }
@@ -270,18 +280,11 @@ public struct WorkspaceChangesService: Sendable {
             throw WorkspaceChangesServiceError.forbidden
         }
 
-        switch revision {
-        case .current:
-            return (authorization.repoRoot, normalizedPath)
-        case .base:
-            let key = WorkspaceChangesBaseContentCache.Key(
-                repoRoot: authorization.repoRoot,
-                baseCommitOID: scope.diffBaseCommitOID,
-                path: normalizedPath
-            )
+        let baseBlobSize: Int64?
+        if revision == .base {
             let runner = self.runner
             let object = "\(scope.diffBaseCommitOID):\(normalizedPath)"
-            let repoURL = URL(fileURLWithPath: authorization.repoRoot, isDirectory: true)
+            let repoURL = URL(fileURLWithPath: authorization.scope.repoRoot, isDirectory: true)
             let sizeResult = try runner.run(
                 arguments: ["cat-file", "-s", object],
                 in: repoURL
@@ -293,27 +296,30 @@ public struct WorkspaceChangesService: Sendable {
                   await baseContentCache.permitsEntry(size: blobSize) else {
                 throw WorkspaceChangesServiceError.gitFailure
             }
-            let fileURL = try await baseContentCache.fileURL(for: key) { destination in
-                let result = try runner.run(
-                    arguments: ["show", object],
-                    in: repoURL,
-                    writingOutputTo: destination,
-                    maximumOutputByteCount: blobSize
-                )
-                guard result.exitCode == 0,
-                      !result.standardOutputWasTruncated else {
-                    throw WorkspaceChangesServiceError.fileNotFound
-                }
-                return blobSize
-            }
-            return (fileURL.deletingLastPathComponent().path, fileURL.lastPathComponent)
+            baseBlobSize = blobSize
+        } else {
+            baseBlobSize = nil
         }
+        let authorizedFile = WorkspaceChangesAuthorizedPathCache.AuthorizedFile(
+            snapshot: authorization,
+            relativePath: normalizedPath,
+            baseBlobSize: baseBlobSize
+        )
+        await authorizedPathCache.store(
+            authorizedFile,
+            for: cacheKey,
+            awaitsInitialFetch: fetchOffset == nil
+        )
+        return try await materializedLocation(for: authorizedFile)
     }
 
     private nonisolated func authorizationSnapshot(
         scope: WorkspaceChangesScope
     ) async throws -> WorkspaceChangesAuthorizedPathCache.Snapshot {
-        if let cached = await authorizedPathCache.snapshot(forRepoRoot: scope.repoRoot) {
+        if let cached = await authorizedPathCache.snapshot(
+            forRepoRoot: scope.repoRoot,
+            baseCommitOID: scope.diffBaseCommitOID
+        ) {
             return cached
         }
         guard let snapshot = snapshotLoader.loadSnapshot(scope: scope) else {
@@ -327,49 +333,43 @@ public struct WorkspaceChangesService: Sendable {
             return [file.path]
         })
         let authorization = WorkspaceChangesAuthorizedPathCache.Snapshot(
-            repoRoot: scope.repoRoot,
+            identity: UUID(),
+            scope: scope,
             currentPaths: currentPaths,
             basePaths: basePaths
         )
-        await authorizedPathCache.store(authorization)
         return authorization
     }
 
-    private nonisolated func changedFilesValue(
-        from snapshot: WorkspaceChangesSnapshot
-    ) -> WorkspaceChangedFiles {
-        WorkspaceChangedFiles(
-            isRepository: true,
-            repoRoot: snapshot.scope.repoRoot,
-            branch: snapshot.scope.branch,
-            baseRef: snapshot.scope.baseRef,
-            files: snapshot.files,
-            filesChanged: snapshot.totalFileCount,
-            additions: snapshot.additions,
-            deletions: snapshot.deletions,
-            truncated: snapshot.truncated || snapshot.totalFileCount > snapshot.files.count
+    private nonisolated func materializedLocation(
+        for authorizedFile: WorkspaceChangesAuthorizedPathCache.AuthorizedFile
+    ) async throws -> (repoRoot: String, relativePath: String) {
+        let scope = authorizedFile.snapshot.scope
+        guard let blobSize = authorizedFile.baseBlobSize else {
+            return (scope.repoRoot, authorizedFile.relativePath)
+        }
+        let key = WorkspaceChangesBaseContentCache.Key(
+            repoRoot: scope.repoRoot,
+            baseCommitOID: scope.diffBaseCommitOID,
+            path: authorizedFile.relativePath
         )
-    }
-
-    private nonisolated func fileDiffValue(
-        file: WorkspaceChangedFile,
-        unifiedDiff: String,
-        truncated: Bool,
-        totalLineCount: Int?,
-        contentFingerprint: String?
-    ) -> WorkspaceFileDiff {
-        WorkspaceFileDiff(
-            path: file.path,
-            oldPath: file.oldPath,
-            status: file.status,
-            isBinary: file.isBinary,
-            additions: file.additions,
-            deletions: file.deletions,
-            unifiedDiff: unifiedDiff,
-            truncated: truncated,
-            totalLineCount: totalLineCount,
-            contentFingerprint: contentFingerprint
-        )
+        let runner = self.runner
+        let object = "\(scope.diffBaseCommitOID):\(authorizedFile.relativePath)"
+        let repoURL = URL(fileURLWithPath: scope.repoRoot, isDirectory: true)
+        let fileURL = try await baseContentCache.fileURL(for: key) { destination in
+            let result = try runner.run(
+                arguments: ["show", object],
+                in: repoURL,
+                writingOutputTo: destination,
+                maximumOutputByteCount: blobSize
+            )
+            guard result.exitCode == 0,
+                  !result.standardOutputWasTruncated else {
+                throw WorkspaceChangesServiceError.fileNotFound
+            }
+            return blobSize
+        }
+        return (fileURL.deletingLastPathComponent().path, fileURL.lastPathComponent)
     }
 
     private nonisolated func currentContentFingerprint(

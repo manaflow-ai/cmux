@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 @testable import CmuxGit
@@ -242,6 +243,54 @@ import Testing
         #expect(file.additions == 3)
         #expect(file.deletions == 0)
         #expect(!file.isBinary)
+    }
+
+    @Test func untrackedInspectorSkipsSymlinkWithoutReadingOutsideRoot() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-untracked-link-root-\(UUID().uuidString)", isDirectory: true)
+        let outside = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-untracked-link-outside-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: outside)
+        }
+        let outsideFile = outside.appendingPathComponent("secret.txt")
+        try Data("outside\nmust\nnot\nbe\nread\n".utf8).write(to: outsideFile)
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent("linked.txt"),
+            withDestinationURL: outsideFile
+        )
+        let inspector = WorkspaceUntrackedFileInspector()
+
+        let files = try #require(inspector.inspect(
+            paths: ["linked.txt"],
+            repoRoot: root.path
+        ))
+
+        #expect(inspector.inspect(path: "linked.txt", repoRoot: root.path) == nil)
+        #expect(files.map(\.path) == ["linked.txt"])
+        #expect(files.map(\.additions) == [0])
+    }
+
+    @Test func untrackedInspectorRejectsNonRegularFiles() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-untracked-fifo-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fifo = root.appendingPathComponent("events.pipe")
+        let createResult = fifo.path.withCString { Darwin.mkfifo($0, 0o600) }
+        #expect(createResult == 0)
+        let inspector = WorkspaceUntrackedFileInspector()
+
+        let files = try #require(inspector.inspect(
+            paths: ["events.pipe"],
+            repoRoot: root.path
+        ))
+
+        #expect(inspector.inspect(path: "events.pipe", repoRoot: root.path) == nil)
+        #expect(files.map(\.additions) == [0])
     }
 
     @Test func fileCapPrecedesUntrackedInspectionAndPerFileGitWork() async throws {

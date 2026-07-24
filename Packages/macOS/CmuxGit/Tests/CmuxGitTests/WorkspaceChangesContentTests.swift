@@ -162,7 +162,7 @@ import Testing
         }
     }
 
-    @Test func baseCacheUsesNewCommitOIDAfterHeadMoves() async throws {
+    @Test func baseTransferStaysPinnedWhileANewStatRejectsTheMovedRevision() async throws {
         let repo = try WorkspaceChangesGitRepositoryFixture()
         let baseline = Data((0..<64).map(UInt8.init))
         try repo.write("payload.bin", baseline)
@@ -172,6 +172,11 @@ import Testing
         try repo.write("payload.bin", replacement)
         let service = WorkspaceChangesService()
 
+        _ = try await service.fileStat(
+            forDirectory: repo.root.path,
+            path: "payload.bin",
+            revision: .base
+        )
         let middle = try await service.fileFetch(
             forDirectory: repo.root.path,
             path: "payload.bin",
@@ -193,10 +198,17 @@ import Testing
         #expect(middle.offset == 7)
         #expect(middle.totalSize == 64)
         #expect(!middle.eof)
-        #expect(end.data == replacement.subdata(in: 60..<64))
+        #expect(end.data == baseline.subdata(in: 60..<64))
         #expect(end.offset == 60)
         #expect(end.totalSize == 64)
         #expect(end.eof)
+        await #expect(throws: WorkspaceChangesServiceError.forbidden) {
+            try await service.fileStat(
+                forDirectory: repo.root.path,
+                path: "payload.bin",
+                revision: .base
+            )
+        }
     }
 
     @Test func currentRevisionSlicesFilesLargerThanOneChunk() async throws {
