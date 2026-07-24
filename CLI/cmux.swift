@@ -31134,16 +31134,16 @@ export default CMUXSessionRestore;
             }
 
         case .stop:
+            let preparedSession = preparedMappedSession()
+            guard preparedSession.accepted else {
+                rejectStaleCodexProcessEvent()
+                return
+            }
             if def.name == "codex", !sessionId.isEmpty {
                 let stopTurnId = input.turnId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 if !stopTurnId.isEmpty {
                     retireCodexMonitorLeases(sessionId: sessionId, turnId: stopTurnId, env: env)
                 }
-            }
-            let preparedSession = preparedMappedSession()
-            guard preparedSession.accepted else {
-                rejectStaleCodexProcessEvent()
-                return
             }
             let mapped = preparedSession.record
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
