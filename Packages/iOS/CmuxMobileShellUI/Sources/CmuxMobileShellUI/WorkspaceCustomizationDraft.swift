@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobileShellModel
 import Foundation
 
@@ -15,7 +16,7 @@ struct WorkspaceCustomizationDraft: Equatable {
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        self.customDescription = description?.isEmpty == false ? description : nil
+        self.customDescription = MobileWorkspaceMetadataLimits.normalizedCustomDescription(description)
         let color = customColorHex?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         self.customColorHex = color?.isEmpty == false ? color : nil
         self.isPinned = isPinned
@@ -30,18 +31,66 @@ struct WorkspaceCustomizationDraft: Equatable {
             isPinned: workspace.isPinned
         )
     }
+
+    func dirtyFields(comparedTo baseline: WorkspaceCustomizationDraft) -> WorkspaceCustomizationDirtyFields {
+        WorkspaceCustomizationDirtyFields(
+            name: name != baseline.name,
+            customDescription: customDescription != baseline.customDescription,
+            customColorHex: customColorHex != baseline.customColorHex,
+            isPinned: isPinned != baseline.isPinned
+        )
+    }
+
+    func rebasingUntouchedFields(
+        from authoritativeDraft: WorkspaceCustomizationDraft,
+        comparedTo baseline: WorkspaceCustomizationDraft
+    ) -> WorkspaceCustomizationDraft {
+        let dirtyFields = dirtyFields(comparedTo: baseline)
+        return WorkspaceCustomizationDraft(
+            name: dirtyFields.name ? name : authoritativeDraft.name,
+            customDescription: dirtyFields.customDescription
+                ? customDescription
+                : authoritativeDraft.customDescription,
+            customColorHex: dirtyFields.customColorHex
+                ? customColorHex
+                : authoritativeDraft.customColorHex,
+            isPinned: dirtyFields.isPinned ? isPinned : authoritativeDraft.isPinned
+        )
+    }
+}
+
+struct WorkspaceCustomizationDirtyFields: Equatable {
+    let name: Bool
+    let customDescription: Bool
+    let customColorHex: Bool
+    let isPinned: Bool
+}
+
+struct WorkspaceCustomizationSaveFailure: Equatable {
+    let title: String
+    let message: String
 }
 
 struct WorkspaceCustomizationSaveResult: Equatable {
     let succeeded: Bool
     let rebasedDraft: WorkspaceCustomizationDraft?
+    let failure: WorkspaceCustomizationSaveFailure?
 
-    static let success = WorkspaceCustomizationSaveResult(succeeded: true, rebasedDraft: nil)
+    static let success = WorkspaceCustomizationSaveResult(
+        succeeded: true,
+        rebasedDraft: nil,
+        failure: nil
+    )
 
     static func failure(
-        rebasedTo rebasedDraft: WorkspaceCustomizationDraft? = nil
+        rebasedTo rebasedDraft: WorkspaceCustomizationDraft? = nil,
+        failure: WorkspaceCustomizationSaveFailure? = nil
     ) -> WorkspaceCustomizationSaveResult {
-        WorkspaceCustomizationSaveResult(succeeded: false, rebasedDraft: rebasedDraft)
+        WorkspaceCustomizationSaveResult(
+            succeeded: false,
+            rebasedDraft: rebasedDraft,
+            failure: failure
+        )
     }
 }
 

@@ -1,3 +1,4 @@
+import CMUXMobileCore
 internal import CmuxMobileRPC
 public import CmuxMobileShellModel
 internal import Foundation
@@ -94,12 +95,8 @@ extension MobileShellComposite {
         guard workspaceActionCapabilities(for: id).supportsWorkspaceMetadata else {
             return .failure(.unsupported(hostDisplayName: workspaceHostDisplayName(for: id)))
         }
-        let normalized = description?
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-        let hasDescription = normalized?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .isEmpty == false
+        let normalized = MobileWorkspaceMetadataLimits.normalizedCustomDescription(description)
+        let hasDescription = normalized != nil
         var params = workspaceMutationParams(id: id)
         if let normalized, hasDescription {
             params["action"] = "set_description"

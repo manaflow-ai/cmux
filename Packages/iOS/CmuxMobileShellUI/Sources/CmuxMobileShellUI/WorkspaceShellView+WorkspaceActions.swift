@@ -66,28 +66,53 @@ extension WorkspaceShellView {
             }
             let current = WorkspaceCustomizationDraft(workspace: workspace)
             var landedDraft = current
-            var shouldRefresh = false
+            var attemptedMutation = false
 
-            func failureResult() async -> WorkspaceCustomizationSaveResult {
-                if shouldRefresh {
+            @MainActor func refreshAfterAttemptIfNeeded() async {
+                if attemptedMutation {
                     await store.refreshAfterWorkspaceMutation(id: id)
-                    shouldRefresh = false
+                    attemptedMutation = false
                 }
-                return .failure(rebasedTo: landedDraft == initialDraft ? nil : landedDraft)
+            }
+
+            @MainActor func failureResult(
+                failure: WorkspaceCustomizationSaveFailure? = nil
+            ) async -> WorkspaceCustomizationSaveResult {
+                await refreshAfterAttemptIfNeeded()
+                let authoritativeDraft = store.workspaces
+                    .first(where: { $0.id == id })
+                    .map(WorkspaceCustomizationDraft.init(workspace:)) ?? landedDraft
+                return .failure(
+                    rebasedTo: authoritativeDraft == initialDraft ? nil : authoritativeDraft,
+                    failure: failure
+                )
+            }
+
+            @MainActor func saveFailure(
+                from result: Result<Void, MobileWorkspaceMutationFailure>,
+                action: WorkspaceActionToastAction
+            ) -> WorkspaceCustomizationSaveFailure? {
+                guard case let .failure(failure) = result else { return nil }
+                return WorkspaceCustomizationSaveFailure(
+                    title: Self.workspaceActionFailureTitle(action: action),
+                    message: Self.workspaceActionFailureReasonText(failure)
+                )
             }
 
             if initialDraft.name != submittedDraft.name,
                current.name != submittedDraft.name {
+                attemptedMutation = true
                 let result = await store.renameWorkspace(
                     id: id,
                     title: submittedDraft.name,
                     refreshAfterMutation: false
                 )
-                handleWorkspaceActionResult(result, action: .renameWorkspace)
                 guard case .success = result, !Task.isCancelled else {
-                    return await failureResult()
+                    return await failureResult(failure: saveFailure(
+                        from: result,
+                        action: .renameWorkspace
+                    ))
                 }
-                shouldRefresh = true
                 landedDraft = WorkspaceCustomizationDraft(
                     name: submittedDraft.name,
                     customDescription: landedDraft.customDescription,
@@ -97,16 +122,18 @@ extension WorkspaceShellView {
             }
             if initialDraft.customDescription != submittedDraft.customDescription,
                current.customDescription != submittedDraft.customDescription {
+                attemptedMutation = true
                 let result = await store.setWorkspaceDescription(
                     id: id,
                     submittedDraft.customDescription,
                     refreshAfterMutation: false
                 )
-                handleWorkspaceActionResult(result, action: .updateWorkspaceDescription)
                 guard case .success = result, !Task.isCancelled else {
-                    return await failureResult()
+                    return await failureResult(failure: saveFailure(
+                        from: result,
+                        action: .updateWorkspaceDescription
+                    ))
                 }
-                shouldRefresh = true
                 landedDraft = WorkspaceCustomizationDraft(
                     name: landedDraft.name,
                     customDescription: submittedDraft.customDescription,
@@ -116,16 +143,18 @@ extension WorkspaceShellView {
             }
             if initialDraft.customColorHex != submittedDraft.customColorHex,
                current.customColorHex != submittedDraft.customColorHex {
+                attemptedMutation = true
                 let result = await store.setWorkspaceColor(
                     id: id,
                     submittedDraft.customColorHex,
                     refreshAfterMutation: false
                 )
-                handleWorkspaceActionResult(result, action: .updateWorkspaceColor)
                 guard case .success = result, !Task.isCancelled else {
-                    return await failureResult()
+                    return await failureResult(failure: saveFailure(
+                        from: result,
+                        action: .updateWorkspaceColor
+                    ))
                 }
-                shouldRefresh = true
                 landedDraft = WorkspaceCustomizationDraft(
                     name: landedDraft.name,
                     customDescription: landedDraft.customDescription,
@@ -135,19 +164,18 @@ extension WorkspaceShellView {
             }
             if initialDraft.isPinned != submittedDraft.isPinned,
                current.isPinned != submittedDraft.isPinned {
+                attemptedMutation = true
                 let result = await store.setWorkspacePinned(
                     id: id,
                     submittedDraft.isPinned,
                     refreshAfterMutation: false
                 )
-                handleWorkspaceActionResult(
-                    result,
-                    action: submittedDraft.isPinned ? .pinWorkspace : .unpinWorkspace
-                )
                 guard case .success = result, !Task.isCancelled else {
-                    return await failureResult()
+                    return await failureResult(failure: saveFailure(
+                        from: result,
+                        action: submittedDraft.isPinned ? .pinWorkspace : .unpinWorkspace
+                    ))
                 }
-                shouldRefresh = true
                 landedDraft = WorkspaceCustomizationDraft(
                     name: landedDraft.name,
                     customDescription: landedDraft.customDescription,
@@ -155,10 +183,7 @@ extension WorkspaceShellView {
                     isPinned: submittedDraft.isPinned
                 )
             }
-            if shouldRefresh {
-                await store.refreshAfterWorkspaceMutation(id: id)
-                shouldRefresh = false
-            }
+            await refreshAfterAttemptIfNeeded()
             return Task.isCancelled ? await failureResult() : .success
         }
     }

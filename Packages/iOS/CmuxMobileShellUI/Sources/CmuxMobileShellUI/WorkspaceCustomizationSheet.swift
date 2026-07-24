@@ -16,6 +16,7 @@ struct WorkspaceCustomizationSheet: View {
     @State private var customColor: Color
     @State private var isPinned: Bool
     @State private var saveTask: Task<Void, Never>?
+    @State private var saveFailure: WorkspaceCustomizationSaveFailure?
 
     init(
         workspace: MobileWorkspacePreview,
@@ -73,6 +74,25 @@ struct WorkspaceCustomizationSheet: View {
             }
         }
         .interactiveDismissDisabled(saveTask != nil)
+        .alert(
+            saveFailure?.title ?? "",
+            isPresented: Binding(
+                get: { saveFailure != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        saveFailure = nil
+                    }
+                }
+            )
+        ) {
+            Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {
+                saveFailure = nil
+            }
+        } message: {
+            if let message = saveFailure?.message {
+                Text(message)
+            }
+        }
         .onDisappear {
             saveTask?.cancel()
             saveTask = nil
@@ -168,16 +188,35 @@ struct WorkspaceCustomizationSheet: View {
     private func submit() {
         guard saveTask == nil else { return }
         let submittedDraft = draft
+        saveFailure = nil
         saveTask = Task { @MainActor in
             let result = await save(initialDraft, submittedDraft)
             guard !Task.isCancelled else { return }
             saveTask = nil
             if let rebasedDraft = result.rebasedDraft {
-                initialDraft = rebasedDraft
+                applyRebasedDraft(rebasedDraft, submittedDraft: submittedDraft)
             }
             if result.succeeded {
                 dismiss()
+            } else {
+                saveFailure = result.failure
             }
         }
+    }
+
+    private func applyRebasedDraft(
+        _ rebasedDraft: WorkspaceCustomizationDraft,
+        submittedDraft: WorkspaceCustomizationDraft
+    ) {
+        let displayDraft = submittedDraft.rebasingUntouchedFields(
+            from: rebasedDraft,
+            comparedTo: initialDraft
+        )
+        initialDraft = rebasedDraft
+        name = displayDraft.name
+        customDescription = displayDraft.customDescription ?? ""
+        isPinned = displayDraft.isPinned
+        usesCustomColor = displayDraft.customColorHex != nil
+        customColor = displayDraft.customColorHex.flatMap { Color(hexString: $0) } ?? .blue
     }
 }

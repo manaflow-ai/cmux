@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Combine
 import CmuxWorkspaces
 import Foundation
@@ -342,7 +343,9 @@ final class MobileWorkspaceListObserver {
         for workspace in tabs {
             hasher.combine(workspace.id)
             hasher.combine(workspace.title)
-            hasher.combine(workspace.customDescription)
+            hasher.combine(MobileWorkspaceMetadataLimits.boundedCustomDescription(
+                workspace.customDescription
+            ))
             hasher.combine(workspace.customColor)
             hasher.combine(workspace.isPinned)
             // Group membership is iOS-facing (the phone nests members under the

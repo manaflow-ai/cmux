@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 
 /// Title and description ownership: which of the process title, the custom
@@ -148,12 +149,7 @@ extension Workspace {
     }
 
     private static func normalizedCustomDescription(_ description: String?) -> String? {
-        let normalizedLineEndings = description?
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-        let trimmed = normalizedLineEndings?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !trimmed.isEmpty else { return nil }
-        return normalizedLineEndings
+        MobileWorkspaceMetadataLimits.normalizedCustomDescription(description)
     }
 
     /// Sets, replaces, or clears (empty/nil `title`) the workspace custom title.

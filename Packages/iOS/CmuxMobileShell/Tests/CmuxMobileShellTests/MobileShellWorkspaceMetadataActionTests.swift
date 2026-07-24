@@ -47,6 +47,25 @@ import Testing
         ])
     }
 
+    @Test func descriptionActionBoundsPayloadBeforeSendingToMac() async throws {
+        let capture = WorkspaceMetadataActionCapture()
+        let store = try await connectedMetadataStore(capture: capture)
+        let workspaceID = try #require(store.workspaces.first?.id)
+
+        guard case .success = await store.setWorkspaceDescription(
+            id: workspaceID,
+            String(repeating: "🧪", count: 2_000)
+        ) else {
+            return #expect(Bool(false), "setting a long description should succeed")
+        }
+
+        let request = try #require(await capture.requests().first)
+        let description = try #require(request.stringParams["description"])
+        #expect(
+            description.utf8.count == MobileWorkspaceMetadataLimits.customDescriptionMaxUTF8Bytes
+        )
+    }
+
     @Test func colorActionsSendExactWorkspaceActionParams() async throws {
         let capture = WorkspaceMetadataActionCapture()
         let store = try await connectedMetadataStore(capture: capture)

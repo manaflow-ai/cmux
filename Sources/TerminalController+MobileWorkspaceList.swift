@@ -1,4 +1,5 @@
 import AppKit
+import CMUXMobileCore
 import CmuxWorkspaces
 import Foundation
 
@@ -218,7 +219,9 @@ extension TerminalController {
             "title": workspace.title,
             // Durable workspace identity stays separate from the live activity
             // preview below so the phone can display both at once.
-            "description": v2OrNull(workspace.customDescription),
+            "description": v2OrNull(MobileWorkspaceMetadataLimits.boundedCustomDescription(
+                workspace.customDescription
+            )),
             "custom_color": v2OrNull(workspace.customColor),
             "current_directory": v2OrNull(workspace.presentedCurrentDirectory),
             "is_selected": isSelected,
