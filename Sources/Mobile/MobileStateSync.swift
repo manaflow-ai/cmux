@@ -30,6 +30,12 @@ final class MobileStateSyncHost {
 
     private var previewCache: [UUID: PreviewCacheEntry] = [:]
 
+    private var descriptionProjectionCache: [UUID: MobileWorkspaceDescriptionProjection] = [:]
+
+    func invalidateDescriptionProjection(workspaceID: UUID) {
+        descriptionProjectionCache.removeValue(forKey: workspaceID)
+    }
+
     /// Observer tick entry point: cheap no-op unless some phone subscribed to
     /// the delta topic (the store then also stays cold until the first
     /// `mobile.sync.fetch` populates it).
@@ -139,6 +145,7 @@ final class MobileStateSyncHost {
             }
         }
         previewCache = previewCache.filter { liveWorkspaceIDs.contains($0.key) }
+        descriptionProjectionCache = descriptionProjectionCache.filter { liveWorkspaceIDs.contains($0.key) }
         return (workspaceRows, groupRows)
     }
 
@@ -166,7 +173,7 @@ final class MobileStateSyncHost {
         }
         let latestNotification = notificationStore?.latestNotification(forTabId: workspace.id)
         let preview = cachedPreview(workspaceID: workspace.id, latestNotification: latestNotification)
-        let description = mobileDescriptionProjection(for: workspace)
+        let description = cachedDescriptionProjection(for: workspace)
         return WorkspaceSyncRecord(
             id: workspace.id.uuidString,
             windowID: windowID.uuidString,
@@ -215,8 +222,13 @@ final class MobileStateSyncHost {
         return (text, notification.createdAt.timeIntervalSince1970)
     }
 
-    private func mobileDescriptionProjection(for workspace: Workspace) -> MobileWorkspaceDescriptionProjection {
-        MobileWorkspaceMetadataLimits.projectedCustomDescription(workspace.customDescription)
+    private func cachedDescriptionProjection(for workspace: Workspace) -> MobileWorkspaceDescriptionProjection {
+        if let cached = descriptionProjectionCache[workspace.id] {
+            return cached
+        }
+        let projection = MobileWorkspaceMetadataLimits.projectedCustomDescription(workspace.customDescription)
+        descriptionProjectionCache[workspace.id] = projection
+        return projection
     }
 }
 

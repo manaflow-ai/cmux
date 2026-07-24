@@ -63,7 +63,13 @@ extension WorkspaceShellView {
         return { id, initialDraft, submittedDraft in
             guard !Task.isCancelled else { return .failure() }
             guard let workspace = store.workspaces.first(where: { $0.id == id }) else {
-                return .success
+                return .failure(failure: WorkspaceCustomizationSaveFailure(
+                    title: Self.workspaceActionFailureTitle(action: .updateWorkspaceDescription),
+                    message: L10n.string(
+                        "mobile.workspace.customize.workspaceUnavailable",
+                        defaultValue: "This workspace is no longer available. Reopen the workspace list and try again."
+                    )
+                ))
             }
             let current = WorkspaceCustomizationDraft(workspace: workspace)
             var landedDraft = current

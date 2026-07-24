@@ -815,6 +815,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// the latest mutation is reconciled even if the first fetch captured the
     /// pre-mutation state.
     private var foregroundWorkspaceMutationRefreshPending = false
+    private var foregroundWorkspaceMutationRefreshGeneration = UUID()
     @ObservationIgnored var notificationFeedSnapshotsByMac: [String: NotificationFeedMacSnapshot] = [:]
     @ObservationIgnored var notificationFeedKnownRevisionsByMac: [String: Int] = [:]
     @ObservationIgnored var notificationFeedSuccessfulMacIDs: Set<String> = []
@@ -1094,6 +1095,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pullToRefreshTask = nil
         self.foregroundWorkspaceMutationRefreshTask = nil
         self.foregroundWorkspaceMutationRefreshPending = false
+        self.foregroundWorkspaceMutationRefreshGeneration = UUID()
         self.createWorkspaceTaskID = nil
         self.createTerminalTaskID = nil
         self.connectionGeneration = UUID()
@@ -1167,6 +1169,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pullToRefreshTask?.cancel()
         foregroundWorkspaceMutationRefreshTask?.cancel()
         foregroundWorkspaceMutationRefreshPending = false
+        foregroundWorkspaceMutationRefreshGeneration = UUID()
         notificationFeedOpenTask?.cancel()
         teamScopeReconnectTask?.cancel()
         cancelAllTerminalReplayTasks()
@@ -4003,13 +4006,33 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await inFlight.value
             return
         }
+        let refreshGeneration = UUID()
+        let refreshConnectionGeneration = connectionGeneration
+        foregroundWorkspaceMutationRefreshGeneration = refreshGeneration
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
+            @MainActor func finishIfCurrent() {
+                guard self.foregroundWorkspaceMutationRefreshGeneration == refreshGeneration else { return }
+                self.foregroundWorkspaceMutationRefreshPending = false
+                self.foregroundWorkspaceMutationRefreshTask = nil
+            }
             repeat {
+                guard self.foregroundWorkspaceMutationRefreshGeneration == refreshGeneration else { return }
+                guard self.connectionGeneration == refreshConnectionGeneration,
+                      !Task.isCancelled else {
+                    finishIfCurrent()
+                    return
+                }
                 self.foregroundWorkspaceMutationRefreshPending = false
                 await self.reloadWorkspaceListFromMac()
+                guard self.foregroundWorkspaceMutationRefreshGeneration == refreshGeneration else { return }
+                guard self.connectionGeneration == refreshConnectionGeneration,
+                      !Task.isCancelled else {
+                    finishIfCurrent()
+                    return
+                }
             } while self.foregroundWorkspaceMutationRefreshPending
-            self.foregroundWorkspaceMutationRefreshTask = nil
+            finishIfCurrent()
         }
         foregroundWorkspaceMutationRefreshTask = task
         await task.value
@@ -5848,6 +5871,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         foregroundWorkspaceMutationRefreshTask?.cancel()
         foregroundWorkspaceMutationRefreshTask = nil
         foregroundWorkspaceMutationRefreshPending = false
+        foregroundWorkspaceMutationRefreshGeneration = UUID()
         cancelAllTerminalReplayTasks()
     }
 

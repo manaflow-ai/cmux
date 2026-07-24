@@ -662,6 +662,13 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "このMacの説明はiPhoneで編集できる長さを超えています。テキストを失わないようMacで変更してください。" } }
       }
     },
+    "mobile.workspace.customize.workspaceUnavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "This workspace is no longer available. Reopen the workspace list and try again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このワークスペースは利用できなくなりました。ワークスペース一覧を開き直して、もう一度試してください。" } }
+      }
+    },
     "mobile.hideComputersVerifier.allHiddenKnownPairedMac" : {
       "extractionState" : "manual",
       "localizations" : {
