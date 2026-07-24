@@ -72,11 +72,14 @@ import Testing
         // exited on its own terms rather than dying from a signal.
         XCTAssertFalse(result.timedOut, result.diagnostics)
         XCTAssertFalse(result.diedFromSignal, result.diagnostics)
-        // 2 is the unknown-command exit and it is deterministic now the socket is pinned. Asserting
-        // the exact code rather than merely non-zero keeps this from passing when the CLI fails for
-        // some unrelated reason. Nothing is asserted about stdout: the message goes to stderr, which
-        // this test deliberately closes.
-        XCTAssertEqual(result.status, 2, result.diagnostics)
+        // 1, measured, and deterministic for this fixture: the pinned socket has no listener, so the
+        // CLI fails at connect and the top-level handler exits 1 before the unknown-command arm (which
+        // would exit 2) is ever reached. That ordering is what makes this a good exercise of the guard
+        // rather than a weaker one — the connect error is written to the stderr this test has closed.
+        // Asserting the exact code rather than merely non-zero keeps the test from passing when the CLI
+        // fails for some unrelated reason. Nothing is asserted about stdout: every message on this path
+        // goes to the closed stderr.
+        XCTAssertEqual(result.status, 1, result.diagnostics)
     }
 
     @Test func testAgentTeamsHelpDoesNotLaunchExternalAgentCLI() throws {
