@@ -3923,14 +3923,13 @@ fn run_with_machine_updates_inner(
     // have dropped, so graphics are quiescent before terminal restoration.
     let mut terminal_restore = TerminalRestoreGuard::new(stdout_lock.clone());
 
-    let cell_pixels = crate::ui::graphics::detect_cell_pixels(None, true);
+    let cell_pixels = crate::ui::graphics::detect_cell_pixels(None);
     if session_available {
         session.set_cell_pixel_size(cell_pixels.0, cell_pixels.1);
     }
-    let graphics_supported = crate::ui::graphics::probe_kitty_graphics();
+    let graphics_supported = crate::ui::graphics::detect_kitty_graphics_support();
 
-    // Crossterm input → app channel. Start this after startup terminal
-    // probes so DA / window-size responses are not consumed as key input.
+    // Crossterm input → app channel.
     let input_tx = tx.clone();
     std::thread::Builder::new().name("input".into()).spawn({
         move || {
@@ -3974,7 +3973,7 @@ fn run_with_machine_updates_inner(
         graphics_writer,
         graphics_supported,
         graphics_host_scene_reset_pending: false,
-        stdout_lock: stdout_lock.clone(),
+        stdout_lock,
         pane_areas: Vec::new(),
         pane_focus_history: PaneFocusHistory::default(),
         rendered_terminal_bounds: HashMap::new(),
@@ -5316,8 +5315,8 @@ impl App {
             || crate::ui::toast_rect(self).is_some_and(|toast| rects_intersect(rect, toast))
     }
 
-    fn refresh_cell_pixels(&mut self, query_fallback: bool) {
-        let next = crate::ui::graphics::detect_cell_pixels(Some(self.cell_pixels), query_fallback);
+    fn refresh_cell_pixels(&mut self, _query_fallback: bool) {
+        let next = crate::ui::graphics::detect_cell_pixels(Some(self.cell_pixels));
         if self.cell_pixels != next {
             if !self.prepare_pty_input_before_mutation() {
                 return;

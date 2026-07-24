@@ -1,4 +1,8 @@
+use std::io;
+#[cfg(any(test, not(unix)))]
 use std::io::Write;
+#[cfg(unix)]
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
@@ -6,6 +10,122 @@ use std::thread::{JoinHandle, ThreadId};
 use std::time::Duration;
 
 use super::graphics::{GraphicPlacement, GraphicsState};
+
+/// Bound one stdout-lock hold while preserving complete Kitty APC commands.
+/// This lets ordinary terminal draws make progress during multi-megabyte
+/// image uploads without ever interleaving bytes inside one protocol command.
+const MAX_LOCKED_GRAPHICS_WRITE_BYTES: usize = 64 * 1024;
+#[cfg(unix)]
+const OUTPUT_POLL_INTERVAL_MS: i32 = 20;
+
+trait GraphicsOutput: Send + 'static {
+    /// Write one complete group of Kitty APC commands. `Ok(false)` means
+    /// cancellation won before the complete group was emitted.
+    fn write_segment(&mut self, bytes: &[u8], control: &WriterControl) -> io::Result<bool>;
+}
+
+#[cfg(unix)]
+struct InterruptibleStdout {
+    fd: OwnedFd,
+}
+
+#[cfg(unix)]
+impl InterruptibleStdout {
+    fn open() -> io::Result<Self> {
+        // `dup` would share file-status flags with stdout, so setting
+        // O_NONBLOCK on the duplicate would also make ratatui's stdout
+        // writes nonblocking. Opening the controlling terminal creates an
+        // independent open-file description for the same terminal.
+        let raw = unsafe {
+            libc::open(c"/dev/tty".as_ptr(), libc::O_WRONLY | libc::O_NONBLOCK | libc::O_CLOEXEC)
+        };
+        if raw < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let fd = unsafe { OwnedFd::from_raw_fd(raw) };
+        Ok(Self { fd })
+    }
+}
+
+#[cfg(unix)]
+impl GraphicsOutput for InterruptibleStdout {
+    fn write_segment(&mut self, bytes: &[u8], control: &WriterControl) -> io::Result<bool> {
+        let mut offset = 0;
+        while offset < bytes.len() {
+            if control.is_cancelled() {
+                return Ok(false);
+            }
+            let written = unsafe {
+                libc::write(
+                    self.fd.as_raw_fd(),
+                    bytes[offset..].as_ptr().cast(),
+                    bytes.len() - offset,
+                )
+            };
+            if written > 0 {
+                offset += written as usize;
+                continue;
+            }
+            if written == 0 {
+                return Err(io::Error::new(io::ErrorKind::WriteZero, "stdout accepted zero bytes"));
+            }
+            let error = io::Error::last_os_error();
+            match error.raw_os_error() {
+                Some(libc::EINTR) => continue,
+                Some(libc::EAGAIN) => {
+                    let mut poll_fd =
+                        libc::pollfd { fd: self.fd.as_raw_fd(), events: libc::POLLOUT, revents: 0 };
+                    let ready = unsafe { libc::poll(&mut poll_fd, 1, OUTPUT_POLL_INTERVAL_MS) };
+                    if ready < 0 && io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
+                        return Err(io::Error::last_os_error());
+                    }
+                }
+                _ => return Err(error),
+            }
+        }
+        Ok(true)
+    }
+}
+
+#[cfg(not(unix))]
+struct InterruptibleStdout(std::io::Stdout);
+
+#[cfg(not(unix))]
+impl InterruptibleStdout {
+    fn open() -> io::Result<Self> {
+        Ok(Self(std::io::stdout()))
+    }
+}
+
+#[cfg(not(unix))]
+impl GraphicsOutput for InterruptibleStdout {
+    fn write_segment(&mut self, bytes: &[u8], control: &WriterControl) -> io::Result<bool> {
+        if control.is_cancelled() {
+            return Ok(false);
+        }
+        self.0.write_all(bytes)?;
+        self.0.flush()?;
+        Ok(!control.is_cancelled())
+    }
+}
+
+#[cfg(test)]
+struct TestOutput<W>(W);
+
+#[cfg(test)]
+impl<W> GraphicsOutput for TestOutput<W>
+where
+    W: Write + Send + 'static,
+{
+    fn write_segment(&mut self, bytes: &[u8], control: &WriterControl) -> io::Result<bool> {
+        if control.is_cancelled() {
+            return Ok(false);
+        }
+        self.0.write_all(bytes)?;
+        self.0.flush()?;
+        Ok(!control.is_cancelled())
+    }
+}
 
 #[derive(Default)]
 struct PendingGraphics {
@@ -101,9 +221,8 @@ pub(crate) struct GraphicsWriterShutdown {
 
 impl GraphicsWriterShutdown {
     /// Stop the writer and wait until no future host-terminal writes are
-    /// possible. This is safe to call from the process panic hook. The wait
-    /// is deliberately unbounded because returning while a `Write` is still
-    /// blocked would allow Kitty bytes to arrive after terminal restoration.
+    /// possible. This is safe to call from the process panic hook because the
+    /// production writer uses a nonblocking descriptor and bounded poll loop.
     pub(crate) fn cancel_and_wait(&self) {
         self.control.request_cancel(&self.notify);
         if self
@@ -130,13 +249,21 @@ pub struct GraphicsWriter {
 }
 
 impl GraphicsWriter {
-    pub fn spawn(stdout_lock: Arc<Mutex<()>>) -> std::io::Result<Self> {
-        Self::spawn_with_output(stdout_lock, std::io::stdout())
+    pub fn spawn(stdout_lock: Arc<Mutex<()>>) -> io::Result<Self> {
+        Self::spawn_with_graphics_output(stdout_lock, InterruptibleStdout::open()?)
     }
 
-    fn spawn_with_output<W>(stdout_lock: Arc<Mutex<()>>, output: W) -> std::io::Result<Self>
+    #[cfg(test)]
+    fn spawn_with_output<W>(stdout_lock: Arc<Mutex<()>>, output: W) -> io::Result<Self>
     where
         W: Write + Send + 'static,
+    {
+        Self::spawn_with_graphics_output(stdout_lock, TestOutput(output))
+    }
+
+    fn spawn_with_graphics_output<O>(stdout_lock: Arc<Mutex<()>>, output: O) -> io::Result<Self>
+    where
+        O: GraphicsOutput,
     {
         let (tx, rx) = sync_channel(1);
         let slot = Arc::new(Mutex::new(PendingGraphics::default()));
@@ -191,6 +318,9 @@ impl GraphicsWriter {
         self.control.request_stop(notify);
         if !self.control.wait_done_timeout(timeout) {
             self.control.request_cancel(notify);
+            // The production stdout descriptor is nonblocking and polls
+            // cancellation at most every OUTPUT_POLL_INTERVAL_MS.
+            self.control.wait_done();
         }
         let _ = handle.join();
         self.notify.take();
@@ -233,14 +363,14 @@ fn take_pending_update(
     })
 }
 
-fn writer_loop<W>(
+fn writer_loop<O>(
     slot: Arc<Mutex<PendingGraphics>>,
     rx: Receiver<()>,
     stdout_lock: Arc<Mutex<()>>,
-    mut output: W,
+    mut output: O,
     control: Arc<WriterControl>,
 ) where
-    W: Write,
+    O: GraphicsOutput,
 {
     let _ = control.worker_thread.set(std::thread::current().id());
     let _done = DoneOnDrop(control.clone());
@@ -294,27 +424,64 @@ fn writer_loop<W>(
     }
 }
 
-fn write_batch<W: Write>(
-    output: &mut W,
+fn write_batch<O: GraphicsOutput>(
+    output: &mut O,
     stdout_lock: &Arc<Mutex<()>>,
     slot: &Arc<Mutex<PendingGraphics>>,
     host_scene_epoch: u64,
     control: &WriterControl,
     batch: &[u8],
 ) -> bool {
-    if control.is_cancelled() {
-        return false;
+    let mut offset = 0;
+    while offset < batch.len() {
+        if control.is_cancelled() {
+            return false;
+        }
+        let Some(end) = next_graphics_write_end(batch, offset) else {
+            return false;
+        };
+        #[cfg(test)]
+        control.report_write_attempt();
+        {
+            let _guard = stdout_lock.lock().unwrap();
+            if control.is_cancelled() {
+                return false;
+            }
+            if slot.lock().unwrap().host_scene_epoch != host_scene_epoch {
+                return true;
+            }
+            match output.write_segment(&batch[offset..end], control) {
+                Ok(true) => {}
+                Ok(false) | Err(_) => return false,
+            }
+        }
+        offset = end;
     }
-    #[cfg(test)]
-    control.report_write_attempt();
-    let _guard = stdout_lock.lock().unwrap();
-    if control.is_cancelled() {
-        return false;
+    true
+}
+
+fn next_graphics_write_end(batch: &[u8], start: usize) -> Option<usize> {
+    let mut end = start;
+    while end < batch.len() {
+        let Some(terminator) = batch[end..]
+            .windows(2)
+            .position(|bytes| bytes == b"\x1b\\")
+            .map(|offset| end + offset + 2)
+        else {
+            if end > start && !batch[end..].windows(3).any(|bytes| bytes == b"\x1b_G") {
+                return Some(batch.len());
+            }
+            return (end > start).then_some(end);
+        };
+        if end > start && terminator - start > MAX_LOCKED_GRAPHICS_WRITE_BYTES {
+            break;
+        }
+        end = terminator;
+        if end - start >= MAX_LOCKED_GRAPHICS_WRITE_BYTES {
+            break;
+        }
     }
-    if slot.lock().unwrap().host_scene_epoch != host_scene_epoch {
-        return true;
-    }
-    output.write_all(batch).and_then(|_| output.flush()).is_ok()
+    (end > start).then_some(end)
 }
 
 struct DoneOnDrop(Arc<WriterControl>);
@@ -343,14 +510,14 @@ mod tests {
     }
 
     impl Write for BlockingOutput {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
             let _ = self.entered.try_send(());
             self.release.recv().unwrap();
             self.writes_after_restore.lock().unwrap().push(self.restored.load(Ordering::Acquire));
             Ok(buf.len())
         }
 
-        fn flush(&mut self) -> std::io::Result<()> {
+        fn flush(&mut self) -> io::Result<()> {
             Ok(())
         }
     }
@@ -361,12 +528,12 @@ mod tests {
     }
 
     impl Write for ObservedOutput {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
             self.bytes.lock().unwrap().extend_from_slice(buf);
             Ok(buf.len())
         }
 
-        fn flush(&mut self) -> std::io::Result<()> {
+        fn flush(&mut self) -> io::Result<()> {
             let _ = self.flushed.try_send(());
             Ok(())
         }
@@ -405,6 +572,86 @@ mod tests {
                 return;
             }
         }
+    }
+
+    #[test]
+    fn large_batches_split_only_between_complete_kitty_commands() {
+        let command = |payload: u8| {
+            let mut command = b"\x1b_Gq=2,m=1;".to_vec();
+            command.extend(std::iter::repeat_n(payload, 4_096));
+            command.extend_from_slice(b"\x1b\\");
+            command
+        };
+        let commands = (0..40).map(command).collect::<Vec<_>>();
+        let batch = commands.concat();
+
+        let mut offset = 0;
+        let mut segments = Vec::new();
+        while offset < batch.len() {
+            let end = next_graphics_write_end(&batch, offset).expect("complete Kitty segment");
+            let segment = &batch[offset..end];
+            assert!(segment.ends_with(b"\x1b\\"));
+            assert!(
+                segment.len() <= MAX_LOCKED_GRAPHICS_WRITE_BYTES,
+                "bounded command grouping held stdout for {} bytes",
+                segment.len()
+            );
+            segments.extend_from_slice(segment);
+            offset = end;
+        }
+        assert_eq!(segments, batch);
+        assert!(next_graphics_write_end(b"\x1b_Gunterminated", 0).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn shutdown_cancels_a_writer_blocked_by_terminal_backpressure() {
+        let mut raw_fds = [-1; 2];
+        assert_eq!(unsafe { libc::pipe(raw_fds.as_mut_ptr()) }, 0);
+        let read_fd = unsafe { OwnedFd::from_raw_fd(raw_fds[0]) };
+        let write_fd = unsafe { OwnedFd::from_raw_fd(raw_fds[1]) };
+        let flags = unsafe { libc::fcntl(write_fd.as_raw_fd(), libc::F_GETFL) };
+        assert!(flags >= 0);
+        assert_eq!(
+            unsafe { libc::fcntl(write_fd.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) },
+            0
+        );
+        let fill = [0_u8; 4_096];
+        loop {
+            let written =
+                unsafe { libc::write(write_fd.as_raw_fd(), fill.as_ptr().cast(), fill.len()) };
+            if written >= 0 {
+                continue;
+            }
+            assert_eq!(io::Error::last_os_error().raw_os_error(), Some(libc::EAGAIN));
+            break;
+        }
+
+        let mut writer = GraphicsWriter::spawn_with_graphics_output(
+            Arc::new(Mutex::new(())),
+            InterruptibleStdout { fd: write_fd },
+        )
+        .unwrap();
+        let (attempt_tx, attempt_rx) = sync_channel(1);
+        writer.control.observe_write_attempts(attempt_tx);
+        writer.submit(vec![GraphicPlacement::browser(
+            0,
+            1,
+            Rect { x: 0, y: 0, width: 10, height: 5 },
+            1,
+            10,
+            5,
+            "AAAA".to_string(),
+        )]);
+        attempt_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let started = std::time::Instant::now();
+        writer.shutdown(Duration::ZERO);
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "cancelable stdout did not stop within its bounded poll interval"
+        );
+        drop(read_fd);
     }
 
     #[test]
@@ -448,7 +695,7 @@ mod tests {
         assert!(rx.try_recv().is_err());
 
         let lock = Arc::new(Mutex::new(()));
-        let mut writer = GraphicsWriter::spawn(lock).unwrap();
+        let mut writer = GraphicsWriter::spawn_with_output(lock, io::sink()).unwrap();
         writer.shutdown(Duration::from_secs(1));
         assert!(writer.handle.as_ref().is_none_or(|handle| handle.is_finished()));
     }

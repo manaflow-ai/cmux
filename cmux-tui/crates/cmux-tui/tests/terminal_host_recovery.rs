@@ -1680,10 +1680,17 @@ fn direct_renderer_becomes_sole_viewer_after_control_client_disconnect() {
         }),
     );
     let surface = created["surface"].as_u64().unwrap();
+    let metrics = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":2,"cmd":"set-cell-pixels","width_px":9,"height_px":18,
+        }),
+    );
+    assert_eq!(metrics["failures"], serde_json::json!([]));
     let grant = request(
         &harness.socket,
         serde_json::json!({
-            "id":2,"cmd":"mint-terminal-renderer","surface":surface,"ttl_ms":10_000,
+            "id":3,"cmd":"mint-terminal-renderer","surface":surface,"ttl_ms":10_000,
         }),
     );
     let mut renderer = connect_host_detailed(
@@ -1805,6 +1812,17 @@ fn negotiated_viewer_size_ack_skips_unchanged_replay_and_follows_changed_pair() 
     assert_eq!(renderer.hello_flags, FLAG_VIEWER_SIZE_ACKS);
     renderer.stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
 
+    let mut cell_pixels = Frame::new(MessageKind::SetCellPixelSize, Vec::new());
+    cell_pixels.request_id = 41;
+    cell_pixels.payload.extend_from_slice(&11u16.to_le_bytes());
+    cell_pixels.payload.extend_from_slice(&22u16.to_le_bytes());
+    write_frame(&mut renderer.stream, &cell_pixels).unwrap();
+    let ack = read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+    assert_eq!(ack.kind, MessageKind::CellPixelSizeAck);
+    assert_eq!(ack.request_id, 41);
+    assert_eq!(ack.sequence, 0);
+    assert_eq!(ack.payload, vec![11, 0, 22, 0]);
+
     let mut unchanged = Frame::new(MessageKind::ViewerSize, Vec::new());
     unchanged.request_id = 42;
     unchanged.payload.extend_from_slice(&80u16.to_le_bytes());
@@ -1850,7 +1868,7 @@ fn negotiated_viewer_size_ack_skips_unchanged_replay_and_follows_changed_pair() 
     changed_ack.extend_from_slice(&RESIZE_ACK_CANONICAL_CHANGED.to_le_bytes());
     assert_eq!(ack.payload, changed_ack);
 
-    request(&harness.socket, serde_json::json!({"id":3,"cmd":"close-surface","surface":surface}));
+    request(&harness.socket, serde_json::json!({"id":4,"cmd":"close-surface","surface":surface}));
     wait_for_no_host_records(&harness.host_root());
 }
 

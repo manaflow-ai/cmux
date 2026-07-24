@@ -278,7 +278,7 @@ pub struct Terminal {
     instance_id: u64,
     mouse_mode_revision: u64,
     mouse_mode_scan: MouseModeScan,
-    kitty_inflight: KittyInFlightTracker,
+    kitty_inflight: Box<KittyInFlightTracker>,
     // Heap-pinned so the userdata pointer stays valid for the terminal's
     // lifetime.
     callbacks: Box<Callbacks>,
@@ -1196,7 +1196,7 @@ impl Terminal {
             instance_id: NEXT_TERMINAL_ID.fetch_add(1, Ordering::Relaxed),
             mouse_mode_revision: 0,
             mouse_mode_scan: MouseModeScan::default(),
-            kitty_inflight: KittyInFlightTracker::default(),
+            kitty_inflight: Box::new(KittyInFlightTracker::default()),
             callbacks: Box::new(callbacks),
             cursor_override: CursorOverrideTracker::default(),
             palette_override: Box::default(),
@@ -1926,10 +1926,10 @@ impl Terminal {
         let catalog =
             KittyReplayCatalog::new(&snapshot, self.cell_pixel_size(), self.rows().max(1));
 
-        let active_start = self.scrollbar().and_then(|scrollbar| {
+        let active_start = self.scrollbar().map(|scrollbar| {
             let viewport_start = scrollbar.total.saturating_sub(scrollbar.len);
             let visible_start = catalog.visible_anchor_start().unwrap_or(viewport_start);
-            Some(viewport_start.min(visible_start))
+            viewport_start.min(visible_start)
         });
         let active_text = self.vt_replay_text_layout_bounded(
             remaining,
@@ -2134,7 +2134,7 @@ impl Terminal {
             if history_bearing {
                 let expected_breaks =
                     usize::try_from(segment_end - range.start).unwrap_or(usize::MAX);
-                for _ in emitted_breaks..expected_breaks {
+                while emitted_breaks < expected_breaks {
                     if bytes.len().saturating_add(2) > format_max_bytes {
                         return Ok(None);
                     }

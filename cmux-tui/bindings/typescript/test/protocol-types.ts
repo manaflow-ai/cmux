@@ -12,6 +12,7 @@ import type {
   RenderStateEvent,
   Tree,
   TreeDeltaEvent,
+  VtStateResult,
 } from "../src/browser.js";
 
 const treeWithPaneRevision: Tree = { pane_revision: 7, workspaces: [] };
@@ -97,6 +98,14 @@ const identify: IdentifyData = {
 };
 void identify;
 
+const vtStateWithKittyAliases: VtStateResult = {
+  cols: 80,
+  rows: 24,
+  data: "",
+  kitty_image_aliases: [{ image_id: 7, image_number: 70 }],
+};
+void vtStateWithKittyAliases;
+
 type LegacyWorkspaceMutationData = CmuxResponseData<{
   cmd: "close-workspace";
   workspace: number;
@@ -160,6 +169,7 @@ const protocolV7Resize: KnownCmuxEvent = {
   rows: 24,
   replay: "cmVwbGF5",
   colors: colorsChanged,
+  kitty_image_aliases: [{ image_id: 7, image_number: 70 }],
 };
 const clientEvents: KnownCmuxEvent[] = [
   { event: "client-attached", client: 2, transport: "ws", name: "browser", kind: "web" },

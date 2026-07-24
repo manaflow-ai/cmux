@@ -701,6 +701,9 @@ impl ClientSizingState {
     }
 }
 
+#[cfg(test)]
+type CellPixelBeforePublishHook = Arc<dyn Fn((u16, u16)) + Send + Sync>;
+
 /// The multiplexer. Shared by frontends and the control socket server.
 pub struct Mux {
     /// Serializes durable workspace commits and their in-memory/event
@@ -740,7 +743,7 @@ pub struct Mux {
     cell_pixel_lifecycle: Mutex<()>,
     cell_pixels: Mutex<(u16, u16)>,
     #[cfg(test)]
-    cell_pixel_before_publish: Mutex<Option<Arc<dyn Fn((u16, u16)) + Send + Sync>>>,
+    cell_pixel_before_publish: Mutex<Option<CellPixelBeforePublishHook>>,
     default_colors: Mutex<DefaultColors>,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     agent_records: Mutex<HashMap<SurfaceId, AgentRecord>>,

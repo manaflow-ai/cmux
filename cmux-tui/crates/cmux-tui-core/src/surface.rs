@@ -18,8 +18,8 @@ use std::sync::{Arc, Condvar, Mutex, TryLockError, Weak};
 use std::time::{Duration, Instant};
 
 use ghostty_vt::{
-    Callbacks, CursorShape, MouseEncoders, MouseInput, RenderFrame, RenderState, Rgb, Terminal,
-    TerminalColorOverrides,
+    Callbacks, CursorShape, Dirty, MouseEncoders, MouseInput, RenderFrame, RenderState, Rgb,
+    Terminal, TerminalColorOverrides,
 };
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
@@ -30,8 +30,10 @@ pub use crate::browser::{
     BrowserAttachState, BrowserFrame, BrowserFrameStream, BrowserSource, BrowserStatus,
 };
 use crate::browser::{BrowserResizeWaiter, BrowserSurface, PendingBrowserResize};
+#[cfg(all(unix, test))]
+use crate::terminal_host_protocol::PROTOCOL_VERSION;
 #[cfg(unix)]
-use crate::terminal_host_protocol::{FLAG_COLORS_FOLLOW, Frame, MessageKind, PROTOCOL_VERSION};
+use crate::terminal_host_protocol::{FLAG_COLORS_FOLLOW, Frame, MessageKind};
 use cmux_tui_cdp::BrowserMode;
 
 /// How to spawn surface children.
@@ -272,18 +274,28 @@ enum PendingHostedTransition {
 
 #[cfg(unix)]
 struct HostedFrameStager {
+    protocol_version: u16,
     expected_sequence: u64,
     pending: Option<PendingHostedTransition>,
 }
 
 #[cfg(unix)]
 impl HostedFrameStager {
+    #[cfg(test)]
     fn new(sequence_boundary: u64) -> Self {
-        Self { expected_sequence: sequence_boundary.wrapping_add(1), pending: None }
+        Self::new_for_version(sequence_boundary, PROTOCOL_VERSION)
+    }
+
+    fn new_for_version(sequence_boundary: u64, protocol_version: u16) -> Self {
+        Self {
+            protocol_version,
+            expected_sequence: sequence_boundary.wrapping_add(1),
+            pending: None,
+        }
     }
 
     fn push(&mut self, frame: Frame) -> Result<Option<HostedTransition>, &'static str> {
-        if frame.version != PROTOCOL_VERSION || frame.request_id != 0 {
+        if frame.version != self.protocol_version || frame.request_id != 0 {
             return Err("invalid live-frame envelope");
         }
         if frame.sequence != self.expected_sequence {
@@ -328,8 +340,11 @@ impl HostedFrameStager {
                     return Err("invalid Resized frame");
                 }
                 let (cols, rows, replay, kitty_image_aliases) =
-                    crate::terminal_host_runtime::decode_host_resize_payload(&frame.payload)
-                        .map_err(|_| "invalid Resized payload")?;
+                    crate::terminal_host_runtime::decode_host_resize_payload_for_version(
+                        &frame.payload,
+                        self.protocol_version,
+                    )
+                    .map_err(|_| "invalid Resized payload")?;
                 self.pending = Some(PendingHostedTransition::Resized {
                     cols,
                     rows,
@@ -526,18 +541,65 @@ enum PendingRenderKind {
 }
 
 struct RenderTapQueue {
-    pending_frame: Option<Arc<SurfaceRenderFrame>>,
+    pending_frame: Option<PendingRenderFrame>,
     pending_scroll: Option<(u64, bool)>,
     latest_kind: Option<PendingRenderKind>,
     sender_alive: bool,
     receiver_alive: bool,
 }
 
+struct PendingRenderFrame {
+    latest: Arc<SurfaceRenderFrame>,
+    dirty: Dirty,
+    dirty_rows: Vec<u16>,
+}
+
+impl PendingRenderFrame {
+    fn new(latest: Arc<SurfaceRenderFrame>) -> Self {
+        Self { dirty: latest.frame.dirty, dirty_rows: latest.frame.dirty_rows.clone(), latest }
+    }
+
+    /// Replace the immutable snapshot while retaining every row damaged since
+    /// the tap last drained. Only damage metadata is copied on this hot path.
+    fn coalesce(&mut self, latest: Arc<SurfaceRenderFrame>) {
+        if self.dirty == Dirty::Full
+            || latest.frame.dirty == Dirty::Full
+            || self.latest.frame.size != latest.frame.size
+        {
+            self.dirty = Dirty::Full;
+            self.dirty_rows = (0..latest.frame.size.1).collect();
+        } else {
+            self.dirty_rows.extend(latest.frame.dirty_rows.iter().copied());
+            self.dirty_rows.sort_unstable();
+            self.dirty_rows.dedup();
+            self.dirty =
+                if self.dirty_rows.is_empty() { latest.frame.dirty } else { Dirty::Partial };
+        }
+        self.latest = latest;
+    }
+
+    /// Materialize one coalesced frame when the receiver drains. A tap that
+    /// keeps up returns the original shared frame without cloning row state.
+    fn into_frame(self) -> Arc<SurfaceRenderFrame> {
+        if self.dirty == self.latest.frame.dirty && self.dirty_rows == self.latest.frame.dirty_rows
+        {
+            return self.latest;
+        }
+        let mut combined = (*self.latest).clone();
+        combined.frame.dirty = self.dirty;
+        combined.frame.dirty_rows = self.dirty_rows;
+        Arc::new(combined)
+    }
+}
+
 impl RenderTapQueue {
     fn push(&mut self, event: RenderAttachFrame) {
         match event {
             RenderAttachFrame::Frame(frame) => {
-                self.pending_frame = Some(frame);
+                match &mut self.pending_frame {
+                    Some(pending) => pending.coalesce(frame),
+                    None => self.pending_frame = Some(PendingRenderFrame::new(frame)),
+                }
                 self.latest_kind = Some(PendingRenderKind::Frame);
             }
             RenderAttachFrame::ScrollChanged { offset, at_bottom } => {
@@ -555,10 +617,12 @@ impl RenderTapQueue {
                     RenderAttachFrame::ScrollChanged { offset, at_bottom }
                 }
                 (true, true, Some(PendingRenderKind::Scroll)) => {
-                    RenderAttachFrame::Frame(self.pending_frame.take().unwrap())
+                    RenderAttachFrame::Frame(self.pending_frame.take().unwrap().into_frame())
                 }
                 (true, true, None) => unreachable!("pending render events have an ordering"),
-                (true, false, _) => RenderAttachFrame::Frame(self.pending_frame.take().unwrap()),
+                (true, false, _) => {
+                    RenderAttachFrame::Frame(self.pending_frame.take().unwrap().into_frame())
+                }
                 (false, true, _) => {
                     let (offset, at_bottom) = self.pending_scroll.take().unwrap();
                     RenderAttachFrame::ScrollChanged { offset, at_bottom }
@@ -731,6 +795,7 @@ pub struct SurfaceMeta {
 }
 
 /// A pane tab runtime.
+#[cfg_attr(test, allow(clippy::large_enum_variant))]
 pub enum Surface {
     Pty(PtySurface),
     Browser(BrowserSurface),
@@ -771,6 +836,9 @@ impl PtyGeometry {
     }
 }
 
+#[cfg(test)]
+type PtyGeometryTestHook = Arc<dyn Fn(PtyGeometryTestStep) + Send + Sync>;
+
 pub struct PtySurface {
     pub(crate) meta: SurfaceMeta,
     term: Mutex<Terminal>,
@@ -794,7 +862,7 @@ pub struct PtySurface {
     pwd: Mutex<Option<String>>,
     geometry: Mutex<PtyGeometry>,
     #[cfg(test)]
-    geometry_test_hook: Mutex<Option<Arc<dyn Fn(PtyGeometryTestStep) + Send + Sync>>>,
+    geometry_test_hook: Mutex<Option<PtyGeometryTestHook>>,
     #[cfg(test)]
     test_master_control: Option<Arc<TestMasterPtyControl>>,
     #[cfg(test)]
@@ -1141,7 +1209,7 @@ impl Surface {
             std::thread::sleep(Duration::from_millis(delay_ms));
             anyhow::bail!("injected hosted surface setup failure after attachment");
         }
-        let mut capability_responses = attachment.capability_responses();
+        let mut control_responses = attachment.control_responses();
         let snapshot = attachment.snapshot.clone();
         let mut applied_color_overrides = snapshot.colors.clone();
         let title_changed = Arc::new(AtomicBool::new(false));
@@ -1170,6 +1238,7 @@ impl Surface {
         let mut mouse_encoders = MouseEncoders::new()?;
         mouse_encoders.sync_from_terminal(&term);
         let sequence_boundary = snapshot.sequence_boundary;
+        let protocol_version = attachment.protocol_version();
         let host_identity = attachment.identity();
         let render_state = RenderState::new()?;
         let (frame_requests, frame_rx) = sync_channel(1);
@@ -1225,8 +1294,10 @@ impl Surface {
             let scrollback = opts.scrollback;
             move || {
                 let mut sequence_boundary = sequence_boundary;
+                let mut protocol_version = protocol_version;
                 'connection: loop {
-                    let mut stager = HostedFrameStager::new(sequence_boundary);
+                    let mut stager =
+                        HostedFrameStager::new_for_version(sequence_boundary, protocol_version);
                     let mut received_exit = false;
                     'host_stream: while let Ok(Some(frame)) =
                         crate::terminal_host_protocol::read_frame(
@@ -1235,14 +1306,18 @@ impl Surface {
                         )
                     {
                         let Some(pty) = surface.as_pty() else { break };
-                        if frame.kind == MessageKind::Capability && frame.request_id != 0 {
-                            if frame.version != PROTOCOL_VERSION
+                        if matches!(
+                            frame.kind,
+                            MessageKind::Capability | MessageKind::CellPixelSizeAck
+                        ) && frame.request_id != 0
+                        {
+                            if frame.version != protocol_version
                                 || frame.flags != 0
                                 || frame.sequence != 0
                             {
                                 break;
                             }
-                            capability_responses.resolve(&frame);
+                            control_responses.resolve(&frame);
                             continue;
                         }
                         let Ok(transition) = stager.push(frame) else {
@@ -1529,8 +1604,9 @@ impl Surface {
                                 continue;
                             }
                         };
+                        let replacement_protocol_version = replacement.protocol_version();
                         let replacement_snapshot = replacement.snapshot.clone();
-                        let replacement_capabilities = replacement.capability_responses();
+                        let replacement_control_responses = replacement.control_responses();
                         let installed = {
                             let mut runtime = pty.runtime.lock().unwrap();
                             if pty.owner_detaching.load(Ordering::Acquire) {
@@ -1653,8 +1729,9 @@ impl Surface {
                         drop(geometry);
                         pty.request_frame(generation);
                         reader = replacement_reader;
-                        capability_responses = replacement_capabilities;
+                        control_responses = replacement_control_responses;
                         sequence_boundary = replacement_snapshot.sequence_boundary;
+                        protocol_version = replacement_protocol_version;
                         pty.host_connection_state
                             .store(TerminalHostConnectionState::Connected as u8, Ordering::Release);
                         if let Some(mux) = mux.upgrade() {
@@ -2818,7 +2895,50 @@ impl PtySurface {
         let mut geometry = self.geometry.lock().unwrap();
         let next =
             PtyGeometry { cell_width: width_px.max(1), cell_height: height_px.max(1), ..*geometry };
-        self.commit_geometry(&mut geometry, next, false)
+        if *geometry == next {
+            return Ok(false);
+        }
+        let previous = *geometry;
+        #[cfg(unix)]
+        let host_committed = {
+            let runtime = self.runtime.lock().unwrap();
+            match &*runtime {
+                PtyRuntime::Hosted(host) => {
+                    if !host.send_cell_pixel_size(next.cell_width, next.cell_height)? {
+                        return Ok(false);
+                    }
+                    true
+                }
+                PtyRuntime::ExitedHosted => return Ok(false),
+                PtyRuntime::Local { .. } => false,
+            }
+        };
+        match self.commit_geometry(&mut geometry, next, false) {
+            Ok(changed) => Ok(changed),
+            #[cfg(unix)]
+            Err(error) if host_committed => {
+                let rollback = {
+                    let runtime = self.runtime.lock().unwrap();
+                    match &*runtime {
+                        PtyRuntime::Hosted(host) => host
+                            .send_cell_pixel_size(previous.cell_width, previous.cell_height)
+                            .map(|accepted| accepted.then_some(())),
+                        PtyRuntime::Local { .. } | PtyRuntime::ExitedHosted => Ok(None),
+                    }
+                };
+                match rollback {
+                    Ok(Some(())) => Err(error),
+                    Ok(None) => Err(anyhow::anyhow!(
+                        "{error:#}; authoritative host cell metrics could not be rolled back"
+                    )),
+                    Err(rollback_error) => Err(anyhow::anyhow!(
+                        "{error:#}; authoritative host cell-metric rollback failed: \
+                         {rollback_error:#}"
+                    )),
+                }
+            }
+            Err(error) => Err(error),
+        }
     }
 
     /// Commit the PTY ioctl or hosted mirror metrics, Ghostty geometry, and
@@ -3155,7 +3275,7 @@ mod tests {
         let _ = TerminalColors::from_terminal(&term, DefaultColors::default());
 
         shared_render.update(&mut term).unwrap();
-        assert_ne!(shared_render.dirty(), ghostty_vt::Dirty::Clean);
+        assert_ne!(shared_render.dirty(), Dirty::Clean);
     }
 
     #[test]
@@ -3654,6 +3774,47 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn hosted_stager_accepts_protocol_one_resize_without_alias_metadata() {
+        let replay = b"legacy host replay";
+        let mut payload = Vec::from([81, 0, 25, 0]);
+        payload.extend_from_slice(&(replay.len() as u32).to_le_bytes());
+        payload.extend_from_slice(replay);
+
+        let mut stager = HostedFrameStager::new_for_version(0, 1);
+        let mut resize = Frame::new(MessageKind::Resized, payload);
+        resize.version = 1;
+        resize.flags = FLAG_COLORS_FOLLOW;
+        resize.sequence = 1;
+        assert!(stager.push(resize).unwrap().is_none());
+
+        let colors = TerminalColorOverrides {
+            cursor_visual: Some((CursorShape::Block, true)),
+            ..Default::default()
+        };
+        let mut colors = Frame::new(
+            MessageKind::Colors,
+            crate::terminal_host_runtime::encode_terminal_color_overrides(&colors),
+        );
+        colors.version = 1;
+        colors.sequence = 2;
+        match stager.push(colors).unwrap().unwrap() {
+            HostedTransition::ResizedWithColors {
+                cols,
+                rows,
+                replay: received,
+                kitty_image_aliases,
+                ..
+            } => {
+                assert_eq!((cols, rows), (81, 25));
+                assert_eq!(received, replay);
+                assert!(kitty_image_aliases.is_empty());
+            }
+            other => panic!("unexpected staged transition: {other:?}"),
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn hosted_stager_fails_closed_on_invalid_flags_and_pairing() {
         let mut stager = HostedFrameStager::new(0);
         let mut resized = Frame::new(MessageKind::Resized, vec![80, 0, 24, 0]);
@@ -3743,16 +3904,53 @@ mod tests {
         let pty = surface.as_pty().unwrap();
         let attach = surface.attach_render_stream().unwrap();
 
+        let mut expected_dirty_rows = std::collections::BTreeSet::new();
         {
             let mut term = pty.term.lock().unwrap();
-            term.vt_write(b"a");
+            term.vt_write(b"\x1b[1;1Ha");
             pty.build_frame_locked(&mut term, 2, false).unwrap();
+            expected_dirty_rows.extend(
+                pty.render
+                    .lock()
+                    .unwrap()
+                    .latest
+                    .as_ref()
+                    .unwrap()
+                    .frame
+                    .dirty_rows
+                    .iter()
+                    .copied(),
+            );
             broadcast_render_scroll_locked(pty, (4, false));
-            term.vt_write(b"b");
+            term.vt_write(b"\x1b[2;1Hb");
             pty.build_frame_locked(&mut term, 3, false).unwrap();
+            expected_dirty_rows.extend(
+                pty.render
+                    .lock()
+                    .unwrap()
+                    .latest
+                    .as_ref()
+                    .unwrap()
+                    .frame
+                    .dirty_rows
+                    .iter()
+                    .copied(),
+            );
             broadcast_render_scroll_locked(pty, (9, true));
-            term.vt_write(b"c");
+            term.vt_write(b"\x1b[3;1Hc");
             pty.build_frame_locked(&mut term, 4, false).unwrap();
+            expected_dirty_rows.extend(
+                pty.render
+                    .lock()
+                    .unwrap()
+                    .latest
+                    .as_ref()
+                    .unwrap()
+                    .frame
+                    .dirty_rows
+                    .iter()
+                    .copied(),
+            );
         }
 
         let mut pending = Vec::new();
@@ -3772,17 +3970,33 @@ mod tests {
             panic!("final render frame must follow the final preceding scroll state");
         };
         let latest = pty.render.lock().unwrap().latest.clone().unwrap();
-        assert!(Arc::ptr_eq(frame, &latest));
+        assert_eq!(frame.frame.seq, latest.frame.seq);
+        assert_eq!(
+            frame.frame.dirty_rows.iter().copied().collect::<std::collections::BTreeSet<_>>(),
+            expected_dirty_rows,
+            "coalescing the newest snapshot must preserve every undrained dirty row"
+        );
+        for row in &expected_dirty_rows {
+            assert_eq!(frame.frame.styled_row(*row), latest.frame.styled_row(*row));
+        }
 
-        {
+        let latest_uncoalesced = {
             let mut term = pty.term.lock().unwrap();
             term.vt_write(b"d");
             pty.build_frame_locked(&mut term, 5, false).unwrap();
+            let latest = pty.render.lock().unwrap().latest.clone().unwrap();
             broadcast_render_scroll_locked(pty, (11, false));
-        }
+            latest
+        };
         let first = attach.stream.try_recv().unwrap();
         let second = attach.stream.try_recv().unwrap();
-        assert!(matches!(first, RenderAttachFrame::Frame(_)));
+        let RenderAttachFrame::Frame(frame) = first else {
+            panic!("frame must precede the later scroll state");
+        };
+        assert!(
+            Arc::ptr_eq(&frame, &latest_uncoalesced),
+            "a tap that keeps up must reuse the shared immutable frame"
+        );
         assert!(matches!(
             second,
             RenderAttachFrame::ScrollChanged { offset: 11, at_bottom: false }
@@ -3897,10 +4111,12 @@ mod tests {
         assert_eq!(VT_REPLAY_MAX_BYTES, 15_692_630);
         assert_eq!(ATTACH_STREAM_MAX_BYTES - VT_REPLAY_MAX_BYTES, 1_084_586);
         assert_eq!(VT_REPLAY_MAX_BYTES.div_ceil(3) * 4, 20_923_508);
-        assert!(
-            VT_REPLAY_MAX_BYTES + VT_REPLAY_FRAME_METADATA_HEADROOM_BYTES
-                <= ATTACH_STREAM_MAX_BYTES
-        );
+        const {
+            assert!(
+                VT_REPLAY_MAX_BYTES + VT_REPLAY_FRAME_METADATA_HEADROOM_BYTES
+                    <= ATTACH_STREAM_MAX_BYTES
+            );
+        }
         assert!(VT_REPLAY_MAX_BYTES.div_ceil(3) * 4 < VT_REPLAY_ENCODED_TRANSPORT_MAX_BYTES);
     }
 
@@ -3950,7 +4166,6 @@ mod tests {
         let (cell_started_tx, cell_started_rx) = std::sync::mpsc::channel();
         let release_resize_rx = Arc::new(Mutex::new(release_resize_rx));
         *pty.geometry_test_hook.lock().unwrap() = Some(Arc::new({
-            let release_resize_rx = release_resize_rx.clone();
             move |step| match step {
                 PtyGeometryTestStep::ResizeCommitBoundary => {
                     resize_entered_tx.send(()).unwrap();
@@ -4014,7 +4229,7 @@ mod tests {
             (80, 24, 640, 384)
         );
 
-        assert_eq!(surface.resize(100, 30).unwrap(), true);
+        assert!(surface.resize(100, 30).unwrap());
         assert_eq!(surface.size(), (100, 30));
         let master = surface.test_master_size();
         assert_eq!(

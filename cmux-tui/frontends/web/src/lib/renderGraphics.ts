@@ -11,6 +11,10 @@ const KITTY_BELOW_BACKGROUND_Z = -1_073_741_824;
 // placements while bounding their simultaneous canvas backing to 64 MiB.
 export const RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP = 64 * 1024 * 1024;
 
+// Each placement owns a DOM canvas, 2D context, and ImageData even when its
+// pixel backing is tiny. Bound that fixed overhead independently of bytes.
+export const RENDER_GRAPHIC_CANVAS_COUNT_CAP = 512;
+
 // Browser canvas limits vary. Keep each intrinsic axis at or below this
 // conservative limit even when a thin image would fit the aggregate byte cap.
 export const RENDER_GRAPHIC_MAX_CANVAS_DIMENSION = 16_384;
@@ -111,7 +115,7 @@ export function resolveRenderGraphicPlacement(
     || !Number.isSafeInteger(placement.z)
     || placement.source_width === 0
     || placement.source_height === 0
-    || placement.z <= KITTY_BELOW_BACKGROUND_Z) return null;
+    || placement.z < KITTY_BELOW_BACKGROUND_Z) return null;
   const sourceRight = placement.source_x + placement.source_width;
   const sourceBottom = placement.source_y + placement.source_height;
   if (!Number.isSafeInteger(sourceRight) || !Number.isSafeInteger(sourceBottom)

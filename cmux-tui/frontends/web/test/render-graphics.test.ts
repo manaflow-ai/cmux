@@ -167,7 +167,9 @@ describe("render graphics", () => {
 
     expect(resolveRenderGraphicPlacement(image, { ...placement, viewport_visible: false })).toBeNull();
     expect(resolveRenderGraphicPlacement(image, { ...placement, image_id: 10 })).toBeNull();
-    expect(resolveRenderGraphicPlacement(image, { ...placement, z: -1_073_741_824 })).toBeNull();
+    expect(resolveRenderGraphicPlacement(image, { ...placement, z: -1_073_741_824 }))
+      .toMatchObject({ layer: "below", z: -1_073_741_824 });
+    expect(resolveRenderGraphicPlacement(image, { ...placement, z: -1_073_741_825 })).toBeNull();
   });
 
   it("rejects browser-unsafe intrinsic canvas dimensions independently of area", () => {

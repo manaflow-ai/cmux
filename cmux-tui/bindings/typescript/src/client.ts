@@ -335,6 +335,15 @@ export class CmuxStream<T extends { event: string }> implements AsyncIterable<T>
 
   push(event: T, terminal = false, retainedBytesOverride?: number): void {
     if (this.closed) return;
+    const retainedBytes = retainedBytesOverride ?? this.retainedBytes(event);
+    if (retainedBytes > this.maxBufferedBytes) {
+      this.fail(
+        new CmuxProtocolError(
+          `stream event data exceeds ${this.maxBufferedBytes} bytes`,
+        ),
+      );
+      return;
+    }
     let delivered = false;
     while (this.waiters.length > 0) {
       const waiter = this.waiters.shift()!;
@@ -348,7 +357,6 @@ export class CmuxStream<T extends { event: string }> implements AsyncIterable<T>
         this.fail(new CmuxProtocolError("stream event buffer overflow"));
         return;
       }
-      const retainedBytes = retainedBytesOverride ?? this.retainedBytes(event);
       if (retainedBytes > this.maxBufferedBytes - this.bufferedBytes) {
         this.fail(
           new CmuxProtocolError(

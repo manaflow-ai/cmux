@@ -190,6 +190,7 @@ pub struct RenderState {
     default_palette: [Rgb; 256],
     kitty_graphics: KittyGraphicsSnapshot,
     kitty_pixel_cache: HashMap<u64, Arc<[u8]>>,
+    kitty_terminal_instance_id: Option<u64>,
     next_frame_seq: u64,
 }
 
@@ -226,6 +227,7 @@ impl RenderState {
             default_palette: [Rgb::default(); 256],
             kitty_graphics: KittyGraphicsSnapshot::default(),
             kitty_pixel_cache: HashMap::new(),
+            kitty_terminal_instance_id: None,
             next_frame_seq: 0,
         })
     }
@@ -236,7 +238,15 @@ impl RenderState {
         self.palette = terminal_palette(terminal.raw(), sys::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE)?;
         self.default_palette =
             terminal_palette(terminal.raw(), sys::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE_DEFAULT)?;
-        self.kitty_graphics = kitty::snapshot(terminal, &mut self.kitty_pixel_cache, false)?;
+        let terminal_instance_id = terminal.instance_id();
+        if let Some(graphics) = kitty::snapshot_for_render(
+            terminal,
+            &mut self.kitty_pixel_cache,
+            self.kitty_terminal_instance_id != Some(terminal_instance_id),
+        )? {
+            self.kitty_graphics = graphics;
+        }
+        self.kitty_terminal_instance_id = Some(terminal_instance_id);
         Ok(())
     }
 

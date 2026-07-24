@@ -219,6 +219,9 @@ impl RemoteTreeCache {
     }
 }
 
+#[cfg(test)]
+type RemoteGeometryTestHook = Arc<dyn Fn(RemoteGeometryTestStep) + Send + Sync>;
+
 /// A surface mirrored from a remote session.
 pub struct RemoteSurface {
     pub id: SurfaceId,
@@ -229,7 +232,7 @@ pub struct RemoteSurface {
     geometry_lifecycle: Mutex<()>,
     cell_pixels: Mutex<(u16, u16)>,
     #[cfg(test)]
-    geometry_test_hook: Mutex<Option<Arc<dyn Fn(RemoteGeometryTestStep) + Send + Sync>>>,
+    geometry_test_hook: Mutex<Option<RemoteGeometryTestHook>>,
     reported_size: Mutex<Option<(u16, u16)>>,
     browser: Mutex<RemoteBrowserState>,
 }
@@ -2799,7 +2802,6 @@ mod tests {
         let (cell_started_tx, cell_started_rx) = channel();
         let release_resize_rx = Arc::new(Mutex::new(release_resize_rx));
         *surface.geometry_test_hook.lock().unwrap() = Some(Arc::new({
-            let release_resize_rx = release_resize_rx.clone();
             move |step| match step {
                 RemoteGeometryTestStep::StreamResizeCommitBoundary => {
                     resize_entered_tx.send(()).unwrap();
@@ -3032,7 +3034,6 @@ mod tests {
 
         authoritative.write_bytes(b"\x1b_Ga=p,I=77,p=12,c=1,r=1,q=2;\x1b\\\n").unwrap();
         wait_for(Box::new({
-            let mirror = mirror.clone();
             move || {
                 mirror
                     .term

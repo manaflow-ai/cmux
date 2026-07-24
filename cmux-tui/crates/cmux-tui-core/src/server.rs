@@ -3516,6 +3516,7 @@ fn handle_command(
                 "incarnation": grant.incarnation,
                 "token": grant.token,
                 "rights": grant.rights.bits(),
+                "protocol_version": grant.protocol_version,
                 "ttl_ms": ttl_ms,
             }))
         }

@@ -51,6 +51,9 @@ pub enum MessageKind {
     /// Targeted response to an acknowledged `ViewerSize`; payload is
     /// canonical cols:u16 + rows:u16 + result_flags:u32.
     ResizeAck = 16,
+    /// Targeted response to `SetCellPixelSize`; payload is the committed
+    /// cell width:u16 + height:u16.
+    CellPixelSizeAck = 17,
     Input = 100,
     Paste = 101,
     ViewerSize = 102,
@@ -61,6 +64,9 @@ pub enum MessageKind {
     /// Admin request: complete encoded Ghostty frontend defaults. New hosts
     /// advertise support in their durable discovery record.
     SetDefaults = 106,
+    /// Protocol-v2 admin request: cell width:u16 + height:u16. The host
+    /// commits both its PTY and authoritative Ghostty parser before replying.
+    SetCellPixelSize = 107,
 }
 
 impl TryFrom<u16> for MessageKind {
@@ -84,6 +90,7 @@ impl TryFrom<u16> for MessageKind {
             14 => Ok(Self::Launch),
             15 => Ok(Self::Capability),
             16 => Ok(Self::ResizeAck),
+            17 => Ok(Self::CellPixelSizeAck),
             100 => Ok(Self::Input),
             101 => Ok(Self::Paste),
             102 => Ok(Self::ViewerSize),
@@ -91,6 +98,7 @@ impl TryFrom<u16> for MessageKind {
             104 => Ok(Self::Terminate),
             105 => Ok(Self::MintCapability),
             106 => Ok(Self::SetDefaults),
+            107 => Ok(Self::SetCellPixelSize),
             other => Err(ProtocolError::UnknownMessageKind(other)),
         }
     }

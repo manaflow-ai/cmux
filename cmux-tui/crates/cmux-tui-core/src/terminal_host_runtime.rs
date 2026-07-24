@@ -22,13 +22,14 @@ use crate::terminal_host_protocol::{
 };
 
 const HOST_RECORD_VERSION: u32 = 2;
+const LEGACY_PROTOCOL_VERSION: u16 = 1;
 const MAX_LAUNCH_PAYLOAD: usize = 1024 * 1024;
 const MAX_STRING: usize = 256 * 1024;
 const MAX_BLOB: usize = crate::surface::VT_REPLAY_MAX_BYTES;
 const MAX_ARGV: usize = 256;
 const MAX_ENV: usize = 1024;
 const MAX_RENDERER_CAPABILITY_TTL: std::time::Duration = std::time::Duration::from_secs(60);
-const CAPABILITY_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+const CONTROL_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 const HOST_HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 const MAX_HOST_CLIENT_QUEUED_BYTES: usize =
     MAX_FRAME_PAYLOAD + MAX_TERMINAL_COLORS_PAYLOAD + 2 * crate::terminal_host_protocol::HEADER_LEN;
@@ -150,6 +151,7 @@ pub struct RendererGrant {
     pub incarnation: String,
     pub token: String,
     pub rights: CapabilityRights,
+    pub protocol_version: u16,
 }
 
 impl std::fmt::Debug for RendererGrant {
@@ -540,14 +542,14 @@ mod unix {
         Ok(colors)
     }
 
-    pub(crate) struct CapabilityResponses {
-        waiters: Mutex<HashMap<u64, SyncSender<Vec<u8>>>>,
+    pub(crate) struct ControlResponses {
+        waiters: Mutex<HashMap<u64, SyncSender<Frame>>>,
     }
 
-    impl CapabilityResponses {
+    impl ControlResponses {
         pub(crate) fn resolve(&self, frame: &Frame) {
             if let Some(waiter) = self.waiters.lock().unwrap().remove(&frame.request_id) {
-                let _ = waiter.try_send(frame.payload.clone());
+                let _ = waiter.try_send(frame.clone());
             }
         }
     }
@@ -556,9 +558,10 @@ mod unix {
         pub record: TerminalHostRecord,
         pub record_path: PathBuf,
         pub snapshot: HostSnapshot,
+        protocol_version: u16,
         reader: Option<UnixStream>,
         writer: Arc<Mutex<UnixStream>>,
-        capability_responses: Arc<CapabilityResponses>,
+        control_responses: Arc<ControlResponses>,
         next_request: AtomicU64,
         viewer_size: Mutex<Option<(u16, u16)>>,
         /// Exact process ownership retained only between a successful launch
@@ -584,7 +587,8 @@ mod unix {
 
         pub fn send(&self, kind: MessageKind, payload: &[u8]) -> std::io::Result<()> {
             let mut writer = self.writer.lock().unwrap();
-            let frame = Frame::new(kind, payload.to_vec());
+            let mut frame = Frame::new(kind, payload.to_vec());
+            frame.version = self.protocol_version;
             let result = write_frame(&mut *writer, &frame).map_err(protocol_io_error);
             if result.is_err() {
                 // A timed-out write may have emitted only part of a frame.
@@ -626,6 +630,51 @@ mod unix {
             Ok(())
         }
 
+        /// Commit frontend cell metrics in the durable host before updating
+        /// this daemon's disposable mirror. Protocol-v1 hosts do not expose
+        /// this transaction, so callers leave their mirror unchanged.
+        pub fn send_cell_pixel_size(&self, width_px: u16, height_px: u16) -> anyhow::Result<bool> {
+            if self.protocol_version < 2 {
+                return Ok(false);
+            }
+            let width_px = width_px.max(1);
+            let height_px = height_px.max(1);
+            let request_id = self.next_request.fetch_add(1, Ordering::Relaxed);
+            let (sender, receiver) = sync_channel(1);
+            self.control_responses.waiters.lock().unwrap().insert(request_id, sender);
+            let mut payload = Vec::with_capacity(4);
+            payload.extend_from_slice(&width_px.to_le_bytes());
+            payload.extend_from_slice(&height_px.to_le_bytes());
+            let mut frame = Frame::new(MessageKind::SetCellPixelSize, payload);
+            frame.version = self.protocol_version;
+            frame.request_id = request_id;
+            let write_result = {
+                let mut writer = self.writer.lock().unwrap();
+                write_frame(&mut *writer, &frame).map_err(protocol_io_error)
+            };
+            if let Err(error) = write_result {
+                let _ = self.writer.lock().unwrap().shutdown(std::net::Shutdown::Both);
+                self.control_responses.waiters.lock().unwrap().remove(&request_id);
+                return Err(error.into());
+            }
+            let response = match receiver.recv_timeout(CONTROL_RESPONSE_TIMEOUT) {
+                Ok(response) => response,
+                Err(error) => {
+                    self.control_responses.waiters.lock().unwrap().remove(&request_id);
+                    return Err(anyhow::anyhow!(
+                        "terminal host did not acknowledge cell pixel size: {error}"
+                    ));
+                }
+            };
+            if response.kind != MessageKind::CellPixelSizeAck
+                || response.payload.as_slice()
+                    != [width_px.to_le_bytes(), height_px.to_le_bytes()].concat()
+            {
+                anyhow::bail!("terminal host returned a malformed cell pixel size acknowledgement");
+            }
+            Ok(true)
+        }
+
         pub fn release_viewer_size(&self) -> std::io::Result<bool> {
             let mut viewer_size = self.viewer_size.lock().unwrap();
             if viewer_size.is_none() {
@@ -641,6 +690,10 @@ mod unix {
 
         pub fn viewer_size(&self) -> Option<(u16, u16)> {
             *self.viewer_size.lock().unwrap()
+        }
+
+        pub fn protocol_version(&self) -> u16 {
+            self.protocol_version
         }
 
         pub fn terminate(&self) -> std::io::Result<()> {
@@ -676,8 +729,8 @@ mod unix {
             (self.record.clone(), self.record_path.clone())
         }
 
-        pub(crate) fn capability_responses(&self) -> Arc<CapabilityResponses> {
-            self.capability_responses.clone()
+        pub(crate) fn control_responses(&self) -> Arc<ControlResponses> {
+            self.control_responses.clone()
         }
 
         pub fn mint_renderer_grant(&self, ttl: Duration) -> anyhow::Result<RendererGrant> {
@@ -688,11 +741,12 @@ mod unix {
                 .map_err(|_| anyhow::anyhow!("renderer capability TTL is too large"))?;
             let request_id = self.next_request.fetch_add(1, Ordering::Relaxed);
             let (sender, receiver) = sync_channel(1);
-            self.capability_responses.waiters.lock().unwrap().insert(request_id, sender);
+            self.control_responses.waiters.lock().unwrap().insert(request_id, sender);
             let mut payload = Vec::with_capacity(8);
             payload.extend_from_slice(&CapabilityRights::RENDERER.bits().to_le_bytes());
             payload.extend_from_slice(&ttl_ms.to_le_bytes());
             let mut frame = Frame::new(MessageKind::MintCapability, payload);
+            frame.version = self.protocol_version;
             frame.request_id = request_id;
             let write_result = {
                 let mut writer = self.writer.lock().unwrap();
@@ -700,18 +754,22 @@ mod unix {
             };
             if let Err(error) = write_result {
                 let _ = self.writer.lock().unwrap().shutdown(std::net::Shutdown::Both);
-                self.capability_responses.waiters.lock().unwrap().remove(&request_id);
+                self.control_responses.waiters.lock().unwrap().remove(&request_id);
                 return Err(error.into());
             }
-            let payload = match receiver.recv_timeout(CAPABILITY_RESPONSE_TIMEOUT) {
-                Ok(payload) => payload,
+            let response = match receiver.recv_timeout(CONTROL_RESPONSE_TIMEOUT) {
+                Ok(response) => response,
                 Err(error) => {
-                    self.capability_responses.waiters.lock().unwrap().remove(&request_id);
+                    self.control_responses.waiters.lock().unwrap().remove(&request_id);
                     return Err(anyhow::anyhow!(
                         "terminal host did not mint renderer grant: {error}"
                     ));
                 }
             };
+            if response.kind != MessageKind::Capability {
+                anyhow::bail!("terminal host returned the wrong renderer capability response");
+            }
+            let payload = response.payload;
             if payload.len() != crate::terminal_host::CAPABILITY_TOKEN_LEN {
                 anyhow::bail!("terminal host returned a malformed renderer capability");
             }
@@ -721,6 +779,7 @@ mod unix {
                 incarnation: self.record.incarnation.clone(),
                 token: encode_hex(&payload),
                 rights: CapabilityRights::RENDERER,
+                protocol_version: self.protocol_version,
             })
         }
 
@@ -1172,6 +1231,40 @@ mod unix {
         record_path: PathBuf,
         handshake_timeout: Duration,
     ) -> anyhow::Result<HostAttachment> {
+        match connect_record_at_version(
+            record.clone(),
+            record_path.clone(),
+            handshake_timeout,
+            PROTOCOL_VERSION,
+        ) {
+            Ok(attachment) => Ok(attachment),
+            Err(current_error) if PROTOCOL_VERSION != LEGACY_PROTOCOL_VERSION => {
+                connect_record_at_version(
+                    record,
+                    record_path,
+                    handshake_timeout,
+                    LEGACY_PROTOCOL_VERSION,
+                )
+                .with_context(|| {
+                    format!(
+                        "terminal-host protocol {PROTOCOL_VERSION} handshake failed before the \
+                         protocol-{LEGACY_PROTOCOL_VERSION} adoption fallback: {current_error:#}"
+                    )
+                })
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    fn connect_record_at_version(
+        record: TerminalHostRecord,
+        record_path: PathBuf,
+        handshake_timeout: Duration,
+        protocol_version: u16,
+    ) -> anyhow::Result<HostAttachment> {
+        if !(LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).contains(&protocol_version) {
+            anyhow::bail!("unsupported terminal-host adoption protocol {protocol_version}");
+        }
         let terminal_id = TerminalId::from_bytes(decode_hex_array(&record.terminal_id)?);
         let incarnation = HostIncarnation::from_bytes(decode_hex_array(&record.incarnation)?);
         let owner_token = CapabilityToken::from_bytes(decode_hex_array(&record.owner_token)?);
@@ -1179,32 +1272,44 @@ mod unix {
         stream.set_read_timeout(Some(handshake_timeout))?;
         stream.set_write_timeout(Some(handshake_timeout))?;
         let hello = ClientHello {
-            min_version: PROTOCOL_VERSION,
-            max_version: PROTOCOL_VERSION,
+            min_version: protocol_version,
+            max_version: protocol_version,
             role: ClientRole::Admin,
             requested_rights: CapabilityRights::ADMIN,
             terminal_id,
             token: owner_token,
         };
-        write_frame(&mut stream, &hello.into_frame(1))?;
+        let mut hello_frame = hello.into_frame(1);
+        hello_frame.version = protocol_version;
+        write_frame(&mut stream, &hello_frame)?;
         let hello_frame = read_required_frame(&mut stream, "host hello")?;
-        if hello_frame.kind != MessageKind::HostHello {
+        if hello_frame.kind != MessageKind::HostHello
+            || hello_frame.version != protocol_version
+            || hello_frame.request_id != 1
+            || hello_frame.sequence != 0
+        {
             anyhow::bail!("terminal host rejected owner handshake");
         }
         let host_hello = HostHello::decode(&hello_frame.payload)?;
-        if host_hello.terminal_id != terminal_id || host_hello.incarnation != incarnation {
+        if host_hello.selected_version != protocol_version
+            || host_hello.terminal_id != terminal_id
+            || host_hello.incarnation != incarnation
+            || host_hello.granted_rights != CapabilityRights::ADMIN
+        {
             anyhow::bail!("terminal-host record identity does not match live host");
         }
         let snapshot_frame = read_required_frame(&mut stream, "terminal snapshot")?;
         if snapshot_frame.kind != MessageKind::Snapshot
+            || snapshot_frame.version != protocol_version
             || snapshot_frame.flags != 0
             || snapshot_frame.request_id != 0
         {
             anyhow::bail!("terminal host did not send an initial snapshot");
         }
-        let mut snapshot = decode_snapshot(&snapshot_frame.payload)?;
+        let mut snapshot = decode_snapshot_for_version(&snapshot_frame.payload, protocol_version)?;
         let colors_frame = read_required_frame(&mut stream, "terminal color state")?;
         if colors_frame.kind != MessageKind::Colors
+            || colors_frame.version != protocol_version
             || colors_frame.flags != 0
             || colors_frame.sequence != snapshot_frame.sequence
             || colors_frame.request_id != 0
@@ -1225,11 +1330,10 @@ mod unix {
             record,
             record_path,
             snapshot,
+            protocol_version,
             reader: Some(reader),
             writer: Arc::new(Mutex::new(stream)),
-            capability_responses: Arc::new(CapabilityResponses {
-                waiters: Mutex::new(HashMap::new()),
-            }),
+            control_responses: Arc::new(ControlResponses { waiters: Mutex::new(HashMap::new()) }),
             next_request: AtomicU64::new(2),
             // New hosts do not register Admin as a viewer. Initialize this as
             // if they did so the unconditional release below also upgrades
@@ -1426,6 +1530,7 @@ mod unix {
         command: Vec<String>,
         cwd: Option<String>,
         size: Mutex<(u16, u16)>,
+        cell_pixels: Mutex<(u16, u16)>,
         viewer_sizes: Mutex<HashMap<u64, (u16, u16)>>,
         taps: Mutex<HashMap<u64, HostTap>>,
         broadcast_lock: Mutex<()>,
@@ -1588,6 +1693,85 @@ mod unix {
             );
         }
 
+        fn set_cell_pixel_size(
+            &self,
+            width_px: u16,
+            height_px: u16,
+            request_id: u64,
+            target: &HostTap,
+        ) -> anyhow::Result<bool> {
+            let next = (width_px.max(1), height_px.max(1));
+            let size = self.size.lock().unwrap();
+            let mut cell_pixels = self.cell_pixels.lock().unwrap();
+            let previous = *cell_pixels;
+            let changed = previous != next;
+            let mut term = self.term.lock().unwrap();
+            if changed {
+                let master = self.master.lock().unwrap();
+                let next_size = PtySize {
+                    rows: size.1,
+                    cols: size.0,
+                    pixel_width: size.0.saturating_mul(next.0),
+                    pixel_height: size.1.saturating_mul(next.1),
+                };
+                master.resize(next_size)?;
+                if let Err(error) =
+                    term.resize(size.0, size.1, u32::from(next.0), u32::from(next.1))
+                {
+                    let rollback = master.resize(PtySize {
+                        rows: size.1,
+                        cols: size.0,
+                        pixel_width: size.0.saturating_mul(previous.0),
+                        pixel_height: size.1.saturating_mul(previous.1),
+                    });
+                    return match rollback {
+                        Ok(()) => Err(error.into()),
+                        Err(rollback_error) => Err(anyhow::anyhow!(
+                            "could not update authoritative cell metrics: {error}; \
+                             PTY rollback also failed: {rollback_error}"
+                        )),
+                    };
+                }
+                *cell_pixels = next;
+            }
+            let mut ack = Frame::new(MessageKind::CellPixelSizeAck, {
+                let mut payload = Vec::with_capacity(4);
+                payload.extend_from_slice(&next.0.to_le_bytes());
+                payload.extend_from_slice(&next.1.to_le_bytes());
+                payload
+            });
+            ack.request_id = request_id;
+            // Keep the parser locked through targeted publication so output
+            // parsed at the new metrics cannot overtake the acknowledgement.
+            let queued = publish_host_frames_and_targeted(
+                &self.broadcast_lock,
+                &self.sequence,
+                &self.taps,
+                std::iter::empty(),
+                Some((target, ack)),
+            );
+            if !queued && changed {
+                let terminal_rollback =
+                    term.resize(size.0, size.1, u32::from(previous.0), u32::from(previous.1));
+                let master_rollback = self.master.lock().unwrap().resize(PtySize {
+                    rows: size.1,
+                    cols: size.0,
+                    pixel_width: size.0.saturating_mul(previous.0),
+                    pixel_height: size.1.saturating_mul(previous.1),
+                });
+                match (terminal_rollback, master_rollback) {
+                    (Ok(()), Ok(())) => *cell_pixels = previous,
+                    (terminal, master) => {
+                        anyhow::bail!(
+                            "cell-metric acknowledgement failed; Ghostty rollback: {terminal:?}; \
+                             PTY rollback: {master:?}"
+                        );
+                    }
+                }
+            }
+            Ok(queued)
+        }
+
         fn apply_viewer_minimum(
             &self,
             desired: Option<(u16, u16)>,
@@ -1597,6 +1781,7 @@ mod unix {
             let Some((cols, rows)) = desired else { return Ok(true) };
             let (cols, rows) = normalize_terminal_geometry(cols, rows)?;
             let mut size = self.size.lock().unwrap();
+            let cell_pixels = self.cell_pixels.lock().unwrap();
             let changed = *size != (cols, rows);
             if !changed && !acknowledge_with_replay {
                 let targeted = targeted_ack.map(|(request_id, tap)| {
@@ -1617,13 +1802,20 @@ mod unix {
             let mut term = self.term.lock().unwrap();
             let master = self.master.lock().unwrap();
             if changed {
-                master.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })?;
-                if let Err(error) = term.resize(cols, rows, 8, 16) {
+                master.resize(PtySize {
+                    rows,
+                    cols,
+                    pixel_width: cols.saturating_mul(cell_pixels.0),
+                    pixel_height: rows.saturating_mul(cell_pixels.1),
+                })?;
+                if let Err(error) =
+                    term.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))
+                {
                     let _ = master.resize(PtySize {
                         rows: previous.1,
                         cols: previous.0,
-                        pixel_width: 0,
-                        pixel_height: 0,
+                        pixel_width: previous.0.saturating_mul(cell_pixels.0),
+                        pixel_height: previous.1.saturating_mul(cell_pixels.1),
                     });
                     return Err(error.into());
                 }
@@ -1634,12 +1826,17 @@ mod unix {
                 Ok(replay) => replay,
                 Err(error) => {
                     if changed {
-                        let _ = term.resize(previous.0, previous.1, 8, 16);
+                        let _ = term.resize(
+                            previous.0,
+                            previous.1,
+                            u32::from(cell_pixels.0),
+                            u32::from(cell_pixels.1),
+                        );
                         let _ = master.resize(PtySize {
                             rows: previous.1,
                             cols: previous.0,
-                            pixel_width: 0,
-                            pixel_height: 0,
+                            pixel_width: previous.0.saturating_mul(cell_pixels.0),
+                            pixel_height: previous.1.saturating_mul(cell_pixels.1),
                         });
                     }
                     return Err(error.into());
@@ -2160,6 +2357,7 @@ mod unix {
             command: launch.command.clone(),
             cwd: launch.cwd.clone(),
             size: Mutex::new((launch.cols, launch.rows)),
+            cell_pixels: Mutex::new((8, 16)),
             viewer_sizes: Mutex::new(HashMap::new()),
             taps: Mutex::new(HashMap::new()),
             broadcast_lock: Mutex::new(()),
@@ -2315,6 +2513,7 @@ mod unix {
         {
             anyhow::bail!("terminal-host capability denied");
         }
+        let selected_version = response.selected_version;
         let granted_rights = response.granted_rights;
         let viewer_size_acks = hello_frame.flags & FLAG_VIEWER_SIZE_ACKS != 0
             && granted_rights.contains(CapabilityRights::RESIZE);
@@ -2395,7 +2594,7 @@ mod unix {
             while let Ok(Some(frame)) = read_frame(&mut command_stream, MAX_FRAME_PAYLOAD) {
                 // Client-to-host messages currently define no flags and never
                 // participate in the host live-stream sequence.
-                if frame.flags != 0 || frame.sequence != 0 {
+                if frame.version != selected_version || frame.flags != 0 || frame.sequence != 0 {
                     break;
                 }
                 match frame.kind {
@@ -2469,6 +2668,26 @@ mod unix {
                             break;
                         };
                         command_host.set_default_colors(colors);
+                    }
+                    MessageKind::SetCellPixelSize
+                        if frame.request_id != 0 && frame.payload.len() == 4 =>
+                    {
+                        if !granted_rights.contains(CapabilityRights::RESIZE) {
+                            break;
+                        }
+                        let width_px = u16::from_le_bytes([frame.payload[0], frame.payload[1]]);
+                        let height_px = u16::from_le_bytes([frame.payload[2], frame.payload[3]]);
+                        if !matches!(
+                            command_host.set_cell_pixel_size(
+                                width_px,
+                                height_px,
+                                frame.request_id,
+                                &command_sender,
+                            ),
+                            Ok(true)
+                        ) {
+                            break;
+                        }
                     }
                     MessageKind::MintCapability => {
                         if !granted_rights.contains(CapabilityRights::MINT_CAPABILITY) {
@@ -2587,7 +2806,18 @@ mod unix {
         Ok(output)
     }
 
+    #[cfg(test)]
     fn decode_snapshot(payload: &[u8]) -> anyhow::Result<HostSnapshot> {
+        decode_snapshot_for_version(payload, PROTOCOL_VERSION)
+    }
+
+    fn decode_snapshot_for_version(
+        payload: &[u8],
+        protocol_version: u16,
+    ) -> anyhow::Result<HostSnapshot> {
+        if !(LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).contains(&protocol_version) {
+            anyhow::bail!("unsupported terminal-host snapshot protocol {protocol_version}");
+        }
         let mut decoder = PayloadDecoder::new(payload);
         let (cols, rows) = normalize_terminal_geometry(decoder.u16()?, decoder.u16()?)?;
         let pid = match decoder.u32()? {
@@ -2604,7 +2834,11 @@ mod unix {
         for _ in 0..argc {
             command.push(decoder.string()?);
         }
-        let kitty_image_aliases = decode_kitty_image_aliases(&mut decoder)?;
+        let kitty_image_aliases = if protocol_version >= 2 {
+            decode_kitty_image_aliases(&mut decoder)?
+        } else {
+            Vec::new()
+        };
         decoder.finish()?;
         Ok(HostSnapshot {
             cols,
@@ -2694,13 +2928,28 @@ mod unix {
         Ok(output)
     }
 
+    #[cfg(test)]
     pub(crate) fn decode_host_resize_payload(
         payload: &[u8],
     ) -> anyhow::Result<(u16, u16, Vec<u8>, Vec<KittyImageAlias>)> {
+        decode_host_resize_payload_for_version(payload, PROTOCOL_VERSION)
+    }
+
+    pub(crate) fn decode_host_resize_payload_for_version(
+        payload: &[u8],
+        protocol_version: u16,
+    ) -> anyhow::Result<(u16, u16, Vec<u8>, Vec<KittyImageAlias>)> {
+        if !(LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).contains(&protocol_version) {
+            anyhow::bail!("unsupported terminal-host resize protocol {protocol_version}");
+        }
         let mut decoder = PayloadDecoder::new(payload);
         let (cols, rows) = normalize_terminal_geometry(decoder.u16()?, decoder.u16()?)?;
         let replay = decoder.bytes_with_limit(crate::surface::VT_REPLAY_MAX_BYTES)?.to_vec();
-        let kitty_image_aliases = decode_kitty_image_aliases(&mut decoder)?;
+        let kitty_image_aliases = if protocol_version >= 2 {
+            decode_kitty_image_aliases(&mut decoder)?
+        } else {
+            Vec::new()
+        };
         decoder.finish()?;
         Ok((cols, rows, replay, kitty_image_aliases))
     }
@@ -3006,6 +3255,35 @@ mod unix {
         }
 
         #[test]
+        fn protocol_one_snapshot_and_resize_decode_without_alias_tails() {
+            let snapshot = HostSnapshot {
+                cols: 80,
+                rows: 24,
+                replay: b"legacy replay".to_vec(),
+                kitty_image_aliases: Vec::new(),
+                sequence_boundary: 0,
+                colors: TerminalColorOverrides::default(),
+                pid: Some(42),
+                command: vec!["/bin/cat".into()],
+                cwd: Some("/tmp".into()),
+            };
+            let mut snapshot_payload = encode_snapshot(&snapshot).unwrap();
+            snapshot_payload.truncate(snapshot_payload.len() - KITTY_IMAGE_ALIAS_COUNT_LEN);
+            let decoded =
+                decode_snapshot_for_version(&snapshot_payload, LEGACY_PROTOCOL_VERSION).unwrap();
+            assert_eq!(decoded.replay, snapshot.replay);
+            assert!(decoded.kitty_image_aliases.is_empty());
+
+            let mut resize_payload = encode_resize(81, 25, b"legacy resize", &[]).unwrap();
+            resize_payload.truncate(resize_payload.len() - KITTY_IMAGE_ALIAS_COUNT_LEN);
+            assert_eq!(
+                decode_host_resize_payload_for_version(&resize_payload, LEGACY_PROTOCOL_VERSION,)
+                    .unwrap(),
+                (81, 25, b"legacy resize".to_vec(), Vec::new())
+            );
+        }
+
+        #[test]
         fn resize_alias_section_preserves_number_history_and_rejects_malformed_data() {
             let alias = KittyImageAlias { image_id: 41, image_number: 77 };
             let valid = encode_resize(80, 24, b"replay", &[alias]).unwrap();
@@ -3033,7 +3311,7 @@ mod unix {
             truncated.pop();
             assert!(decode_host_resize_payload(&truncated).is_err());
 
-            let mut trailing = valid.clone();
+            let mut trailing = valid;
             trailing.push(0);
             assert!(decode_host_resize_payload(&trailing).is_err());
 
@@ -3161,6 +3439,97 @@ mod unix {
             );
             assert!(started.elapsed() < Duration::from_secs(1));
             stalled.join().unwrap();
+            let _ = fs::remove_file(endpoint);
+            drop(lease);
+            assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+            let _ = fs::remove_dir_all(record_path.parent().unwrap());
+        }
+
+        #[test]
+        fn upgraded_daemon_falls_back_to_a_live_protocol_one_host() {
+            let (record_path, record, lease) = record_fixture("protocol-one-adoption");
+            let endpoint = PathBuf::from(&record.endpoint);
+            prepare_private_dir(endpoint.parent().unwrap()).unwrap();
+            let _ = fs::remove_file(&endpoint);
+            let listener = UnixListener::bind(&endpoint).unwrap();
+            let terminal_id =
+                TerminalId::from_bytes(decode_hex_array(&record.terminal_id).unwrap());
+            let incarnation =
+                HostIncarnation::from_bytes(decode_hex_array(&record.incarnation).unwrap());
+            let expected_replay = b"protocol-one-live-state".to_vec();
+            let host_replay = expected_replay.clone();
+            let fake_host = thread::spawn(move || {
+                let (mut first, _) = listener.accept().unwrap();
+                let first_hello = read_required_frame(&mut first, "current-version hello").unwrap();
+                assert_eq!(first_hello.kind, MessageKind::ClientHello);
+                assert_eq!(first_hello.version, PROTOCOL_VERSION);
+                drop(first);
+
+                let (mut legacy, _) = listener.accept().unwrap();
+                let legacy_hello = read_required_frame(&mut legacy, "legacy hello").unwrap();
+                assert_eq!(legacy_hello.kind, MessageKind::ClientHello);
+                assert_eq!(legacy_hello.version, LEGACY_PROTOCOL_VERSION);
+                let decoded = ClientHello::decode(&legacy_hello.payload).unwrap();
+                assert_eq!(
+                    (decoded.min_version, decoded.max_version),
+                    (LEGACY_PROTOCOL_VERSION, LEGACY_PROTOCOL_VERSION)
+                );
+
+                let response = HostHello {
+                    selected_version: LEGACY_PROTOCOL_VERSION,
+                    granted_rights: CapabilityRights::ADMIN,
+                    terminal_id,
+                    incarnation,
+                };
+                let mut hello = Frame::new(MessageKind::HostHello, response.encode());
+                hello.version = LEGACY_PROTOCOL_VERSION;
+                hello.request_id = legacy_hello.request_id;
+                write_frame(&mut legacy, &hello).unwrap();
+
+                let snapshot = HostSnapshot {
+                    cols: 80,
+                    rows: 24,
+                    replay: host_replay,
+                    kitty_image_aliases: Vec::new(),
+                    sequence_boundary: 0,
+                    colors: TerminalColorOverrides::default(),
+                    pid: Some(42),
+                    command: vec!["/bin/cat".into()],
+                    cwd: Some("/tmp".into()),
+                };
+                let mut payload = encode_snapshot(&snapshot).unwrap();
+                payload.truncate(payload.len() - KITTY_IMAGE_ALIAS_COUNT_LEN);
+                let mut frame = Frame::new(MessageKind::Snapshot, payload);
+                frame.version = LEGACY_PROTOCOL_VERSION;
+                write_frame(&mut legacy, &frame).unwrap();
+
+                let colors = TerminalColorOverrides {
+                    cursor_visual: Some((CursorShape::Block, true)),
+                    ..TerminalColorOverrides::default()
+                };
+                let mut frame =
+                    Frame::new(MessageKind::Colors, encode_terminal_color_overrides(&colors));
+                frame.version = LEGACY_PROTOCOL_VERSION;
+                write_frame(&mut legacy, &frame).unwrap();
+
+                let release = read_required_frame(&mut legacy, "legacy viewer release").unwrap();
+                assert_eq!(release.kind, MessageKind::ReleaseViewer);
+                assert_eq!(release.version, LEGACY_PROTOCOL_VERSION);
+            });
+
+            let attachment = connect_record_with_timeout(
+                record.clone(),
+                record_path.clone(),
+                Duration::from_secs(1),
+            )
+            .unwrap();
+            assert_eq!(attachment.protocol_version(), LEGACY_PROTOCOL_VERSION);
+            assert_eq!(attachment.snapshot.replay, expected_replay);
+            assert!(attachment.snapshot.kitty_image_aliases.is_empty());
+            assert!(!attachment.send_cell_pixel_size(9, 18).unwrap());
+            drop(attachment);
+            fake_host.join().unwrap();
+
             let _ = fs::remove_file(endpoint);
             drop(lease);
             assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
@@ -3542,7 +3911,7 @@ mod unix {
 }
 
 #[cfg(unix)]
-pub(crate) use unix::decode_host_resize_payload;
+pub(crate) use unix::decode_host_resize_payload_for_version;
 #[cfg(unix)]
 pub use unix::{
     HostAttachment, adopt_terminal_host, isolate_terminal_host_process_fds, launch_terminal_host,

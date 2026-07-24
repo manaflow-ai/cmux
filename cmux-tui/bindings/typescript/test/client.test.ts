@@ -56,6 +56,21 @@ test("async iteration reports buffered-event overflow before the first pull", as
   await assert.rejects(() => iterator.next(), /stream event buffer overflow/);
 });
 
+test("stream rejects an oversized event while a reader is already waiting", async () => {
+  const stream = new CmuxStream<{ event: string; bytes: number }>(
+    100,
+    () => undefined,
+    256,
+    4,
+    (event) => event.bytes,
+  );
+  const waiting = stream.next();
+
+  stream.push({ event: "oversized", bytes: 5 });
+
+  await assert.rejects(() => waiting, /stream event data exceeds 4 bytes/);
+});
+
 test("attachSurface rejects oversized encoded data before decoding", async () => {
   const main = new ScriptedTransport((request, transport) => {
     transport.emit({
@@ -285,6 +300,7 @@ test("attachSurface decodes VT colors, output, and resized payloads", async () =
       cols: 80,
       rows: 24,
       data: "G1s/bA==",
+      kitty_image_aliases: [{ image_id: 7, image_number: 70 }],
       colors: {
         fg: "#d8d9da",
         bg: "#131415",
@@ -304,6 +320,7 @@ test("attachSurface decodes VT colors, output, and resized payloads", async () =
       cols: 100,
       rows: 30,
       data: "AQID",
+      kitty_image_aliases: [{ image_id: 8, image_number: 80 }],
       colors: {
         fg: null,
         bg: null,
@@ -327,6 +344,7 @@ test("attachSurface decodes VT colors, output, and resized payloads", async () =
   assert.equal(initial.event, "vt-state");
   if (initial.event === "vt-state") {
     assert.deepEqual(initial.data, Uint8Array.from([27, 91, 63, 108]));
+    assert.deepEqual(initial.kitty_image_aliases, [{ image_id: 7, image_number: 70 }]);
     assert.deepEqual(initial.colors, {
       fg: "#d8d9da",
       bg: "#131415",
@@ -348,6 +366,7 @@ test("attachSurface decodes VT colors, output, and resized payloads", async () =
     const decoded = resized as DecodedResizedEvent;
     assert.deepEqual(decoded.data, Uint8Array.from([1, 2, 3]));
     assert.deepEqual(decoded.replay, decoded.data);
+    assert.deepEqual(decoded.kitty_image_aliases, [{ image_id: 8, image_number: 80 }]);
     assert.deepEqual(decoded.colors?.palette, { "5": "#112233" });
   }
   stream.close();
@@ -726,7 +745,7 @@ test("render attach counts non-image JSON bytes against the retained buffer cap"
 
   await assert.rejects(
     () => client.attachSurface(7, { mode: "render" }),
-    new RegExp(`stream buffered data exceeds ${encodedChars} bytes`),
+    new RegExp(`stream event data exceeds ${encodedChars} bytes`),
   );
   await client.close();
 });

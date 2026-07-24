@@ -8,6 +8,7 @@ import {
 import type { RenderGraphicsModel } from "../lib/renderModel";
 import {
   RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP,
+  RENDER_GRAPHIC_CANVAS_COUNT_CAP,
   resolveRenderGraphicPlacement,
   type DecodedRenderGraphicImage,
   type ResolvedRenderGraphicPlacement,
@@ -94,6 +95,7 @@ export function RenderGraphics({ children, graphics }: RenderGraphicsProps) {
     const admitted: RenderedPlacement[] = [];
     let backingBytes = 0;
     for (const candidate of rendered) {
+      if (admitted.length >= RENDER_GRAPHIC_CANVAS_COUNT_CAP) break;
       if (candidate.placement.backingBytes
         > RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP - backingBytes) continue;
       backingBytes += candidate.placement.backingBytes;

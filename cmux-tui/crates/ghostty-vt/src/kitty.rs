@@ -12,11 +12,15 @@ use crate::{Error, Result, check};
 
 pub(crate) const MAX_KITTY_IMAGE_BYTES: usize = 10_000_000;
 /// Maximum retained byte prefix for a valid incomplete direct Kitty upload.
-pub const KITTY_INFLIGHT_REPLAY_MAX_BYTES: usize = (MAX_KITTY_IMAGE_BYTES * 4 + 2) / 3 + 256 * 1024;
+pub const KITTY_INFLIGHT_REPLAY_MAX_BYTES: usize =
+    (MAX_KITTY_IMAGE_BYTES * 4).div_ceil(3) + 256 * 1024;
 const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
 
 #[cfg(test)]
 static SNAPSHOT_IMAGE_VISITS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+static SNAPSHOT_PLACEMENT_VISITS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
 static PIXEL_CACHE_GENERATION_LOOKUPS: std::sync::atomic::AtomicUsize =
@@ -29,6 +33,14 @@ fn record_snapshot_image_visit() {
 
 #[cfg(not(test))]
 fn record_snapshot_image_visit() {}
+
+#[cfg(test)]
+fn record_snapshot_placement_visit() {
+    SNAPSHOT_PLACEMENT_VISITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[cfg(not(test))]
+fn record_snapshot_placement_visit() {}
 
 #[cfg(test)]
 fn record_pixel_cache_generation_lookup() {
@@ -81,10 +93,7 @@ impl KittyInFlightTracker {
                 },
                 KittyStreamScan::Kitty(mut command) => {
                     command.push(byte);
-                    if byte == 0x9c {
-                        self.finish_command(command);
-                        KittyStreamScan::Ground
-                    } else if command.saw_escape && byte == b'\\' {
+                    if byte == 0x9c || (command.saw_escape && byte == b'\\') {
                         self.finish_command(command);
                         KittyStreamScan::Ground
                     } else {
@@ -119,7 +128,7 @@ impl KittyInFlightTracker {
             KittyStreamScan::Kitty(command) if !command.overflowed => &command.bytes,
             _ => &[],
         };
-        let prefix = self.loading.then_some(self.prefix.as_slice()).unwrap_or_default();
+        let prefix = if self.loading { self.prefix.as_slice() } else { &[] };
         let Some(total) = prefix.len().checked_add(partial.len()) else {
             return Err(Error::OutOfSpace);
         };
@@ -449,6 +458,44 @@ pub(crate) fn snapshot(
     Ok(snapshot_impl(terminal, pixel_cache, include_unplaced, false)?.graphics)
 }
 
+/// Consume libghostty's renderer-owned graphics damage and return a complete
+/// snapshot only when content or placement geometry changed. `force` binds a
+/// reused render state to a different terminal even if another renderer had
+/// already cleared that terminal's damage flag.
+pub(crate) fn snapshot_for_render(
+    terminal: &Terminal,
+    pixel_cache: &mut HashMap<u64, Arc<[u8]>>,
+    force: bool,
+) -> Result<Option<KittyGraphicsSnapshot>> {
+    let Some(graphics) = terminal_graphics(terminal)? else {
+        return Ok(force.then(KittyGraphicsSnapshot::default));
+    };
+    if !force {
+        let mut dirty = false;
+        check(unsafe {
+            sys::ghostty_kitty_graphics_get(
+                graphics,
+                sys::GHOSTTY_KITTY_GRAPHICS_DATA_DIRTY,
+                (&mut dirty as *mut bool).cast(),
+            )
+        })?;
+        if !dirty {
+            return Ok(None);
+        }
+    }
+
+    let snapshot = snapshot(terminal, pixel_cache, false)?;
+    let clean = false;
+    check(unsafe {
+        sys::ghostty_kitty_graphics_set(
+            graphics,
+            sys::GHOSTTY_KITTY_GRAPHICS_OPTION_DIRTY,
+            (&clean as *const bool).cast(),
+        )
+    })?;
+    Ok(Some(snapshot))
+}
+
 pub(crate) fn snapshot_for_replay(
     terminal: &Terminal,
     pixel_cache: &mut HashMap<u64, Arc<[u8]>>,
@@ -463,29 +510,12 @@ fn snapshot_impl(
     include_unplaced: bool,
     capture_anchors: bool,
 ) -> Result<KittyReplaySnapshot> {
-    let mut graphics: sys::GhosttyKittyGraphics = ptr::null_mut();
-    match check(unsafe {
-        sys::ghostty_terminal_get(
-            terminal.raw(),
-            sys::GHOSTTY_TERMINAL_DATA_KITTY_GRAPHICS,
-            (&mut graphics as *mut sys::GhosttyKittyGraphics).cast(),
-        )
-    }) {
-        Ok(()) => {}
-        Err(Error::NoValue) => {
-            return Ok(KittyReplaySnapshot {
-                graphics: KittyGraphicsSnapshot::default(),
-                anchors: BTreeMap::new(),
-            });
-        }
-        Err(error) => return Err(error),
-    }
-    if graphics.is_null() {
+    let Some(graphics) = terminal_graphics(terminal)? else {
         return Ok(KittyReplaySnapshot {
             graphics: KittyGraphicsSnapshot::default(),
             anchors: BTreeMap::new(),
         });
-    }
+    };
 
     let mut generation = 0_u64;
     check(unsafe {
@@ -535,6 +565,7 @@ fn snapshot_impl(
 
     let mut placements = Vec::new();
     while unsafe { sys::ghostty_kitty_graphics_placement_next(iterator.0) } {
+        record_snapshot_placement_visit();
         let image_id = placement_value::<u32>(
             iterator.0,
             sys::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IMAGE_ID,
@@ -664,6 +695,21 @@ fn snapshot_impl(
         },
         anchors,
     })
+}
+
+fn terminal_graphics(terminal: &Terminal) -> Result<Option<sys::GhosttyKittyGraphics>> {
+    let mut graphics: sys::GhosttyKittyGraphics = ptr::null_mut();
+    match check(unsafe {
+        sys::ghostty_terminal_get(
+            terminal.raw(),
+            sys::GHOSTTY_TERMINAL_DATA_KITTY_GRAPHICS,
+            (&mut graphics as *mut sys::GhosttyKittyGraphics).cast(),
+        )
+    }) {
+        Ok(()) if !graphics.is_null() => Ok(Some(graphics)),
+        Ok(()) | Err(Error::NoValue) => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 fn placement_value<T: Default>(
@@ -989,6 +1035,33 @@ mod tests {
             PIXEL_CACHE_GENERATION_LOOKUPS.load(std::sync::atomic::Ordering::Relaxed),
             graphics.images.len()
         );
+    }
+
+    #[test]
+    fn render_snapshot_skips_unchanged_graphics_but_refreshes_geometry_damage() {
+        let _counter_guard = SNAPSHOT_COUNTER_TEST_LOCK.lock().unwrap();
+        let mut terminal = Terminal::new(20, 8, 100, crate::Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b_Ga=T,t=d,f=24,i=41,p=7,s=1,v=1,c=1,r=1,q=2;AAAA\x1b\\");
+        let mut pixel_cache = HashMap::new();
+        let first = snapshot_for_render(&terminal, &mut pixel_cache, true)
+            .unwrap()
+            .expect("forced first render snapshot");
+        assert_eq!(first.placements.len(), 1);
+
+        SNAPSHOT_PLACEMENT_VISITS.store(0, std::sync::atomic::Ordering::Relaxed);
+        terminal.vt_write(b"text");
+        assert!(
+            snapshot_for_render(&terminal, &mut pixel_cache, false).unwrap().is_none(),
+            "ordinary text output rebuilt an unchanged Kitty scene"
+        );
+        assert_eq!(SNAPSHOT_PLACEMENT_VISITS.load(std::sync::atomic::Ordering::Relaxed), 0);
+
+        terminal.resize(21, 8, 8, 16).unwrap();
+        let resized = snapshot_for_render(&terminal, &mut pixel_cache, false)
+            .unwrap()
+            .expect("resize must refresh placement geometry");
+        assert_eq!(resized.placements.len(), 1);
+        assert!(SNAPSHOT_PLACEMENT_VISITS.load(std::sync::atomic::Ordering::Relaxed) > 0);
     }
 
     #[test]

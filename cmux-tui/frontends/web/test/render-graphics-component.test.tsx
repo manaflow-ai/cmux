@@ -2,7 +2,10 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { RenderGraphicPlacement } from "cmux/browser";
 import { RenderGraphics } from "../src/components/RenderGraphics";
-import { RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP } from "../src/lib/renderGraphics";
+import {
+  RENDER_GRAPHIC_CANVAS_BACKING_BYTE_CAP,
+  RENDER_GRAPHIC_CANVAS_COUNT_CAP,
+} from "../src/lib/renderGraphics";
 import type { RenderGraphicsModel } from "../src/lib/renderModel";
 
 function zeroBytesBase64(byteCount: number): string {
@@ -118,5 +121,33 @@ describe("RenderGraphics canvas resource policy", () => {
     expect(canvases.map((canvas) => canvas.dataset.graphicPlacement)).toEqual(
       Array.from({ length: 16 }, (_, index) => `1:${index + 1}:0`),
     );
+  });
+
+  it("caps tiny placements by canvas count independently of backing bytes", () => {
+    const placementCount = RENDER_GRAPHIC_CANVAS_COUNT_CAP + 1_000;
+    const graphics: RenderGraphicsModel = {
+      generation: 1,
+      images: [{
+        id: 1,
+        generation: 1,
+        width: 1,
+        height: 1,
+        format: "rgba",
+        data: "AAAAAA==",
+      }],
+      placements: Array.from(
+        { length: placementCount },
+        (_, index) => placement(index + 1, 1, 1),
+      ),
+    };
+
+    const { container } = render(
+      <RenderGraphics graphics={graphics}>
+        <div>terminal</div>
+      </RenderGraphics>,
+    );
+
+    expect(container.querySelectorAll("[data-graphic-placement]"))
+      .toHaveLength(RENDER_GRAPHIC_CANVAS_COUNT_CAP);
   });
 });
