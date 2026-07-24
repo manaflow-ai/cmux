@@ -29,18 +29,6 @@ def trigger_block(text: str) -> str:
     return text[text.index("on:\n") : text.index("\nconcurrency:\n")]
 
 
-def mapping_block(text: str, key: str, indent: int) -> str:
-    marker = f"{' ' * indent}{key}:\n"
-    assert marker in text, f"missing {key} mapping"
-    lines = text[text.index(marker) + len(marker) :].splitlines()
-    block = []
-    for line in lines:
-        if line.strip() and len(line) - len(line.lstrip()) <= indent:
-            break
-        block.append(line)
-    return "\n".join(block)
-
-
 def mapping_keys(text: str, indent: int) -> tuple[str, ...]:
     keys = []
     for line in text.splitlines():
@@ -56,34 +44,14 @@ def mapping_keys(text: str, indent: int) -> tuple[str, ...]:
     return tuple(keys)
 
 
-def sequence_values(text: str, key: str, indent: int) -> tuple[str, ...]:
-    marker = f"{' ' * indent}{key}:\n"
-    assert marker in text, f"missing {key} sequence"
-    lines = text[text.index(marker) + len(marker) :].splitlines()
-    item_prefix = f"{' ' * (indent + 2)}- "
-    values = []
-    for line in lines:
-        if not line.strip() or line.lstrip().startswith("#"):
-            continue
-        line_indent = len(line) - len(line.lstrip())
-        if line_indent <= indent:
-            break
-        assert line.startswith(item_prefix), f"invalid {key} item: {line}"
-        parsed = shlex.split(line.removeprefix(item_prefix), comments=True)
-        assert len(parsed) == 1, f"invalid {key} value: {line}"
-        values.append(parsed[0])
-    return tuple(values)
-
-
-def test_main_push_triggers_only_for_ios_affecting_paths() -> None:
+def test_automatic_upload_runs_every_thirty_minutes() -> None:
     text = workflow_text()
     triggers = trigger_block(text)
-    push = mapping_block(triggers, "push", indent=2)
 
-    assert mapping_keys(triggers, indent=2) == ("push", "workflow_dispatch")
-    assert sequence_values(push, "branches", indent=4) == ("main",)
-    assert sequence_values(push, "paths", indent=4) == IOS_PATHS
-    assert "context.eventName === 'push' || context.eventName === 'workflow_dispatch'" in text
+    assert mapping_keys(triggers, indent=2) == ("schedule", "workflow_dispatch")
+    assert '    - cron: "7,37 * * * *"' in triggers
+    assert "\n  push:" not in triggers
+    assert "context.eventName === 'workflow_dispatch'" in text
 
 
 def test_mapping_keys_normalizes_quoted_yaml_keys() -> None:
@@ -113,20 +81,39 @@ def test_testflight_notes_use_the_same_ios_path_contract() -> None:
     assert notes_paths == expected_notes_paths
 
 
-def test_main_push_runs_are_preserved_and_uploaded_in_order() -> None:
+def test_scheduled_runs_are_batched_and_uploaded_in_order() -> None:
     text = workflow_text()
 
     assert (
-        "group: ios-testflight-${{ github.event_name == 'push' && github.sha || github.run_id }}"
+        "group: ios-testflight-${{ github.event_name == 'schedule' && 'scheduled' || github.run_id }}"
         in text
     )
-    assert "group: ios-testflight-${{ github.ref_name }}" not in text
     assert "cancel-in-progress: false" in text
     assert "Number(run.id) < currentRunId" in text
+    assert "['schedule', 'workflow_dispatch'].includes(run.event)" in text
     assert "uploadJob.status !== 'completed'" in text
     assert "could not inspect earlier TestFlight runs; retrying" in text
     assert "ios-testflight-assignment-state-complete" not in text
     assert "CMUX_TESTFLIGHT_ASSIGN_STATE_OUT_FILE" not in text
+
+
+def test_scheduled_run_skips_uploaded_or_non_ios_main() -> None:
+    text = workflow_text()
+
+    assert "lastUploadedSha === context.sha" in text
+    assert "github.rest.repos.compareCommitsWithBasehead" in text
+    assert "iosPathPattern.test(file.filename)" in text
+    assert "iosPathPattern.test(file.previous_filename)" in text
+    assert "context.eventName === 'schedule' && lookupFailed" in text
+    assert "refusing to auto-upload" in text
+    for path in IOS_PATHS:
+        escaped = (
+            path.removesuffix("/**")
+            .replace(".", r"\.")
+            .replace("/", r"\/")
+        )
+        suffix = r"\/" if path.endswith("/**") else r"$"
+        assert f"{escaped}{suffix}" in text, f"missing scheduled path gate for {path}"
 
 
 def test_automatic_lane_stays_on_cmux_internal_identity() -> None:
@@ -138,9 +125,10 @@ def test_automatic_lane_stays_on_cmux_internal_identity() -> None:
 
 
 if __name__ == "__main__":
-    test_main_push_triggers_only_for_ios_affecting_paths()
+    test_automatic_upload_runs_every_thirty_minutes()
     test_mapping_keys_normalizes_quoted_yaml_keys()
     test_testflight_notes_use_the_same_ios_path_contract()
-    test_main_push_runs_are_preserved_and_uploaded_in_order()
+    test_scheduled_runs_are_batched_and_uploaded_in_order()
+    test_scheduled_run_skips_uploaded_or_non_ios_main()
     test_automatic_lane_stays_on_cmux_internal_identity()
-    print("all iOS TestFlight main-push filter tests passed")
+    print("all iOS TestFlight schedule tests passed")

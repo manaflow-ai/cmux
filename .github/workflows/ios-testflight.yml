@@ -1,24 +1,10 @@
 name: iOS TestFlight (CMUX INTERNAL)
 
 on:
-  # Automatically upload only when main changes the iOS app or a direct archive
-  # input. Manual dispatch remains available for intentional rebuilds.
-  push:
-    branches:
-      - main
-    paths:
-      - "ios/**"
-      - "Packages/iOS/**"
-      - "Packages/Shared/**"
-      - "Sources/Mobile/**"
-      - "vendor/stack-auth-swift-sdk-prerelease/**"
-      - "ghostty"
-      - "ghostty.h"
-      - "scripts/ensure-ghosttykit.sh"
-      - "scripts/ghosttykit-checksums.txt"
-      - "scripts/install-zig-ci.sh"
-      - "scripts/validate-xcframework-archive.py"
-      - ".github/workflows/ios-testflight.yml"
+  # Batch automatic uploads into one check every 30 minutes. Minutes 7 and 37
+  # avoid GitHub's top-of-hour scheduling rush.
+  schedule:
+    - cron: "7,37 * * * *"
   workflow_dispatch:
     inputs:
       build_number:
@@ -31,10 +17,10 @@ on:
         default: ""
 
 concurrency:
-  # A shared group keeps only one pending run and silently replaces older pending
-  # SHAs during merge bursts. Key qualifying push runs by SHA so every iOS change
-  # survives. Manual runs use run_id because an operator may intentionally rebuild.
-  group: ios-testflight-${{ github.event_name == 'push' && github.sha || github.run_id }}
+  # Keep at most one running and one pending automatic batch. A newer scheduled
+  # run replaces an older pending run, so a slow upload cannot create a backlog
+  # of stale main SHAs. Manual uploads keep their own group.
+  group: ios-testflight-${{ github.event_name == 'schedule' && 'scheduled' || github.run_id }}
   cancel-in-progress: false
 
 permissions:
@@ -58,11 +44,10 @@ jobs:
           script: |
             const { owner, repo } = context.repo;
 
-            // Per-SHA workflow concurrency preserves every push, but it also lets
-            // several runs reach App Store Connect at once. Build numbers must be
-            // uploaded monotonically, so wait on a cheap Linux runner until every
-            // earlier main-push run has finished its upload job. Assignment can
-            // continue independently after the upload completes.
+            // Scheduled and manual runs use separate concurrency groups. Build
+            // numbers must still be uploaded monotonically, so wait on a cheap
+            // Linux runner until every earlier main run has finished its upload
+            // job. Assignment can continue after the upload completes.
             if (context.ref === 'refs/heads/main') {
               const currentRunId = Number(context.runId);
               const maxWaits = 300;
@@ -80,7 +65,7 @@ jobs:
                     (run) =>
                       Number(run.id) < currentRunId &&
                       run.status !== 'completed' &&
-                      ['push', 'workflow_dispatch'].includes(run.event)
+                      ['schedule', 'workflow_dispatch'].includes(run.event)
                   );
                   for (const run of earlierActiveRuns) {
                     const jobs = await github.rest.actions.listJobsForWorkflowRun({
@@ -148,6 +133,7 @@ jobs:
             // is necessarily a normal immediate beta cut and SHOULD count as the
             // last canonical upload.
             let lastUploadedSha = null;
+            let lookupFailed = false;
             try {
               for (let page = 1; page <= 20 && !lastUploadedSha; page += 1) {
                 const runs = await github.rest.actions.listWorkflowRuns({
@@ -190,14 +176,75 @@ jobs:
                 if (runs.data.workflow_runs.length < 100) break;
               }
             } catch (e) {
+              lookupFailed = true;
               core.warning(`could not resolve last uploaded sha: ${e.message}`);
             }
 
-            // Push runs have already passed the workflow's iOS path filter.
-            // Manual runs are intentional rebuilds, so every event that reaches
-            // this workflow should build.
-            const shouldBuild =
-              context.eventName === 'push' || context.eventName === 'workflow_dispatch';
+            // Automatic uploads fail closed when history cannot be inspected.
+            // Treating an unknown prior SHA as "never uploaded" would create a
+            // duplicate build every 30 minutes during a GitHub API outage.
+            if (context.eventName === 'schedule' && lookupFailed) {
+              core.setFailed(
+                'could not resolve the last uploaded beta SHA; refusing to auto-upload'
+              );
+              return;
+            }
+
+            // Manual dispatch is an intentional rebuild. A scheduled run uploads
+            // only when main advanced past the last successful canonical upload
+            // and that range includes an input that can change the iOS archive.
+            const iosPathPattern = /^(ios\/|Packages\/iOS\/|Packages\/Shared\/|Sources\/Mobile\/|vendor\/stack-auth-swift-sdk-prerelease\/|ghostty$|ghostty\.h$|scripts\/ensure-ghosttykit\.sh$|scripts\/ghosttykit-checksums\.txt$|scripts\/install-zig-ci\.sh$|scripts\/validate-xcframework-archive\.py$|\.github\/workflows\/ios-testflight\.yml$)/;
+            let iosPathsChanged = 'not evaluated';
+            let shouldBuild = context.eventName === 'workflow_dispatch';
+            if (context.eventName === 'schedule') {
+              if (!lastUploadedSha) {
+                shouldBuild = true;
+                iosPathsChanged = 'first canonical upload';
+              } else if (lastUploadedSha === context.sha) {
+                core.notice(`skipping TestFlight upload: ${context.sha} was already uploaded`);
+                iosPathsChanged = 'not evaluated (HEAD already uploaded)';
+              } else {
+                try {
+                  const compare = await github.rest.repos.compareCommitsWithBasehead({
+                    owner,
+                    repo,
+                    basehead: `${lastUploadedSha}...${context.sha}`,
+                  });
+                  const files = compare.data.files || [];
+                  if (compare.data.status !== 'ahead') {
+                    core.setFailed(
+                      `cannot safely path-gate non-linear range ${lastUploadedSha}...${context.sha} (status: ${compare.data.status})`
+                    );
+                    return;
+                  }
+                  if (files.length >= 300) {
+                    core.setFailed(
+                      `cannot safely path-gate ${lastUploadedSha}...${context.sha}: GitHub truncated the changed-file list`
+                    );
+                    return;
+                  }
+                  const changed = files.some(
+                    (file) =>
+                      iosPathPattern.test(file.filename) ||
+                      (file.previous_filename &&
+                        iosPathPattern.test(file.previous_filename))
+                  );
+                  iosPathsChanged = String(changed);
+                  shouldBuild = changed;
+                  if (!changed) {
+                    core.notice(
+                      `skipping TestFlight upload: ${files.length} changed file(s) since ${lastUploadedSha} touch no iOS-affecting path`
+                    );
+                  }
+                } catch (e) {
+                  core.setFailed(
+                    `could not compare ${lastUploadedSha}...${context.sha}; refusing to auto-upload: ${e.message}`
+                  );
+                  return;
+                }
+              }
+            }
+
             core.setOutput('should_build', shouldBuild ? 'true' : 'false');
             core.setOutput('last_uploaded_sha', lastUploadedSha || '');
             core.summary
@@ -206,6 +253,7 @@ jobs:
                 [{ data: 'event', header: true }, context.eventName],
                 [{ data: 'head sha', header: true }, context.sha],
                 [{ data: 'last uploaded sha (notes base)', header: true }, String(lastUploadedSha)],
+                [{ data: 'iOS paths changed since last upload', header: true }, iosPathsChanged],
                 [{ data: 'should build', header: true }, String(shouldBuild)],
               ])
               .write();
@@ -213,7 +261,7 @@ jobs:
   upload:
     name: Upload to TestFlight
     needs: decide
-    # Only ever publish from main. Push runs always use main; this also
+    # Only ever publish from main. Scheduled runs always use main; this also
     # blocks publishing arbitrary code by dispatching the workflow against a
     # feature branch (the ASC secrets are only meant to ship reviewed main).
     if: needs.decide.outputs.should_build == 'true' && github.ref == 'refs/heads/main'
@@ -382,7 +430,7 @@ jobs:
         id: upload
         env:
           # Only set for manual workflow_dispatch with an explicit build number.
-          # For push this is empty and the script generates a monotonic
+          # For scheduled runs this is empty and the script generates a monotonic
           # 14-digit UTC timestamp itself (single source of the numbering scheme,
           # so the workflow can't drift from it the way it did before). An empty
           # value here means "let the script decide", which also keeps the guard's
@@ -425,7 +473,7 @@ jobs:
               --skip-notes
           else
             # Reuse the checked-in CMUX_IOS_BETA_MARKETING_VERSION for automatic betas.
-            # Main-push builds use:
+            # Scheduled main builds use:
             # - "cmux INTERNAL" display name
             # - dev.cmux.app.internal bundle ID (separate app, can coexist with external)
             # - assigned to internal TestFlight group for dogfooding within the team
