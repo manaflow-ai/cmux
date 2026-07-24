@@ -47,8 +47,9 @@ class CodexWrapperResumeTrustTests(unittest.TestCase):
             wrapper.chmod(0o755)
             make_executable(
                 real_codex,
-                """#!/usr/bin/env bash
+                """#!/bin/bash
 printf '%s\\0' "$@" > "$FAKE_CODEX_ARGS_LOG"
+printf 'codex-path=%s\\n' "$PATH" >> "$FAKE_CMUX_LOG"
 sleep 0.2
 """,
             )
@@ -271,13 +272,17 @@ exit 97
         self.assertNotIn('"cmux_resume_rebind":true', logged_cmux_calls)
 
     def test_project_path_cannot_replace_wrapper_interpreter(self) -> None:
-        args, _, result = self.run_wrapper(
+        args, logged_cmux_calls, result = self.run_wrapper(
             ["--yolo"],
             hostile_bash_on_path=True,
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(args, ["--enable", "hooks", "--yolo"])
+        self.assertRegex(
+            logged_cmux_calls,
+            r"(?m)^codex-path=.*hostile-bin",
+        )
 
     def test_resume_helper_empty_or_failed_partial_output_is_discarded(self) -> None:
         for mode in ("empty", "partial", "truncated", "wrong_arity"):
