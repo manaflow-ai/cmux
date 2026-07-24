@@ -1,8 +1,10 @@
 import AppKit
 import CmuxSimulator
+import IOSurface
 import Testing
 
 @testable import CmuxSimulatorUI
+@testable import CmuxSimulatorWorker
 
 @Suite("Simulator frame surface lifecycle")
 @MainActor
@@ -202,6 +204,56 @@ struct SimulatorRemoteSurfaceLifecycleTests {
         try await waitUntil { completionCount == 2 }
 
         #expect(pipeline.displayTick()?.sequence == 2)
+    }
+
+    @Test("Worker frame publication wakes the host pipeline")
+    func workerPublicationWakesHostPipeline() async throws {
+        let surface = try #require(IOSurfaceCreate([
+            kIOSurfaceWidth: 2,
+            kIOSurfaceHeight: 2,
+            kIOSurfaceBytesPerElement: 4,
+            kIOSurfacePixelFormat: kCVPixelFormatType_32BGRA,
+        ] as CFDictionary))
+        let ring = try SimulatorFramebufferSurfaceRing(width: 2, height: 2)
+        defer { ring.releaseResources() }
+        let source = try SimulatorFrameSurfaceSource(descriptor: ring.descriptor)
+        var completionCount = 0
+        let pipeline = SimulatorFramePresentationPipeline(
+            source: source,
+            presentationDidComplete: { completionCount += 1 }
+        )
+        defer { pipeline.invalidate() }
+
+        _ = pipeline.displayTick()
+        try ring.publish(surface)
+        try await waitUntil { completionCount == 1 }
+
+        #expect(pipeline.displayTick()?.sequence == 1)
+    }
+
+    @Test("Input motion flushes once without a persistent presentation timer")
+    func inputMotionUsesOneShotFlush() async throws {
+        let view = SimulatorRemoteSurfaceView()
+        defer { view.teardown() }
+        var received: [SimulatorPointerEvent] = []
+        view.onMessage = { message in
+            guard case let .pointer(event) = message else { return }
+            received.append(event)
+        }
+        let first = SimulatorPointerEvent(
+            phase: .moved,
+            primary: SimulatorPoint(x: 0.1, y: 0.2)
+        )
+        let last = SimulatorPointerEvent(
+            phase: .moved,
+            primary: SimulatorPoint(x: 0.8, y: 0.9)
+        )
+
+        view.send([.pointer(first), .pointer(last)])
+        #expect(received.isEmpty)
+        try await waitUntil { received.count == 1 }
+
+        #expect(received == [last])
     }
 
     @Test("Frame polling follows the host display cadence")

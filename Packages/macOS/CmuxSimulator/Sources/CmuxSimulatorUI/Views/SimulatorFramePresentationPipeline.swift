@@ -8,6 +8,7 @@ final class SimulatorFramePresentationPipeline {
     private let presentationDidComplete: @MainActor () -> Void
     private var isActive = true
     private var copyIsInFlight = false
+    private var framePublicationHandlerIsInstalled = false
     private var lastCopiedSequence: UInt64?
     private var newestCompletedPresentation: SimulatorFramePresentation?
 
@@ -17,6 +18,7 @@ final class SimulatorFramePresentationPipeline {
     ) {
         self.source = source
         self.presentationDidComplete = presentationDidComplete
+        setFramePublicationNotificationsEnabled(true)
     }
 
     func displayTick() -> SimulatorFramePresentation? {
@@ -29,7 +31,31 @@ final class SimulatorFramePresentationPipeline {
 
     func invalidate() {
         isActive = false
+        setFramePublicationNotificationsEnabled(false)
         newestCompletedPresentation = nil
+    }
+
+    /// Enables event-driven wakeups when the source can signal publications.
+    ///
+    /// Returns `true` when the caller can omit its display-cadence fallback.
+    @discardableResult
+    func setFramePublicationNotificationsEnabled(_ enabled: Bool) -> Bool {
+        guard enabled else {
+            if framePublicationHandlerIsInstalled {
+                source.setFramePublicationHandler(nil)
+            }
+            framePublicationHandlerIsInstalled = false
+            return false
+        }
+        guard isActive else { return false }
+        if framePublicationHandlerIsInstalled { return true }
+        framePublicationHandlerIsInstalled = source.setFramePublicationHandler {
+            [weak self] in
+            Task { @MainActor [weak self] in
+                self?.framePublicationDidFire()
+            }
+        }
+        return framePublicationHandlerIsInstalled
     }
 
     private func requestCopy() {
@@ -51,6 +77,11 @@ final class SimulatorFramePresentationPipeline {
                 observedSequence: result.observedSequence
             )
         }
+    }
+
+    private func framePublicationDidFire() {
+        guard isActive, framePublicationHandlerIsInstalled else { return }
+        requestCopy()
     }
 
     private func copyDidComplete(

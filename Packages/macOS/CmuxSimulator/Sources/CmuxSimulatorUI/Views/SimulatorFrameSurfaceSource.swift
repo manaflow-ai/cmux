@@ -2,6 +2,7 @@ import CmuxSimulator
 import CmuxSimulatorSystem
 import Darwin
 import Foundation
+import notify
 
 /// Read-only host mapping of one worker-published packed-BGRA frame ring.
 ///
@@ -14,12 +15,17 @@ final class SimulatorFrameSurfaceSource: SimulatorFrameSurfaceReading, @unchecke
     private let mapping: UnsafeMutableRawPointer
     private let layout: SimulatorFrameSharedMemoryLayout
     private let byteCopier: any SimulatorFrameByteCopying
+    private let framePublicationNotificationName: String
+    private let framePublicationLock = NSLock()
+    private var framePublicationToken: Int32?
 
     init(
         descriptor: SimulatorFrameTransportDescriptor,
         byteCopier: any SimulatorFrameByteCopying = SimulatorFrameByteCopier()
     ) throws {
-        guard simulatorFrameSharedMemoryNameIsValid(descriptor.sharedMemoryName) else {
+        guard simulatorFrameSharedMemoryNameIsValid(descriptor.sharedMemoryName),
+              let framePublicationNotificationName =
+                descriptor.framePublicationNotificationName else {
             throw SimulatorFrameLayoutError("The worker supplied an invalid frame-ring name.")
         }
         let layout = try SimulatorFrameSharedMemoryLayout(descriptor: descriptor)
@@ -70,11 +76,45 @@ final class SimulatorFrameSurfaceSource: SimulatorFrameSurfaceReading, @unchecke
         self.mapping = mapping
         self.layout = layout
         self.byteCopier = byteCopier
+        self.framePublicationNotificationName = framePublicationNotificationName
     }
 
     deinit {
+        cancelFramePublicationHandler()
         munmap(mapping, layout.totalByteCount)
         close(descriptorHandle)
+    }
+
+    @discardableResult
+    func setFramePublicationHandler(
+        _ handler: (@Sendable () -> Void)?
+    ) -> Bool {
+        framePublicationLock.withLock {
+            if let framePublicationToken {
+                notify_cancel(framePublicationToken)
+                self.framePublicationToken = nil
+            }
+            guard let handler else { return true }
+            var token: Int32 = 0
+            let status = notify_register_dispatch(
+                framePublicationNotificationName,
+                &token,
+                DispatchQueue.global(qos: .userInteractive)
+            ) { _ in
+                handler()
+            }
+            guard status == NOTIFY_STATUS_OK else { return false }
+            framePublicationToken = token
+            return true
+        }
+    }
+
+    private func cancelFramePublicationHandler() {
+        framePublicationLock.withLock {
+            guard let framePublicationToken else { return }
+            notify_cancel(framePublicationToken)
+            self.framePublicationToken = nil
+        }
     }
 
     func hasPublishedFrame(after sequence: UInt64?) -> Bool {

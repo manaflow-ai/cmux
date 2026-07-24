@@ -432,10 +432,17 @@ final class CmuxFeatureFlags {
         guard let (data, response) = try? await session.data(for: request),
               data.count <= 1_048_576,
               let http = response as? HTTPURLResponse,
-              (200..<300).contains(http.statusCode),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+              (200..<300).contains(http.statusCode)
         else { return nil }
-        guard let values = object["featureFlags"] as? [String: Any] else { return nil }
+        return postHogControlPlaneFlagValues(from: data)
+    }
+
+    nonisolated static func postHogControlPlaneFlagValues(
+        from data: Data
+    ) -> [String: Bool]? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["errorsWhileComputingFlags"] as? Bool == false,
+              let values = object["featureFlags"] as? [String: Any] else { return nil }
         return values.reduce(into: [String: Bool]()) { result, entry in
             if let value = entry.value as? Bool {
                 result[entry.key] = value

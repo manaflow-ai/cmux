@@ -4,6 +4,7 @@ import CoreImage
 import Darwin
 import Foundation
 import IOSurface
+import notify
 
 /// Worker-owned producer for a permission-restricted packed-BGRA triple ring.
 ///
@@ -179,6 +180,12 @@ final class SimulatorFramebufferSurfaceRing: @unchecked Sendable {
             UInt64(bitPattern: nextPublishedWord)
         )
         frameSequence = nextSequence
+        if let notificationName = descriptor.framePublicationNotificationName,
+           notify_post(notificationName) != NOTIFY_STATUS_OK {
+            throw SimulatorWorkerFailure.framebufferUnavailable(
+                "Could not signal Simulator framebuffer publication."
+            )
+        }
     }
 }
 

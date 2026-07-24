@@ -109,8 +109,16 @@ struct PostHogAnalyticsPropertiesTests {
             "featureFlagPayloads": [:],
             "errorsWhileComputingFlags": true,
         ])
+        let completePayload = try JSONSerialization.data(withJSONObject: [
+            "featureFlags": [flag.key: true],
+            "featureFlagPayloads": [:],
+            "errorsWhileComputingFlags": false,
+        ])
 
         #expect(CmuxFeatureFlags.postHogControlPlaneFlagValues(from: payload) == nil)
+        #expect(CmuxFeatureFlags.postHogControlPlaneFlagValues(
+            from: completePayload
+        ) == [flag.key: true])
     }
 
     @MainActor

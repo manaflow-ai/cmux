@@ -31,6 +31,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     private var mouseTrackingArea: NSTrackingArea?
     var pendingPointerEntry: SimulatorPendingPointerEntry?
     var pendingInputMotion: SimulatorWorkerInbound?
+    private var pendingInputFlushTask: Task<Void, Never>?
     var stageHaloPointerActive = false
     var stagePointerMonitor: Any?
     private(set) var isPointerInputEnabled = false
@@ -385,10 +386,14 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     }
 
     private func startPresentationTimer() {
-        guard presentationTimer == nil,
-              framePipeline != nil,
-              let window,
-              simulatorHostWindowIsVisible(window) else { return }
+        guard presentationTimer == nil, let framePipeline else { return }
+        guard let window, simulatorHostWindowIsVisible(window) else {
+            framePipeline.setFramePublicationNotificationsEnabled(false)
+            return
+        }
+        if framePipeline.setFramePublicationNotificationsEnabled(true) {
+            return
+        }
         let interval = Self.presentationTimerIntervalNanoseconds(
             maximumFramesPerSecond: window.screen?.maximumFramesPerSecond
         )
@@ -416,6 +421,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         presentationTimer?.setEventHandler(handler: nil)
         presentationTimer?.cancel()
         presentationTimer = nil
+        framePipeline?.setFramePublicationNotificationsEnabled(false)
     }
     private func rebuildPresentationTimer() {
         guard !isTornDown, framePipeline != nil else { return }
@@ -469,6 +475,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
                     flushPendingInputMotion()
                     pendingInputMotion = message
                 }
+                schedulePendingInputFlush()
             case let .scrollWheel(event):
                 if case let .scrollWheel(pending)? = pendingInputMotion {
                     pendingInputMotion = .scrollWheel(SimulatorScrollWheelEvent(
@@ -481,6 +488,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
                     flushPendingInputMotion()
                     pendingInputMotion = message
                 }
+                schedulePendingInputFlush()
             default:
                 flushPendingInputMotion()
                 onMessage?(message)
@@ -489,6 +497,8 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     }
 
     func flushPendingInputMotion() {
+        pendingInputFlushTask?.cancel()
+        pendingInputFlushTask = nil
         guard let pendingInputMotion else { return }
         self.pendingInputMotion = nil
         if case let .scrollWheel(event) = pendingInputMotion,
@@ -496,7 +506,27 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         onMessage?(pendingInputMotion)
     }
 
+    private func schedulePendingInputFlush() {
+        guard pendingInputFlushTask == nil, pendingInputMotion != nil else { return }
+        let interval = Self.presentationTimerIntervalNanoseconds(
+            maximumFramesPerSecond: window?.screen?.maximumFramesPerSecond
+        )
+        pendingInputFlushTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .nanoseconds(Int64(interval)))
+            } catch {
+                return
+            }
+            guard let self else { return }
+            pendingInputFlushTask = nil
+            flushPendingInputMotion()
+        }
+    }
+
     private func cancelInputs() {
+        pendingInputFlushTask?.cancel()
+        pendingInputFlushTask = nil
+        pendingInputMotion = nil
         pendingPointerEntry = nil
         stageHaloPointerActive = false
         send(chromeButtonInput.releaseAll())
