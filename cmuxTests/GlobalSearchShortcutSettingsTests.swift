@@ -188,6 +188,46 @@ final class GlobalSearchShortcutSettingsTests {
         )
     }
 
+    @Test func globalSearchRejectsSystemDefinedMediaKeyBindings() {
+        let singleStroke = StoredShortcut(
+            key: "media.playPause",
+            command: true,
+            shift: false,
+            option: false,
+            control: false
+        )
+        let mediaPrefix = StoredShortcut(
+            first: singleStroke.firstStroke,
+            second: ShortcutStroke(
+                key: "f",
+                command: true,
+                shift: false,
+                option: false,
+                control: false
+            )
+        )
+        let mediaSuffix = StoredShortcut(
+            first: ShortcutStroke(
+                key: "f",
+                command: true,
+                shift: false,
+                option: false,
+                control: false
+            ),
+            second: singleStroke.firstStroke
+        )
+
+        for shortcut in [singleStroke, mediaPrefix, mediaSuffix] {
+            #expect(
+                KeyboardShortcutSettings.Action.globalSearch.normalizedRecordedShortcutResult(shortcut) ==
+                    .rejected(.reservedBySystem)
+            )
+            #expect(
+                KeyboardShortcutSettings.Action.globalSearch.normalizedSettingsFileShortcut(shortcut) == nil
+            )
+        }
+    }
+
     @Test func settingsFileStoreParsesGlobalSearchShortcut() throws {
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-global-search-settings-\(UUID().uuidString)", isDirectory: true)
