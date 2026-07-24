@@ -48,7 +48,9 @@ public struct SentryNoiseFilter: Sendable {
             t.contains("no such file or directory") ||
             containsErrno(2, in: t) ||           // ENOENT
             t.contains("connection refused") ||
-            containsErrno(61, in: t)             // ECONNREFUSED
+            containsErrno(61, in: t) ||           // ECONNREFUSED
+            t.contains("operation not permitted") ||
+            containsErrno(1, in: t)              // EPERM from caller sandbox policy
     }
 
     private func isCLISocketTransportContext(stage: String, dataKeys: Set<String>) -> Bool {
