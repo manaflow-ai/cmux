@@ -29,23 +29,46 @@ def trigger_block(text: str) -> str:
     return text[text.index("on:\n") : text.index("\nconcurrency:\n")]
 
 
-def trigger_paths(triggers: str) -> tuple[str, ...]:
-    lines = triggers[triggers.index("    paths:\n") :].splitlines()[1:]
-    return tuple(
-        line.removeprefix('      - "').removesuffix('"')
-        for line in lines
-        if line.startswith('      - "')
-    )
+def mapping_block(text: str, key: str, indent: int) -> str:
+    marker = f"{' ' * indent}{key}:\n"
+    assert marker in text, f"missing {key} mapping"
+    lines = text[text.index(marker) + len(marker) :].splitlines()
+    block = []
+    for line in lines:
+        if line.strip() and len(line) - len(line.lstrip()) <= indent:
+            break
+        block.append(line)
+    return "\n".join(block)
+
+
+def sequence_values(text: str, key: str, indent: int) -> tuple[str, ...]:
+    marker = f"{' ' * indent}{key}:\n"
+    assert marker in text, f"missing {key} sequence"
+    lines = text[text.index(marker) + len(marker) :].splitlines()
+    item_prefix = f"{' ' * (indent + 2)}- "
+    values = []
+    for line in lines:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        line_indent = len(line) - len(line.lstrip())
+        if line_indent <= indent:
+            break
+        assert line.startswith(item_prefix), f"invalid {key} item: {line}"
+        parsed = shlex.split(line.removeprefix(item_prefix), comments=True)
+        assert len(parsed) == 1, f"invalid {key} value: {line}"
+        values.append(parsed[0])
+    return tuple(values)
 
 
 def test_main_push_triggers_only_for_ios_affecting_paths() -> None:
     text = workflow_text()
     triggers = trigger_block(text)
+    push = mapping_block(triggers, "push", indent=2)
 
-    assert "  push:\n    branches:\n      - main\n" in triggers
+    assert sequence_values(push, "branches", indent=4) == ("main",)
+    assert sequence_values(push, "paths", indent=4) == IOS_PATHS
     assert "  workflow_dispatch:\n" in triggers
     assert "schedule:" not in triggers
-    assert trigger_paths(triggers) == IOS_PATHS
     assert "'schedule'" not in text
     assert "context.eventName === 'push' || context.eventName === 'workflow_dispatch'" in text
 
@@ -53,8 +76,10 @@ def test_main_push_triggers_only_for_ios_affecting_paths() -> None:
 def test_testflight_notes_use_the_same_ios_path_contract() -> None:
     generator = NOTES_GENERATOR.read_text(encoding="utf-8")
     path_assignment = next(
-        line for line in generator.splitlines() if line.startswith("PATHS=")
+        (line for line in generator.splitlines() if line.startswith("PATHS=")),
+        None,
     )
+    assert path_assignment is not None, "missing PATHS assignment"
     notes_paths = tuple(
         shlex.split(path_assignment.removeprefix("PATHS="))[0].split()
     )
