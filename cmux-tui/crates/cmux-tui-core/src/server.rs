@@ -113,6 +113,7 @@ pub const PROTOCOL_CAPABILITIES: &[&str] = &[
     "terminal-accessibility-v1",
     "terminal-activity-v1",
     "terminal-byte-stream-compat-v1",
+    "terminal-semantic-scene-v1",
     "terminal-control-lease-v1",
     "terminal-split-leases-v1",
     "terminal-lease-transfer-v1",
@@ -1360,6 +1361,17 @@ enum Command {
         #[serde(default)]
         replay_max_bytes: Option<usize>,
     },
+    /// Opens one authenticated binary full-first semantic-scene endpoint.
+    AttachTerminalScene {
+        surface: SurfaceId,
+        presentation_id: uuid::Uuid,
+        presentation_generation: u64,
+        renderer_config: String,
+        #[serde(default = "default_true")]
+        focused: bool,
+        #[serde(default = "default_true")]
+        cursor_blink_visible: bool,
+    },
     /// Scroll a surface's viewport by a row delta (negative is up).
     ScrollSurface {
         surface: SurfaceId,
@@ -1686,6 +1698,7 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
         | "update-projection-state"
         | "update-projection-states"
         | "configure-renderer-presentation"
+        | "attach-terminal-scene"
         | "terminal-input"
         | "terminal-delegated-input"
         | "send"
@@ -1855,7 +1868,10 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
     }
     if matches!(
         command,
-        "terminal-delegated-input" | "terminal-request-status" | "acknowledge-terminal-request"
+        "attach-terminal-scene"
+            | "terminal-delegated-input"
+            | "terminal-request-status"
+            | "acknowledge-terminal-request"
     ) {
         // This lane can exercise only a delegation that cmuxd bound to this
         // exact connection claim. It never inherits presentation, renderer,
@@ -1865,6 +1881,7 @@ fn command_admission_policy(command: &str) -> CommandAdmissionPolicy {
     policy.protocol_v9 = matches!(
         command,
         "activate-terminal-presentation"
+            | "attach-terminal-scene"
             | "activate-renderer-presentation"
             | "canonical-new-workspace"
             | "canonical-new-tab"
@@ -8315,6 +8332,62 @@ fn handle_command(
             })?;
             Ok(json!({}))
         }
+        Command::AttachTerminalScene {
+            surface: surface_id,
+            presentation_id,
+            presentation_generation,
+            renderer_config,
+            focused,
+            cursor_blink_visible,
+        } => {
+            #[cfg(unix)]
+            {
+                let _ = mux.control_clients.protocol_identity(client, 9)?;
+                if renderer_config.len()
+                    > crate::renderer_control::MAXIMUM_RESOLVED_CONFIG_LENGTH
+                        .saturating_mul(4)
+                        .div_ceil(3)
+                        + 4
+                {
+                    anyhow::bail!("resolved renderer config is too large");
+                }
+                let renderer_config =
+                    base64::engine::general_purpose::STANDARD.decode(renderer_config)?;
+                if renderer_config.len() > crate::renderer_control::MAXIMUM_RESOLVED_CONFIG_LENGTH {
+                    anyhow::bail!("resolved renderer config is too large");
+                }
+                let capture = crate::SemanticSceneCaptureOptions {
+                    focused,
+                    cursor_blink_visible,
+                    custom_shader_count: crate::mux::resolved_custom_shader_count(
+                        &renderer_config,
+                    )?,
+                    ..crate::SemanticSceneCaptureOptions::default()
+                };
+                let receipt = crate::mobile_scene_endpoint::open_mobile_scene_endpoint(
+                    get_surface(mux, surface_id)?,
+                    presentation_id.to_string().parse()?,
+                    presentation_generation,
+                    capture,
+                )?;
+                Ok(json!({
+                    "path": receipt.path,
+                    "token": receipt.token,
+                }))
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = (
+                    surface_id,
+                    presentation_id,
+                    presentation_generation,
+                    renderer_config,
+                    focused,
+                    cursor_blink_visible,
+                );
+                anyhow::bail!("semantic scene endpoints require a Unix host")
+            }
+        }
     }
 }
 
@@ -8906,9 +8979,12 @@ mod tests {
                 "{command}"
             );
         }
-        for command in
-            ["terminal-delegated-input", "terminal-request-status", "acknowledge-terminal-request"]
-        {
+        for command in [
+            "attach-terminal-scene",
+            "terminal-delegated-input",
+            "terminal-request-status",
+            "acknowledge-terminal-request",
+        ] {
             assert_eq!(
                 command_admission_policy(command).permission,
                 Some(ConnectionPermission::InputDelegate),
@@ -10201,6 +10277,7 @@ mod tests {
             "topology-resume-v1",
             "terminal-accessibility-v1",
             "terminal-byte-stream-compat-v1",
+            "terminal-semantic-scene-v1",
         ] {
             assert!(PROTOCOL_CAPABILITIES.contains(&capability));
         }
@@ -10359,6 +10436,68 @@ mod tests {
         assert_eq!(colors["sequence"], 2);
 
         assert!(disconnect_client(&mux, client, false));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn mobile_scene_endpoint_authenticates_and_emits_a_fenced_full_scene() {
+        use std::io::{Read, Write};
+        use std::os::unix::net::UnixStream;
+
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        surface.inject_terminal_output(b"semantic scene").unwrap();
+        let writer = test_writer();
+        let (client, _, registration) =
+            register_v9_client_kind(&mux, &writer, ClientTransport::Unix, "mobile-scene");
+        assert_eq!(registration["client_kind"], "mobile-scene");
+        assert_eq!(registration["role"], "trusted-input-delegate");
+        assert!(registration["topology_lease_id"].is_null());
+
+        let presentation_id = uuid::Uuid::new_v4();
+        let receipt = handle_command(
+            &mux,
+            client,
+            Command::AttachTerminalScene {
+                surface: surface.id,
+                presentation_id,
+                presentation_generation: 7,
+                renderer_config: base64::engine::general_purpose::STANDARD.encode([]),
+                focused: true,
+                cursor_blink_visible: true,
+            },
+            &writer,
+        )
+        .unwrap();
+        let path = receipt["path"].as_str().unwrap();
+        let token = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(receipt["token"].as_str().unwrap())
+            .unwrap();
+        assert_eq!(token.len(), 32);
+
+        let mut stream = UnixStream::connect(path).unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        stream.write_all(b"CMXSCNA1").unwrap();
+        stream.write_all(&token).unwrap();
+
+        let mut fixed = [0_u8; 88];
+        stream.read_exact(&mut fixed).unwrap();
+        assert_eq!(&fixed[..8], b"CMXSCN01");
+        assert_eq!(&fixed[8..12], &[1, 2, 0, 0]);
+        let payload_length = u32::from_be_bytes(fixed[12..16].try_into().unwrap()) as usize;
+        assert!(payload_length > 0);
+        assert_eq!(&fixed[16..32], surface.uuid.as_uuid().as_bytes());
+        assert_ne!(u64::from_be_bytes(fixed[32..40].try_into().unwrap()), 0);
+        assert_ne!(u64::from_be_bytes(fixed[40..48].try_into().unwrap()), 0);
+        assert_eq!(&fixed[48..64], presentation_id.as_bytes());
+        assert_eq!(u64::from_be_bytes(fixed[64..72].try_into().unwrap()), 7);
+        assert_eq!(u64::from_be_bytes(fixed[72..80].try_into().unwrap()), 1);
+        assert_eq!(fixed[80], 1);
+        assert!(fixed[81..88].iter().all(|byte| *byte == 0));
+
+        let mut payload = vec![0_u8; payload_length];
+        stream.read_exact(&mut payload).unwrap();
+        assert!(!payload.is_empty());
     }
 
     #[test]

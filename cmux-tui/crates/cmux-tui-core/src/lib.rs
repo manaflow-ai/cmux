@@ -16,6 +16,8 @@ mod event_bus;
 mod frontend_native_browser;
 mod identity;
 mod launch_gate;
+#[cfg(unix)]
+mod mobile_scene_endpoint;
 mod model;
 mod mux;
 mod pairing;

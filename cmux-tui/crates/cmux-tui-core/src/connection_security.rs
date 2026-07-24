@@ -90,6 +90,7 @@ pub(crate) enum RegisteredClientKind {
     Tui,
     Automation,
     MobileCompatibility,
+    MobileScene,
     RendererWorker,
     Web,
 }
@@ -101,6 +102,7 @@ impl RegisteredClientKind {
             "tui" => Ok(Self::Tui),
             "automation" => Ok(Self::Automation),
             "mobile-compatibility" => Ok(Self::MobileCompatibility),
+            "mobile-scene" => Ok(Self::MobileScene),
             "renderer-worker" => Ok(Self::RendererWorker),
             "web" => Ok(Self::Web),
             other => anyhow::bail!("unsupported registered client kind {other:?}"),
@@ -113,6 +115,7 @@ impl RegisteredClientKind {
             Self::Tui => "tui",
             Self::Automation => "automation",
             Self::MobileCompatibility => "mobile-compatibility",
+            Self::MobileScene => "mobile-scene",
             Self::RendererWorker => "renderer-worker",
             Self::Web => "web",
         }
@@ -184,9 +187,9 @@ impl ConnectionAuthorization {
                     ConnectionRole::TrustedFrontend
                 }
                 Some(RegisteredClientKind::Automation) => ConnectionRole::TrustedAutomation,
-                Some(RegisteredClientKind::MobileCompatibility) => {
-                    ConnectionRole::TrustedInputDelegate
-                }
+                Some(
+                    RegisteredClientKind::MobileCompatibility | RegisteredClientKind::MobileScene,
+                ) => ConnectionRole::TrustedInputDelegate,
                 Some(RegisteredClientKind::RendererWorker) => ConnectionRole::TrustedRenderer,
                 Some(RegisteredClientKind::Web) | None => ConnectionRole::Unaffiliated,
             },
@@ -284,6 +287,12 @@ mod tests {
         assert_eq!(mobile.role(), ConnectionRole::TrustedInputDelegate);
         assert_eq!(mobile.registered_kind(), Some(RegisteredClientKind::MobileCompatibility));
         assert!(mobile.topology_lease().is_none());
+
+        let mut mobile_scene = ConnectionAuthorization::unix(Some(same_user_peer()));
+        mobile_scene.register(9, Some("mobile-scene")).unwrap();
+        assert_eq!(mobile_scene.role(), ConnectionRole::TrustedInputDelegate);
+        assert_eq!(mobile_scene.registered_kind(), Some(RegisteredClientKind::MobileScene));
+        assert!(mobile_scene.topology_lease().is_none());
     }
 
     #[test]
