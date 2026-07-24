@@ -447,6 +447,7 @@ struct AgentStatusRuntimeGenerationTests {
             extraFieldsJSON: #"{"_cmux_agent_status_signal":"needsInput","_cmux_agent_pid_namespace":"remote"}"#
         )))
         #expect(workspace.noteAgentStatusHookSignal(signal, panelId: panelID))
+        #expect(workspace.suppressesRawTerminalNotification(panelId: panelID))
 
         workspace.reconcileAgentStatuses(
             panelId: panelID,
@@ -455,6 +456,7 @@ struct AgentStatusRuntimeGenerationTests {
 
         #expect(workspace.agentLifecycleStatesByPanelId[panelID]?["codex"] == .unknown)
         #expect(workspace.statusEntries["codex"] == nil)
+        #expect(!workspace.suppressesRawTerminalNotification(panelId: panelID))
     }
 
     @Test func needsInputRemainsConfidentForLiveRuntimeUntilCounterSignal() {
