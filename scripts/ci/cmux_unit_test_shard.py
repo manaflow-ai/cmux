@@ -40,15 +40,17 @@ FOCUSED_GATE_SELECTORS = {
     "cmuxTests/GhosttyOptionAsAltModsTests",
     "cmuxTests/RemoteTmuxMirrorLayoutIdentityTests",
 }
-# BrowserDeveloperToolsVisibilityPersistenceTests reliably crash-restarts the
-# app host on CI runners (its detached-inspector tests kill the host mid-run;
-# see the "Restarting after unexpected exit" storms in app-host shard logs on
-# main and PR runs alike). Live-WKWebView navigation tests that run behind
-# that storm in the same shard time out with thrown errors, which count as
-# unexpected failures and fail the shard. Count-based packing happened to
-# keep the pair below apart; time-weighted packing co-located them and both
-# attempts of https://github.com/manaflow-ai/cmux/pull/7687 failed shard 3
-# the same way. Keep each group's suites on different shards.
+# BrowserDeveloperToolsVisibilityPersistenceTests used to crash-restart the app host, and the
+# "Restarting after unexpected exit" storms it produced timed out any live-WKWebView navigation
+# test packed behind it — which is how both attempts of
+# https://github.com/manaflow-ai/cmux/pull/7687 failed shard 3. The crash is addressed separately,
+# in https://github.com/manaflow-ai/cmux/pull/8832, which stops test windows releasing themselves
+# on close.
+#
+# The separation stays because the crash was not the only reason for it. That suite drives real
+# WebKit inspector attach/detach and is slow enough on its own to starve a live-navigation suite
+# sharing its shard. Removing this needs a timing measurement, not an assumption that fixing the
+# crash was sufficient.
 SEPARATED_SUITES: tuple[frozenset[str], ...] = (
     frozenset(
         {
