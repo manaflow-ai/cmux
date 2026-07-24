@@ -1339,7 +1339,7 @@ enum TerminalStartupReturnShellScript {
             let quotedDirectory = TerminalStartupShellQuoting.singleQuoted(workingDirectory)
             lines.append(#"{ cd -- \#(quotedDirectory) 2>/dev/null || true; }"#)
         }
-        lines.append(#"exec -l "$_cmux_resume_shell""#)
+        lines.append(#"exec -l "$_cmux_resume_shell" -i"#)
         return lines
     }
 }
