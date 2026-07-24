@@ -67,6 +67,34 @@ struct SimulatorControlServiceTests {
         )])
     }
 
+    @Test("Camera cleanup propagates a clean relaunch failure")
+    func cameraCleanupPropagatesRelaunchFailure() async throws {
+        let deviceIdentifier = "DEVICE-\(UUID().uuidString)"
+        let bundleIdentifier = "com.example.camera"
+        let ownershipToken = try SimulatorCrossProcessOwnershipStore().claim(
+            namespace: "camera",
+            components: [deviceIdentifier, bundleIdentifier]
+        )
+        let commands = RecordingCommandRunner(results: [
+            .success(""),
+            .failure("relaunch failed"),
+        ])
+        let service = SimulatorControlService(commands: commands)
+
+        do {
+            try await service.cleanupCameraApplication(
+                deviceID: deviceIdentifier,
+                bundleIdentifier: bundleIdentifier,
+                ownershipToken: ownershipToken
+            )
+            Issue.record("Expected the clean relaunch failure")
+        } catch let error as SimulatorControlError {
+            #expect(error.message.contains("relaunch failed"))
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
     @Test("Device type identifies family when runtimes omit family metadata")
     func handlesDuplicateRuntimeIdentifiers() async throws {
         let commands = RecordingCommandRunner(results: [

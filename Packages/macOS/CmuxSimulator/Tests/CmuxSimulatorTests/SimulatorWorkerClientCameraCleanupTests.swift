@@ -4,6 +4,69 @@ import Testing
 @testable import CmuxSimulator
 
 extension SimulatorWorkerClientTests {
+    @Test("Camera cleanup for one Simulator does not block another Simulator")
+    func unrelatedCameraCleanupRunsConcurrently() async throws {
+        let coordinator = SimulatorCameraCleanupCoordinator()
+        let control = BlockingCameraCleanupControl()
+        let firstDevice = "DEVICE-A"
+        let firstBundle = "com.example.a"
+        let firstOwner = try await coordinator.claim(
+            deviceIdentifier: firstDevice,
+            bundleIdentifier: firstBundle
+        )
+        let cleanup = await coordinator.enqueue(
+            deviceIdentifier: firstDevice,
+            bundleIdentifiers: [firstBundle]
+        ) {
+            await cleanSimulatorCameraInjections(
+                deviceIdentifier: firstDevice,
+                bundleIdentifiers: [firstBundle],
+                simulatorControl: control,
+                ownershipTokens: [firstBundle: firstOwner],
+                cleanupCoordinator: coordinator
+            )
+        }
+        for _ in 0..<1_000 {
+            if await control.isBlocked { break }
+            await Task.yield()
+        }
+        #expect(await control.isBlocked)
+
+        _ = try await coordinator.claim(
+            deviceIdentifier: "DEVICE-B",
+            bundleIdentifier: "com.example.b"
+        )
+
+        await control.release()
+        #expect(await cleanup.value == .completed)
+    }
+
+    @Test("Camera cleanup returns a typed failure when relaunch fails")
+    func cameraCleanupReturnsTypedFailure() async throws {
+        let coordinator = SimulatorCameraCleanupCoordinator()
+        let control = FailingCameraCleanupControl()
+        let deviceIdentifier = "DEVICE"
+        let bundleIdentifier = "com.example.camera"
+        let owner = try await coordinator.claim(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        )
+
+        let result = await cleanSimulatorCameraInjections(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifiers: [bundleIdentifier],
+            simulatorControl: control,
+            ownershipTokens: [bundleIdentifier: owner],
+            cleanupCoordinator: coordinator
+        )
+
+        #expect(result == .failed(SimulatorFailure(
+            code: "fixture_cleanup_failed",
+            message: "The fixture relaunch failed.",
+            isRecoverable: true
+        )))
+    }
+
     @Test("A newer camera owner waits until older cleanup finishes mutating its app")
     func newerCameraOwnerWaitsForCleanup() async throws {
         let coordinator = SimulatorCameraCleanupCoordinator()
@@ -411,5 +474,20 @@ private func acknowledgeRecordedPings(_ endpoint: TestWorkerEndpoint) {
         return sequence
     }) {
         endpoint.emit(.ack(sequence))
+    }
+}
+
+private actor FailingCameraCleanupControl: SimulatorControlling {
+    func discoverDevices() async throws -> [SimulatorDevice] { [] }
+    func boot(deviceID: String) async throws {}
+    func waitUntilBooted(deviceID: String) async throws {}
+    func shutdown(deviceID: String) async throws {}
+
+    func perform(_ action: SimulatorControlAction) async throws -> SimulatorControlResult {
+        throw SimulatorFailure(
+            code: "fixture_cleanup_failed",
+            message: "The fixture relaunch failed.",
+            isRecoverable: true
+        )
     }
 }

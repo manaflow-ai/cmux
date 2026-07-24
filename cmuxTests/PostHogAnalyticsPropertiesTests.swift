@@ -121,6 +121,20 @@ struct PostHogAnalyticsPropertiesTests {
         ) == [flag.key: true])
     }
 
+    @Test("feature flag control plane stops consuming an oversized response")
+    func featureFlagControlPlaneBoundsStreamingResponse() async throws {
+        let counter = FeatureFlagByteConsumptionCounter()
+        let bytes = FeatureFlagCountingByteSequence(count: 100, counter: counter)
+
+        let data = try await CmuxFeatureFlags.boundedPostHogControlPlaneData(
+            from: bytes,
+            maximumByteCount: 3
+        )
+
+        #expect(data == nil)
+        #expect(await counter.count == 4)
+    }
+
     @MainActor
     @Test("feature flag resolution prefers remote, then override, then default")
     func featureFlagResolutionPrecedence() throws {
@@ -577,6 +591,37 @@ private actor FeatureFlagRemoteLoaderProbe {
     func waitUntilCalled() async {
         if callCount > 0 { return }
         await withCheckedContinuation { waiter = $0 }
+    }
+}
+
+private actor FeatureFlagByteConsumptionCounter {
+    private(set) var count = 0
+
+    func recordByte() {
+        count += 1
+    }
+}
+
+private struct FeatureFlagCountingByteSequence: AsyncSequence, Sendable {
+    typealias Element = UInt8
+
+    let count: Int
+    let counter: FeatureFlagByteConsumptionCounter
+
+    func makeAsyncIterator() -> Iterator {
+        Iterator(remaining: count, counter: counter)
+    }
+
+    struct Iterator: AsyncIteratorProtocol {
+        var remaining: Int
+        let counter: FeatureFlagByteConsumptionCounter
+
+        mutating func next() async -> UInt8? {
+            guard remaining > 0 else { return nil }
+            remaining -= 1
+            await counter.recordByte()
+            return 0x7B
+        }
     }
 }
 #endif
