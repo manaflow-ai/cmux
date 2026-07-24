@@ -2139,6 +2139,12 @@ final class Workspace: Identifiable, ObservableObject {
     /// cannot prove it owns.
     @Published var customTitleSource: CustomTitleSource?
     @Published var customDescription: String?
+    private(set) var customDescriptionRevision: UInt64 = 0
+
+    func bumpCustomDescriptionRevision() {
+        customDescriptionRevision &+= 1
+    }
+
     @Published var isPinned: Bool = false
     /// Identifier of the WorkspaceGroup this workspace belongs to, or nil if ungrouped.
     /// The group entity itself lives in `TabManager.workspaceGroups`.
