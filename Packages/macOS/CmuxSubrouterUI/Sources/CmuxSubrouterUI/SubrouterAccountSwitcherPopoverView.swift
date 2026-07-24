@@ -109,7 +109,7 @@ struct SubrouterPopoverAccountRow: View {
             if account.isActive {
                 Image(systemName: "checkmark")
                     .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(SubrouterPalette.accentGradient)
+                    .foregroundStyle(SubrouterPalette.blue)
                     .frame(width: 9)
                     .accessibilityHidden(true)
             } else {

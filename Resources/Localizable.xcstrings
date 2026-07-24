@@ -241231,6 +241231,40 @@
         }
       }
     },
+    "subrouter.daemon.setup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set up subrouter"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "subrouter をセットアップ"
+          }
+        }
+      }
+    },
+    "subrouter.terminal.setupTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set up subrouter"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "subrouter のセットアップ"
+          }
+        }
+      }
+    },
     "subrouter.daemon.serverUnreachable": {
       "extractionState": "manual",
       "localizations": {
@@ -241424,13 +241458,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install or start it with: ~/bin/subrouter install-daemon"
+            "value": "Install or start it with: cmux subrouter setup"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "インストール / 起動: ~/bin/subrouter install-daemon"
+            "value": "インストール / 起動: cmux subrouter setup"
           }
         }
       }

@@ -53,7 +53,10 @@ public struct AgentsPanelView: View {
                     isRemoteEndpoint: configuration.isRemoteEndpoint,
                     serverName: configuration.serverName
                         ?? configuration.endpoint.baseURL.host(),
-                    onRetry: { store.refresh(reason: "retry") }
+                    onRetry: { store.refresh(reason: "retry") },
+                    onSetup: configuration.isRemoteEndpoint
+                        ? nil
+                        : terminalAction(.setup())
                 )
                 if configuration.isRemoteEndpoint {
                     remoteServerNote(configuration: configuration)

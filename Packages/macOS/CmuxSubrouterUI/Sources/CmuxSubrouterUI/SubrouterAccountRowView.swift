@@ -30,8 +30,10 @@ public struct SubrouterAccountRowActions {
 ///
 /// Follows the standard account-switcher grammar: a checkmark marks the
 /// active account (macOS menu convention), every row expands/collapses the
-/// same way, switching is a hover-revealed button plus a context-menu verb,
-/// and destructive/maintenance verbs live only in the context menu.
+/// same way, and destructive/maintenance verbs live only in the context
+/// menu. Switching is always visible: a switchable row's status glyph is a
+/// radio-style button (click to switch), with the hover-revealed Switch
+/// button and context-menu verb as equivalent paths.
 ///
 /// Receives immutable value snapshots plus closures only (never the store),
 /// per the sidebar snapshot-boundary rule.
@@ -111,13 +113,14 @@ public struct SubrouterAccountRowView: View {
     }
 
     /// Checkmark = active (macOS selection convention); warning triangle =
-    /// needs a re-login; dim dot otherwise.
+    /// needs a re-login; otherwise a radio-style dot that switches to this
+    /// account on click when switching is available (dim inert dot when not).
     @ViewBuilder
     private var statusGlyph: some View {
         if account.isActive {
             Image(systemName: "checkmark")
                 .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(SubrouterPalette.accentGradient)
+                .foregroundStyle(SubrouterPalette.blue)
                 .accessibilityHidden(true)
         } else if isAuthExpired {
             Image(systemName: "exclamationmark.triangle.fill")
@@ -127,6 +130,25 @@ public struct SubrouterAccountRowView: View {
                     localized: "subrouter.account.authInvalid",
                     defaultValue: "Sign-in expired"
                 ))
+        } else if let onSwitch = actions.onSwitch, !isSwitchPending {
+            Button(action: onSwitch) {
+                Circle()
+                    .strokeBorder(
+                        isHovering ? SubrouterPalette.blue : Color.primary.opacity(0.3),
+                        lineWidth: 1
+                    )
+                    .frame(width: 7, height: 7)
+                    .contentShape(Circle().inset(by: -3))
+            }
+            .buttonStyle(.plain)
+            .help(String(
+                localized: "subrouter.account.switchTo",
+                defaultValue: "Switch to \(account.displayName)"
+            ))
+            .accessibilityLabel(String(
+                localized: "subrouter.account.switchTo",
+                defaultValue: "Switch to \(account.displayName)"
+            ))
         } else {
             Circle()
                 .fill(Color.primary.opacity(0.15))

@@ -35,6 +35,19 @@ public struct SubrouterTerminalRequest: Sendable, Equatable {
         )
     }
 
+    /// The first-run setup request: installs the sr CLI when missing,
+    /// starts the local daemon, and prints next steps (add accounts).
+    public static func setup() -> SubrouterTerminalRequest {
+        SubrouterTerminalRequest(
+            workspaceTitle: String(
+                localized: "subrouter.terminal.setupTitle",
+                defaultValue: "Set up subrouter"
+            ),
+            command: SubrouterMaintenanceCommand.setup,
+            runsImmediately: true
+        )
+    }
+
     /// The re-login request for an account, or `nil` when unsupported.
     public static func signIn(account: SubrouterAccountUsageStatus) -> SubrouterTerminalRequest? {
         guard let command = SubrouterMaintenanceCommand.signIn(

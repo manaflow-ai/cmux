@@ -21,6 +21,9 @@ public struct SubrouterDaemonStatusView: View {
     /// The remote server's display name, when known.
     private let serverName: String?
     private let onRetry: () -> Void
+    /// Opens a terminal running `cmux subrouter setup`, or `nil` when the
+    /// host cannot open terminals (previews, tests, remote endpoints).
+    private let onSetup: (() -> Void)?
 
     /// Creates the status header.
     /// - Parameters:
@@ -30,13 +33,16 @@ public struct SubrouterDaemonStatusView: View {
     ///   - isRemoteEndpoint: Whether the endpoint is a remote server.
     ///   - serverName: The remote server's name, when known.
     ///   - onRetry: The manual-retry action.
+    ///   - onSetup: Opens a terminal running the first-run setup, shown as
+    ///     the primary action when the local daemon is unreachable.
     public init(
         state: SubrouterDaemonState,
         lastErrorDescription: String?,
         hasData: Bool = false,
         isRemoteEndpoint: Bool = false,
         serverName: String? = nil,
-        onRetry: @escaping () -> Void
+        onRetry: @escaping () -> Void,
+        onSetup: (() -> Void)? = nil
     ) {
         self.state = state
         self.lastErrorDescription = lastErrorDescription
@@ -44,6 +50,7 @@ public struct SubrouterDaemonStatusView: View {
         self.isRemoteEndpoint = isRemoteEndpoint
         self.serverName = serverName
         self.onRetry = onRetry
+        self.onSetup = onSetup
     }
 
     public var body: some View {
@@ -136,23 +143,39 @@ public struct SubrouterDaemonStatusView: View {
                     .foregroundStyle(.tertiary)
                     .lineLimit(2)
             }
-            // The install hint only makes sense for the local daemon; a
-            // remote server is installed and managed on its own machine.
-            if !isRemoteEndpoint {
+            // Setup only makes sense for the local daemon; a remote server
+            // is installed and managed on its own machine. One click opens
+            // a terminal that installs the sr CLI (when missing), starts
+            // the daemon, and prints how to add accounts. Hosts without a
+            // terminal (previews) fall back to the copyable command hint.
+            if !isRemoteEndpoint, onSetup == nil {
                 Text(String(
                     localized: "subrouter.daemon.installHint",
-                    defaultValue: "Install or start it with: ~/bin/subrouter install-daemon"
+                    defaultValue: "Install or start it with: cmux subrouter setup"
                 ))
                 .font(.system(size: 9).monospaced())
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
             }
-            Button(action: onRetry) {
-                Text(String(localized: "subrouter.daemon.retry", defaultValue: "Retry"))
-                    .font(.system(size: 10))
+            HStack(spacing: 6) {
+                if !isRemoteEndpoint, let onSetup {
+                    Button(action: onSetup) {
+                        Text(String(
+                            localized: "subrouter.daemon.setup",
+                            defaultValue: "Set up subrouter"
+                        ))
+                        .font(.system(size: 10))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.mini)
+                }
+                Button(action: onRetry) {
+                    Text(String(localized: "subrouter.daemon.retry", defaultValue: "Retry"))
+                        .font(.system(size: 10))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.mini)
         }
         .padding(8)
         .frame(maxWidth: .infinity, alignment: .leading)

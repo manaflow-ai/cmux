@@ -54,6 +54,11 @@ public enum SubrouterMaintenanceCommand {
         }
     }
 
+    /// The first-run command: installs the sr CLI when missing, starts the
+    /// local daemon, and prints next steps. The panel's "Set up subrouter"
+    /// button runs this when the local daemon is unreachable.
+    public static var setup: String { "cmux subrouter setup" }
+
     /// Wraps a value in single quotes for POSIX shells, escaping any
     /// embedded single quotes. Account ids are emails or profile names,
     /// but they cross a shell boundary and must never be interpolated raw.
