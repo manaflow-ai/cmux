@@ -39,6 +39,7 @@ class CodexWrapperResumeTrustTests(unittest.TestCase):
         project_codex_passthrough: bool = False,
         custom_codex_is_symlink: bool = False,
         cmux_only_on_user_path: bool = False,
+        codex_interpreter_only_on_user_path: bool = False,
     ) -> tuple[list[str], str, subprocess.CompletedProcess[str]]:
         with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as raw:
             root = Path(raw)
@@ -67,6 +68,7 @@ class CodexWrapperResumeTrustTests(unittest.TestCase):
             hostile_bin = project / "hostile-bin"
             project_bin = project / "bin"
             effective_project_bin = effective_project / "bin"
+            interpreter_bin = root / "interpreter-bin"
 
             shutil.copy2(SOURCE_WRAPPER, wrapper)
             wrapper.chmod(0o755)
@@ -79,13 +81,23 @@ class CodexWrapperResumeTrustTests(unittest.TestCase):
                 if custom_codex_is_symlink
                 else real_codex
             )
+            codex_shebang = "#!/bin/bash"
+            if codex_interpreter_only_on_user_path:
+                interpreter_bin.mkdir()
+                make_executable(
+                    interpreter_bin / "cmux-test-node",
+                    """#!/bin/sh
+exec /bin/bash "$@"
+""",
+                )
+                codex_shebang = "#!/usr/bin/env cmux-test-node"
             make_executable(
                 real_codex_target,
-                """#!/bin/bash
+                f"""{codex_shebang}
 printf '%s\\0' "$@" > "$FAKE_CODEX_ARGS_LOG"
 printf 'codex-path=%s\\n' "$PATH" >> "$FAKE_CMUX_LOG"
-printf 'launch-executable=%s\\n' "${CMUX_AGENT_LAUNCH_EXECUTABLE:-}" >> "$FAKE_CMUX_LOG"
-printf 'process-lease=%s\\n' "${CMUX_CODEX_PROCESS_LEASE_ID:-}" >> "$FAKE_CMUX_LOG"
+printf 'launch-executable=%s\\n' "${{CMUX_AGENT_LAUNCH_EXECUTABLE:-}}" >> "$FAKE_CMUX_LOG"
+printf 'process-lease=%s\\n' "${{CMUX_CODEX_PROCESS_LEASE_ID:-}}" >> "$FAKE_CMUX_LOG"
 sleep 0.2
 """,
             )
@@ -111,6 +123,9 @@ case "${{@: -1}}" in
     printf '%s\\0' --enable hooks
     ;;
   inject-resume-args)
+    if [[ "${{FAKE_PROBE_CODEX:-0}}" == 1 ]]; then
+      "$CMUX_AGENT_LAUNCH_EXECUTABLE" app-server --stdio >/dev/null || exit
+    fi
     case "${{FAKE_RESUME_HELPER_MODE:-override}}" in
       empty)
         ;;
@@ -143,6 +158,9 @@ esac
                     "FAKE_CODEX_ARGS_LOG": str(args_log),
                     "FAKE_CMUX_LOG": str(cmux_log),
                     "FAKE_RESUME_HELPER_MODE": resume_helper_mode,
+                    "FAKE_PROBE_CODEX": (
+                        "1" if codex_interpreter_only_on_user_path else "0"
+                    ),
                     "HOME": str(home),
                 }
             )
@@ -202,6 +220,8 @@ printf '%s\\0' "$@" > "$FAKE_CODEX_ARGS_LOG"
                 lookup_path = f"{hostile_bin}:{lookup_path}"
             if cmux_only_on_user_path:
                 lookup_path = f"{fake_cmux.parent}:{lookup_path}"
+            if codex_interpreter_only_on_user_path:
+                lookup_path = f"{interpreter_bin}:{lookup_path}"
             env["PATH"] = lookup_path
             arguments = [
                 str(effective_project) if arg == "{effective-project}" else arg
@@ -268,6 +288,26 @@ printf '%s\\0' "$@" > "$FAKE_CODEX_ARGS_LOG"
         )
         self.assertIn("hooks codex inject-args", logged_cmux_calls)
         self.assertIn("hooks codex inject-resume-args", logged_cmux_calls)
+
+    def test_resume_probe_preserves_script_codex_interpreter_path(self) -> None:
+        args, logged_cmux_calls, result = self.run_wrapper(
+            ["resume", SESSION_ID],
+            codex_interpreter_only_on_user_path=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            args,
+            [
+                "--enable",
+                "hooks",
+                "resume",
+                SESSION_ID,
+                "-c",
+                TRUST_OVERRIDE,
+            ],
+            logged_cmux_calls,
+        )
 
     def test_last_and_named_resume_receive_trust_override(self) -> None:
         for arguments in (["resume", "--last"], ["resume", "session-name"]):
