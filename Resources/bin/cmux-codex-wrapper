@@ -787,14 +787,20 @@ cmux_codex_read_resume_args() {
     output_file="$(
         mktemp "${TMPDIR:-/tmp}/cmux-codex-resume-args.XXXXXX"
     )" || return 1
+    # The CLI's config/read probe execs the captured Codex entrypoint. Preserve
+    # the user's launch PATH only for that child command so `#!/usr/bin/env
+    # node` and similar package-manager entrypoints can find their interpreter.
+    # Wrapper utilities continue to resolve from the system-only PATH above.
     if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
-        if ! "$CMUX_INJECT_CLI" --socket "$CMUX_SOCKET_PATH" \
+        if ! PATH="$cmux_codex_lookup_path" "$CMUX_INJECT_CLI" \
+            --socket "$CMUX_SOCKET_PATH" \
             hooks codex inject-resume-args >"$output_file" 2>/dev/null; then
             rm -f "$output_file"
             return 1
         fi
     else
-        if ! "$CMUX_INJECT_CLI" hooks codex inject-resume-args \
+        if ! PATH="$cmux_codex_lookup_path" "$CMUX_INJECT_CLI" \
+            hooks codex inject-resume-args \
             >"$output_file" 2>/dev/null; then
             rm -f "$output_file"
             return 1
