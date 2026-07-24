@@ -1,17 +1,5 @@
 import Foundation
 
-enum SurfaceResumeApprovalSigningSecretResolution: Equatable, Sendable {
-    case pending
-    case ready(Data?)
-}
-
-enum SurfaceResumeApprovalLookup<Value> {
-    case pendingSigningSecret
-    case resolved(Value)
-}
-
-extension SurfaceResumeApprovalLookup: Sendable where Value: Sendable {}
-
 /// Resolves the surface-resume signing secret once without making main-thread
 /// callers wait for Keychain or filesystem I/O.
 ///
@@ -181,12 +169,12 @@ extension SurfaceResumeApprovalStore {
             .filter { $0.hasValidSignature(secret: signingSecret) }
     }
 
-    static func validRecords(
+    static func validRecordsLookup(
         fileURL: URL = defaultURL(),
         fileManager: FileManager = .default,
         signingSecret: Data? = nil
     ) -> SurfaceResumeApprovalLookup<[SurfaceResumeApprovalRecord]> {
-        validRecords(
+        validRecordsLookup(
             fileURL: fileURL,
             fileManager: fileManager,
             signingSecretResolution: signingSecretResolution(
@@ -196,7 +184,7 @@ extension SurfaceResumeApprovalStore {
         )
     }
 
-    static func validRecords(
+    static func validRecordsLookup(
         fileURL: URL = defaultURL(),
         fileManager: FileManager = .default,
         signingSecretResolution: SurfaceResumeApprovalSigningSecretResolution
@@ -220,24 +208,19 @@ extension SurfaceResumeApprovalStore {
         fileManager: FileManager = .default,
         signingSecret: Data
     ) -> SurfaceResumeApprovalRecord? {
-        validRecords(fileURL: fileURL, fileManager: fileManager, signingSecret: signingSecret)
-            .filter { $0.matches(binding) }
-            .sorted { lhs, rhs in
-                if lhs.commandPrefix.count != rhs.commandPrefix.count {
-                    return lhs.commandPrefix.count > rhs.commandPrefix.count
-                }
-                return lhs.updatedAt > rhs.updatedAt
-            }
-            .first
+        bestRecord(
+            in: validRecords(fileURL: fileURL, fileManager: fileManager, signingSecret: signingSecret),
+            matching: binding
+        )
     }
 
-    static func matchingRecord(
+    static func matchingRecordLookup(
         for binding: SurfaceResumeBindingSnapshot,
         fileURL: URL = defaultURL(),
         fileManager: FileManager = .default,
         signingSecret: Data? = nil
     ) -> SurfaceResumeApprovalLookup<SurfaceResumeApprovalRecord?> {
-        matchingRecord(
+        matchingRecordLookup(
             for: binding,
             fileURL: fileURL,
             fileManager: fileManager,
@@ -248,13 +231,13 @@ extension SurfaceResumeApprovalStore {
         )
     }
 
-    static func matchingRecord(
+    static func matchingRecordLookup(
         for binding: SurfaceResumeBindingSnapshot,
         fileURL: URL = defaultURL(),
         fileManager: FileManager = .default,
         signingSecretResolution: SurfaceResumeApprovalSigningSecretResolution
     ) -> SurfaceResumeApprovalLookup<SurfaceResumeApprovalRecord?> {
-        switch validRecords(
+        switch validRecordsLookup(
             fileURL: fileURL,
             fileManager: fileManager,
             signingSecretResolution: signingSecretResolution
@@ -262,16 +245,7 @@ extension SurfaceResumeApprovalStore {
         case .pendingSigningSecret:
             return .pendingSigningSecret
         case let .resolved(records):
-            let record = records
-                .filter { $0.matches(binding) }
-                .sorted { lhs, rhs in
-                    if lhs.commandPrefix.count != rhs.commandPrefix.count {
-                        return lhs.commandPrefix.count > rhs.commandPrefix.count
-                    }
-                    return lhs.updatedAt > rhs.updatedAt
-                }
-                .first
-            return .resolved(record)
+            return .resolved(bestRecord(in: records, matching: binding))
         }
     }
 
@@ -294,13 +268,13 @@ extension SurfaceResumeApprovalStore {
         return bindingByApplying(record: record, to: binding)
     }
 
-    static func applyingStoredApproval(
+    static func applyingStoredApprovalLookup(
         to binding: SurfaceResumeBindingSnapshot,
         fileURL: URL = defaultURL(),
         fileManager: FileManager = .default,
         signingSecret: Data? = nil
     ) -> SurfaceResumeApprovalLookup<SurfaceResumeBindingSnapshot> {
-        applyingStoredApproval(
+        applyingStoredApprovalLookup(
             to: binding,
             fileURL: fileURL,
             fileManager: fileManager,
@@ -311,7 +285,7 @@ extension SurfaceResumeApprovalStore {
         )
     }
 
-    static func applyingStoredApproval(
+    static func applyingStoredApprovalLookup(
         to binding: SurfaceResumeBindingSnapshot,
         fileURL: URL = defaultURL(),
         fileManager: FileManager = .default,
@@ -321,7 +295,7 @@ extension SurfaceResumeApprovalStore {
             return .resolved(trustedBinding)
         }
 
-        switch matchingRecord(
+        switch matchingRecordLookup(
             for: binding,
             fileURL: fileURL,
             fileManager: fileManager,
@@ -368,7 +342,7 @@ extension SurfaceResumeApprovalStore {
             return .resolved((trustedBinding, nil))
         }
 
-        switch matchingRecord(
+        switch matchingRecordLookup(
             for: binding,
             fileURL: fileURL,
             fileManager: fileManager,
@@ -385,7 +359,7 @@ extension SurfaceResumeApprovalStore {
         record.hasValidSignature(secret: signingSecret)
     }
 
-    static func isValid(
+    static func isValidLookup(
         _ record: SurfaceResumeApprovalRecord,
         signingSecret: Data? = nil
     ) -> SurfaceResumeApprovalLookup<Bool> {
@@ -408,6 +382,12 @@ extension SurfaceResumeApprovalStore {
         return defaultSigningSecret(fileManager: fileManager)
     }
 
+    static func bindingWithoutStoredApproval(
+        to binding: SurfaceResumeBindingSnapshot
+    ) -> SurfaceResumeBindingSnapshot {
+        trustedBinding(from: binding) ?? bindingByApplying(record: nil, to: binding)
+    }
+
     private static func trustedBinding(
         from binding: SurfaceResumeBindingSnapshot
     ) -> SurfaceResumeBindingSnapshot? {
@@ -426,6 +406,21 @@ extension SurfaceResumeApprovalStore {
             return trustedBinding
         }
         return nil
+    }
+
+    private static func bestRecord(
+        in records: [SurfaceResumeApprovalRecord],
+        matching binding: SurfaceResumeBindingSnapshot
+    ) -> SurfaceResumeApprovalRecord? {
+        records
+            .filter { $0.matches(binding) }
+            .sorted { lhs, rhs in
+                if lhs.commandPrefix.count != rhs.commandPrefix.count {
+                    return lhs.commandPrefix.count > rhs.commandPrefix.count
+                }
+                return lhs.updatedAt > rhs.updatedAt
+            }
+            .first
     }
 
     private static func bindingByApplying(

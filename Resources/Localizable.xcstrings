@@ -216052,6 +216052,23 @@
         }
       }
     },
+    "surfaceResumeApproval.pending.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume approval data is still loading. Retry the request."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元の承認データを読み込み中です。リクエストを再試行してください。"
+          }
+        }
+      }
+    },
     "surfaceResumeApproval.proposal.ask": {
       "extractionState": "manual",
       "localizations": {

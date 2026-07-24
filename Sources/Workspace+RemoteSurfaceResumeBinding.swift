@@ -78,7 +78,7 @@ extension Workspace {
         persistentPTYSessionID: String
     ) -> String? {
         guard let binding else { return nil }
-        guard case let .resolved(effectiveBinding) = SurfaceResumeApprovalStore.applyingStoredApproval(
+        guard case let .resolved(effectiveBinding) = SurfaceResumeApprovalStore.applyingStoredApprovalLookup(
             to: binding
         ) else {
             return nil

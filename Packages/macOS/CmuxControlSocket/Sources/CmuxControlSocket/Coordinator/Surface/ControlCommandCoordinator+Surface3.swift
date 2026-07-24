@@ -135,6 +135,12 @@ extension ControlCommandCoordinator {
             return .err(code: "not_found", message: "Surface not found", data: nil)
         case .emptyResumeCommand:
             return .err(code: "invalid_params", message: "Resume command is empty", data: nil)
+        case .approvalPending(let message):
+            return .err(
+                code: "busy",
+                message: message,
+                data: .object(["retryable": .bool(true)])
+            )
         case .setFailed:
             return .err(code: "internal_error", message: "Failed to set resume binding", data: nil)
         case .result(let snapshot):

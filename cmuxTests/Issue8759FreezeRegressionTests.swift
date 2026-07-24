@@ -39,6 +39,66 @@ import Testing
         #expect(scheduler.count == 0)
     }
 
+    @Test func resumeApprovalSigningSecretRetainsScheduledTaskUntilResolution() async throws {
+        let expected = Data("issue-8759-retained-task-secret".utf8)
+        let loader = LockedCallCounter(result: expected)
+        let completion = LockedResultRecorder()
+        let gate = AsyncStream<Void>.makeStream()
+        let taskRecorder = LockedTaskRecorder()
+        let cache = SurfaceResumeApprovalSigningSecretCache(
+            loader: { loader.call() },
+            schedule: { job in
+                let task = Task.detached {
+                    var iterator = gate.stream.makeAsyncIterator()
+                    _ = await iterator.next()
+                    guard !Task.isCancelled else { return }
+                    job()
+                }
+                taskRecorder.record(task)
+                return task
+            }
+        )
+
+        #expect(cache.value(isMainThread: true) == .pending)
+        cache.preload { completion.record($0) }
+        let task = try #require(taskRecorder.task)
+
+        gate.continuation.yield()
+        gate.continuation.finish()
+        await task.value
+
+        #expect(cache.value(isMainThread: true) == .ready(expected))
+        #expect(completion.values == [expected])
+        #expect(loader.callCount == 1)
+    }
+
+    @Test func resumeApprovalSigningSecretCancelsScheduledTaskOnDeinit() async throws {
+        let loader = LockedCallCounter(result: Data("unused-secret".utf8))
+        let suspension = AsyncStream<Void>.makeStream()
+        let taskRecorder = LockedTaskRecorder()
+        var cache: SurfaceResumeApprovalSigningSecretCache? = SurfaceResumeApprovalSigningSecretCache(
+            loader: { loader.call() },
+            schedule: { job in
+                let task = Task.detached {
+                    for await _ in suspension.stream {}
+                    guard !Task.isCancelled else { return }
+                    job()
+                }
+                taskRecorder.record(task)
+                return task
+            }
+        )
+
+        #expect(cache?.value(isMainThread: true) == .pending)
+        let task = try #require(taskRecorder.task)
+        cache = nil
+
+        #expect(task.isCancelled)
+        suspension.continuation.finish()
+        await task.value
+        #expect(loader.callCount == 0)
+    }
+
     @Test func resumeApprovalLookupWaitsForSigningSecretResolution() {
         let binding = SurfaceResumeBindingSnapshot(
             command: "tmux attach -t work",
@@ -50,7 +110,7 @@ import Testing
         )
         let missingStore = URL(fileURLWithPath: "/tmp/cmux-missing-\(UUID().uuidString).json")
 
-        let pending = SurfaceResumeApprovalStore.applyingStoredApproval(
+        let pending = SurfaceResumeApprovalStore.applyingStoredApprovalLookup(
             to: binding,
             fileURL: missingStore,
             signingSecretResolution: .pending
@@ -59,8 +119,13 @@ import Testing
             Issue.record("a pending secret must not produce an approval decision")
             return
         }
+        let pendingPresentation = SurfaceResumeApprovalStore.bindingWithoutStoredApproval(to: binding)
+        #expect(pendingPresentation.command == binding.command)
+        #expect(pendingPresentation.approvalPolicy == .manual)
+        #expect(!pendingPresentation.allowsAutomaticResume)
+        #expect(pendingPresentation.approvalRecordId == nil)
 
-        let unavailable = SurfaceResumeApprovalStore.applyingStoredApproval(
+        let unavailable = SurfaceResumeApprovalStore.applyingStoredApprovalLookup(
             to: binding,
             fileURL: missingStore,
             signingSecretResolution: .ready(nil)
@@ -210,6 +275,21 @@ private final class LockedResultRecorder: @unchecked Sendable {
     func record(_ value: Data?) {
         if let value {
             lock.withLock { recorded.append(value) }
+        }
+    }
+}
+
+private final class LockedTaskRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedTask: Task<Void, Never>?
+
+    var task: Task<Void, Never>? {
+        lock.withLock { recordedTask }
+    }
+
+    func record(_ task: Task<Void, Never>) {
+        lock.withLock {
+            recordedTask = task
         }
     }
 }
