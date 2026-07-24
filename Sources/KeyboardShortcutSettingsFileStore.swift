@@ -415,6 +415,9 @@ final class CmuxSettingsFileStore {
         if let automationSection = root["automation"] as? [String: Any] {
             parseAutomationSection(automationSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
+        if let subrouterSection = root["subrouter"] as? [String: Any] {
+            parseSubrouterSection(subrouterSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
         if let browserSection = root["browser"] as? [String: Any] {
             parseBrowserSection(browserSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -917,6 +920,24 @@ final class CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[AutomationSettings.portRangeKey] = .int(value)
         }
+    }
+
+    private func parseSubrouterSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        applyBooleanSettings(
+            SubrouterSettingsFileMapping.booleanSettings,
+            from: section,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        applyStringSettings(
+            SubrouterSettingsFileMapping.stringSettings,
+            from: section,
+            snapshot: &snapshot
+        )
     }
 
     private func parseBrowserSection(

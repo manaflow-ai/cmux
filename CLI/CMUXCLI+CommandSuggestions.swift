@@ -190,6 +190,7 @@ extension CMUXCLI {
         "ssh-session-end",
         "ssh-session-list",
         "ssh-tmux",
+        "subrouter",
         "surface",
         "surface-health",
         "surface-resume",

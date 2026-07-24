@@ -272,6 +272,10 @@ extension Array where Element == CuratedSettingEntry {
             ),
             .init(section: .automation, id: "port-base", title: "Port Base", synonyms: "automation.portBase cmux_port start first base env environment variable"),
             .init(section: .automation, id: "port-range", title: "Port Range Size", synonyms: "automation.portRange cmux_port_end range size count env ports"),
+            .init(section: .subrouter, id: "enabled", title: "Enable Subrouter Integration", synonyms: "subrouter.enabled subrouter agents accounts codex claude daemon switch usage quota"),
+            .init(section: .subrouter, id: "show-account-switcher", title: "Show Account Switcher in Sidebar Footer", synonyms: "sidebar.showAccountSwitcher subrouter agents accounts footer switcher status dot popover"),
+            .init(section: .subrouter, id: "endpoint", title: "Daemon Endpoint", synonyms: "subrouter.endpoint subrouter daemon endpoint host port localhost 31415"),
+            .init(section: .subrouter, id: "command-path", title: "sr Binary Path", synonyms: "subrouter.commandPath subrouter sr binary executable path cli command custom"),
 
             // Browser
             .init(section: .browser, id: "enable-browser", title: "Enable cmux Browser", synonyms: "browser.disabled enable disable webview embedded browser tabs links"),

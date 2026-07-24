@@ -65,6 +65,7 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 | `sidebar.showNotificationMessage` | boolean | `true` | Show the latest notification text in the sidebar. |
 | `sidebar.showBranchDirectory` | boolean | `true` | Show the workspace working directory. |
 | `sidebar.showPullRequests` | boolean | `true` | Show pull request metadata in the sidebar. |
+| `sidebar.showAccountSwitcher` | boolean | `true` | Show the AI-agent account switcher in the sidebar footer (requires `subrouter.enabled`). |
 | `sidebar.makePullRequestsClickable` | boolean | `true` | Allow sidebar pull request metadata to open links when clicked. |
 | `sidebar.openPullRequestLinksInCmuxBrowser` | boolean | `true` | Open sidebar pull request links in the embedded cmux browser. |
 | `sidebar.openPortLinksInCmuxBrowser` | boolean | `true` | Open sidebar port links in the embedded cmux browser. |
@@ -113,6 +114,16 @@ Socket control and automation settings from Settings > Automation.
 | `automation.geminiIntegration` | boolean | `true` | Enable cmux integration hooks for Gemini. |
 | `automation.portBase` | integer | `9100` | Starting value for workspace CMUX_PORT assignments. |
 | `automation.portRange` | integer | `10` | Number of ports reserved per workspace. |
+
+## subrouter
+
+Local subrouter daemon integration (AI-agent account switching and usage) from Settings > Agent Accounts.
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `subrouter.enabled` | boolean | `true` | User opt-out for the subrouter integration (availability is controlled by the `subrouter-ui-enabled-release` feature flag). When false, cmux never contacts the daemon or runs the sr CLI. |
+| `subrouter.endpoint` | string | `""` | Daemon address as host:port or a full http(s) URL. Empty means http://127.0.0.1:31415. |
+| `subrouter.commandPath` | string | `""` | Explicit path to the sr/subrouter CLI used for account switches. Empty resolves from PATH and ~/bin. |
 
 ## browser
 

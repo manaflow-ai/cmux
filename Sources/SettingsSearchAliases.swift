@@ -25,6 +25,8 @@ enum SettingsSearchAliasIndex {
             return localized("settings.search.alias.section.betaFeatures", defaultValue: "beta experimental unstable preview feed dock right sidebar")
         case .automation:
             return localized("settings.search.alias.section.automation", defaultValue: "api cli control socket mcp agents hooks ports")
+        case .subrouter:
+            return localized("settings.search.alias.section.subrouter", defaultValue: "subrouter agents accounts codex claude switch usage quota cooked sr daemon")
         case .browser:
             return localized("settings.search.alias.section.browser", defaultValue: "web webview address bar omnibar links urls embedded default browser")
         case .browserImport:
@@ -119,6 +121,10 @@ enum SettingsSearchAliasIndex {
         "sidebarAppearance:show-notification-message": localized("settings.search.alias.setting.app.show-notification-message", defaultValue: "sidebar.showNotificationMessage latest message unread notification text sidebar"),
         "sidebarAppearance:show-branch-directory": localized("settings.search.alias.setting.app.show-branch-directory", defaultValue: "sidebar.showBranchDirectory git branch cwd path directory folder repo sidebar"),
         "sidebarAppearance:show-pull-requests": localized("settings.search.alias.setting.app.show-pull-requests", defaultValue: "sidebar.showPullRequests pr mr review github gitlab bitbucket pull request merge request"),
+        "subrouter:enabled": localized("settings.search.alias.setting.subrouter.enabled", defaultValue: "subrouter.enabled subrouter agents accounts codex claude daemon switch usage quota"),
+        "subrouter:show-account-switcher": localized("settings.search.alias.setting.subrouter.show-account-switcher", defaultValue: "sidebar.showAccountSwitcher subrouter agents accounts footer switcher status dot popover"),
+        "subrouter:endpoint": localized("settings.search.alias.setting.subrouter.endpoint", defaultValue: "subrouter.endpoint subrouter daemon endpoint host port localhost"),
+        "subrouter:command-path": localized("settings.search.alias.setting.subrouter.command-path", defaultValue: "subrouter.commandPath subrouter sr binary executable path cli command custom"),
         "sidebarAppearance:watch-git-status": localized("settings.search.alias.setting.app.watch-git-status", defaultValue: "sidebar.watchGitStatus git status branch watcher index lock"),
         "sidebarAppearance:make-pr-clickable": localized("settings.search.alias.setting.sidebarAppearance.make-pr-clickable", defaultValue: "sidebar.makePullRequestsClickable clickable pull requests pr mr reviews links select workspace row"),
         "sidebarAppearance:open-pr-links": localized("settings.search.alias.setting.app.open-pr-links", defaultValue: "sidebar.openPullRequestLinksInCmuxBrowser pr links github browser default external embedded"),

@@ -1052,6 +1052,11 @@
           "default": true,
           "description": "Show pull request metadata in the sidebar."
         },
+        "showAccountSwitcher": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the AI-agent account switcher in the sidebar footer. Only takes effect while subrouter.enabled is on."
+        },
         "watchGitStatus": {
           "type": "boolean",
           "default": true,
@@ -1343,6 +1348,29 @@
           "minimum": 1,
           "default": 10,
           "description": "Number of ports reserved per workspace."
+        }
+      }
+    },
+    "subrouter": {
+      "title": "subrouter",
+      "description": "Local subrouter daemon integration (AI-agent account switching and usage) from Settings > Agent Accounts.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "User opt-out for the subrouter integration (availability itself is controlled by the subrouter-ui-enabled-release feature flag). When false, cmux never contacts the daemon or runs the sr CLI."
+        },
+        "endpoint": {
+          "type": "string",
+          "default": "",
+          "description": "Daemon address as host:port or a full http(s) URL. Empty means http://127.0.0.1:31415."
+        },
+        "commandPath": {
+          "type": "string",
+          "default": "",
+          "description": "Explicit path to the sr/subrouter CLI used for account switches. Empty resolves from PATH and ~/bin."
         }
       }
     },

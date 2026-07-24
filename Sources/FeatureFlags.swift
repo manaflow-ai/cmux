@@ -49,6 +49,12 @@ final class CmuxFeatureFlags {
     private static let workspaceTodoControlsDefault = false
     private static let appKitSidebarListDefault = true
 
+    #if DEBUG
+    private static let subrouterUIDefault = true
+    #else
+    private static let subrouterUIDefault = false
+    #endif
+
     private static let overrideKeyPrefix = "cmux.flags.override."
 
     // Order is load-bearing for the typed accessors below. A keyed lookup would
@@ -170,6 +176,24 @@ final class CmuxFeatureFlags {
                 ),
                 defaultWhenUnavailable: CmuxFeatureFlags.appKitSidebarListDefault
             ),
+
+            // FLAG(key: subrouter-ui-enabled-release, owner: austinwang,
+            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+            // Shows the subrouter integration (Agents right-sidebar mode,
+            // footer account switcher, Agent Accounts settings pane, and the
+            // cmux subrouter CLI). Release builds hide it until the PostHog
+            // flag is enabled; DEBUG keeps it on for dogfood. The
+            // subrouter.enabled cmux.json setting remains a user opt-out
+            // inside the flag.
+            CmuxFeatureFlagDefinition(
+                key: "subrouter-ui-enabled-release",
+                title: String(localized: "featureFlags.subrouter.title", defaultValue: "Subrouter integration"),
+                flagDescription: String(
+                    localized: "featureFlags.subrouter.description",
+                    defaultValue: "Shows the Agents sidebar panel, footer account switcher, and cmux subrouter CLI backed by the local subrouter daemon."
+                ),
+                defaultWhenUnavailable: CmuxFeatureFlags.subrouterUIDefault
+            ),
         ]
     }()
 
@@ -199,6 +223,10 @@ final class CmuxFeatureFlags {
 
     var isAppKitSidebarListEnabled: Bool {
         effectiveValue(for: Self.allFlags[6])
+    }
+
+    var isSubrouterUIEnabled: Bool {
+        effectiveValue(for: Self.allFlags[7])
     }
 
     @ObservationIgnored

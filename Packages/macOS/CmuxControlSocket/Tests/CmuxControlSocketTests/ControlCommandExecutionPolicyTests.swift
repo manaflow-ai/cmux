@@ -26,6 +26,16 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy(forMethod: "aiAccounts.remove") == .socketWorker(mainThreadCallable: false))
     }
 
+    @Test func subrouterPrefixedMethodsRunOnTheSocketWorker() {
+        // `cmux subrouter` verbs await localhost daemon HTTP fetches and the
+        // `sr` subprocess, so they must run on the worker; otherwise the
+        // dispatcher never reaches their handler and returns method_not_found.
+        #expect(ControlCommandExecutionPolicy(forMethod: "subrouter.status") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "subrouter.usage") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "subrouter.switch") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "subrouter.reload") == .socketWorker(mainThreadCallable: false))
+    }
+
     @Test func fixedWorkerSetRunsOnTheSocketWorker() {
         for method in [
             "system.ping", "system.capabilities", "auth.status", "auth.sign_in_url",

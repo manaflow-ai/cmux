@@ -47,6 +47,8 @@ public struct SettingCatalog: SettingCatalogSection {
     public let customSidebars = CustomSidebarsCatalogSection()
     public let shortcuts = KeyboardShortcutsCatalogSection()
     public let integrations = IntegrationsCatalogSection()
+    /// Settings for the local subrouter daemon integration (the `subrouter.*` keys).
+    public let subrouter = SubrouterCatalogSection()
     public let account = AccountCatalogSection()
 
     public init() {}

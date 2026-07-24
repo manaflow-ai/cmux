@@ -14355,11 +14355,18 @@ struct SidebarFooterButtons: View {
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     /// Owns the discovery popover so it persists after ⌘ is released.
     @State private var isShortcutPopoverPresented = false
+    @AppStorage(SubrouterIntegrationSettings.enabledKey)
+    private var subrouterEnabled = SubrouterIntegrationSettings.defaultEnabled
+    @AppStorage(SubrouterIntegrationSettings.showAccountSwitcherKey)
+    private var showAccountSwitcher = SubrouterIntegrationSettings.defaultShowAccountSwitcher
 
     var body: some View {
         HStack(spacing: 4) {
             SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
             SidebarProBadge()
+            if CmuxFeatureFlags.shared.isSubrouterUIEnabled && subrouterEnabled && showAccountSwitcher {
+                SidebarAccountSwitcherButton()
+            }
             // The puzzle button opens the extensions browser; it only shows
             // while the experimental Extensions feature is enabled.
             if extensionsExperimentalEnabled {

@@ -1191,6 +1191,7 @@ jobs:
             CmuxGit
             CmuxSettings
             CmuxSettingsUI
+            CmuxSubrouter
             CmuxTerminal
             CmuxTerminalCore
             CmuxUpdater

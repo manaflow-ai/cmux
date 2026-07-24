@@ -14,6 +14,8 @@ extension RightSidebarMode {
             return .feed
         case "dock":
             return .dock
+        case "agents", "subrouter":
+            return .agents
         default:
             return nil
         }
@@ -22,22 +24,30 @@ extension RightSidebarMode {
     static func availableModes(defaults: UserDefaults = .standard) -> [RightSidebarMode] {
         availableModes(
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
-            dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults)
+            dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
+            agentsEnabled: SubrouterIntegrationSettings.isEnabled(defaults: defaults)
         )
     }
 
-    static func availableModes(feedEnabled: Bool, dockEnabled: Bool) -> [RightSidebarMode] {
-        allCases.filter { $0 != .customSidebar && $0.isAvailable(feedEnabled: feedEnabled, dockEnabled: dockEnabled) }
+    static func availableModes(feedEnabled: Bool, dockEnabled: Bool, agentsEnabled: Bool) -> [RightSidebarMode] {
+        allCases.filter {
+            $0 != .customSidebar && $0.isAvailable(
+                feedEnabled: feedEnabled,
+                dockEnabled: dockEnabled,
+                agentsEnabled: agentsEnabled
+            )
+        }
     }
 
     func isAvailable(defaults: UserDefaults = .standard) -> Bool {
         isAvailable(
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
-            dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults)
+            dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
+            agentsEnabled: SubrouterIntegrationSettings.isEnabled(defaults: defaults)
         )
     }
 
-    func isAvailable(feedEnabled: Bool, dockEnabled: Bool) -> Bool {
+    func isAvailable(feedEnabled: Bool, dockEnabled: Bool, agentsEnabled: Bool) -> Bool {
         switch self {
         case .files, .find, .sessions:
             return true
@@ -45,6 +55,8 @@ extension RightSidebarMode {
             return feedEnabled
         case .dock:
             return dockEnabled
+        case .agents:
+            return agentsEnabled
         case .customSidebar:
             return false
         }
