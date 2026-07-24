@@ -315,7 +315,7 @@ extension SurfaceResumeCommandCanonicalizer {
             if index == executableIndex {
                 if let capturedExecutable {
                     return [
-                        shellQuoted("env"),
+                        shellQuoted("/usr/bin/env"),
                         shellQuoted(
                             "\(AgentResumeArgv.codexCustomExecutableEnvironmentKey)=\(capturedExecutable)"
                         ),

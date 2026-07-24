@@ -17,6 +17,8 @@ public struct CodexResumeTrustProbeCache: Sendable {
     private static let maximumRecordBytes = 1_048_576
     private static let maximumDecisionPathCount = 8_192
     private static let lockShardCount = 256
+    private static let lockWaitNanoseconds: UInt64 = 2_000_000_000
+    private static let lockRetryMicroseconds: useconds_t = 10_000
 
     private let directory: URL
 
@@ -57,24 +59,22 @@ public struct CodexResumeTrustProbeCache: Sendable {
         }
         defer { Darwin.close(lockFD) }
 
-        var nonblockingStatus: Int32
-        repeat {
-            nonblockingStatus = flock(lockFD, LOCK_EX | LOCK_NB)
-        } while nonblockingStatus != 0 && errno == EINTR
-
-        let observedContention: Bool
-        if nonblockingStatus == 0 {
-            observedContention = false
-        } else {
-            guard errno == EWOULDBLOCK else {
+        let deadline = DispatchTime.now().uptimeNanoseconds
+            &+ Self.lockWaitNanoseconds
+        var observedContention = false
+        while flock(lockFD, LOCK_EX | LOCK_NB) != 0 {
+            let lockError = errno
+            guard lockError == EWOULDBLOCK || lockError == EINTR else {
                 return probe()
             }
-            while flock(lockFD, LOCK_EX) != 0 {
-                guard errno == EINTR else {
-                    return probe()
-                }
+            observedContention = observedContention
+                || lockError == EWOULDBLOCK
+            guard DispatchTime.now().uptimeNanoseconds < deadline else {
+                // The owner may be suspended indefinitely. Run an independent,
+                // already-bounded app-server probe instead of blocking resume.
+                return probe()
             }
-            observedContention = true
+            Darwin.usleep(Self.lockRetryMicroseconds)
         }
         defer { _ = flock(lockFD, LOCK_UN) }
 
