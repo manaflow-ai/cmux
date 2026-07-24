@@ -759,6 +759,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var renderGridLivenessConsecutiveProbeFailures = 0
     var lastTerminalEventAt: Date?
     var lastBackgroundedAt: Date?
+    var foregroundResumeEpoch: UInt64 = 0
     private var terminalSubscriptionRefreshTask: Task<Void, Never>?
     var notificationReconcileTask: Task<Void, Never>?
     var createWorkspaceTask: Task<Result<Void, MobileWorkspaceMutationFailure>, Never>?
