@@ -13,6 +13,7 @@ describe("checkout loading content", () => {
     expect(html).toContain(
       'class="absolute inset-0 flex items-center justify-center"',
     );
+    expect(html).toContain("<svg");
     expect(html).toContain("Get Teams");
   });
 
@@ -25,6 +26,7 @@ describe("checkout loading content", () => {
 
     expect(html).not.toContain('class="invisible"');
     expect(html).not.toContain("absolute inset-0");
+    expect(html).not.toContain("<svg");
     expect(html).toContain("Get Teams");
   });
 });
