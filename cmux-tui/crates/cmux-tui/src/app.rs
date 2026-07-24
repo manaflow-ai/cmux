@@ -14908,6 +14908,51 @@ mod tests {
     }
 
     #[test]
+    fn terminally_failed_retained_motion_does_not_block_a_later_key() {
+        let mux = Mux::new("failed-retained-motion-order-test", SurfaceOptions::default());
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        let surface = 77;
+        app.replace_tree(notify_tree(surface, false));
+        app.pane_areas.push(browser_completion_area(surface));
+        app.prompt = Some(Prompt::new("Rename", String::new(), PromptTarget::Surface(88)));
+
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 14,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('x'),
+            KeyModifiers::NONE,
+        ))))
+        .unwrap();
+        assert!(app.pending_pointer_motion.is_some());
+        assert_eq!(app.deferred_input.len(), 1);
+
+        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            settled,
+            AppEvent::SessionMutationSettled {
+                outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+                    surface: 77,
+                    operation: "attach",
+                    ..
+                },
+                ..
+            }
+        ));
+        app.handle(settled).unwrap();
+        app.pointer_route_phase = PointerRoutePhase::Fresh;
+        app.replay_deferred_input().unwrap();
+
+        assert!(app.pending_pointer_motion.is_none());
+        assert!(app.deferred_input.is_empty());
+        assert_eq!(app.prompt.as_ref().unwrap().input.as_str(), "x");
+    }
+
+    #[test]
     fn pointer_input_waits_for_a_cached_surface_attach_claim() {
         let (mux, surface) = test_mux("cached-attach-claim-test", None);
         let mut app = test_app(Session::Local(mux.clone()));
@@ -16923,6 +16968,35 @@ mod tests {
     }
 
     #[test]
+    fn deferred_key_cannot_approve_a_pairing_request_that_arrived_later() {
+        let mux = Mux::new("pairing-deferred-key-identity-test", SurfaceOptions::default());
+        let (challenge, decision) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        app.session.pending_mutations.store(1, Ordering::Release);
+
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))))
+            .unwrap();
+        assert_eq!(app.deferred_input.len(), 1);
+
+        let action =
+            app.handle(AppEvent::Mux(MuxEvent::PairingRequested(challenge.clone()))).unwrap();
+        app.render_action(&mut terminal, action).unwrap();
+        app.session.pending_mutations.store(0, Ordering::Release);
+        app.replay_deferred_input().unwrap();
+
+        assert_eq!(
+            app.pairing_dialog.as_ref().map(|dialog| dialog.challenge.id),
+            Some(challenge.id)
+        );
+        assert!(
+            decision.try_recv().is_err(),
+            "input captured before this pairing identity existed must not approve it"
+        );
+        assert!(mux.respond_pairing(challenge.id, false));
+    }
+
+    #[test]
     fn key_cannot_reach_underlay_while_a_resolved_pairing_dialog_is_still_rendered() {
         let mux = Mux::new("pairing-key-removal-barrier-test", SurfaceOptions::default());
         let (challenge, decision) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
@@ -17987,6 +18061,22 @@ mod tests {
         ui
     }
 
+    fn provider_machine_ui_with_changed_second_machine() -> MachineUiState {
+        let mut ui = provider_machine_ui_with_machine_lifecycle();
+        let mut machines = ui.managed_machines().to_vec();
+        let machine = machines
+            .iter_mut()
+            .find(|machine| machine.key == MachineKey(42))
+            .expect("second managed machine");
+        machine.status = ManagedMachineStatus::Active;
+        machine.version = 13;
+        machine.recoverable_until = None;
+        machine.capabilities =
+            ManagedMachineCapabilities { rename: true, delete: true, restore: false, purge: false };
+        ui.set_managed_machines(machines);
+        ui
+    }
+
     #[test]
     fn provider_owned_machine_keyboard_actions_use_version_and_confirmation() {
         let mux = Mux::new("managed-machine-keyboard-test", SurfaceOptions::default());
@@ -18084,6 +18174,89 @@ mod tests {
                 expected_version: 12,
             })
         );
+    }
+
+    #[test]
+    fn deferred_machine_press_cannot_retarget_changed_provider_semantics() {
+        let mux = Mux::new("managed-machine-deferred-identity-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui_with_machine_lifecycle());
+        app.focus = FocusTarget::MachineRail;
+        let mut terminal = Terminal::new(TestBackend::new(100, 14)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let hit = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::Machine { key: MachineKey(42), .. }).then_some(*rect)
+            })
+            .unwrap();
+
+        app.pointer_route_phase = PointerRoutePhase::DrawPending;
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: hit.x,
+            row: hit.y,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+        assert_eq!(app.deferred_input.len(), 1);
+
+        let action = app
+            .handle(AppEvent::MachineUiUpdated(Box::new(
+                provider_machine_ui_with_changed_second_machine(),
+            )))
+            .unwrap();
+        app.render_action(&mut terminal, action).unwrap();
+        app.replay_deferred_input().unwrap();
+
+        assert!(
+            !matches!(app.drag, Some(Drag::MachineArm { .. })),
+            "a press must not arm a machine row whose provider semantics changed"
+        );
+    }
+
+    #[test]
+    fn held_machine_release_cannot_retarget_changed_provider_semantics() {
+        let mux = Mux::new("managed-machine-held-identity-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui_with_machine_lifecycle());
+        app.focus = FocusTarget::MachineRail;
+        let mut terminal = Terminal::new(TestBackend::new(100, 14)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let hit = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::Machine { key: MachineKey(42), .. }).then_some(*rect)
+            })
+            .unwrap();
+
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: hit.x,
+            row: hit.y,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+        assert!(matches!(app.drag, Some(Drag::MachineArm { .. })));
+
+        let action = app
+            .handle(AppEvent::MachineUiUpdated(Box::new(
+                provider_machine_ui_with_changed_second_machine(),
+            )))
+            .unwrap();
+        app.render_action(&mut terminal, action).unwrap();
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: hit.x,
+            row: hit.y,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+
+        assert!(app.drag.is_none());
+        assert!(app.machine_ui.as_ref().unwrap().request.is_none());
     }
 
     #[test]
