@@ -4666,6 +4666,12 @@ struct CMUXCLI {
                         defaultValue: "--profile requires a non-empty profile name or UUID"
                     ))
                 }
+                guard type?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "browser" else {
+                    throw CLIError(message: String(
+                        localized: "browser.profile.automation.error.profileRequiresBrowserPane",
+                        defaultValue: "Browser profiles can only be used when creating a browser pane"
+                    ))
+                }
                 params["profile"] = selector
             }
             if let placement { params["placement"] = placement }

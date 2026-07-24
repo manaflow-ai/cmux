@@ -177,6 +177,16 @@ def main() -> int:
             )
             assert_last_call(state, "pane.create", "Work Profile")
 
+            calls_before_terminal_profile = len(state.calls)
+            assert_cli_fails(
+                cli,
+                socket_path,
+                ["new-pane", "--profile", "Work Profile"],
+                "Browser profiles can only be used when creating a browser pane",
+            )
+            if len(state.calls) != calls_before_terminal_profile:
+                raise AssertionError("new-pane sent a browser profile for a terminal pane")
+
             run_cli(cli, socket_path, ["browser", "open", "https://example.com"])
             assert_last_call(state, "browser.open_split", None)
 

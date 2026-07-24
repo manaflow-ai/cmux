@@ -70,7 +70,10 @@ enum BrowserImportAutomationError: LocalizedError, CustomStringConvertible {
 enum BrowserProfileAutomationError: LocalizedError, CustomStringConvertible {
     case missingName
     case missingProfile
+    case browserDisabled
     case invalidProfileSelector
+    case multipleProfileSelectors
+    case profileRequiresBrowserPane
     case profileNotFound(String)
     case ambiguousProfile(String, [BrowserProfileDefinition])
     case profileCreationFailed(String)
@@ -92,10 +95,25 @@ enum BrowserProfileAutomationError: LocalizedError, CustomStringConvertible {
                 localized: "browser.profile.automation.error.missingProfile",
                 defaultValue: "Missing browser profile"
             )
+        case .browserDisabled:
+            return String(
+                localized: "browser.profile.automation.error.browserDisabled",
+                defaultValue: "Browser profiles cannot be used while the cmux browser is disabled"
+            )
         case .invalidProfileSelector:
             return String(
                 localized: "browser.profile.automation.error.invalidProfileSelector",
                 defaultValue: "Browser profile must be a non-empty name or UUID"
+            )
+        case .multipleProfileSelectors:
+            return String(
+                localized: "browser.profile.automation.error.multipleProfileSelectors",
+                defaultValue: "Specify only one browser profile selector"
+            )
+        case .profileRequiresBrowserPane:
+            return String(
+                localized: "browser.profile.automation.error.profileRequiresBrowserPane",
+                defaultValue: "Browser profiles can only be used when creating a browser pane"
             )
         case .profileNotFound(let query):
             return String.localizedStringWithFormat(

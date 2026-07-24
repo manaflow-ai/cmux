@@ -6504,17 +6504,15 @@ class TerminalController {
         }
         let respectExternalOpenRules = v2Bool(params, "respect_external_open_rules") ?? false
 
-        if BrowserAvailabilitySettings.isDisabled() {
-            if v2IsDiffViewerURL(url) {
-                return .err(code: "browser_disabled", message: "cmux browser is disabled", data: nil)
-            }
-            return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
-        }
-        if let error = v2RegisterDiffViewerURLIfNeeded(params: params, url: url) {
-            return error
-        }
-
         let profileKeys = ["profile", "profile_id", "profile_name"]
+        let suppliedProfileKeys = profileKeys.filter { v2HasNonNullParam(params, $0) }
+        if suppliedProfileKeys.count > 1 {
+            return .err(
+                code: "invalid_params",
+                message: BrowserProfileAutomationError.multipleProfileSelectors.description,
+                data: ["profile_parameters": suppliedProfileKeys]
+            )
+        }
         if let invalidProfileKey = profileKeys.first(where: {
             v2HasNonNullParam(params, $0) && v2String(params, $0) == nil
         }) {
@@ -6525,10 +6523,11 @@ class TerminalController {
             )
         }
 
-        let preferredProfileID: UUID?
-        if let selector = v2String(params, "profile")
+        let profileSelector = v2String(params, "profile")
             ?? v2String(params, "profile_id")
-            ?? v2String(params, "profile_name") {
+            ?? v2String(params, "profile_name")
+        let preferredProfileID: UUID?
+        if let selector = profileSelector {
             switch BrowserProfileStore.shared.resolveProfileSelection(selector) {
             case .matched(let profile):
                 preferredProfileID = profile.id
@@ -6554,6 +6553,23 @@ class TerminalController {
             preferredProfileID = nil
         }
 
+        if BrowserAvailabilitySettings.isDisabled() {
+            if let profileSelector {
+                return .err(
+                    code: "invalid_params",
+                    message: BrowserProfileAutomationError.browserDisabled.description,
+                    data: ["profile": profileSelector]
+                )
+            }
+            if v2IsDiffViewerURL(url) {
+                return .err(code: "browser_disabled", message: "cmux browser is disabled", data: nil)
+            }
+            return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
+        }
+        if let error = v2RegisterDiffViewerURLIfNeeded(params: params, url: url) {
+            return error
+        }
+
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create browser", data: nil)
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
@@ -6562,6 +6578,7 @@ class TerminalController {
             }
             if let url,
                respectExternalOpenRules,
+               preferredProfileID == nil,
                BrowserLinkOpenSettings.shouldOpenExternally(url) {
                 guard NSWorkspace.shared.open(url) else {
                     result = .err(

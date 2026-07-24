@@ -123,6 +123,60 @@ struct BrowserProfileSocketTests {
         #expect((unknownError["message"] as? String)?.contains(unknownSelector) == true)
         #expect((unknownError["data"] as? [String: Any])?["profile"] as? String == unknownSelector)
 
+        BrowserAvailabilitySettings.setDisabled(true, defaults: defaults)
+        let disabledOpenResponse = try call(
+            method: "browser.open_split",
+            params: [
+                "workspace_id": fallbackWorkspace.id.uuidString,
+                "surface_id": fallbackSourceID.uuidString,
+                "profile": unknownSelector,
+            ]
+        )
+        let disabledOpenError = try errorPayload(disabledOpenResponse)
+        #expect(disabledOpenError["code"] as? String == "invalid_params")
+        #expect((disabledOpenError["message"] as? String)?.contains(unknownSelector) == true)
+
+        let disabledPaneResponse = try call(
+            method: "pane.create",
+            params: [
+                "workspace_id": fallbackWorkspace.id.uuidString,
+                "surface_id": fallbackSourceID.uuidString,
+                "direction": "right",
+                "type": "browser",
+                "profile": unknownSelector,
+            ]
+        )
+        let disabledPaneError = try errorPayload(disabledPaneResponse)
+        #expect(disabledPaneError["code"] as? String == "invalid_params")
+        #expect((disabledPaneError["message"] as? String)?.contains(unknownSelector) == true)
+
+        let disabledSelectedOpenResponse = try call(
+            method: "browser.open_split",
+            params: [
+                "workspace_id": fallbackWorkspace.id.uuidString,
+                "surface_id": fallbackSourceID.uuidString,
+                "profile": target.id.uuidString,
+            ]
+        )
+        let disabledSelectedOpenError = try errorPayload(disabledSelectedOpenResponse)
+        #expect(disabledSelectedOpenError["code"] as? String == "invalid_params")
+        #expect((disabledSelectedOpenError["message"] as? String)?.contains("disabled") == true)
+
+        let disabledSelectedPaneResponse = try call(
+            method: "pane.create",
+            params: [
+                "workspace_id": fallbackWorkspace.id.uuidString,
+                "surface_id": fallbackSourceID.uuidString,
+                "direction": "right",
+                "type": "browser",
+                "profile": target.id.uuidString,
+            ]
+        )
+        let disabledSelectedPaneError = try errorPayload(disabledSelectedPaneResponse)
+        #expect(disabledSelectedPaneError["code"] as? String == "invalid_params")
+        #expect((disabledSelectedPaneError["message"] as? String)?.contains("disabled") == true)
+        BrowserAvailabilitySettings.setDisabled(false, defaults: defaults)
+
         let malformedOpenResponse = try call(
             method: "browser.open_split",
             params: [
@@ -152,6 +206,48 @@ struct BrowserProfileSocketTests {
         let malformedPaneError = try errorPayload(malformedPaneResponse)
         #expect(malformedPaneError["code"] as? String == "invalid_params")
         #expect((malformedPaneError["message"] as? String)?.contains("non-empty") == true)
+
+        let multipleOpenResponse = try call(
+            method: "browser.open_split",
+            params: [
+                "workspace_id": fallbackWorkspace.id.uuidString,
+                "surface_id": fallbackSourceID.uuidString,
+                "profile": target.displayName,
+                "profile_id": fallback.id.uuidString,
+            ]
+        )
+        let multipleOpenError = try errorPayload(multipleOpenResponse)
+        #expect(multipleOpenError["code"] as? String == "invalid_params")
+        #expect((multipleOpenError["message"] as? String)?.contains("only one") == true)
+
+        let multiplePaneResponse = try call(
+            method: "pane.create",
+            params: [
+                "workspace_id": fallbackWorkspace.id.uuidString,
+                "surface_id": fallbackSourceID.uuidString,
+                "direction": "right",
+                "type": "browser",
+                "profile": target.displayName,
+                "profile_name": fallback.displayName,
+            ]
+        )
+        let multiplePaneError = try errorPayload(multiplePaneResponse)
+        #expect(multiplePaneError["code"] as? String == "invalid_params")
+        #expect((multiplePaneError["message"] as? String)?.contains("only one") == true)
+
+        let terminalProfileResponse = try call(
+            method: "pane.create",
+            params: [
+                "workspace_id": fallbackWorkspace.id.uuidString,
+                "surface_id": fallbackSourceID.uuidString,
+                "direction": "right",
+                "type": "terminal",
+                "profile": target.displayName,
+            ]
+        )
+        let terminalProfileError = try errorPayload(terminalProfileResponse)
+        #expect(terminalProfileError["code"] as? String == "invalid_params")
+        #expect((terminalProfileError["message"] as? String)?.contains("browser pane") == true)
 
         let ambiguousResponse = try call(
             method: "pane.create",

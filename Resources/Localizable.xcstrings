@@ -29270,6 +29270,23 @@
         }
       }
     },
+    "browser.profile.automation.error.browserDisabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser profiles cannot be used while the cmux browser is disabled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ブラウザーが無効な間はブラウザープロファイルを使用できません"
+          }
+        }
+      }
+    },
     "browser.profile.automation.error.cannotDeleteDefaultProfile": {
       "extractionState": "manual",
       "localizations": {
@@ -29355,6 +29372,23 @@
         }
       }
     },
+    "browser.profile.automation.error.multipleProfileSelectors": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Specify only one browser profile selector"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザープロファイルセレクターは 1 つだけ指定してください"
+          }
+        }
+      }
+    },
     "browser.profile.automation.error.profileClearFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -29436,6 +29470,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "'%@' に一致する cmux ブラウザープロファイルが見つかりません。使用可能なプロファイルを表示するには 'cmux browser profiles' を実行してください。"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.profileRequiresBrowserPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser profiles can only be used when creating a browser pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザープロファイルはブラウザーペインの作成時にのみ使用できます"
           }
         }
       }

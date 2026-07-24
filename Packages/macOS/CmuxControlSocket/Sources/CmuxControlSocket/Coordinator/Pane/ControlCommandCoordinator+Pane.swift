@@ -317,6 +317,7 @@ extension ControlCommandCoordinator {
             hasInvalidProfileParam: profileKeys.contains {
                 hasNonNull(params, $0) && string(params, $0) == nil
             },
+            hasMultipleProfileParams: profileKeys.filter { hasNonNull(params, $0) }.count > 1,
             workingDirectory: optionalTrimmedRawString(params, "working_directory"),
             initialCommand: optionalTrimmedRawString(params, "initial_command"),
             tmuxStartCommand: optionalTrimmedRawString(params, "tmux_start_command"),

@@ -163,12 +163,23 @@ extension TerminalController: ControlPaneContext {
         if case .dock = placement, let invalid = validateDockPaneCreateRouting(routing: routing, tabManager: tabManager, panelType: panelType) {
             return invalid
         }
-        if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
-            return browserDisabledCreateResolution(rawURL: inputs.urlRaw, url: url, tabManager: tabManager)
-        }
-
+        let hasProfileParam = inputs.profileRaw != nil
+            || inputs.hasInvalidProfileParam
+            || inputs.hasMultipleProfileParams
         let preferredBrowserProfileID: UUID?
-        if panelType == .browser, inputs.hasInvalidProfileParam {
+        if panelType != .browser, hasProfileParam {
+            return .invalidBrowserProfile(
+                selector: inputs.profileRaw ?? "",
+                message: BrowserProfileAutomationError.profileRequiresBrowserPane.description,
+                candidates: []
+            )
+        } else if inputs.hasMultipleProfileParams {
+            return .invalidBrowserProfile(
+                selector: inputs.profileRaw ?? "",
+                message: BrowserProfileAutomationError.multipleProfileSelectors.description,
+                candidates: []
+            )
+        } else if panelType == .browser, inputs.hasInvalidProfileParam {
             return .invalidBrowserProfile(
                 selector: inputs.profileRaw ?? "",
                 message: BrowserProfileAutomationError.invalidProfileSelector.description,
@@ -195,6 +206,16 @@ extension TerminalController: ControlPaneContext {
             }
         } else {
             preferredBrowserProfileID = nil
+        }
+        if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
+            if let selector = inputs.profileRaw {
+                return .invalidBrowserProfile(
+                    selector: selector,
+                    message: BrowserProfileAutomationError.browserDisabled.description,
+                    candidates: []
+                )
+            }
+            return browserDisabledCreateResolution(rawURL: inputs.urlRaw, url: url, tabManager: tabManager)
         }
 
         let orientation = direction.orientation

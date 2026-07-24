@@ -23,6 +23,9 @@ public struct ControlPaneCreateInputs: Sendable, Equatable {
     /// Whether any non-null browser profile selector had a non-string or empty
     /// value and must be rejected instead of treated as an omitted selector.
     public let hasInvalidProfileParam: Bool
+    /// Whether more than one non-null browser profile selector alias was
+    /// supplied.
+    public let hasMultipleProfileParams: Bool
     /// The trimmed-non-empty `working_directory`, if any (legacy
     /// `v2OptionalTrimmedRawString`).
     public let workingDirectory: String?
@@ -58,6 +61,7 @@ public struct ControlPaneCreateInputs: Sendable, Equatable {
     ///   - urlRaw: The raw `url` string, if present.
     ///   - profileRaw: The browser profile UUID or display name, if present.
     ///   - hasInvalidProfileParam: Whether a supplied selector was malformed.
+    ///   - hasMultipleProfileParams: Whether multiple selector aliases were supplied.
     ///   - workingDirectory: The trimmed-non-empty working directory, if any.
     ///   - initialCommand: The trimmed-non-empty initial command, if any.
     ///   - tmuxStartCommand: The trimmed-non-empty tmux start command, if any.
@@ -73,6 +77,7 @@ public struct ControlPaneCreateInputs: Sendable, Equatable {
         urlRaw: String?,
         profileRaw: String? = nil,
         hasInvalidProfileParam: Bool = false,
+        hasMultipleProfileParams: Bool = false,
         workingDirectory: String?,
         initialCommand: String?,
         tmuxStartCommand: String?,
@@ -88,6 +93,7 @@ public struct ControlPaneCreateInputs: Sendable, Equatable {
         self.urlRaw = urlRaw
         self.profileRaw = profileRaw
         self.hasInvalidProfileParam = hasInvalidProfileParam
+        self.hasMultipleProfileParams = hasMultipleProfileParams
         self.workingDirectory = workingDirectory
         self.initialCommand = initialCommand
         self.tmuxStartCommand = tmuxStartCommand
