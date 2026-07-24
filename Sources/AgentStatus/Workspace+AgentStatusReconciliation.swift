@@ -148,6 +148,15 @@ extension Workspace {
             return false
         }
         let observedAt = Date.now
+        guard agentLifecycleStatesByPanelId[targetPanelId]?[key] == .needsInput else {
+            return agentStatusLedger.recordLifecycleOrdering(
+                panelId: targetPanelId,
+                statusKey: key,
+                runtimePIDKey: runtimePIDKey,
+                runtimeProcessIdentity: runtimeProcessIdentity,
+                revision: revision
+            )
+        }
         guard agentStatusLedger.recordLifecycle(
             .running,
             panelId: targetPanelId,
@@ -158,12 +167,6 @@ extension Workspace {
             revision: revision
         ) else { return false }
         resetAgentStatusShellReportDedupe(panelId: targetPanelId)
-        guard agentLifecycleStatesByPanelId[targetPanelId]?[key] == .needsInput else {
-            // The ordered Running observation is still a tombstone. Recording
-            // it prevents a delayed lower-revision permission event from
-            // changing the visible state after this hook returns.
-            return true
-        }
         agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = .running
         recordAgentLifecycleChange(panelId: targetPanelId)
         reconcileAgentStatuses(panelId: targetPanelId, now: observedAt)

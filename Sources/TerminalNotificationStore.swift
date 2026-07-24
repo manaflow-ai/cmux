@@ -1224,7 +1224,9 @@ final class TerminalNotificationStore: ObservableObject {
         var idsToClear: [String] = []
         updated.removeAll { existing in
             guard existing.tabId == notification.tabId, existing.surfaceId == notification.surfaceId else { return false }
-            idsToClear.append(existing.id.uuidString)
+            if existing.id != notification.id {
+                idsToClear.append(existing.id.uuidString)
+            }
             return true
         }
 

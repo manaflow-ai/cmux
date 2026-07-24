@@ -10,6 +10,7 @@ struct CodexPermissionTransitionMachine {
         event: CodexPermissionEvent,
         identity: CodexPermissionSignalIdentity,
         runtime: CodexPermissionRuntimeGeneration,
+        revisionWatermark: UInt64? = nil,
         notificationID: UUID? = nil
     ) -> CodexPermissionTransition {
         if let current, !current.runtime.matches(runtime) {
@@ -22,12 +23,23 @@ struct CodexPermissionTransitionMachine {
                 current: current,
                 identity: identity,
                 runtime: runtime,
+                revisionWatermark: revisionWatermark,
                 notificationID: notificationID
             )
         case .toolStarted:
-            return acceptToolStarted(current: current, identity: identity, runtime: runtime)
+            return acceptToolStarted(
+                current: current,
+                identity: identity,
+                runtime: runtime,
+                revisionWatermark: revisionWatermark
+            )
         case .toolCompleted:
-            return acceptToolCompleted(current: current, identity: identity, runtime: runtime)
+            return acceptToolCompleted(
+                current: current,
+                identity: identity,
+                runtime: runtime,
+                revisionWatermark: revisionWatermark
+            )
         }
     }
 
@@ -35,6 +47,7 @@ struct CodexPermissionTransitionMachine {
         current: CodexPermissionState?,
         identity: CodexPermissionSignalIdentity,
         runtime: CodexPermissionRuntimeGeneration,
+        revisionWatermark: UInt64?,
         notificationID: UUID?
     ) -> CodexPermissionTransition {
         let identity = identity.correlatedToUniqueActiveToolStart(
@@ -61,7 +74,7 @@ struct CodexPermissionTransitionMachine {
             phase: .needsInput,
             identity: identity,
             runtime: runtime,
-            revision: nextRevision(after: current),
+            revision: nextRevision(after: current, watermark: revisionWatermark),
             notificationID: notificationID,
             resolvedIdentities: current?.resolvedIdentities ?? [],
             startedIdentities: current?.startedIdentities ?? []
@@ -81,7 +94,8 @@ struct CodexPermissionTransitionMachine {
     private static func acceptToolStarted(
         current: CodexPermissionState?,
         identity: CodexPermissionSignalIdentity,
-        runtime: CodexPermissionRuntimeGeneration
+        runtime: CodexPermissionRuntimeGeneration,
+        revisionWatermark: UInt64?
     ) -> CodexPermissionTransition {
         guard identity.isScoped else {
             return ignoredTransition(current: current, identity: identity, runtime: runtime)
@@ -94,7 +108,7 @@ struct CodexPermissionTransitionMachine {
             phase: preservesPendingPermission ? .needsInput : .toolStarted,
             identity: preservesPendingPermission ? currentIdentity : identity,
             runtime: runtime,
-            revision: nextRevision(after: current),
+            revision: nextRevision(after: current, watermark: revisionWatermark),
             notificationID: current?.notificationID,
             resolvedIdentities: current?.resolvedIdentities ?? [],
             startedIdentities: started
@@ -105,7 +119,8 @@ struct CodexPermissionTransitionMachine {
     private static func acceptToolCompleted(
         current: CodexPermissionState?,
         identity: CodexPermissionSignalIdentity,
-        runtime: CodexPermissionRuntimeGeneration
+        runtime: CodexPermissionRuntimeGeneration,
+        revisionWatermark: UInt64?
     ) -> CodexPermissionTransition {
         guard identity.isScoped else {
             return ignoredTransition(current: current, identity: identity, runtime: runtime)
@@ -126,7 +141,7 @@ struct CodexPermissionTransitionMachine {
             phase: preservesDifferentPermission ? .needsInput : .resumed,
             identity: preservesDifferentPermission ? currentIdentity : identity,
             runtime: runtime,
-            revision: nextRevision(after: current),
+            revision: nextRevision(after: current, watermark: revisionWatermark),
             notificationID: current?.notificationID,
             resolvedIdentities: resolved,
             startedIdentities: current?.startedIdentities ?? []
@@ -167,7 +182,11 @@ struct CodexPermissionTransitionMachine {
         }
     }
 
-    private static func nextRevision(after current: CodexPermissionState?) -> UInt64 {
-        (current?.revision ?? 0) == UInt64.max ? UInt64.max : (current?.revision ?? 0) + 1
+    private static func nextRevision(
+        after current: CodexPermissionState?,
+        watermark: UInt64?
+    ) -> UInt64 {
+        let revision = max(current?.revision ?? 0, watermark ?? 0)
+        return revision == UInt64.max ? UInt64.max : revision + 1
     }
 }

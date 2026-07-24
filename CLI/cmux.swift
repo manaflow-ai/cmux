@@ -157,6 +157,8 @@ struct ClaudeHookSessionRecord: Codable {
     var terminalPromptTurnIds: [String]?
     /// Ordered Codex approval phase for this exact session/process generation.
     var codexPermissionState: CodexPermissionState? = nil
+    /// Highest Codex approval revision emitted for this runtime generation.
+    var codexPermissionRevision: UInt64? = nil
     var startedAt: TimeInterval
     var updatedAt: TimeInterval
     // Auto-naming engine state (all optional so stores written before the
@@ -780,6 +782,7 @@ final class ClaudeHookSessionStore {
         guard !normalized.isEmpty else { return false }
         return try withLockedState { state in
             let now = Date().timeIntervalSince1970
+            let previousRecord = state.sessions[normalized]
             var record = makeSessionRecord(
                 state: state,
                 sessionId: normalized,
@@ -790,7 +793,14 @@ final class ClaudeHookSessionStore {
             if codexSessionStartIsStale(record, incomingPID: pid) {
                 return false
             }
-            clearCodexSessionStartTurnState(on: &record)
+            let startsNewRuntime = codexSessionStartBeginsNewRuntime(
+                previousRecord,
+                incomingPID: pid
+            )
+            clearCodexSessionStartTurnState(
+                on: &record,
+                resetsPermissionRevision: startsNewRuntime
+            )
             update(
                 &record,
                 workspaceId: workspaceId,
@@ -865,6 +875,10 @@ final class ClaudeHookSessionStore {
                 now: now
             )
             if !onlyIfNeedsInput {
+                record.codexPermissionRevision = max(
+                    record.codexPermissionRevision ?? 0,
+                    record.codexPermissionState?.revision ?? 0
+                )
                 record.codexPermissionState = nil
             }
             state.sessions[normalized] = record
@@ -1031,12 +1045,36 @@ final class ClaudeHookSessionStore {
         return incomingPID == existingPID
     }
 
-    private func clearCodexSessionStartTurnState(on record: inout ClaudeHookSessionRecord) {
+    private func codexSessionStartBeginsNewRuntime(
+        _ previousRecord: ClaudeHookSessionRecord?,
+        incomingPID: Int?
+    ) -> Bool {
+        guard let previousRecord else { return true }
+        guard let incomingPID, incomingPID > 0 else { return previousRecord.pid != nil }
+        guard previousRecord.pid == incomingPID else { return true }
+        guard let currentIdentity = processStartIdentity(pid: incomingPID),
+              let previousStartSeconds = previousRecord.pidStartSeconds,
+              let previousStartMicroseconds = previousRecord.pidStartMicroseconds else {
+            return false
+        }
+        return currentIdentity.seconds != previousStartSeconds
+            || currentIdentity.microseconds != previousStartMicroseconds
+    }
+
+    private func clearCodexSessionStartTurnState(
+        on record: inout ClaudeHookSessionRecord,
+        resetsPermissionRevision: Bool
+    ) {
+        let revisionWatermark = max(
+            record.codexPermissionRevision ?? 0,
+            record.codexPermissionState?.revision ?? 0
+        )
         record.activePromptDepth = nil
         record.activePromptTurnId = nil
         record.activePromptTurnIds = nil
         record.lastPromptTurnId = nil
         record.codexPermissionState = nil
+        record.codexPermissionRevision = resetsPermissionRevision ? nil : revisionWatermark
     }
 
     private func markPromptTurnActive(_ turnId: String, on record: inout ClaudeHookSessionRecord) {

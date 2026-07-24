@@ -44,6 +44,7 @@ extension ClaudeHookSessionStore {
                 event: .permissionRequested,
                 identity: identity,
                 runtime: runtime,
+                revisionWatermark: record.codexPermissionRevision,
                 notificationID: UUID()
             )
             guard transition.accepted else { return transition }
@@ -66,6 +67,7 @@ extension ClaudeHookSessionStore {
                 now: now
             )
             record.codexPermissionState = transition.state
+            record.codexPermissionRevision = transition.state.revision
             state.sessions[normalized] = record
             return transition
         }
@@ -154,7 +156,8 @@ extension ClaudeHookSessionStore {
                 current: record.codexPermissionState,
                 event: event,
                 identity: codexPermissionIdentity(turnId: turnId, requestId: requestId),
-                runtime: runtime
+                runtime: runtime,
+                revisionWatermark: record.codexPermissionRevision
             )
             guard transition.accepted else { return transition }
             if transition.effect == .resolveNeedsInput {
@@ -183,6 +186,7 @@ extension ClaudeHookSessionStore {
                 record.recentEmittedNotificationFingerprints = nil
             }
             record.codexPermissionState = transition.state
+            record.codexPermissionRevision = transition.state.revision
             record.updatedAt = now
             state.sessions[normalized] = record
             return transition

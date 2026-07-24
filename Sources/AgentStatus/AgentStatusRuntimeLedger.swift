@@ -4,6 +4,11 @@ import Foundation
 /// Workspace-owned history of raw observations and their latest reconciled projections.
 @MainActor
 final class AgentStatusRuntimeLedger {
+    private enum RuntimeOrderingResult {
+        case accepted
+        case duplicate
+    }
+
     private static let titleActivityMinimumInterval: TimeInterval = 5
 
     private(set) var evidenceByPanelId: [UUID: [String: AgentStatusEvidence]] = [:]
@@ -30,6 +35,56 @@ final class AgentStatusRuntimeLedger {
         revision: UInt64? = nil
     ) -> Bool {
         var evidence = evidenceByPanelId[panelId]?[statusKey] ?? AgentStatusEvidence()
+        guard let orderingResult = acceptRuntimeOrdering(
+            runtimePIDKey: runtimePIDKey,
+            runtimeProcessIdentity: runtimeProcessIdentity,
+            revision: revision,
+            matchingLifecycle: lifecycle,
+            into: &evidence
+        ) else {
+            return false
+        }
+        if orderingResult == .duplicate {
+            evidenceByPanelId[panelId, default: [:]][statusKey] = evidence
+            return true
+        }
+        if let current = evidence.lifecycleObservedAt, current > observedAt { return false }
+        evidence.lifecycle = lifecycle
+        evidence.lifecycleObservedAt = observedAt
+        evidenceByPanelId[panelId, default: [:]][statusKey] = evidence
+        return true
+    }
+
+    /// Advances ordered hook delivery without projecting a lifecycle change.
+    @discardableResult
+    func recordLifecycleOrdering(
+        panelId: UUID,
+        statusKey: String,
+        runtimePIDKey: String?,
+        runtimeProcessIdentity: AgentPIDProcessIdentity?,
+        revision: UInt64?
+    ) -> Bool {
+        var evidence = evidenceByPanelId[panelId]?[statusKey] ?? AgentStatusEvidence()
+        guard acceptRuntimeOrdering(
+            runtimePIDKey: runtimePIDKey,
+            runtimeProcessIdentity: runtimeProcessIdentity,
+            revision: revision,
+            matchingLifecycle: nil,
+            into: &evidence
+        ) != nil else {
+            return false
+        }
+        evidenceByPanelId[panelId, default: [:]][statusKey] = evidence
+        return true
+    }
+
+    private func acceptRuntimeOrdering(
+        runtimePIDKey: String?,
+        runtimeProcessIdentity: AgentPIDProcessIdentity?,
+        revision: UInt64?,
+        matchingLifecycle: AgentHibernationLifecycleState?,
+        into evidence: inout AgentStatusEvidence
+    ) -> RuntimeOrderingResult? {
         if let runtimePIDKey {
             if evidence.lifecycleRuntimePIDKey != runtimePIDKey {
                 evidence.lifecycleRuntimePIDKey = runtimePIDKey
@@ -39,29 +94,26 @@ final class AgentStatusRuntimeLedger {
                 runtimeProcessIdentity,
                 into: &evidence
             ) {
-                return false
+                return nil
             }
             if let revision {
                 if let currentRevision = evidence.lifecycleRevision {
-                    if currentRevision > revision { return false }
+                    if currentRevision > revision { return nil }
                     if currentRevision == revision {
-                        guard evidence.lifecycle == lifecycle else { return false }
-                        evidenceByPanelId[panelId, default: [:]][statusKey] = evidence
-                        return true
+                        guard matchingLifecycle == nil || evidence.lifecycle == matchingLifecycle else {
+                            return nil
+                        }
+                        return .duplicate
                     }
                 }
                 evidence.lifecycleRevision = revision
             } else if evidence.lifecycleRevision != nil {
-                return false
+                return nil
             }
         } else if evidence.lifecycleRevision != nil {
-            return false
+            return nil
         }
-        if let current = evidence.lifecycleObservedAt, current > observedAt { return false }
-        evidence.lifecycle = lifecycle
-        evidence.lifecycleObservedAt = observedAt
-        evidenceByPanelId[panelId, default: [:]][statusKey] = evidence
-        return true
+        return .accepted
     }
 
     private func acceptRuntimeGeneration(
