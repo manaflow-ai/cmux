@@ -11,11 +11,19 @@ import UIKit
 /// through this type so the Settings toggle applies across package boundaries.
 public struct MobileHapticFeedback {
     public static let enabledDefaultsKey = "cmux.mobile.hapticFeedbackEnabled"
+    public static let didChangeNotification = Notification.Name(
+        "dev.cmux.mobile.hapticFeedbackDidChange"
+    )
 
     private let defaults: UserDefaults
+    private let notificationCenter: NotificationCenter
 
-    public init(defaults: UserDefaults = .standard) {
+    public init(
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) {
         self.defaults = defaults
+        self.notificationCenter = notificationCenter
     }
 
     public var isEnabled: Bool {
@@ -24,6 +32,7 @@ public struct MobileHapticFeedback {
 
     public func setEnabled(_ isEnabled: Bool) {
         defaults.set(isEnabled, forKey: Self.enabledDefaultsKey)
+        notificationCenter.post(name: Self.didChangeNotification, object: defaults)
     }
 
     public func performIfEnabled(_ feedback: () -> Void) {

@@ -8,6 +8,7 @@ import SwiftUI
 /// on compact and regular-width layouts.
 struct TaskComposerPrimaryAction: View {
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @Environment(MobileDisplaySettings.self) private var displaySettings
 
     let isSubmitting: Bool
     let isEnabled: Bool
@@ -129,7 +130,7 @@ struct TaskComposerPrimaryAction: View {
             value: isEnabled
         )
         .sensoryFeedback(.impact(weight: .light), trigger: isSubmitting) { oldValue, newValue in
-            MobileHapticFeedback().isEnabled && !oldValue && newValue
+            displaySettings.hapticFeedbackEnabled && !oldValue && newValue
         }
     }
 }
