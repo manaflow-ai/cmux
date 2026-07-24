@@ -157,7 +157,9 @@ extension CMUXCLI {
         // 1. The sr CLI. Prefer installing from the app's own bundled
         // binary (offline, pinned to the submodule the app shipped with);
         // the remote installer is only the fallback for builds without it.
-        var srPath = resolveSubrouterBinary()
+        // A managed ~/bin install is refreshed to this app's bundled
+        // version before use.
+        var srPath = resolveSubrouterBinaryRefreshingManagedInstall()
         if srPath == nil, let installed = installBundledSubrouterIntoHomeBin() {
             srPath = installed
             print("✓ Installed the bundled sr CLI (\(installed))")

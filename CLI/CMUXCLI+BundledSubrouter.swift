@@ -132,11 +132,30 @@ extension CMUXCLI {
         return fileManager.isExecutableFile(atPath: sr) ? sr : nil
     }
 
+    /// Resolves sr like `resolveSubrouterBinary()`, but when the resolved
+    /// path is — or symlinks into — the managed extraction directory (the
+    /// layout the welcome flow installs into `~/bin`), refreshes the
+    /// extraction first. Without this, the `~/bin/sr` shortcut would pin
+    /// users to the binary extracted at first install and ignore every
+    /// newer bundled version an app update ships.
+    func resolveSubrouterBinaryRefreshingManagedInstall() -> String? {
+        guard let resolved = resolveSubrouterBinary() else { return nil }
+        let target = URL(fileURLWithPath: resolved).resolvingSymlinksInPath().path
+        let managedDir = Self.bundledSubrouterInstallDirectory
+            .resolvingSymlinksInPath().path
+        if target == managedDir || target.hasPrefix(managedDir + "/") {
+            // Best-effort: a failed refresh leaves the previous (still
+            // executable) extraction in place.
+            _ = Self.extractedSubrouterBinary(persona: "subrouter")
+        }
+        return resolved
+    }
+
     /// Replaces this process with the subrouter binary running `arguments`
     /// under the given persona. Prefers a user-installed sr from PATH, then
     /// the bundled binary. Only returns on failure.
     func execSubrouter(persona: String, arguments: [String]) throws -> Never {
-        let executable = resolveSubrouterBinary()
+        let executable = resolveSubrouterBinaryRefreshingManagedInstall()
             ?? Self.extractedSubrouterBinary(persona: persona)
         guard let executable else {
             throw CLIError(message: """
