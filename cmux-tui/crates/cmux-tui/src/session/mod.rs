@@ -46,6 +46,16 @@ pub(crate) fn is_remote_timeout(error: &anyhow::Error) -> bool {
         .is_some_and(remote::RemoteRequestError::is_timeout)
 }
 
+pub(crate) fn is_remote_surface_unavailable(error: &anyhow::Error, surface: SurfaceId) -> bool {
+    error.downcast_ref::<remote::RemoteRequestError>().is_some_and(|error| {
+        matches!(
+            error,
+            remote::RemoteRequestError::Rejected(message)
+                if message == &format!("unknown surface {surface}")
+        )
+    })
+}
+
 #[cfg(test)]
 pub(crate) fn test_remote_timeout_error() -> anyhow::Error {
     remote::RemoteRequestError::Timeout.into()
@@ -62,7 +72,12 @@ pub(crate) fn test_remote_transport_error() -> anyhow::Error {
 
 #[cfg(test)]
 pub(crate) fn test_remote_rejected_error() -> anyhow::Error {
-    remote::RemoteRequestError::Rejected("unknown surface".to_string()).into()
+    test_remote_rejected_error_with_message("unknown surface")
+}
+
+#[cfg(test)]
+pub(crate) fn test_remote_rejected_error_with_message(message: &str) -> anyhow::Error {
+    remote::RemoteRequestError::Rejected(message.to_string()).into()
 }
 
 pub struct SidebarPluginSurface {
@@ -1495,7 +1510,23 @@ pub(crate) fn test_remote_session_with_blocked_attach_transport_failure(
 mod tests {
     use cmux_tui_core::{Mux, SurfaceOptions};
 
-    use super::{Session, resize_action};
+    use super::{
+        Session, is_remote_surface_unavailable, resize_action,
+        test_remote_rejected_error_with_message, test_remote_transport_error,
+    };
+
+    #[test]
+    fn remote_surface_unavailable_matches_only_the_requested_surface_rejection() {
+        assert!(is_remote_surface_unavailable(
+            &test_remote_rejected_error_with_message("unknown surface 77"),
+            77
+        ));
+        assert!(!is_remote_surface_unavailable(
+            &test_remote_rejected_error_with_message("unknown surface 78"),
+            77
+        ));
+        assert!(!is_remote_surface_unavailable(&test_remote_transport_error(), 77));
+    }
 
     #[test]
     fn first_layout_after_attach_sends_ordered_resize() {

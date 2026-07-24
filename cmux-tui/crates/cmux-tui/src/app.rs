@@ -55,8 +55,8 @@ use crate::pty_input::{
     PtyInputSender, PtyOperationDelivery, PtyOperationFailure,
 };
 use crate::session::{
-    ClientInfo, Session, SidebarPluginSurface, SurfaceHandle, TreeView, is_remote_timeout,
-    is_remote_transport_failure,
+    ClientInfo, Session, SidebarPluginSurface, SurfaceHandle, TreeView,
+    is_remote_surface_unavailable, is_remote_timeout, is_remote_transport_failure,
 };
 use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
 use crate::ui::graphics::GraphicPlacement;
@@ -709,6 +709,9 @@ struct SurfaceAttachClaimState {
     retired: bool,
 }
 
+#[cfg(test)]
+type SurfaceAttachAfterObsoleteCheckHook = Arc<Mutex<Option<Arc<dyn Fn() + Send + Sync>>>>;
+
 #[derive(Clone, Copy)]
 struct SurfaceResizeClaimState {
     desired: (u16, u16),
@@ -861,7 +864,7 @@ pub struct OrderedSession {
     sidebar_plugin_sync: Arc<Mutex<SidebarPluginSyncState>>,
     exited_surfaces: Arc<Mutex<HashSet<SurfaceId>>>,
     #[cfg(test)]
-    surface_attach_after_obsolete_check: Arc<Mutex<Option<Arc<dyn Fn() + Send + Sync>>>>,
+    surface_attach_after_obsolete_check: SurfaceAttachAfterObsoleteCheckHook,
 }
 
 impl OrderedSession {
@@ -1135,14 +1138,15 @@ impl OrderedSession {
                 // missing mirror is the expected result of teardown, not a
                 // retryable synchronization failure.
                 let attach_claims = attach_claims.lock().unwrap();
-                if attach_claims.get(&id).is_some_and(|claim| claim.retired) {
-                    attach_failures.lock().unwrap().remove(&id);
-                    pending.defer(SessionMutationOutcome::Success { tree: None });
-                    drop(attach_claims);
-                    return Ok(());
-                }
+                let retired = attach_claims.get(&id).is_some_and(|claim| claim.retired);
                 match result {
                     Ok(Some(_)) => {
+                        attach_failures.lock().unwrap().remove(&id);
+                        pending.defer(SessionMutationOutcome::Success { tree: None });
+                        drop(attach_claims);
+                        Ok(())
+                    }
+                    Ok(None) if retired => {
                         attach_failures.lock().unwrap().remove(&id);
                         pending.defer(SessionMutationOutcome::Success { tree: None });
                         drop(attach_claims);
@@ -1160,6 +1164,12 @@ impl OrderedSession {
                             error: format!("surface {id} is unavailable"),
                             reconnect_required: false,
                         });
+                        drop(attach_claims);
+                        Ok(())
+                    }
+                    Err(error) if retired && is_remote_surface_unavailable(&error, id) => {
+                        attach_failures.lock().unwrap().remove(&id);
+                        pending.defer(SessionMutationOutcome::Success { tree: None });
                         drop(attach_claims);
                         Ok(())
                     }
