@@ -77,7 +77,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             *'"method":"initialize"'*)
               printf '%s\n' '{"id":1,"result":{"userAgent":"test","codexHome":"\(codexHome.path)","platformFamily":"unix","platformOs":"macos"}}'
               ;;
-            *'"method":"config/read"'*)
+            *'"method":"config'*'read"'*)
               if [ "$static_catalog" = true ] && [ "${CMUX_TEST_REJECT_STATIC_CATALOG:-0}" = 1 ]; then
                 printf '%s\n' '{"id":2,"error":{"code":-32602,"message":"managed catalog rejects override"}}'
               elif [ "${CMUX_TEST_EMPTY_PROJECTS:-0}" = 1 ]; then
@@ -106,6 +106,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         ])
         environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = fakeCodex.path
         environment["CODEX_HOME"] = codexHome.path
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root
+            .appendingPathComponent("initial-state", isDirectory: true)
+            .path
 
         let result = runProcess(
             executablePath: cliPath,
@@ -133,6 +136,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         try Data().write(to: codexArgumentsLog)
         environment["CMUX_TEST_REJECT_STATIC_CATALOG"] = "1"
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root
+            .appendingPathComponent("fallback-state", isDirectory: true)
+            .path
         let fallbackResult = runProcess(
             executablePath: cliPath,
             arguments: ["hooks", "codex", "inject-resume-args"],
@@ -167,6 +173,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             withIntermediateDirectories: false
         )
         environment["CMUX_TEST_EMPTY_PROJECTS"] = "1"
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root
+            .appendingPathComponent("repository-state", isDirectory: true)
+            .path
         let failedRepositoryProbe = runProcess(
             executablePath: cliPath,
             arguments: ["hooks", "codex", "inject-resume-args"],
@@ -179,6 +188,135 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(
             failedRepositoryProbe.stdout.isEmpty,
             "A broken repository marker must fail closed instead of overriding project trust."
+        )
+    }
+
+    func testCodexResumeTrustCoalescesConcurrentEffectiveConfigProbes() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-trust-probe-cache-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent("codex-home", isDirectory: true)
+        let stateDirectory = root.appendingPathComponent("state", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let modelsCache = codexHome.appendingPathComponent("models_cache.json", isDirectory: false)
+        try Data("{}".utf8).write(to: modelsCache)
+        let invocationLog = root.appendingPathComponent("codex-invocations.log", isDirectory: false)
+        let fakeCodex = root.appendingPathComponent("codex", isDirectory: false)
+        let emptyProjectsResponse = try XCTUnwrap(
+            String(
+                data: JSONSerialization.data(withJSONObject: [
+                    "id": 2,
+                    "result": [
+                        "config": ["projects": [:]],
+                        "origins": [:],
+                        "layers": NSNull(),
+                    ],
+                ]),
+                encoding: .utf8
+            )
+        )
+        try """
+        #!/bin/sh
+        printf '%s\n' BEGIN >> "\(invocationLog.path)"
+        static_catalog=false
+        for argument in "$@"; do
+          if [ "$argument" = 'model_catalog_json=\(modelsCache.path)' ]; then
+            static_catalog=true
+          fi
+        done
+        while IFS= read -r line; do
+          case "$line" in
+            *'"method":"initialize"'*)
+              printf '%s\n' '{"id":1,"result":{"userAgent":"test","codexHome":"\(codexHome.path)","platformFamily":"unix","platformOs":"macos"}}'
+              ;;
+            *'"method":"config'*'read"'*)
+              sleep 0.2
+              if [ "$static_catalog" = true ]; then
+                printf '%s\n' '{"id":2,"error":{"code":-32602,"message":"managed catalog rejects override"}}'
+              else
+                printf '%s\n' '\(emptyProjectsResponse)'
+              fi
+              ;;
+          esac
+        done
+        """.write(to: fakeCodex, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: fakeCodex.path
+        )
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
+        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated([
+            fakeCodex.path,
+            "resume",
+            "session-name",
+        ])
+        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = fakeCodex.path
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDirectory.path
+        environment["CODEX_HOME"] = codexHome.path
+
+        let processCount = 8
+        var running: [(process: Process, stdout: Pipe, stderr: Pipe)] = []
+        for _ in 0..<processCount {
+            let process = Process()
+            let stdout = Pipe()
+            let stderr = Pipe()
+            process.executableURL = URL(fileURLWithPath: cliPath)
+            process.arguments = ["hooks", "codex", "inject-resume-args"]
+            process.environment = environment
+            process.standardInput = FileHandle.nullDevice
+            process.standardOutput = stdout
+            process.standardError = stderr
+            try process.run()
+            running.append((process, stdout, stderr))
+        }
+
+        let deadline = Date().addingTimeInterval(5)
+        while running.contains(where: { $0.process.isRunning }), Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        for item in running where item.process.isRunning {
+            item.process.terminate()
+        }
+        for item in running {
+            item.process.waitUntilExit()
+            let stdout = String(
+                data: item.stdout.fileHandleForReading.readDataToEndOfFile(),
+                encoding: .utf8
+            ) ?? ""
+            let stderr = String(
+                data: item.stderr.fileHandleForReading.readDataToEndOfFile(),
+                encoding: .utf8
+            ) ?? ""
+            XCTAssertEqual(item.process.terminationStatus, 0, stderr)
+            XCTAssertTrue(
+                stdout.contains("trust_level=\"untrusted\""),
+                "Every coalesced caller must receive the cached trust decision."
+            )
+        }
+
+        let cachedResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "inject-resume-args"],
+            environment: environment,
+            timeout: 2
+        )
+        XCTAssertFalse(cachedResult.timedOut, cachedResult.stderr)
+        XCTAssertEqual(cachedResult.status, 0, cachedResult.stderr)
+        XCTAssertTrue(cachedResult.stdout.contains("trust_level=\"untrusted\""))
+
+        let invocationCount = try String(contentsOf: invocationLog, encoding: .utf8)
+            .split(separator: "\n")
+            .filter { $0 == "BEGIN" }
+            .count
+        XCTAssertEqual(
+            invocationCount,
+            2,
+            "Equivalent concurrent and cached restores should share one isolated probe and its one fallback."
         )
     }
 
