@@ -876,6 +876,38 @@ jobs:
             set -e
           fi
 
+          # A dead app host is never a pass, whatever the summary says. When the host dies the
+          # runner relaunches it and the summary line then describes only the tests the LAST
+          # launch managed. Measured on this repo: a shard printing "Test run with 0 tests in 1
+          # suite passed" while two hosts had died, and job logs carrying 24 restarts. Those
+          # verdicts are not green, they are absent.
+          HOST_DEATHS=$(grep -c "Restarting after unexpected exit, crash, or test timeout" "$TEST_OUTPUT" || true)
+          if [ "${HOST_DEATHS:-0}" -ne 0 ]; then
+            echo "::error::app host died ${HOST_DEATHS} time(s); every verdict pending in those launches is lost"
+            echo "Tests that started but never reported (the last one named is where a host died):"
+            comm -23 \
+              <(grep -oE "Test [A-Za-z0-9_]+\(\)" "$TEST_OUTPUT" | sed 's/^Test //' | sort -u) \
+              <(grep -oE "(✔|✘) Test [A-Za-z0-9_]+\(\)" "$TEST_OUTPUT" | sed -E 's/^(✔|✘) Test //' | sort -u) \
+              | head -20 || true
+            exit 1
+          fi
+
+          # A run that executed nothing is not a pass either. A selector naming a file rather than
+          # a suite, or a suite that no longer exists, leaves xcodebuild reporting success having
+          # done no work at all.
+          #
+          # Both harnesses have to be counted. swift-testing prints a line per test; XCTest prints
+          # none of those and only reports "Executed N tests" — a shard of XCTest suites therefore
+          # looks empty if you count swift-testing lines alone.
+          SWIFT_TESTS=$(grep -c "✔ Test \|✘ Test " "$TEST_OUTPUT" || true)
+          XCTESTS=$(grep -oE "Executed [0-9]+ test" "$TEST_OUTPUT" | grep -oE "[0-9]+" | sort -rn | head -1)
+          TESTS_SEEN=$(( ${SWIFT_TESTS:-0} + ${XCTESTS:-0} ))
+          if [ "$TESTS_SEEN" -eq 0 ]; then
+            echo "::error::no tests executed for this shard; its selectors matched nothing"
+            exit 1
+          fi
+          echo "shard executed ${TESTS_SEEN} tests with no host deaths"
+
           if [ "$EXIT_CODE" -ne 0 ]; then
             SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
             if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
@@ -885,6 +917,19 @@ jobs:
               exit 1
             fi
           fi
+
+      - name: Keep the unit test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cmux-unit-shard-${{ matrix.shard }}-output
+          # Without this, "which test failed on CI" is unanswerable after the fact: the job log is a
+          # filtered excerpt, and neither the xcodebuild output nor an xcresult was kept.
+          path: |
+            ${{ runner.temp }}/cmux-unit-output-shard-${{ matrix.shard }}.txt
+            ${{ runner.temp }}/cmux-unit-shard-${{ matrix.shard }}.args
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Run bundled Ghostty theme picker helper regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}

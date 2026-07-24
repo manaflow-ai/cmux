@@ -199,12 +199,14 @@ final class BrowserOmnibarNativeFieldRegistryTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        firstWindow.isReleasedWhenClosed = false
         let secondWindow = NSWindow(
             contentRect: NSRect(x: 20, y: 20, width: 320, height: 200),
             styleMask: [.titled],
             backing: .buffered,
             defer: false
         )
+        secondWindow.isReleasedWhenClosed = false
         let firstContainer = NSView(frame: firstWindow.contentRect(forFrameRect: firstWindow.frame))
         let secondContainer = NSView(frame: secondWindow.contentRect(forFrameRect: secondWindow.frame))
         firstWindow.contentView = firstContainer
@@ -238,6 +240,7 @@ final class BrowserOmnibarNativeFieldRegistryTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 
@@ -450,6 +453,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 
@@ -505,6 +509,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 
@@ -559,6 +564,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 
@@ -644,6 +650,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 
@@ -677,6 +684,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 
@@ -710,6 +718,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 
@@ -746,6 +755,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 
@@ -783,6 +793,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 
@@ -837,6 +848,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         let contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = contentView
 
@@ -909,6 +921,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         let contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = contentView
 
@@ -984,6 +997,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 
@@ -1014,6 +1028,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 
@@ -1314,6 +1329,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 
@@ -1349,12 +1365,14 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        firstWindow.isReleasedWhenClosed = false
         let secondWindow = NSWindow(
             contentRect: NSRect(x: 40, y: 40, width: 640, height: 420),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
+        secondWindow.isReleasedWhenClosed = false
 
         let firstContainer = NSView(frame: firstWindow.contentRect(forFrameRect: firstWindow.frame))
         let secondContainer = NSView(frame: secondWindow.contentRect(forFrameRect: secondWindow.frame))
@@ -1413,6 +1431,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
 
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
@@ -1467,6 +1486,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 
@@ -1994,6 +2014,7 @@ final class BrowserInsecureHTTPAlertPresentationTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
 
         panel.configureInsecureHTTPAlertHooksForTesting(
             alertFactory: { alertSpy },
@@ -3359,6 +3380,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        inspectorWindow.isReleasedWhenClosed = false
         inspectorWindow.title = "Web Inspector — example.com"
         let frontendWebView = WKInspectorProbeWebView(
             frame: inspectorWindow.contentView?.bounds ?? .zero,
@@ -3513,6 +3535,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        inspectorWindow.isReleasedWhenClosed = false
         inspectorWindow.title = "Web Inspector — example.com"
         let frontendWebView = WKInspectorProbeWebView(
             frame: inspectorWindow.contentView?.bounds ?? .zero,
@@ -3563,6 +3586,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         let host = NSView(frame: window.contentView?.bounds ?? .zero)
         window.contentView?.addSubview(host)
         panel.webView.frame = NSRect(x: 0, y: 0, width: 180, height: host.bounds.height)
@@ -3660,6 +3684,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         defer { closeWindow(window) }
 
         let host = NSView(frame: window.contentView?.bounds ?? .zero)
@@ -3902,6 +3927,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         defer { closeWindow(window) }
         let anchor = NSView(frame: NSRect(x: 30, y: 30, width: 180, height: 140))
         window.contentView?.addSubview(anchor)
@@ -3946,6 +3972,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         defer { closeWindow(window) }
         let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 200, height: 150))
         window.contentView?.addSubview(anchor)
@@ -3988,6 +4015,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         defer {
             closeWindow(window)
         }
@@ -4035,6 +4063,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         defer { closeWindow(window) }
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
@@ -4082,6 +4111,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         defer { closeWindow(window) }
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
@@ -4246,6 +4276,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         defer { closeWindow(window) }
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
@@ -4523,6 +4554,7 @@ final class BrowserIMEKeyDownRoutingTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 
@@ -4572,6 +4604,7 @@ final class BrowserIMEKeyDownRoutingTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 
@@ -4638,6 +4671,7 @@ final class BrowserInputEventPerformanceTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         let contentView = BrowserKeyboardHitTestCountingView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = contentView
 
