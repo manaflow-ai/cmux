@@ -205,6 +205,7 @@ struct LegacyServerProcess {
     child: Child,
     socket: PathBuf,
     dir: PathBuf,
+    descendant_pid_file: PathBuf,
 }
 
 #[cfg(unix)]
@@ -213,18 +214,20 @@ impl LegacyServerProcess {
         let dir = unique_temp_dir(name);
         fs::create_dir_all(&dir).unwrap();
         let socket = dir.join("mux.sock");
+        let descendant_pid_file = dir.join("descendant.pid");
         let mut command = Command::new(std::env::current_exe().unwrap());
         command
             .args(["--ignored", "--exact", "legacy_server_process_helper"])
             .env("CMUX_TUI_TEST_LEGACY_SOCKET", &socket)
             .env("CMUX_TUI_TEST_LEGACY_SCENARIO", scenario)
+            .env("CMUX_TUI_TEST_LEGACY_DESCENDANT_PID_FILE", &descendant_pid_file)
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
         if let Some(reported_pid) = reported_pid {
             command.env("CMUX_TUI_TEST_LEGACY_REPORTED_PID", reported_pid.to_string());
         }
         let child = command.spawn().unwrap();
-        let mut server = Self { child, socket, dir };
+        let mut server = Self { child, socket, dir, descendant_pid_file };
         let deadline = Instant::now() + Duration::from_secs(15);
         while Instant::now() < deadline {
             if server.socket.exists() {
@@ -239,6 +242,10 @@ impl LegacyServerProcess {
         }
         panic!("legacy server helper did not create socket at {}", server.socket.display());
     }
+
+    fn descendant_pid(&self) -> Option<u32> {
+        fs::read_to_string(&self.descendant_pid_file).ok()?.trim().parse().ok()
+    }
 }
 
 #[cfg(unix)]
@@ -246,6 +253,10 @@ impl Drop for LegacyServerProcess {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+        if let Some(pid) = self.descendant_pid().and_then(|pid| libc::pid_t::try_from(pid).ok()) {
+            // SAFETY: test cleanup targets the PID written by this fixture.
+            let _ = unsafe { libc::kill(pid, libc::SIGKILL) };
+        }
         let _ = fs::remove_file(&self.socket);
         let _ = fs::remove_dir_all(&self.dir);
     }
@@ -261,8 +272,18 @@ fn legacy_server_process_helper() {
         .ok()
         .map(|value| value.parse::<u32>().unwrap())
         .unwrap_or_else(std::process::id);
+    if matches!(scenario.as_str(), "success" | "kill-caller" | "cleanup-failure") {
+        let descendant =
+            Command::new("yes").stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+        fs::write(
+            std::env::var_os("CMUX_TUI_TEST_LEGACY_DESCENDANT_PID_FILE").unwrap(),
+            descendant.id().to_string(),
+        )
+        .unwrap();
+        drop(descendant);
+    }
     let listener = transport::listen(&socket).unwrap();
-    let serve_probe_and_reject = |stream: &mut Box<dyn transport::Stream>| {
+    let serve_identify = |stream: &mut Box<dyn transport::Stream>| {
         let mut reader = BufReader::new(stream.try_clone_box().unwrap());
         let mut request = String::new();
         reader.read_line(&mut request).unwrap();
@@ -271,11 +292,18 @@ fn legacy_server_process_helper() {
         let release = cmux_tui_core::release::ReleaseIdentity::current(
             cmux_tui_core::server::PROTOCOL_VERSION,
         );
+        let modern =
+            matches!(scenario.as_str(), "compatible-failure" | "mismatched-modern-failure");
         let (version, build_commit, ghostty_commit, protocol) = if scenario == "compatible-failure"
         {
             (release.version, release.build_commit, release.ghostty_commit, release.protocol)
         } else {
             ("0.0.0-stale".to_string(), None, None, 8)
+        };
+        let capabilities = if modern {
+            vec!["server-shutdown-v1"]
+        } else {
+            Vec::new()
         };
         writeln!(
             stream,
@@ -291,24 +319,26 @@ fn legacy_server_process_helper() {
                     "build_commit": build_commit,
                     "ghostty_commit": ghostty_commit,
                     "protocol": protocol,
+                    "capabilities": capabilities,
                 },
             })
         )
         .unwrap();
+    };
 
-        request.clear();
+    let reject_shutdown = |stream: &mut Box<dyn transport::Stream>| {
+        let mut reader = BufReader::new(stream.try_clone_box().unwrap());
+        let mut request = String::new();
         reader.read_line(&mut request).unwrap();
-        assert_eq!(
-            serde_json::from_str::<serde_json::Value>(&request).unwrap()["cmd"].as_str(),
-            Some("shutdown")
-        );
+        let request: serde_json::Value = serde_json::from_str(&request).unwrap();
+        assert_eq!(request["cmd"].as_str(), Some("shutdown"));
         writeln!(
             stream,
             "{}",
             serde_json::json!({
-                "id": serde_json::Value::Null,
+                "id": request["id"],
                 "ok": false,
-                "error": "bad request",
+                "error": "shutdown failed",
             })
         )
         .unwrap();
@@ -316,79 +346,95 @@ fn legacy_server_process_helper() {
 
     let mut initial_stream = listener.accept().unwrap();
     let caller_pid = initial_stream.peer_process_id().unwrap().unwrap();
-    serve_probe_and_reject(&mut initial_stream);
+    serve_identify(&mut initial_stream);
+    if matches!(scenario.as_str(), "compatible-failure" | "mismatched-modern-failure") {
+        reject_shutdown(&mut initial_stream);
+        loop {
+            std::thread::park();
+        }
+    }
     drop(initial_stream);
-    if matches!(scenario.as_str(), "spoofed-pid" | "compatible-failure") {
+    if scenario == "spoofed-pid" {
         loop {
             std::thread::park();
         }
     }
 
     let mut stream = listener.accept().unwrap();
-    serve_probe_and_reject(&mut stream);
+    serve_identify(&mut stream);
     let mut reader = BufReader::new(stream.try_clone_box().unwrap());
     let mut request = String::new();
-    reader.read_line(&mut request).unwrap();
-    let list_request: serde_json::Value = serde_json::from_str(&request).unwrap();
-    assert_eq!(list_request["cmd"].as_str(), Some("list-workspaces"));
-    if scenario == "cleanup-failure" {
+    let mut snapshot_index = 0;
+    loop {
+        request.clear();
+        reader.read_line(&mut request).unwrap();
+        let list_request: serde_json::Value = serde_json::from_str(&request).unwrap();
+        assert_eq!(list_request["cmd"].as_str(), Some("list-workspaces"));
+        if scenario == "cleanup-failure" {
+            writeln!(
+                stream,
+                "{}",
+                serde_json::json!({
+                    "id": list_request["id"],
+                    "ok": false,
+                    "error": "cleanup unavailable",
+                })
+            )
+            .unwrap();
+            loop {
+                std::thread::park();
+            }
+        }
+        assert!(matches!(scenario.as_str(), "success" | "kill-caller"));
+        let surfaces: &[u64] = match snapshot_index {
+            0 => &[41],
+            1 => &[42],
+            _ => &[],
+        };
+        let tabs = surfaces
+            .iter()
+            .map(|surface| serde_json::json!({"surface": surface}))
+            .collect::<Vec<_>>();
         writeln!(
             stream,
             "{}",
             serde_json::json!({
                 "id": list_request["id"],
-                "ok": false,
-                "error": "cleanup unavailable",
-            })
-        )
-        .unwrap();
-        loop {
-            std::thread::park();
-        }
-    }
-    assert!(matches!(scenario.as_str(), "success" | "kill-caller"));
-    writeln!(
-        stream,
-        "{}",
-        serde_json::json!({
-            "id": list_request["id"],
-            "ok": true,
-            "data": {
-                "workspaces": [{
-                    "screens": [{
-                        "panes": [{
-                            "tabs": [{"surface": 41}, {"surface": 42}],
+                "ok": true,
+                "data": {
+                    "workspaces": [{
+                        "screens": [{
+                            "panes": [{
+                                "tabs": tabs,
+                            }],
                         }],
                     }],
-                }],
-            },
-        })
-    )
-    .unwrap();
-
-    for expected_surface in [41, 42] {
-        request.clear();
-        reader.read_line(&mut request).unwrap();
-        let close_request: serde_json::Value = serde_json::from_str(&request).unwrap();
-        assert_eq!(close_request["cmd"].as_str(), Some("close-surface"));
-        assert_eq!(close_request["surface"].as_u64(), Some(expected_surface));
-        writeln!(
-            stream,
-            "{}",
-            serde_json::json!({
-                "id": close_request["id"],
-                "ok": true,
-                "data": {},
+                },
             })
         )
         .unwrap();
-        if scenario == "kill-caller" && expected_surface == 41 {
-            let caller_pid = libc::pid_t::try_from(caller_pid).unwrap();
-            assert_eq!(unsafe { libc::kill(caller_pid, libc::SIGKILL) }, 0);
+        for &expected_surface in surfaces {
+            request.clear();
+            reader.read_line(&mut request).unwrap();
+            let close_request: serde_json::Value = serde_json::from_str(&request).unwrap();
+            assert_eq!(close_request["cmd"].as_str(), Some("close-surface"));
+            assert_eq!(close_request["surface"].as_u64(), Some(expected_surface));
+            writeln!(
+                stream,
+                "{}",
+                serde_json::json!({
+                    "id": close_request["id"],
+                    "ok": true,
+                    "data": {},
+                })
+            )
+            .unwrap();
+            if scenario == "kill-caller" && expected_surface == 41 {
+                let caller_pid = libc::pid_t::try_from(caller_pid).unwrap();
+                assert_eq!(unsafe { libc::kill(caller_pid, libc::SIGKILL) }, 0);
+            }
         }
-    }
-    loop {
-        std::thread::park();
+        snapshot_index += 1;
     }
 }
 
@@ -856,8 +902,9 @@ fn server_stop_drains_many_hosted_panes_before_acknowledging() {
 
 #[cfg(unix)]
 #[test]
-fn server_stop_falls_back_when_an_older_server_rejects_shutdown() {
+fn server_stop_falls_back_when_an_older_server_lacks_shutdown_capability() {
     let mut server = LegacyServerProcess::start("legacy-server-stop", "success", None);
+    let descendant_pid = server.descendant_pid().unwrap();
 
     let output = Command::new(bin())
         .args(["server", "stop", "--socket"])
@@ -869,12 +916,18 @@ fn server_stop_falls_back_when_an_older_server_rejects_shutdown() {
     assert_success(&output);
     let status = server.child.wait().unwrap();
     assert_eq!(status.signal(), Some(libc::SIGKILL));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while process_exists(descendant_pid) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!process_exists(descendant_pid));
 }
 
 #[cfg(unix)]
 #[test]
 fn detached_legacy_stop_survives_the_calling_pane_process_exit() {
     let mut server = LegacyServerProcess::start("legacy-server-detached", "kill-caller", None);
+    let descendant_pid = server.descendant_pid().unwrap();
 
     let output = Command::new(bin())
         .args(["server", "stop", "--socket"])
@@ -886,6 +939,11 @@ fn detached_legacy_stop_survives_the_calling_pane_process_exit() {
     assert_eq!(output.status.signal(), Some(libc::SIGKILL));
     let status = server.child.wait().unwrap();
     assert_eq!(status.signal(), Some(libc::SIGKILL));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while process_exists(descendant_pid) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!process_exists(descendant_pid));
 }
 
 #[cfg(unix)]
@@ -908,9 +966,31 @@ fn server_stop_does_not_force_kill_a_compatible_server_after_shutdown_failure() 
 
 #[cfg(unix)]
 #[test]
+fn server_stop_does_not_force_kill_a_mismatched_modern_server_after_shutdown_failure() {
+    let mut server = LegacyServerProcess::start(
+        "mismatched-server-shutdown-failure",
+        "mismatched-modern-failure",
+        None,
+    );
+
+    let output = Command::new(bin())
+        .args(["server", "stop", "--socket"])
+        .arg(&server.socket)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("could not stop cleanly"));
+    assert!(server.child.try_wait().unwrap().is_none());
+}
+
+#[cfg(unix)]
+#[test]
 fn server_stop_does_not_signal_an_older_server_when_pane_cleanup_fails() {
     let mut server =
         LegacyServerProcess::start("legacy-server-cleanup-failure", "cleanup-failure", None);
+    let descendant_pid = server.descendant_pid().unwrap();
 
     let output = Command::new(bin())
         .args(["server", "stop", "--socket"])
@@ -925,6 +1005,7 @@ fn server_stop_does_not_signal_an_older_server_when_pane_cleanup_fails() {
             .contains("could not close pane processes before stopping the older server")
     );
     assert!(server.child.try_wait().unwrap().is_none());
+    assert!(process_exists(descendant_pid));
 }
 
 #[cfg(unix)]
