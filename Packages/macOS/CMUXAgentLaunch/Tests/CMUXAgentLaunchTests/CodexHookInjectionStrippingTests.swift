@@ -83,6 +83,26 @@ struct CodexHookInjectionStrippingTests {
         )
     }
 
+    @Test("Strips content-addressed hooks below a spaced home path")
+    func stripsContentAddressedHooksBelowSpacedHomePath() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "codex",
+                    "--enable",
+                    "hooks",
+                    "--dangerously-bypass-hook-trust",
+                    "-c",
+                    "hooks.Stop=[{hooks=[{type=\"command\",command='''/Volumes/Home Disk/u/.cmux/hooks/cmux-codex-hook-0123456789abcdef-stop.sh''',timeout=10000}]}]",
+                    "--model",
+                    "gpt-5.5",
+                ],
+                launcher: "",
+                fallbackKind: "codex"
+            ) == ["codex", "--model", "gpt-5.5"]
+        )
+    }
+
     @Test("Preserves malformed content-addressed Codex hook paths")
     func preservesMalformedContentAddressedCodexHookPaths() {
         let arguments = [
@@ -122,6 +142,24 @@ struct CodexHookInjectionStrippingTests {
                 launcher: "",
                 fallbackKind: "codex"
             ) == arguments
+        )
+
+        let absoluteCommandArguments = [
+            "codex",
+            "--enable",
+            "hooks",
+            "--dangerously-bypass-hook-trust",
+            "-c",
+            "hooks.Stop=[{hooks=[{type=\"command\",command='''/bin/echo /Users/u/.cmux/hooks/cmux-codex-hook-0123456789abcdef-stop.sh''',timeout=10000}]}]",
+            "--model",
+            "gpt-5.5",
+        ]
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                absoluteCommandArguments,
+                launcher: "",
+                fallbackKind: "codex"
+            ) == absoluteCommandArguments
         )
     }
 
