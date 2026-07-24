@@ -475,6 +475,49 @@ struct WorkspaceShareSocketRequestTests {
         await socket.stop()
     }
 
+    @Test("Stale final acknowledgement cannot stop a replacement socket")
+    func staleFinalAcknowledgementPreservesReplacementSocket() async throws {
+        let socket = ShareSocket(
+            endpoint: ShareSocket.Endpoint(
+                wsUrl: "ws://127.0.0.1:1/connect",
+                token: "valid-token"
+            ),
+            refresh: {
+                ShareSocket.Endpoint(
+                    wsUrl: "ws://127.0.0.1:1/connect",
+                    token: "valid-token"
+                )
+            }
+        )
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let replacement = session.webSocketTask(
+            with: try #require(URL(string: "ws://127.0.0.1:1/replacement"))
+        )
+        let replacementID = ObjectIdentifier(replacement)
+        let nonce = try #require(ShareAckNonce(rawValue: "stale-final-ack"))
+
+        await socket.installWebSocketTaskForTesting(
+            replacement,
+            connection: 2
+        )
+
+        await socket.sendAndStop(
+            .ack(nonce: nonce),
+            connection: 1
+        )
+
+        #expect(
+            await socket.currentWebSocketTaskIDForTesting()
+                == replacementID
+        )
+        #expect(
+            socket.send(.chat(text: "replacement stays open", bubble: nil))
+                == .admitted
+        )
+        await socket.stop()
+    }
+
     private func waitForReconnect(
         _ lifecycle: WorkspaceShareSessionLifecycle
     ) async -> Bool {
