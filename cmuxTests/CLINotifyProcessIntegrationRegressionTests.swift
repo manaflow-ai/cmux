@@ -2044,9 +2044,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     }
 
     func testDelayedOlderCodexResumeCannotReplaceAcceptedNewerProcessAfterTurnStateClears() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-codex-repeat-generation-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let context = try makeClaudeHookContext(name: "codex-repeat-generation")
+        defer { context.cleanup() }
         let sessionId = "accepted-newer-session"
         let olderPID = Int(Darwin.getpid())
         let deadPID = Int(Int32.max)
@@ -2063,201 +2062,225 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             newerProcess.waitUntilExit()
         }
         let newerPID = Int(newerProcess.processIdentifier)
-        let store = try makeCodexRebindStore(
-            root: root,
+        try writeCodexRebindState(
+            context: context,
             sessionId: sessionId,
             pid: deadPID
         )
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
 
-        XCTAssertTrue(
-            try store.upsertCodexSessionStartIfFresh(
-                sessionId: sessionId,
-                workspaceId: "11111111-1111-1111-1111-111111111111",
-                surfaceId: "22222222-2222-2222-2222-222222222222",
-                cwd: root.path,
-                pid: newerPID,
-                allowResumedProcessReplacement: true
-            )
+        let acceptedResume = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","cmux_resume_rebind":true}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId).merging([
+                "CMUX_CODEX_PID": String(newerPID),
+            ], uniquingKeysWith: { _, new in new })
         )
-        XCTAssertNil(try store.lookup(sessionId: sessionId)?.activePromptDepth)
+        XCTAssertFalse(acceptedResume.timedOut, acceptedResume.stderr)
+        XCTAssertEqual(acceptedResume.status, 0, acceptedResume.stderr)
+        var record = try readCodexHookSession(sessionId, context: context)
+        XCTAssertEqual(record["pid"] as? Int, newerPID)
+        XCTAssertNil(record["activePromptDepth"])
+        XCTAssertTrue(
+            context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "The newer resume must replace the dead legacy owner."
+        )
 
+        let delayedStart = context.state.commands.count
+        let delayedResume = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","cmux_resume_rebind":true}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId).merging([
+                "CMUX_CODEX_PID": String(olderPID),
+            ], uniquingKeysWith: { _, new in new })
+        )
+        XCTAssertFalse(delayedResume.timedOut, delayedResume.stderr)
+        XCTAssertEqual(delayedResume.status, 0, delayedResume.stderr)
+        record = try readCodexHookSession(sessionId, context: context)
+        XCTAssertEqual(record["pid"] as? Int, newerPID)
+        XCTAssertEqual(record["workspaceId"] as? String, context.workspaceId)
+        XCTAssertEqual(record["surfaceId"] as? String, context.surfaceId)
         XCTAssertFalse(
-            try store.upsertCodexSessionStartIfFresh(
-                sessionId: sessionId,
-                workspaceId: "33333333-3333-3333-3333-333333333333",
-                surfaceId: "44444444-4444-4444-4444-444444444444",
-                cwd: root.path,
-                pid: olderPID,
-                allowResumedProcessReplacement: true
-            ),
+            context.state.commands.dropFirst(delayedStart).contains {
+                self.jsonObject($0)?["method"] as? String == "surface.resume.set"
+            },
             "A delayed older rebind must remain stale after the accepted newer resume clears interrupted-turn guards."
         )
-        let record = try XCTUnwrap(store.lookup(sessionId: sessionId))
-        XCTAssertEqual(record.pid, newerPID)
-        XCTAssertEqual(record.workspaceId, "11111111-1111-1111-1111-111111111111")
-        XCTAssertEqual(record.surfaceId, "22222222-2222-2222-2222-222222222222")
     }
 
     func testDelayedSameGenerationCodexResumeCannotClearActiveTurn() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-codex-same-generation-active-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
-        let store = ClaudeHookSessionStore(
-            processEnv: ["CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path]
-        )
+        let context = try makeClaudeHookContext(name: "codex-same-generation-active")
+        defer { context.cleanup() }
         let sessionId = "same-generation-active"
         let pid = Int(Darwin.getpid())
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId).merging([
+            "CMUX_CODEX_PID": String(pid),
+        ], uniquingKeysWith: { _, new in new })
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
 
-        XCTAssertTrue(
-            try store.upsertCodexSessionStartIfFresh(
-                sessionId: sessionId,
-                workspaceId: "11111111-1111-1111-1111-111111111111",
-                surfaceId: "22222222-2222-2222-2222-222222222222",
-                cwd: root.path,
-                pid: pid
-            )
+        let initialStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: launchEnvironment
         )
+        XCTAssertFalse(initialStart.timedOut, initialStart.stderr)
+        XCTAssertEqual(initialStart.status, 0, initialStart.stderr)
+
+        let idempotentStart = context.state.commands.count
+        let idempotentResume = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","cmux_resume_rebind":true}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(idempotentResume.timedOut, idempotentResume.stderr)
+        XCTAssertEqual(idempotentResume.status, 0, idempotentResume.stderr)
         XCTAssertTrue(
-            try store.upsertCodexSessionStartIfFresh(
-                sessionId: sessionId,
-                workspaceId: "11111111-1111-1111-1111-111111111111",
-                surfaceId: "22222222-2222-2222-2222-222222222222",
-                cwd: root.path,
-                pid: pid,
-                allowResumedProcessReplacement: true
-            ),
+            context.state.commands.dropFirst(idempotentStart).contains {
+                self.jsonObject($0)?["method"] as? String == "surface.resume.set"
+            },
             "A repeated same-generation rebind remains idempotent before turn events."
         )
-        _ = try store.recordPromptSubmit(
-            sessionId: sessionId,
-            workspaceId: "11111111-1111-1111-1111-111111111111",
-            surfaceId: "22222222-2222-2222-2222-222222222222",
-            cwd: root.path,
-            turnId: "active-turn",
-            pid: pid,
-            launchCommand: nil
-        )
 
+        let prompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"active-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let delayedStart = context.state.commands.count
+        let delayedResume = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","cmux_resume_rebind":true}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(delayedResume.timedOut, delayedResume.stderr)
+        XCTAssertEqual(delayedResume.status, 0, delayedResume.stderr)
+        let record = try readCodexHookSession(sessionId, context: context)
+        XCTAssertEqual(record["activePromptDepth"] as? Int, 1)
+        XCTAssertEqual(record["activePromptTurnId"] as? String, "active-turn")
+        XCTAssertEqual(record["activePromptTurnIds"] as? [String], ["active-turn"])
+        XCTAssertEqual(record["lastPromptTurnId"] as? String, "active-turn")
+        XCTAssertEqual(record["workspaceId"] as? String, context.workspaceId)
+        XCTAssertEqual(record["surfaceId"] as? String, context.surfaceId)
         XCTAssertFalse(
-            try store.upsertCodexSessionStartIfFresh(
-                sessionId: sessionId,
-                workspaceId: "33333333-3333-3333-3333-333333333333",
-                surfaceId: "44444444-4444-4444-4444-444444444444",
-                cwd: root.path,
-                pid: pid,
-                allowResumedProcessReplacement: true
-            ),
+            context.state.commands.dropFirst(delayedStart).contains {
+                self.jsonObject($0)?["method"] as? String == "surface.resume.set"
+            },
             "A delayed same-generation SessionStart must not erase a newer active turn."
         )
-        let record = try XCTUnwrap(store.lookup(sessionId: sessionId))
-        XCTAssertEqual(record.activePromptDepth, 1)
-        XCTAssertEqual(record.activePromptTurnId, "active-turn")
-        XCTAssertEqual(record.activePromptTurnIds, ["active-turn"])
-        XCTAssertEqual(record.lastPromptTurnId, "active-turn")
-        XCTAssertEqual(record.workspaceId, "11111111-1111-1111-1111-111111111111")
-        XCTAssertEqual(record.surfaceId, "22222222-2222-2222-2222-222222222222")
     }
 
     func testDelayedSameGenerationCodexResumeCannotResurrectCompletedTurn() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-codex-same-generation-complete-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
-        let store = ClaudeHookSessionStore(
-            processEnv: ["CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path]
-        )
+        let context = try makeClaudeHookContext(name: "codex-same-generation-complete")
+        defer { context.cleanup() }
         let sessionId = "same-generation-complete"
         let pid = Int(Darwin.getpid())
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId).merging([
+            "CMUX_CODEX_PID": String(pid),
+        ], uniquingKeysWith: { _, new in new })
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
 
-        XCTAssertTrue(
-            try store.upsertCodexSessionStartIfFresh(
-                sessionId: sessionId,
-                workspaceId: "11111111-1111-1111-1111-111111111111",
-                surfaceId: "22222222-2222-2222-2222-222222222222",
-                cwd: root.path,
-                pid: pid
-            )
+        let initialStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: launchEnvironment
         )
-        _ = try store.recordPromptSubmit(
-            sessionId: sessionId,
-            workspaceId: "11111111-1111-1111-1111-111111111111",
-            surfaceId: "22222222-2222-2222-2222-222222222222",
-            cwd: root.path,
-            turnId: "completed-turn",
-            pid: pid,
-            launchCommand: nil
-        )
-        _ = try store.recordPromptStop(
-            sessionId: sessionId,
-            workspaceId: "11111111-1111-1111-1111-111111111111",
-            surfaceId: "22222222-2222-2222-2222-222222222222",
-            cwd: root.path,
-            turnId: "completed-turn",
-            pid: pid,
-            launchCommand: nil,
-            lastSubtitle: "done",
-            lastBody: "done"
-        )
+        XCTAssertFalse(initialStart.timedOut, initialStart.stderr)
+        XCTAssertEqual(initialStart.status, 0, initialStart.stderr)
 
+        let prompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"completed-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"finish"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let stop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"completed-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+        let completedRecord = try readCodexHookSession(sessionId, context: context)
+
+        let delayedStart = context.state.commands.count
+        let delayedResume = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","cmux_resume_rebind":true}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(delayedResume.timedOut, delayedResume.stderr)
+        XCTAssertEqual(delayedResume.status, 0, delayedResume.stderr)
+        let record = try readCodexHookSession(sessionId, context: context)
+        XCTAssertNil(record["activePromptDepth"])
+        XCTAssertEqual(record["lastPromptTurnId"] as? String, "completed-turn")
+        XCTAssertTrue((record["terminalPromptTurnIds"] as? [String])?.contains("completed-turn") == true)
+        XCTAssertEqual(record["lastSubtitle"] as? String, completedRecord["lastSubtitle"] as? String)
+        XCTAssertEqual(record["lastBody"] as? String, completedRecord["lastBody"] as? String)
+        XCTAssertEqual(record["runtimeStatus"] as? String, completedRecord["runtimeStatus"] as? String)
+        XCTAssertEqual(record["workspaceId"] as? String, context.workspaceId)
+        XCTAssertEqual(record["surfaceId"] as? String, context.surfaceId)
         XCTAssertFalse(
-            try store.upsertCodexSessionStartIfFresh(
-                sessionId: sessionId,
-                workspaceId: "33333333-3333-3333-3333-333333333333",
-                surfaceId: "44444444-4444-4444-4444-444444444444",
-                cwd: root.path,
-                pid: pid,
-                runtimeStatus: .running,
-                updateRuntimeStatus: true,
-                allowResumedProcessReplacement: true
-            ),
+            context.state.commands.dropFirst(delayedStart).contains {
+                self.jsonObject($0)?["method"] as? String == "surface.resume.set"
+            },
             "A delayed same-generation SessionStart must not resurrect a completed turn."
         )
-        let record = try XCTUnwrap(store.lookup(sessionId: sessionId))
-        XCTAssertNil(record.activePromptDepth)
-        XCTAssertEqual(record.lastPromptTurnId, "completed-turn")
-        XCTAssertTrue(record.terminalPromptTurnIds?.contains("completed-turn") == true)
-        XCTAssertEqual(record.lastSubtitle, "done")
-        XCTAssertEqual(record.lastBody, "done")
-        XCTAssertEqual(record.workspaceId, "11111111-1111-1111-1111-111111111111")
-        XCTAssertEqual(record.surfaceId, "22222222-2222-2222-2222-222222222222")
     }
 
     func testCodexResumeRebindAcceptsDeadPreviousPIDWhenGenerationWasDropped() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-codex-missing-generation-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let context = try makeClaudeHookContext(name: "codex-missing-generation")
+        defer { context.cleanup() }
         let sessionId = "missing-generation-dead-process"
         let incomingPID = Int(Darwin.getpid())
         let deadPID = Int(Int32.max)
-        let store = try makeCodexRebindStore(
-            root: root,
+        try writeCodexRebindState(
+            context: context,
             sessionId: sessionId,
             pid: deadPID
         )
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 24)
 
+        let resume = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","cmux_resume_rebind":true}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId).merging([
+                "CMUX_CODEX_PID": String(incomingPID),
+            ], uniquingKeysWith: { _, new in new })
+        )
+        XCTAssertFalse(resume.timedOut, resume.stderr)
+        XCTAssertEqual(resume.status, 0, resume.stderr)
+        let record = try readCodexHookSession(sessionId, context: context)
+        XCTAssertEqual(record["pid"] as? Int, incomingPID)
+        XCTAssertNil(record["activePromptDepth"])
         XCTAssertTrue(
-            try store.upsertCodexSessionStartIfFresh(
-                sessionId: sessionId,
-                workspaceId: "11111111-1111-1111-1111-111111111111",
-                surfaceId: "22222222-2222-2222-2222-222222222222",
-                cwd: root.path,
-                pid: incomingPID,
-                allowResumedProcessReplacement: true
-            ),
+            context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
             "A live resume must recover when an older CLI dropped process-generation fields and the previous PID is dead."
         )
-        let record = try XCTUnwrap(store.lookup(sessionId: sessionId))
-        XCTAssertEqual(record.pid, incomingPID)
-        XCTAssertNil(record.activePromptDepth)
     }
 
     func testCodexResumeRebindRejectsLiveOrUnknownPreviousProcessWithoutGeneration() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-codex-unknown-generation-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let liveContext = try makeClaudeHookContext(name: "codex-live-generation")
+        let missingContext = try makeClaudeHookContext(name: "codex-no-generation")
+        defer {
+            liveContext.cleanup()
+            missingContext.cleanup()
+        }
         let liveSessionId = "missing-generation-live-process"
         let missingPIDSessionId = "missing-generation-missing-process"
         let sleeper = Process()
@@ -2271,37 +2294,56 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             sleeper.waitUntilExit()
         }
 
-        let liveStore = try makeCodexRebindStore(
-            root: root.appendingPathComponent("live", isDirectory: true),
+        try writeCodexRebindState(
+            context: liveContext,
             sessionId: liveSessionId,
             pid: Int(Darwin.getpid())
         )
-        XCTAssertFalse(
-            try liveStore.upsertCodexSessionStartIfFresh(
-                sessionId: liveSessionId,
-                workspaceId: "11111111-1111-1111-1111-111111111111",
-                surfaceId: "22222222-2222-2222-2222-222222222222",
-                cwd: root.path,
-                pid: Int(sleeper.processIdentifier),
-                allowResumedProcessReplacement: true
-            ),
-            "A missing generation must not replace a different PID that is still live."
-        )
-
-        let missingPIDStore = try makeCodexRebindStore(
-            root: root.appendingPathComponent("missing", isDirectory: true),
+        try writeCodexRebindState(
+            context: missingContext,
             sessionId: missingPIDSessionId,
             pid: nil
         )
+        startAgentHookMockServerAccepting(context: liveContext, connectionLimit: 24)
+        startAgentHookMockServerAccepting(context: missingContext, connectionLimit: 24)
+
+        let liveResume = runCodexHook(
+            context: liveContext,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(liveSessionId)","cwd":"\#(liveContext.root.path)","hook_event_name":"SessionStart","cmux_resume_rebind":true}"#,
+            extraEnvironment: codexLaunchEnvironment(context: liveContext, sessionId: liveSessionId).merging([
+                "CMUX_CODEX_PID": String(sleeper.processIdentifier),
+            ], uniquingKeysWith: { _, new in new })
+        )
+        XCTAssertFalse(liveResume.timedOut, liveResume.stderr)
+        XCTAssertEqual(liveResume.status, 0, liveResume.stderr)
+        let liveRecord = try readCodexHookSession(liveSessionId, context: liveContext)
+        XCTAssertEqual(liveRecord["pid"] as? Int, Int(Darwin.getpid()))
+        XCTAssertEqual(liveRecord["activePromptDepth"] as? Int, 1)
         XCTAssertFalse(
-            try missingPIDStore.upsertCodexSessionStartIfFresh(
-                sessionId: missingPIDSessionId,
-                workspaceId: "11111111-1111-1111-1111-111111111111",
-                surfaceId: "22222222-2222-2222-2222-222222222222",
-                cwd: root.path,
-                pid: Int(sleeper.processIdentifier),
-                allowResumedProcessReplacement: true
-            ),
+            liveContext.state.commands.contains {
+                self.jsonObject($0)?["method"] as? String == "surface.resume.set"
+            },
+            "A missing generation must not replace a different PID that is still live."
+        )
+
+        let missingResume = runCodexHook(
+            context: missingContext,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(missingPIDSessionId)","cwd":"\#(missingContext.root.path)","hook_event_name":"SessionStart","cmux_resume_rebind":true}"#,
+            extraEnvironment: codexLaunchEnvironment(context: missingContext, sessionId: missingPIDSessionId).merging([
+                "CMUX_CODEX_PID": String(sleeper.processIdentifier),
+            ], uniquingKeysWith: { _, new in new })
+        )
+        XCTAssertFalse(missingResume.timedOut, missingResume.stderr)
+        XCTAssertEqual(missingResume.status, 0, missingResume.stderr)
+        let missingRecord = try readCodexHookSession(missingPIDSessionId, context: missingContext)
+        XCTAssertNil(missingRecord["pid"])
+        XCTAssertEqual(missingRecord["activePromptDepth"] as? Int, 1)
+        XCTAssertFalse(
+            missingContext.state.commands.contains {
+                self.jsonObject($0)?["method"] as? String == "surface.resume.set"
+            },
             "A missing previous PID cannot prove that an interrupted owner exited."
         )
     }
@@ -9389,19 +9431,18 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         return try XCTUnwrap(sessions[sessionId] as? [String: Any])
     }
 
-    private func makeCodexRebindStore(
-        root: URL,
+    private func writeCodexRebindState(
+        context: ClaudeHookContext,
         sessionId: String,
         pid: Int?
-    ) throws -> ClaudeHookSessionStore {
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+    ) throws {
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
         let now = Date().timeIntervalSince1970
         var record: [String: Any] = [
             "sessionId": sessionId,
-            "workspaceId": "11111111-1111-1111-1111-111111111111",
-            "surfaceId": "22222222-2222-2222-2222-222222222222",
-            "cwd": root.path,
+            "workspaceId": context.workspaceId,
+            "surfaceId": context.surfaceId,
+            "cwd": context.root.path,
             "runtimeStatus": "running",
             "activePromptDepth": 1,
             "activePromptTurnId": "interrupted-turn",
@@ -9419,9 +9460,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         ]
         try JSONSerialization.data(withJSONObject: state, options: [.prettyPrinted])
             .write(to: stateURL, options: .atomic)
-        return ClaudeHookSessionStore(
-            processEnv: ["CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path]
-        )
     }
 
     private func feedPushEvents(in context: ClaudeHookContext) -> [[String: Any]] {
