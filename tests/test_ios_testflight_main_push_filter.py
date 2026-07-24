@@ -41,6 +41,21 @@ def mapping_block(text: str, key: str, indent: int) -> str:
     return "\n".join(block)
 
 
+def mapping_keys(text: str, indent: int) -> tuple[str, ...]:
+    keys = []
+    for line in text.splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if len(line) - len(line.lstrip()) != indent:
+            continue
+        key, separator, _ = line.strip().partition(":")
+        assert separator, f"invalid mapping entry: {line}"
+        parsed = shlex.split(key, comments=True)
+        assert len(parsed) == 1, f"invalid mapping key: {line}"
+        keys.append(parsed[0])
+    return tuple(keys)
+
+
 def sequence_values(text: str, key: str, indent: int) -> tuple[str, ...]:
     marker = f"{' ' * indent}{key}:\n"
     assert marker in text, f"missing {key} sequence"
@@ -65,12 +80,20 @@ def test_main_push_triggers_only_for_ios_affecting_paths() -> None:
     triggers = trigger_block(text)
     push = mapping_block(triggers, "push", indent=2)
 
+    assert mapping_keys(triggers, indent=2) == ("push", "workflow_dispatch")
     assert sequence_values(push, "branches", indent=4) == ("main",)
     assert sequence_values(push, "paths", indent=4) == IOS_PATHS
-    assert "  workflow_dispatch:\n" in triggers
-    assert "schedule:" not in triggers
-    assert "'schedule'" not in text
     assert "context.eventName === 'push' || context.eventName === 'workflow_dispatch'" in text
+
+
+def test_mapping_keys_normalizes_quoted_yaml_keys() -> None:
+    triggers = "  push:\n  'schedule':\n  \"workflow_dispatch\":\n"
+
+    assert mapping_keys(triggers, indent=2) == (
+        "push",
+        "schedule",
+        "workflow_dispatch",
+    )
 
 
 def test_testflight_notes_use_the_same_ios_path_contract() -> None:
@@ -116,6 +139,7 @@ def test_automatic_lane_stays_on_cmux_internal_identity() -> None:
 
 if __name__ == "__main__":
     test_main_push_triggers_only_for_ios_affecting_paths()
+    test_mapping_keys_normalizes_quoted_yaml_keys()
     test_testflight_notes_use_the_same_ios_path_contract()
     test_main_push_runs_are_preserved_and_uploaded_in_order()
     test_automatic_lane_stays_on_cmux_internal_identity()
