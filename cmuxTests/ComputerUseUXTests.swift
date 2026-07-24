@@ -824,9 +824,19 @@ struct ComputerUseUXTests {
                 "cmux-computer-use-permissions-\(UUID().uuidString)",
                 isDirectory: true
             )
-        defer { try? FileManager.default.removeItem(at: root) }
         let home = root.appendingPathComponent("home", isDirectory: true)
-        let sockets = root.appendingPathComponent("sockets", isDirectory: true)
+        // Keep the fixture socket under Darwin's short, stable `/tmp` alias.
+        // Remote builders can expose a user temp path long enough that even a
+        // one-character runtime scope cannot fit in a UNIX-domain socket path.
+        let sockets = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent(
+                "cmux-cu-permissions-\(UUID().uuidString.prefix(8))",
+                isDirectory: true
+            )
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: sockets)
+        }
         try FileManager.default.createDirectory(
             at: home,
             withIntermediateDirectories: true
