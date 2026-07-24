@@ -15275,7 +15275,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func configuredShortcutStrokesMatch(_ lhs: ShortcutStroke, _ rhs: ShortcutStroke) -> Bool {
-        lhs.key == rhs.key
+        CmuxSettings.ShortcutStroke.canonicalKeyToken(for: lhs.key)
+            == CmuxSettings.ShortcutStroke.canonicalKeyToken(for: rhs.key)
             && lhs.command == rhs.command
             && lhs.shift == rhs.shift
             && lhs.option == rhs.option
