@@ -167,13 +167,27 @@ final class GlobalSearchInputOwnershipTests {
         let appDelegate = try #require(AppDelegate.shared)
         let windowId = appDelegate.createMainWindow()
         let window = try #require(findWindow(withId: windowId))
+        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+        let terminalPanel = try #require(manager.selectedTerminalPanel)
+        let contentView = try #require(window.contentView)
         defer {
             GlobalSearchCoordinator.shared.dismissPalette()
             closeWindow(window, appDelegate: appDelegate)
         }
 
+        let hostedView = terminalPanel.hostedView
+        if hostedView.superview !== contentView {
+            hostedView.removeFromSuperview()
+            hostedView.frame = contentView.bounds
+            contentView.addSubview(hostedView)
+        }
+        hostedView.setVisibleInUI(true)
+        hostedView.setActive(true)
         window.makeKeyAndOrderFront(nil)
-        #expect(window.firstResponder.cmuxStrictOwningGhosttyView() != nil)
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        #expect(window.makeFirstResponder(hostedView.surfaceView))
+        #expect(window.firstResponder === hostedView.surfaceView)
         KeyboardShortcutSettings.setShortcut(
             StoredShortcut(
                 key: "d",

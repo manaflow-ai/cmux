@@ -72,9 +72,20 @@ final class GlobalSearchForegroundScopeUITests: XCTestCase {
             waitForAppToRun(probe, timeout: 10.0),
             "Expected shortcut probe to launch. state=\(probe.state.rawValue)"
         )
-        if probe.state != .runningForeground {
-            probe.activate()
-        }
+        let runningProbe = try XCTUnwrap(shortcutProbeApplication)
+        XCTAssertTrue(
+            waitForPredicate(
+                NSPredicate(format: "isFinishedLaunching == true"),
+                object: runningProbe,
+                timeout: 10.0
+            ),
+            "Expected shortcut probe to finish launching"
+        )
+        NSApplication.shared.yieldActivation(to: runningProbe)
+        XCTAssertTrue(
+            runningProbe.activate(from: .current, options: [.activateAllWindows]),
+            "Expected macOS to accept the coordinated shortcut probe activation request"
+        )
         XCTAssertTrue(
             probe.wait(for: .runningForeground, timeout: 10.0),
             "Expected shortcut probe to be foreground. state=\(probe.state.rawValue)"
