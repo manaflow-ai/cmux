@@ -1870,6 +1870,30 @@ mod tests {
         }
     }
 
+    struct PromptRedrawDuringFlush {
+        written: Arc<Mutex<Vec<u8>>>,
+        surface: Weak<Surface>,
+        emitted: AtomicBool,
+    }
+
+    impl Write for PromptRedrawDuringFlush {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.written.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            if !self.emitted.swap(true, Ordering::AcqRel)
+                && let Some(surface) = self.surface.upgrade()
+            {
+                surface.with_terminal(|term| {
+                    term.vt_write(b"\r\x1b]133;A\x07prompt> \x1b]133;B\x07");
+                });
+            }
+            Ok(())
+        }
+    }
+
     struct TerminalProbeDuringWrite {
         written: Arc<Mutex<Vec<u8>>>,
         surface: Weak<Surface>,
@@ -2411,6 +2435,34 @@ mod tests {
             assert!(term.viewport_text().unwrap().trim().is_empty());
         });
         assert_eq!(&*written.lock().unwrap(), b"\r\x0c");
+    }
+
+    #[test]
+    fn clear_history_rejects_prompt_redraw_processed_before_input_delivery() {
+        let mux = Mux::new_for_test("clear-pre-submit-prompt-redraw", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        surface.with_terminal(|term| {
+            for line in 0..40 {
+                term.vt_write(format!("history-{line}\r\n").as_bytes());
+            }
+            term.vt_write(b"\x1b]133;A\x07prompt> \x1b]133;B\x07sleep 1");
+        });
+        let written = Arc::new(Mutex::new(Vec::new()));
+        *surface.as_pty().unwrap().writer.lock().unwrap() = Box::new(PromptRedrawDuringFlush {
+            written: written.clone(),
+            surface: Arc::downgrade(&surface),
+            emitted: AtomicBool::new(false),
+        });
+
+        surface.write_bytes(b"\r").unwrap();
+        surface.clear_history().unwrap();
+
+        assert_eq!(
+            &*written.lock().unwrap(),
+            b"\r",
+            "an in-write prompt redraw is not proof that Enter reached the child"
+        );
     }
 
     #[test]
