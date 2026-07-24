@@ -4634,17 +4634,18 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
         return restoredDirectoryStillExists
     }
-
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
         guard panels[panelId] != nil else { return }
         let previousState = panelShellActivityStates[panelId] ?? .unknown
         if previousState == state {
+            noteAgentStatusShellActivity(state, panelId: panelId)
             if let terminalPanel = panels[panelId] as? TerminalPanel {
                 terminalPanel.updateShellActivityState(state)
             }
             return
         }
         panelShellActivityStates[panelId] = state
+        noteAgentStatusShellActivity(state, panelId: panelId)
         if let terminalPanel = panels[panelId] as? TerminalPanel {
             terminalPanel.updateShellActivityState(state)
         }
@@ -4665,7 +4666,6 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
     }
-
     func restorableAgentForHibernation(
         panelId: UUID,
         index: RestorableAgentSessionIndex
@@ -9042,7 +9042,6 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
         }
-        adoptDetachedAgentRuntimeState(detached.agentRuntime)
         if let markdownPanel = detached.panel as? MarkdownPanel,
            panelSubscriptions[markdownPanel.id] == nil {
             installMarkdownPanelSubscription(markdownPanel)
@@ -9087,6 +9086,7 @@ final class Workspace: Identifiable, ObservableObject {
                 )
             }
         }
+        adoptDetachedAgentRuntimeState(detached.agentRuntime)
         if let cleanupConfiguration = detached.remoteCleanupConfiguration {
             if didAdoptWorkspaceRemoteTracking {
                 transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: detached.panelId)

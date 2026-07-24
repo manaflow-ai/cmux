@@ -46,7 +46,7 @@ final class FeedCoordinator: @unchecked Sendable {
     /// resolving a live window route after the decision has already ended.
     /// Main-actor isolated: read/written only from the `@MainActor` attention
     /// methods.
-    @MainActor private var pendingAttentionStates: [AttentionTarget: AttentionOverlayState] = [:]
+    @MainActor private var pendingAttentionStates: [AttentionTarget: FeedAttentionOverlayState] = [:]
 
     private init() {}
 
@@ -59,19 +59,18 @@ final class FeedCoordinator: @unchecked Sendable {
         // agent is already gone. After this, live tracking is
         // kqueue-driven — no polling.
         store.expireAbandonedItems()
-        for ppid in store.pending.compactMap(\.ppid) {
-            armPidWatcher(ppid: ppid)
+        for item in store.pending where Self.shouldArmPIDWatcher(for: item) {
+            if let ppid = item.ppid { armPidWatcher(ppid: ppid) }
         }
     }
 
-    /// Installs a one-shot kqueue watcher for `ppid`. The handler
-    /// fires the moment the kernel observes process exit (or
-    /// immediately if `ppid` is already dead), marks every pending
-    /// item for that PID as `.expired`, and cancels the source.
-    /// Idempotent: subsequent calls with the same PID no-op.
+    /// Installs an idempotent, one-shot kqueue watcher that expires pending items when `ppid` exits.
     @MainActor
     func armPidWatcher(ppid: Int) {
         guard ppid > 0, pidWatchers[ppid] == nil else { return }
+        #if DEBUG
+        if let observer = FeedCoordinatorTestHooks.pidWatcherArmObserver { observer(ppid); return }
+        #endif
         let src = DispatchSource.makeProcessSource(
             identifier: pid_t(ppid),
             eventMask: .exit,
@@ -100,7 +99,7 @@ final class FeedCoordinator: @unchecked Sendable {
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     FeedCoordinator.shared.store.ingest(event)
-                    if let ppid = event.ppid, ppid > 0 {
+                    if FeedCoordinator.shouldArmPIDWatcher(for: event), let ppid = event.ppid {
                         FeedCoordinator.shared.armPidWatcher(ppid: ppid)
                     }
                 }
@@ -129,7 +128,7 @@ final class FeedCoordinator: @unchecked Sendable {
             MainActor.assumeIsolated {
                 FeedCoordinator.shared.store.ingest(event)
                 itemIdSlot.value = FeedCoordinator.shared.store.items.last?.id
-                if let ppid = event.ppid, ppid > 0 {
+                if FeedCoordinator.shouldArmPIDWatcher(for: event), let ppid = event.ppid {
                     FeedCoordinator.shared.armPidWatcher(ppid: ppid)
                 }
                 // Surface in-app attention (needs-input status + bell +
@@ -313,7 +312,18 @@ extension FeedCoordinator {
     ]
 
     static func lifecycleStatusKey(forSource source: String) -> String {
-        lifecycleStatusKeyOverrides[source] ?? source
+        let normalized = source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return lifecycleStatusKeyOverrides[normalized] ?? normalized
+    }
+
+    static func shouldArmPIDWatcher(for event: WorkstreamEvent) -> Bool {
+        guard let ppid = event.ppid, ppid > 0 else { return false }
+        return AgentStatusHookEventSignal.pidNamespace(event: event) == .local
+    }
+
+    static func shouldArmPIDWatcher(for item: WorkstreamItem) -> Bool {
+        guard let ppid = item.ppid, ppid > 0 else { return false }
+        return item.processNamespace == nil || item.processNamespace == .local
     }
 
     /// Identifies the sidebar slot an attention overlay lights up. Overlays
@@ -323,6 +333,7 @@ extension FeedCoordinator {
         let workspaceId: UUID
         let panelId: UUID?
         let statusKey: String
+        let clearsLifecycleOnConclusion: Bool
     }
 
     /// The localized "Needs input" sidebar status the overlay sets. Exposed so
@@ -333,15 +344,12 @@ extension FeedCoordinator {
         String(localized: "feed.status.needsInput", defaultValue: "Needs input")
     }
 
-    /// Surfaces in-app attention for a blocking feed decision: flips the
-    /// owning workspace's agent lifecycle to `.needsInput`, sets the
-    /// "Needs input" sidebar status, elevates the workspace when
-    /// *Reorder on Notification* is enabled, and rings the bell.
+    /// Surfaces in-app attention for a blocking feed decision, mutating the
+    /// agent lifecycle only when the event is not proven stale.
     ///
     /// This is the convergence point the PreToolUse→PermissionRequest
-    /// migration left behind: the `feed.push` bridge ingested the card and
-    /// (when inactive) posted a banner, but never drove the same in-app
-    /// attention path the `cmux hooks <agent> notification` hook uses. Doing
+    /// migration left behind: `feed.push` posted a banner but never drove the
+    /// same in-app attention path as `cmux hooks <agent> notification`. Doing
     /// it here — once, for every blocking decision — keeps a new event type
     /// from silently swallowing.
     ///
@@ -377,43 +385,74 @@ extension FeedCoordinator {
             return nil
         }
 
-        guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: resolved.workspaceId),
-              let tab = tabManager.tabs.first(where: { $0.id == resolved.workspaceId })
+        guard let liveTarget = AppDelegate.shared?.agentNotificationDeliveryTarget(
+                  claimedTabId: resolved.workspaceId,
+                  surfaceId: resolved.surfaceId
+              ),
+              let tabManager = AppDelegate.shared?.tabManagerFor(tabId: liveTarget.tabId),
+              let tab = tabManager.tabs.first(where: { $0.id == liveTarget.tabId })
         else {
             #if DEBUG
             cmuxDebugLog(
-                "feed.attention.skip reason=missing-workspace session=\(event.sessionId) request=\(event.requestId ?? "nil") hook=\(event.hookEventName.rawValue) source=\(event.source) workspace=\(resolved.workspaceId.uuidString) receivedAt=\(event.receivedAt.timeIntervalSince1970)"
+                "feed.attention.skip reason=missing-live-target session=\(event.sessionId) request=\(event.requestId ?? "nil") hook=\(event.hookEventName.rawValue) source=\(event.source) workspace=\(resolved.workspaceId.uuidString) receivedAt=\(event.receivedAt.timeIntervalSince1970)"
             )
             #endif
             return nil
         }
 
-        let panelId = Self.resolvePanelId(surfaceId: resolved.surfaceId, tab: tab) ?? tab.focusedPanelId
+        let panelId: UUID?
+        if let surfaceId = liveTarget.surfaceId {
+            guard let resolvedPanelId = Self.resolvePanelId(surfaceId: surfaceId, tab: tab) else {
+                return nil
+            }
+            panelId = resolvedPanelId
+        } else {
+            panelId = tab.focusedPanelId
+        }
         let statusKey = Self.lifecycleStatusKey(forSource: event.source)
+        let isStructuredStatus = AgentHibernationLifecycleStatusKeys.isAllowed(statusKey)
+        let mayMutateLifecycle: Bool
+        let clearsLifecycleOnConclusion: Bool
+        if isStructuredStatus,
+           event.ppid != nil,
+           !AgentStatusHookEventSignal.mayUseLegacyStatusFallback(from: event.extraFieldsJSON) {
+            mayMutateLifecycle = panelId.map {
+                tab.applyAgentStatusBlockingDecisionHookSignal(event: event, panelId: $0)
+            } == true
+            clearsLifecycleOnConclusion = false
+        } else {
+            mayMutateLifecycle = tab.setAgentLifecycle(
+                key: statusKey,
+                panelId: panelId,
+                lifecycle: .needsInput
+            )
+            clearsLifecycleOnConclusion = mayMutateLifecycle
+        }
         let target = AttentionTarget(
-            workspaceId: resolved.workspaceId,
+            workspaceId: liveTarget.tabId,
             panelId: panelId,
-            statusKey: statusKey
+            statusKey: statusKey,
+            clearsLifecycleOnConclusion: clearsLifecycleOnConclusion
         )
-        let attentionState = pendingAttentionStates[target] ?? AttentionOverlayState(workspace: tab)
+        let attentionState = pendingAttentionStates[target] ?? FeedAttentionOverlayState(workspace: tab)
         attentionState.workspace = tab
         attentionState.count += 1
         pendingAttentionStates[target] = attentionState
 
-        // Needs-input lifecycle drives the sidebar badge + hibernation state.
-        tab.setAgentLifecycle(key: statusKey, panelId: panelId, lifecycle: .needsInput)
-        tab.statusEntries[statusKey] = SidebarStatusEntry(
-            key: statusKey,
-            value: Self.needsInputStatusValue,
-            icon: "bell.fill",
-            color: "#4C8DFF",
-            timestamp: Date()
-        )
+        if mayMutateLifecycle {
+            tab.statusEntries[statusKey] = SidebarStatusEntry(
+                key: statusKey,
+                value: Self.needsInputStatusValue,
+                icon: "bell.fill",
+                color: "#4C8DFF",
+                timestamp: Date()
+            )
+        }
 
         // Elevate the workspace so it floats to the top of the sidebar,
         // honoring the user's Reorder on Notification preference.
         if UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.reorderOnNotification) {
-            tabManager.moveTabToTopForNotification(resolved.workspaceId)
+            tabManager.moveTabToTopForNotification(liveTarget.tabId)
         }
 
         // Ring the bell (dock bounce while the app is in the background).
@@ -424,11 +463,9 @@ extension FeedCoordinator {
 
     /// Concludes a blocking decision's attention overlay. Decrements the
     /// per-target refcount and, when it reaches zero, clears the needs-input
-    /// overlay — but only the parts the feed still owns: the lifecycle is set
-    /// to `.running` only if it's still `.needsInput`, and the status entry is
-    /// removed only if it still holds our "Needs input" value. Anything an
-    /// agent hook replaced in the meantime is left untouched, so a real
-    /// running/idle/needs-input update from the agent always wins.
+    /// overlay only when Feed owns an unversioned lifecycle. Hook-backed state waits
+    /// for ordered agent or shell evidence, so resolving a card cannot invent a
+    /// newer `.running` transition. Anything an agent hook replaced is untouched.
     @MainActor
     func concludeBlockingDecisionAttention(_ target: AttentionTarget) {
         guard let attentionState = pendingAttentionStates[target] else { return }
@@ -441,74 +478,73 @@ extension FeedCoordinator {
 
         // Lifecycle is per-panel, so clearing this panel's needs-input is
         // safe even if another panel still needs input.
-        if let panelId = target.panelId,
+        if target.clearsLifecycleOnConclusion,
+           let panelId = target.panelId,
            tab.agentLifecycleStatesByPanelId[panelId]?[target.statusKey] == .needsInput {
             tab.setAgentLifecycle(key: target.statusKey, panelId: panelId, lifecycle: .running)
         }
 
         // The status entry is workspace-level (keyed only by statusKey), so it
-        // is shared across panels running the same agent. Only remove it once
-        // no other panel in this workspace still has a pending decision under
-        // the same key — otherwise concluding one panel would wipe another
-        // panel's active "Needs input" badge.
-        let anotherPanelStillPending = pendingAttentionStates.keys.contains {
-            $0.workspaceId == target.workspaceId && $0.statusKey == target.statusKey
+        // is shared by every decision and panel running the same agent. Only
+        // remove it once no pending target or panel lifecycle still needs input.
+        let anotherTargetStillPending = pendingAttentionStates.keys.contains {
+            $0.workspaceId == target.workspaceId &&
+                $0.statusKey == target.statusKey
         }
-        if !anotherPanelStillPending,
+        let lifecycleStillNeedsInput = tab.agentLifecycleStatesByPanelId.values.contains {
+            $0[target.statusKey] == .needsInput
+        }
+        if target.clearsLifecycleOnConclusion, !anotherTargetStillPending, !lifecycleStillNeedsInput,
            tab.statusEntries[target.statusKey]?.value == Self.needsInputStatusValue {
             tab.statusEntries.removeValue(forKey: target.statusKey)
         }
     }
 
-    /// Resolves the `(workspace, surface)` an attention overlay should target.
-    /// The workspace prefers the event's live `workspace_id` (the running
-    /// terminal's CMUX_WORKSPACE_ID, a raw UUID) so a stale hook-session map
-    /// can't redirect attention to the wrong workspace; it falls back to the
-    /// session store when the event omits a parseable id. The surface comes
-    /// from the session store only when its workspace matches the resolved
-    /// workspace, so a stale entry can't point the panel elsewhere.
-    private static func resolveAttentionTarget(
+    /// Resolves the claimed `(workspace, surface)` for an attention event.
+    /// Consumers must re-home the result through live surface ownership before
+    /// mutating UI: inherited workspace ids do not change when a pane moves.
+    static func resolveAttentionTarget(
         event: WorkstreamEvent
     ) -> (workspaceId: UUID, surfaceId: UUID?)? {
-        let sessionMatch: (workspaceId: UUID, surfaceId: UUID?)? = {
-            guard let parsed = FeedJumpResolver.parse(event.sessionId),
-                  let resolved = FeedJumpResolver.lookup(agent: parsed.agent, sessionId: parsed.sessionId),
-                  let workspaceId = UUID(uuidString: resolved.workspaceId)
-            else { return nil }
-            return (workspaceId, UUID(uuidString: resolved.surfaceId))
-        }()
-
         let eventWorkspaceId = event.workspaceId.flatMap {
             UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
         }
+        let eventSurfaceId = event.surfaceId.flatMap {
+            UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        if let eventWorkspaceId, let eventSurfaceId {
+            return (eventWorkspaceId, eventSurfaceId)
+        }
+        let sessionMatch: (workspaceId: UUID, surfaceId: UUID?)? = {
+            guard let parsed = FeedJumpResolver.parse(event.sessionId),
+                  let resolved = FeedJumpResolver.lookup(agent: parsed.agent, sessionId: parsed.sessionId),
+                  let workspaceId = UUID(uuidString: resolved.workspaceId) else { return nil }
+            return (workspaceId, UUID(uuidString: resolved.surfaceId))
+        }()
 
         guard let workspaceId = eventWorkspaceId ?? sessionMatch?.workspaceId else {
             return nil
         }
-        // Only trust the session store's surface if it belongs to the
-        // workspace we're actually targeting.
-        let surfaceId = (sessionMatch?.workspaceId == workspaceId) ? sessionMatch?.surfaceId : nil
+        // A live event's explicit workspace/surface pair outranks persisted
+        // session routing. Otherwise trust a stored surface only when its
+        // workspace agrees with the selected workspace.
+        let surfaceId: UUID? = if eventWorkspaceId == workspaceId, let eventSurfaceId {
+            eventSurfaceId
+        } else if sessionMatch?.workspaceId == workspaceId {
+            sessionMatch?.surfaceId
+        } else {
+            nil
+        }
         return (workspaceId, surfaceId)
     }
 
     /// Maps a surface id from the hook-session store to its owning panel id,
     /// tolerating stores that already record the panel id directly.
     @MainActor
-    private static func resolvePanelId(surfaceId: UUID?, tab: Workspace) -> UUID? {
+    static func resolvePanelId(surfaceId: UUID?, tab: Workspace) -> UUID? {
         guard let surfaceId else { return nil }
         if tab.panels[surfaceId] != nil { return surfaceId }
         return tab.panelIdFromSurfaceId(TabID(uuid: surfaceId))
-    }
-}
-
-@MainActor
-private final class AttentionOverlayState {
-    var count: Int
-    var workspace: Workspace
-
-    init(workspace: Workspace) {
-        self.count = 0
-        self.workspace = workspace
     }
 }
 
@@ -536,20 +572,6 @@ private final class UnsafeItemIdSlot: @unchecked Sendable {
 private final class SnapshotSlot: @unchecked Sendable {
     var value: [WorkstreamItem] = []
 }
-
-#if DEBUG
-@MainActor
-enum FeedCoordinatorTestHooks {
-    static var afterBlockingEventIngested: (@Sendable (WorkstreamEvent, String) -> Void)?
-    static var isAppActiveOverride: (@Sendable () -> Bool)?
-    static var notificationPostObserver: (@Sendable (WorkstreamEvent, String) -> Void)?
-    /// Fires when a blocking decision event requests in-app attention
-    /// surfacing (needs-input status + bell + elevation). When set, the
-    /// production surfacing is short-circuited so tests can assert the
-    /// request without a live `TabManager`.
-    static var attentionSurfaceObserver: (@Sendable (WorkstreamEvent) -> Void)?
-}
-#endif
 
 // MARK: - Socket-layer helpers
 

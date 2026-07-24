@@ -18,6 +18,13 @@ import Foundation
 /// telemetry that never notifies. Conflating a tool-start with an approval
 /// is the bug behind https://github.com/manaflow-ai/cmux/issues/4985.
 struct FeedEventClassifier {
+    static let agentStatusSignalField = "_cmux_agent_status_signal"
+    static let agentStatusDispositionField = "_cmux_agent_status_disposition"
+    static let agentStatusRevisionField = "_cmux_agent_status_revision"
+    static let agentPIDNamespaceField = "_cmux_agent_pid_namespace"
+    static let agentPIDStartSecondsField = "_cmux_agent_pid_start_seconds"
+    static let agentPIDStartMicrosecondsField = "_cmux_agent_pid_start_microseconds"
+
     /// Classifies a raw agent hook event into our wire `hook_event_name`
     /// plus an `isActionable` flag that drives whether the Feed bridge
     /// blocks waiting for a user decision (and whether `FeedCoordinator`
@@ -38,6 +45,77 @@ struct FeedEventClassifier {
     ) -> (String, Bool) {
         let semantic = feedEventSemantic(source: source, event: event)
         return wireMapping(for: semantic, source: source, toolName: toolName)
+    }
+
+    /// Status-only evidence that must not alter Feed actionability.
+    static func agentStatusSignal(source _: String, event: String) -> String? {
+        switch event.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "permissionrequest", "permission_request", "askuserquestion", "exitplanmode":
+            return "needsInput"
+        default:
+            return nil
+        }
+    }
+
+    static func attachAgentStatusSignal(
+        to event: inout [String: Any],
+        source: String,
+        rawEvent: String?,
+        hookSubcommand: String? = nil
+    ) {
+        let statusEvent = rawEvent ?? agentStatusFallbackEvent(
+            source: source,
+            hookSubcommand: hookSubcommand
+        )
+        event[agentStatusSignalField] = statusEvent.flatMap {
+            agentStatusSignal(source: source, event: $0)
+        }
+    }
+
+    /// Marks an event whose structured status signal was considered but rejected.
+    static func attachRejectedAgentStatusDisposition(to event: inout [String: Any]) {
+        event[agentStatusDispositionField] = "rejected"
+    }
+
+    /// Marks hook PIDs that belong to the remote side of a relay connection.
+    static func attachAgentPIDNamespace(
+        to event: inout [String: Any],
+        isRelayBacked: Bool
+    ) {
+        event[agentPIDNamespaceField] = isRelayBacked
+            ? AgentStatusPIDNamespace.remote.rawValue
+            : nil
+    }
+
+    /// Adds exact process-generation evidence when the hook runtime can observe it.
+    static func attachAgentRuntimeGeneration(
+        to event: inout [String: Any],
+        pidStartSeconds: Int64?,
+        pidStartMicroseconds: Int64?
+    ) {
+        guard let pidStartSeconds, let pidStartMicroseconds else {
+            event[agentPIDStartSecondsField] = nil
+            event[agentPIDStartMicrosecondsField] = nil
+            return
+        }
+        event[agentPIDStartSecondsField] = pidStartSeconds
+        event[agentPIDStartMicrosecondsField] = pidStartMicroseconds
+    }
+
+    /// Codex's cmux-owned wrapper maps only `PermissionRequest` to the
+    /// `notification` lifecycle subcommand. Some Codex-compatible runtimes omit
+    /// the original event name from that hook payload, so retain the semantic
+    /// carried by the invoked subcommand instead of falling back to the
+    /// classified Feed name (`Notification`).
+    private static func agentStatusFallbackEvent(
+        source: String,
+        hookSubcommand: String?
+    ) -> String? {
+        guard source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex",
+              hookSubcommand?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "notification" else {
+            return nil
+        }
+        return "PermissionRequest"
     }
 
     /// User-attention semantic of a hook/feed event, independent of the

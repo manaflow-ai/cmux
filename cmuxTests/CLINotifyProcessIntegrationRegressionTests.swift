@@ -7,7 +7,7 @@ import Darwin
 #endif
 
 final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
-    func testClaudeClearSessionStartMarksWorkspaceRunning() throws {
+    func testClaudeClearSessionStartDoesNotMarkWorkspaceRunning() throws {
         let context = try makeClaudeHookContext(name: "claude-clear-running")
         defer { context.cleanup() }
 
@@ -19,18 +19,36 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             context.state.commands.contains { $0 == "clear_notifications --tab=\(context.workspaceId) --panel=\(context.surfaceId)" },
             "Expected clear SessionStart to clear only the current pane, saw \(context.state.commands)"
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             context.state.commands.contains {
                 $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
                     && $0.contains("--panel=\(context.surfaceId)")
             },
-            "Expected clear SessionStart to mark Claude running, saw \(context.state.commands)"
+            "Launching Claude without submitting a prompt must not claim Running, saw \(context.state.commands)"
         )
+        XCTAssertFalse(
+            context.state.commands.contains {
+                $0.hasPrefix("set_agent_lifecycle claude_code running --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "Launching Claude without submitting a prompt must not project a Running lifecycle, saw \(context.state.commands)"
+        )
+        let resumeBindingRequests = context.state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        let resumeBinding = try XCTUnwrap(resumeBindingRequests.first)
+        XCTAssertEqual(resumeBinding["surface_id"] as? String, context.surfaceId)
+        XCTAssertEqual(resumeBinding["source"] as? String, "agent-hook")
+        XCTAssertEqual(resumeBinding["checkpoint_id"] as? String, "clear-session")
     }
 
     func testClaudeSessionStartRecordIsNotRestorableUntilPrompt() throws {
@@ -486,48 +504,56 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(refreshedBaseCommit, promptCommit)
     }
 
-    func testClaudeStopFromPreviousSessionDoesNotClobberClearRunningStatus() throws {
+    func testClaudeStopFromPreviousSessionDoesNotClobberClearOwnershipBoundary() throws {
         let context = try makeClaudeHookContext(name: "claude-clear-stale-stop")
         defer { context.cleanup() }
-
-        let oldStart = runClaudeHook(
+        startClaudeHookMockServerAccepting(
             context: context,
-            arguments: ["hooks", "claude", "session-start"],
+            surfaceIds: [context.surfaceId],
+            connectionLimit: 32
+        )
+        func runHook(_ subcommand: String, standardInput: String) -> ProcessRunResult {
+            runClaudeHookWithoutServer(
+                context: context,
+                arguments: ["hooks", "claude", subcommand],
+                standardInput: standardInput
+            )
+        }
+
+        let oldStart = runHook(
+            "session-start",
             standardInput: #"{"session_id":"old-session","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
         )
         XCTAssertFalse(oldStart.timedOut, oldStart.stderr)
         XCTAssertEqual(oldStart.status, 0, oldStart.stderr)
 
-        let clearStart = runClaudeHook(
-            context: context,
-            arguments: ["hooks", "claude", "session-start"],
+        let clearStart = runHook(
+            "session-start",
             standardInput: #"{"session_id":"clear-session","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
         )
         XCTAssertFalse(clearStart.timedOut, clearStart.stderr)
         XCTAssertEqual(clearStart.status, 0, clearStart.stderr)
 
-        let lateOldStart = runClaudeHook(
-            context: context,
-            arguments: ["hooks", "claude", "session-start"],
+        let lateOldStart = runHook(
+            "session-start",
             standardInput: #"{"session_id":"old-session","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
         )
         XCTAssertFalse(lateOldStart.timedOut, lateOldStart.stderr)
         XCTAssertEqual(lateOldStart.status, 0, lateOldStart.stderr)
 
-        let staleStop = runClaudeHook(
-            context: context,
-            arguments: ["hooks", "claude", "stop"],
+        let staleStop = runHook(
+            "stop",
             standardInput: #"{"session_id":"old-session","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"old turn finished late"}"#
         )
         XCTAssertFalse(staleStop.timedOut, staleStop.stderr)
         XCTAssertEqual(staleStop.status, 0, staleStop.stderr)
 
-        XCTAssertTrue(
+        XCTAssertFalse(
             context.state.commands.contains {
                 $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
                     && $0.contains("--panel=\(context.surfaceId)")
             },
-            "Expected clear SessionStart to mark Claude running, saw \(context.state.commands)"
+            "Expected clear SessionStart to remain non-visible until a prompt begins, saw \(context.state.commands)"
         )
         XCTAssertFalse(
             context.state.commands.contains {
@@ -550,43 +576,73 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     func testClaudePromptSubmitFromNewSessionCanReplaceStoppedSession() throws {
         let context = try makeClaudeHookContext(name: "claude-new-session-after-stop")
         defer { context.cleanup() }
-
-        let oldStart = runClaudeHook(
+        startClaudeHookMockServerAccepting(
             context: context,
-            arguments: ["hooks", "claude", "session-start"],
+            surfaceIds: [context.surfaceId],
+            connectionLimit: 32
+        )
+        func runHook(_ subcommand: String, standardInput: String) -> ProcessRunResult {
+            runClaudeHookWithoutServer(
+                context: context,
+                arguments: ["hooks", "claude", subcommand],
+                standardInput: standardInput
+            )
+        }
+
+        let oldStart = runHook(
+            "session-start",
             standardInput: #"{"session_id":"old-session","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
         )
         XCTAssertFalse(oldStart.timedOut, oldStart.stderr)
         XCTAssertEqual(oldStart.status, 0, oldStart.stderr)
 
-        let oldPrompt = runClaudeHook(
-            context: context,
-            arguments: ["hooks", "claude", "prompt-submit"],
+        let oldPrompt = runHook(
+            "prompt-submit",
             standardInput: #"{"session_id":"old-session","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"PromptSubmit"}"#
         )
         XCTAssertFalse(oldPrompt.timedOut, oldPrompt.stderr)
         XCTAssertEqual(oldPrompt.status, 0, oldPrompt.stderr)
 
-        let oldStop = runClaudeHook(
-            context: context,
-            arguments: ["hooks", "claude", "stop"],
+        let oldStop = runHook(
+            "stop",
             standardInput: #"{"session_id":"old-session","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"old turn finished"}"#
         )
         XCTAssertFalse(oldStop.timedOut, oldStop.stderr)
         XCTAssertEqual(oldStop.status, 0, oldStop.stderr)
 
-        let newStart = runClaudeHook(
-            context: context,
-            arguments: ["hooks", "claude", "session-start"],
+        let newStartCommandIndex = context.state.commands.count
+        let newStart = runHook(
+            "session-start",
             standardInput: #"{"session_id":"new-session","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
         )
         XCTAssertFalse(newStart.timedOut, newStart.stderr)
         XCTAssertEqual(newStart.status, 0, newStart.stderr)
+        let newStartCommands = Array(context.state.commands.dropFirst(newStartCommandIndex))
+        let replacementSet = try XCTUnwrap(
+            newStartCommands.compactMap { command -> [String: Any]? in
+                guard let payload = jsonObject(command),
+                      payload["method"] as? String == "surface.resume.set" else {
+                    return nil
+                }
+                return payload["params"] as? [String: Any]
+            }.first,
+            "Expected replacement SessionStart to atomically replace the prior resume binding, saw \(newStartCommands)"
+        )
+        XCTAssertEqual(replacementSet["workspace_id"] as? String, context.workspaceId)
+        XCTAssertEqual(replacementSet["surface_id"] as? String, context.surfaceId)
+        XCTAssertEqual(replacementSet["checkpoint_id"] as? String, "new-session")
+        XCTAssertEqual(replacementSet["source"] as? String, "agent-hook")
+        XCTAssertFalse(
+            newStartCommands.contains {
+                $0.hasPrefix("set_status claude_code Running ")
+                    || $0.hasPrefix("set_agent_lifecycle claude_code running ")
+            },
+            "Replacement SessionStart must remain status-neutral until prompt submit, saw \(newStartCommands)"
+        )
 
         let newPromptStart = context.state.commands.count
-        let newPrompt = runClaudeHook(
-            context: context,
-            arguments: ["hooks", "claude", "prompt-submit"],
+        let newPrompt = runHook(
+            "prompt-submit",
             standardInput: #"{"session_id":"new-session","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"PromptSubmit"}"#
         )
         XCTAssertFalse(newPrompt.timedOut, newPrompt.stderr)
@@ -874,6 +930,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             parentSurfaceId,
             "Fork-session SessionStart reports the parent session id and must not steal the parent record's surface binding for the fork pane"
         )
+        XCTAssertFalse(
+            context.state.commands.contains { $0.hasPrefix("set_agent_pid claude_code.\(parentSessionId) ") },
+            "A pre-prompt fork has no independent session generation yet and must not steal the parent's runtime key, saw \(context.state.commands)"
+        )
     }
 
     func testClaudeForkSessionStartWithoutSurfaceIdentityDoesNotRegisterPIDOnFallbackPane() throws {
@@ -908,7 +968,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
 
         XCTAssertFalse(
-            context.state.commands.contains { $0.hasPrefix("set_agent_pid claude_code ") },
+            context.state.commands.contains { $0.hasPrefix("set_agent_pid claude_code.") },
             "A fork SessionStart without an authoritative surface must not register its PID on a borrowed fallback pane, saw \(context.state.commands)"
         )
     }
@@ -1128,7 +1188,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         XCTAssertTrue(
             context.state.commands.contains {
-                $0.hasPrefix("clear_agent_pid claude_code ") && $0.contains("--panel=\(context.surfaceId)")
+                $0.hasPrefix("clear_agent_pid claude_code.\(parentSessionId) ") && $0.contains("--panel=\(context.surfaceId)")
             },
             "A pre-prompt fork exit must still clear the agent PID/status registered for the fork pane, saw \(context.state.commands)"
         )
@@ -1570,7 +1630,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertEqual(result.stdout, "{}\n")
         let savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
         let savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
         XCTAssertNil(
@@ -1582,7 +1642,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "Expected stale SessionEnd not to clear the consumed workspace, saw \(context.state.commands)"
         )
         XCTAssertFalse(
-            context.state.commands.contains { $0.hasPrefix("clear_agent_pid claude_code ") && $0.contains("--tab=\(staleWorkspaceId)") },
+            context.state.commands.contains { $0.hasPrefix("clear_agent_pid claude_code.") && $0.contains("--tab=\(staleWorkspaceId)") },
             "Expected stale SessionEnd not to clear the consumed workspace PID, saw \(context.state.commands)"
         )
         XCTAssertFalse(
@@ -1630,7 +1690,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertFalse(
-            context.state.commands.contains { $0.hasPrefix("clear_agent_pid claude_code ") && $0.contains("--tab=\(context.workspaceId)") },
+            context.state.commands.contains { $0.hasPrefix("clear_agent_pid claude_code.\(sessionId) ") && $0.contains("--tab=\(context.workspaceId)") },
             "Expected stale same-session turn not to clear current PID, saw \(context.state.commands)"
         )
         XCTAssertFalse(
@@ -1831,11 +1891,75 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             },
             "Notification requiring user input must correct the visible lifecycle, saw \(notificationCommands)"
         )
+        func statusRevision(
+            lifecycle: String,
+            in commands: [String]
+        ) -> UInt64? {
+            commands.first {
+                $0.hasPrefix("set_agent_lifecycle codex \(lifecycle) ")
+            }?
+            .split(separator: " ")
+            .first { $0.hasPrefix("--status-revision=") }
+            .flatMap { UInt64($0.dropFirst("--status-revision=".count)) }
+        }
+        let permissionRevision = try XCTUnwrap(
+            statusRevision(lifecycle: "needsInput", in: notificationCommands),
+            "Codex permission lifecycle must carry an ordered revision: \(notificationCommands)"
+        )
 
         state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
         sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
         record = try XCTUnwrap(sessions[sessionId] as? [String: Any])
         XCTAssertEqual(record["agentLifecycle"] as? String, "needsInput")
+
+        let resumedPromptStart = context.state.commands.count
+        let resumedPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-2","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(resumedPrompt.timedOut, resumedPrompt.stderr)
+        XCTAssertEqual(resumedPrompt.status, 0, resumedPrompt.stderr)
+        let resumedPromptCommands = Array(context.state.commands.dropFirst(resumedPromptStart))
+        let resumedPromptRevision = try XCTUnwrap(
+            statusRevision(lifecycle: "running", in: resumedPromptCommands),
+            "Codex prompt after an approval must remain ordered: \(resumedPromptCommands)"
+        )
+        XCTAssertGreaterThan(resumedPromptRevision, permissionRevision)
+
+        let resumedStopStart = context.state.commands.count
+        let resumedStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-2","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"done again"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(resumedStop.timedOut, resumedStop.stderr)
+        XCTAssertEqual(resumedStop.status, 0, resumedStop.stderr)
+        let resumedStopCommands = Array(context.state.commands.dropFirst(resumedStopStart))
+        let resumedStopRevision = try XCTUnwrap(
+            statusRevision(lifecycle: "idle", in: resumedStopCommands),
+            "Codex Stop after an approval must remain ordered: \(resumedStopCommands)"
+        )
+        XCTAssertGreaterThan(resumedStopRevision, resumedPromptRevision)
+
+        let stalePermissionStart = context.state.commands.count
+        let stalePermission = runCodexHook(
+            context: context,
+            subcommand: "notification",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","request_id":"late-call","cwd":"\#(context.root.path)","hook_event_name":"PermissionRequest","message":"late approval"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(stalePermission.timedOut, stalePermission.stderr)
+        XCTAssertEqual(stalePermission.status, 0, stalePermission.stderr)
+        let stalePermissionCommands = Array(context.state.commands.dropFirst(stalePermissionStart))
+        XCTAssertFalse(
+            stalePermissionCommands.contains {
+                $0.hasPrefix("set_agent_lifecycle codex needsInput ")
+            },
+            "A delayed approval from a terminal turn must not revive Needs input: \(stalePermissionCommands)"
+        )
     }
 
     func testGenericAgentStaleIdleStopDoesNotOverwriteNewerRunningLifecycle() throws {

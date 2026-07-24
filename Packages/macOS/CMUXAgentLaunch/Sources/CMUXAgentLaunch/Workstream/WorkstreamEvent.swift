@@ -8,6 +8,8 @@ import Foundation
 /// `workspace_id`, `cwd`, `tool_name`, `tool_input`, `_source`, `_ppid`,
 /// `_opencode_request_id`. `context` is cmux-specific and optional.
 public struct WorkstreamEvent: Codable, Sendable, Equatable {
+    private static let processNamespaceField = "_cmux_agent_pid_namespace"
+
     public let sessionId: String
     public let hookEventName: HookEventName
     public let source: String
@@ -22,6 +24,19 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
     public let ppid: Int?
     public let receivedAt: Date
     public let extraFieldsJSON: String?
+
+    /// Namespace of ``ppid``. Missing metadata is legacy local evidence;
+    /// malformed or unsupported metadata fails closed as ``WorkstreamProcessNamespace/unknown``.
+    public var processNamespace: WorkstreamProcessNamespace {
+        guard let extraFieldsJSON else { return .local }
+        guard let data = extraFieldsJSON.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return .unknown
+        }
+        guard let rawNamespace = object[Self.processNamespaceField] else { return .local }
+        guard let namespace = rawNamespace as? String else { return .unknown }
+        return WorkstreamProcessNamespace(rawValue: namespace) ?? .unknown
+    }
 
     public init(
         sessionId: String,

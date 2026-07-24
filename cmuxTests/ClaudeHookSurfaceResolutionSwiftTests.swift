@@ -61,11 +61,10 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             "Claude must persist the agent TTY surface, not the leaked ambient CMUX_SURFACE_ID; params=\(request)"
         )
         #expect(
-            context.state.snapshot().contains {
+            !context.state.snapshot().contains {
                 $0.hasPrefix("set_status claude_code Running ")
-                    && $0.contains("--panel=\(ttySurfaceId)")
             },
-            "Claude visible status should also target the TTY surface, saw \(context.state.snapshot())"
+            "Claude SessionStart should establish routing without claiming Running, saw \(context.state.snapshot())"
         )
         #expect(
             !context.state.snapshot().contains { $0.contains(#""method":"system.top""#) },
@@ -136,12 +135,10 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             "Claude must persist the agent TTY surface, not the leaked ambient CMUX_SURFACE_ID; params=\(request)"
         )
         #expect(
-            context.state.snapshot().contains {
+            !context.state.snapshot().contains {
                 $0.hasPrefix("set_status claude_code Running ")
-                    && $0.contains("--tab=\(ttyWorkspaceId)")
-                    && $0.contains("--panel=\(ttySurfaceId)")
             },
-            "Claude visible status should target the TTY workspace and surface, saw \(context.state.snapshot())"
+            "Claude SessionStart should establish routing without claiming Running, saw \(context.state.snapshot())"
         )
     }
 
@@ -364,12 +361,10 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             "Stale TTY workspace must not fall through to its focused surface; params=\(request)"
         )
         #expect(
-            context.state.snapshot().contains {
+            !context.state.snapshot().contains {
                 $0.hasPrefix("set_status claude_code Running ")
-                    && $0.contains("--tab=\(context.workspaceId)")
-                    && $0.contains("--panel=\(context.surfaceId)")
             },
-            "Claude visible status should stay on the valid ambient workspace and surface, saw \(context.state.snapshot())"
+            "Claude SessionStart should establish routing without claiming Running, saw \(context.state.snapshot())"
         )
     }
 

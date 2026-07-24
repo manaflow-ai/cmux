@@ -73,6 +73,77 @@ struct WorkstreamStoreTests {
         #expect(!store.hasMorePersistedItems)
     }
 
+    @Test("start expires restored decisions because their reply waiter did not survive restart")
+    func restoredPendingDecisionsExpireOnStart() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-store-restored-pending-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        let createdAt = Date(timeIntervalSince1970: 100)
+        let restoredItems = [
+            WorkstreamItem(
+                workstreamId: "local",
+                source: .claude,
+                kind: .permissionRequest,
+                createdAt: createdAt,
+                payload: .permissionRequest(
+                    requestId: "local",
+                    toolName: "Write",
+                    toolInputJSON: "{}",
+                    pattern: nil
+                ),
+                ppid: 1234,
+                processNamespace: .local
+            ),
+            WorkstreamItem(
+                workstreamId: "remote",
+                source: .codex,
+                kind: .permissionRequest,
+                createdAt: createdAt,
+                payload: .permissionRequest(
+                    requestId: "remote",
+                    toolName: "shell",
+                    toolInputJSON: "{}",
+                    pattern: nil
+                ),
+                ppid: 1234,
+                processNamespace: .remote
+            ),
+            WorkstreamItem(
+                workstreamId: "telemetry",
+                source: .claude,
+                kind: .toolUse,
+                createdAt: createdAt,
+                payload: .toolUse(toolName: "Read", toolInputJSON: "{}")
+            ),
+        ]
+        for item in restoredItems {
+            try await persistence.append(item)
+        }
+
+        let clock = TestClock(initial: Date(timeIntervalSince1970: 200))
+        let store = WorkstreamStore(
+            persistence: persistence,
+            ringCapacity: 10,
+            initialLoadLimit: 2,
+            historyPageSize: 2,
+            clock: { clock.now }
+        )
+
+        await store.start()
+
+        #expect(store.pending.isEmpty)
+        #expect(store.items.count == 2)
+        #expect(store.items[0].status == .expired(at: clock.now))
+        #expect(store.items[1].status == .telemetry)
+
+        await store.loadOlderItems()
+
+        #expect(store.pending.isEmpty)
+        #expect(store.items.count == 3)
+        #expect(store.items[0].status == .expired(at: clock.now))
+    }
+
     @Test("expireAbandonedItems expires items whose agent PID is dead")
     func expireAbandoned() {
         let clock = TestClock(initial: Date(timeIntervalSince1970: 0))
@@ -90,6 +161,44 @@ struct WorkstreamStoreTests {
         }
         // Item with no ppid: no change (we don't know liveness).
         #expect(store.items[2].status.isPending)
+    }
+
+    @Test("Remote and unknown agent PIDs are never probed as local processes")
+    func expireAbandonedSkipsNonlocalPIDs() {
+        let store = WorkstreamStore(ringCapacity: 10)
+        for namespace in [WorkstreamProcessNamespace.remote, .unknown] {
+            store.ingest(WorkstreamEvent(
+                sessionId: "codex-\(namespace.rawValue)",
+                hookEventName: .permissionRequest,
+                source: "codex",
+                ppid: 987_654,
+                extraFieldsJSON: #"{"_cmux_agent_pid_namespace":"\#(namespace.rawValue)"}"#
+            ))
+        }
+
+        store.expireAbandonedItems { _ in false }
+
+        #expect(store.pending.count == 2)
+        #expect(store.items.map(\.processNamespace) == [.remote, .unknown])
+    }
+
+    @Test("A local PID exit cannot expire a remote item with the same numeric PID")
+    func localExitSkipsRemotePIDCollision() {
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(.permission("local", requestId: "local", ppid: 4321))
+        store.ingest(WorkstreamEvent(
+            sessionId: "remote",
+            hookEventName: .permissionRequest,
+            source: "codex",
+            requestId: "remote",
+            ppid: 4321,
+            extraFieldsJSON: #"{"_cmux_agent_pid_namespace":"remote"}"#
+        ))
+
+        store.expireItems(forPpid: 4321)
+
+        #expect(!store.items[0].status.isPending)
+        #expect(store.items[1].status.isPending)
     }
 
     @Test("expirePending moves stale pending items to expired")

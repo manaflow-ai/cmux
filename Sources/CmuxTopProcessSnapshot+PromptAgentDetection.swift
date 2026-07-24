@@ -11,20 +11,27 @@ extension CmuxTopProcessSnapshot {
     nonisolated static func promptAgentDefinition(
         foregroundPID: Int
     ) -> CmuxTaskManagerCodingAgentDefinition? {
+        guard let definition = codingAgentDefinition(foregroundPID: foregroundPID),
+              definition.promptTurnDetection != nil else {
+            return nil
+        }
+        return definition
+    }
+
+    /// Verifies one foreground PID as any built-in coding agent.
+    nonisolated static func codingAgentDefinition(
+        foregroundPID: Int
+    ) -> CmuxTaskManagerCodingAgentDefinition? {
         guard let details = processArgumentsAndEnvironment(for: foregroundPID),
               let executablePath = executablePath(for: foregroundPID) else {
             return nil
         }
-        let definition = CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+        return CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
             processName: (executablePath as NSString).lastPathComponent,
             processPath: executablePath,
             arguments: details.arguments,
             environment: details.environment
         )
-        guard definition?.promptTurnDetection != nil else {
-            return nil
-        }
-        return definition
     }
 
     private nonisolated static func executablePath(for pid: Int) -> String? {

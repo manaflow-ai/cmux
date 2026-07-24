@@ -4,6 +4,70 @@ import Testing
 @MainActor
 @Suite("ControlCommandCoordinator sidebar v1 dispatch")
 struct ControlCommandCoordinatorSidebarV1Tests {
+    @Test func conditionalNeedsInputFlagRejectsNonRunningLifecycle() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_agent_lifecycle",
+            args: "codex idle --tab=0 --if-needs-input"
+        )
+
+        #expect(response?.contains("Invalid agent lifecycle 'idle'") == true)
+        #expect(response?.contains("[--if-needs-input]") == true)
+    }
+
+    @Test func orderedLifecycleRequiresACompleteRuntimeGeneration() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let incomplete = coordinator.handleSidebarV1(
+            command: "set_agent_lifecycle",
+            args: "codex running --tab=0 --runtime-key=codex.session --status-revision=2"
+        )
+        let complete = coordinator.handleSidebarV1(
+            command: "set_agent_lifecycle",
+            args: "codex running --tab=0 --runtime-key=codex.session --runtime-pid=4242 --status-revision=2"
+        )
+        let partialStart = coordinator.handleSidebarV1(
+            command: "set_agent_lifecycle",
+            args: "codex running --tab=0 --runtime-key=codex.session --runtime-pid=4242 --status-revision=2 --runtime-start-seconds=10"
+        )
+
+        #expect(incomplete?.contains("--runtime-key=<key> --runtime-pid=<pid> --status-revision=<n>") == true)
+        #expect(complete == "OK")
+        #expect(partialStart?.contains("--runtime-start-microseconds=<n>") == true)
+    }
+
+    @Test func notificationCleanupRequiresAConditionalResume() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_agent_lifecycle",
+            args: "codex running --tab=0 --clear-notifications-if-resumed"
+        )
+
+        #expect(response?.contains("Invalid agent lifecycle 'running'") == true)
+    }
+
+    @Test func notificationCleanupRequiresACanonicalNotificationIdentity() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let invalid = coordinator.handleSidebarV1(
+            command: "set_agent_lifecycle",
+            args: "codex running --tab=0 --if-needs-input --clear-notifications-if-resumed --notification-id=invalid"
+        )
+        let valid = coordinator.handleSidebarV1(
+            command: "set_agent_lifecycle",
+            args: "codex running --tab=0 --if-needs-input --clear-notifications-if-resumed --notification-id=00000000-0000-0000-0000-000000000001"
+        )
+
+        #expect(invalid?.contains("--notification-id=<uuid>") == true)
+        #expect(valid == "OK")
+    }
+
     @Test func workspaceLoadingFailureReasonReturnsErrorLine() {
         let context = FakeSidebarV1ControlCommandContext()
         context.workspaceLoadingResult = ControlSidebarWorkspaceLoadingState(

@@ -82,7 +82,15 @@ extension ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         lifecycleRawValue: String,
-        panelID: UUID?
+        panelID: UUID?,
+        onlyIfNeedsInput: Bool,
+        runtimePIDKey: String?,
+        runtimePID: Int32?,
+        runtimeStartSeconds: Int64?,
+        runtimeStartMicroseconds: Int64?,
+        revision: UInt64?,
+        notificationID: UUID?,
+        clearNotificationsIfResumed: Bool
     ) {}
 
     func controlSidebarSetWorkspaceLoading(

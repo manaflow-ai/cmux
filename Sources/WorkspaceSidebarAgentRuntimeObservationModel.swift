@@ -7,9 +7,13 @@ import Observation
 @Observable
 final class WorkspaceSidebarAgentRuntimeObservationModel {
     @ObservationIgnored
+    let agentStatusLedger = AgentStatusRuntimeLedger()
+    @ObservationIgnored
     private(set) var agentPIDs: [String: pid_t] = [:]
     @ObservationIgnored
     private(set) var agentPIDProcessIdentitiesByKey: [String: AgentPIDProcessIdentity] = [:]
+    @ObservationIgnored
+    private(set) var agentPIDNamespacesByKey: [String: AgentStatusPIDNamespace] = [:]
     @ObservationIgnored
     private(set) var agentPIDPanelIdsByKey: [String: UUID] = [:]
     @ObservationIgnored
@@ -42,6 +46,12 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
     func setAgentPIDProcessIdentitiesByKey(_ newValue: [String: AgentPIDProcessIdentity]) {
         guard agentPIDProcessIdentitiesByKey != newValue else { return }
         agentPIDProcessIdentitiesByKey = newValue
+        notifyChanged()
+    }
+
+    func setAgentPIDNamespacesByKey(_ newValue: [String: AgentStatusPIDNamespace]) {
+        guard agentPIDNamespacesByKey != newValue else { return }
+        agentPIDNamespacesByKey = newValue
         notifyChanged()
     }
 

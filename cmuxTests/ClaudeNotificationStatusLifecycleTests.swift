@@ -4,7 +4,7 @@ import Testing
 
 @Suite(.serialized)
 struct ClaudeNotificationStatusLifecycleTests {
-    @Test func claudeNotificationStatusCarriesPIDForStaleSweep() throws {
+    @Test func claudePermissionPromptStatusCarriesPIDForStaleSweep() throws {
         let harness = ClaudeHookSurfaceResolutionSwiftTests()
         let context = try harness.makeClaudeHookContext(name: "claude-notify-pid")
         defer { context.cleanup() }
@@ -29,24 +29,29 @@ struct ClaudeNotificationStatusLifecycleTests {
             executablePath: context.cliPath,
             arguments: ["hooks", "claude", "notification"],
             environment: environment,
-            standardInput: #"{"session_id":"claude-notify-pid-session","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude needs your input"}"#,
+            standardInput: #"{"session_id":"claude-notify-pid-session","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude needs your permission","notification_type":"permission_prompt"}"#,
             timeout: 5
         )
 
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         harness.assertSuccessfulHook(result)
 
-        let statusCommand = try #require(
-            context.state.snapshot().first {
+        let commands = context.state.snapshot()
+        _ = try #require(
+            commands.first {
                 $0.hasPrefix("set_status claude_code Needs input ")
                     && $0.contains("--tab=\(context.workspaceId)")
                     && $0.contains("--panel=\(context.surfaceId)")
             },
-            "Expected Claude notification to set a Needs input status, saw \(context.state.snapshot())"
+            "Expected Claude notification to set a Needs input status, saw \(commands)"
         )
         #expect(
-            statusCommand.contains("--pid=\(claudePID)"),
-            "Claude notification status must be PID-backed so the stale PID sweep can clear it after abrupt agent exit; command=\(statusCommand)"
+            commands.contains {
+                $0.hasPrefix("set_agent_pid claude_code.claude-notify-pid-session \(claudePID) ")
+                    && $0.contains("--tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "Claude notification status must be backed by its exact runtime generation so stale cleanup cannot clear a replacement; commands=\(commands)"
         )
     }
 }

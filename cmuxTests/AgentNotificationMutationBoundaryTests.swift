@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxControlSocket
 import CmuxCore
 import Darwin
@@ -10,6 +11,85 @@ import Testing
 #endif
 
 extension AgentNotificationRegressionTests {
+    @Test("A PID-less internal Codex approval still surfaces Needs input")
+    func pidlessCodexApprovalSurfacesNeedsInput() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let event = WorkstreamEvent(
+            sessionId: "codex-app-server-thread",
+            hookEventName: .permissionRequest,
+            source: "codex",
+            workspaceId: fixture.source.id.uuidString,
+            surfaceId: fixture.panelId.uuidString,
+            requestId: "codex-app-server-approval"
+        )
+
+        let target = FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+            event: event,
+            resolved: (fixture.source.id, fixture.panelId)
+        )
+        defer {
+            if let target { FeedCoordinator.shared.concludeBlockingDecisionAttention(target) }
+        }
+
+        #expect(target != nil)
+        #expect(fixture.source.agentLifecycleStatesByPanelId[fixture.panelId]?["codex"] == .needsInput)
+        #expect(fixture.source.statusEntries["codex"]?.icon == "bell.fill")
+    }
+
+    @Test("Feed attention cannot revive a rejected Codex permission revision")
+    func feedAttentionRespectsCodexPermissionOrdering() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let pid = getpid()
+        fixture.source.recordAgentPID(
+            key: "codex.session",
+            pid: pid,
+            panelId: fixture.panelId,
+            refreshPorts: false
+        )
+        defer { fixture.source.clearAllAgentPIDs(refreshPorts: false) }
+        let identity = try #require(fixture.source.agentPIDProcessIdentitiesByKey["codex.session"])
+
+        let resumed = try #require(AgentStatusHookEventSignal(event: WorkstreamEvent(
+            sessionId: "codex-session",
+            hookEventName: .preToolUse,
+            source: "codex",
+            ppid: Int(pid),
+            receivedAt: .now,
+            extraFieldsJSON: """
+            {"_cmux_agent_status_signal":"running","_cmux_agent_status_revision":2,"_cmux_agent_pid_start_seconds":\(identity.startSeconds),"_cmux_agent_pid_start_microseconds":\(identity.startMicroseconds)}
+            """
+        )))
+        fixture.source.noteAgentStatusHookSignal(resumed, panelId: fixture.panelId)
+
+        let latePermission = WorkstreamEvent(
+            sessionId: "codex-session",
+            hookEventName: .permissionRequest,
+            source: "codex",
+            workspaceId: fixture.source.id.uuidString,
+            surfaceId: fixture.panelId.uuidString,
+            requestId: "late-codex-permission",
+            ppid: Int(pid),
+            receivedAt: resumed.observedAt.addingTimeInterval(1),
+            extraFieldsJSON: """
+            {"_cmux_agent_status_signal":"needsInput","_cmux_agent_status_revision":1,"_cmux_agent_pid_start_seconds":\(identity.startSeconds),"_cmux_agent_pid_start_microseconds":\(identity.startMicroseconds)}
+            """
+        )
+
+        let target = FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+            event: latePermission,
+            resolved: (fixture.source.id, fixture.panelId)
+        )
+        defer {
+            if let target { FeedCoordinator.shared.concludeBlockingDecisionAttention(target) }
+        }
+
+        #expect(target != nil)
+        #expect(fixture.source.agentLifecycleStatesByPanelId[fixture.panelId]?["codex"] == .running)
+        #expect(fixture.source.statusEntries["codex"]?.icon != "bell.fill")
+    }
+
     // Generous for loaded CI runners: subprocess spawn, signal propagation,
     // and marker writes can take multiple seconds there. A long timeout only
     // slows the failure path.
@@ -196,6 +276,36 @@ extension AgentNotificationRegressionTests {
         #expect(fixture.store.notifications.map(\.body) == ["Registered after clear"])
     }
 
+    @Test("Exact removal cancels only its in-flight notification policy request")
+    func exactRemovalPreservesUnrelatedInFlightPolicyDelivery() async throws {
+        let fixture = try makeFixture(policyHookCommand: "cat")
+        defer { fixture.restore() }
+        let approvalID = UUID()
+        let unrelatedID = UUID()
+
+        fixture.store.addNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Codex",
+            subtitle: "Needs approval",
+            body: "Remove this request",
+            notificationID: approvalID
+        )
+        fixture.store.addNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Build",
+            subtitle: "Completed",
+            body: "Preserve this request",
+            notificationID: unrelatedID
+        )
+
+        fixture.store.remove(id: approvalID)
+        await waitForNotification(in: fixture.store)
+
+        #expect(fixture.store.notifications.map(\.id) == [unrelatedID])
+    }
+
     @Test("Clearing policy work immediately releases its cooldown reservation")
     func clearReleasesInFlightPolicyCooldownForReplacement() async throws {
         let fixture = try makeFixture(policyHookCommand: "sleep 1; cat")
@@ -324,7 +434,8 @@ extension AgentNotificationRegressionTests {
             target: .workspace(fixture.source.id),
             key: "claude_code",
             lifecycleRawValue: AgentHibernationLifecycleState.running.rawValue,
-            panelID: fixture.panelId
+            panelID: fixture.panelId,
+            onlyIfNeedsInput: false
         )
 
         try movePanel(fixture)

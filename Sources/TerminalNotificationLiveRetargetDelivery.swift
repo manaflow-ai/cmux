@@ -14,6 +14,7 @@ extension TerminalController {
         title: String,
         subtitle: String,
         body: String,
+        notificationID: UUID? = nil,
         retargetsToLiveSurfaceOwner: Bool = true
     ) {
         let target: (tabId: UUID, surfaceId: UUID?)
@@ -55,6 +56,7 @@ extension TerminalController {
             title: title,
             subtitle: subtitle,
             body: body,
+            notificationID: notificationID,
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner
         )
     }
@@ -72,6 +74,7 @@ extension TerminalNotificationStore {
         title: String,
         subtitle: String,
         body: String,
+        notificationID: UUID?,
         notificationGeneration: UInt64
     ) {
         guard let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
@@ -96,6 +99,7 @@ extension TerminalNotificationStore {
             title: title,
             subtitle: subtitle,
             body: body,
+            notificationID: notificationID,
             retargetsToLiveSurfaceOwner: true,
             notificationGeneration: notificationGeneration
         )
@@ -115,6 +119,7 @@ extension TerminalNotificationStore {
             tabId: target.tabId,
             surfaceId: target.surfaceId,
             panelId: request.panelId,
+            notificationID: request.notificationID,
             retargetsToLiveSurfaceOwner: true,
             title: request.title,
             subtitle: request.subtitle,

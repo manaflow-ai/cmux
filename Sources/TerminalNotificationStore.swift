@@ -283,11 +283,11 @@ final class TerminalNotificationStore: ObservableObject {
             .map(\.uuidString)
     }
 
-    /// Forwards a dismiss/clear to the user's phone. Call only from the
-    /// change-confirmed branch of a user-driven read/clear/remove path, so the
-    /// Mac→iOS→Mac echo can't loop. Session restore / surface rebind paths must
-    /// NOT call this: they reassign ids on churn and would clear a phone banner
-    /// that should persist.
+    /// Forwards a dismiss/clear to the user's phone. Call from a confirmed
+    /// user-driven read/clear/remove path, or from exact-ID lifecycle cleanup
+    /// for an effects-only banner that has no retained store entry. Session
+    /// restore / surface rebind paths must NOT call this: they reassign ids on
+    /// churn and would clear a phone banner that should persist.
     ///
     /// Two lanes share this chokepoint: the instant peer event for a
     /// live-attached phone, and a silent APNs badge push (the cold lane) so a
@@ -855,6 +855,7 @@ final class TerminalNotificationStore: ObservableObject {
         title: String,
         subtitle: String,
         body: String,
+        notificationID: UUID? = nil,
         retargetsToLiveSurfaceOwner: Bool = true,
         cooldownKey: String? = nil,
         cooldownInterval: TimeInterval? = nil,
@@ -901,6 +902,7 @@ final class TerminalNotificationStore: ObservableObject {
             title: title,
             subtitle: subtitle,
             body: body,
+            notificationID: notificationID,
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             resolvedHooks: resolvedHooks
         )
@@ -1064,6 +1066,7 @@ final class TerminalNotificationStore: ObservableObject {
         title: String,
         subtitle: String,
         body: String,
+        notificationID: UUID? = nil,
         retargetsToLiveSurfaceOwner: Bool,
         resolvedHooks: [CmuxResolvedNotificationHook]?
     ) -> NotificationPolicyContext {
@@ -1102,6 +1105,7 @@ final class TerminalNotificationStore: ObservableObject {
                 tabId: tabId,
                 surfaceId: surfaceId,
                 panelId: panelId,
+                notificationID: notificationID,
                 retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
                 title: title,
                 subtitle: subtitle,
@@ -1131,6 +1135,7 @@ final class TerminalNotificationStore: ObservableObject {
                 tabId: request.tabId,
                 surfaceId: request.surfaceId,
                 panelId: request.panelId,
+                notificationID: request.notificationID,
                 retargetsToLiveSurfaceOwner: request.retargetsToLiveSurfaceOwner,
                 title: payload.title,
                 subtitle: payload.subtitle,
@@ -1162,7 +1167,7 @@ final class TerminalNotificationStore: ObservableObject {
             surfaceId: request.surfaceId
         )
         let notification = TerminalNotification(
-            id: UUID(),
+            id: request.notificationID ?? UUID(),
             tabId: request.tabId,
             surfaceId: request.surfaceId,
             panelId: request.panelId,
@@ -1219,7 +1224,9 @@ final class TerminalNotificationStore: ObservableObject {
         var idsToClear: [String] = []
         updated.removeAll { existing in
             guard existing.tabId == notification.tabId, existing.surfaceId == notification.surfaceId else { return false }
-            idsToClear.append(existing.id.uuidString)
+            if existing.id != notification.id {
+                idsToClear.append(existing.id.uuidString)
+            }
             return true
         }
 
@@ -1626,17 +1633,20 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func remove(id: UUID) {
+        _ = inFlightPolicyRequests.discard(notificationID: id)
         var updated = notifications
         let removed = updated.first(where: { $0.id == id })
         let originalCount = updated.count
         updated.removeAll { $0.id == id }
-        guard updated.count != originalCount else { return }
-        notifications = updated
-        notificationFeedHistory.markRead(ids: [id])
+        if updated.count != originalCount {
+            notifications = updated
+            notificationFeedHistory.markRead(ids: [id])
+        }
         if let removed {
             clearFocusedReadIndicator(forTabId: removed.tabId, surfaceId: removed.surfaceId)
         }
         center.removeDeliveredNotificationsOffMain(withIdentifiers: [id.uuidString])
+        center.removePendingNotificationRequestsOffMain(withIdentifiers: [id.uuidString])
         let supersededDrained = removed.map { removedNotification in
             supersededPhoneDismissBuffer.flush(
                 forKey: SupersededPhoneDismissBuffer.key(

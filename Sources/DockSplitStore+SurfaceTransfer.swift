@@ -131,6 +131,9 @@ extension DockSplitStore {
         let cachedRuntime = preservedTransfer?.agentRuntime
         let cachedAgentPIDs = (cachedRuntime?.agentPIDs ?? [:]).filter { $0.value > 0 }
         let agentProvenExited = !cachedAgentPIDs.isEmpty && cachedAgentPIDs.allSatisfy { key, pid in
+            if cachedRuntime?.agentPIDNamespaces[key] == .remote {
+                return false
+            }
             if let recordedIdentity = cachedRuntime?.agentPIDProcessIdentities[key] {
                 return Workspace.agentPIDProcessIdentity(pid: pid) != recordedIdentity
             }

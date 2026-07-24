@@ -96,10 +96,19 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
         workspaceID: UUID,
         surfaceID: UUID
     ) -> any TerminalByteTeeLease {
+        let owner = AppDelegate.shared?.workspaceContainingPanel(
+            panelId: surfaceID,
+            preferredWorkspaceId: workspaceID
+        )
+        let activityGate = TerminalController.shared.agentStatusReconciliationCoordinator.outputActivityGate(
+            panelId: surfaceID,
+            isTracked: !(owner?.workspace.trackedAgentStatusKeys(panelId: surfaceID).isEmpty ?? true)
+        )
         let teeContext = Unmanaged.passRetained(TerminalOutputTeeContext(
             workspaceID: workspaceID,
             surfaceID: surfaceID,
-            agentDefinitions: CmuxTaskManagerCodingAgentDefinition.builtIns
+            agentDefinitions: CmuxTaskManagerCodingAgentDefinition.builtIns,
+            agentStatusActivityGate: activityGate
         ))
         ghostty_surface_set_pty_tee_cb(
             surface,
@@ -111,6 +120,7 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
 
     @MainActor
     func dropSurface(surfaceID: UUID) {
+        TerminalController.shared.agentStatusReconciliationCoordinator.removeOutputActivityGate(panelId: surfaceID)
         MobileTerminalByteTee.shared.dropSurface(surfaceID: surfaceID)
     }
 }

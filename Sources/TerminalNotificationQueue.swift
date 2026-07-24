@@ -11,6 +11,7 @@ fileprivate struct QueuedTerminalNotification: Sendable {
     let title: String
     let subtitle: String
     let body: String
+    let notificationID: UUID?
 }
 
 fileprivate enum TerminalSocketMutation {
@@ -67,13 +68,15 @@ final class TerminalMutationBus: @unchecked Sendable {
         title: String,
         subtitle: String,
         body: String,
+        notificationID: UUID? = nil,
         coalesces: Bool = true
     ) {
         enqueueNotification(QueuedTerminalNotification(
             key: QueuedTerminalNotificationKey(tabId: tabId, surfaceId: surfaceId),
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            notificationID: notificationID
         ), coalesces: coalesces)
     }
 
@@ -439,6 +442,7 @@ final class TerminalMutationBus: @unchecked Sendable {
                     title: notification.title,
                     subtitle: notification.subtitle,
                     body: notification.body,
+                    notificationID: notification.notificationID,
                     notificationGeneration: entry.notificationGeneration ?? 0
                 )
             case .clearAllNotifications(let boundary):
@@ -469,14 +473,9 @@ extension TerminalNotificationStore {
         isAppActive: Bool
     ) -> Bool? {
         switch state {
-        case .authorized, .provisional, .ephemeral:
-            return nil
-        case .denied:
-            return false
-        case .notDetermined:
-            return isAppActive ? nil : false
-        case .unknown:
-            return nil
+        case .authorized, .provisional, .ephemeral, .unknown: return nil
+        case .denied: return false
+        case .notDetermined: return isAppActive ? nil : false
         }
     }
 

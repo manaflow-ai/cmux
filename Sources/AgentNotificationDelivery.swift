@@ -26,6 +26,7 @@ struct AgentNotificationDelivery: Sendable {
         body: String,
         category: AgentNotifyCategory?,
         pending: Bool,
+        notificationID: UUID? = nil,
         coalesces: Bool = false
     ) -> Bool {
         if let category,
@@ -44,6 +45,7 @@ struct AgentNotificationDelivery: Sendable {
             title: title,
             subtitle: subtitle,
             body: body,
+            notificationID: notificationID,
             coalesces: coalesces
         )
         return true

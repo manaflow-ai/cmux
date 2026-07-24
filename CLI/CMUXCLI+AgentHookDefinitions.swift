@@ -135,12 +135,14 @@ extension CMUXCLI {
     }
 
     enum AgentHookAction {
-        case sessionStart, promptSubmit, stop, notification, approvalResponse, sessionEnd, sessionFinalize, noop
+        case sessionStart, promptSubmit, toolStarted, toolCompleted, stop, notification, approvalResponse, sessionEnd, sessionFinalize, noop
     }
 
     static let subcommandActions: [String: AgentHookAction] = [
         "session-start": .sessionStart,
         "prompt-submit": .promptSubmit,
+        "pre-tool-use": .toolStarted,
+        "post-tool-use": .toolCompleted,
         "stop": .stop,
         "notification": .notification,
         "notify": .notification,

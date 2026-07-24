@@ -14,11 +14,12 @@ enum AgentHookNotifyCategory: String {
     case idleReminder = "idle-reminder"
     case other
 
-    /// Delimiter-safe meta segment: `c=<category>;p=<0|1>`. `.other` is the
-    /// explicit ungated category and never rides the wire.
-    func metaSegment(pending: Bool) -> String? {
+    /// Delimiter-safe meta segment: `c=<category>;p=<0|1>[;id=<uuid>]`.
+    /// `.other` is the explicit ungated category and never rides the wire.
+    func metaSegment(pending: Bool, notificationID: UUID? = nil) -> String? {
         guard self != .other else { return nil }
-        return "c=\(rawValue);p=\(pending ? 1 : 0)"
+        let base = "c=\(rawValue);p=\(pending ? 1 : 0)"
+        return notificationID.map { "\(base);id=\($0.uuidString)" } ?? base
     }
 }
 
@@ -188,6 +189,33 @@ enum AgentHookNotificationClassifier {
 
 enum AgentHookNotificationPolicy {
     static let dedupeEligibleAgents: Set<String> = ["grok", "antigravity"]
+
+    /// Derives only causal Claude lifecycle changes. Idle reminders describe
+    /// an ordinary prompt; permission prompts describe a blocking decision.
+    static func claudeStatusProjection(
+        category: AgentHookNotifyCategory,
+        hasPendingAgentWork: Bool
+    ) -> (status: AgentHookNotificationStatus, value: String, icon: String, color: String)? {
+        switch category {
+        case .needsPermission:
+            return (
+                status: .needsInput,
+                String(localized: "feed.status.needsInput", defaultValue: "Needs input"),
+                "bell.fill",
+                "#4C8DFF"
+            )
+        case .idleReminder, .turnComplete:
+            guard !hasPendingAgentWork else { return nil }
+            return (
+                status: .idle,
+                String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
+                "pause.circle.fill",
+                "#8E8E93"
+            )
+        case .other:
+            return nil
+        }
+    }
 
     /// Stable per-session fingerprint. Grok 0.2.91 emits an identical generic
     /// "Tool permission requested" Notification for every tool step, even in

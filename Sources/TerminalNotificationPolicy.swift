@@ -188,6 +188,7 @@ struct TerminalNotificationPolicyRequest: Sendable {
     let tabId: UUID
     let surfaceId: UUID?
     let panelId: UUID?
+    let notificationID: UUID?
     let retargetsToLiveSurfaceOwner: Bool
     let title: String
     let subtitle: String
@@ -199,6 +200,7 @@ struct TerminalNotificationPolicyRequest: Sendable {
         tabId: UUID,
         surfaceId: UUID?,
         panelId: UUID? = nil,
+        notificationID: UUID? = nil,
         retargetsToLiveSurfaceOwner: Bool = false,
         title: String,
         subtitle: String,
@@ -210,6 +212,7 @@ struct TerminalNotificationPolicyRequest: Sendable {
         self.tabId = tabId
         self.surfaceId = surfaceId
         self.panelId = panelId
+        self.notificationID = notificationID
         self.retargetsToLiveSurfaceOwner = retargetsToLiveSurfaceOwner
         self.title = title
         self.subtitle = subtitle
