@@ -2984,9 +2984,20 @@ final class CmuxConfigStore: ObservableObject {
             return ParsedConfigResult(config: nil, issue: nil)
         }
 
-        let attributes = try? fileManager.attributesOfItem(atPath: path)
-        let fileSize = (attributes?[.size] as? NSNumber)?.uint64Value ?? 0
-        let modificationDate = attributes?[.modificationDate] as? Date
+        // Key the parse cache on stat(2), which follows symlinks, rather than
+        // attributesOfItem(atPath:), which has lstat semantics and does not.
+        // When cmux.json is a symlink into a dotfiles repo, editing the target
+        // leaves the link's own size/mtime unchanged, so an lstat-based key would
+        // never invalidate and reload-config / file watching would appear to do
+        // nothing until a full app restart. contents(atPath:) below also follows
+        // the symlink, so this keeps the cache key consistent with what we read.
+        var statBuffer = stat()
+        let statSucceeded = stat(path, &statBuffer) == 0
+        let fileSize = statSucceeded ? UInt64(statBuffer.st_size) : 0
+        let modificationDate: Date? = statSucceeded
+            ? Date(timeIntervalSince1970: TimeInterval(statBuffer.st_mtimespec.tv_sec)
+                + TimeInterval(statBuffer.st_mtimespec.tv_nsec) / 1_000_000_000)
+            : nil
         let paletteFingerprint = WorkspaceTabColorSettings.paletteCacheFingerprint()
 
         if let cached = parsedConfigCache[path],
