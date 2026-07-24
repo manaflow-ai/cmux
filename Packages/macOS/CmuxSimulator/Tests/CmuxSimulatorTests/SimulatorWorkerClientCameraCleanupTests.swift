@@ -5,8 +5,14 @@ import Testing
 
 extension SimulatorWorkerClientTests {
     @Test("Worker factories share camera cleanup only through an injected app scope")
-    func workerFactoryCameraCleanupScopeIsInjected() async {
+    func workerFactoryCameraCleanupScopeIsInjected() async throws {
         let appScope = SimulatorCameraCleanupOwnershipScope()
+        let deviceIdentifier = "DEVICE-\(UUID().uuidString)"
+        let bundleIdentifier = "com.example.camera"
+        let owner = try await appScope.coordinator.claim(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        )
         let first = SimulatorWorkerClientFactory(
             executableURL: URL(fileURLWithPath: "/fake/cmux"),
             cameraCleanupOwnershipScope: appScope
@@ -24,6 +30,20 @@ extension SimulatorWorkerClientTests {
 
         #expect(firstCoordinator === secondCoordinator)
         #expect(firstCoordinator !== independentCoordinator)
+
+        let defaultClient = SimulatorWorkerClientFactory(
+            executableURL: URL(fileURLWithPath: "/fake/cmux"),
+            cameraCleanupOwnershipScope: appScope
+        ).makeClient()
+        let defaultControl = await defaultClient.simulatorControl
+        let service = try #require(defaultControl as? SimulatorControlService)
+        let controlOwnershipStore = await service.cameraCleanupOwnershipStore
+        #expect(controlOwnershipStore.isCurrent(
+            owner,
+            namespace: "camera",
+            components: [deviceIdentifier, bundleIdentifier]
+        ))
+        await defaultClient.stop()
     }
 
     @Test("Completed camera cleanup prunes per-target ownership state")
@@ -51,6 +71,98 @@ extension SimulatorWorkerClientTests {
             await Task.yield()
         }
         #expect(await coordinator.trackedTargetCount == 0)
+    }
+
+    @Test("A failed camera cleanup preserves ownership for its retry")
+    func failedCameraCleanupPreservesOwnershipForRetry() async throws {
+        let coordinator = SimulatorCameraCleanupCoordinator()
+        let deviceIdentifier = "DEVICE-\(UUID().uuidString)"
+        let bundleIdentifier = "com.example.camera"
+        let owner = try await coordinator.claim(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        )
+        let failure = SimulatorFailure(
+            code: "fixture_cleanup_failed",
+            message: "The fixture cleanup failed.",
+            isRecoverable: true
+        )
+        let failedCleanup = await coordinator.enqueue(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifiers: [bundleIdentifier]
+        ) {
+            .failed(failure)
+        }
+        #expect(await failedCleanup.value == .failed(failure))
+
+        await #expect(throws: SimulatorFailure.self) {
+            _ = try await coordinator.claim(
+                deviceIdentifier: deviceIdentifier,
+                bundleIdentifier: bundleIdentifier
+            )
+        }
+        #expect(await coordinator.isCurrent(
+            owner,
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        ))
+
+        let retry = await coordinator.enqueue(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifiers: [bundleIdentifier]
+        ) {
+            let ownerIsCurrent = await coordinator.isCurrent(
+                owner,
+                deviceIdentifier: deviceIdentifier,
+                bundleIdentifier: bundleIdentifier
+            )
+            return ownerIsCurrent ? .completed : .failed(failure)
+        }
+        #expect(await retry.value == .completed)
+    }
+
+    @Test("A superseded cleanup preserves ownership until the latest cleanup succeeds")
+    func supersededCameraCleanupPreservesOwnership() async throws {
+        let coordinator = SimulatorCameraCleanupCoordinator()
+        let firstGate = CameraCleanupOperationGate()
+        let secondGate = CameraCleanupOperationGate()
+        let deviceIdentifier = "DEVICE-\(UUID().uuidString)"
+        let bundleIdentifier = "com.example.camera"
+        let owner = try await coordinator.claim(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        )
+        let first = await coordinator.enqueue(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifiers: [bundleIdentifier]
+        ) {
+            await firstGate.wait()
+            return .completed
+        }
+        let second = await coordinator.enqueue(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifiers: [bundleIdentifier]
+        ) {
+            await secondGate.wait()
+            let ownerIsCurrent = await coordinator.isCurrent(
+                owner,
+                deviceIdentifier: deviceIdentifier,
+                bundleIdentifier: bundleIdentifier
+            )
+            return ownerIsCurrent
+                ? .completed
+                : .failed(SimulatorFailure(
+                    code: "fixture_ownership_lost",
+                    message: "The cleanup owner was lost.",
+                    isRecoverable: true
+                ))
+        }
+
+        await firstGate.release()
+        #expect(await first.value == .completed)
+        for _ in 0..<100 { await Task.yield() }
+        await secondGate.release()
+        #expect(await second.value == .completed)
     }
 
     @Test("Camera cleanup for one Simulator does not block another Simulator")
@@ -541,5 +653,21 @@ private actor FailingCameraCleanupControl: SimulatorControlling {
             message: "The fixture relaunch failed.",
             isRecoverable: true
         )
+    }
+}
+
+private actor CameraCleanupOperationGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var isReleased = false
+
+    func wait() async {
+        guard !isReleased else { return }
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func release() {
+        isReleased = true
+        continuation?.resume()
+        continuation = nil
     }
 }

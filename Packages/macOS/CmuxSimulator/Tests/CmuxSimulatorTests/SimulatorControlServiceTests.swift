@@ -71,15 +71,19 @@ struct SimulatorControlServiceTests {
     func cameraCleanupPropagatesRelaunchFailure() async throws {
         let deviceIdentifier = "DEVICE-\(UUID().uuidString)"
         let bundleIdentifier = "com.example.camera"
-        let ownershipToken = try SimulatorCrossProcessOwnershipStore().claim(
-            namespace: "camera",
-            components: [deviceIdentifier, bundleIdentifier]
+        let ownershipScope = SimulatorCameraCleanupOwnershipScope()
+        let ownershipToken = try await ownershipScope.coordinator.claim(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
         )
         let commands = RecordingCommandRunner(results: [
             .success(""),
             .failure("relaunch failed"),
         ])
-        let service = SimulatorControlService(commands: commands)
+        let service = SimulatorControlService(
+            commands: commands,
+            cameraCleanupOwnershipScope: ownershipScope
+        )
 
         do {
             try await service.cleanupCameraApplication(
