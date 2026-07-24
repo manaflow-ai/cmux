@@ -23,6 +23,17 @@ private final class ServerEventRecorder: Sendable {
     }
 
     private let state = OSAllocatedUnfairLock(initialState: State())
+    let listenerStarts: AsyncStream<(path: String, generation: UInt64)>
+    private let listenerStartsContinuation:
+        AsyncStream<(path: String, generation: UInt64)>.Continuation
+
+    init() {
+        let pair = AsyncStream<(path: String, generation: UInt64)>.makeStream(
+            bufferingPolicy: .unbounded
+        )
+        listenerStarts = pair.stream
+        listenerStartsContinuation = pair.continuation
+    }
 
     var breadcrumbs: [String] { state.withLock { $0.breadcrumbs } }
     var failures: [FailureEvent] { state.withLock { $0.failures } }
@@ -45,6 +56,7 @@ private final class ServerEventRecorder: Sendable {
             },
             listenerDidStart: { path, generation in
                 self.state.withLock { $0.started.append((path: path, generation: generation)) }
+                self.listenerStartsContinuation.yield((path: path, generation: generation))
             },
             recordLastSocketPath: { path in
                 self.state.withLock { $0.recordedPaths.append(path) }
@@ -73,7 +85,7 @@ private struct ServerHarness: ~Copyable {
     let recorder: ServerEventRecorder
     let server: SocketControlServer
 
-    init() throws {
+    init(recoveryClock: any SocketRecoveryClock = SystemSocketRecoveryClock()) throws {
         directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("scs-\(UUID().uuidString.prefix(8))", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -81,6 +93,7 @@ private struct ServerHarness: ~Copyable {
         recorder = ServerEventRecorder()
         server = SocketControlServer(
             initialSocketPath: socketPath,
+            recoveryClock: recoveryClock,
             notificationCenter: NotificationCenter(),
             events: recorder.makeEvents()
         )
@@ -351,6 +364,36 @@ struct SocketControlServerLifecycleTests {
         let contents = try String(contentsOf: URL(fileURLWithPath: harness.socketPath), encoding: .utf8)
         #expect(contents == "not a socket")
         #expect(harness.recorder.failures.contains { $0.message == "socket.listener.start.failed" })
+    }
+
+    @Test func retriesTransientLiveSocketCollisionBeforeReportingFailure() async throws {
+        let clock = TestSocketRecoveryClock()
+        let harness = try ServerHarness(recoveryClock: clock)
+        defer { harness.shutdown() }
+        let server = harness.server
+
+        var competingSocket = try UnixSocketFixture.bindListeningSocket(at: harness.socketPath)
+        defer {
+            if competingSocket >= 0 {
+                close(competingSocket)
+            }
+        }
+
+        #expect(!server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
+        #expect(harness.recorder.failures.isEmpty)
+        #expect(harness.recorder.breadcrumbs.contains("socket.listener.start.retry_scheduled"))
+        guard harness.recorder.failures.isEmpty else { return }
+
+        close(competingSocket)
+        competingSocket = -1
+        #expect(unlink(harness.socketPath) == 0)
+
+        var startIterator = harness.recorder.listenerStarts.makeAsyncIterator()
+        clock.advance()
+        let start = try #require(await startIterator.next())
+        #expect(start.path == harness.socketPath)
+        #expect(server.isRunning)
+        #expect(harness.recorder.failures.isEmpty)
     }
 
     @Test func appliesAccessModePermissions() throws {
