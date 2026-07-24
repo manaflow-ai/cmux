@@ -198,12 +198,16 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             }
 
 #if DEBUG
-            appDelegate.debugSetGhosttyGotoSplitShortcut(
-                StoredShortcut(key: "→", command: false, shift: false, option: true, control: false),
-                direction: .right
+            let originalGhosttyGotoSplitRightShortcut = appDelegate.ghosttyGotoSplitRightShortcut
+            appDelegate.ghosttyGotoSplitRightShortcut = StoredShortcut(
+                key: "→",
+                command: false,
+                shift: false,
+                option: true,
+                control: false
             )
             defer {
-                appDelegate.debugSetGhosttyGotoSplitShortcut(nil, direction: .right)
+                appDelegate.ghosttyGotoSplitRightShortcut = originalGhosttyGotoSplitRightShortcut
             }
 #endif
 

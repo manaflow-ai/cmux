@@ -12817,24 +12817,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-#if DEBUG
-    func debugSetGhosttyGotoSplitShortcut(
-        _ shortcut: StoredShortcut?,
-        direction: NavigationDirection
-    ) {
-        switch direction {
-        case .left:
-            ghosttyGotoSplitLeftShortcut = shortcut
-        case .right:
-            ghosttyGotoSplitRightShortcut = shortcut
-        case .up:
-            ghosttyGotoSplitUpShortcut = shortcut
-        case .down:
-            ghosttyGotoSplitDownShortcut = shortcut
-        }
-    }
-#endif
-
     private func storedShortcutFromGhosttyTrigger(_ trigger: ghostty_input_trigger_s) -> StoredShortcut? {
         let tag: GhosttyTriggerInput.Tag
         switch trigger.tag {
