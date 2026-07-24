@@ -310,6 +310,9 @@ extension ControlCommandCoordinator {
             directionRaw: string(params, "direction"),
             typeRaw: string(params, "type"),
             urlRaw: string(params, "url"),
+            profileRaw: string(params, "profile")
+                ?? string(params, "profile_id")
+                ?? string(params, "profile_name"),
             workingDirectory: optionalTrimmedRawString(params, "working_directory"),
             initialCommand: optionalTrimmedRawString(params, "initial_command"),
             tmuxStartCommand: optionalTrimmedRawString(params, "tmux_start_command"),
@@ -376,6 +379,21 @@ extension ControlCommandCoordinator {
                 "placement_strategy": .string("external_browser_disabled"),
                 "url": .string(url),
             ]))
+        case .invalidBrowserProfile(let selector, let message, let candidates):
+            var data: [String: JSONValue] = ["profile": .string(selector)]
+            if !candidates.isEmpty {
+                data["candidates"] = .array(candidates.map { candidate in
+                    .object([
+                        "id": .string(candidate.id.uuidString),
+                        "name": .string(candidate.displayName),
+                    ])
+                })
+            }
+            return .err(
+                code: "invalid_params",
+                message: message,
+                data: .object(data)
+            )
         case .workspaceNotFound:
             return .err(code: "not_found", message: "Workspace not found", data: nil)
         case .noSourceSurface:

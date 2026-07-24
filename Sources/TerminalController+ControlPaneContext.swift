@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxBrowser
 import CmuxControlSocket
 import Foundation
 
@@ -166,6 +167,30 @@ extension TerminalController: ControlPaneContext {
             return browserDisabledCreateResolution(rawURL: inputs.urlRaw, url: url, tabManager: tabManager)
         }
 
+        let preferredBrowserProfileID: UUID?
+        if panelType == .browser, let selector = inputs.profileRaw {
+            switch BrowserProfileStore.shared.resolveProfileSelection(selector) {
+            case .matched(let profile):
+                preferredBrowserProfileID = profile.id
+            case .notFound:
+                return .invalidBrowserProfile(
+                    selector: selector,
+                    message: BrowserProfileAutomationError.profileNotFound(selector).description,
+                    candidates: []
+                )
+            case .ambiguous(let profiles):
+                return .invalidBrowserProfile(
+                    selector: selector,
+                    message: BrowserProfileAutomationError.ambiguousProfile(selector, profiles).description,
+                    candidates: profiles.map {
+                        ControlPaneBrowserProfileCandidate(id: $0.id, displayName: $0.displayName)
+                    }
+                )
+            }
+        } else {
+            preferredBrowserProfileID = nil
+        }
+
         let orientation = direction.orientation
         let insertFirst = direction.insertFirst
 
@@ -186,6 +211,7 @@ extension TerminalController: ControlPaneContext {
                 orientation: orientation,
                 insertFirst: insertFirst,
                 initialDividerPosition: initialDividerPosition.map { CGFloat($0) },
+                preferredProfileID: preferredBrowserProfileID,
                 inputs: inputs
             )
         }
@@ -260,6 +286,7 @@ extension TerminalController: ControlPaneContext {
                 orientation: orientation,
                 insertFirst: insertFirst,
                 url: url,
+                preferredProfileID: preferredBrowserProfileID,
                 focus: focus,
                 creationPolicy: .automationPreload,
                 initialDividerPosition: initialDividerPosition.map { CGFloat($0) }

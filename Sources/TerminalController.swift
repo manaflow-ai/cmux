@@ -6514,6 +6514,35 @@ class TerminalController {
             return error
         }
 
+        let preferredProfileID: UUID?
+        if let selector = v2String(params, "profile")
+            ?? v2String(params, "profile_id")
+            ?? v2String(params, "profile_name") {
+            switch BrowserProfileStore.shared.resolveProfileSelection(selector) {
+            case .matched(let profile):
+                preferredProfileID = profile.id
+            case .notFound:
+                return .err(
+                    code: "invalid_params",
+                    message: BrowserProfileAutomationError.profileNotFound(selector).description,
+                    data: ["profile": selector]
+                )
+            case .ambiguous(let profiles):
+                return .err(
+                    code: "invalid_params",
+                    message: BrowserProfileAutomationError.ambiguousProfile(selector, profiles).description,
+                    data: [
+                        "profile": selector,
+                        "candidates": profiles.map {
+                            ["id": $0.id.uuidString, "name": $0.displayName]
+                        },
+                    ]
+                )
+            }
+        } else {
+            preferredProfileID = nil
+        }
+
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create browser", data: nil)
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
@@ -6576,6 +6605,7 @@ class TerminalController {
                     url: url,
                     focus: focus,
                     selectWhenNotFocused: true,
+                    preferredProfileID: preferredProfileID,
                     creationPolicy: .automationPreload,
                     omnibarVisible: omnibarVisible,
                     transparentBackground: transparentBackground,
@@ -6588,6 +6618,7 @@ class TerminalController {
                     from: sourceSurfaceId,
                     orientation: .horizontal,
                     url: url,
+                    preferredProfileID: preferredProfileID,
                     focus: focus,
                     creationPolicy: .automationPreload,
                     omnibarVisible: omnibarVisible,

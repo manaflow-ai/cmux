@@ -29259,13 +29259,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Multiple cmux browser profiles match '%@'. Use the profile ID instead."
+            "value": "Multiple cmux browser profiles match '%@': %@. Use a profile UUID."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "'%@' に一致する cmux ブラウザープロファイルが複数あります。代わりにプロファイル ID を使用してください。"
+            "value": "'%@' に一致する cmux ブラウザープロファイルが複数あります: %@。プロファイル UUID を使用してください。"
           }
         }
       }
@@ -29412,13 +29412,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No cmux browser profile matches '%@'"
+            "value": "No cmux browser profile matches '%@'. Run 'cmux browser profiles' to list available profiles."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "'%@' に一致する cmux ブラウザープロファイルが見つかりません"
+            "value": "'%@' に一致する cmux ブラウザープロファイルが見つかりません。使用可能なプロファイルを表示するには 'cmux browser profiles' を実行してください。"
           }
         }
       }
@@ -32611,6 +32611,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "viewport <width> <height> | reset"
+          }
+        }
+      }
+    },
+    "cli.browser.profile.error.emptySelector": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--profile requires a non-empty profile name or UUID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--profile には空でないプロファイル名または UUID が必要です"
+          }
+        }
+      }
+    },
+    "cli.browser.profile.option": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <名前|UUID>]"
+          }
+        }
+      }
+    },
+    "cli.browser.profiles.marker.lastUsed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "last used"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前回使用"
           }
         }
       }
@@ -43258,6 +43309,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "使い方: cmux mobile set-font <ポイント数> [--surface <id>] [--workspace <id>]"
+          }
+        }
+      }
+    },
+    "cli.newPane.help.profileDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--profile <name|uuid>                Browser profile name or UUID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--profile <名前|UUID>                 ブラウザープロファイル名または UUID"
           }
         }
       }

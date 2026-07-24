@@ -71,7 +71,7 @@ enum BrowserProfileAutomationError: LocalizedError, CustomStringConvertible {
     case missingName
     case missingProfile
     case profileNotFound(String)
-    case ambiguousProfile(String)
+    case ambiguousProfile(String, [BrowserProfileDefinition])
     case profileCreationFailed(String)
     case profileRenameFailed(String)
     case cannotDeleteDefaultProfile
@@ -95,17 +95,21 @@ enum BrowserProfileAutomationError: LocalizedError, CustomStringConvertible {
             return String.localizedStringWithFormat(
                 String(
                     localized: "browser.profile.automation.error.profileNotFound",
-                    defaultValue: "No cmux browser profile matches '%@'"
+                    defaultValue: "No cmux browser profile matches '%@'. Run 'cmux browser profiles' to list available profiles."
                 ),
                 query
             )
-        case .ambiguousProfile(let query):
+        case .ambiguousProfile(let query, let candidates):
+            let candidateList = candidates
+                .map { "\($0.displayName) (\($0.id.uuidString))" }
+                .joined(separator: ", ")
             return String.localizedStringWithFormat(
                 String(
                     localized: "browser.profile.automation.error.ambiguousProfile",
-                    defaultValue: "Multiple cmux browser profiles match '%@'. Use the profile ID instead."
+                    defaultValue: "Multiple cmux browser profiles match '%@': %@. Use a profile UUID."
                 ),
-                query
+                query,
+                candidateList
             )
         case .profileCreationFailed(let name):
             return String.localizedStringWithFormat(
@@ -329,7 +333,7 @@ enum BrowserProfileAutomation {
                 $0.displayName.localizedCaseInsensitiveCompare(normalized) == .orderedSame
         }
         if matches.count > 1 {
-            throw BrowserProfileAutomationError.ambiguousProfile(query)
+            throw BrowserProfileAutomationError.ambiguousProfile(query, matches)
         }
         return matches.first
     }
