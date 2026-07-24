@@ -41,12 +41,11 @@ extension DockSplitStore {
                 )
             }
         let persistedPanelIds = Set(panelSnapshots.map(\.id))
-        let sourceWorkspaceIdsByPanelId: [UUID: UUID] = Dictionary(
-            uniqueKeysWithValues: panelSnapshots.compactMap { panel -> (UUID, UUID)? in
-                guard let transfer = detachedSurfaceTransfersByPanelId[panel.id] else { return nil }
-                return (panel.id, transfer.sessionRestoreWorkspaceId)
-            }
-        )
+        let sourceWorkspaceIdsByPanelId = Dictionary(uniqueKeysWithValues: panelSnapshots.compactMap {
+            panel -> (UUID, UUID)? in
+            guard let transfer = detachedSurfaceTransfersByPanelId[panel.id] else { return nil }
+            return (panel.id, transfer.sessionRestoreWorkspaceId)
+        })
         let layout = layoutCodec.pruned(
             rawLayout,
             keeping: persistedPanelIds
