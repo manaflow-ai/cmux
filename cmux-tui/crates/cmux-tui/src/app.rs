@@ -917,10 +917,6 @@ impl OrderedSession {
         }
     }
 
-    fn pending_mutation(&self) -> PendingSessionMutation {
-        self.pending_mutation_with_impact(MutationImpact::Ordered)
-    }
-
     fn pending_mutation_with_impact(&self, impact: MutationImpact) -> PendingSessionMutation {
         self.pending_mutations.fetch_add(1, Ordering::AcqRel);
         if impact.blocks_pointer() {
@@ -1106,7 +1102,7 @@ impl OrderedSession {
         let attach_failures = self.surface_attach_failures.clone();
         let enqueue_failures = attach_failures.clone();
         let remote = self.remote;
-        let pending = self.pending_mutation();
+        let pending = self.pending_mutation_with_impact(MutationImpact::PointerMap);
         let superseded = pending.clone();
         let settlement = pending.clone();
         let enqueue_result = self.operations.enqueue_coalescing_mutation_with_settlement(
@@ -1516,7 +1512,7 @@ impl OrderedSession {
         operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
     ) {
         let session = self.inner.clone();
-        let pending = self.pending_mutation();
+        let pending = self.pending_mutation_with_impact(MutationImpact::PointerMap);
         let remote = self.remote;
         let committed_mutation_generation = self.committed_mutation_generation.clone();
         let superseded = pending.clone();
@@ -1546,7 +1542,7 @@ impl OrderedSession {
 
     fn release_surface_size(&self, surface: SurfaceId) -> bool {
         let session = self.inner.clone();
-        let pending = self.pending_mutation();
+        let pending = self.pending_mutation_with_impact(MutationImpact::PointerMap);
         pending.cancel_with(SessionMutationOutcome::SurfaceSizeReleaseCanceled { surface });
         let committed_mutation_generation = self.committed_mutation_generation.clone();
         let superseded = pending.clone();
@@ -1584,7 +1580,7 @@ impl OrderedSession {
         reassert: bool,
         claim: SurfaceResizeClaim,
     ) {
-        let pending = self.pending_mutation();
+        let pending = self.pending_mutation_with_impact(MutationImpact::PointerMap);
         let failures = self.surface_resize_failures.clone();
         let enqueue_failures = failures.clone();
         let committed_mutation_generation = self.committed_mutation_generation.clone();
@@ -1773,7 +1769,7 @@ impl OrderedSession {
         };
         let session = self.inner.clone();
         let events = self.events.clone();
-        let pending = self.pending_mutation();
+        let pending = self.pending_mutation_with_impact(MutationImpact::PointerMap);
         let superseded = pending.clone();
         let settlement = pending.clone();
         let committed_mutation_generation = self.committed_mutation_generation.clone();
@@ -5598,6 +5594,7 @@ impl App {
                     }),
                 )?;
                 action = action.merge(pointer_action);
+                action = action.merge(self.process_machine_requests());
                 // A missing mirror can retain the same logical input again.
                 // Stop here so later sequences cannot overtake it.
                 if self.retains_input_sequence(pointer.sequence) {
@@ -5647,6 +5644,7 @@ impl App {
             let input_action =
                 self.handle_replayed_input(input.event, input.sequence, Some(replay_context))?;
             action = action.merge(input_action);
+            action = action.merge(self.process_machine_requests());
             // A missing mirror can retain the same logical input again.
             // Stop here so later sequences cannot overtake it.
             if self.retains_input_sequence(input.sequence) {
@@ -6612,7 +6610,11 @@ impl App {
                                     .and_then(|admission| admission.pairing_request),
                             );
                         }
-                        return Ok(RenderAction::Paint);
+                        // Parsing will release the semantic lock and normally
+                        // wake us through SurfaceOutput. The idle replay tick
+                        // is the bounded fallback, so do not synchronously
+                        // paint through the same blocking terminal lock.
+                        return Ok(RenderAction::None);
                     }
                 }
             }
@@ -7346,10 +7348,76 @@ impl App {
         let sequence = replay_sequence.unwrap_or_else(|| self.next_deferred_input_sequence());
         let focus_generation = replay_focus_generation.unwrap_or(self.pointer_focus_generation);
         let destination = self.input_destination(&Event::Mouse(event));
-        if self.pending_pointer_motion.is_none_or(|pending| pending.sequence <= sequence) {
-            self.pending_pointer_motion =
-                Some(PendingPointerMotion { event, destination, focus_generation, sequence });
+        let retained = PendingPointerMotion { event, destination, focus_generation, sequence };
+        let Some(pending) = self.pending_pointer_motion else {
+            self.pending_pointer_motion = Some(retained);
+            return;
+        };
+        if pending.sequence == sequence {
+            self.pending_pointer_motion = Some(retained);
+            return;
         }
+        let (earlier, later) = if pending.sequence < sequence {
+            (pending.sequence, sequence)
+        } else {
+            (sequence, pending.sequence)
+        };
+        let has_discrete_barrier = self.deferred_input.iter().any(|input| {
+            input.sequence > earlier
+                && input.sequence < later
+                && !matches!(
+                    input.event,
+                    Event::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. })
+                )
+        });
+        if !has_discrete_barrier {
+            if pending.sequence < sequence {
+                self.pending_pointer_motion = Some(retained);
+            }
+            return;
+        }
+        if pending.sequence < sequence {
+            if self.spill_retained_pointer_motion(pending) {
+                self.pending_pointer_motion = Some(retained);
+            }
+        } else if !self.spill_retained_pointer_motion(retained) {
+            // Under queue pressure preserve the earlier motion before its
+            // discrete barrier and discard the newer passive sample.
+            self.pending_pointer_motion = Some(retained);
+        }
+    }
+
+    fn spill_retained_pointer_motion(&mut self, pending: PendingPointerMotion) -> bool {
+        let queued_bytes = self
+            .deferred_input
+            .iter()
+            .map(|input| deferred_input_bytes(&input.event))
+            .sum::<usize>();
+        if self.deferred_input.len() >= DEFERRED_INPUT_CAPACITY
+            || queued_bytes.saturating_add(DEFERRED_INPUT_FIXED_BYTES) > MAX_DEFERRED_INPUT_BYTES
+        {
+            return false;
+        }
+        let input = DeferredInput {
+            event: Event::Mouse(pending.event),
+            destination: pending.destination,
+            destination_intent: None,
+            sidebar_focus_intent: false,
+            pairing_request: None,
+            pointer: Some(DeferredPointerInput {
+                focus_generation: pending.focus_generation,
+                pointer_map_generation: self.rendered_pointer_frame.pointer_map_generation,
+                route: None,
+            }),
+            sequence: pending.sequence,
+        };
+        let index = self
+            .deferred_input
+            .iter()
+            .position(|queued| queued.sequence > pending.sequence)
+            .unwrap_or(self.deferred_input.len());
+        self.deferred_input.insert(index, input);
+        true
     }
 
     fn mouse_requires_rendered_route(kind: MouseEventKind) -> bool {
@@ -16542,7 +16610,7 @@ mod tests {
     #[test]
     fn terminal_geometry_mutations_enter_the_pointer_routing_lane() {
         let (mux, surface) = test_mux("terminal-geometry-routing-test", None);
-        let (app, _events) = test_app_with_events(Session::Local(mux.clone()));
+        let (app, _events) = test_app_with_events(Session::Local(mux));
         let (started_tx, started_rx) = std::sync::mpsc::channel();
         let (release_tx, release_rx) = std::sync::mpsc::channel();
         app.session.operations.enqueue_session_mutation(
@@ -16854,7 +16922,10 @@ mod tests {
         assert_eq!(app.hover, None);
         assert!(app.pending_pointer_motion.is_some());
         assert!(app.session.has_pending_mutations());
-        assert!(!app.session.has_pending_pointer_mutations());
+        assert!(
+            app.session.has_pending_pointer_mutations(),
+            "sidebar plugin attachment can replace the rendered pointer owner"
+        );
         assert_eq!(app.pointer_route_phase, PointerRoutePhase::DrawPending);
 
         release_tx.send(()).unwrap();
