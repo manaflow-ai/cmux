@@ -13,10 +13,11 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The submodule pinned by this branch is
-`188d31a97733fe6717acf8203f76a8bb20cddc19`, which is on
-`manaflow-ai/ghostty` `main`. The latest renderer scheduling fix landed through
-https://github.com/manaflow-ai/ghostty/pull/135; the cumulative external
-frontend integration landed through
+`994fee1b053820dc6a93658901024289372a6a5c`, the current
+`manaflow-ai/ghostty` `main`. The complete renderer scheduling hardening landed
+through https://github.com/manaflow-ai/ghostty/pull/136 after the initial
+bounded-turn fix in https://github.com/manaflow-ai/ghostty/pull/135. The
+cumulative external frontend integration landed through
 https://github.com/manaflow-ai/ghostty/pull/128, and the earlier stacked PRs
 https://github.com/manaflow-ai/ghostty/pull/127,
 https://github.com/manaflow-ai/ghostty/pull/123, and
@@ -28,12 +29,16 @@ fixes described below. It also bounds each renderer mailbox drain turn so
 continuous producers cannot starve lifecycle processing or rendering.
 
 Its universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-188d31a97733fe6717acf8203f76a8bb20cddc19-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-994fee1b053820dc6a93658901024289372a6a5c-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
 
-### Bounded renderer mailbox turns
+### Bounded renderer mailbox turns and continuation recovery
 
-- Commit: `188d31a97` (fix: bound renderer mailbox drain turns)
+- Commits:
+  - `188d31a97` (fix: bound renderer mailbox drain turns)
+  - `18c3fd311` (renderer: preserve progress across wake errors)
+  - `727a7dc02` (fix: drain external renderer continuations)
+  - `994fee1b0` (merge the complete bounded-drain follow-up)
 - Files:
   - `src/datastruct/blocking_queue.zig`
   - `src/renderer/Thread.zig`
@@ -43,11 +48,18 @@ and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
     next turn.
   - Applies latest-value lifecycle state and performs the pending render after
     every bounded batch, even when terminal output keeps refilling the mailbox.
-  - Explicitly re-wakes the renderer when work arrived during the batch because
-    producer notifications may have coalesced with the wake being handled.
+  - Rechecks after rendering and explicitly re-wakes the normal renderer when
+    work arrived during either the drain or render, because producer
+    notifications may have coalesced with the wake being handled.
+  - External iOS rendering, which permanently disables the xev callback, drains
+    each finite continuation batch until quiescent on its serial render queue.
+  - Restores failed focus/display lifecycle requests only when their atomic
+    slots are still empty, preserving newer concurrent publications and making
+    focus application transactional for a later retry.
   - Conflict note: future renderer-loop changes must preserve bounded progress
-    for lifecycle state and rendering. Do not replace the snapshot drain with
-    an unbounded drain-until-empty loop.
+    for lifecycle state and rendering, normal-path post-render re-wakes, and
+    external-path continuation consumption. Do not replace the snapshot drain
+    with an unbounded producer-refillable drain-until-empty loop.
 
 ### External frontend rendering and recovery
 
