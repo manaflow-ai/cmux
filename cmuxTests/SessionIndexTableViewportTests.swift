@@ -168,6 +168,7 @@ struct SessionIndexTableViewportTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.contentView = host
         host.frame = window.contentView?.bounds ?? .zero
         host.layoutSubtreeIfNeeded()
