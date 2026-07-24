@@ -491,6 +491,56 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 result.stdout,
             )
 
+    def test_python_executable_expressions_are_scanned(self) -> None:
+        positive = self.run_checker(
+            {
+                "f-string.py": (
+                    'rendered = f"{time.sleep(0.01)}"\n'
+                    "assert finished\n"
+                ),
+                "default-argument.py": (
+                    "def helper(value=time.sleep(0.01)):\n"
+                    "    return value\n"
+                    "assert finished\n"
+                ),
+            }
+        )
+
+        self.assertEqual(
+            positive.returncode,
+            1,
+            positive.stdout + positive.stderr,
+        )
+        for relative_path in ("f-string.py", "default-argument.py"):
+            self.assertIn(
+                f"fixtures/{relative_path}:1: sleep-then-assert:",
+                positive.stdout,
+            )
+
+    def test_python_statements_rebind_aliases_in_order(self) -> None:
+        negative = self.run_checker(
+            {
+                "module-alias-rebound.py": (
+                    "import time as clock; clock = fake; clock.sleep(0.01)\n"
+                    "assert finished\n"
+                ),
+                "function-alias-rebound.py": (
+                    "from time import sleep as pause; pause = fake; pause(0.01)\n"
+                    "assert finished\n"
+                ),
+            }
+        )
+
+        self.assertEqual(
+            negative.returncode,
+            0,
+            negative.stdout + negative.stderr,
+        )
+        self.assertIn(
+            "test-determinism: 0 active finding(s)",
+            negative.stdout,
+        )
+
     def test_sleep_text_inside_strings_and_comments_remains_silent(self) -> None:
         result = self.run_checker(
             {
