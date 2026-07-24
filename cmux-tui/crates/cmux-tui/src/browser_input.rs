@@ -176,6 +176,13 @@ pub(crate) struct BlockedBrowserInput {
     _rx: Receiver<SequencedBrowserInputEvent>,
 }
 
+#[cfg(test)]
+impl BlockedBrowserInput {
+    pub(crate) fn recv_timeout(&self, timeout: Duration) -> Option<BrowserInputEvent> {
+        self._rx.recv_timeout(timeout).ok().map(|event| event.event)
+    }
+}
+
 impl BrowserInputDispatcher {
     pub fn spawn(
         on_resize_failure: impl Fn(BrowserResizeFailure) + Send + Sync + 'static,

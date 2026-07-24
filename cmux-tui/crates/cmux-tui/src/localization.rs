@@ -3,6 +3,8 @@ use std::sync::OnceLock;
 
 use unicode_width::UnicodeWidthStr;
 
+use crate::config::Action;
+
 const FOREIGN_VIEWPORT_HINT_CAPACITY: usize = 64;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -17,6 +19,48 @@ pub(crate) struct PairingMessages {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ForeignViewportMessages {
     pub terminal_grid: &'static str,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct MenuMessages {
+    pub maximize_pane: &'static str,
+    pub restore_pane_layout: &'static str,
+    pub show_sidebar: &'static str,
+    pub hide_sidebar: &'static str,
+    pub compact_sidebar: &'static str,
+    pub full_sidebar: &'static str,
+    pub focus_sidebar: &'static str,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct ShortcutMessages {
+    pub title: &'static str,
+    pub close_button: &'static str,
+    pub footer: &'static str,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct AttachMessages {
+    unknown_terminal_prefix: &'static str,
+    unknown_terminal_suffix: &'static str,
+    ambiguous_terminal_prefix: &'static str,
+    ambiguous_terminal_suffix: &'static str,
+    browser_terminal_prefix: &'static str,
+    browser_terminal_suffix: &'static str,
+}
+
+impl AttachMessages {
+    pub fn unknown_terminal(&self, reference: &str) -> String {
+        format!("{}{reference:?}{}", self.unknown_terminal_prefix, self.unknown_terminal_suffix)
+    }
+
+    pub fn ambiguous_terminal(&self, reference: &str) -> String {
+        format!("{}{reference:?}{}", self.ambiguous_terminal_prefix, self.ambiguous_terminal_suffix)
+    }
+
+    pub fn browser_not_terminal(&self, reference: &str) -> String {
+        format!("{}{reference:?}{}", self.browser_terminal_prefix, self.browser_terminal_suffix)
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -130,12 +174,24 @@ const fn decimal_width(mut value: u16) -> usize {
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Catalog {
+    japanese: bool,
     pub pairing: PairingMessages,
     pub foreign_viewport: ForeignViewportMessages,
+    pub menu: MenuMessages,
+    pub shortcuts: ShortcutMessages,
+    pub attach: AttachMessages,
     pub sidebar: SidebarMessages,
 }
 
+impl Catalog {
+    pub fn action_label(&self, action: Action) -> &'static str {
+        let definition = action.definition();
+        if self.japanese { definition.label_ja } else { definition.label_en }
+    }
+}
+
 static ENGLISH: Catalog = Catalog {
+    japanese: false,
     pairing: PairingMessages {
         title: "Approve browser?",
         confirm: "Confirm this code matches the browser:",
@@ -144,6 +200,28 @@ static ENGLISH: Catalog = Catalog {
         approve: "[ Approve enter ]",
     },
     foreign_viewport: ForeignViewportMessages { terminal_grid: "terminal grid" },
+    menu: MenuMessages {
+        maximize_pane: "Maximize pane",
+        restore_pane_layout: "Restore pane layout",
+        show_sidebar: "Show sidebar",
+        hide_sidebar: "Hide sidebar",
+        compact_sidebar: "Use compact sidebar",
+        full_sidebar: "Use full sidebar",
+        focus_sidebar: "Focus sidebar",
+    },
+    shortcuts: ShortcutMessages {
+        title: "Keyboard shortcuts",
+        close_button: "Esc close",
+        footer: "↑/↓ or wheel scroll · Esc or ? close",
+    },
+    attach: AttachMessages {
+        unknown_terminal_prefix: "unknown terminal ",
+        unknown_terminal_suffix: "; use `cmux-tui ids` to list surfaces",
+        ambiguous_terminal_prefix: "ambiguous terminal reference ",
+        ambiguous_terminal_suffix: "; use an unambiguous id from `cmux-tui ids`",
+        browser_terminal_prefix: "surface ",
+        browser_terminal_suffix: " is a browser, not a terminal",
+    },
     sidebar: SidebarMessages {
         machines: "machines",
         workspaces: "workspaces",
@@ -216,6 +294,7 @@ static ENGLISH: Catalog = Catalog {
 };
 
 static JAPANESE: Catalog = Catalog {
+    japanese: true,
     pairing: PairingMessages {
         title: "ブラウザを承認しますか？",
         confirm: "ブラウザのコードと一致するか確認:",
@@ -224,6 +303,28 @@ static JAPANESE: Catalog = Catalog {
         approve: "[ 承認 enter ]",
     },
     foreign_viewport: ForeignViewportMessages { terminal_grid: "端末グリッド" },
+    menu: MenuMessages {
+        maximize_pane: "ペインを最大化",
+        restore_pane_layout: "ペイン配置を復元",
+        show_sidebar: "サイドバーを表示",
+        hide_sidebar: "サイドバーを隠す",
+        compact_sidebar: "サイドバーをコンパクト表示",
+        full_sidebar: "サイドバーを通常表示",
+        focus_sidebar: "サイドバーにフォーカス",
+    },
+    shortcuts: ShortcutMessages {
+        title: "キーボードショートカット",
+        close_button: "Esc 閉じる",
+        footer: "↑/↓ またはホイールでスクロール · Esc または ? で閉じる",
+    },
+    attach: AttachMessages {
+        unknown_terminal_prefix: "ターミナル ",
+        unknown_terminal_suffix: " が見つかりません。`cmux-tui ids` でサーフェス一覧を確認してください",
+        ambiguous_terminal_prefix: "ターミナル参照 ",
+        ambiguous_terminal_suffix: " は曖昧です。`cmux-tui ids` に表示される一意の ID を使用してください",
+        browser_terminal_prefix: "サーフェス ",
+        browser_terminal_suffix: " はブラウザであり、ターミナルではありません",
+    },
     sidebar: SidebarMessages {
         machines: "マシン",
         workspaces: "ワークスペース",
@@ -320,6 +421,26 @@ mod tests {
         assert_eq!(catalog_for_locale("en_US.UTF-8"), &ENGLISH);
         assert_eq!(catalog_for_locale("ja_JP.UTF-8"), &JAPANESE);
         assert_eq!(catalog_for_locale("C"), &ENGLISH);
+        assert_eq!(ENGLISH.menu.maximize_pane, "Maximize pane");
+        assert_eq!(JAPANESE.menu.maximize_pane, "ペインを最大化");
+        assert_eq!(ENGLISH.action_label(Action::NewPaneSmart), "New pane");
+        assert_eq!(JAPANESE.action_label(Action::NewPaneSmart), "新しいペイン");
+        assert_eq!(ENGLISH.shortcuts.title, "Keyboard shortcuts");
+        assert_eq!(JAPANESE.shortcuts.title, "キーボードショートカット");
+        assert_eq!(ENGLISH.shortcuts.close_button, "Esc close");
+        assert_eq!(JAPANESE.shortcuts.close_button, "Esc 閉じる");
+        assert_eq!(
+            ENGLISH.attach.unknown_terminal("missing"),
+            "unknown terminal \"missing\"; use `cmux-tui ids` to list surfaces"
+        );
+        assert_eq!(
+            JAPANESE.attach.ambiguous_terminal("000010"),
+            "ターミナル参照 \"000010\" は曖昧です。`cmux-tui ids` に表示される一意の ID を使用してください"
+        );
+        assert_eq!(
+            JAPANESE.attach.browser_not_terminal("browser"),
+            "サーフェス \"browser\" はブラウザであり、ターミナルではありません"
+        );
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_provider_disconnected,
             "マシンプロバイダーから切断されました。再接続しています"

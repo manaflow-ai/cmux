@@ -211,6 +211,7 @@ dependencies = [
  "getrandom 0.3.4",
  "ghostty-vt",
  "libc",
+ "parking_lot",
  "ratatui",
  "serde",
  "serde_json",
