@@ -2563,6 +2563,26 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
+    func testGhosttyConfigDoesNotRetainWorkspaceFontIncreaseEqualizeFallback() throws {
+        // cmux owns Cmd+Ctrl+= through KeyboardShortcutSettings. Ghostty's
+        // built-in super+ctrl+= = equalize_splits fallback must be unbound so
+        // rebinding or clearing the cmux action releases the key to the terminal.
+        guard let ghosttyConfig = GhosttyApp.shared.config else {
+            XCTFail("Expected loaded Ghostty config")
+            return
+        }
+
+        XCTAssertFalse(
+            ghosttyConfigKeyIsBinding(
+                ghosttyConfig,
+                key: "=",
+                modifiers: [.command, .control],
+                keyCode: UInt32(kVK_ANSI_Equal)
+            ),
+            "Ghostty must not retain its Cmd+Ctrl+= equalize_splits fallback"
+        )
+    }
+
     func testRebindingSelectWorkspaceByNumberHonorsNewModifierAndDropsDefault() {
         // Companion to testGhosttyConfigDoesNotRetainNumberedGotoTabFallback (#5189):
         // the cmux routing layer must drive the numbered shortcut from the configured
