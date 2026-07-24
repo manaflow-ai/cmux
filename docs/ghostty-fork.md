@@ -13,8 +13,10 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The submodule pinned by this branch is
-`c55514dd52d806e9aa661ee20381aa19c91c1c09`, the current
-`manaflow-ai/ghostty` `main`. The cumulative integration landed through
+`f6b47c8371991a4555f907737e808f161c368661`, the current
+`manaflow-ai/ghostty` `main`. Unindented hard-newline link continuations landed
+through https://github.com/manaflow-ai/ghostty/pull/134 on top of the cumulative
+integration from
 https://github.com/manaflow-ai/ghostty/pull/128; the earlier stacked PRs
 https://github.com/manaflow-ai/ghostty/pull/127,
 https://github.com/manaflow-ai/ghostty/pull/123, and
@@ -23,10 +25,6 @@ The resulting main line supplies the external-frontend renderer contract used
 by cmux Browser, exact cursor state for process-separated terminal mirrors,
 mutable-default color reset semantics, and the product-main renderer/link
 fixes described below.
-
-Its universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-c55514dd52d806e9aa661ee20381aa19c91c1c09-crashsubdir-cmux-crash-v1
-and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### External frontend rendering and recovery
 
@@ -115,6 +113,39 @@ The older `b211341be` universal ReleaseFast archive remains published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b211341be1ba902e772f57fc67c3e65d35205676-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt` for reproducibility of older
 cmux revisions.
+
+### Unindented hard-newline link continuations
+
+- Commits:
+  - `bde834169` (test: cover unindented wrapped links)
+  - `823641e23` (fix: join unindented wrapped links)
+  - `f6b47c837` (merge Ghostty PR #134 into fork `main`)
+- Files:
+  - `src/Surface.zig`
+  - `src/link.zig`
+  - `src/link_wrap.zig`
+- Summary:
+  - Extends the shared exact-target resolver to recognize real-newline
+    continuations with zero indentation after URL/path break punctuation.
+    Agent TUIs commonly emit this shape when wrapping long links inside their
+    own content width.
+  - Uses one continuation classifier for terminal-grid expansion and
+    newline/indentation removal, so clicks, hover, preview, and copy cannot
+    disagree about the reconstructed value or its exact terminal cells.
+  - Preserves explicit-root and scheme boundaries, semantic prompt
+    transitions, sentence-ending punctuation, and the conservative indented
+    bare-relative-path guard.
+  - Covers the exact markdown-prefixed three-row `.app` path from
+    https://github.com/manaflow-ai/cmux/issues/8810, including spaces and a
+    hard wrap inside `fix-split`, from clicks on every row. Also covers the
+    remaining hard-wrapped long-URL case from
+    https://github.com/manaflow-ai/cmux/issues/8583 and keeps the soft-wrapped
+    `file://` regression from
+    https://github.com/manaflow-ai/cmux/issues/4675 green.
+  - Conflict note: future link-boundary changes must keep grid expansion and
+    normalized bytes on the same classifier. Reconstructing only in an
+    embedding app is invalid because the `OPEN_URL` action no longer carries
+    terminal-grid or wrap metadata.
 
 ### Indented hard-newline link continuations
 
