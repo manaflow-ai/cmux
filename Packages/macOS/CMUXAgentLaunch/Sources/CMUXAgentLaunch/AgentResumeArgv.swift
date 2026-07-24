@@ -255,15 +255,25 @@ public struct AgentResumeArgv: Sendable, Equatable {
         guard let executableIndex = commandExecutableIndex(parts) else {
             return parts.map(quote)
         }
+        let executable = parts[executableIndex]
+        let routesThroughCodexWrapper = executable == "codex"
+            || (
+                executable.hasPrefix("/")
+                && (executable as NSString).lastPathComponent == "codex"
+            )
         var rendered: [String] = []
         for (index, part) in parts.enumerated() {
             let isBareCodex = part == "codex"
             let isAbsoluteCodex = part.hasPrefix("/")
                 && (part as NSString).lastPathComponent == "codex"
+            if index == 0, part == "env", routesThroughCodexWrapper {
+                rendered.append(quote("/usr/bin/env"))
+                continue
+            }
             if index == executableIndex, isBareCodex || isAbsoluteCodex {
                 if isAbsoluteCodex {
                     if rendered.isEmpty {
-                        rendered.append(quote("env"))
+                        rendered.append(quote("/usr/bin/env"))
                     }
                     rendered.append(quote("\(codexCustomExecutableEnvironmentKey)=\(part)"))
                 }

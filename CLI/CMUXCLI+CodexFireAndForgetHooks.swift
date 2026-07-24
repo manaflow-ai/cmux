@@ -115,7 +115,7 @@ extension CMUXCLI {
         else {
             return []
         }
-        guard let projectTrustConfiguration = codexEffectiveProjectTrustConfiguration(
+        guard let projectDecisions = codexEffectiveProjectDecisionPaths(
             environment: environment,
             appServerConfigurationArguments: appServerConfigurationArguments,
             currentDirectory: effectiveDirectory,
@@ -127,9 +127,7 @@ extension CMUXCLI {
             arguments: arguments,
             currentDirectory: currentDirectory,
             repositoryRoot: codexCommonRepositoryRoot(currentDirectory: effectiveDirectory),
-            effectiveProjectDecisionPaths: projectTrustConfiguration
-                .projectDecisionPaths,
-            projectRootMarkers: projectTrustConfiguration.projectRootMarkers
+            effectiveProjectDecisionPaths: projectDecisions
         )
     }
 
@@ -146,12 +144,12 @@ extension CMUXCLI {
         return decoded.count == arguments.count ? decoded : nil
     }
 
-    private func codexEffectiveProjectTrustConfiguration(
+    private func codexEffectiveProjectDecisionPaths(
         environment: [String: String],
         appServerConfigurationArguments: [String],
         currentDirectory: String,
         policy: CodexResumeTrustPolicy
-    ) -> CodexEffectiveProjectTrustConfiguration? {
+    ) -> Set<String>? {
         guard let executablePath = normalizedHookValue(
             environment["CMUX_AGENT_LAUNCH_EXECUTABLE"]
         ),
@@ -162,9 +160,9 @@ extension CMUXCLI {
             return nil
         }
 
-        func readProjectTrustConfiguration(
+        func readProjectDecisions(
             configurationArguments: [String]
-        ) -> CodexEffectiveProjectTrustConfiguration? {
+        ) -> Set<String>? {
             let result = CLIProcessRunner.runJSONLinesProcess(
                 executablePath: executablePath,
                 arguments: configurationArguments + ["app-server", "--stdio"],
@@ -176,7 +174,7 @@ extension CMUXCLI {
             guard result.status == 0, !result.timedOut else {
                 return nil
             }
-            return policy.effectiveProjectTrustConfiguration(
+            return policy.effectiveProjectDecisionPaths(
                 appServerOutput: result.stdout,
                 responseID: 2
             )
@@ -192,13 +190,13 @@ extension CMUXCLI {
                 "-c",
                 "model_catalog_json=\(modelCatalogPath)",
             ]
-            if let configuration = readProjectTrustConfiguration(
+            if let decisions = readProjectDecisions(
                 configurationArguments: isolatedConfigurationArguments
             ) {
-                return configuration
+                return decisions
             }
         }
-        return readProjectTrustConfiguration(
+        return readProjectDecisions(
             configurationArguments: appServerConfigurationArguments
         )
     }

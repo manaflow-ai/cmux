@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # cmux codex wrapper - per-invocation Codex hook injection + launch detection.
 #
 # When running inside a cmux terminal (CMUX_SURFACE_ID is set), this wrapper
@@ -17,6 +17,15 @@
 # Deliberately NOT using `set -e`/`set -u`: a wrapper that aborts on any error
 # would break the user's `codex`. Each helper handles its own failures and the
 # script always reaches an `exec "$REAL_CODEX"`.
+
+# Keep the user's original lookup path solely for resolving the Codex command
+# they asked to run. Every utility used by this unattended trust-boundary
+# wrapper resolves from macOS system paths, so a project-controlled PATH cannot
+# replace bash, dirname, base64, nohup, mktemp, or another helper before Codex's
+# project decision applies.
+cmux_codex_lookup_path="${PATH:-}"
+PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+export PATH
 
 cmux_codex_wrapper_is_self_or_shim() {
     local candidate="$1"
@@ -59,7 +68,7 @@ find_real_codex() {
     local self_dir
     self_dir="$(cd "$(dirname "$0")" && pwd)"
     local IFS=:
-    for d in $PATH; do
+    for d in $cmux_codex_lookup_path; do
         [[ "$d" == "$self_dir" ]] && continue
         local candidate="$d/codex"
         cmux_codex_wrapper_is_self_or_shim "$candidate" && continue
@@ -330,6 +339,12 @@ fi
 # binary would (same as the claude wrapper) rather than silently succeeding.
 REAL_CODEX="$(find_real_codex)" || { echo "Error: codex not found in PATH" >&2; exit 127; }
 
+exec_real_codex() {
+    PATH="$cmux_codex_lookup_path"
+    export PATH
+    exec "$REAL_CODEX" "$@"
+}
+
 exec_real_codex_passthrough() {
     if [[ "$IN_CMUX" == "1" ]]; then
         local cmux_key
@@ -338,7 +353,7 @@ exec_real_codex_passthrough() {
         done
         unset TERMINFO
     fi
-    exec "$REAL_CODEX" "$@"
+    exec_real_codex "$@"
 }
 
 # Opt-out, outside cmux, or stale/dead socket: pass straight through.
@@ -508,19 +523,19 @@ if cmux_codex_read_inject_args; then
                 fi
             done
             if (( cmux_codex_resume_terminator >= 0 )); then
-                exec "$REAL_CODEX" \
+                exec_real_codex \
                     "${cmux_codex_injected_args[@]}" \
                     "${cmux_codex_user_args[@]:0:$cmux_codex_resume_terminator}" \
                     "${cmux_codex_resume_args[@]}" \
                     "${cmux_codex_user_args[@]:$cmux_codex_resume_terminator}"
             fi
-            exec "$REAL_CODEX" \
+            exec_real_codex \
                 "${cmux_codex_injected_args[@]}" \
                 "$@" \
                 "${cmux_codex_resume_args[@]}"
         fi
     fi
-    exec "$REAL_CODEX" "${cmux_codex_injected_args[@]}" "$@"
+    exec_real_codex "${cmux_codex_injected_args[@]}" "$@"
 fi
 
 # Emit failed or returned nothing: never break codex, just pass through.

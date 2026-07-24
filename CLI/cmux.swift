@@ -760,6 +760,46 @@ final class ClaudeHookSessionStore {
         }
     }
 
+    /// Makes an explicit wrapper-owned Codex PID authoritative before a
+    /// lifecycle hook mutates turn state. A resumed process can publish
+    /// UserPromptSubmit or Stop before the wrapper's asynchronous SessionStart
+    /// rebind arrives. Promote that newer generation here so the later
+    /// SessionStart is a same-process duplicate, while rejecting hooks from an
+    /// older process after the promotion.
+    @discardableResult
+    func prepareCodexProcessEventIfFresh(
+        sessionId: String,
+        incomingPID: Int
+    ) throws -> Bool {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return false }
+        return try withLockedState { state in
+            guard var record = state.sessions[normalized] else {
+                return true
+            }
+            switch resumedProcessGenerationRelation(
+                incomingPID: incomingPID,
+                to: record
+            ) {
+            case .same:
+                return true
+            case .newer, .legacyDeadOwner:
+                guard let identity = processStartIdentity(pid: incomingPID) else {
+                    return false
+                }
+                clearCodexSessionStartTurnState(on: &record)
+                record.pid = incomingPID
+                record.pidStartSeconds = identity.seconds
+                record.pidStartMicroseconds = identity.microseconds
+                record.updatedAt = Date().timeIntervalSince1970
+                state.sessions[normalized] = record
+                return true
+            case .older, .indeterminate:
+                return false
+            }
+        }
+    }
+
     @discardableResult
     func upsertCodexSessionStartIfFresh(
         sessionId: String,
@@ -30205,7 +30245,11 @@ export default CMUXSessionRestore;
         // Workspace/surface resolution: prefer --workspace/--surface flags,
         // then env, then the caller process. Grok strips CMUX_* from hook
         // subprocesses, so PID attribution is the only reliable live binding.
-        let inferredPID = agentPIDFromHookEnvironment(agentName: def.name, env: env) ?? inferredAgentPID()
+        let hookEnvironmentPID = agentPIDFromHookEnvironment(
+            agentName: def.name,
+            env: env
+        )
+        let inferredPID = hookEnvironmentPID ?? inferredAgentPID()
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let directWorkspaceArg = hookWsFlag ?? normalizedHookValue(env["CMUX_WORKSPACE_ID"])
         let explicitSurfaceFlag = optionValue(hookArgs, name: "--surface")
@@ -30302,6 +30346,36 @@ export default CMUXSessionRestore;
 #endif
         let pidKey = "\(def.statusKey).\(sessionId.isEmpty ? "default" : sessionId)"
         var didSendFeedTelemetry = false
+        func preparedMappedSession() -> (
+            record: ClaudeHookSessionRecord?,
+            accepted: Bool
+        ) {
+            let mapped = sessionId.isEmpty
+                ? nil
+                : (try? store.lookup(sessionId: sessionId))
+            guard def.name == "codex",
+                  !sessionId.isEmpty,
+                  let hookEnvironmentPID else {
+                return (mapped, true)
+            }
+            guard (
+                try? store.prepareCodexProcessEventIfFresh(
+                    sessionId: sessionId,
+                    incomingPID: hookEnvironmentPID
+                )
+            ) == true else {
+                return (mapped, false)
+            }
+            return (
+                try? store.lookup(sessionId: sessionId),
+                true
+            )
+        }
+        func rejectStaleCodexProcessEvent() {
+            telemetry.breadcrumb("\(def.name)-hook.\(subcommand).stale-process")
+            didSendFeedTelemetry = true
+            print("{}")
+        }
         // Destructive session teardown shared by a genuine (non-turn-boundary)
         // `session-end` and the dedicated `session-finalize` action: consume the
         // restore record, clear the surface resume binding, and clear PID routing.
@@ -30693,7 +30767,12 @@ export default CMUXSessionRestore;
             )
 
         case .promptSubmit:
-            let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+            let preparedSession = preparedMappedSession()
+            guard preparedSession.accepted else {
+                rejectStaleCodexProcessEvent()
+                return
+            }
+            let mapped = preparedSession.record
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
                 didSendFeedTelemetry = true
                 print("{}")
@@ -31032,7 +31111,12 @@ export default CMUXSessionRestore;
                     retireCodexMonitorLeases(sessionId: sessionId, turnId: stopTurnId, env: env)
                 }
             }
-            let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+            let preparedSession = preparedMappedSession()
+            guard preparedSession.accepted else {
+                rejectStaleCodexProcessEvent()
+                return
+            }
+            let mapped = preparedSession.record
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
                 didSendFeedTelemetry = true
                 print("{}")
@@ -31371,7 +31455,12 @@ export default CMUXSessionRestore;
             }
 
         case .approvalResponse:
-            let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+            let preparedSession = preparedMappedSession()
+            guard preparedSession.accepted else {
+                rejectStaleCodexProcessEvent()
+                return
+            }
+            let mapped = preparedSession.record
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
                 didSendFeedTelemetry = true
                 print("{}")
@@ -31443,7 +31532,12 @@ export default CMUXSessionRestore;
             }
 
         case .notification:
-            let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+            let preparedSession = preparedMappedSession()
+            guard preparedSession.accepted else {
+                rejectStaleCodexProcessEvent()
+                return
+            }
+            let mapped = preparedSession.record
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
                 didSendFeedTelemetry = true
                 print("{}")
@@ -31742,11 +31836,16 @@ export default CMUXSessionRestore;
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
 
         case .sessionEnd:
+            let preparedSession = preparedMappedSession()
+            guard preparedSession.accepted else {
+                rejectStaleCodexProcessEvent()
+                return
+            }
             if def.name == "codex", !sessionId.isEmpty {
                 retireCodexMonitorLeases(sessionId: sessionId, turnId: nil, env: env)
             }
             if def.sessionEndIsTurnBoundary {
-                if let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) {
+                if let mapped = preparedSession.record {
                     sendAgentFeedTelemetry(workspaceId: mapped.workspaceId, surfaceId: mapped.surfaceId)
                     _ = try? store.recordPromptStop(
                         sessionId: sessionId,
@@ -31779,6 +31878,11 @@ export default CMUXSessionRestore;
             performAgentSessionTeardown()
 
         case .sessionFinalize:
+            let preparedSession = preparedMappedSession()
+            guard preparedSession.accepted else {
+                rejectStaleCodexProcessEvent()
+                return
+            }
             performAgentSessionTeardown()
 
         case .noop:

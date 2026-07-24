@@ -258,8 +258,7 @@ struct CodexResumeTrustPolicyTests {
                 arguments: ["codex", "resume", "SID"],
                 currentDirectory: nestedDirectory.path,
                 repositoryRoot: nil,
-                effectiveProjectDecisionPaths: [projectRoot.path],
-                projectRootMarkers: [".cmux-project-root"]
+                effectiveProjectDecisionPaths: [projectRoot.path]
             ) == [
                 "-c",
                 #"projects={"\#(canonicalNestedDirectory)"={trust_level="untrusted"}}"#,
