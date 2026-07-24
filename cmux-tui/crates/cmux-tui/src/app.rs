@@ -2039,6 +2039,12 @@ enum RenderAction {
     Draw,
 }
 
+impl RenderAction {
+    fn rebuilds_pointer_route(self) -> bool {
+        matches!(self, Self::Paint | Self::Draw)
+    }
+}
+
 enum MachineRailCommand {
     Switch(MachineKey),
     Rename(MachineKey),
@@ -4794,16 +4800,13 @@ impl App {
     where
         B::Error: Send + Sync + 'static,
     {
-        if action == RenderAction::Draw {
-            self.pointer_route_phase = PointerRoutePhase::NeedsRender;
-        }
+        self.mark_pointer_route_for_rebuild(action);
         match action {
             RenderAction::Draw => {
                 let size = terminal.size()?;
                 self.sync_layout((size.width, size.height));
                 self.draw_terminal(terminal)?;
                 self.emit_graphics()?;
-                self.pointer_route_phase = PointerRoutePhase::Fresh;
             }
             RenderAction::Paint => {
                 self.draw_terminal(terminal)?;
@@ -4812,7 +4815,16 @@ impl App {
             RenderAction::Graphics => self.emit_graphics()?,
             RenderAction::None => {}
         }
+        if action.rebuilds_pointer_route() {
+            self.pointer_route_phase = PointerRoutePhase::Fresh;
+        }
         Ok(())
+    }
+
+    fn mark_pointer_route_for_rebuild(&mut self, action: RenderAction) {
+        if action.rebuilds_pointer_route() {
+            self.pointer_route_phase = PointerRoutePhase::NeedsRender;
+        }
     }
 
     fn replay_deferred_input_batch(&mut self) -> anyhow::Result<DeferredReplayOutcome> {
@@ -4877,7 +4889,7 @@ impl App {
                     "Deferred input was discarded because its destination changed".to_string(),
                 );
                 action = action.merge(RenderAction::Draw);
-                self.pointer_route_phase = PointerRoutePhase::NeedsRender;
+                self.mark_pointer_route_for_rebuild(action);
                 continue;
             }
             let input_action = if matches!(input.event, Event::Key(_) | Event::Paste(_)) {
@@ -5654,18 +5666,14 @@ impl App {
 
     fn handle(&mut self, event: AppEvent) -> anyhow::Result<RenderAction> {
         let action = self.handle_inner(event, false)?;
-        if action == RenderAction::Draw {
-            self.pointer_route_phase = PointerRoutePhase::NeedsRender;
-        }
+        self.mark_pointer_route_for_rebuild(action);
         Ok(action)
     }
 
     fn handle_replayed_non_pointer_input(&mut self, input: Event) -> anyhow::Result<RenderAction> {
         debug_assert!(matches!(input, Event::Key(_) | Event::Paste(_)));
         let action = self.handle_inner(AppEvent::Input(input), true)?;
-        if action == RenderAction::Draw {
-            self.pointer_route_phase = PointerRoutePhase::NeedsRender;
-        }
+        self.mark_pointer_route_for_rebuild(action);
         Ok(action)
     }
 
