@@ -32,11 +32,18 @@ class CodexWrapperResumeTrustTests(unittest.TestCase):
         *,
         resume_helper_mode: str = "override",
         hostile_bash_on_path: bool = False,
+        trusted_codex_from_home: bool = False,
+        hostile_codex_on_path: bool = False,
     ) -> tuple[list[str], str, subprocess.CompletedProcess[str]]:
         with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as raw:
             root = Path(raw)
+            home = root / "home"
             wrapper = root / "cmux-codex-wrapper"
-            real_codex = root / "codex-real"
+            real_codex = (
+                home / ".local" / "bin" / "codex"
+                if trusted_codex_from_home
+                else root / "codex-real"
+            )
             fake_cmux = root / "cmux"
             args_log = root / "args.bin"
             cmux_log = root / "cmux.log"
@@ -45,6 +52,7 @@ class CodexWrapperResumeTrustTests(unittest.TestCase):
 
             shutil.copy2(SOURCE_WRAPPER, wrapper)
             wrapper.chmod(0o755)
+            real_codex.parent.mkdir(parents=True, exist_ok=True)
             make_executable(
                 real_codex,
                 """#!/bin/bash
@@ -100,22 +108,34 @@ esac
             env.update(
                 {
                     "CMUX_BUNDLED_CLI_PATH": str(fake_cmux),
-                    "CMUX_CUSTOM_CODEX_PATH": str(real_codex),
                     "CMUX_SOCKET_PATH": str(socket_path),
                     "CMUX_SURFACE_ID": "surface:test",
                     "FAKE_CODEX_ARGS_LOG": str(args_log),
                     "FAKE_CMUX_LOG": str(cmux_log),
                     "FAKE_RESUME_HELPER_MODE": resume_helper_mode,
+                    "HOME": str(home),
                 }
             )
+            if not trusted_codex_from_home:
+                env["CMUX_CUSTOM_CODEX_PATH"] = str(real_codex)
+            if hostile_bash_on_path or hostile_codex_on_path:
+                hostile_bin.mkdir(parents=True)
             if hostile_bash_on_path:
-                hostile_bin.mkdir()
                 make_executable(
                     hostile_bin / "bash",
                     """#!/bin/sh
 exit 97
 """,
                 )
+            if hostile_codex_on_path:
+                make_executable(
+                    hostile_bin / "codex",
+                    """#!/bin/sh
+printf 'hostile-codex-ran\\n' >> "$FAKE_CMUX_LOG"
+exit 98
+""",
+                )
+            if hostile_bash_on_path or hostile_codex_on_path:
                 env["PATH"] = f"{hostile_bin}:{env.get('PATH', '')}"
             try:
                 result = subprocess.run(
@@ -307,6 +327,17 @@ exit 97
             logged_cmux_calls,
             r"(?m)^codex-path=.*hostile-bin",
         )
+
+    def test_project_path_cannot_select_codex_before_trust(self) -> None:
+        args, logged_cmux_calls, result = self.run_wrapper(
+            ["--yolo"],
+            trusted_codex_from_home=True,
+            hostile_codex_on_path=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(args, ["--enable", "hooks", "--yolo"])
+        self.assertNotIn("hostile-codex-ran", logged_cmux_calls)
 
     def test_resume_helper_empty_or_failed_partial_output_is_discarded(self) -> None:
         for mode in ("empty", "partial", "truncated", "wrong_arity"):

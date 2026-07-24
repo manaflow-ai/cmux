@@ -5,8 +5,8 @@ import Testing
 
 @Suite("Codex resume trust probe cache")
 struct CodexResumeTrustProbeCacheTests {
-    @Test("Caches successful probes by every key component")
-    func cachesSuccessfulProbes() {
+    @Test("Does not reuse successful probes across sequential invocations")
+    func doesNotCacheSuccessfulProbesAcrossInvocations() {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let cache = CodexResumeTrustProbeCache(directory: directory)
@@ -16,23 +16,18 @@ struct CodexResumeTrustProbeCacheTests {
             probeCount += 1
             return ["/project"]
         }
-        let cached = cache.resolve(keyComponents: ["codex", "one"]) {
+        let second = cache.resolve(keyComponents: ["codex", "one"]) {
             probeCount += 1
-            return ["/unexpected"]
-        }
-        let otherKey = cache.resolve(keyComponents: ["codex", "two"]) {
-            probeCount += 1
-            return ["/other"]
+            return ["/updated"]
         }
 
         #expect(first == ["/project"])
-        #expect(cached == ["/project"])
-        #expect(otherKey == ["/other"])
+        #expect(second == ["/updated"])
         #expect(probeCount == 2)
     }
 
-    @Test("Caches fail-closed probes")
-    func cachesFailedProbes() {
+    @Test("Does not reuse failed probes across sequential invocations")
+    func doesNotCacheFailedProbesAcrossInvocations() {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let cache = CodexResumeTrustProbeCache(directory: directory)
@@ -42,14 +37,14 @@ struct CodexResumeTrustProbeCacheTests {
             probeCount += 1
             return nil
         }
-        let cached: Set<String>? = cache.resolve(keyComponents: ["failure"]) {
+        let second: Set<String>? = cache.resolve(keyComponents: ["failure"]) {
             probeCount += 1
-            return ["/unexpected"]
+            return ["/updated"]
         }
 
         #expect(first == nil)
-        #expect(cached == nil)
-        #expect(probeCount == 1)
+        #expect(second == ["/updated"])
+        #expect(probeCount == 2)
     }
 
     private func temporaryDirectory() -> URL {

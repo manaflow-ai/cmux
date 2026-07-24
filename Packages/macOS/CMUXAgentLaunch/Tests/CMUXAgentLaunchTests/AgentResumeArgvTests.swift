@@ -368,6 +368,38 @@ struct AgentResumeArgvTests {
 
         #expect(
             AgentResumeArgv.renderingCodexWrapperExecutable(
+                parts: [
+                    "env",
+                    "PATH=/opt/company/bin",
+                    "codex",
+                    "resume",
+                    "SID",
+                ],
+                quote: quote
+            ) == [
+                "'env'",
+                "'PATH=/opt/company/bin'",
+                "'codex'",
+                "'resume'",
+                "'SID'",
+            ],
+            "Without a captured absolute executable, env must resolve Codex inside its own PATH."
+        )
+        #expect(
+            AgentResumeArgv.renderingCodexWrapperExecutable(
+                parts: ["env", "-i", "codex", "resume", "SID"],
+                quote: quote
+            ) == [
+                "'env'",
+                "'-i'",
+                "'codex'",
+                "'resume'",
+                "'SID'",
+            ],
+            "An identity-free env command must remain unchanged when it clears the ambient wrapper identity."
+        )
+        #expect(
+            AgentResumeArgv.renderingCodexWrapperExecutable(
                 parts: ["env", "-u", "CODEX_HOME", "codex", "resume", "SID"],
                 quote: quote
             ) == [
