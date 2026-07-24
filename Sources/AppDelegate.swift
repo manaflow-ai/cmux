@@ -15274,11 +15274,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
+    private func configuredShortcutStrokesMatch(_ lhs: ShortcutStroke, _ rhs: ShortcutStroke) -> Bool {
+        lhs.key == rhs.key
+            && lhs.command == rhs.command
+            && lhs.shift == rhs.shift
+            && lhs.option == rhs.option
+            && lhs.control == rhs.control
+    }
+
     private func matchConfiguredShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
         guard !shortcut.isUnbound else { return false }
         if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
             guard let secondStroke = shortcut.secondStroke,
-                  shortcut.firstStroke == prefix else {
+                  configuredShortcutStrokesMatch(shortcut.firstStroke, prefix) else {
                 return false
             }
             return matchShortcutStroke(event: event, stroke: secondStroke)
@@ -15325,7 +15333,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !shortcut.isUnbound else { return nil }
         if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
             guard let secondStroke = shortcut.secondStroke,
-                  shortcut.firstStroke == prefix else {
+                  configuredShortcutStrokesMatch(shortcut.firstStroke, prefix) else {
                 return nil
             }
             return numberedShortcutDigit(event: event, stroke: secondStroke)
@@ -15388,7 +15396,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !shortcut.isUnbound else { return false }
         if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
             guard let secondStroke = shortcut.secondStroke,
-                  shortcut.firstStroke == prefix else {
+                  configuredShortcutStrokesMatch(shortcut.firstStroke, prefix) else {
                 return false
             }
             return matchDirectionalShortcut(

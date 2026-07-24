@@ -63,6 +63,7 @@ struct ShortcutListRowView: View, Equatable {
                         .buttonStyle(.borderless)
                         .help(String(localized: "settings.shortcuts.chords", defaultValue: "Shortcut Chords"))
                         .accessibilityLabel(String(localized: "settings.shortcuts.chords", defaultValue: "Shortcut Chords"))
+                        .accessibilityAddTraits(snapshot.chordsEnabled ? .isSelected : [])
                         .accessibilityIdentifier("ShortcutRecorderChordModeButton.\(snapshot.action.rawValue)")
                     }
 
