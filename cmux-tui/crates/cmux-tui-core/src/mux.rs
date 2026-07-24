@@ -8282,6 +8282,18 @@ mod tests {
     }
 
     #[test]
+    fn detaching_unsized_client_does_not_reapply_a_stale_report() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        mux.resize_surface_for_client(surface.id, 1, 80, 24).unwrap();
+        mux.resize_surface(surface.id, 100, 35).unwrap();
+
+        mux.remove_size_client_from_attached_surfaces(2, [surface.id]);
+
+        assert_eq!(surface.size(), (100, 35));
+    }
+
+    #[test]
     fn detaching_exclusive_target_restores_remaining_clients() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
