@@ -145,6 +145,146 @@ export interface SendRequest extends CmuxRequestBase {
   paste?: boolean;
 }
 
+export type TerminalKey =
+  | "unidentified"
+  | "backquote"
+  | "backslash"
+  | "bracket-left"
+  | "bracket-right"
+  | "comma"
+  | "digit0"
+  | "digit1"
+  | "digit2"
+  | "digit3"
+  | "digit4"
+  | "digit5"
+  | "digit6"
+  | "digit7"
+  | "digit8"
+  | "digit9"
+  | "equal"
+  | "a"
+  | "b"
+  | "c"
+  | "d"
+  | "e"
+  | "f"
+  | "g"
+  | "h"
+  | "i"
+  | "j"
+  | "k"
+  | "l"
+  | "m"
+  | "n"
+  | "o"
+  | "p"
+  | "q"
+  | "r"
+  | "s"
+  | "t"
+  | "u"
+  | "v"
+  | "w"
+  | "x"
+  | "y"
+  | "z"
+  | "minus"
+  | "period"
+  | "quote"
+  | "semicolon"
+  | "slash"
+  | "backspace"
+  | "enter"
+  | "space"
+  | "tab"
+  | "delete"
+  | "end"
+  | "home"
+  | "insert"
+  | "page-down"
+  | "page-up"
+  | "arrow-down"
+  | "arrow-left"
+  | "arrow-right"
+  | "arrow-up"
+  | "numpad0"
+  | "numpad1"
+  | "numpad2"
+  | "numpad3"
+  | "numpad4"
+  | "numpad5"
+  | "numpad6"
+  | "numpad7"
+  | "numpad8"
+  | "numpad9"
+  | "numpad-add"
+  | "numpad-backspace"
+  | "numpad-comma"
+  | "numpad-decimal"
+  | "numpad-divide"
+  | "numpad-enter"
+  | "numpad-equal"
+  | "numpad-multiply"
+  | "numpad-subtract"
+  | "numpad-up"
+  | "numpad-down"
+  | "numpad-right"
+  | "numpad-left"
+  | "numpad-begin"
+  | "numpad-home"
+  | "numpad-end"
+  | "numpad-insert"
+  | "numpad-delete"
+  | "numpad-page-up"
+  | "numpad-page-down"
+  | "escape"
+  | "f1"
+  | "f2"
+  | "f3"
+  | "f4"
+  | "f5"
+  | "f6"
+  | "f7"
+  | "f8"
+  | "f9"
+  | "f10"
+  | "f11"
+  | "f12"
+  | "f13"
+  | "f14"
+  | "f15"
+  | "f16"
+  | "f17"
+  | "f18"
+  | "f19"
+  | "f20";
+
+export interface TerminalModifiers {
+  shift: boolean;
+  control: boolean;
+  alt: boolean;
+  super: boolean;
+  caps_lock: boolean;
+  num_lock: boolean;
+}
+
+export interface TerminalKeyInput {
+  key: TerminalKey;
+  mods: TerminalModifiers;
+  consumed_mods: TerminalModifiers;
+  utf8: string;
+  unshifted_codepoint: string | null;
+  action: "press" | "release" | "repeat" | null;
+  macos_option_as_alt: boolean;
+}
+
+export interface ClearHistoryRequest extends CmuxRequestBase {
+  cmd: "clear-history";
+  surface: Id;
+  fallback_key?: TerminalKeyInput | null;
+}
+
 export interface ReadScreenRequest extends CmuxRequestBase { cmd: "read-screen"; surface: Id }
 export interface ReadScreenResult { text: string }
 
@@ -551,6 +691,7 @@ export type CmuxRequest =
   | ExportLayoutRequest
   | ApplyLayoutRequest
   | SendRequest
+  | ClearHistoryRequest
   | ReadScreenRequest
   | ReadScrollbackRequest
   | SidebarPluginRequest
@@ -619,6 +760,7 @@ export interface CmuxResponseDataMap {
   "export-layout": ExportLayoutResult;
   "apply-layout": ApplyLayoutResult;
   send: EmptyResult;
+  "clear-history": EmptyResult;
   "read-screen": ReadScreenResult;
   "read-scrollback": ReadScrollbackResult;
   "sidebar-plugin": SidebarPluginResult;

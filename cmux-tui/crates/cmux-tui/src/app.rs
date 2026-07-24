@@ -25,20 +25,22 @@ use crossterm::ExecutableCommand;
 use crossterm::event::{
     DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
     EnableFocusChange, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
-    MouseButton, MouseEvent, MouseEventKind,
+    KeyboardEnhancementFlags, MouseButton, MouseEvent, MouseEventKind, PopKeyboardEnhancementFlags,
+    PushKeyboardEnhancementFlags,
 };
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+    query_keyboard_enhancement_flags,
 };
 use ghostty_vt::{
-    CursorShape, KeyEncoder, Mods, MouseAction, MouseButton as GhosttyMouseButton, MouseInput,
-    RenderState, Rgb, Screen,
+    CursorShape, KeyEncoder, KeyInput, Mods, MouseAction, MouseButton as GhosttyMouseButton,
+    MouseInput, RenderState, Rgb, Screen,
 };
 use ratatui::Terminal as RatatuiTerminal;
 use ratatui::backend::CrosstermBackend;
 
 use crate::browser_input::{
-    BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind, BrowserResizeFailure,
+    BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind, BrowserKey, BrowserResizeFailure,
 };
 use crate::config::{Action, ChromeTheme, Config, ScrollbarPosition, SidebarView};
 use crate::keys;
@@ -55,8 +57,8 @@ use crate::pty_input::{
     PtyInputSender, PtyOperationDelivery, PtyOperationFailure,
 };
 use crate::session::{
-    ClientInfo, Session, SidebarPluginSurface, SurfaceHandle, TreeView, is_remote_timeout,
-    is_remote_transport_failure,
+    CLEAR_HISTORY_UNSUPPORTED_ERROR, ClientInfo, Session, SidebarPluginSurface, SurfaceHandle,
+    TreeView, is_remote_timeout, is_remote_transport_failure,
 };
 use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
 use crate::ui::graphics::GraphicPlacement;
@@ -73,6 +75,54 @@ const BACKGROUND_REFRESH_RETRIES: u8 = 6;
 const APP_EVENT_CAPACITY: usize = 4_096;
 const PTY_FAILURE_CAPACITY: usize = 512;
 const MACHINE_PROVIDER_RECONNECT_MAX_BACKOFF_EXPONENT: u8 = 5;
+
+#[derive(Debug, Clone)]
+enum TerminalInput {
+    Keyboard(keys::KeyboardInput),
+    Mouse(MouseEvent),
+    Paste(String),
+    FocusGained,
+    FocusLost,
+    Resize,
+}
+
+impl From<Event> for TerminalInput {
+    fn from(event: Event) -> Self {
+        Self::from_event(event)
+    }
+}
+
+impl TerminalInput {
+    fn from_event(event: Event) -> Self {
+        match event {
+            Event::Key(key) => Self::Keyboard(key.into()),
+            Event::EnhancedKey(key) => Self::Keyboard(key.into()),
+            Event::Mouse(mouse) => Self::Mouse(mouse),
+            Event::Paste(text) => Self::Paste(text),
+            Event::FocusGained => Self::FocusGained,
+            Event::FocusLost => Self::FocusLost,
+            Event::Resize(_, _) => Self::Resize,
+        }
+    }
+
+    fn is_routable(&self) -> bool {
+        matches!(self, Self::Keyboard(_) | Self::Mouse(_) | Self::Paste(_))
+    }
+
+    fn is_keyboard_or_paste(&self) -> bool {
+        matches!(self, Self::Keyboard(_) | Self::Paste(_))
+    }
+
+    fn retained_bytes(&self) -> usize {
+        match self {
+            Self::Keyboard(key) => {
+                DEFERRED_INPUT_FIXED_BYTES.saturating_add(key.associated_text_bytes())
+            }
+            Self::Paste(text) => deferred_paste_bytes(text),
+            _ => DEFERRED_INPUT_FIXED_BYTES,
+        }
+    }
+}
 
 pub enum AppEvent {
     SessionScoped {
@@ -1439,6 +1489,21 @@ impl OrderedSession {
         );
     }
 
+    fn enqueue_coalescing_surface_operation(
+        &self,
+        label: &'static str,
+        surface: SurfaceId,
+        operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
+    ) {
+        let session = self.inner.clone();
+        self.operations.enqueue_coalescing_surface_operation(
+            label,
+            surface,
+            self.remote,
+            move || operation(session),
+        );
+    }
+
     fn enqueue_client_sizing_mutation(
         &self,
         label: &'static str,
@@ -1876,6 +1941,24 @@ impl OrderedSession {
 
     pub fn close_surface(&self, surface: SurfaceId) {
         self.enqueue_routing("close tab", move |session| session.close_surface(surface));
+    }
+
+    pub fn clear_history(&self, surface: SurfaceId) {
+        self.enqueue_coalescing_surface_operation(
+            "clear terminal history",
+            surface,
+            move |session| session.clear_history(surface),
+        );
+    }
+
+    pub fn clear_history_or_send_key(&self, surface: SurfaceId, fallback_key: KeyInput) {
+        let session = self.inner.clone();
+        self.operations.enqueue_surface_operation(
+            "clear terminal history",
+            surface,
+            self.remote,
+            move || session.clear_history_or_send_key(surface, &fallback_key),
+        );
     }
 
     pub fn close_pane(&self, pane: PaneId) {
@@ -2834,7 +2917,7 @@ enum OuterCursorSpec {
 
 #[derive(Clone)]
 struct DeferredInput {
-    event: Event,
+    event: TerminalInput,
     destination: Option<SurfaceId>,
     routing_intent: Option<u64>,
     sidebar_focus_intent: bool,
@@ -3858,11 +3941,13 @@ pub fn run_with_machine_updates(
         .transpose()?;
 
     // Crossterm input → app channel.
+    let mut host_keyboard_protocol = HostKeyboardProtocolOwnership::default();
     enable_raw_mode()?;
     if let Err(e) = (|| -> anyhow::Result<()> {
         let _guard = stdout_lock.lock().unwrap();
         let mut stdout = std::io::stdout();
         stdout.execute(EnterAlternateScreen)?;
+        negotiate_host_keyboard_protocol(&mut stdout, &mut host_keyboard_protocol)?;
         stdout.execute(EnableMouseCapture)?;
         // Ask the host terminal to report Shift-modified mouse events so
         // Shift remains cmux's selection/context-menu escape while the inner
@@ -3872,7 +3957,7 @@ pub fn run_with_machine_updates(
         stdout.execute(EnableBracketedPaste)?;
         Ok(())
     })() {
-        let _ = restore_terminal(Some(&stdout_lock));
+        let _ = restore_terminal(Some(&stdout_lock), &host_keyboard_protocol);
         return Err(e);
     }
 
@@ -3897,8 +3982,9 @@ pub fn run_with_machine_updates(
     // Restore the host terminal even if we panic mid-frame.
     let default_hook = std::panic::take_hook();
     let restore_lock = stdout_lock.clone();
+    let panic_keyboard_protocol = host_keyboard_protocol.clone();
     std::panic::set_hook(Box::new(move |info| {
-        let _ = restore_terminal(Some(&restore_lock));
+        let _ = restore_terminal(Some(&restore_lock), &panic_keyboard_protocol);
         default_hook(info);
     }));
 
@@ -3906,7 +3992,7 @@ pub fn run_with_machine_updates(
     let mut terminal = match RatatuiTerminal::new(backend) {
         Ok(terminal) => terminal,
         Err(e) => {
-            let _ = restore_terminal(Some(&stdout_lock));
+            let _ = restore_terminal(Some(&stdout_lock), &host_keyboard_protocol);
             return Err(e.into());
         }
     };
@@ -4023,7 +4109,7 @@ pub fn run_with_machine_updates(
             writer.shutdown(Duration::from_millis(200));
         }
         let _ = std::panic::take_hook();
-        let _ = restore_terminal(Some(&stdout_lock));
+        let _ = restore_terminal(Some(&stdout_lock), &host_keyboard_protocol);
         return Err(error);
     }
 
@@ -4036,7 +4122,7 @@ pub fn run_with_machine_updates(
         writer.shutdown(Duration::from_millis(200));
     }
     let _ = std::panic::take_hook();
-    restore_terminal(Some(&stdout_lock))?;
+    restore_terminal(Some(&stdout_lock), &host_keyboard_protocol)?;
     result?;
     let outcome = app
         .machine_ui
@@ -4046,7 +4132,106 @@ pub fn run_with_machine_updates(
     Ok(outcome)
 }
 
-fn restore_terminal(stdout_lock: Option<&Arc<Mutex<()>>>) -> anyhow::Result<()> {
+#[derive(Clone, Debug)]
+struct HostKeyboardProtocolOwnership {
+    // Panic and normal cleanup share this claim. The stdout lock serializes
+    // restore attempts, and the first successful pop consumes ownership.
+    pushed: Arc<AtomicBool>,
+}
+
+impl Default for HostKeyboardProtocolOwnership {
+    fn default() -> Self {
+        Self { pushed: Arc::new(AtomicBool::new(false)) }
+    }
+}
+
+impl PartialEq for HostKeyboardProtocolOwnership {
+    fn eq(&self, other: &Self) -> bool {
+        self.is_pushed() == other.is_pushed()
+    }
+}
+
+impl Eq for HostKeyboardProtocolOwnership {}
+
+impl HostKeyboardProtocolOwnership {
+    fn pushed() -> Self {
+        Self { pushed: Arc::new(AtomicBool::new(true)) }
+    }
+
+    fn is_pushed(&self) -> bool {
+        self.pushed.load(Ordering::Acquire)
+    }
+}
+
+const HOST_KEYBOARD_FLAGS: KeyboardEnhancementFlags =
+    KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+        .union(KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS)
+        .union(KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES)
+        .union(KeyboardEnhancementFlags::REPORT_ASSOCIATED_TEXT);
+
+fn keyboard_protocol_accepts(
+    requested: KeyboardEnhancementFlags,
+    accepted: Option<KeyboardEnhancementFlags>,
+) -> bool {
+    accepted.is_some_and(|flags| flags.contains(requested))
+}
+
+fn enable_host_keyboard_protocol(
+    stdout: &mut impl Write,
+) -> std::io::Result<HostKeyboardProtocolOwnership> {
+    let result = stdout.execute(PushKeyboardEnhancementFlags(HOST_KEYBOARD_FLAGS));
+    match result {
+        Ok(_) => Ok(HostKeyboardProtocolOwnership::pushed()),
+        Err(error) if error.kind() == std::io::ErrorKind::Unsupported => {
+            Ok(HostKeyboardProtocolOwnership::default())
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn negotiate_host_keyboard_protocol(
+    stdout: &mut impl Write,
+    ownership: &mut HostKeyboardProtocolOwnership,
+) -> std::io::Result<()> {
+    negotiate_host_keyboard_protocol_with(stdout, ownership, query_keyboard_enhancement_flags)
+}
+
+fn negotiate_host_keyboard_protocol_with(
+    stdout: &mut impl Write,
+    ownership: &mut HostKeyboardProtocolOwnership,
+    query: impl FnOnce() -> std::io::Result<Option<KeyboardEnhancementFlags>>,
+) -> std::io::Result<()> {
+    *ownership = enable_host_keyboard_protocol(stdout)?;
+    if !ownership.is_pushed() {
+        return Ok(());
+    }
+
+    if keyboard_protocol_accepts(HOST_KEYBOARD_FLAGS, query().ok().flatten()) {
+        return Ok(());
+    }
+
+    disable_host_keyboard_protocol(stdout, ownership)?;
+    *ownership = HostKeyboardProtocolOwnership::default();
+    Ok(())
+}
+
+fn disable_host_keyboard_protocol(
+    stdout: &mut impl Write,
+    ownership: &HostKeyboardProtocolOwnership,
+) -> std::io::Result<()> {
+    if ownership.pushed.swap(false, Ordering::AcqRel)
+        && let Err(error) = stdout.execute(PopKeyboardEnhancementFlags)
+    {
+        ownership.pushed.store(true, Ordering::Release);
+        return Err(error);
+    }
+    Ok(())
+}
+
+fn restore_terminal(
+    stdout_lock: Option<&Arc<Mutex<()>>>,
+    host_keyboard_protocol: &HostKeyboardProtocolOwnership,
+) -> anyhow::Result<()> {
     let _guard = stdout_lock.map(|lock| lock.lock().unwrap());
     let mut stdout = std::io::stdout();
     // Reset the mouse pointer shape in case we left it as a hand.
@@ -4056,6 +4241,7 @@ fn restore_terminal(stdout_lock: Option<&Arc<Mutex<()>>>) -> anyhow::Result<()> 
     let _ = write!(stdout, "\x1b]112\x07\x1b[0 q");
     // Restore the conventional host behavior where Shift bypasses capture.
     let _ = write!(stdout, "\x1b[>0s");
+    let _ = disable_host_keyboard_protocol(&mut stdout, host_keyboard_protocol);
     let _ = stdout.execute(DisableBracketedPaste);
     let _ = stdout.execute(DisableFocusChange);
     let _ = stdout.execute(DisableMouseCapture);
@@ -4784,7 +4970,7 @@ impl App {
                 break;
             }
             let Some(input) = self.deferred_input.pop_front() else { break };
-            let follows_pending_route = matches!(&input.event, Event::Key(_) | Event::Paste(_))
+            let follows_pending_route = input.event.is_keyboard_or_paste()
                 && input.routing_intent.is_some_and(|intent| {
                     self.session.routing_mutation_committed() >= intent
                         && self.session.routing_mutation_started() == intent
@@ -4801,7 +4987,7 @@ impl App {
                 action = action.merge(RenderAction::Draw);
                 continue;
             }
-            action = action.merge(self.handle(AppEvent::Input(input.event))?);
+            action = action.merge(self.handle_terminal_input(input.event)?);
         }
         Ok(action)
     }
@@ -4901,6 +5087,13 @@ impl App {
                     "surface attach outcome is unknown; detach and reconnect before sending more input: {}",
                     failure.error
                 )
+            } else if failure.label == "clear terminal history" {
+                let detail = if failure.error == CLEAR_HISTORY_UNSUPPORTED_ERROR {
+                    localization::catalog().terminal.clear_history_unsupported
+                } else {
+                    &failure.error
+                };
+                format!("{}: {}", localization::catalog().terminal.clear_history_failed, detail)
             } else {
                 format!("{} failed: {}", failure.label, failure.error)
             },
@@ -5582,15 +5775,11 @@ impl App {
             AppEvent::SessionScoped { .. } => return Ok(RenderAction::None),
             event => event,
         };
-        if let AppEvent::Input(Event::Paste(text)) = &event
-            && deferred_paste_bytes(text) > MAX_DEFERRED_INPUT_BYTES
-        {
-            self.status_message = Some("Paste exceeds the 4 MiB PTY buffer limit".to_string());
-            return Ok(RenderAction::Draw);
+        if let AppEvent::Input(input) = event {
+            return self.handle_terminal_input(TerminalInput::from_event(input));
         }
         match &event {
-            AppEvent::Mux(MuxEvent::SurfaceExited(_) | MuxEvent::LayoutChanged(_))
-            | AppEvent::Input(Event::Key(_) | Event::Mouse(_) | Event::Paste(_)) => {
+            AppEvent::Mux(MuxEvent::SurfaceExited(_) | MuxEvent::LayoutChanged(_)) => {
                 self.session.refresh_remote_tree_if_stale();
             }
             AppEvent::Mux(MuxEvent::TreeChanged) => {
@@ -5610,37 +5799,6 @@ impl App {
         ) {
             self.session.clear_surface_sync_failures();
         }
-        let event = match event {
-            AppEvent::Input(input @ (Event::Key(_) | Event::Mouse(_) | Event::Paste(_)))
-                if self.missing_input_surface(&input).is_some()
-                    && !self.input_can_update_pending_mutation(&input) =>
-            {
-                let surface = self.missing_input_surface(&input).unwrap();
-                self.queue_surface_attach(surface);
-                return Ok(self.defer_input(input));
-            }
-            AppEvent::Input(input @ Event::Mouse(_))
-                if (self.session.has_pending_routing_mutations()
-                    || self.session.remote_tree_is_stale()
-                    || self.mux_recovery_generation.load(Ordering::Acquire) != 0
-                    || self.routing_refresh_pending)
-                    && !self.input_can_update_pending_mutation(&input) =>
-            {
-                self.status_message =
-                    Some("Pointer input was discarded while the layout changed".to_string());
-                return Ok(RenderAction::Draw);
-            }
-            AppEvent::Input(input @ (Event::Key(_) | Event::Mouse(_) | Event::Paste(_)))
-                if (self.session.has_pending_mutations()
-                    || self.session.remote_tree_is_stale()
-                    || self.mux_recovery_generation.load(Ordering::Acquire) != 0
-                    || self.routing_refresh_pending)
-                    && !self.input_can_update_pending_mutation(&input) =>
-            {
-                return Ok(self.defer_input(input));
-            }
-            event => event,
-        };
         match event {
             AppEvent::MuxTitlesReady => {
                 Ok(if self.apply_mux_titles() { RenderAction::Paint } else { RenderAction::None })
@@ -6015,123 +6173,179 @@ impl App {
                 }
                 Ok(RenderAction::Draw)
             }
-            AppEvent::Input(Event::Key(key)) => self.handle_key(key),
-            AppEvent::Input(Event::Mouse(mouse)) => self.handle_mouse(mouse),
-            AppEvent::Input(Event::Paste(text)) => {
-                self.status_message = None;
-                if self.pairing_dialog.is_some() {
-                    Ok(RenderAction::Draw)
-                } else if let Some(prompt) = self.prompt.as_mut() {
-                    prompt.input.insert_str(&text);
-                    Ok(RenderAction::Draw)
-                } else if let Some(state) = self.omnibar.as_mut() {
-                    clear_omnibar_selection(state);
-                    state.input.insert_str(&text);
-                    Ok(RenderAction::Draw)
-                } else if self.machine_sidebar_focused() {
-                    Ok(RenderAction::Draw)
-                } else if self.workspace_sidebar_focused() {
-                    if self.config.sidebar.plugin.is_some() {
-                        self.paste_sidebar(&text);
-                        Ok(if self.status_message.is_some() {
-                            RenderAction::Draw
-                        } else {
-                            RenderAction::None
-                        })
-                    } else {
-                        if self.sidebar_view == SidebarView::Files {
-                            self.sidebar_files.insert_filter_text(&text);
-                        }
-                        Ok(RenderAction::Draw)
-                    }
-                } else {
-                    self.paste(&text);
-                    Ok(if self.status_message.is_some() {
-                        RenderAction::Draw
-                    } else {
-                        RenderAction::None
-                    })
-                }
-            }
-            AppEvent::Input(Event::FocusGained) => {
-                self.reassert_visible_surface_sizes();
-                Ok(RenderAction::Draw)
-            }
-            AppEvent::Input(Event::FocusLost) => {
-                self.cancel_pty_mouse_drag();
-                Ok(RenderAction::None)
-            }
-            AppEvent::Input(Event::Resize(_, _)) => {
-                self.refresh_cell_pixels(false);
-                self.render_states.clear();
-                // Keep the dimensions of the frame that remains visible until
-                // the next draw publishes a replacement. Clearing this cache
-                // would briefly make newly exposed blank margins clickable.
-                self.sidebar_plugin_surface = None;
-                Ok(RenderAction::Draw)
-            }
+            AppEvent::Input(_) => unreachable!("input events are normalized before dispatch"),
             AppEvent::SessionScoped { .. } => {
                 unreachable!("session-scoped events are unwrapped before dispatch")
             }
         }
     }
 
-    fn input_can_update_pending_mutation(&self, input: &Event) -> bool {
-        if let Event::Key(key) = input
-            && ((self.config.keys.prefix.matches(key) && !self.prefix_armed)
-                || self.config.keys.modeless_action_for(key) == Some(Action::Detach)
-                || (self.prefix_armed && self.config.keys.action_for(key) == Some(Action::Detach)))
+    fn handle_terminal_input(&mut self, input: TerminalInput) -> anyhow::Result<RenderAction> {
+        if input.retained_bytes() > MAX_DEFERRED_INPUT_BYTES {
+            self.status_message = Some(
+                match &input {
+                    TerminalInput::Paste(_) => "Paste exceeds the 4 MiB PTY buffer limit",
+                    TerminalInput::Keyboard(_) => {
+                        localization::catalog().terminal.keyboard_text_too_large
+                    }
+                    _ => unreachable!("fixed-size input cannot exceed the byte limit"),
+                }
+                .to_string(),
+            );
+            return Ok(RenderAction::Draw);
+        }
+        if input.is_routable() {
+            self.session.refresh_remote_tree_if_stale();
+        }
+        if input.is_routable()
+            && self.missing_input_surface(&input).is_some()
+            && !self.input_can_update_pending_mutation(&input)
         {
-            return true;
+            let surface = self.missing_input_surface(&input).unwrap();
+            self.queue_surface_attach(surface);
+            return Ok(self.defer_input(input));
+        }
+        if matches!(&input, TerminalInput::Mouse(_))
+            && (self.session.has_pending_routing_mutations()
+                || self.session.remote_tree_is_stale()
+                || self.mux_recovery_generation.load(Ordering::Acquire) != 0
+                || self.routing_refresh_pending)
+            && !self.input_can_update_pending_mutation(&input)
+        {
+            self.status_message =
+                Some("Pointer input was discarded while the layout changed".to_string());
+            return Ok(RenderAction::Draw);
+        }
+        if input.is_routable()
+            && (self.session.has_pending_mutations()
+                || self.session.remote_tree_is_stale()
+                || self.mux_recovery_generation.load(Ordering::Acquire) != 0
+                || self.routing_refresh_pending)
+            && !self.input_can_update_pending_mutation(&input)
+        {
+            return Ok(self.defer_input(input));
+        }
+
+        match input {
+            TerminalInput::Keyboard(key) => self.handle_keyboard(key),
+            TerminalInput::Mouse(mouse) => self.handle_mouse(mouse),
+            TerminalInput::Paste(text) => self.handle_paste(text),
+            TerminalInput::FocusGained => {
+                self.reassert_visible_surface_sizes();
+                Ok(RenderAction::Draw)
+            }
+            TerminalInput::FocusLost => {
+                self.cancel_pty_mouse_drag();
+                Ok(RenderAction::None)
+            }
+            TerminalInput::Resize => {
+                self.refresh_cell_pixels(false);
+                self.render_states.clear();
+                self.sidebar_plugin_surface = None;
+                Ok(RenderAction::Draw)
+            }
+        }
+    }
+
+    fn handle_paste(&mut self, text: String) -> anyhow::Result<RenderAction> {
+        self.status_message = None;
+        if self.pairing_dialog.is_some() {
+            Ok(RenderAction::Draw)
+        } else if let Some(prompt) = self.prompt.as_mut() {
+            prompt.input.insert_str(&text);
+            Ok(RenderAction::Draw)
+        } else if let Some(state) = self.omnibar.as_mut() {
+            clear_omnibar_selection(state);
+            state.input.insert_str(&text);
+            Ok(RenderAction::Draw)
+        } else if self.machine_sidebar_focused() {
+            Ok(RenderAction::Draw)
+        } else if self.workspace_sidebar_focused() {
+            if self.config.sidebar.plugin.is_some() {
+                self.paste_sidebar(&text);
+                Ok(if self.status_message.is_some() {
+                    RenderAction::Draw
+                } else {
+                    RenderAction::None
+                })
+            } else {
+                if self.sidebar_view == SidebarView::Files {
+                    self.sidebar_files.insert_filter_text(&text);
+                }
+                Ok(RenderAction::Draw)
+            }
+        } else {
+            self.paste(&text);
+            Ok(if self.status_message.is_some() { RenderAction::Draw } else { RenderAction::None })
+        }
+    }
+
+    fn input_can_update_pending_mutation(&self, input: &TerminalInput) -> bool {
+        if let TerminalInput::Keyboard(input) = input
+            && !input.has_consumed_alt()
+        {
+            let (key, fallback) = input.shortcut_keys();
+            if (binding_matches(&self.config.keys.prefix, &key, fallback.as_ref())
+                && !self.prefix_armed)
+                || modeless_action_for_binding(&self.config.keys, &key, fallback.as_ref())
+                    == Some(Action::Detach)
+                || (self.prefix_armed
+                    && action_for_binding(&self.config.keys, &key, fallback.as_ref())
+                        == Some(Action::Detach))
+            {
+                return true;
+            }
         }
         matches!(
             (input, &self.drag),
             (
-                Event::Mouse(MouseEvent {
+                TerminalInput::Mouse(MouseEvent {
                     kind: MouseEventKind::Drag(MouseButton::Left)
                         | MouseEventKind::Up(MouseButton::Left),
                     ..
                 }),
                 Some(Drag::ResizeSplit { .. })
             ) | (
-                Event::Mouse(MouseEvent {
+                TerminalInput::Mouse(MouseEvent {
                     kind: MouseEventKind::Drag(MouseButton::Left)
                         | MouseEventKind::Up(MouseButton::Left),
                     ..
                 }),
                 Some(Drag::Select { .. })
             ) | (
-                Event::Mouse(MouseEvent {
+                TerminalInput::Mouse(MouseEvent {
                     kind: MouseEventKind::Drag(MouseButton::Left)
                         | MouseEventKind::Up(MouseButton::Left),
                     ..
                 }),
                 Some(Drag::Browser { .. })
             ) | (
-                Event::Mouse(MouseEvent {
+                TerminalInput::Mouse(MouseEvent {
                     kind: MouseEventKind::Drag(_) | MouseEventKind::Up(_),
                     ..
                 }),
                 Some(Drag::PtyMouse { .. })
             ) | (
-                Event::Mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), .. }),
+                TerminalInput::Mouse(MouseEvent {
+                    kind: MouseEventKind::Up(MouseButton::Left),
+                    ..
+                }),
                 Some(Drag::WorkspaceArm { .. } | Drag::TabArm { .. })
             )
         )
     }
 
-    fn defer_input(&mut self, input: Event) -> RenderAction {
+    fn defer_input(&mut self, input: TerminalInput) -> RenderAction {
         let destination = self.input_destination(&input);
-        let sidebar_focus_intent =
-            self.sidebar_focus_pending && matches!(&input, Event::Key(_) | Event::Paste(_));
+        let sidebar_focus_intent = self.sidebar_focus_pending && input.is_keyboard_or_paste();
         let routing_started = self.session.routing_mutation_started();
         let routing_intent =
             (routing_started > self.applied_routing_generation).then_some(routing_started);
         let replace_motion = match (&input, self.deferred_input.back()) {
             (
-                Event::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. }),
+                TerminalInput::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. }),
                 Some(DeferredInput {
-                    event: Event::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. }),
+                    event: TerminalInput::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. }),
                     destination: previous_destination,
                     routing_intent: previous_intent,
                     sidebar_focus_intent: previous_sidebar_intent,
@@ -6142,9 +6356,12 @@ impl App {
                     && *previous_sidebar_intent == sidebar_focus_intent
             }
             (
-                Event::Mouse(MouseEvent { kind: MouseEventKind::Drag(button), .. }),
+                TerminalInput::Mouse(MouseEvent { kind: MouseEventKind::Drag(button), .. }),
                 Some(DeferredInput {
-                    event: Event::Mouse(MouseEvent { kind: MouseEventKind::Drag(previous), .. }),
+                    event:
+                        TerminalInput::Mouse(MouseEvent {
+                            kind: MouseEventKind::Drag(previous), ..
+                        }),
                     destination: previous_destination,
                     routing_intent: previous_intent,
                     sidebar_focus_intent: previous_sidebar_intent,
@@ -6162,14 +6379,11 @@ impl App {
                 DeferredInput { event: input, destination, routing_intent, sidebar_focus_intent };
             return RenderAction::None;
         }
-        let input_bytes = deferred_input_bytes(&input);
-        let mut queued_bytes = self
-            .deferred_input
-            .iter()
-            .map(|input| deferred_input_bytes(&input.event))
-            .sum::<usize>();
+        let input_bytes = input.retained_bytes();
+        let mut queued_bytes =
+            self.deferred_input.iter().map(|input| input.event.retained_bytes()).sum::<usize>();
         let prioritize_release =
-            matches!(&input, Event::Mouse(MouseEvent { kind: MouseEventKind::Up(_), .. }));
+            matches!(&input, TerminalInput::Mouse(MouseEvent { kind: MouseEventKind::Up(_), .. }));
         while self.deferred_input.len() >= DEFERRED_INPUT_CAPACITY
             || queued_bytes.saturating_add(input_bytes) > MAX_DEFERRED_INPUT_BYTES
         {
@@ -6180,7 +6394,7 @@ impl App {
                 return RenderAction::Draw;
             }
             let Some(removed) = self.deferred_input.pop_front() else { break };
-            queued_bytes = queued_bytes.saturating_sub(deferred_input_bytes(&removed.event));
+            queued_bytes = queued_bytes.saturating_sub(removed.event.retained_bytes());
         }
         self.deferred_input.push_back(DeferredInput {
             event: input,
@@ -6191,16 +6405,16 @@ impl App {
         RenderAction::None
     }
 
-    fn input_destination(&self, input: &Event) -> Option<SurfaceId> {
+    fn input_destination(&self, input: &TerminalInput) -> Option<SurfaceId> {
         match input {
-            Event::Key(_) | Event::Paste(_)
+            TerminalInput::Keyboard(_) | TerminalInput::Paste(_)
                 if self.prompt.is_none()
                     && self.omnibar.is_none()
                     && self.focus == FocusTarget::Pane =>
             {
                 self.active_surface()
             }
-            Event::Mouse(mouse) => self
+            TerminalInput::Mouse(mouse) => self
                 .pane_area_at(mouse.column, mouse.row)
                 .filter(|area| area.content.contains(mouse.column, mouse.row))
                 .map(|area| area.surface),
@@ -6225,10 +6439,10 @@ impl App {
         Some((id, self.session.surface(id)?))
     }
 
-    fn missing_input_surface(&self, input: &Event) -> Option<SurfaceId> {
+    fn missing_input_surface(&self, input: &TerminalInput) -> Option<SurfaceId> {
         let surface = match input {
-            Event::Key(_) | Event::Paste(_) => self.active_surface()?,
-            Event::Mouse(mouse) => {
+            TerminalInput::Keyboard(_) | TerminalInput::Paste(_) => self.active_surface()?,
+            TerminalInput::Mouse(mouse) => {
                 let area = self.pane_area_at(mouse.column, mouse.row)?;
                 area.content.contains(mouse.column, mouse.row).then_some(area.surface)?
             }
@@ -6878,7 +7092,13 @@ impl App {
         self.session.new_screen(workspace, self.size_of_rect(self.content_area))
     }
 
+    #[cfg(test)]
     fn handle_key(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
+        self.handle_keyboard(key.into())
+    }
+
+    fn handle_keyboard(&mut self, input: keys::KeyboardInput) -> anyhow::Result<RenderAction> {
+        let key = input.ui_key();
         if key.kind == KeyEventKind::Release {
             return Ok(RenderAction::None);
         }
@@ -6887,19 +7107,28 @@ impl App {
             return self.handle_pairing_key(key);
         }
         if self.prompt.is_some() {
+            if let Some(text) = input.text_for_direct_input() {
+                return self.handle_prompt_text(text);
+            }
             return self.handle_prompt_key(key);
         }
         if self.menu.is_some() {
             return self.handle_menu_key(key);
         }
         if self.omnibar.is_some() {
+            if let Some(text) = input.text_for_direct_input() {
+                return self.handle_omnibar_text(text);
+            }
             return self.handle_omnibar_key(key);
         }
+        let (binding_key, binding_fallback) = input.shortcut_keys();
         if self.prefix_armed {
             self.prefix_armed = false;
-            return self.handle_prefixed(key);
+            return self.handle_prefixed(input, binding_key, binding_fallback);
         }
-        if self.config.keys.prefix.matches(&key) {
+        if !input.has_consumed_alt()
+            && binding_matches(&self.config.keys.prefix, &binding_key, binding_fallback.as_ref())
+        {
             self.prefix_armed = true;
             return Ok(RenderAction::Draw);
         }
@@ -6908,22 +7137,37 @@ impl App {
         }
         if self.workspace_sidebar_focused() {
             if self.config.sidebar.plugin.is_some() {
-                self.forward_sidebar_key(&key);
+                self.forward_sidebar_key(input);
                 return Ok(if self.status_message.is_some() {
                     RenderAction::Draw
                 } else {
                     RenderAction::None
                 });
             } else {
+                if self.sidebar_view == SidebarView::Files
+                    && let Some(text) = input.text_for_direct_input()
+                    && self.sidebar_files.insert_filter_text(text)
+                {
+                    return Ok(RenderAction::Draw);
+                }
                 return self.handle_builtin_sidebar_key(&key);
             }
         }
-        if let Some(action) = self.config.keys.modeless_action_for(&key) {
+        if !input.has_consumed_alt()
+            && let Some(action) = modeless_action_for_binding(
+                &self.config.keys,
+                &binding_key,
+                binding_fallback.as_ref(),
+            )
+        {
+            if action == Action::ClearHistory {
+                return Ok(self.run_clear_history_shortcut(input));
+            }
             return self.run_action(action);
         }
         // Typing replaces any selection highlight.
         self.selection = None;
-        self.forward_key(&key);
+        self.forward_key(input);
         Ok(if self.status_message.is_some() { RenderAction::Draw } else { RenderAction::None })
     }
 
@@ -7440,6 +7684,12 @@ impl App {
         Ok(RenderAction::Draw)
     }
 
+    fn handle_prompt_text(&mut self, text: &str) -> anyhow::Result<RenderAction> {
+        let Some(prompt) = self.prompt.as_mut() else { return Ok(RenderAction::None) };
+        prompt.input.insert_str(text);
+        Ok(RenderAction::Draw)
+    }
+
     fn resolve_pairing(&mut self, approve: bool) {
         let Some(dialog) = self.pairing_dialog.take() else { return };
         if let Err(error) = self.session.respond_pairing(dialog.challenge.id, approve) {
@@ -7492,9 +7742,7 @@ impl App {
                 KeyCode::Backspace
                     | KeyCode::Delete
                     | KeyCode::Char(_)
-                        if !key.modifiers.intersects(
-                            KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER
-                        )
+                        if !key.modifiers.intersects(keys::SHORTCUT_MODIFIERS)
             );
         if replace_selection {
             state.input.clear();
@@ -7538,6 +7786,13 @@ impl App {
         Ok(RenderAction::Draw)
     }
 
+    fn handle_omnibar_text(&mut self, text: &str) -> anyhow::Result<RenderAction> {
+        let Some(state) = self.omnibar.as_mut() else { return Ok(RenderAction::None) };
+        clear_omnibar_selection(state);
+        state.input.insert_str(text);
+        Ok(RenderAction::Draw)
+    }
+
     fn handle_menu_key(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
         let Some(menu) = self.menu.as_mut() else { return Ok(RenderAction::None) };
         match key.code {
@@ -7576,17 +7831,30 @@ impl App {
         }
     }
 
-    fn handle_prefixed(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
-        // Prefix twice forwards the prefix chord literally.
-        if self.config.keys.prefix.matches(&key) {
-            if self.workspace_sidebar_focused() {
-                self.forward_sidebar_key(&key);
-            } else {
-                self.forward_key(&key);
+    fn handle_prefixed(
+        &mut self,
+        input: keys::KeyboardInput,
+        binding_key: KeyEvent,
+        binding_fallback: Option<KeyEvent>,
+    ) -> anyhow::Result<RenderAction> {
+        if input.has_consumed_alt() {
+            if self.focus != FocusTarget::Pane {
+                self.focus = FocusTarget::Pane;
             }
             return Ok(RenderAction::Draw);
         }
-        let Some(action) = self.config.keys.action_for(&key) else {
+        // Prefix twice forwards the prefix chord literally.
+        if binding_matches(&self.config.keys.prefix, &binding_key, binding_fallback.as_ref()) {
+            if self.workspace_sidebar_focused() {
+                self.forward_sidebar_key(input);
+            } else {
+                self.forward_key(input);
+            }
+            return Ok(RenderAction::Draw);
+        }
+        let Some(action) =
+            action_for_binding(&self.config.keys, &binding_key, binding_fallback.as_ref())
+        else {
             if self.focus != FocusTarget::Pane {
                 self.focus = FocusTarget::Pane;
             }
@@ -7602,8 +7870,11 @@ impl App {
                 .active_surface_handle()
                 .is_some_and(|surface| surface.kind() == SurfaceKind::Browser)
         {
-            self.forward_key(&key);
+            self.forward_key(input);
             return Ok(RenderAction::Draw);
+        }
+        if action == Action::ClearHistory {
+            return Ok(self.run_clear_history_shortcut(input));
         }
         self.run_action(action)
     }
@@ -7689,6 +7960,16 @@ impl App {
             Action::ResizeShrink => self.resize_focused_split(-0.05),
             Action::ScrollUp => self.scroll_active(-10),
             Action::ScrollDown => self.scroll_active(10),
+            Action::ClearHistory => {
+                if let Some(surface) = self.active_surface()
+                    && self.tree.surface_kind(surface) == SurfaceKind::Pty
+                {
+                    self.session.clear_history(surface);
+                    self.render_states.remove(&surface);
+                    self.selection = None;
+                }
+                return Ok(RenderAction::None);
+            }
             Action::BrowserBack => {
                 self.enqueue_active_browser_command(BrowserInputKind::Back);
                 return Ok(RenderAction::Draw);
@@ -8182,7 +8463,33 @@ impl App {
         self.sidebar_plugin_surface.and_then(|surface| self.session.surface(surface))
     }
 
-    fn forward_key(&mut self, key: &KeyEvent) {
+    fn run_clear_history_shortcut(&mut self, input: keys::KeyboardInput) -> RenderAction {
+        let Some(surface_id) = self.active_surface() else {
+            return RenderAction::None;
+        };
+        if self.tree.surface_kind(surface_id) != SurfaceKind::Pty {
+            self.selection = None;
+            self.forward_key(input);
+            return if self.status_message.is_some() {
+                RenderAction::Draw
+            } else {
+                RenderAction::None
+            };
+        }
+        let Some(key_input) = input.into_terminal_input() else {
+            return RenderAction::None;
+        };
+        let Some(surface) = self.session.surface(surface_id) else {
+            return RenderAction::None;
+        };
+        let _ = surface.scroll_to_bottom();
+        self.session.clear_history_or_send_key(surface_id, key_input);
+        self.render_states.remove(&surface_id);
+        self.selection = None;
+        if self.status_message.is_some() { RenderAction::Draw } else { RenderAction::None }
+    }
+
+    fn forward_key(&mut self, input: keys::KeyboardInput) {
         if !self.session_available() {
             self.status_message =
                 Some(localization::catalog().sidebar.no_active_session.to_string());
@@ -8192,10 +8499,12 @@ impl App {
             .active_surface_handle()
             .is_some_and(|surface| surface.kind() == SurfaceKind::Browser)
         {
-            self.forward_browser_key(key);
+            self.forward_browser_key(input);
             return;
         }
-        let Some(input) = keys::key_input_from(key) else { return };
+        let Some(input) = input.into_terminal_input() else {
+            return;
+        };
         let Some((surface_id, surface)) = self.active_surface_with_handle() else { return };
         self.encode_buf.clear();
         let _ = surface.scroll_to_bottom();
@@ -8210,8 +8519,10 @@ impl App {
         }
     }
 
-    fn forward_sidebar_key(&mut self, key: &KeyEvent) {
-        let Some(input) = keys::key_input_from(key) else { return };
+    fn forward_sidebar_key(&mut self, input: keys::KeyboardInput) {
+        let Some(input) = input.into_terminal_input() else {
+            return;
+        };
         let Some(surface_id) = self.sidebar_plugin_surface else { return };
         let Some(surface) = self.sidebar_surface_handle() else { return };
         self.encode_buf.clear();
@@ -8227,7 +8538,8 @@ impl App {
         }
     }
 
-    fn forward_browser_key(&mut self, key: &KeyEvent) {
+    fn forward_browser_key(&mut self, input: keys::KeyboardInput) {
+        let key = input.ui_key();
         if matches!(key.code, KeyCode::Char('l') | KeyCode::Char('L'))
             && key.modifiers.contains(KeyModifiers::CONTROL)
         {
@@ -8237,10 +8549,26 @@ impl App {
             return;
         }
         let Some((surface_id, surface)) = self.active_surface_with_handle() else { return };
+        self.forward_browser_key_to(surface_id, surface, input);
+    }
+
+    fn forward_browser_key_to(
+        &mut self,
+        surface_id: SurfaceId,
+        surface: SurfaceHandle,
+        mut input: keys::KeyboardInput,
+    ) {
+        let key = input.ui_key();
+        if let Some(text) = input.take_text_for_direct_input() {
+            let _ = self.browser_input.enqueue(BrowserInputEvent {
+                surface_id,
+                surface,
+                kind: BrowserInputKind::InsertText(text),
+            });
+            return;
+        }
         if let KeyCode::Char(c) = key.code
-            && !key
-                .modifiers
-                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER)
+            && !key.modifiers.intersects(keys::SHORTCUT_MODIFIERS)
         {
             let _ = self.browser_input.enqueue(BrowserInputEvent {
                 surface_id,
@@ -8249,27 +8577,38 @@ impl App {
             });
             return;
         }
-        let Some((key_name, code, vk, text)) = browser_key_mapping(key.code) else { return };
-        let modifiers = browser_modifiers(key.modifiers);
-        let key_event =
-            |event_type: &'static str, text: Option<&'static str>| BrowserInputKind::Key {
-                event_type,
+        let Some((key_name, code, vk, text)) =
+            browser_key_mapping(key.code, input.base_layout_key())
+        else {
+            return;
+        };
+        let Some(modifiers) = browser_modifiers(key.modifiers) else {
+            return;
+        };
+        let _ = self.browser_input.enqueue(BrowserInputEvent {
+            surface_id,
+            surface: surface.clone(),
+            kind: BrowserInputKind::Key {
+                event_type: "keyDown",
                 key: key_name,
                 code,
                 windows_virtual_key_code: vk,
                 modifiers,
                 text,
-            };
-        let _ = self.browser_input.enqueue(BrowserInputEvent {
-            surface_id,
-            surface: surface.clone(),
-            kind: key_event("keyDown", text),
+            },
         });
         if key.kind == KeyEventKind::Press {
             let _ = self.browser_input.enqueue(BrowserInputEvent {
                 surface_id,
                 surface,
-                kind: key_event("keyUp", None),
+                kind: BrowserInputKind::Key {
+                    event_type: "keyUp",
+                    key: key_name,
+                    code,
+                    windows_virtual_key_code: vk,
+                    modifiers,
+                    text: None,
+                },
             });
         }
     }
@@ -10483,7 +10822,10 @@ fn outer_cursor_escape(spec: OuterCursorSpec) -> String {
     }
 }
 
-fn browser_modifiers(modifiers: KeyModifiers) -> u32 {
+fn browser_modifiers(modifiers: KeyModifiers) -> Option<u32> {
+    if modifiers.contains(KeyModifiers::HYPER) {
+        return None;
+    }
     let mut out = 0;
     if modifiers.contains(KeyModifiers::ALT) {
         out |= 1;
@@ -10491,13 +10833,13 @@ fn browser_modifiers(modifiers: KeyModifiers) -> u32 {
     if modifiers.contains(KeyModifiers::CONTROL) {
         out |= 2;
     }
-    if modifiers.contains(KeyModifiers::SUPER) {
+    if modifiers.intersects(KeyModifiers::SUPER | KeyModifiers::META) {
         out |= 4;
     }
     if modifiers.contains(KeyModifiers::SHIFT) {
         out |= 8;
     }
-    out
+    Some(out)
 }
 
 fn browser_only_action(action: Action) -> bool {
@@ -10566,11 +10908,29 @@ fn deferred_paste_bytes(text: &str) -> usize {
     text.len().saturating_add(BRACKETED_PASTE_MARKER_BYTES)
 }
 
-fn deferred_input_bytes(input: &Event) -> usize {
-    match input {
-        Event::Paste(text) => deferred_paste_bytes(text),
-        _ => DEFERRED_INPUT_FIXED_BYTES,
-    }
+fn binding_matches(
+    chord: &crate::config::Chord,
+    key: &KeyEvent,
+    fallback: Option<&KeyEvent>,
+) -> bool {
+    chord.matches(key) || fallback.is_some_and(|fallback| chord.matches(fallback))
+}
+
+fn action_for_binding(
+    keys: &crate::config::Keys,
+    key: &KeyEvent,
+    fallback: Option<&KeyEvent>,
+) -> Option<Action> {
+    keys.action_for(key).or_else(|| fallback.and_then(|fallback| keys.action_for(fallback)))
+}
+
+fn modeless_action_for_binding(
+    keys: &crate::config::Keys,
+    key: &KeyEvent,
+    fallback: Option<&KeyEvent>,
+) -> Option<Action> {
+    keys.modeless_action_for(key)
+        .or_else(|| fallback.and_then(|fallback| keys.modeless_action_for(fallback)))
 }
 
 fn browser_hover_forward_allowed(status: Option<BrowserStatus>, editing_same_pane: bool) -> bool {
@@ -10594,22 +10954,63 @@ fn rects_intersect(a: Rect, b: Rect) -> bool {
 
 fn browser_key_mapping(
     code: KeyCode,
-) -> Option<(&'static str, &'static str, u32, Option<&'static str>)> {
+    base_layout_key: Option<char>,
+) -> Option<(BrowserKey, &'static str, u32, Option<&'static str>)> {
     match code {
-        KeyCode::Enter => Some(("Enter", "Enter", 13, Some("\r"))),
-        KeyCode::Backspace => Some(("Backspace", "Backspace", 8, None)),
-        KeyCode::Tab | KeyCode::BackTab => Some(("Tab", "Tab", 9, None)),
-        KeyCode::Esc => Some(("Escape", "Escape", 27, None)),
-        KeyCode::Left => Some(("ArrowLeft", "ArrowLeft", 37, None)),
-        KeyCode::Up => Some(("ArrowUp", "ArrowUp", 38, None)),
-        KeyCode::Right => Some(("ArrowRight", "ArrowRight", 39, None)),
-        KeyCode::Down => Some(("ArrowDown", "ArrowDown", 40, None)),
-        KeyCode::Home => Some(("Home", "Home", 36, None)),
-        KeyCode::End => Some(("End", "End", 35, None)),
-        KeyCode::PageUp => Some(("PageUp", "PageUp", 33, None)),
-        KeyCode::PageDown => Some(("PageDown", "PageDown", 34, None)),
-        KeyCode::Delete => Some(("Delete", "Delete", 46, None)),
+        KeyCode::Char(character) => {
+            // Preserve the logical key without claiming a physical DOM code
+            // when the host did not report an authoritative base-layout key.
+            let (code, vk) = base_layout_key.map(browser_character_code).unwrap_or(("", 0));
+            Some((BrowserKey::Character(character), code, vk, None))
+        }
+        KeyCode::Enter => Some((BrowserKey::Named("Enter"), "Enter", 13, Some("\r"))),
+        KeyCode::Backspace => Some((BrowserKey::Named("Backspace"), "Backspace", 8, None)),
+        KeyCode::Tab | KeyCode::BackTab => Some((BrowserKey::Named("Tab"), "Tab", 9, None)),
+        KeyCode::Esc => Some((BrowserKey::Named("Escape"), "Escape", 27, None)),
+        KeyCode::Left => Some((BrowserKey::Named("ArrowLeft"), "ArrowLeft", 37, None)),
+        KeyCode::Up => Some((BrowserKey::Named("ArrowUp"), "ArrowUp", 38, None)),
+        KeyCode::Right => Some((BrowserKey::Named("ArrowRight"), "ArrowRight", 39, None)),
+        KeyCode::Down => Some((BrowserKey::Named("ArrowDown"), "ArrowDown", 40, None)),
+        KeyCode::Home => Some((BrowserKey::Named("Home"), "Home", 36, None)),
+        KeyCode::End => Some((BrowserKey::Named("End"), "End", 35, None)),
+        KeyCode::PageUp => Some((BrowserKey::Named("PageUp"), "PageUp", 33, None)),
+        KeyCode::PageDown => Some((BrowserKey::Named("PageDown"), "PageDown", 34, None)),
+        KeyCode::Delete => Some((BrowserKey::Named("Delete"), "Delete", 46, None)),
         _ => None,
+    }
+}
+
+const BROWSER_LETTER_CODES: [&str; 26] = [
+    "KeyA", "KeyB", "KeyC", "KeyD", "KeyE", "KeyF", "KeyG", "KeyH", "KeyI", "KeyJ", "KeyK", "KeyL",
+    "KeyM", "KeyN", "KeyO", "KeyP", "KeyQ", "KeyR", "KeyS", "KeyT", "KeyU", "KeyV", "KeyW", "KeyX",
+    "KeyY", "KeyZ",
+];
+
+const BROWSER_DIGIT_CODES: [&str; 10] = [
+    "Digit0", "Digit1", "Digit2", "Digit3", "Digit4", "Digit5", "Digit6", "Digit7", "Digit8",
+    "Digit9",
+];
+
+fn browser_character_code(character: char) -> (&'static str, u32) {
+    match character {
+        'a'..='z' | 'A'..='Z' => {
+            let upper = character.to_ascii_uppercase();
+            (BROWSER_LETTER_CODES[(upper as u8 - b'A') as usize], upper as u32)
+        }
+        '0'..='9' => (BROWSER_DIGIT_CODES[(character as u8 - b'0') as usize], character as u32),
+        ' ' => ("Space", 32),
+        ';' => ("Semicolon", 186),
+        '=' => ("Equal", 187),
+        ',' => ("Comma", 188),
+        '-' => ("Minus", 189),
+        '.' => ("Period", 190),
+        '/' => ("Slash", 191),
+        '`' => ("Backquote", 192),
+        '[' => ("BracketLeft", 219),
+        '\\' => ("Backslash", 220),
+        ']' => ("BracketRight", 221),
+        '\'' => ("Quote", 222),
+        _ => ("", 0),
     }
 }
 
@@ -10622,13 +11023,15 @@ mod tests {
         PendingSessionMutation, PendingSessionMutationState, PromptTarget, PtyFailureIngress,
         PtyMousePressResult, RailKind, RenderAction, Selection, SessionCompletion,
         SessionCompletionAction, SessionEventSender, SidebarLayout, SidebarPluginSyncClaim,
-        SidebarPluginSyncState, SurfaceResizeDecision, SurfaceResizeOwnership,
+        SidebarPluginSyncState, SurfaceResizeDecision, SurfaceResizeOwnership, TerminalInput,
         WorkspaceRailSelection, browser_content_size_for_rect, browser_hover_forward_allowed,
         canonical_terminal_content, clamp_split_ratio_for_tab_bars, client_menu_item,
-        forward_mux_event, forward_mux_events, outer_cursor_escape, outer_cursor_escape_if_changed,
-        pane_context_menu_groups, pane_parts_for_rect, prepare_ordered_session,
-        preserve_client_view, rail_drag_width, record_surface_resize_dispatch_result,
-        sidebar_layout_for, sidebar_plugin_status_settles_passive_claim, start_ordered_session,
+        disable_host_keyboard_protocol, enable_host_keyboard_protocol, forward_mux_event,
+        forward_mux_events, keyboard_protocol_accepts, negotiate_host_keyboard_protocol_with,
+        outer_cursor_escape, outer_cursor_escape_if_changed, pane_context_menu_groups,
+        pane_parts_for_rect, prepare_ordered_session, preserve_client_view, rail_drag_width,
+        record_surface_resize_dispatch_result, sidebar_layout_for,
+        sidebar_plugin_status_settles_passive_claim, start_ordered_session,
     };
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -10639,10 +11042,11 @@ mod tests {
 
     use cmux_tui_core::{
         BrowserStatus, Direction, Mux, MuxEvent, Node, Rect, SplitDir, SurfaceId, SurfaceKind,
-        SurfaceOptions, layout_screen,
+        SurfaceOptions, layout_screen, server,
     };
     use crossterm::event::{
-        Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+        EnhancedKeyEvent, Event, KeyCode, KeyEvent, KeyModifiers, KeyboardEnhancementFlags,
+        MouseButton, MouseEvent, MouseEventKind,
     };
     use ghostty_vt::{
         CursorShape, KeyEncoder, Mods, MouseAction, MouseButton as GhosttyMouseButton, MouseInput,
@@ -10669,12 +11073,462 @@ mod tests {
     };
     use crate::session::tree::{PaneView, ScreenView, TabNotificationView, TabView, WorkspaceView};
     use crate::session::{
-        ClientInfo, ClientSizeInfo, Session, SidebarPluginSurface, SurfaceHandle, TreeView,
+        ClientInfo, ClientSizeInfo, RemoteSession, Session, SidebarPluginSurface, SurfaceHandle,
+        TreeView,
     };
     use crate::sidebar_files::FileBrowser;
 
     fn settled(outcome: super::SessionMutationOutcome) -> AppEvent {
         AppEvent::SessionMutationSettled { outcome, routing: false }
+    }
+
+    #[test]
+    fn host_keyboard_protocol_reports_command_modifiers_and_is_restored() {
+        let mut output = Vec::new();
+        let accepted = KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+            | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS
+            | KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES
+            | KeyboardEnhancementFlags::REPORT_ASSOCIATED_TEXT;
+
+        let mut ownership = super::HostKeyboardProtocolOwnership::default();
+        negotiate_host_keyboard_protocol_with(&mut output, &mut ownership, || Ok(Some(accepted)))
+            .unwrap();
+        assert!(ownership.is_pushed());
+        disable_host_keyboard_protocol(&mut output, &ownership).unwrap();
+
+        assert_eq!(output, b"\x1b[>29u\x1b[<1u");
+    }
+
+    #[test]
+    fn host_keyboard_protocol_cleanup_is_single_use_across_clones() {
+        let mut output = Vec::new();
+        let ownership = enable_host_keyboard_protocol(&mut output).unwrap();
+        let panic_ownership = ownership.clone();
+
+        disable_host_keyboard_protocol(&mut output, &panic_ownership).unwrap();
+        disable_host_keyboard_protocol(&mut output, &ownership).unwrap();
+
+        assert_eq!(output, b"\x1b[>29u\x1b[<1u");
+    }
+
+    #[test]
+    fn unsupported_host_keyboard_protocol_is_a_nonfatal_fallback() {
+        struct UnsupportedWriter {
+            writes: usize,
+        }
+
+        impl std::io::Write for UnsupportedWriter {
+            fn write(&mut self, _buffer: &[u8]) -> std::io::Result<usize> {
+                self.writes += 1;
+                Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let mut output = UnsupportedWriter { writes: 0 };
+        let ownership = enable_host_keyboard_protocol(&mut output).unwrap();
+        assert!(!ownership.is_pushed());
+        disable_host_keyboard_protocol(&mut output, &ownership).unwrap();
+        assert_eq!(output.writes, 1, "cleanup must not pop a stack entry cmux did not push");
+    }
+
+    #[test]
+    fn host_keyboard_protocol_requires_every_requested_flag() {
+        let requested = KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+            | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS
+            | KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES
+            | KeyboardEnhancementFlags::REPORT_ASSOCIATED_TEXT;
+        let partial = requested - KeyboardEnhancementFlags::REPORT_ASSOCIATED_TEXT;
+
+        assert!(!keyboard_protocol_accepts(requested, Some(partial)));
+        assert!(!keyboard_protocol_accepts(requested, None));
+        assert!(keyboard_protocol_accepts(requested, Some(requested)));
+    }
+
+    #[test]
+    fn partial_host_keyboard_protocol_is_popped_before_legacy_fallback() {
+        let mut output = Vec::new();
+        let accepted = KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+            | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS;
+
+        let mut ownership = super::HostKeyboardProtocolOwnership::default();
+        negotiate_host_keyboard_protocol_with(&mut output, &mut ownership, || Ok(Some(accepted)))
+            .unwrap();
+
+        assert_eq!(ownership, super::HostKeyboardProtocolOwnership::default());
+        assert_eq!(output, b"\x1b[>29u\x1b[<1u");
+    }
+
+    #[test]
+    fn failed_host_keyboard_query_is_popped_before_legacy_fallback() {
+        let mut output = Vec::new();
+        let mut ownership = super::HostKeyboardProtocolOwnership::default();
+
+        negotiate_host_keyboard_protocol_with(&mut output, &mut ownership, || {
+            Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "missing DA1"))
+        })
+        .unwrap();
+
+        assert_eq!(ownership, super::HostKeyboardProtocolOwnership::default());
+        assert_eq!(output, b"\x1b[>29u\x1b[<1u");
+    }
+
+    #[test]
+    fn failed_keyboard_pop_keeps_cleanup_ownership_for_terminal_restore() {
+        struct RejectPop(Vec<u8>);
+
+        impl std::io::Write for RejectPop {
+            fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+                if buffer.contains(&b'<') {
+                    return Err(std::io::Error::from(std::io::ErrorKind::BrokenPipe));
+                }
+                self.0.extend_from_slice(buffer);
+                Ok(buffer.len())
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let mut output = RejectPop(Vec::new());
+        let mut ownership = super::HostKeyboardProtocolOwnership::default();
+        let error = negotiate_host_keyboard_protocol_with(&mut output, &mut ownership, || {
+            Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "missing DA1"))
+        })
+        .unwrap_err();
+
+        assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe);
+        assert!(ownership.is_pushed());
+    }
+
+    #[test]
+    fn unverified_host_keyboard_metadata_is_preserved() {
+        let input = TerminalInput::from_event(Event::EnhancedKey(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('л'), KeyModifiers::SUPER),
+            shifted_key: None,
+            base_layout_key: Some('k'),
+            text: "generated".to_string(),
+        }));
+        let TerminalInput::Keyboard(input) = input else {
+            panic!("enhanced key did not become keyboard input");
+        };
+
+        let (logical, physical) = input.shortcut_keys();
+        assert_eq!(logical.code, KeyCode::Char('л'));
+        assert_eq!(physical.unwrap().code, KeyCode::Char('k'));
+        assert_eq!(input.associated_text_bytes(), "generated".len());
+    }
+
+    #[test]
+    fn enhanced_text_inserts_atomically_in_prompt_and_omnibar() {
+        let mux = Mux::new("enhanced-overlay-text-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let text = "\u{2211}\u{6f22}";
+        let enhanced = || {
+            Event::EnhancedKey(EnhancedKeyEvent {
+                key_event: KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT),
+                shifted_key: None,
+                base_layout_key: Some('w'),
+                text: text.to_string(),
+            })
+        };
+        app.prompt = Some(super::Prompt::new("Rename", String::new(), PromptTarget::Workspace(1)));
+
+        app.handle(AppEvent::Input(enhanced())).unwrap();
+
+        assert_eq!(app.prompt.as_ref().unwrap().input.as_str(), text);
+        app.prompt = None;
+        app.omnibar = Some(super::OmnibarState {
+            pane: 1,
+            surface: 1,
+            input: crate::ui::input::TextInput::new("old".to_string()),
+            select_all: true,
+        });
+
+        app.handle(AppEvent::Input(enhanced())).unwrap();
+
+        let omnibar = app.omnibar.as_ref().unwrap();
+        assert_eq!(omnibar.input.as_str(), text);
+        assert!(!omnibar.select_all);
+    }
+
+    #[test]
+    fn enhanced_control_text_uses_prompt_and_omnibar_shortcuts() {
+        let mux = Mux::new("enhanced-overlay-shortcut-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let control_a = || {
+            Event::EnhancedKey(EnhancedKeyEvent {
+                key_event: KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL),
+                shifted_key: None,
+                base_layout_key: Some('a'),
+                text: "a".to_string(),
+            })
+        };
+        app.prompt = Some(super::Prompt::new("Rename", "word".into(), PromptTarget::Workspace(1)));
+
+        app.handle(AppEvent::Input(control_a())).unwrap();
+
+        let prompt = app.prompt.as_ref().unwrap();
+        assert_eq!(prompt.input.as_str(), "word");
+        assert_eq!(prompt.input.cursor, 0);
+        app.prompt = None;
+        app.omnibar = Some(super::OmnibarState {
+            pane: 1,
+            surface: 1,
+            input: crate::ui::input::TextInput::new("https://example.com".to_string()),
+            select_all: false,
+        });
+
+        app.handle(AppEvent::Input(control_a())).unwrap();
+
+        let omnibar = app.omnibar.as_ref().unwrap();
+        assert_eq!(omnibar.input.as_str(), "https://example.com");
+        assert!(omnibar.select_all);
+    }
+
+    #[test]
+    fn shifted_layout_key_matches_reported_character_instead_of_us_pair() {
+        let enhanced = EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('&'), KeyModifiers::ALT | KeyModifiers::SHIFT),
+            shifted_key: Some('1'),
+            base_layout_key: Some('1'),
+            text: String::new(),
+        };
+        let input = crate::keys::KeyboardInput::from(enhanced);
+        let (key, fallback) = input.shortcut_keys();
+        let alt_one = crate::config::Chord { code: KeyCode::Char('1'), mods: KeyModifiers::ALT };
+        let alt_ampersand =
+            crate::config::Chord { code: KeyCode::Char('&'), mods: KeyModifiers::ALT };
+
+        assert!(super::binding_matches(&alt_one, &key, fallback.as_ref()));
+        assert!(!super::binding_matches(&alt_ampersand, &key, fallback.as_ref()));
+    }
+
+    #[test]
+    fn option_generated_text_does_not_match_alt_modeless_bindings() {
+        let input = crate::keys::KeyboardInput::from_enhanced(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT),
+            shifted_key: None,
+            base_layout_key: Some('j'),
+            text: "\u{2206}".to_string(),
+        });
+        let (key, fallback) = input.shortcut_keys();
+
+        assert_eq!(
+            super::modeless_action_for_binding(&Config::default().keys, &key, fallback.as_ref()),
+            None
+        );
+    }
+
+    #[test]
+    fn alt_binding_with_matching_associated_text_remains_active() {
+        let input = crate::keys::KeyboardInput::from(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT),
+            shifted_key: None,
+            base_layout_key: Some('j'),
+            text: "j".to_string(),
+        });
+        let (key, fallback) = input.shortcut_keys();
+
+        assert_eq!(
+            super::modeless_action_for_binding(&Config::default().keys, &key, fallback.as_ref()),
+            Some(Action::FocusDown)
+        );
+    }
+
+    #[test]
+    fn option_generated_text_does_not_execute_a_prefixed_action() {
+        let mux = Mux::new("option-prefix-action", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+
+        app.handle_keyboard(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL).into())
+            .unwrap();
+        assert!(app.prefix_armed);
+        app.handle_keyboard(
+            EnhancedKeyEvent {
+                key_event: KeyEvent::new(KeyCode::Char('d'), KeyModifiers::ALT),
+                shifted_key: None,
+                base_layout_key: Some('d'),
+                text: "\u{2202}".to_string(),
+            }
+            .into(),
+        )
+        .unwrap();
+
+        assert!(!app.prefix_armed);
+        assert!(!app.quit);
+        assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn option_generated_text_cannot_bypass_a_pending_mutation_as_detach() {
+        let mux = Mux::new("option-prefix-pending-detach", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.prefix_armed = true;
+        app.session.pending_mutations.store(1, Ordering::Release);
+
+        app.handle(AppEvent::Input(Event::EnhancedKey(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('d'), KeyModifiers::ALT),
+            shifted_key: None,
+            base_layout_key: Some('d'),
+            text: "\u{2202}".to_string(),
+        })))
+        .unwrap();
+
+        assert!(!app.quit);
+        assert!(app.prefix_armed);
+        assert_eq!(app.deferred_input.len(), 1);
+        app.session.pending_mutations.store(0, Ordering::Release);
+        assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn files_filter_inserts_complete_associated_text() {
+        let temp = test_temp_dir("files-filter-associated-text");
+        let mux = Mux::new("files-filter-associated-text-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_view = SidebarView::Files;
+        app.focus = FocusTarget::WorkspaceRail;
+        app.sidebar_files.handle_key(&KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+
+        app.handle(AppEvent::Input(Event::EnhancedKey(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT),
+            shifted_key: None,
+            base_layout_key: Some('w'),
+            text: "\u{2211}\u{6f22}".to_string(),
+        })))
+        .unwrap();
+
+        assert_eq!(app.sidebar_files.query(), "\u{2211}\u{6f22}");
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn files_filter_does_not_insert_modified_associated_text() {
+        let temp = test_temp_dir("files-filter-modified-associated-text");
+        let mux = Mux::new("files-filter-modified-associated-text-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_view = SidebarView::Files;
+        app.focus = FocusTarget::WorkspaceRail;
+        app.sidebar_files.handle_key(&KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+
+        app.handle(AppEvent::Input(Event::EnhancedKey(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL),
+            shifted_key: None,
+            base_layout_key: Some('x'),
+            text: "x".to_string(),
+        })))
+        .unwrap();
+
+        assert_eq!(app.sidebar_files.query(), "");
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn browser_inserts_complete_associated_text_atomically() {
+        let mux = Mux::new("browser-associated-text-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let (dispatcher, blocked) = BrowserInputDispatcher::blocked(1);
+        app.browser_input = dispatcher;
+        let input = crate::keys::KeyboardInput::from_enhanced(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT),
+            shifted_key: None,
+            base_layout_key: Some('w'),
+            text: "\u{2211}\u{6f22}".to_string(),
+        });
+
+        app.forward_browser_key_to(7, SurfaceHandle::RemoteBrowserUnsupported, input);
+
+        let event = blocked.recv_timeout(Duration::from_secs(1));
+        assert!(matches!(
+            event.kind,
+            BrowserInputKind::InsertText(text) if text == "\u{2211}\u{6f22}"
+        ));
+    }
+
+    #[test]
+    fn browser_routes_modified_associated_text_as_a_key_event() {
+        let mux = Mux::new("browser-modified-associated-text-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let (dispatcher, blocked) = BrowserInputDispatcher::blocked(1);
+        app.browser_input = dispatcher;
+        let input = crate::keys::KeyboardInput::from(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT),
+            shifted_key: None,
+            base_layout_key: Some('j'),
+            text: "j".to_string(),
+        });
+
+        app.forward_browser_key_to(7, SurfaceHandle::RemoteBrowserUnsupported, input);
+
+        let event = blocked.recv_timeout(Duration::from_secs(1));
+        assert!(matches!(
+            event.kind,
+            BrowserInputKind::Key {
+                event_type: "keyDown",
+                key: crate::browser_input::BrowserKey::Character('j'),
+                code: "KeyJ",
+                windows_virtual_key_code: 74,
+                modifiers: 1,
+                text: None,
+            }
+        ));
+    }
+
+    #[test]
+    fn browser_mapping_keeps_character_keys_and_codes_compact() {
+        let (key, code, vk, text) =
+            super::browser_key_mapping(KeyCode::Char('j'), Some('j')).unwrap();
+
+        assert_eq!(key, crate::browser_input::BrowserKey::Character('j'));
+        assert_eq!(code, "KeyJ");
+        assert_eq!(vk, 74);
+        assert_eq!(text, None);
+    }
+
+    #[test]
+    fn browser_mapping_does_not_invent_physical_identity_without_host_metadata() {
+        let (key, code, vk, text) = super::browser_key_mapping(KeyCode::Char('a'), None).unwrap();
+
+        assert_eq!(key, crate::browser_input::BrowserKey::Character('a'));
+        assert_eq!(code, "");
+        assert_eq!(vk, 0);
+        assert_eq!(text, None);
+    }
+
+    #[test]
+    fn browser_preserves_meta_on_associated_key_events() {
+        let mux = Mux::new("browser-meta-associated-text-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let (dispatcher, blocked) = BrowserInputDispatcher::blocked(1);
+        app.browser_input = dispatcher;
+        let input = crate::keys::KeyboardInput::from(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('j'), KeyModifiers::META),
+            shifted_key: None,
+            base_layout_key: Some('j'),
+            text: "j".to_string(),
+        });
+
+        app.forward_browser_key_to(7, SurfaceHandle::RemoteBrowserUnsupported, input);
+
+        let event = blocked.recv_timeout(Duration::from_secs(1));
+        assert!(matches!(
+            event.kind,
+            BrowserInputKind::Key {
+                event_type: "keyDown",
+                key: crate::browser_input::BrowserKey::Character('j'),
+                code: "KeyJ",
+                windows_virtual_key_code: 74,
+                modifiers: 4,
+                text: None,
+            }
+        ));
     }
 
     #[test]
@@ -10972,6 +11826,280 @@ mod tests {
         for surface in surfaces {
             mux.close_surface(surface).unwrap();
         }
+    }
+
+    #[test]
+    fn command_k_clears_prior_output_without_a_session_mutation() {
+        let (mux, surface) = test_mux("command-k-clear-history-test", None);
+        surface.with_terminal(|term| {
+            for line in 0..24 {
+                term.vt_write(format!("history-{line}\r\n").as_bytes());
+            }
+            term.vt_write(b"\x1b]133;A\x07prompt> \x1b]133;B\x07visible-content");
+        });
+        assert!(surface.with_terminal(|term| term.history_rows()).unwrap() > 0);
+
+        let (mut app, _events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        let action =
+            app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::SUPER)).unwrap();
+        assert_eq!(action, RenderAction::None);
+        assert!(!app.session.has_pending_mutations());
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('x'),
+            KeyModifiers::NONE,
+        ))))
+        .unwrap();
+        assert!(app.deferred_input.is_empty());
+        assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+
+        surface.with_terminal(|term| {
+            assert_eq!(term.history_rows(), 0);
+            let viewport = term.viewport_text().unwrap();
+            let compact =
+                viewport.chars().filter(|character| !character.is_whitespace()).collect::<String>();
+            assert!(!viewport.contains("history-"));
+            assert!(compact.contains("prompt>visible-content"));
+        });
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn command_k_matches_the_reported_physical_key_across_layouts() {
+        let (mux, surface) = test_mux("command-k-layout-test", None);
+        surface.with_terminal(|term| {
+            for line in 0..24 {
+                term.vt_write(format!("history-{line}\r\n").as_bytes());
+            }
+            term.vt_write(b"\x1b]133;A\x07prompt> ");
+        });
+        assert!(surface.with_terminal(|term| term.history_rows()).unwrap() > 0);
+
+        let (mut app, _events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        let action = app
+            .handle(AppEvent::Input(Event::EnhancedKey(EnhancedKeyEvent {
+                key_event: KeyEvent::new(KeyCode::Char('л'), KeyModifiers::SUPER),
+                shifted_key: None,
+                base_layout_key: Some('k'),
+                text: String::new(),
+            })))
+            .unwrap();
+
+        assert_eq!(action, RenderAction::None);
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('x'),
+            KeyModifiers::NONE,
+        ))))
+        .unwrap();
+        assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+        assert_eq!(surface.with_terminal(|term| term.history_rows()), Some(0));
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn command_k_reaches_a_kitty_app_on_the_alternate_screen() {
+        let mux = Mux::new(
+            "command-k-alternate-screen-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "stty raw -echo; printf ready; exec cat".to_string(),
+                ]),
+                cols: 20,
+                rows: 8,
+                ..Default::default()
+            },
+        );
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let attach = surface.attach_stream().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let mut output = attach.replay.clone();
+        while !output.windows(5).any(|window| window == b"ready") {
+            match attach.stream.recv_timeout(Duration::from_millis(20)) {
+                Ok(cmux_tui_core::AttachFrame::Output(bytes)) => output.extend_from_slice(&bytes),
+                Ok(cmux_tui_core::AttachFrame::OutputWithColors { output: bytes, .. }) => {
+                    output.extend_from_slice(&bytes);
+                }
+                Ok(cmux_tui_core::AttachFrame::Resized { .. })
+                | Ok(cmux_tui_core::AttachFrame::ResizedWithColors { .. })
+                | Ok(cmux_tui_core::AttachFrame::ColorsChanged(_)) => {}
+                Err(_) if Instant::now() < deadline => {}
+                Err(error) => panic!("alternate-screen helper did not become ready: {error}"),
+            }
+        }
+        surface.with_terminal(|term| term.vt_write(b"\x1b[?1049h\x1b[>1u"));
+
+        let (mut app, _events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        let action =
+            app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::SUPER)).unwrap();
+        assert_eq!(action, RenderAction::None);
+        assert!(!app.session.has_pending_mutations());
+        assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+
+        let expected = b"\x1b[107;9u";
+        let deadline = Instant::now() + Duration::from_secs(1);
+        output.clear();
+        while !output.windows(expected.len()).any(|window| window == expected) {
+            match attach.stream.recv_timeout(Duration::from_millis(20)) {
+                Ok(cmux_tui_core::AttachFrame::Output(bytes)) => output.extend_from_slice(&bytes),
+                Ok(cmux_tui_core::AttachFrame::OutputWithColors { output: bytes, .. }) => {
+                    output.extend_from_slice(&bytes);
+                }
+                Ok(cmux_tui_core::AttachFrame::Resized { .. })
+                | Ok(cmux_tui_core::AttachFrame::ResizedWithColors { .. })
+                | Ok(cmux_tui_core::AttachFrame::ColorsChanged(_)) => {}
+                Err(_) if Instant::now() < deadline => {}
+                Err(error) => panic!("alternate-screen app did not receive Command-K: {error}"),
+            }
+        }
+
+        let action =
+            app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)).unwrap();
+        assert_eq!(action, RenderAction::Draw);
+        assert!(app.prefix_armed);
+        let action =
+            app.handle_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL)).unwrap();
+        assert_eq!(action, RenderAction::None);
+        assert!(!app.prefix_armed);
+
+        let expected = b"\x1b[108;5u";
+        let deadline = Instant::now() + Duration::from_secs(1);
+        output.clear();
+        while !output.windows(expected.len()).any(|window| window == expected) {
+            match attach.stream.recv_timeout(Duration::from_millis(20)) {
+                Ok(cmux_tui_core::AttachFrame::Output(bytes)) => output.extend_from_slice(&bytes),
+                Ok(cmux_tui_core::AttachFrame::OutputWithColors { output: bytes, .. }) => {
+                    output.extend_from_slice(&bytes);
+                }
+                Ok(cmux_tui_core::AttachFrame::Resized { .. })
+                | Ok(cmux_tui_core::AttachFrame::ResizedWithColors { .. })
+                | Ok(cmux_tui_core::AttachFrame::ColorsChanged(_)) => {}
+                Err(_) if Instant::now() < deadline => {}
+                Err(error) => {
+                    panic!("alternate-screen app did not receive prefixed Ctrl-L: {error}")
+                }
+            }
+        }
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn remote_command_k_uses_authoritative_screen_and_keyboard_modes() {
+        let mux = Mux::new(
+            "remote-command-k-authority-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "stty raw -echo; printf ready; exec cat".to_string(),
+                ]),
+                cols: 20,
+                rows: 8,
+                ..Default::default()
+            },
+        );
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let attach = surface.attach_stream().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let mut output = attach.replay.clone();
+        while !output.windows(5).any(|window| window == b"ready") {
+            match attach.stream.recv_timeout(Duration::from_millis(20)) {
+                Ok(cmux_tui_core::AttachFrame::Output(bytes)) => output.extend_from_slice(&bytes),
+                Ok(cmux_tui_core::AttachFrame::OutputWithColors { output: bytes, .. }) => {
+                    output.extend_from_slice(&bytes);
+                }
+                Ok(cmux_tui_core::AttachFrame::Resized { .. })
+                | Ok(cmux_tui_core::AttachFrame::ResizedWithColors { .. })
+                | Ok(cmux_tui_core::AttachFrame::ColorsChanged(_)) => {}
+                Err(_) if Instant::now() < deadline => {}
+                Err(error) => {
+                    panic!("remote alternate-screen helper did not become ready: {error}")
+                }
+            }
+        }
+
+        let dir = PathBuf::from(format!(
+            "/tmp/cmux-k-auth-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let socket = dir.join("mux.sock");
+        server::serve(mux.clone(), Some(socket.clone())).unwrap();
+        let remote = RemoteSession::connect(&socket).unwrap();
+        let session = Session::Remote(remote);
+        let tree = session.refresh_tree().unwrap();
+        let mirror = session.try_surface_sized(surface.id, Some((20, 8))).unwrap().unwrap();
+        assert_eq!(
+            mirror.with_terminal(|terminal| terminal.active_screen()),
+            Some(ghostty_vt::Screen::Primary)
+        );
+
+        // This bypasses the attach stream to model a remote mirror that has
+        // not received the server's authoritative screen or keyboard-mode
+        // transitions yet.
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1049h\x1b[>1u"));
+        assert_eq!(
+            surface.with_terminal(|terminal| terminal.active_screen()),
+            Some(ghostty_vt::Screen::Alternate)
+        );
+
+        let (mut app, _events) = test_app_with_events(session);
+        app.sidebar_visible = false;
+        app.replace_tree(tree);
+        let action =
+            app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::SUPER)).unwrap();
+        assert_eq!(action, RenderAction::None);
+        assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+
+        let expected = b"\x1b[107;9u";
+        let deadline = Instant::now() + Duration::from_secs(1);
+        output.clear();
+        while !output.windows(expected.len()).any(|window| window == expected) {
+            match attach.stream.recv_timeout(Duration::from_millis(20)) {
+                Ok(cmux_tui_core::AttachFrame::Output(bytes)) => output.extend_from_slice(&bytes),
+                Ok(cmux_tui_core::AttachFrame::OutputWithColors { output: bytes, .. }) => {
+                    output.extend_from_slice(&bytes);
+                }
+                Ok(cmux_tui_core::AttachFrame::Resized { .. })
+                | Ok(cmux_tui_core::AttachFrame::ResizedWithColors { .. })
+                | Ok(cmux_tui_core::AttachFrame::ColorsChanged(_)) => {}
+                Err(_) if Instant::now() < deadline => {}
+                Err(error) => {
+                    panic!("authoritative alternate-screen app did not receive Command-K: {error}")
+                }
+            }
+        }
+
+        mux.close_surface(surface.id).unwrap();
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn clear_history_is_a_noop_for_browser_surfaces() {
+        let mux = Mux::new("clear-history-browser-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux.clone()));
+        let surface = 73;
+        app.tree = browser_completion_tree(surface, surface);
+        app.render_states.insert(surface, RenderState::new().unwrap());
+        app.selection = Some(Selection { surface, anchor: (1, 1), head: (2, 1) });
+
+        let action = app.run_action(Action::ClearHistory).unwrap();
+
+        assert_eq!(action, RenderAction::None);
+        assert!(!app.session.has_pending_mutations());
+        assert!(app.render_states.contains_key(&surface));
+        assert!(app.selection.is_some_and(|selection| selection.surface == surface));
+        assert!(app.status_message.is_none());
+        mux.shutdown();
     }
 
     #[test]
@@ -13330,7 +14458,7 @@ mod tests {
         let mux = Mux::new("ambiguous-attach-reconnect-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.deferred_input.push_back(DeferredInput {
-            event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
+            event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)).into(),
             destination: Some(77),
             routing_intent: None,
             sidebar_focus_intent: false,
@@ -13478,7 +14606,7 @@ mod tests {
         let older = notify_tree(11, false);
         app.session.pending_mutations.store(1, Ordering::Release);
         app.deferred_input.push_back(DeferredInput {
-            event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
+            event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)).into(),
             destination: None,
             routing_intent: None,
             sidebar_focus_intent: false,
@@ -13766,7 +14894,7 @@ mod tests {
         app.session.remote = true;
         app.replace_tree(notify_tree(surface, false));
         app.deferred_input.push_back(DeferredInput {
-            event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
+            event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)).into(),
             destination: Some(surface),
             routing_intent: None,
             sidebar_focus_intent: false,
@@ -13934,7 +15062,7 @@ mod tests {
         let (mut app, events) = test_app_with_events(Session::Local(mux));
         app.session.remote = true;
         app.deferred_input.push_back(DeferredInput {
-            event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
+            event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)).into(),
             destination: None,
             routing_intent: None,
             sidebar_focus_intent: false,
@@ -13964,7 +15092,7 @@ mod tests {
         let (mut app, events) = test_app_with_events(Session::Local(mux));
         app.session.remote = true;
         app.deferred_input.push_back(DeferredInput {
-            event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
+            event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)).into(),
             destination: None,
             routing_intent: None,
             sidebar_focus_intent: false,
@@ -14419,7 +15547,7 @@ mod tests {
         let mut app = test_app(Session::Local(mux));
         app.session.pending_mutations.store(1, Ordering::Release);
         app.deferred_input.push_back(DeferredInput {
-            event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
+            event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)).into(),
             destination: None,
             routing_intent: None,
             sidebar_focus_intent: false,
@@ -14453,6 +15581,27 @@ mod tests {
     }
 
     #[test]
+    fn oversized_enhanced_text_is_rejected_before_routing_or_text_insertion() {
+        let mux = Mux::new("oversized-enhanced-text-ingress-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let text = "x".repeat(super::MAX_DEFERRED_INPUT_BYTES + 1);
+
+        app.handle(AppEvent::Input(Event::EnhancedKey(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE),
+            shifted_key: None,
+            base_layout_key: Some('x'),
+            text,
+        })))
+        .unwrap();
+
+        assert!(app.deferred_input.is_empty());
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Keyboard text exceeds the 4 MiB PTY buffer limit")
+        );
+    }
+
+    #[test]
     fn deferred_paste_budget_counts_bracket_markers() {
         let mux = Mux::new("deferred-paste-budget-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -14461,6 +15610,31 @@ mod tests {
 
         app.handle(AppEvent::Input(Event::Paste(half.clone()))).unwrap();
         app.handle(AppEvent::Input(Event::Paste(half))).unwrap();
+
+        assert_eq!(app.deferred_input.len(), 1);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Input queue byte limit reached while a session change is pending")
+        );
+    }
+
+    #[test]
+    fn deferred_keyboard_budget_counts_associated_text() {
+        let mux = Mux::new("deferred-keyboard-budget-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.session.pending_mutations.store(1, Ordering::Release);
+        let half = "x".repeat(super::MAX_DEFERRED_INPUT_BYTES / 2);
+        let input = |text| {
+            Event::EnhancedKey(EnhancedKeyEvent {
+                key_event: KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE),
+                shifted_key: None,
+                base_layout_key: Some('x'),
+                text,
+            })
+        };
+
+        app.handle(AppEvent::Input(input(half.clone()))).unwrap();
+        app.handle(AppEvent::Input(input(half))).unwrap();
 
         assert_eq!(app.deferred_input.len(), 1);
         assert_eq!(
@@ -16712,6 +17886,48 @@ mod tests {
         assert_eq!(
             app.status_message.as_deref(),
             Some("ターミナルの色を適用できませんでした: offline")
+        );
+    }
+
+    #[test]
+    fn clear_history_failure_status_uses_the_selected_locale() {
+        const CHILD_ENV: &str = "CMUX_CLEAR_HISTORY_FAILURE_LOCALE_CHILD";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg("app::tests::clear_history_failure_status_uses_the_selected_locale")
+                .arg("--exact")
+                .arg("--nocapture")
+                .env(CHILD_ENV, "1")
+                .env("LC_ALL", "ja_JP.UTF-8")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "Japanese clear-history failure child failed:\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+
+        let mux = Mux::new("clear-history-failure-locale", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.apply_pty_operation_failure(PtyOperationFailure {
+            surface_id: Some(1),
+            kind: None,
+            reservation_id: None,
+            label: "clear terminal history",
+            error: "remote server does not support clear-history; restart the cmux-tui server"
+                .into(),
+            lane_failed: false,
+            delivery: PtyOperationDelivery::KnownNotDelivered,
+        });
+
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(
+                "ターミナル履歴を消去できませんでした: このサーバーでは clear-history を使用できません。cmux-tui サーバーを再起動してください"
+            )
         );
     }
 

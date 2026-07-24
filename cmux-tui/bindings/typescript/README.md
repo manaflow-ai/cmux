@@ -103,6 +103,9 @@ The `cmd` discriminator determines both required parameters and the successful
 response data type. `sendRaw()` remains available for untyped forward
 compatibility.
 
+`clearHistory(surface, fallbackKey)` accepts a typed `TerminalKeyInput` and
+fails locally unless the server advertises `clear-history-key-v1`.
+
 ## Verification
 
 ```bash

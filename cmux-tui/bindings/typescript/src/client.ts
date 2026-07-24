@@ -50,6 +50,7 @@ import type {
   SplitDirection,
   SubscribeEvent,
   SurfaceResult,
+  TerminalKeyInput,
   TerminalPlacement,
   TerminalEventsResult,
   Tree,
@@ -470,6 +471,14 @@ export class CmuxClient {
     const legacyBytes = options.bytes instanceof Uint8Array ? encodeBase64(options.bytes) : options.bytes;
     const bytes = "base64" in options ? options.base64 : legacyBytes;
     return this.request("send", { surface, text: options.text, bytes, paste: options.paste });
+  }
+
+  async clearHistory(surface: Id, fallbackKey?: TerminalKeyInput): Promise<EmptyResult> {
+    await this.requireCapability("clear-history-v1", "clear-history");
+    if (fallbackKey !== undefined) {
+      await this.requireCapability("clear-history-key-v1", "clear-history key fallback");
+    }
+    return this.request("clear-history", { surface, fallback_key: fallbackKey });
   }
 
   readScreen(surface: Id): Promise<ReadScreenResult> { return this.request("read-screen", { surface }); }

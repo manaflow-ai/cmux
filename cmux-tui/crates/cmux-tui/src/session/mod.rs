@@ -19,7 +19,7 @@ use cmux_tui_core::{
     SidebarPluginStatus, SplitDir, SplitId, Surface, SurfaceId, SurfaceKind, SurfaceRenderFrame,
     SurfaceResizeReporter, WorkspaceId, ZoomMode,
 };
-use ghostty_vt::{MouseInput, RenderState, Terminal};
+use ghostty_vt::{KeyInput, MouseInput, RenderState, Terminal};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -27,6 +27,9 @@ pub use remote::{
     RemoteMessageReader, RemoteMessageWriter, RemoteSession, RemoteSurface, RemoteTransport,
 };
 pub use tree::{TabNotificationView, TreeView, WorkspaceView};
+
+pub(crate) const CLEAR_HISTORY_UNSUPPORTED_ERROR: &str =
+    "remote server does not support clear-history; restart the cmux-tui server";
 
 #[derive(Clone)]
 pub enum Session {
@@ -753,6 +756,30 @@ impl Session {
             Session::Remote(remote) => {
                 remote.request(json!({"cmd": "close-surface", "surface": surface})).map(|_| ())
             }
+        }
+    }
+
+    pub fn clear_history(&self, surface: SurfaceId) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => mux
+                .surface(surface)
+                .ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?
+                .clear_history(),
+            Session::Remote(remote) => remote.clear_history(surface),
+        }
+    }
+
+    pub fn clear_history_or_send_key(
+        &self,
+        surface: SurfaceId,
+        fallback_key: &KeyInput,
+    ) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => mux
+                .surface(surface)
+                .ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?
+                .clear_history_or_encode_key(Some(fallback_key)),
+            Session::Remote(remote) => remote.clear_history_or_send_key(surface, fallback_key),
         }
     }
 

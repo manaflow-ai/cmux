@@ -196,6 +196,112 @@ func TestSetSplitRatioRejectsServersOlderThanProtocolEight(t *testing.T) {
 	}
 }
 
+func TestClearHistoryRequiresCapability(t *testing.T) {
+	protocol := uint32(9)
+	client := &Client{protocol: &protocol}
+	err := client.ClearHistory(context.Background(), 7)
+	if err == nil || !errors.Is(err, ErrProtocolMismatch) {
+		t.Fatalf("ClearHistory() error = %v, want protocol mismatch", err)
+	}
+}
+
+func TestClearHistorySendsCapabilityGatedWireCommand(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer serverConn.Close()
+	protocol := uint32(9)
+	client := &Client{
+		timeout:      time.Second,
+		conn:         &jsonLineConn{conn: clientConn, reader: bufio.NewReader(clientConn)},
+		protocol:     &protocol,
+		capabilities: map[string]struct{}{"clear-history-v1": {}},
+	}
+	defer client.Close()
+
+	requests := make(chan map[string]any, 1)
+	go func() {
+		decoder := json.NewDecoder(serverConn)
+		encoder := json.NewEncoder(serverConn)
+		var request map[string]any
+		if decoder.Decode(&request) != nil {
+			return
+		}
+		requests <- request
+		_ = encoder.Encode(map[string]any{"id": request["id"], "ok": true, "data": map[string]any{}})
+	}()
+
+	if err := client.ClearHistory(context.Background(), 7); err != nil {
+		t.Fatalf("ClearHistory() error = %v", err)
+	}
+	request := <-requests
+	if request["cmd"] != "clear-history" || request["surface"] != float64(7) {
+		t.Fatalf("ClearHistory() request = %#v", request)
+	}
+}
+
+func TestClearHistoryFallbackRequiresCapabilityAndPreservesKey(t *testing.T) {
+	protocol := uint32(9)
+	codepoint := "k"
+	action := TerminalKeyPress
+	fallback := TerminalKeyInput{
+		Key:                TerminalKeyK,
+		Mods:               TerminalModifiers{Super: true},
+		UnshiftedCodepoint: &codepoint,
+		Action:             &action,
+		MacOSOptionAsAlt:   true,
+	}
+	client := &Client{
+		protocol:     &protocol,
+		capabilities: map[string]struct{}{"clear-history-v1": {}},
+	}
+	err := client.ClearHistoryWithFallback(context.Background(), 7, fallback)
+	if err == nil || !errors.Is(err, ErrProtocolMismatch) {
+		t.Fatalf("ClearHistoryWithFallback() error = %v, want protocol mismatch", err)
+	}
+
+	clientConn, serverConn := net.Pipe()
+	defer serverConn.Close()
+	client = &Client{
+		timeout:  time.Second,
+		conn:     &jsonLineConn{conn: clientConn, reader: bufio.NewReader(clientConn)},
+		protocol: &protocol,
+		capabilities: map[string]struct{}{
+			"clear-history-v1":     {},
+			"clear-history-key-v1": {},
+		},
+	}
+	defer client.Close()
+
+	requests := make(chan map[string]any, 1)
+	go func() {
+		decoder := json.NewDecoder(serverConn)
+		encoder := json.NewEncoder(serverConn)
+		var request map[string]any
+		if decoder.Decode(&request) != nil {
+			return
+		}
+		requests <- request
+		_ = encoder.Encode(map[string]any{"id": request["id"], "ok": true, "data": map[string]any{}})
+	}()
+
+	if err := client.ClearHistoryWithFallback(context.Background(), 7, fallback); err != nil {
+		t.Fatalf("ClearHistoryWithFallback() error = %v", err)
+	}
+	request := <-requests
+	key, ok := request["fallback_key"].(map[string]any)
+	if !ok {
+		t.Fatalf("fallback_key = %#v", request["fallback_key"])
+	}
+	mods, ok := key["mods"].(map[string]any)
+	if !ok ||
+		key["key"] != "k" ||
+		mods["super"] != true ||
+		key["unshifted_codepoint"] != "k" ||
+		key["action"] != "press" ||
+		key["macos_option_as_alt"] != true {
+		t.Fatalf("ClearHistoryWithFallback() fallback_key = %#v", key)
+	}
+}
+
 func TestSetSplitRatioAcceptsNewerAdditiveProtocols(t *testing.T) {
 	protocol := uint32(9)
 	client := &Client{protocol: &protocol}

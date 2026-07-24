@@ -310,6 +310,74 @@
       ]
     },
     {
+      "name": "clear-history-round-trip",
+      "requires": { "commands": ["clear-history"] },
+      "steps": [
+        {
+          "type": "command",
+          "request": { "id": 1, "cmd": "new-workspace", "name": "conf-clear-history", "cols": 80, "rows": 24 },
+          "expect": { "id": 1, "ok": true },
+          "match": "partial",
+          "bind": { "surface0": "data.surface" }
+        },
+        {
+          "type": "command",
+          "request": { "id": 2, "cmd": "clear-history", "surface": "$surface0" },
+          "expect": { "id": 2, "ok": true, "data": {} },
+          "match": "exact"
+        }
+      ]
+    },
+    {
+      "name": "clear-history-key-fallback-round-trip",
+      "requires": {
+        "commands": ["clear-history"],
+        "capabilities": ["clear-history-v1", "clear-history-key-v1"]
+      },
+      "steps": [
+        {
+          "type": "command",
+          "request": { "id": 1, "cmd": "new-workspace", "name": "conf-clear-history-key", "cols": 80, "rows": 24 },
+          "expect": { "id": 1, "ok": true },
+          "match": "partial",
+          "bind": { "surface0": "data.surface" }
+        },
+        {
+          "type": "command",
+          "request": {
+            "id": 2,
+            "cmd": "clear-history",
+            "surface": "$surface0",
+            "fallback_key": {
+              "key": "k",
+              "mods": {
+                "shift": false,
+                "control": false,
+                "alt": false,
+                "super": true,
+                "caps_lock": false,
+                "num_lock": false
+              },
+              "consumed_mods": {
+                "shift": false,
+                "control": false,
+                "alt": false,
+                "super": false,
+                "caps_lock": false,
+                "num_lock": false
+              },
+              "utf8": "",
+              "unshifted_codepoint": "k",
+              "action": "press",
+              "macos_option_as_alt": true
+            }
+          },
+          "expect": { "id": 2, "ok": true, "data": {} },
+          "match": "exact"
+        }
+      ]
+    },
+    {
       "name": "overflow-event-schema",
       "steps": [
         {

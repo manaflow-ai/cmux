@@ -203,6 +203,7 @@ WebSocket clients pair through a six-digit browser/TUI comparison by default. We
 | --- | --- | --- | --- |
 | `keys.prefix` | chord string | `"ctrl+b"` | Prefix chord |
 | `keys.alt_shortcuts` | boolean | `true` | Enables default modeless Alt bindings when true |
+| `keys.super_shortcuts` | boolean | `true` | Enables default modeless Command/Super bindings when true |
 | `keys.new-tab` | chord string or array or `"none"` | `["t","alt+t"]` | New PTY tab |
 | `keys.new_browser_tab` | chord string or array or `"none"` | `"B"` | Browser URL prompt |
 | `keys.new-pane-smart` | chord string or array or `"none"` | `"alt+n"` | New pane using the default automatic layout |
@@ -239,19 +240,20 @@ WebSocket clients pair through a six-digit browser/TUI comparison by default. We
 | `keys.resize-shrink` | chord string or array or `"none"` | `"alt+-"` | Shrink the focused split |
 | `keys.scroll-up` | chord string or array or `"none"` | `["[","pageup"]` | Scroll active PTY up 10 rows |
 | `keys.scroll-down` | chord string or array or `"none"` | `"pagedown"` | Scroll active PTY down 10 rows |
+| `keys.clear-history` | chord string or array or `"none"` | `["cmd+k","ctrl+l"]` | Clear retained PTY history and completed visible rows while preserving the active logical line |
 | `keys.browser-back` | chord string or array or `"none"` | `"<"` | Browser back |
 | `keys.browser-forward` | chord string or array or `"none"` | `">"` | Browser forward |
 | `keys.browser-reload` | chord string or array or `"none"` | `"r"` | Browser reload |
 | `keys.browser-edit-url` | chord string or array or `"none"` | `"u"` | Browser URL prompt |
 | `keys.detach` | chord string or array or `"none"` | `"d"` | Quit local TUI or detach attached TUI |
 
-Each action override replaces all default chords for that action. Values may be a string, an array of strings, or `"none"`. Non-string array entries are ignored. Set `keys.alt_shortcuts` to `false` to remove default Alt chords before applying user overrides; explicitly configured Alt chords still work.
+Each action override replaces all default chords for that action. Values may be a string, an array of strings, or `"none"`. Non-string array entries are ignored. Set `keys.alt_shortcuts` or `keys.super_shortcuts` to `false` to remove that modeless default layer before applying user overrides; explicitly configured chords still work.
 
 `Ctrl-b x` now follows tmux and closes the active pane. `Ctrl-b X` closes the active tab. Existing users can restore the old cmux behavior with `"close-tab": "x"` and `"close-pane": "X"`.
 
 Screen and tab positions are zero-based, so each `select-screen-N` or `select-tab-N` action selects index `N`. Generated workspace names also start at `0`. The snake_case spellings `select_screen_N` and `select_tab_N` are accepted as aliases. `Ctrl-b ]` and `Ctrl-b q` are intentionally unbound: cmux has no paste-buffer command and no pane-number quick-jump overlay yet. Zellij's modal `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are not defaults because they conflict with common shell and editor control keys.
 
-Chord strings can be single characters or a key name with optional `ctrl`, `control`, `alt`, `option`, or `shift` modifiers. Examples: `"c"`, `"%"`, `"ctrl+b"`, `"alt+enter"`, `"tab"`, `"backtab"`, `"shift+tab"`, `"pageup"`, `"pagedown"`, `"esc"`, `"space"`, `"left"`, `"right"`, `"up"`, `"down"`, `"home"`, and `"end"`.
+Chord strings can be single characters or a key name with optional `ctrl`, `control`, `alt`, `option`, `cmd`, `command`, `super`, or `shift` modifiers. Examples: `"c"`, `"%"`, `"ctrl+b"`, `"alt+enter"`, `"cmd+k"`, `"tab"`, `"backtab"`, `"shift+tab"`, `"pageup"`, `"pagedown"`, `"esc"`, `"space"`, `"left"`, `"right"`, `"up"`, `"down"`, `"home"`, and `"end"`.
 
 ## Example
 
@@ -320,6 +322,7 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
   "keys": {
     "prefix": "ctrl+a",
     "alt_shortcuts": false,
+    "super_shortcuts": false,
     "new-tab": ["t", "alt+t"],
     "new_browser_tab": "B",
     "new-pane-smart": "alt+n",

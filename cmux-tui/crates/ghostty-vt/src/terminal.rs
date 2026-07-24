@@ -255,12 +255,278 @@ impl MouseModeScan {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum PromptSemantic {
+    #[default]
+    Unknown,
+    Prompt,
+    Input,
+    InputUntilEndOfLine,
+    Output,
+}
+
+#[derive(Default)]
+struct PromptSemanticTracker {
+    state: PromptTrackState,
+    primary: PromptSemantic,
+    alternate: PromptSemantic,
+    alternate_active: bool,
+    saved_screen_modes: [Option<bool>; 3],
+    revision: u64,
+}
+
+#[derive(Default)]
+enum PromptTrackState {
+    #[default]
+    Ground,
+    Escape,
+    Osc(PromptOsc),
+    OscEscape(PromptOsc),
+    Csi {
+        private: bool,
+        at_start: bool,
+        parameter: u16,
+        has_parameter: bool,
+        screen_modes: u8,
+    },
+}
+
+#[derive(Default)]
+struct PromptOsc {
+    prefix_len: u8,
+    action: Option<u8>,
+    options_started: bool,
+    invalid: bool,
+}
+
+impl PromptOsc {
+    fn feed(&mut self, byte: u8) {
+        const PREFIX: &[u8] = b"133;";
+        if self.invalid {
+            return;
+        }
+        if usize::from(self.prefix_len) < PREFIX.len() {
+            if byte == PREFIX[usize::from(self.prefix_len)] {
+                self.prefix_len += 1;
+            } else {
+                self.invalid = true;
+            }
+            return;
+        }
+        if self.action.is_none() {
+            self.action = Some(byte);
+        } else if !self.options_started {
+            if byte == b';' {
+                self.options_started = true;
+            } else {
+                self.invalid = true;
+            }
+        }
+    }
+
+    fn valid_action(&self) -> Option<u8> {
+        if self.invalid { None } else { self.action }
+    }
+}
+
+impl PromptSemanticTracker {
+    fn feed(&mut self, data: &[u8]) {
+        for &byte in data {
+            let state = std::mem::take(&mut self.state);
+            self.state = match state {
+                // The PTY stream is UTF-8. Accept only 7-bit ESC forms so
+                // continuation bytes cannot masquerade as 8-bit C1 controls.
+                PromptTrackState::Ground => match byte {
+                    0x1b => PromptTrackState::Escape,
+                    b'\n' | 0x0b | 0x0c => {
+                        self.end_line();
+                        PromptTrackState::Ground
+                    }
+                    _ => PromptTrackState::Ground,
+                },
+                PromptTrackState::Escape => match byte {
+                    b']' => PromptTrackState::Osc(PromptOsc::default()),
+                    b'[' => Self::csi(),
+                    b'D' | b'E' => {
+                        self.end_line();
+                        PromptTrackState::Ground
+                    }
+                    b'c' => {
+                        self.primary = PromptSemantic::Unknown;
+                        self.alternate = PromptSemantic::Unknown;
+                        self.alternate_active = false;
+                        self.saved_screen_modes = [None; 3];
+                        PromptTrackState::Ground
+                    }
+                    0x1b => PromptTrackState::Escape,
+                    _ => PromptTrackState::Ground,
+                },
+                PromptTrackState::Osc(mut osc) => match byte {
+                    0x07 => {
+                        self.finish_osc(osc.valid_action());
+                        PromptTrackState::Ground
+                    }
+                    0x18 | 0x1a => PromptTrackState::Ground,
+                    0x1b => PromptTrackState::OscEscape(osc),
+                    _ => {
+                        osc.feed(byte);
+                        PromptTrackState::Osc(osc)
+                    }
+                },
+                PromptTrackState::OscEscape(osc) => {
+                    if byte == b'\\' {
+                        self.finish_osc(osc.valid_action());
+                        PromptTrackState::Ground
+                    } else if byte == 0x1b {
+                        PromptTrackState::OscEscape(osc)
+                    } else {
+                        PromptTrackState::Ground
+                    }
+                }
+                PromptTrackState::Csi {
+                    mut private,
+                    mut at_start,
+                    mut parameter,
+                    mut has_parameter,
+                    mut screen_modes,
+                } => match byte {
+                    b'?' if at_start => {
+                        private = true;
+                        at_start = false;
+                        PromptTrackState::Csi {
+                            private,
+                            at_start,
+                            parameter,
+                            has_parameter,
+                            screen_modes,
+                        }
+                    }
+                    b'0'..=b'9' => {
+                        at_start = false;
+                        has_parameter = true;
+                        parameter =
+                            parameter.saturating_mul(10).saturating_add(u16::from(byte - b'0'));
+                        PromptTrackState::Csi {
+                            private,
+                            at_start,
+                            parameter,
+                            has_parameter,
+                            screen_modes,
+                        }
+                    }
+                    b';' => {
+                        if private && has_parameter {
+                            screen_modes |= Self::screen_mode_flag(parameter);
+                        }
+                        at_start = false;
+                        parameter = 0;
+                        has_parameter = false;
+                        PromptTrackState::Csi {
+                            private,
+                            at_start,
+                            parameter,
+                            has_parameter,
+                            screen_modes,
+                        }
+                    }
+                    0x40..=0x7e => {
+                        if private && has_parameter {
+                            screen_modes |= Self::screen_mode_flag(parameter);
+                        }
+                        self.apply_screen_modes(byte, screen_modes);
+                        PromptTrackState::Ground
+                    }
+                    0x1b => PromptTrackState::Escape,
+                    _ => PromptTrackState::Ground,
+                },
+            };
+        }
+    }
+
+    fn csi() -> PromptTrackState {
+        PromptTrackState::Csi {
+            private: false,
+            at_start: true,
+            parameter: 0,
+            has_parameter: false,
+            screen_modes: 0,
+        }
+    }
+
+    fn screen_mode_flag(mode: u16) -> u8 {
+        match mode {
+            47 => 1 << 0,
+            1047 => 1 << 1,
+            1049 => 1 << 2,
+            _ => 0,
+        }
+    }
+
+    fn apply_screen_modes(&mut self, action: u8, screen_modes: u8) {
+        match action {
+            b'h' | b'l' if screen_modes != 0 => self.alternate_active = action == b'h',
+            b's' => {
+                for (index, saved) in self.saved_screen_modes.iter_mut().enumerate() {
+                    if screen_modes & (1 << index) != 0 {
+                        *saved = Some(self.alternate_active);
+                    }
+                }
+            }
+            b'r' => {
+                for (index, saved) in self.saved_screen_modes.iter().enumerate() {
+                    if screen_modes & (1 << index) != 0
+                        && let Some(alternate_active) = saved
+                    {
+                        self.alternate_active = *alternate_active;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn semantic(&self, screen: Screen) -> PromptSemantic {
+        match screen {
+            Screen::Primary => self.primary,
+            Screen::Alternate => self.alternate,
+        }
+    }
+
+    fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    fn current_mut(&mut self) -> &mut PromptSemantic {
+        if self.alternate_active { &mut self.alternate } else { &mut self.primary }
+    }
+
+    fn end_line(&mut self) {
+        if *self.current_mut() == PromptSemantic::InputUntilEndOfLine {
+            *self.current_mut() = PromptSemantic::Output;
+        }
+    }
+
+    fn finish_osc(&mut self, action: Option<u8>) {
+        let Some(action) = action else { return };
+        let semantic = match action {
+            b'A' | b'N' | b'P' => PromptSemantic::Prompt,
+            b'B' => PromptSemantic::Input,
+            b'I' => PromptSemantic::InputUntilEndOfLine,
+            b'C' | b'D' => PromptSemantic::Output,
+            _ => return,
+        };
+        *self.current_mut() = semantic;
+        self.revision = self.revision.wrapping_add(1);
+    }
+}
+
 /// A terminal instance: VT parser plus full screen/scrollback state.
 pub struct Terminal {
     raw: sys::GhosttyTerminal,
     instance_id: u64,
     mouse_mode_revision: u64,
     mouse_mode_scan: MouseModeScan,
+    prompt_semantic: PromptSemanticTracker,
     // Heap-pinned so the userdata pointer stays valid for the terminal's
     // lifetime.
     callbacks: Box<Callbacks>,
@@ -1173,6 +1439,7 @@ impl Terminal {
             instance_id: NEXT_TERMINAL_ID.fetch_add(1, Ordering::Relaxed),
             mouse_mode_revision: 0,
             mouse_mode_scan: MouseModeScan::default(),
+            prompt_semantic: PromptSemanticTracker::default(),
             callbacks: Box::new(callbacks),
             cursor_override: CursorOverrideTracker::default(),
             palette_override: Box::default(),
@@ -1232,6 +1499,7 @@ impl Terminal {
             self.mouse_mode_revision = self.mouse_mode_revision.wrapping_add(1);
         }
         let normalized = self.c1_normalizer.normalize(data);
+        self.prompt_semantic.feed(&normalized);
         self.cursor_override.write(&normalized);
         self.palette_override.write(&normalized);
         self.color_overrides.write(&normalized);
@@ -1488,6 +1756,110 @@ impl Terminal {
         Some((x, y))
     }
 
+    /// Clear retained history and complete rows before the active prompt
+    /// without writing bytes to the child process.
+    ///
+    /// OSC 133 identifies the full prompt when available. Without shell
+    /// metadata, the current soft-wrapped logical line is preserved. Cursor
+    /// movement is skipped when pending-wrap or origin-mode state cannot be
+    /// restored exactly.
+    pub fn clear_history_preserving_prompt(&mut self) -> Vec<u8> {
+        const CLEAR_SCROLLBACK: &[u8] = b"\x1b[3J";
+
+        if self.active_screen() == Screen::Alternate {
+            return Vec::new();
+        }
+
+        let mut clear = CLEAR_SCROLLBACK.to_vec();
+        let Some((cursor_x, cursor_y)) = self.cursor_position() else {
+            self.vt_write(&clear);
+            return clear;
+        };
+        if self.cursor_pending_wrap() || self.mode(6, false) {
+            self.vt_write(&clear);
+            return clear;
+        }
+        let preserve_from_y = if self.cursor_is_at_prompt() {
+            self.active_prompt_start_row(cursor_y)
+                .or_else(|| self.active_logical_line_start_row(cursor_y))
+        } else {
+            self.active_logical_line_start_row(cursor_y)
+        };
+        let Some(preserve_from_y) = preserve_from_y else {
+            self.vt_write(&clear);
+            return clear;
+        };
+        if preserve_from_y == 0 {
+            self.vt_write(&clear);
+            return clear;
+        }
+
+        for row in 0..preserve_from_y {
+            clear.extend_from_slice(format!("\x1b[{};1H\x1b[2K", u32::from(row) + 1).as_bytes());
+        }
+        clear.extend_from_slice(
+            format!("\x1b[{};{}H", u32::from(cursor_y) + 1, u32::from(cursor_x) + 1).as_bytes(),
+        );
+        self.vt_write(&clear);
+        clear
+    }
+
+    fn cursor_pending_wrap(&self) -> bool {
+        self.get::<bool>(sys::GHOSTTY_TERMINAL_DATA_CURSOR_PENDING_WRAP).unwrap_or(true)
+    }
+
+    fn active_prompt_start_row(&self, cursor_y: u16) -> Option<u16> {
+        let mut prompt_y = (0..=cursor_y).rev().find(|&y| {
+            self.active_row_prompt_semantic(y) == Some(sys::GHOSTTY_ROW_SEMANTIC_PROMPT)
+        })?;
+        while prompt_y > 0
+            && self.active_row_prompt_semantic(prompt_y - 1)
+                == Some(sys::GHOSTTY_ROW_SEMANTIC_PROMPT)
+        {
+            prompt_y -= 1;
+        }
+        Some(prompt_y)
+    }
+
+    fn active_logical_line_start_row(&self, mut y: u16) -> Option<u16> {
+        while y > 0 && self.active_row_wrap_continuation(y)? {
+            y -= 1;
+        }
+        Some(y)
+    }
+
+    fn active_row_wrap_continuation(&self, y: u16) -> Option<bool> {
+        let grid_ref = self.grid_ref(sys::GHOSTTY_POINT_TAG_ACTIVE, 0, u64::from(y))?;
+        let mut row = sys::GhosttyRow::default();
+        check(unsafe { sys::ghostty_grid_ref_row(&grid_ref, &mut row) }).ok()?;
+        let mut continuation = false;
+        check(unsafe {
+            sys::ghostty_row_get(
+                row,
+                sys::GHOSTTY_ROW_DATA_WRAP_CONTINUATION,
+                (&mut continuation as *mut bool).cast(),
+            )
+        })
+        .ok()?;
+        Some(continuation)
+    }
+
+    fn active_row_prompt_semantic(&self, y: u16) -> Option<sys::GhosttyRowSemanticPrompt> {
+        let grid_ref = self.grid_ref(sys::GHOSTTY_POINT_TAG_ACTIVE, 0, u64::from(y))?;
+        let mut row = sys::GhosttyRow::default();
+        check(unsafe { sys::ghostty_grid_ref_row(&grid_ref, &mut row) }).ok()?;
+        let mut semantic = sys::GHOSTTY_ROW_SEMANTIC_NONE;
+        check(unsafe {
+            sys::ghostty_row_get(
+                row,
+                sys::GHOSTTY_ROW_DATA_SEMANTIC_PROMPT,
+                (&mut semantic as *mut sys::GhosttyRowSemanticPrompt).cast(),
+            )
+        })
+        .ok()?;
+        Some(semantic)
+    }
+
     pub fn resize(
         &mut self,
         cols: u16,
@@ -1527,6 +1899,71 @@ impl Terminal {
             Ok(sys::GHOSTTY_TERMINAL_SCREEN_ALTERNATE) => Screen::Alternate,
             _ => Screen::Primary,
         }
+    }
+
+    /// Whether OSC 133 metadata identifies the cursor as an active shell
+    /// prompt. libghostty-vt exposes persisted row/cell semantics but not the
+    /// live cursor semantic, so the wrapper also retains OSC 133's current
+    /// prompt phase across cursor movement and soft wrapping. Terminals without
+    /// shell integration conservatively return false.
+    pub fn cursor_is_at_prompt(&self) -> bool {
+        if self.active_screen() == Screen::Alternate {
+            return false;
+        }
+        match self.prompt_semantic.semantic(Screen::Primary) {
+            PromptSemantic::Prompt
+            | PromptSemantic::Input
+            | PromptSemantic::InputUntilEndOfLine => return true,
+            PromptSemantic::Output => return false,
+            PromptSemantic::Unknown => {}
+        }
+        let Some((x, y)) = self.cursor_position() else {
+            return false;
+        };
+        let Some(grid_ref) = self.grid_ref(sys::GHOSTTY_POINT_TAG_ACTIVE, x, u64::from(y)) else {
+            return false;
+        };
+
+        let mut row = sys::GhosttyRow::default();
+        if check(unsafe { sys::ghostty_grid_ref_row(&grid_ref, &mut row) }).is_err() {
+            return false;
+        }
+        let mut row_semantic = sys::GHOSTTY_ROW_SEMANTIC_NONE;
+        if check(unsafe {
+            sys::ghostty_row_get(
+                row,
+                sys::GHOSTTY_ROW_DATA_SEMANTIC_PROMPT,
+                (&mut row_semantic as *mut sys::GhosttyRowSemanticPrompt).cast(),
+            )
+        })
+        .is_ok()
+            && row_semantic != sys::GHOSTTY_ROW_SEMANTIC_NONE
+        {
+            return true;
+        }
+
+        let mut cell = sys::GhosttyCell::default();
+        if check(unsafe { sys::ghostty_grid_ref_cell(&grid_ref, &mut cell) }).is_err() {
+            return false;
+        }
+        let mut cell_semantic = sys::GHOSTTY_CELL_SEMANTIC_OUTPUT;
+        check(unsafe {
+            sys::ghostty_cell_get(
+                cell,
+                sys::GHOSTTY_CELL_DATA_SEMANTIC_CONTENT,
+                (&mut cell_semantic as *mut sys::GhosttyCellSemanticContent).cast(),
+            )
+        })
+        .is_ok()
+            && matches!(
+                cell_semantic,
+                sys::GHOSTTY_CELL_SEMANTIC_INPUT | sys::GHOSTTY_CELL_SEMANTIC_PROMPT
+            )
+    }
+
+    /// Monotonic revision of recognized OSC 133 prompt-phase markers.
+    pub fn prompt_semantic_revision(&self) -> u64 {
+        self.prompt_semantic.revision()
     }
 
     /// Whether any mouse tracking mode is enabled by the application.
@@ -2038,11 +2475,25 @@ impl Drop for Terminal {
 
 #[cfg(test)]
 mod tests {
-    use super::{Callbacks, MouseModeScan, PaletteOsc, Terminal, vt_replay_row_window};
+    use super::{
+        Callbacks, MouseModeScan, PaletteOsc, PromptSemantic, PromptSemanticTracker,
+        PromptTrackState, Screen, Terminal, vt_replay_row_window,
+    };
 
     #[test]
     fn unrelated_osc_tracking_keeps_palette_state_out_of_line() {
         assert!(size_of::<PaletteOsc>() <= 16);
+    }
+
+    #[test]
+    fn prompt_semantic_tracking_does_not_buffer_unrelated_osc_payloads() {
+        let mut tracker = PromptSemanticTracker::default();
+
+        tracker.feed(b"\x1b]0;");
+        tracker.feed(&vec![b'x'; 4 * 1024]);
+
+        assert!(size_of::<PromptTrackState>() <= 16);
+        assert!(matches!(tracker.state, PromptTrackState::Osc(_)));
     }
 
     #[test]
@@ -2064,6 +2515,136 @@ mod tests {
         let second = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
 
         assert_ne!(first.instance_id(), second.instance_id());
+    }
+
+    #[test]
+    fn cursor_prompt_detection_requires_primary_screen_semantic_metadata() {
+        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"ordinary output");
+        assert!(!terminal.cursor_is_at_prompt());
+
+        terminal.vt_write(b"\r\n\x1b]133;A\x07prompt> \x1b]133;B\x07pending");
+        assert!(terminal.cursor_is_at_prompt());
+
+        terminal.vt_write(b"\x1b[?1049h");
+        assert_eq!(terminal.active_screen(), Screen::Alternate);
+        assert!(!terminal.cursor_is_at_prompt());
+    }
+
+    #[test]
+    fn cursor_prompt_detection_follows_live_semantics_after_input_wraps() {
+        let mut terminal = Terminal::new(10, 3, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b]133;A\x07$ \x1b]133;B\x07123456789\x1b[B");
+
+        assert!(terminal.cursor_is_at_prompt());
+
+        terminal.vt_write(b"\x1b]133;C\x07\x1b[B");
+        assert!(!terminal.cursor_is_at_prompt());
+    }
+
+    #[test]
+    fn cursor_prompt_detection_keeps_primary_semantics_out_of_alternate_screen() {
+        let mut terminal = Terminal::new(10, 3, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b]133;A\x07$ \x1b]133;B\x07pending");
+        assert!(terminal.cursor_is_at_prompt());
+
+        terminal.vt_write(b"\x1b[?1049h\x1b]133;C\x07");
+        assert!(!terminal.cursor_is_at_prompt());
+
+        terminal.vt_write(b"\x1b[?1049l");
+        assert!(terminal.cursor_is_at_prompt());
+    }
+
+    #[test]
+    fn cursor_prompt_detection_follows_saved_private_screen_mode() {
+        let mut terminal = Terminal::new(10, 3, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b]133;A\x07$ \x1b]133;B\x07pending");
+        assert!(terminal.cursor_is_at_prompt());
+
+        terminal.vt_write(b"\x1b[?1049s\x1b[?1049h\x1b]133;C\x07\x1b[?1049r");
+
+        assert_eq!(terminal.active_screen(), Screen::Primary);
+        assert!(terminal.cursor_is_at_prompt());
+
+        terminal.vt_write(b"\x1b]133;C\x07");
+        assert!(!terminal.cursor_is_at_prompt());
+    }
+
+    #[test]
+    fn clear_history_preserves_the_active_prompt_and_cursor() {
+        let mut terminal = Terminal::new(20, 4, 1_000, Callbacks::default()).unwrap();
+        for line in 0..10 {
+            terminal.vt_write(format!("history-{line}\r\n").as_bytes());
+        }
+        terminal.vt_write(b"\x1b]133;A\x07prompt> \x1b]133;B\x07pending");
+        let cursor_before = terminal.cursor_position();
+
+        let clear = terminal.clear_history_preserving_prompt();
+
+        assert_eq!(terminal.history_rows(), 0);
+        assert_eq!(terminal.cursor_position(), cursor_before);
+        let viewport = terminal.viewport_text().unwrap();
+        assert!(viewport.contains("prompt> pending"));
+        assert!(!viewport.contains("history-"));
+        assert!(!clear.contains(&b'\x0c'));
+    }
+
+    #[test]
+    fn clear_history_fails_closed_when_pending_wrap_cannot_be_restored() {
+        let mut terminal = Terminal::new(10, 3, 1_000, Callbacks::default()).unwrap();
+        for line in 0..5 {
+            terminal.vt_write(format!("old-{line}\r\n").as_bytes());
+        }
+        terminal.vt_write(b"\x1b]133;A\x07$ \x1b]133;B\x0712345678");
+        assert!(terminal.cursor_pending_wrap());
+        let viewport_before = terminal.viewport_text().unwrap();
+
+        let clear = terminal.clear_history_preserving_prompt();
+
+        assert_eq!(clear, b"\x1b[3J");
+        assert_eq!(terminal.history_rows(), 0);
+        assert_eq!(terminal.viewport_text().unwrap(), viewport_before);
+        assert!(terminal.cursor_pending_wrap());
+    }
+
+    #[test]
+    fn prompt_semantic_tracking_ignores_utf8_continuation_bytes_that_resemble_c1() {
+        let mut tracker = PromptSemanticTracker::default();
+        tracker.feed(b"\x1b]133;A\x07\x1b]133;B\x07");
+        assert_eq!(tracker.semantic(Screen::Primary), PromptSemantic::Input);
+
+        tracker.feed("\u{45d}".as_bytes());
+        tracker.feed(b"\x1b]133;C\x07");
+
+        assert_eq!(tracker.semantic(Screen::Primary), PromptSemantic::Output);
+    }
+
+    #[test]
+    fn prompt_semantic_tracking_rejects_suffixes_without_an_option_separator() {
+        let mut tracker = PromptSemanticTracker::default();
+        tracker.feed(b"\x1b]133;C\x07");
+        let revision = tracker.revision();
+        assert_eq!(tracker.semantic(Screen::Primary), PromptSemantic::Output);
+
+        tracker.feed(b"\x1b]133;Agarbage\x1b\\");
+
+        assert_eq!(tracker.semantic(Screen::Primary), PromptSemantic::Output);
+        assert_eq!(tracker.revision(), revision);
+
+        tracker.feed(b"\x1b]133;A;redraw=1\x1b\\");
+        assert_eq!(tracker.semantic(Screen::Primary), PromptSemantic::Prompt);
+        assert_eq!(tracker.revision(), revision.wrapping_add(1));
+    }
+
+    #[test]
+    fn live_output_phase_overrides_persisted_prompt_rows() {
+        let mut terminal = Terminal::new(20, 4, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b]133;A\x07$ \x1b]133;B\x07command");
+        assert!(terminal.cursor_is_at_prompt());
+
+        terminal.vt_write(b"\r\n\x1b]133;C\x07output\x1b[A\r");
+
+        assert!(!terminal.cursor_is_at_prompt());
     }
 
     #[test]

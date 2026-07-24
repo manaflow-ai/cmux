@@ -173,6 +173,10 @@ jobs:
         working-directory: cmux-tui
         run: cargo test --workspace --locked
 
+      - name: crossterm parser tests
+        working-directory: cmux-tui
+        run: cargo test --manifest-path vendor/crossterm/Cargo.toml --lib
+
       - name: TUI smoke test (scripted pty)
         working-directory: cmux-tui
         run: |

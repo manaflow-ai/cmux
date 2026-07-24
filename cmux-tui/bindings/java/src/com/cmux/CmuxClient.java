@@ -126,6 +126,19 @@ public final class CmuxClient implements AutoCloseable {
         request("send", params);
     }
 
+    public void clearHistory(long surface) throws CmuxException {
+        requireCapability("clear-history-v1", "clear-history");
+        request("clear-history", surfaceParams(surface));
+    }
+
+    public void clearHistory(long surface, TerminalKeyInput fallbackKey) throws CmuxException {
+        requireCapability("clear-history-v1", "clear-history");
+        requireCapability("clear-history-key-v1", "clear-history key fallback");
+        Map<String, Object> params = surfaceParams(surface);
+        params.put("fallback_key", fallbackKey.toMap());
+        request("clear-history", params);
+    }
+
     public ReadScreenResult readScreen(long surface) throws CmuxException {
         return new ReadScreenResult(asString(request("read-screen", surfaceParams(surface)).get("text")));
     }

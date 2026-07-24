@@ -25,6 +25,11 @@ pub const FLAG_VIEWER_SIZE_ACKS: u32 = 1 << 1;
 /// sequenced Resized+Colors transition was enqueued immediately before the
 /// targeted acknowledgement.
 pub const RESIZE_ACK_CANONICAL_CHANGED: u32 = 1 << 0;
+/// `ClearHistoryAck` status: the host applied the emulator clear or wrote the
+/// alternate-screen fallback key before acknowledging the request.
+pub const CLEAR_HISTORY_ACK_OK: u8 = 0;
+/// `ClearHistoryAck` status: the authoritative transition or PTY write failed.
+pub const CLEAR_HISTORY_ACK_FAILED: u8 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u16)]
@@ -48,6 +53,8 @@ pub enum MessageKind {
     /// Targeted response to an acknowledged `ViewerSize`; payload is
     /// canonical cols:u16 + rows:u16 + result_flags:u32.
     ResizeAck = 16,
+    /// Targeted response to `ClearHistory`; payload is one status byte.
+    ClearHistoryAck = 17,
     Input = 100,
     Paste = 101,
     ViewerSize = 102,
@@ -58,6 +65,10 @@ pub enum MessageKind {
     /// Admin request: complete encoded Ghostty frontend defaults. New hosts
     /// advertise support in their durable discovery record.
     SetDefaults = 106,
+    /// Input-authorized request: clear retained primary-screen history in the
+    /// authoritative parser, or encode the optional key on the alternate
+    /// screen. New hosts advertise support in their durable discovery record.
+    ClearHistory = 107,
 }
 
 impl TryFrom<u16> for MessageKind {
@@ -81,6 +92,7 @@ impl TryFrom<u16> for MessageKind {
             14 => Ok(Self::Launch),
             15 => Ok(Self::Capability),
             16 => Ok(Self::ResizeAck),
+            17 => Ok(Self::ClearHistoryAck),
             100 => Ok(Self::Input),
             101 => Ok(Self::Paste),
             102 => Ok(Self::ViewerSize),
@@ -88,6 +100,7 @@ impl TryFrom<u16> for MessageKind {
             104 => Ok(Self::Terminate),
             105 => Ok(Self::MintCapability),
             106 => Ok(Self::SetDefaults),
+            107 => Ok(Self::ClearHistory),
             other => Err(ProtocolError::UnknownMessageKind(other)),
         }
     }
@@ -449,6 +462,14 @@ mod tests {
         let mut decoder = FrameDecoder::new(1024);
         assert_eq!(decoder.push(&stream).unwrap(), vec![first, second]);
         decoder.finish().unwrap();
+    }
+
+    #[test]
+    fn clear_history_has_a_stable_additive_message_kind() {
+        assert_eq!(MessageKind::ClearHistoryAck as u16, 17);
+        assert_eq!(MessageKind::try_from(17).unwrap(), MessageKind::ClearHistoryAck);
+        assert_eq!(MessageKind::ClearHistory as u16, 107);
+        assert_eq!(MessageKind::try_from(107).unwrap(), MessageKind::ClearHistory);
     }
 
     #[test]

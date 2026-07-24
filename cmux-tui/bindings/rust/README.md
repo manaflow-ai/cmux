@@ -33,6 +33,9 @@ attach dimensions on `attach-initial-size`; do not infer either feature from the
 protocol number. `Tree.workspace_revision` and `Workspace.key` remain optional
 so deserialization stays compatible with older servers.
 
+Use `clear_history_with_fallback(surface, &TerminalKeyInput { ... })` only when
+`IdentifyDetails.capabilities` contains `clear-history-key-v1`.
+
 ## E2E
 
 ```bash

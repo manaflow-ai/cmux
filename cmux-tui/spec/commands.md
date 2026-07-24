@@ -204,7 +204,7 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":9,"capabilities":["attach-initial-size","workspace-registry-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":9,"capabilities":["attach-initial-size","workspace-registry-v1","clear-history-v1","clear-history-key-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
 ```
 
 The current server reports protocol `9` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`, and protocol 9 before decoding stack layouts or sending `new-pane`.
@@ -693,6 +693,91 @@ Example:
 ```json
 {"id":4,"cmd":"read-screen","surface":1}
 {"id":4,"ok":true,"data":{"text":"$ ls\nREADME.md\n"}}
+```
+
+### clear-history
+
+| Field | Value |
+| --- | --- |
+| name | `clear-history` |
+| status | implemented |
+| since | protocol 9 with `clear-history-v1` |
+
+On a primary screen with OSC 133 prompt metadata, clears retained scrollback and complete visible rows before the active prompt inside the terminal emulator. The prompt, edit buffer, and cursor remain in place, and no bytes are written to the child process. If prompt location or cursor state cannot be restored exactly, only retained scrollback is cleared. The authoritative server terminal and attached frontend mirrors receive the same VT erase sequence.
+
+Clients must require `identify.capabilities` to contain `clear-history-v1` before sending this command.
+
+When the alternate screen is active, the command leaves both screens untouched. If `fallback_key` is present, the server encodes that structured key from its authoritative terminal keyboard modes and writes the encoded bytes to the PTY. If `fallback_key` is absent, the alternate-screen request succeeds as a no-op. Clients must require both `clear-history-v1` and `clear-history-key-v1` before sending `fallback_key`.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` | required | Must identify a live PTY surface |
+| `fallback_key` | `TerminalKeyInput \| null` | default null | Requires `clear-history-key-v1`; ignored on the primary screen |
+
+`TerminalKeyInput` preserves the frontend key event so the server can apply its current Kitty keyboard and terminal mode state:
+
+| Field | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `key` | `TerminalKey` | required | One of the symbolic values below |
+| `mods` | `TerminalModifiers` | required | Exact active modifier state |
+| `consumed_mods` | `TerminalModifiers` | required | Must be a subset of `mods` |
+| `utf8` | `string` | required | At most 4 MiB and contains no control characters |
+| `unshifted_codepoint` | `string \| null` | default null | Exactly one Unicode scalar when present |
+| `action` | `"press" \| "release" \| "repeat" \| null` | default null | Key action when known |
+| `macos_option_as_alt` | `boolean` | required | `false` is valid only when Alt is active and consumed |
+
+`TerminalModifiers` contains six required booleans: `shift`, `control`, `alt`, `super`, `caps_lock`, and `num_lock`. Unknown fields are rejected.
+
+`TerminalKey` accepts these exact kebab-case values:
+
+```text
+unidentified backquote backslash bracket-left bracket-right comma
+digit0 digit1 digit2 digit3 digit4 digit5 digit6 digit7 digit8 digit9 equal
+a b c d e f g h i j k l m n o p q r s t u v w x y z
+minus period quote semicolon slash backspace enter space tab delete end home insert
+page-down page-up arrow-down arrow-left arrow-right arrow-up
+numpad0 numpad1 numpad2 numpad3 numpad4 numpad5 numpad6 numpad7 numpad8 numpad9
+numpad-add numpad-backspace numpad-comma numpad-decimal numpad-divide numpad-enter
+numpad-equal numpad-multiply numpad-subtract numpad-up numpad-down numpad-right
+numpad-left numpad-begin numpad-home numpad-end numpad-insert numpad-delete
+numpad-page-up numpad-page-down escape
+f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 f16 f17 f18 f19 f20
+```
+
+Result: empty object.
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `unknown surface <id>` | Surface id does not exist |
+| `browser surface does not support PTY/VT socket commands` | Surface is a browser |
+| `bad request: ...` | Missing `surface` or wrong JSON type |
+
+CLI mapping:
+
+| Item | Value |
+| --- | --- |
+| Verb | `clear-history` |
+| Flags | `--surface <id>` |
+| Plain stdout | none |
+| JSON stdout | exact result object |
+| Exit codes | common |
+
+Example:
+
+```json
+{"id":5,"cmd":"clear-history","surface":1}
+{"id":5,"ok":true,"data":{}}
+```
+
+Alternate-screen key fallback:
+
+```json
+{"id":6,"cmd":"clear-history","surface":1,"fallback_key":{"key":"k","mods":{"shift":false,"control":false,"alt":false,"super":true,"caps_lock":false,"num_lock":false},"consumed_mods":{"shift":false,"control":false,"alt":false,"super":false,"caps_lock":false,"num_lock":false},"utf8":"","unshifted_codepoint":"k","action":"press","macos_option_as_alt":true}}
+{"id":6,"ok":true,"data":{}}
 ```
 
 ### sidebar-plugin

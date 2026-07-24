@@ -22,6 +22,8 @@ impl Mods {
     pub const CTRL: Mods = Mods(sys::GHOSTTY_MODS_CTRL as u16);
     pub const ALT: Mods = Mods(sys::GHOSTTY_MODS_ALT as u16);
     pub const SUPER: Mods = Mods(sys::GHOSTTY_MODS_SUPER as u16);
+    pub const CAPS_LOCK: Mods = Mods(sys::GHOSTTY_MODS_CAPS_LOCK as u16);
+    pub const NUM_LOCK: Mods = Mods(sys::GHOSTTY_MODS_NUM_LOCK as u16);
 
     pub fn contains(self, other: Mods) -> bool {
         self.0 & other.0 == other.0
@@ -162,7 +164,7 @@ pub fn key_input_from_chord(chord: &str) -> Option<KeyInput> {
 }
 
 /// A single key event to encode.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct KeyInput {
     /// W3C-style physical key (GHOSTTY_KEY_*), or GHOSTTY_KEY_UNIDENTIFIED.
     pub key: sys::GhosttyKey,
@@ -175,6 +177,23 @@ pub struct KeyInput {
     /// Codepoint of the key without shift applied, when known.
     pub unshifted_codepoint: u32,
     pub action: Option<KeyAction>,
+    /// Whether an Alt modifier is a logical terminal modifier. This is false
+    /// when macOS Option was consumed to produce `utf8` for this event.
+    pub macos_option_as_alt: bool,
+}
+
+impl Default for KeyInput {
+    fn default() -> Self {
+        Self {
+            key: sys::GHOSTTY_KEY_UNIDENTIFIED,
+            mods: Mods::default(),
+            consumed_mods: Mods::default(),
+            utf8: String::new(),
+            unshifted_codepoint: 0,
+            action: None,
+            macos_option_as_alt: true,
+        }
+    }
 }
 
 /// Encodes key events into the byte sequences an application expects,
@@ -214,6 +233,16 @@ impl KeyEncoder {
             KeyAction::Repeat => sys::GHOSTTY_KEY_ACTION_REPEAT,
         };
         unsafe {
+            let option_as_alt = if input.macos_option_as_alt {
+                sys::GHOSTTY_OPTION_AS_ALT_TRUE
+            } else {
+                sys::GHOSTTY_OPTION_AS_ALT_FALSE
+            };
+            sys::ghostty_key_encoder_setopt(
+                self.encoder,
+                sys::GHOSTTY_KEY_ENCODER_OPT_MACOS_OPTION_AS_ALT,
+                ptr::from_ref(&option_as_alt).cast(),
+            );
             sys::ghostty_key_event_set_action(self.event, action);
             sys::ghostty_key_event_set_key(self.event, input.key);
             sys::ghostty_key_event_set_mods(self.event, input.mods.0);

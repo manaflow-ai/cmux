@@ -648,6 +648,225 @@ fn c1_output_is_normalized_once_before_host_and_frontend_mirrors_observe_it() {
 }
 
 #[test]
+fn cleared_history_stays_cleared_after_daemon_reconnect() {
+    let mut harness = RecoveryHarness::start("clear-history-reconnect");
+    let history = format!("history-before-clear-{}", std::process::id());
+    let pending = format!("typed-input-{}", std::process::id());
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": [
+                "/bin/sh",
+                "-c",
+                concat!(
+                    "i=0; while [ \"$i\" -lt 40 ]; do ",
+                    "printf '%s-%02d\\r\\n' \"$1\" \"$i\"; i=$((i + 1)); done; ",
+                    "printf '\\033]133;A\\007prompt> \\033]133;B\\007%s' \"$2\"; sleep 30",
+                ),
+                "cmux-clear-history",
+                &history,
+                &pending,
+            ],
+            "new_workspace": true,
+            "name": "clear-history-survivor",
+            "cols": 80,
+            "rows": 8,
+        }),
+    );
+    let original_surface = created["surface"].as_u64().unwrap();
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let incarnation = created["terminal_incarnation"].as_str().unwrap().to_string();
+    let prompt = format!("prompt> {pending}");
+    assert!(wait_for_screen(&harness.socket, original_surface, &prompt).contains(&prompt));
+    let before = request(
+        &harness.socket,
+        serde_json::json!({"id": 2, "cmd": "copy", "surface": original_surface, "mode": "scrollback"}),
+    );
+    assert!(before["text"].as_str().unwrap().contains(&history));
+    let records = wait_for_host_records(&harness.host_root(), 1);
+    assert!(records[0].1.supports_clear_history);
+
+    let host_pid = records[0].1.host_pid as libc::pid_t;
+    // SAFETY: the durable record identifies this harness's live terminal host.
+    assert_eq!(unsafe { libc::kill(host_pid, libc::SIGSTOP) }, 0);
+    std::thread::sleep(Duration::from_millis(50));
+    let resume_host = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(250));
+        // SAFETY: this resumes the same host stopped immediately above.
+        assert_eq!(unsafe { libc::kill(host_pid, libc::SIGCONT) }, 0);
+    });
+    let clear_started = Instant::now();
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 3, "cmd": "clear-history", "surface": original_surface}),
+    );
+    let clear_elapsed = clear_started.elapsed();
+    resume_host.join().unwrap();
+    assert!(
+        clear_elapsed >= Duration::from_millis(150),
+        "clear-history returned before the stopped host applied it: {clear_elapsed:?}"
+    );
+    let screen = request(
+        &harness.socket,
+        serde_json::json!({"id": 4, "cmd": "read-screen", "surface": original_surface}),
+    )["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let scrollback = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 5,
+            "cmd": "copy",
+            "surface": original_surface,
+            "mode": "scrollback",
+        }),
+    )["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(screen.contains(&prompt));
+    assert!(!screen.contains(&history));
+    assert!(!scrollback.contains(&history));
+
+    harness.sigkill();
+    harness.restart();
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let adopted_surface = loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({
+                "id": 6,
+                "cmd": "resolve-terminal",
+                "terminal_id": &terminal_id,
+            }),
+        );
+        if resolved["lifecycle"] == "running"
+            && resolved["terminal_incarnation"].as_str() == Some(incarnation.as_str())
+            && let Some(surface) = resolved["surface"].as_u64()
+        {
+            break surface;
+        }
+        assert!(Instant::now() < deadline, "replacement daemon did not adopt cleared terminal");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let replay = wait_for_screen(&harness.socket, adopted_surface, &prompt);
+    assert!(replay.contains(&prompt));
+    assert!(!replay.contains(&history), "cleared visible history returned after adoption");
+    let recovered = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 7,
+            "cmd": "copy",
+            "surface": adopted_surface,
+            "mode": "scrollback",
+        }),
+    );
+    assert!(
+        !recovered["text"].as_str().unwrap().contains(&history),
+        "cleared scrollback returned after adoption"
+    );
+
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 8,
+            "cmd": "close-terminal",
+            "terminal_id": terminal_id,
+            "terminal_incarnation": incarnation,
+        }),
+    );
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
+fn hosted_clear_history_encodes_fallback_from_authoritative_keyboard_mode() {
+    let harness = RecoveryHarness::start("clear-history-fallback");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": [
+                "/bin/sh",
+                "-c",
+                "stty raw -echo; printf '\\033[?1049h\\033[>1uready'; exec cat",
+            ],
+            "new_workspace": true,
+            "name": "clear-history-fallback",
+            "cols": 80,
+            "rows": 8,
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    assert!(wait_for_screen(&harness.socket, surface, "ready").contains("ready"));
+    let (_, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    assert!(record.supports_clear_history);
+    let mut observer = connect_host_detailed(
+        &record.endpoint,
+        &record.terminal_id,
+        &record.owner_token,
+        ClientRole::Admin,
+        CapabilityRights::ADMIN,
+    )
+    .unwrap();
+    observer.stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 2,
+            "cmd": "clear-history",
+            "surface": surface,
+            "fallback_key": {
+                "key": "k",
+                "mods": {
+                    "shift": false,
+                    "control": false,
+                    "alt": false,
+                    "super": true,
+                    "caps_lock": false,
+                    "num_lock": false,
+                },
+                "consumed_mods": {
+                    "shift": false,
+                    "control": false,
+                    "alt": false,
+                    "super": false,
+                    "caps_lock": false,
+                    "num_lock": false,
+                },
+                "utf8": "",
+                "unshifted_codepoint": "k",
+                "action": "press",
+                "macos_option_as_alt": true,
+            },
+        }),
+    );
+    let expected = b"\x1b[107;9u";
+    loop {
+        let frame = read_frame(&mut observer.stream, MAX_FRAME_PAYLOAD)
+            .expect("read clear-history fallback output")
+            .expect("host closed before clear-history fallback output");
+        if frame.request_id == 0 {
+            assert_eq!(frame.sequence, observer.next_sequence);
+            observer.next_sequence = observer.next_sequence.wrapping_add(1);
+        }
+        if frame.kind == MessageKind::Output && contains_bytes(&frame.payload, expected) {
+            break;
+        }
+    }
+
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 3, "cmd": "close-surface", "surface": surface}),
+    );
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
 fn existing_host_defaults_survive_output_resize_and_renderer_reconnects() {
     let harness = RecoveryHarness::start("live-default-update");
     let created = request(

@@ -3,7 +3,7 @@ use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use cmux_tui_core::platform::transport;
+use cmux_tui_core::{platform::transport, server::CLEAR_HISTORY_CAPABILITY};
 use serde_json::{Value, json};
 
 const REQUEST_ID: u64 = 1;
@@ -38,9 +38,24 @@ struct FlagMap {
 
 struct VerbSpec {
     name: &'static str,
-    help: &'static str,
+    help: HelpText,
     allowed: &'static [&'static str],
     kind: VerbKind,
+}
+
+#[derive(Clone, Copy)]
+enum HelpText {
+    Literal(&'static str),
+    ClearHistory,
+}
+
+impl HelpText {
+    fn resolve(self, catalog: &'static crate::localization::Catalog) -> &'static str {
+        match self {
+            Self::Literal(text) => text,
+            Self::ClearHistory => catalog.terminal.clear_history_help,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -52,349 +67,355 @@ enum VerbKind {
 const VERBS: &[VerbSpec] = &[
     VerbSpec {
         name: "identify",
-        help: "Print session metadata.",
+        help: HelpText::Literal("Print session metadata."),
         allowed: &[],
         kind: socket(build_no_args, print_identify, false),
     },
     VerbSpec {
         name: "ping",
-        help: "Check session liveness.",
+        help: HelpText::Literal("Check session liveness."),
         allowed: &[],
         kind: socket(build_no_args, print_ping, false),
     },
     VerbSpec {
         name: "set-client-info",
-        help: "Label this control connection.",
+        help: HelpText::Literal("Label this control connection."),
         allowed: &["name", "kind"],
         kind: socket(build_set_client_info, print_empty, false),
     },
     VerbSpec {
         name: "list-clients",
-        help: "List connected control clients.",
+        help: HelpText::Literal("List connected control clients."),
         allowed: &[],
         kind: socket(build_no_args, print_clients, false),
     },
     VerbSpec {
         name: "detach-client",
-        help: "Detach a connected control client.",
+        help: HelpText::Literal("Detach a connected control client."),
         allowed: &["client"],
         kind: socket(build_detach_client, print_empty, false),
     },
     VerbSpec {
         name: "set-client-sizing",
-        help: "Include or exclude a client from shared terminal sizing.",
+        help: HelpText::Literal("Include or exclude a client from shared terminal sizing."),
         allowed: &["client", "enabled"],
         kind: socket(build_set_client_sizing, print_empty, false),
     },
     VerbSpec {
         name: "reload-config",
-        help: "Ask a running TUI to reload its config file.",
+        help: HelpText::Literal("Ask a running TUI to reload its config file."),
         allowed: &[],
         kind: socket(build_no_args, print_empty, false),
     },
     VerbSpec {
         name: "set-window-title",
-        help: "Set the host terminal window title.",
+        help: HelpText::Literal("Set the host terminal window title."),
         allowed: &["title"],
         kind: socket(build_set_window_title, print_empty, false),
     },
     VerbSpec {
         name: "clear-window-title",
-        help: "Clear the host terminal window title.",
+        help: HelpText::Literal("Clear the host terminal window title."),
         allowed: &[],
         kind: socket(build_no_args, print_empty, false),
     },
     VerbSpec {
         name: "list-workspaces",
-        help: "List workspaces, screens, panes, and surfaces.",
+        help: HelpText::Literal("List workspaces, screens, panes, and surfaces."),
         allowed: &[],
         kind: socket(build_no_args, print_tree, false),
     },
     VerbSpec {
         name: "export-layout",
-        help: "Export a screen layout.",
+        help: HelpText::Literal("Export a screen layout."),
         allowed: &["screen"],
         kind: socket(build_export_layout, print_json_data, false),
     },
     VerbSpec {
         name: "apply-layout",
-        help: "Apply a screen layout.",
+        help: HelpText::Literal("Apply a screen layout."),
         allowed: &["workspace", "name", "layout", "cols", "rows"],
         kind: socket(build_apply_layout, print_applied_layout, false),
     },
     VerbSpec {
         name: "send",
-        help: "Send text or bytes to a surface.",
+        help: HelpText::Literal("Send text or bytes to a surface."),
         allowed: &["surface", "text", "bytes", "paste"],
         kind: socket(build_send, print_empty, false),
     },
     VerbSpec {
         name: "read-screen",
-        help: "Print visible screen text for a surface.",
+        help: HelpText::Literal("Print visible screen text for a surface."),
         allowed: &["surface"],
         kind: socket(build_surface, print_read_screen, false),
     },
     VerbSpec {
+        name: "clear-history",
+        help: HelpText::ClearHistory,
+        allowed: &["surface"],
+        kind: socket(build_surface, print_empty, false),
+    },
+    VerbSpec {
         name: "read-scrollback",
-        help: "Print a styled scrollback page as text.",
+        help: HelpText::Literal("Print a styled scrollback page as text."),
         allowed: &["surface", "start", "count"],
         kind: socket(build_read_scrollback, print_scrollback, false),
     },
     VerbSpec {
         name: "wait-for",
-        help: "Wait for a regex in visible screen text.",
+        help: HelpText::Literal("Wait for a regex in visible screen text."),
         allowed: &["surface", "pattern", "timeout-ms"],
         kind: socket(build_wait_for, print_empty, false),
     },
     VerbSpec {
         name: "run",
-        help: "Run a command in a new or existing pane.",
+        help: HelpText::Literal("Run a command in a new or existing pane."),
         allowed: &["pane", "new-workspace", "key", "cwd", "name", "command"],
         kind: socket(build_run, print_surface, false),
     },
     VerbSpec {
         name: "send-key",
-        help: "Send encoded key names to a surface.",
+        help: HelpText::Literal("Send encoded key names to a surface."),
         allowed: &["surface"],
         kind: socket(build_send_key, print_empty, false),
     },
     VerbSpec {
         name: "copy",
-        help: "Copy text from a surface.",
+        help: HelpText::Literal("Copy text from a surface."),
         allowed: &["surface", "mode"],
         kind: socket(build_copy, print_read_screen, false),
     },
     VerbSpec {
         name: "ids",
-        help: "List ids and short ids.",
+        help: HelpText::Literal("List ids and short ids."),
         allowed: &["kind"],
         kind: socket(build_ids, print_ids, false),
     },
     VerbSpec {
         name: "notify",
-        help: "Show a cmux notification.",
+        help: HelpText::Literal("Show a cmux notification."),
         allowed: &["title", "body", "level", "surface"],
         kind: socket(build_notify, print_notification, false),
     },
     VerbSpec {
         name: "list-agents",
-        help: "List reported agent states.",
+        help: HelpText::Literal("List reported agent states."),
         allowed: &["surface", "state"],
         kind: socket(build_list_agents, print_agents, false),
     },
     VerbSpec {
         name: "report-agent",
-        help: "Report an agent state.",
+        help: HelpText::Literal("Report an agent state."),
         allowed: &["surface", "state", "source", "session"],
         kind: socket(build_report_agent, print_empty, false),
     },
     VerbSpec {
         name: "vt-state",
-        help: "Print base64 terminal state for a surface.",
+        help: HelpText::Literal("Print base64 terminal state for a surface."),
         allowed: &["surface"],
         kind: socket(build_surface, print_vt_state, false),
     },
     VerbSpec {
         name: "new-tab",
-        help: "Create a new tab.",
+        help: HelpText::Literal("Create a new tab."),
         allowed: &["pane", "cwd", "cols", "rows"],
         kind: socket(build_new_tab, print_surface, false),
     },
     VerbSpec {
         name: "new-browser-tab",
-        help: "Create a browser tab.",
+        help: HelpText::Literal("Create a browser tab."),
         allowed: &["url", "pane", "cols", "rows"],
         kind: socket(build_new_browser_tab, print_surface, false),
     },
     VerbSpec {
         name: "new-workspace",
-        help: "Create a workspace.",
+        help: HelpText::Literal("Create a workspace."),
         allowed: &["name", "cols", "rows"],
         kind: socket(build_new_workspace, print_surface, false),
     },
     VerbSpec {
         name: "new-screen",
-        help: "Create a screen.",
+        help: HelpText::Literal("Create a screen."),
         allowed: &["workspace", "cols", "rows"],
         kind: socket(build_new_screen, print_surface, false),
     },
     VerbSpec {
         name: "new-pane",
-        help: "Create a pane with automatic distribution.",
+        help: HelpText::Literal("Create a pane with automatic distribution."),
         allowed: &["pane", "cols", "rows"],
         kind: socket(build_new_pane, print_surface, false),
     },
     VerbSpec {
         name: "split",
-        help: "Split a pane.",
+        help: HelpText::Literal("Split a pane."),
         allowed: &["pane", "dir", "cols", "rows"],
         kind: socket(build_split, print_surface, false),
     },
     VerbSpec {
         name: "set-ratio",
-        help: "Set a split ratio.",
+        help: HelpText::Literal("Set a split ratio."),
         allowed: &["pane", "dir", "ratio"],
         kind: socket(build_set_ratio, print_empty, false),
     },
     VerbSpec {
         name: "set-split-ratio",
-        help: "Set a split ratio by stable split id.",
+        help: HelpText::Literal("Set a split ratio by stable split id."),
         allowed: &["split", "ratio"],
         kind: socket(build_set_split_ratio, print_empty, false),
     },
     VerbSpec {
         name: "pane-neighbor",
-        help: "Find a pane neighbor.",
+        help: HelpText::Literal("Find a pane neighbor."),
         allowed: &["pane", "dir"],
         kind: socket(build_pane_direction, print_optional_pane, false),
     },
     VerbSpec {
         name: "focus-direction",
-        help: "Focus a pane by direction.",
+        help: HelpText::Literal("Focus a pane by direction."),
         allowed: &["pane", "dir"],
         kind: socket(build_optional_pane_direction, print_pane, false),
     },
     VerbSpec {
         name: "swap-pane",
-        help: "Swap panes.",
+        help: HelpText::Literal("Swap panes."),
         allowed: &["pane", "dir", "target"],
         kind: socket(build_swap_pane, print_empty, false),
     },
     VerbSpec {
         name: "zoom-pane",
-        help: "Toggle or set pane zoom.",
+        help: HelpText::Literal("Toggle or set pane zoom."),
         allowed: &["pane", "mode"],
         kind: socket(build_zoom_pane, print_zoom_state, false),
     },
     VerbSpec {
         name: "process-info",
-        help: "Print process metadata for a surface.",
+        help: HelpText::Literal("Print process metadata for a surface."),
         allowed: &["surface"],
         kind: socket(build_surface, print_process_info, false),
     },
     VerbSpec {
         name: "set-default-colors",
-        help: "Set default terminal colors.",
+        help: HelpText::Literal("Set default terminal colors."),
         allowed: &["fg", "bg"],
         kind: socket(build_set_default_colors, print_empty, false),
     },
     VerbSpec {
         name: "close-surface",
-        help: "Close a surface.",
+        help: HelpText::Literal("Close a surface."),
         allowed: &["surface"],
         kind: socket(build_surface, print_empty, false),
     },
     VerbSpec {
         name: "close-pane",
-        help: "Close a pane.",
+        help: HelpText::Literal("Close a pane."),
         allowed: &["pane"],
         kind: socket(build_pane, print_empty, false),
     },
     VerbSpec {
         name: "close-screen",
-        help: "Close a screen.",
+        help: HelpText::Literal("Close a screen."),
         allowed: &["screen"],
         kind: socket(build_screen, print_empty, false),
     },
     VerbSpec {
         name: "close-workspace",
-        help: "Close a workspace.",
+        help: HelpText::Literal("Close a workspace."),
         allowed: &["workspace"],
         kind: socket(build_workspace, print_empty, false),
     },
     VerbSpec {
         name: "rename-pane",
-        help: "Rename a pane.",
+        help: HelpText::Literal("Rename a pane."),
         allowed: &["pane", "name"],
         kind: socket(build_rename_pane, print_empty, false),
     },
     VerbSpec {
         name: "rename-surface",
-        help: "Rename a surface.",
+        help: HelpText::Literal("Rename a surface."),
         allowed: &["surface", "name"],
         kind: socket(build_rename_surface, print_empty, false),
     },
     VerbSpec {
         name: "rename-screen",
-        help: "Rename a screen.",
+        help: HelpText::Literal("Rename a screen."),
         allowed: &["screen", "name"],
         kind: socket(build_rename_screen, print_empty, false),
     },
     VerbSpec {
         name: "rename-workspace",
-        help: "Rename a workspace.",
+        help: HelpText::Literal("Rename a workspace."),
         allowed: &["workspace", "name"],
         kind: socket(build_rename_workspace, print_empty, false),
     },
     VerbSpec {
         name: "resize-surface",
-        help: "Resize a surface PTY.",
+        help: HelpText::Literal("Resize a surface PTY."),
         allowed: &["surface", "cols", "rows"],
         kind: socket(build_resize_surface, print_empty, false),
     },
     VerbSpec {
         name: "release-surface-size",
-        help: "Stop this client from sizing a surface.",
+        help: HelpText::Literal("Stop this client from sizing a surface."),
         allowed: &["surface"],
         kind: socket(build_surface, print_empty, false),
     },
     VerbSpec {
         name: "focus-pane",
-        help: "Focus a pane.",
+        help: HelpText::Literal("Focus a pane."),
         allowed: &["pane"],
         kind: socket(build_pane, print_empty, false),
     },
     VerbSpec {
         name: "select-tab",
-        help: "Select a tab by index or delta.",
+        help: HelpText::Literal("Select a tab by index or delta."),
         allowed: &["pane", "index", "delta"],
         kind: socket(build_select_tab, print_empty, false),
     },
     VerbSpec {
         name: "select-screen",
-        help: "Select a screen by index or delta.",
+        help: HelpText::Literal("Select a screen by index or delta."),
         allowed: &["index", "delta"],
         kind: socket(build_select_screen, print_empty, false),
     },
     VerbSpec {
         name: "select-workspace",
-        help: "Select a workspace by index or delta.",
+        help: HelpText::Literal("Select a workspace by index or delta."),
         allowed: &["index", "delta"],
         kind: socket(build_select_workspace, print_empty, false),
     },
     VerbSpec {
         name: "move-tab",
-        help: "Move a tab to a pane and index.",
+        help: HelpText::Literal("Move a tab to a pane and index."),
         allowed: &["surface", "pane", "index"],
         kind: socket(build_move_tab, print_empty, false),
     },
     VerbSpec {
         name: "move-workspace",
-        help: "Move a workspace to an index.",
+        help: HelpText::Literal("Move a workspace to an index."),
         allowed: &["workspace", "index"],
         kind: socket(build_move_workspace, print_empty, false),
     },
     VerbSpec {
         name: "scroll-surface",
-        help: "Scroll a surface.",
+        help: HelpText::Literal("Scroll a surface."),
         allowed: &["surface", "delta"],
         kind: socket(build_scroll_surface, print_empty, false),
     },
     VerbSpec {
         name: "subscribe",
-        help: "Subscribe to session events.",
+        help: HelpText::Literal("Subscribe to session events."),
         allowed: &["tree-events"],
         kind: socket(build_subscribe, print_empty, true),
     },
     VerbSpec {
         name: "attach-surface",
-        help: "Attach to a surface stream.",
+        help: HelpText::Literal("Attach to a surface stream."),
         allowed: &["surface", "mode", "cols", "rows"],
         kind: socket(build_attach_surface, print_empty, true),
     },
     VerbSpec {
         name: "plugin",
-        help: "Manage installed sidebar plugins locally.",
+        help: HelpText::Literal("Manage installed sidebar plugins locally."),
         allowed: &["name", "force", "builtin"],
         kind: VerbKind::Local(run_plugin),
     },
@@ -423,11 +444,12 @@ pub fn run(args: &[String], usage: &str) -> i32 {
 }
 
 pub fn print_help(usage: &str) {
+    let catalog = crate::localization::catalog();
     print!("{usage}");
     println!();
     println!("VERB HELP");
     for verb in VERBS {
-        println!("  {:<18} {}", verb.name, verb.help);
+        println!("  {:<18} {}", verb.name, verb.help.resolve(catalog));
     }
 }
 
@@ -581,13 +603,11 @@ fn run_command(args: CliArgs) -> i32 {
         let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
     }
     let mut reader = BufReader::new(stream);
-    if request.get("cmd").and_then(Value::as_str) == Some("attach-surface")
-        && request.get("cols").is_some()
-    {
-        match server_supports_capability(&mut reader, ATTACH_INITIAL_SIZE_CAPABILITY) {
+    if let Some((capability, unsupported_message)) = required_capability(&request) {
+        match server_supports_capability(&mut reader, capability) {
             Ok(true) => {}
             Ok(false) => {
-                eprintln!("initial attach sizing is not supported by this server");
+                eprintln!("{unsupported_message}");
                 return 1;
             }
             Err(err) => {
@@ -604,6 +624,26 @@ fn run_command(args: CliArgs) -> i32 {
         run_stream(reader)
     } else {
         run_one_response(&mut reader, args.global.json, print)
+    }
+}
+
+fn required_capability(request: &Value) -> Option<(&'static str, &'static str)> {
+    required_capability_with_catalog(request, crate::localization::catalog())
+}
+
+fn required_capability_with_catalog(
+    request: &Value,
+    catalog: &'static crate::localization::Catalog,
+) -> Option<(&'static str, &'static str)> {
+    match request.get("cmd").and_then(Value::as_str) {
+        Some("attach-surface") if request.get("cols").is_some() => Some((
+            ATTACH_INITIAL_SIZE_CAPABILITY,
+            "initial attach sizing is not supported by this server",
+        )),
+        Some("clear-history") => {
+            Some((CLEAR_HISTORY_CAPABILITY, catalog.terminal.clear_history_unsupported))
+        }
+        _ => None,
     }
 }
 
@@ -1708,18 +1748,68 @@ mod tests {
     }
 
     #[test]
+    fn clear_history_requires_its_additive_capability() {
+        let request = json!({"id": 1, "cmd": "clear-history", "surface": 9});
+        assert_eq!(
+            required_capability_with_catalog(
+                &request,
+                crate::localization::catalog_for_locale("en_US.UTF-8"),
+            ),
+            Some((
+                CLEAR_HISTORY_CAPABILITY,
+                "clear-history is not supported by this server; restart the cmux-tui server",
+            ))
+        );
+
+        let read = json!({"id": 1, "cmd": "read-screen", "surface": 9});
+        assert_eq!(required_capability(&read), None);
+    }
+
+    #[test]
+    fn clear_history_help_uses_the_selected_locale() {
+        let clear_history = verb_by_name("clear-history").expect("clear-history verb registered");
+
+        assert_eq!(
+            clear_history.help.resolve(crate::localization::catalog_for_locale("ja_JP.UTF-8")),
+            "アクティブなプロンプトを保持したまま PTY 履歴を消去します。"
+        );
+    }
+
+    #[test]
+    fn clear_history_capability_error_uses_the_selected_locale() {
+        let request = json!({"id": 1, "cmd": "clear-history", "surface": 9});
+
+        assert_eq!(
+            required_capability_with_catalog(
+                &request,
+                crate::localization::catalog_for_locale("ja_JP.UTF-8"),
+            ),
+            Some((
+                CLEAR_HISTORY_CAPABILITY,
+                "このサーバーでは clear-history を使用できません。cmux-tui サーバーを再起動してください",
+            ))
+        );
+    }
+
+    #[test]
     fn plugin_verb_is_registered_as_local_with_help() {
         let plugin = verb_by_name("plugin").expect("plugin verb registered");
         assert!(matches!(plugin.kind, VerbKind::Local(_)));
         assert!(plugin.allowed.contains(&"name"));
         assert!(plugin.allowed.contains(&"force"));
         assert!(plugin.allowed.contains(&"builtin"));
-        assert!(plugin.help.contains("sidebar plugins"));
+        assert!(
+            plugin
+                .help
+                .resolve(crate::localization::catalog_for_locale("en_US.UTF-8"))
+                .contains("sidebar plugins")
+        );
     }
 
     #[test]
     fn registered_verbs_have_help_text() {
-        assert!(VERBS.iter().all(|verb| !verb.help.is_empty()));
+        let catalog = crate::localization::catalog_for_locale("en_US.UTF-8");
+        assert!(VERBS.iter().all(|verb| !verb.help.resolve(catalog).is_empty()));
     }
 
     #[test]

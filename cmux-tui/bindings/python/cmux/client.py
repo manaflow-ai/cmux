@@ -6,8 +6,8 @@ import os
 import socket
 import tempfile
 import threading
-from dataclasses import dataclass
-from typing import Any, Dict, Iterator, List, Optional
+from dataclasses import dataclass, field
+from typing import Any, Dict, Iterator, List, Literal, Optional
 
 
 class CmuxError(Exception):
@@ -43,6 +43,177 @@ def _validate_workspace_selector(workspace: Optional[int], key: Optional[str]) -
 @dataclass(frozen=True)
 class EmptyResult:
     pass
+
+
+TerminalKey = Literal[
+    "unidentified",
+    "backquote",
+    "backslash",
+    "bracket-left",
+    "bracket-right",
+    "comma",
+    "digit0",
+    "digit1",
+    "digit2",
+    "digit3",
+    "digit4",
+    "digit5",
+    "digit6",
+    "digit7",
+    "digit8",
+    "digit9",
+    "equal",
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "f",
+    "g",
+    "h",
+    "i",
+    "j",
+    "k",
+    "l",
+    "m",
+    "n",
+    "o",
+    "p",
+    "q",
+    "r",
+    "s",
+    "t",
+    "u",
+    "v",
+    "w",
+    "x",
+    "y",
+    "z",
+    "minus",
+    "period",
+    "quote",
+    "semicolon",
+    "slash",
+    "backspace",
+    "enter",
+    "space",
+    "tab",
+    "delete",
+    "end",
+    "home",
+    "insert",
+    "page-down",
+    "page-up",
+    "arrow-down",
+    "arrow-left",
+    "arrow-right",
+    "arrow-up",
+    "numpad0",
+    "numpad1",
+    "numpad2",
+    "numpad3",
+    "numpad4",
+    "numpad5",
+    "numpad6",
+    "numpad7",
+    "numpad8",
+    "numpad9",
+    "numpad-add",
+    "numpad-backspace",
+    "numpad-comma",
+    "numpad-decimal",
+    "numpad-divide",
+    "numpad-enter",
+    "numpad-equal",
+    "numpad-multiply",
+    "numpad-subtract",
+    "numpad-up",
+    "numpad-down",
+    "numpad-right",
+    "numpad-left",
+    "numpad-begin",
+    "numpad-home",
+    "numpad-end",
+    "numpad-insert",
+    "numpad-delete",
+    "numpad-page-up",
+    "numpad-page-down",
+    "escape",
+    "f1",
+    "f2",
+    "f3",
+    "f4",
+    "f5",
+    "f6",
+    "f7",
+    "f8",
+    "f9",
+    "f10",
+    "f11",
+    "f12",
+    "f13",
+    "f14",
+    "f15",
+    "f16",
+    "f17",
+    "f18",
+    "f19",
+    "f20",
+]
+TerminalKeyAction = Literal["press", "release", "repeat"]
+
+
+@dataclass(frozen=True)
+class TerminalModifiers:
+    shift: bool = False
+    control: bool = False
+    alt: bool = False
+    super_key: bool = False
+    caps_lock: bool = False
+    num_lock: bool = False
+
+    def to_wire(self) -> Dict[str, bool]:
+        return {
+            "shift": self.shift,
+            "control": self.control,
+            "alt": self.alt,
+            "super": self.super_key,
+            "caps_lock": self.caps_lock,
+            "num_lock": self.num_lock,
+        }
+
+    @classmethod
+    def from_wire(cls, value: Dict[str, Any]) -> TerminalModifiers:
+        return cls(
+            shift=bool(value["shift"]),
+            control=bool(value["control"]),
+            alt=bool(value["alt"]),
+            super_key=bool(value["super"]),
+            caps_lock=bool(value["caps_lock"]),
+            num_lock=bool(value["num_lock"]),
+        )
+
+
+@dataclass(frozen=True)
+class TerminalKeyInput:
+    key: TerminalKey
+    mods: TerminalModifiers = field(default_factory=TerminalModifiers)
+    consumed_mods: TerminalModifiers = field(default_factory=TerminalModifiers)
+    utf8: str = ""
+    unshifted_codepoint: Optional[str] = None
+    action: Optional[TerminalKeyAction] = None
+    macos_option_as_alt: bool = True
+
+    def to_wire(self) -> Dict[str, Any]:
+        return {
+            "key": self.key,
+            "mods": self.mods.to_wire(),
+            "consumed_mods": self.consumed_mods.to_wire(),
+            "utf8": self.utf8,
+            "unshifted_codepoint": self.unshifted_codepoint,
+            "action": self.action,
+            "macos_option_as_alt": self.macos_option_as_alt,
+        }
 
 
 @dataclass(frozen=True)
@@ -422,6 +593,19 @@ class CmuxClient:
         else:
             encoded = bytes_data
         self._request("send", surface=surface, text=text, bytes=encoded)
+        return EmptyResult()
+
+    def clear_history(
+        self,
+        surface: int,
+        fallback_key: Optional[TerminalKeyInput] = None,
+    ) -> EmptyResult:
+        self._require_capability("clear-history-v1", "clear-history")
+        params: Dict[str, Any] = {"surface": surface}
+        if fallback_key is not None:
+            self._require_capability("clear-history-key-v1", "clear-history key fallback")
+            params["fallback_key"] = fallback_key.to_wire()
+        self._request("clear-history", **params)
         return EmptyResult()
 
     def read_screen(self, surface: int) -> ReadScreenResult:

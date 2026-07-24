@@ -52,6 +52,21 @@ pub struct BrowserResizeFailure {
     pub error: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BrowserKey {
+    Character(char),
+    Named(&'static str),
+}
+
+impl BrowserKey {
+    fn as_str(self, character_buffer: &mut [u8; 4]) -> &str {
+        match self {
+            Self::Character(character) => character.encode_utf8(character_buffer),
+            Self::Named(name) => name,
+        }
+    }
+}
+
 pub enum BrowserInputKind {
     Mouse {
         event_type: &'static str,
@@ -67,7 +82,7 @@ pub enum BrowserInputKind {
     },
     Key {
         event_type: &'static str,
-        key: &'static str,
+        key: BrowserKey,
         code: &'static str,
         windows_virtual_key_code: u32,
         modifiers: u32,
@@ -173,7 +188,14 @@ pub struct BrowserInputDispatcher {
 
 #[cfg(test)]
 pub(crate) struct BlockedBrowserInput {
-    _rx: Receiver<SequencedBrowserInputEvent>,
+    rx: Receiver<SequencedBrowserInputEvent>,
+}
+
+#[cfg(test)]
+impl BlockedBrowserInput {
+    pub(crate) fn recv_timeout(&self, timeout: Duration) -> BrowserInputEvent {
+        self.rx.recv_timeout(timeout).unwrap().event
+    }
 }
 
 impl BrowserInputDispatcher {
@@ -215,7 +237,7 @@ impl BrowserInputDispatcher {
                 failed_resizes: Arc::new(Mutex::new(HashMap::new())),
                 surface_lifetimes: Arc::new(Mutex::new(HashMap::new())),
             },
-            BlockedBrowserInput { _rx: rx },
+            BlockedBrowserInput { rx },
         )
     }
 
@@ -463,9 +485,19 @@ fn dispatch(event: &BrowserInputEvent) -> anyhow::Result<bool> {
             windows_virtual_key_code,
             modifiers,
             text,
-        } => surface
-            .browser_key_event(event_type, key, code, *windows_virtual_key_code, *modifiers, *text)
-            .map(|()| true),
+        } => {
+            let mut character_buffer = [0; 4];
+            surface
+                .browser_key_event(
+                    event_type,
+                    (*key).as_str(&mut character_buffer),
+                    code,
+                    *windows_virtual_key_code,
+                    *modifiers,
+                    *text,
+                )
+                .map(|()| true)
+        }
         BrowserInputKind::InsertText(text) => surface.browser_insert_text(text).map(|()| true),
         BrowserInputKind::Resize { cols, rows, reassert, .. } => {
             if *reassert {

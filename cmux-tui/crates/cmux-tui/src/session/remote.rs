@@ -15,16 +15,19 @@ use base64::Engine;
 use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, DefaultColors, MuxEvent, MuxEventBroadcaster,
     MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge, Rgb, SurfaceId,
-    SurfaceKind, platform::transport,
+    SurfaceKind,
+    platform::transport,
+    server::{CLEAR_HISTORY_CAPABILITY, CLEAR_HISTORY_KEY_CAPABILITY, ProtocolKeyInput},
 };
 use cmux_tui_machine_protocol::BearerToken;
 use ghostty_vt::{
-    Callbacks, CursorShape, MouseEncoders, MouseInput, RenderState, Terminal,
+    Callbacks, CursorShape, KeyInput, MouseEncoders, MouseInput, RenderState, Terminal,
     TerminalColorOverrides, parse_color,
 };
 use serde_json::{Value, json};
 use zeroize::Zeroize;
 
+use super::CLEAR_HISTORY_UNSUPPORTED_ERROR;
 use super::tree::{TreeView, parse_tree};
 
 const SUPPORTED_PROTOCOL_VERSION: u64 = 9;
@@ -53,6 +56,31 @@ fn validate_remote_identity(ident: &Value) -> anyhow::Result<()> {
         );
     }
     Ok(())
+}
+
+fn identity_capabilities(ident: &Value) -> HashSet<String> {
+    ident
+        .get("capabilities")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect()
+}
+
+fn require_capability(
+    capabilities: &HashSet<String>,
+    capability: &str,
+    operation: &str,
+) -> anyhow::Result<()> {
+    if capabilities.contains(capability) {
+        Ok(())
+    } else if operation == "clear-history" {
+        anyhow::bail!(CLEAR_HISTORY_UNSUPPORTED_ERROR)
+    } else {
+        anyhow::bail!("remote server does not support {operation}; restart the cmux-tui server")
+    }
 }
 
 pub(crate) type RemoteResizeReservation = (SurfaceId, (u16, u16), Option<u64>);
@@ -603,14 +631,7 @@ impl RemoteSession {
         // Identify (validates the endpoint) and subscribe to events.
         let ident = self.request(json!({"cmd": "identify"}))?;
         validate_remote_identity(&ident)?;
-        *self.capabilities.lock().unwrap() = ident
-            .get("capabilities")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .map(str::to_string)
-            .collect();
+        *self.capabilities.lock().unwrap() = identity_capabilities(&ident);
         let mut client_info = json!({"cmd": "set-client-info", "kind": "tui"});
         if let Some(hostname) = local_hostname() {
             client_info["name"] = json!(hostname);
@@ -1099,6 +1120,41 @@ impl RemoteSession {
     pub fn send_bytes(&self, surface: SurfaceId, bytes: &[u8]) -> anyhow::Result<()> {
         let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
         self.request(json!({"cmd": "send", "surface": surface, "bytes": encoded})).map(|_| ())
+    }
+
+    pub fn clear_history(&self, surface: SurfaceId) -> anyhow::Result<()> {
+        self.clear_history_request(surface, None)
+    }
+
+    pub fn clear_history_or_send_key(
+        &self,
+        surface: SurfaceId,
+        fallback_key: &KeyInput,
+    ) -> anyhow::Result<()> {
+        require_capability(
+            &self.capabilities.lock().unwrap(),
+            CLEAR_HISTORY_KEY_CAPABILITY,
+            "clear-history",
+        )?;
+        self.clear_history_request(surface, Some(ProtocolKeyInput::try_from(fallback_key)?))
+    }
+
+    fn clear_history_request(
+        &self,
+        surface: SurfaceId,
+        fallback_key: Option<ProtocolKeyInput>,
+    ) -> anyhow::Result<()> {
+        require_capability(
+            &self.capabilities.lock().unwrap(),
+            CLEAR_HISTORY_CAPABILITY,
+            "clear-history",
+        )?;
+        self.request(json!({
+            "cmd": "clear-history",
+            "surface": surface,
+            "fallback_key": fallback_key,
+        }))
+        .map(|_| ())
     }
 
     pub fn begin_shutdown(&self) {
@@ -1655,6 +1711,33 @@ mod tests {
             error.to_string(),
             "unsupported cmux-tui protocol 8; this client requires protocol 9; restart the cmux-tui server"
         );
+    }
+
+    #[test]
+    fn clear_history_requires_its_additive_capability() {
+        let without = identity_capabilities(&json!({
+            "capabilities": ["attach-initial-size", "workspace-registry-v1"]
+        }));
+        let error =
+            require_capability(&without, CLEAR_HISTORY_CAPABILITY, "clear-history").unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "remote server does not support clear-history; restart the cmux-tui server"
+        );
+
+        let with = identity_capabilities(&json!({
+            "capabilities": ["clear-history-v1"]
+        }));
+        require_capability(&with, CLEAR_HISTORY_CAPABILITY, "clear-history").unwrap();
+        let error =
+            require_capability(&with, CLEAR_HISTORY_KEY_CAPABILITY, "clear-history").unwrap_err();
+        assert_eq!(error.to_string(), CLEAR_HISTORY_UNSUPPORTED_ERROR);
+
+        let with_key_fallback = identity_capabilities(&json!({
+            "capabilities": ["clear-history-v1", "clear-history-key-v1"]
+        }));
+        require_capability(&with_key_fallback, CLEAR_HISTORY_KEY_CAPABILITY, "clear-history")
+            .unwrap();
     }
 
     #[test]

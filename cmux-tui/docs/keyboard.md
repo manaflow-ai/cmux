@@ -4,7 +4,7 @@
 
 `cmux-tui` uses a tmux-style prefix. The default prefix is `Ctrl-b`. After the prefix, the next key is interpreted as a mux command. Pressing the prefix twice sends a literal `Ctrl-b` to the active surface.
 
-Unknown prefixed keys are swallowed. Unprefixed non-Alt keys go to the active surface. Alt chords that are bound in the key table are modeless commands by default.
+Unknown prefixed keys are swallowed. Unprefixed keys go to the active surface unless they match a configured modeless Alt or Command/Super chord, or a Control-modified clear-history chord.
 
 ## Default Bindings
 
@@ -53,9 +53,12 @@ These defaults come from `Keys::default`.
 | `Ctrl-b [` | Scroll the active PTY viewport up 10 rows |
 | `Ctrl-b PageUp` | Scroll the active PTY viewport up 10 rows |
 | `Ctrl-b PageDown` | Scroll the active PTY viewport down 10 rows |
+| `Cmd-k` / `Super-k` or `Ctrl-l` | Clear retained PTY history and completed visible rows while preserving the active logical line |
 | `Ctrl-b d` | Quit a local TUI or detach an attached TUI |
 
 Directional focus follows Zellij's pane memory: when several panes share the requested edge, cmux-tui returns to the pane focused most recently.
+
+On a primary screen, `Cmd-k` and `Ctrl-l` clear retained scrollback and completed visible rows inside the terminal emulator. OSC 133 prompt metadata preserves the complete active prompt. Without metadata, cmux-tui preserves the cursor's soft-wrapped logical line. The edit buffer and cursor stay in place, and cmux-tui sends no input to the shell. In alternate-screen applications, both shortcuts are forwarded to the application.
 
 The screen bindings intentionally match tmux: `c` creates a screen, `n` and `p` switch screens, `&` closes a screen, `,` renames a screen, `z` zooms a pane, `o` cycles panes, `{` and `}` swap panes, and number keys select visible screens. Screens are numbered from 0, so `Ctrl-b 0` selects screen 0 and `Ctrl-b 1` selects screen 1.
 
@@ -79,6 +82,12 @@ Set `keys.alt_shortcuts` to `false` to remove the default Alt bindings. This kil
 
 Zellij's modal `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are a deliberate non-goal because they conflict with common shell and editor control keys such as history, transpose, flow control, and editor navigation.
 
+## Modeless Command/Super Layer
+
+`Cmd-k` / `Super-k` clears prior PTY output inside the terminal emulator while preserving the active prompt and edit buffer. `Ctrl-l` invokes the same action, including when a host maps its own clear-screen shortcut to the terminal-standard control byte. cmux-tui enables the Kitty keyboard protocol so compatible hosts report the Command/Super modifier. Host-owned shortcuts such as `Cmd-t`, `Cmd-w`, and `Cmd-d` remain unbound because terminals consume them before a nested TUI can receive them. Their working cmux-tui equivalents are `Alt-t`, `Ctrl-b X`, and `Ctrl-b %`.
+
+Set `keys.super_shortcuts` to `false` to remove the default Command/Super bindings. Explicit `cmd+...`, `command+...`, and `super+...` bindings still work.
+
 ## Number Selection
 
 `0` through `9` are regular configurable screen-selection bindings. Zero-based tab selectors are available as `select-tab-0` through `select-tab-9`; they are unbound by default because the number keys select screens.
@@ -94,7 +103,8 @@ Each action accepts a string, an array of strings, or `"none"`. Setting an actio
   "keys": {
     "prefix": "ctrl+a",
     "alt_shortcuts": false,
-    "new-tab": ["t", "alt+t"],
+    "super_shortcuts": false,
+    "new-tab": ["t", "alt+t", "cmd+t"],
     "new-pane-smart": "alt+n",
     "select-screen-0": "0",
     "select-screen-1": "1",
@@ -166,6 +176,7 @@ resize-grow
 resize-shrink
 scroll-up
 scroll-down
+clear-history
 browser-back
 browser-forward
 browser-reload
@@ -179,4 +190,4 @@ detach
 
 Chord strings are case-sensitive for single characters. Uppercase letters and symbols represent the shifted character.
 
-Supported examples include `"c"`, `"%"`, `"ctrl+b"`, `"alt+enter"`, `"tab"`, `"backtab"`, `"shift+tab"`, `"pageup"`, `"pagedown"`, `"esc"`, `"space"`, `"left"`, `"right"`, `"up"`, `"down"`, `"home"`, and `"end"`.
+Supported examples include `"c"`, `"%"`, `"ctrl+b"`, `"alt+enter"`, `"cmd+k"`, `"super+shift+d"`, `"tab"`, `"backtab"`, `"shift+tab"`, `"pageup"`, `"pagedown"`, `"esc"`, `"space"`, `"left"`, `"right"`, `"up"`, `"down"`, `"home"`, and `"end"`.
