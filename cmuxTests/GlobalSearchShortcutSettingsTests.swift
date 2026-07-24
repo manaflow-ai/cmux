@@ -82,6 +82,64 @@ final class GlobalSearchShortcutSettingsTests {
         #expect(appDelegate.matchConfiguredShortcut(event: event, action: .globalSearch))
     }
 
+    @Test func optionOnlyGlobalSearchChordPrefixRoutesBeforePrintableOptionTextBypass() throws {
+#if DEBUG
+        let shortcut = StoredShortcut(
+            key: "q",
+            command: false,
+            shift: false,
+            option: true,
+            control: false,
+            chordKey: "f"
+        )
+        KeyboardShortcutSettings.setShortcut(shortcut, for: .globalSearch)
+
+        let prefixEvent = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.option],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: 0,
+                context: nil,
+                characters: "@",
+                charactersIgnoringModifiers: "q",
+                isARepeat: false,
+                keyCode: 12
+            )
+        )
+        let suffixEvent = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: 0,
+                context: nil,
+                characters: "f",
+                charactersIgnoringModifiers: "f",
+                isARepeat: false,
+                keyCode: 3
+            )
+        )
+        let appDelegate = try #require(AppDelegate.shared)
+        var didTogglePalette = false
+        defer {
+            if didTogglePalette {
+                appDelegate.toggleGlobalSearchPalette()
+            }
+            appDelegate.debugResetShortcutRoutingStateForTesting()
+        }
+
+        #expect(shortcutRoutingShouldBypassForPrintableOptionText(event: prefixEvent))
+        #expect(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
+        didTogglePalette = appDelegate.debugHandleCustomShortcut(event: suffixEvent)
+        #expect(didTogglePalette)
+#else
+        Issue.record("Option-only Global Search chord routing requires a DEBUG build")
+#endif
+    }
+
     @Test func globalSearchRejectsConfiguredShowHideHotkeyConflict() {
         let reservedShortcut = StoredShortcut(key: "g", command: true, shift: false, option: true, control: true)
 
