@@ -173,6 +173,21 @@ import Testing
         #expect(state.sourceSurfaceID == "terminal-a")
     }
 
+    @Test func startsWithTheRestoredTerminalAlreadyInstalledInItsLocalPath() {
+        var state = PaneZoomPresentationState()
+
+        #expect(state.navigationPath == [.terminal])
+        #expect(state.isTerminalPresented)
+
+        state.navigationPathDidChange([])
+        #expect(state.endpoint == .paneMap)
+
+        state.presentTerminal(surfaceID: "terminal-a")
+        #expect(state.navigationPath == [.terminal])
+        state.navigationPathDidChange([.terminal])
+        #expect(state.endpoint == .terminal)
+    }
+
     @Test func anEmptyTerminalIDCannotBreakTheMatchedSource() {
         var state = PaneZoomPresentationState()
         state.presentTerminal(surfaceID: "terminal-a")
