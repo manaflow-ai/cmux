@@ -99,11 +99,6 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         hintPill.resetForReuse()
     }
 
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if window == nil { suspendPresentation() }
-    }
-
     func suspendPresentation() {
         actions = nil
         contextMenuDidOpen = nil

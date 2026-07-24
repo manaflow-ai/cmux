@@ -7,7 +7,13 @@ final class SidebarFocusBoundaryReference {
     private weak var boundaryView: NSView?
 
     func attach(_ view: NSView) {
-        boundaryView = view
+        if view.window != nil {
+            boundaryView = view
+        } else if boundaryView === view {
+            // Ignore teardown from an older host after SwiftUI has already
+            // attached its replacement.
+            boundaryView = nil
+        }
     }
 
     func contains(_ responder: NSResponder, in window: NSWindow) -> Bool {
