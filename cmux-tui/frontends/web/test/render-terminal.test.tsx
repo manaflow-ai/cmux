@@ -150,6 +150,11 @@ describe("RenderTerminal DOM grid", () => {
     expect(above?.querySelector("[data-graphic-placement='9:4:0']")).not.toBeNull();
 
     const gridChildren = [...container.querySelector(".render-grid")!.children];
+    const background = container.querySelector<HTMLElement>(".render-row-background");
+    expect(background?.querySelector(".render-run")).toHaveStyle({ backgroundColor: "#111111" });
+    expect(container.querySelector<HTMLElement>(".render-row .render-run")?.style.backgroundColor)
+      .toBe("transparent");
+    expect(gridChildren.indexOf(background!)).toBeLessThan(gridChildren.indexOf(below!));
     expect(gridChildren.indexOf(below!)).toBeLessThan(
       gridChildren.findIndex((child) => child.classList.contains("render-row")),
     );

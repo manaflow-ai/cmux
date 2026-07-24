@@ -20,19 +20,38 @@ interface RenderRowViewProps {
   index: number;
   defaultFg: string;
   defaultBg: string;
+  backgroundOnly?: boolean;
 }
 
-const RenderRowView = memo(function RenderRowView({ row, index, defaultFg, defaultBg }: RenderRowViewProps) {
+const RenderRowView = memo(function RenderRowView({
+  row,
+  index,
+  defaultFg,
+  defaultBg,
+  backgroundOnly = false,
+}: RenderRowViewProps) {
   return (
     <div
-      className="render-row"
+      aria-hidden={backgroundOnly || undefined}
+      className={backgroundOnly ? "render-row-background" : "render-row"}
       style={{ top: `calc(var(--render-cell-height) * ${index})` }}
-      data-row={row.row}
+      {...(backgroundOnly ? {} : { "data-row": row.row })}
     >
       {row.runs.map((run, runIndex) => {
         const presentation = runPresentation(run, defaultFg, defaultBg);
+        const style = backgroundOnly
+          ? {
+            color: "transparent",
+            backgroundColor: presentation.style.backgroundColor,
+            ...(presentation.style.width === undefined ? {} : { width: presentation.style.width }),
+          }
+          : { ...presentation.style, backgroundColor: "transparent" };
         return (
-          <span className={presentation.className} style={presentation.style} key={runIndex}>
+          <span
+            className={backgroundOnly ? "render-run" : presentation.className}
+            style={style}
+            key={runIndex}
+          >
             {run.text}
           </span>
         );
@@ -91,6 +110,16 @@ export function RenderTerminal({
           data-render-scroll
         >
           <div className="render-grid" style={gridStyle} role="log">
+            {rows.map((row, index) => (
+              <RenderRowView
+                backgroundOnly
+                row={row}
+                index={index}
+                defaultFg={defaultFg}
+                defaultBg={defaultBg}
+                key={`background-${history.active ? "history" : "live"}-${row.row}`}
+              />
+            ))}
             <RenderGraphics graphics={history.active ? undefined : model?.graphics}>
               {rows.map((row, index) => (
                 <RenderRowView

@@ -158,7 +158,9 @@ button { color: inherit; touch-action: manipulation; }
 .render-graphics-below { z-index: 1; }
 .render-graphics-above { z-index: 3; }
 .render-graphic-placement { position: absolute; display: block; max-width: none; pointer-events: none; }
-.render-row { position: absolute; z-index: 2; left: 0; width: 100%; height: var(--render-cell-height); overflow: hidden; white-space: pre; user-select: text; -webkit-user-select: text; }
+.render-row, .render-row-background { position: absolute; left: 0; width: 100%; height: var(--render-cell-height); overflow: hidden; white-space: pre; }
+.render-row-background { z-index: 0; pointer-events: none; user-select: none; -webkit-user-select: none; }
+.render-row { z-index: 2; user-select: text; -webkit-user-select: text; }
 .render-row::selection, .render-row *::selection { background: var(--selection-bg); }
 .render-run { display: inline-block; height: var(--render-cell-height); overflow: hidden; white-space: pre; vertical-align: top; }
 .render-run-bold { font-weight: 700; }
