@@ -45,18 +45,18 @@ public struct TerminalKeyInputPlanner: Sendable {
             return actions
         }
 
+        guard !shouldSuppressControlText(
+            snapshot.event.rawText,
+            composing: composing
+        ) else {
+            return []
+        }
+
         if snapshot.textInputCommandPerformed {
             return [.sendKey(text: nil, composing: false)]
         }
 
         if snapshot.textInputConsumed {
-            return []
-        }
-
-        guard !shouldSuppressControlText(
-            snapshot.event.rawText,
-            composing: composing
-        ) else {
             return []
         }
 

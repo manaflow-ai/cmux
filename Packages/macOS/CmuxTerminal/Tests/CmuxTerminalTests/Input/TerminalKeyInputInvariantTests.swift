@@ -169,15 +169,15 @@ import Testing
             return actions
         }
 
+        if ghosttySuppressesControlText(snapshot.event.rawText, composing: composing) {
+            return []
+        }
+
         if snapshot.textInputCommandPerformed {
             return [.sendKey(text: nil, composing: false)]
         }
 
         if snapshot.textInputConsumed {
-            return []
-        }
-
-        if ghosttySuppressesControlText(snapshot.event.rawText, composing: composing) {
             return []
         }
 
