@@ -4,12 +4,13 @@ internal import SwiftUI
 /// (web/public/cmux-icon.svg: #12c7f5 → #2d8cff@0.52 → #6c5cff), the same
 /// source `ProBadgePalette` samples.
 ///
-/// Usage severity is a **color scheme built from the ramp's three stops**,
-/// not one uniform gradient: a comfortable window renders cyan, a
-/// well-used one blue, and a nearly/fully consumed one violet — so hue
-/// alone separates accounts at a glance while everything stays a cmux
-/// color. The full ramp is reserved for distribution visuals (the
-/// activity chart) where no per-item state is being encoded.
+/// Usage severity is a four-tier scheme: brand hues while the account is
+/// fine (cyan fresh, blue well used), semantic hues once it needs
+/// attention (yellow at ≥70%, red at ≥90% — the `sr` CLI's thresholds).
+/// So a healthy panel reads as cmux, and warning colors appear exactly
+/// when they carry information. The full ramp is reserved for
+/// distribution visuals (the activity chart) where no per-item state is
+/// being encoded.
 enum SubrouterPalette {
     static let cyan = Color(red: 0x12 / 255, green: 0xC7 / 255, blue: 0xF5 / 255)
     static let blue = Color(red: 0x2D / 255, green: 0x8C / 255, blue: 0xFF / 255)
@@ -38,11 +39,12 @@ enum SubrouterPalette {
         endPoint: .trailing
     )
 
-    /// The ramp stop for a window's severity: cyan while comfortable,
-    /// blue once well used, violet when nearly or fully consumed.
+    /// The tier color for a window's severity: brand cyan/blue while
+    /// comfortable, semantic yellow/red once it needs attention.
     static func usageTier(for usedPercent: Double) -> Color {
-        if usedPercent >= 85 { return violet }
-        if usedPercent >= 60 { return blue }
+        if usedPercent >= 90 { return .red }
+        if usedPercent >= 70 { return .yellow }
+        if usedPercent >= 40 { return blue }
         return cyan
     }
 
