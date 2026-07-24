@@ -23,10 +23,28 @@ DEMO_VARIANT_GUARD = (
     "github.event_name == 'workflow_dispatch' "
     "&& github.event.inputs.variant == 'demo'"
 )
+MARKETING_OVERRIDE_GUARD = "github.event.inputs.marketing_version_override != ''"
 
 
 def variant_choice(demo: str, internal: str) -> str:
     return f"${{{{ {DEMO_VARIANT_GUARD} && '{demo}' || '{internal}' }}}}"
+
+
+def summary_choice(external: str, demo: str, internal: str) -> str:
+    return (
+        "${{ "
+        f"{MARKETING_OVERRIDE_GUARD} && '{external}' "
+        f"|| {DEMO_VARIANT_GUARD} && '{demo}' "
+        f"|| '{internal}' }}"
+    )
+
+
+def override_choice(external: str, normal: str) -> str:
+    return (
+        "${{ "
+        f"{MARKETING_OVERRIDE_GUARD} && '{external}' "
+        f"|| '{normal}' }}"
+    )
 
 
 def workflow_text() -> str:
@@ -153,12 +171,30 @@ def test_automatic_lane_stays_on_cmux_internal_identity() -> None:
 
     assert upload.count(f"IOS_BETA_BUNDLE_ID: {bundle_choice}") == 2
     assert upload.count(f"IOS_BETA_DISPLAY_NAME: {display_name_choice}") == 2
-    assert f"UPLOAD_BUNDLE_ID: {bundle_choice}" in upload
+    assert (
+        "UPLOAD_BUNDLE_ID: "
+        f"{summary_choice('dev.cmux.app.beta', 'dev.cmux.app.demo', 'dev.cmux.app.internal')}"
+        in upload
+    )
+    assert (
+        "UPLOAD_DISPLAY_NAME: "
+        f"{summary_choice('cmux BETA', 'cmux DEMO', 'cmux INTERNAL')}"
+        in upload
+    )
+    assert (
+        "UPLOAD_AUDIENCE: "
+        f"{override_choice('external TestFlight testers', 'internal TestFlight group')}"
+        in upload
+    )
+    assert (
+        "UPLOAD_REVIEW_NOTE: "
+        f"{override_choice('Beta App Review may be required', 'no beta review needed')}"
+        in upload
+    )
     assert f"if: {DEMO_VARIANT_GUARD}" in upload
     assert (
-        'echo "- audience: internal TestFlight group '
-        '(${IOS_BETA_DISPLAY_NAME}) on the ${UPLOAD_BUNDLE_ID} app; '
-        'no beta review needed"'
+        'echo "- audience: ${UPLOAD_AUDIENCE} (${UPLOAD_DISPLAY_NAME}) '
+        'on the ${UPLOAD_BUNDLE_ID} app; ${UPLOAD_REVIEW_NOTE}"'
         in upload
     )
     assert f"ASSIGN_BUNDLE_ID: {bundle_choice}" in assignment
