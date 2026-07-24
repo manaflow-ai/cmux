@@ -2,6 +2,8 @@
 public enum ControlSimulatorOperation: Sendable, Equatable {
     /// Reads the selected device and display identity for external tooling.
     case context
+    /// Boots and attaches the selected device before returning its capture identity.
+    case prepareScreenshot
     /// Selects and attaches a device in the resolved Simulator pane.
     case selectDevice(String)
     /// Restarts a failed or crash-fused Simulator worker for the selected device.
@@ -53,7 +55,8 @@ public enum ControlSimulatorOperation: Sendable, Equatable {
         case .context, .eventLog, .cameraStatus, .permissionsRead,
              .interfaceStatus, .accessibility, .foregroundApplication:
             false
-        case .selectDevice, .recover, .gesture, .hardwareButton, .rotate,
+        case .prepareScreenshot, .selectDevice, .recover, .gesture,
+             .hardwareButton, .rotate,
              .coreAnimation, .memoryWarning, .tools, .cameraConfigure,
              .cameraSwitch, .cameraMirror, .permissionsSet, .interfaceSet:
             true

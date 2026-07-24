@@ -10,6 +10,7 @@ extension ControlCommandExecutionPolicy {
         "simulator.web_inspector.highlight",
         "simulator.web_inspector.release",
         "simulator.context",
+        "simulator.prepare_screenshot",
         "simulator.select_device",
         "simulator.recover",
         "simulator.gesture",

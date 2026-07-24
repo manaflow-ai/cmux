@@ -66,6 +66,12 @@ extension TerminalController {
             } else if case .context = operation, persistedDeviceID != nil {
                 // Persisted identity is enough for a read-only context query.
                 // Leave a stopped pane stopped instead of booting its device.
+            } else if case .eventLog = operation {
+                // The action history is pane-owned cached state. Reading it
+                // must not discover or activate the selected Simulator.
+            } else if case .tools = operation {
+                // Inspector visibility is pane-owned UI state and does not
+                // require a selected Simulator or an active worker.
             } else {
                 await coordinator.start()
             }
@@ -91,7 +97,7 @@ extension TerminalController {
             let payload: JSONValue
             var mutationCommitted = false
             switch operation {
-            case .context:
+            case .context, .prepareScreenshot:
                 guard let deviceID = coordinator.selectedDeviceID ?? persistedDeviceID else {
                     throw invalidSimulatorOperation(String(
                         localized: "cli.simulator.error.noSelectedDevice",
@@ -117,6 +123,7 @@ extension TerminalController {
                     values["display_height"] = .int(Int64(display.height))
                     values["display_scale"] = .double(display.scale)
                 }
+                mutationCommitted = operation.commitsExternalMutation
                 payload = .object(values)
             case let .selectDevice(deviceID):
                 try await coordinator.selectDeviceAndWait(id: deviceID)
@@ -340,6 +347,7 @@ extension TerminalController {
     ) -> SimulatorCapability? {
         switch operation {
         case .context: nil
+        case .prepareScreenshot: nil
         case .selectDevice: nil
         case .recover: nil
         case let .gesture(events): events.contains(where: { $0.secondX != nil }) ? .multiTouch : .touch
@@ -366,6 +374,7 @@ extension TerminalController {
 
     private func simulatorTimeout(for operation: ControlSimulatorOperation) -> TimeInterval {
         if case .context = operation { return simulatorOperationDeadlines.selectDevice }
+        if case .prepareScreenshot = operation { return simulatorOperationDeadlines.selectDevice }
         if case .selectDevice = operation { return simulatorOperationDeadlines.selectDevice }
         if case .recover = operation { return simulatorOperationDeadlines.recover }
         if case .cameraConfigure = operation { return 160 }

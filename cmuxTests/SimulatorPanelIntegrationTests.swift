@@ -558,6 +558,69 @@ struct SimulatorPanelIntegrationTests {
         #expect(await client.activationCount == 0)
     }
 
+    @Test("Screenshot preparation starts a restored shutdown Simulator")
+    func screenshotPreparationStartsRestoredShutdownDevice() async throws {
+        let flags = CmuxFeatureFlags.shared
+        let simulatorFlag = CmuxFeatureFlags.allFlags[5]
+        let previousOverride = flags.overrideValue(for: simulatorFlag)
+        flags.setOverride(true, for: simulatorFlag)
+        defer { flags.setOverride(previousOverride, for: simulatorFlag) }
+
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            workspace.teardownAllPanels()
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+        let device = SimulatorDevice(
+            id: "restored-screenshot-ipad",
+            name: "Restored Screenshot iPad",
+            runtimeIdentifier: "runtime",
+            runtimeName: "iOS 26.5",
+            deviceTypeIdentifier: "type",
+            family: .iPad,
+            state: .shutdown,
+            isAvailable: true,
+            lastBootedAt: nil
+        )
+        let client = SimulatorFeatureFlagPaneClient(devices: [device])
+        let panel = SimulatorPanel(
+            preferredDeviceID: device.id,
+            preferredRuntimeIdentifier: device.runtimeIdentifier,
+            preferredDeviceTypeIdentifier: device.deviceTypeIdentifier,
+            client: client
+        )
+        workspace.panels[panel.id] = panel
+
+        let routing = ControlRoutingSelectors(
+            hasWindowIDParam: false,
+            windowID: nil,
+            groupID: nil,
+            workspaceID: workspace.id,
+            surfaceID: panel.id,
+            paneID: nil
+        )
+        guard case let .started(_, _, receipt) = TerminalController.shared.controlSimulatorBeginOperation(
+            routing: routing,
+            operation: .prepareScreenshot
+        ) else {
+            Issue.record("Expected screenshot preparation to start")
+            return
+        }
+
+        let completion = await Task.detached {
+            receipt.wait(timeout: 2)
+        }.value
+        guard case let .success(.object(payload)) = completion else {
+            Issue.record("Expected capture-ready Simulator context")
+            return
+        }
+        #expect(payload["simulator_id"] == .string(device.id))
+        #expect(await client.discoveryCount == 1)
+        #expect(await client.activationCount == 1)
+    }
+
     @Test("Control gestures map logical touches and edges through every orientation")
     func controlGestureOrientationMapping() throws {
         let touch = ControlSimulatorTouch(

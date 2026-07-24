@@ -61,10 +61,32 @@ struct ControlCommandCoordinatorSimulatorReadTests {
         #expect(payload["device_name"] == .string("iPhone Air"))
     }
 
+    @Test("Screenshot preparation uses a mutating capture-readiness operation")
+    func simulatorScreenshotPreparation() {
+        let context = FakeSimulatorControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let receipt = ControlSimulatorOperationReceipt()
+        receipt.complete(.success(.object([
+            "simulator_id": .string("SIM-UDID"),
+        ])))
+        context.operationResolution = .started(
+            surfaceID: UUID(), timeoutSeconds: 1, receipt: receipt
+        )
+
+        guard case .ok = coordinator.handleSocketWorkerV2(
+            request("simulator.prepare_screenshot"), context: context
+        ) else {
+            Issue.record("Expected screenshot preparation payload")
+            return
+        }
+        #expect(context.lastOperation == .prepareScreenshot)
+        #expect(context.lastOperation?.commitsExternalMutation == true)
+    }
+
     @Test("Permission and interface methods stay on the bounded socket worker")
     func settingsExecutionPolicy() {
         for method in [
-            "simulator.context",
+            "simulator.context", "simulator.prepare_screenshot",
             "simulator.permissions.read", "simulator.permissions.set",
             "simulator.ui.status", "simulator.ui.set",
         ] {

@@ -9,6 +9,8 @@ extension ControlCommandCoordinator {
         switch request.method {
         case "simulator.context":
             operation = .context
+        case "simulator.prepare_screenshot":
+            operation = .prepareScreenshot
         case "simulator.select_device":
             guard let deviceID = string(request.params, "device_id") else {
                 return invalidSimulatorOperation("device_id is required")

@@ -226,12 +226,12 @@ extension CMUXCLI {
             targetsRequireContextResolution = true
         } else if let surface = surfaces.first {
             guard workspace == nil else { throw CLIError(message: iosSubcommandUsage()) }
-            targets = [try iosContextPayload(
+            targets = [try iosScreenshotContextPayload(
                 surface: surface, client: client, windowOverride: windowOverride
             )]
             targetsRequireContextResolution = false
         } else if workspace == nil {
-            targets = [try iosContextPayload(
+            targets = [try iosScreenshotContextPayload(
                 surface: nil, client: client, windowOverride: windowOverride
             )]
             targetsRequireContextResolution = false
@@ -283,7 +283,7 @@ extension CMUXCLI {
                     continue
                 }
                 do {
-                    resolvedTargets.append(try iosContextPayload(
+                    resolvedTargets.append(try iosScreenshotContextPayload(
                         surface: surfaceRef,
                         client: client,
                         windowOverride: windowOverride,
@@ -427,6 +427,26 @@ extension CMUXCLI {
         }
         return try client.sendV2(
             method: "simulator.context",
+            params: params,
+            responseTimeout: responseTimeout ?? simulatorOperationDeadlines.clientTimeout(
+                for: simulatorOperationDeadlines.selectDevice
+            )
+        )
+    }
+
+    private func iosScreenshotContextPayload(
+        surface: String?,
+        client: SocketClient,
+        windowOverride: String?,
+        responseTimeout: TimeInterval? = nil
+    ) throws -> [String: Any] {
+        let params = try simulatorRoutingParams(
+            surface: surface,
+            client: client,
+            windowOverride: windowOverride
+        )
+        return try client.sendV2(
+            method: "simulator.prepare_screenshot",
             params: params,
             responseTimeout: responseTimeout ?? simulatorOperationDeadlines.clientTimeout(
                 for: simulatorOperationDeadlines.selectDevice
