@@ -59,7 +59,7 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
-    func rowHeightCacheMeasuresOnceAndPreservesInstalledHeightAcrossSuspension() {
+    func rowHeightCacheMeasuresOnceForEquivalentRepeatedQueries() {
         let cache = SidebarWorkspaceTableRowHeightCache()
         let row = makeRowConfiguration()
         var measurementCount = 0
@@ -77,13 +77,6 @@ struct SidebarWorkspaceTableTests {
         #expect(initialChanges == IndexSet(integer: 0))
         #expect(repeatedChanges.isEmpty)
         #expect(cache.height(for: row, columnWidth: 200) == 44)
-
-        cache.clearRetainedPayloads()
-        let changedRow = makeRowConfiguration(workspaceId: row.workspaceId, contentToken: 1)
-        let revealChanges = cache.prepare(rows: [changedRow], columnWidth: 200) { candidate, _ in
-            candidate.estimatedHeight
-        }
-        #expect(revealChanges == IndexSet(integer: 0))
     }
 
     @Test
@@ -192,99 +185,6 @@ struct SidebarWorkspaceTableTests {
             container.tableView.numberOfRows == 2,
             "The deferred boundary must coalesce repeated inputs and apply the newest table snapshot."
         )
-    }
-
-    @Test
-    @MainActor
-    func hiddenTableRejectsQueuedWorkAndReconcilesOnReveal() async {
-        let controller = SidebarWorkspaceTableController()
-        let container = controller.makeContainerView()
-        let first = makeRowConfiguration()
-        let second = makeRowConfiguration()
-        let actions = makeTableActions()
-        var viewportComputations = 0
-        controller.dropTargetComputationProbe = { viewportComputations += 1 }
-
-        controller.apply(
-            rows: [first],
-            actions: actions,
-            workspaceIds: [first.workspaceId],
-            selectedWorkspaceId: nil,
-            selectedScrollTargetWorkspaceId: nil
-        )
-        controller.setPresentationActive(false, workspaceIds: [first.workspaceId])
-        controller.viewportDidChange()
-        controller.performWidthRemeasureNow()
-        await flushStagedTableMutations()
-        #expect(container.tableView.numberOfRows == 0)
-        #expect(viewportComputations == 0)
-
-        controller.apply(
-            rows: [first, second],
-            actions: actions,
-            workspaceIds: [first.workspaceId, second.workspaceId],
-            selectedWorkspaceId: nil,
-            selectedScrollTargetWorkspaceId: nil
-        )
-        await flushStagedTableMutations()
-        #expect(container.tableView.numberOfRows == 0)
-
-        controller.setPresentationActive(
-            true,
-            workspaceIds: [first.workspaceId, second.workspaceId]
-        )
-        controller.apply(
-            rows: [first, second],
-            actions: actions,
-            workspaceIds: [first.workspaceId, second.workspaceId],
-            selectedWorkspaceId: nil,
-            selectedScrollTargetWorkspaceId: nil
-        )
-        await flushStagedTableMutations()
-        #expect(container.tableView.numberOfRows == 2)
-    }
-
-    @Test
-    @MainActor
-    func mutationSchedulerCancelsHiddenWorkAndFlushesRevealOnce() async {
-        var appliedInputs = 0
-        var viewportFlushes = 0
-        var postUpdateActions = 0
-        var reloads = 0
-        let scheduler = SidebarWorkspaceTableMutationScheduler(
-            applyFlush: { _ in appliedInputs += 1 },
-            viewportChangeFlush: { viewportFlushes += 1 },
-            reloadFlush: { reloads += 1 }
-        )
-        let row = makeRowConfiguration()
-        let input = SidebarWorkspaceTableApplyInput(
-            rows: [row],
-            actions: makeTableActions(),
-            workspaceIds: [row.workspaceId],
-            selectedWorkspaceId: nil,
-            selectedScrollTargetWorkspaceId: nil
-        )
-
-        scheduler.stageApply(input)
-        scheduler.stageViewportChange()
-        scheduler.stageTableReload()
-        scheduler.cancelPendingApplyAndViewport()
-        await flushStagedTableMutations()
-        #expect(appliedInputs == 0)
-        #expect(viewportFlushes == 0)
-        #expect(reloads == 1)
-
-        scheduler.stageApply(input)
-        scheduler.stageViewportChange()
-        scheduler.stageTableReload()
-        scheduler.stageTableReload()
-        scheduler.stagePostUpdateActions([{ postUpdateActions += 1 }])
-        #expect(postUpdateActions == 0)
-        await flushStagedTableMutations()
-        #expect(appliedInputs == 1)
-        #expect(viewportFlushes == 1)
-        #expect(postUpdateActions == 1)
-        #expect(reloads == 2)
     }
 
     @Test
