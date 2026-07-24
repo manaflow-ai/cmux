@@ -70,7 +70,6 @@ const privateRelayEnvNames = new Set([
   "CMUX_RELAY_JWT_PRIVATE_KEY_PEM",
   "CMUX_RELAY_POLICY_KEY_ID",
   "CMUX_RELAY_POLICY_PRIVATE_KEY_PEM",
-  "CMUX_RELAY_TOKEN_RATE_LIMIT_ID",
 ]);
 const publicEnvValidationIssues = (issues: readonly unknown[]): readonly unknown[] => {
   const publicIssues: unknown[] = [];
@@ -259,7 +258,10 @@ export const env = createEnv({
     CMUX_RELAY_POLICY_PRIVATE_KEY_PEM: requireVercelRelayValue(
       z.string().min(64).max(16_384),
     ),
-    CMUX_RELAY_TOKEN_RATE_LIMIT_ID: requireVercelRelayValue(),
+    // Optional: leave unset to disable relay-token rate limiting entirely.
+    // When unset, enforceRelayRateLimit skips the firewall gate. Matches
+    // CMUX_IROH_RATE_LIMIT_ID and CMUX_RELAY_PREFERENCES_RATE_LIMIT_ID.
+    CMUX_RELAY_TOKEN_RATE_LIMIT_ID: z.string().min(1).optional(),
     // Optional dedicated rule. Preferences deliberately fall back to the token
     // rule so existing deployments keep one shared account-scoped limiter.
     CMUX_RELAY_PREFERENCES_RATE_LIMIT_ID: z.string().min(1).optional(),
