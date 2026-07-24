@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { CmuxClient, CmuxStream } from "../src/client.js";
 import { CmuxCommandError, CmuxProtocolError } from "../src/errors.js";
-import type { DecodedResizedEvent, TreeDeltaEvent } from "../src/protocol/index.js";
+import type {
+  DecodedResizedEvent,
+  ListClientsResult,
+  TreeDeltaEvent,
+} from "../src/protocol/index.js";
 import type { Transport, Unsubscribe } from "../src/transport.js";
 
 class ScriptedTransport implements Transport {
@@ -723,6 +727,30 @@ test("listClients returns the exact client presence response shape", async () =>
   const client = new CmuxClient({ transport });
 
   assert.deepEqual(await client.listClients(), response);
+  await client.close();
+});
+
+test("listClients preserves protocol 9 client-wide sizing participation", async () => {
+  const response: ListClientsResult = [{
+    client: 7,
+    transport: "ws",
+    name: "Safari on iPad",
+    kind: "web",
+    connected_seconds: 12,
+    attached: [31],
+    sizes: [{ surface: 31, cols: 126, rows: 38 }],
+    size_participating: false,
+    self: true,
+  }];
+  const transport = new ScriptedTransport((request, connection) => {
+    assert.deepEqual(request, { id: 1, cmd: "list-clients" });
+    connection.emit({ id: request.id, ok: true, data: response });
+  });
+  const client = new CmuxClient({ transport });
+
+  const [listed] = await client.listClients();
+  assert.equal(listed?.size_participating, false);
+  assert.equal(listed?.sizes[0]?.size_participating, false);
   await client.close();
 });
 

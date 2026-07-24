@@ -590,6 +590,16 @@ mod tests {
     }
 
     #[test]
+    fn unsized_participant_suppresses_excluded_report_fallback() {
+        let mut clients =
+            vec![client(1, 9, Some((120, 30))), client(2, 9, Some((80, 40))), client(3, 9, None)];
+        clients[0].sizes[0].size_participating = false;
+        clients[1].sizes[0].size_participating = false;
+
+        assert_eq!(client_border_labels(&clients).get(&9), None);
+    }
+
+    #[test]
     fn client_visible_on_another_tab_does_not_show_on_this_pane_border() {
         let clients = vec![client(1, 9, Some((120, 30))), client(2, 10, Some((80, 40)))];
         assert_eq!(client_border_labels(&clients).get(&9), None);
