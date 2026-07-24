@@ -4581,6 +4581,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyboardCopyModeVisualLineActive || ghostty_surface_has_selection(surface)
     }
 
+    /// Keep the standard Copy shortcut a native no-op when AppKit disables
+    /// Copy. Replaying this menu miss into Ghostty lets the failed Copy binding
+    /// enter its terminal-input path, which moves scrollback to the bottom when
+    /// `scroll-to-bottom=keystroke` is enabled even if the terminal program
+    /// does not visibly echo that input.
+    func shouldConsumeUnavailableCopyKeyEquivalent(_ event: NSEvent) -> Bool {
+        let normalizedFlags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        guard event.type == .keyDown,
+              normalizedFlags == [.command],
+              KeyboardLayout.normalizedCharacters(for: event) == "c" else {
+            return false
+        }
+        guard let surface else { return true }
+        return !hasCopyableTerminalSelection(surface: surface)
+    }
+
     private func copyCurrentViewportLinesToClipboard(
         surface: ghostty_surface_t,
         startRow: Int,

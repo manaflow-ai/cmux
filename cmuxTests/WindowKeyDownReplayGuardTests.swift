@@ -335,7 +335,7 @@ struct WindowKeyDownReplayGuardTests {
         #expect(window.performKeyEquivalent(with: event))
         #expect(
             terminal.afterMenuMissEvents.isEmpty,
-            Comment(rawValue: "Unavailable terminal Copy must remain a native no-op instead of replaying Cmd+C into the PTY")
+            Comment(rawValue: "Unavailable terminal Copy must remain a native no-op instead of replaying Cmd+C into Ghostty's terminal-input path")
         )
         #expect(terminal.keyDownEvents.isEmpty)
     }
