@@ -6,25 +6,37 @@ struct AgentStatusReconciler: Sendable {
     static let runningCorroborationLifetime: TimeInterval = 120
     static let activityLifetime: TimeInterval = 45
     static let foregroundObservationLifetime: TimeInterval = 45
+    static let unverifiableRuntimeSignalLifetime: TimeInterval = 300
 
     func resolve(
         evidence: AgentStatusEvidence,
         statusKey: String,
-        hasLiveRuntime: Bool,
+        runtimeLiveness: AgentStatusRuntimeLiveness,
         now: Date
     ) -> AgentStatusResolution? {
-        guard hasLiveRuntime else { return nil }
+        guard runtimeLiveness != .absent else { return nil }
         let promptIdleIsAuthoritative = evidence.shellActivity == .promptIdle && {
             guard let shellObservedAt = evidence.shellActivityObservedAt else { return false }
             return evidence.lifecycleObservedAt.map { shellObservedAt >= $0 } ?? true
         }()
         if promptIdleIsAuthoritative {
+            guard signalRemainsTrustworthy(
+                for: runtimeLiveness,
+                observedAt: evidence.shellActivityObservedAt,
+                now: now
+            ) else { return unknownResolution() }
             return AgentStatusResolution(lifecycle: .idle, confidence: .confident)
         }
         // Needs Input is an exact-runtime-generation state, not an activity
         // estimate. Keep it until a counter-signal replaces it or that runtime
-        // exits; elapsed wall time alone cannot prove a prompt was resolved.
+        // exits. A remote surface proves only addressability, so its last exact
+        // hook signal eventually becomes unknown instead of claiming liveness.
         if evidence.lifecycle == .needsInput {
+            guard signalRemainsTrustworthy(
+                for: runtimeLiveness,
+                observedAt: evidence.lifecycleObservedAt,
+                now: now
+            ) else { return unknownResolution() }
             return AgentStatusResolution(lifecycle: .needsInput, confidence: .confident)
         }
 
@@ -49,7 +61,11 @@ struct AgentStatusReconciler: Sendable {
             return unknownResolution()
 
         case .idle?:
-            guard evidence.lifecycleObservedAt != nil else { return unknownResolution() }
+            guard signalRemainsTrustworthy(
+                for: runtimeLiveness,
+                observedAt: evidence.lifecycleObservedAt,
+                now: now
+            ) else { return unknownResolution() }
             return AgentStatusResolution(lifecycle: .idle, confidence: .confident)
 
         case .running?:
@@ -73,6 +89,22 @@ struct AgentStatusReconciler: Sendable {
 
     private func unknownResolution() -> AgentStatusResolution {
         return AgentStatusResolution(lifecycle: .unknown, confidence: .uncertain)
+    }
+
+    private func signalRemainsTrustworthy(
+        for runtimeLiveness: AgentStatusRuntimeLiveness,
+        observedAt: Date?,
+        now: Date
+    ) -> Bool {
+        switch runtimeLiveness {
+        case .confirmed:
+            return true
+        case .unverifiable:
+            guard let observedAt else { return false }
+            return age(of: observedAt, now: now) <= Self.unverifiableRuntimeSignalLifetime
+        case .absent:
+            return false
+        }
     }
 
     private func age(of date: Date, now: Date) -> TimeInterval {

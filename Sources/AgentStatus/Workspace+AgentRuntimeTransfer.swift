@@ -66,6 +66,7 @@ extension Workspace {
                 pid: pid,
                 panelId: runtimeState.panelId,
                 pidNamespace: runtimeState.agentPIDNamespaces[key] ?? .local,
+                registrationSource: .transferred,
                 refreshPorts: false
             )
             if let recordedIdentity = runtimeState.agentPIDProcessIdentities[key] {

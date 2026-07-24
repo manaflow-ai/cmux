@@ -6,21 +6,30 @@ extension Workspace {
         set { sidebarAgentRuntimeObservation.setAgentPIDNamespacesByKey(newValue) }
     }
 
-    func isRecordedAgentPIDLive(key: String, pid: pid_t) -> Bool {
-        guard pid > 0, agentPIDs[key] == pid else { return false }
+    func recordedAgentRuntimeLiveness(
+        key: String,
+        pid: pid_t
+    ) -> AgentStatusRuntimeLiveness {
+        guard pid > 0, agentPIDs[key] == pid else { return .absent }
         switch agentPIDNamespacesByKey[key] ?? .local {
         case .local:
             guard let recordedIdentity = agentPIDProcessIdentitiesByKey[key],
                   let currentIdentity = Self.agentPIDProcessIdentity(pid: pid) else {
-                return false
+                return .absent
             }
-            return currentIdentity == recordedIdentity
+            return currentIdentity == recordedIdentity ? .confirmed : .absent
         case .remote:
             guard let panelId = agentPIDPanelIdsByKey[key],
                   agentPIDKeysByPanelId[panelId]?.contains(key) == true else {
-                return false
+                return .absent
             }
             return panels[panelId] != nil && isRemoteTerminalSurface(panelId)
+                ? .unverifiable
+                : .absent
         }
+    }
+
+    func shouldRetainRecordedAgentPID(key: String, pid: pid_t) -> Bool {
+        recordedAgentRuntimeLiveness(key: key, pid: pid) != .absent
     }
 }

@@ -143,6 +143,8 @@
 		A8628B020000000000000002 /* AgentStatusResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8628C020000000000000002 /* AgentStatusResolution.swift */; };
 		A8628A030000000000000003 /* AgentStatusRuntimeGenerationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8628A040000000000000004 /* AgentStatusRuntimeGenerationTests.swift */; };
 		A8628B050000000000000005 /* AgentStatusRuntimeLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8628C050000000000000005 /* AgentStatusRuntimeLedger.swift */; };
+		A8628B110000000000000011 /* AgentStatusRuntimeLiveness.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8628C110000000000000011 /* AgentStatusRuntimeLiveness.swift */; };
+		A8628B120000000000000012 /* AgentStatusRuntimeRegistrationSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8628C120000000000000012 /* AgentStatusRuntimeRegistrationSource.swift */; };
 		REE0CA0000000000000000F2 /* AIAccountCredentialSources.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000F1 /* AIAccountCredentialSources.swift */; };
 		REE0CA0000000000000000E2 /* AIAccountsClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000E1 /* AIAccountsClient.swift */; };
 		A115C0DE0000000000000002 /* AllShortcutsPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = A115C0DE0000000000000001 /* AllShortcutsPopover.swift */; };
@@ -2477,6 +2479,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A8628C020000000000000002 /* AgentStatusResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatus/AgentStatusResolution.swift; sourceTree = "<group>"; };
 		A8628A040000000000000004 /* AgentStatusRuntimeGenerationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatusRuntimeGenerationTests.swift; sourceTree = "<group>"; };
 		A8628C050000000000000005 /* AgentStatusRuntimeLedger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatus/AgentStatusRuntimeLedger.swift; sourceTree = "<group>"; };
+		A8628C110000000000000011 /* AgentStatusRuntimeLiveness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatus/AgentStatusRuntimeLiveness.swift; sourceTree = "<group>"; };
+		A8628C120000000000000012 /* AgentStatusRuntimeRegistrationSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStatus/AgentStatusRuntimeRegistrationSource.swift; sourceTree = "<group>"; };
 		REE0CA0000000000000000F1 /* AIAccountCredentialSources.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AIAccountCredentialSources.swift; sourceTree = "<group>"; };
 		REE0CA0000000000000000E1 /* AIAccountsClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AIAccountsClient.swift; sourceTree = "<group>"; };
 		A115C0DE0000000000000001 /* AllShortcutsPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AllShortcutsPopover.swift; sourceTree = "<group>"; };
@@ -5257,6 +5261,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A8628C0B000000000000000B /* AgentStatusReconciliationCoordinator.swift */,
 				A8628C040000000000000004 /* AgentStatusHookEventSignal.swift */,
 				A8628C050000000000000005 /* AgentStatusRuntimeLedger.swift */,
+				A8628C110000000000000011 /* AgentStatusRuntimeLiveness.swift */,
+				A8628C120000000000000012 /* AgentStatusRuntimeRegistrationSource.swift */,
 				A8628C060000000000000006 /* Workspace+AgentStatusReconciliation.swift */,
 				A8628C070000000000000007 /* TabManager+AgentStatusReconciliation.swift */,
 				A8628C080000000000000008 /* TerminalController+AgentStatusReconciliation.swift */,
@@ -7463,6 +7469,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A8628B0B000000000000000B /* AgentStatusReconciliationCoordinator.swift in Sources */,
 				A8628B020000000000000002 /* AgentStatusResolution.swift in Sources */,
 				A8628B050000000000000005 /* AgentStatusRuntimeLedger.swift in Sources */,
+				A8628B110000000000000011 /* AgentStatusRuntimeLiveness.swift in Sources */,
+				A8628B120000000000000012 /* AgentStatusRuntimeRegistrationSource.swift in Sources */,
 				REE0CA0000000000000000F2 /* AIAccountCredentialSources.swift in Sources */,
 				REE0CA0000000000000000E2 /* AIAccountsClient.swift in Sources */,
 				A115C0DE0000000000000002 /* AllShortcutsPopover.swift in Sources */,

@@ -163,6 +163,7 @@ extension Workspace {
         pid: pid_t,
         panelId: UUID?,
         pidNamespace: AgentStatusPIDNamespace,
+        registrationSource: AgentStatusRuntimeRegistrationSource = .discovered,
         refreshPorts: Bool = true
     ) -> Bool {
         let previous = (
@@ -196,7 +197,9 @@ extension Workspace {
                 agentLifecycleStatesByPanelId[changedPanelId]?.removeValue(forKey: statusKey)
             }
         }
-        if runtimeRegistrationChanged { noteAgentStatusRuntimeRegistration(key: key, processIdentity: processIdentity, panelId: panelId) }
+        if runtimeRegistrationChanged, registrationSource == .discovered {
+            noteAgentStatusRuntimeRegistration(key: key, processIdentity: processIdentity, panelId: panelId)
+        }
         if runtimeObservationChanged {
             for changedPanelId in (previous.panelId == panelId ? [panelId] : [previous.panelId, panelId]).compactMap({ $0 }) {
                 AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId)
@@ -210,7 +213,7 @@ extension Workspace {
     @discardableResult
     func clearStaleAgentPIDs(refreshPorts: Bool = true) -> Bool {
         var didChange = false
-        for (key, pid) in agentPIDs where !isRecordedAgentPIDLive(key: key, pid: pid) {
+        for (key, pid) in agentPIDs where !shouldRetainRecordedAgentPID(key: key, pid: pid) {
             if clearAgentPID(key: key, clearStatus: true, refreshPorts: false) {
                 didChange = true
             }
@@ -234,7 +237,7 @@ extension Workspace {
                 }
                 continue
             }
-            if !isRecordedAgentPIDLive(key: key, pid: pid),
+            if !shouldRetainRecordedAgentPID(key: key, pid: pid),
                clearAgentPID(key: key, panelId: panelId, clearStatus: true, refreshPorts: false) {
                 didChange = true
             }

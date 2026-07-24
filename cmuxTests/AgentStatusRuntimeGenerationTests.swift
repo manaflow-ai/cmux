@@ -466,7 +466,7 @@ struct AgentStatusRuntimeGenerationTests {
         let resolution = AgentStatusReconciler().resolve(
             evidence: evidence,
             statusKey: "codex",
-            hasLiveRuntime: true,
+            runtimeLiveness: .confirmed,
             now: now
         )
 

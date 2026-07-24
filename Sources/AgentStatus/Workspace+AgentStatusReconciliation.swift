@@ -256,7 +256,10 @@ extension Workspace {
                 let resolution = AgentStatusReconciler().resolve(
                     evidence: evidence,
                     statusKey: statusKey,
-                    hasLiveRuntime: hasLiveAgentRuntime(statusKey: statusKey, panelId: panelId),
+                    runtimeLiveness: agentStatusRuntimeLiveness(
+                        statusKey: statusKey,
+                        panelId: panelId
+                    ),
                     now: now
                 )
                 agentStatusLedger.setResolution(
@@ -320,12 +323,24 @@ extension Workspace {
         })
     }
 
-    private func hasLiveAgentRuntime(statusKey: String, panelId: UUID) -> Bool {
-        (agentPIDKeysByPanelId[panelId] ?? []).contains { pidKey in
+    private func agentStatusRuntimeLiveness(
+        statusKey: String,
+        panelId: UUID
+    ) -> AgentStatusRuntimeLiveness {
+        var result = AgentStatusRuntimeLiveness.absent
+        for pidKey in agentPIDKeysByPanelId[panelId] ?? [] {
             guard agentStatusKey(forAgentPIDKey: pidKey) == statusKey,
-                  let pid = agentPIDs[pidKey] else { return false }
-            return isRecordedAgentPIDLive(key: pidKey, pid: pid)
+                  let pid = agentPIDs[pidKey] else { continue }
+            switch recordedAgentRuntimeLiveness(key: pidKey, pid: pid) {
+            case .confirmed:
+                return .confirmed
+            case .unverifiable:
+                result = .unverifiable
+            case .absent:
+                continue
+            }
         }
+        return result
     }
 
     private func agentStatusRuntimeIsCurrent(
@@ -346,7 +361,7 @@ extension Workspace {
         return panels[panelId] != nil &&
             agentPIDKeysByPanelId[panelId]?.contains(pidKey) == true &&
             agentPIDs[pidKey] == runtimePID &&
-            isRecordedAgentPIDLive(key: pidKey, pid: runtimePID)
+            shouldRetainRecordedAgentPID(key: pidKey, pid: runtimePID)
     }
 
     private func agentStatusForegroundProcessIdentity(

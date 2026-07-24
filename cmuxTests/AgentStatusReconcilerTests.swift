@@ -23,7 +23,7 @@ struct AgentStatusReconcilerTests {
         let resolution = reconciler.resolve(
             evidence: evidence,
             statusKey: "codex",
-            hasLiveRuntime: true,
+            runtimeLiveness: .confirmed,
             now: now
         )
         #expect(resolution == AgentStatusResolution(lifecycle: .unknown, confidence: .uncertain))
@@ -42,7 +42,7 @@ struct AgentStatusReconcilerTests {
         let resolution = reconciler.resolve(
             evidence: evidence,
             statusKey: "codex",
-            hasLiveRuntime: true,
+            runtimeLiveness: .confirmed,
             now: now
         )
         #expect(resolution == AgentStatusResolution(lifecycle: .unknown, confidence: .uncertain))
@@ -61,7 +61,7 @@ struct AgentStatusReconcilerTests {
         let resolution = reconciler.resolve(
             evidence: evidence,
             statusKey: "codex",
-            hasLiveRuntime: true,
+            runtimeLiveness: .confirmed,
             now: now
         )
         #expect(resolution == AgentStatusResolution(lifecycle: .running, confidence: .inferred))
@@ -80,7 +80,7 @@ struct AgentStatusReconcilerTests {
         let resolution = reconciler.resolve(
             evidence: evidence,
             statusKey: "codex",
-            hasLiveRuntime: true,
+            runtimeLiveness: .confirmed,
             now: now
         )
         #expect(resolution == AgentStatusResolution(lifecycle: .idle, confidence: .confident))
@@ -107,7 +107,7 @@ struct AgentStatusReconcilerTests {
         let resolution = reconciler.resolve(
             evidence: evidence,
             statusKey: "claude_code",
-            hasLiveRuntime: true,
+            runtimeLiveness: .confirmed,
             now: now
         )
         #expect(resolution?.lifecycle == lifecycle)
@@ -123,7 +123,7 @@ struct AgentStatusReconcilerTests {
         let resolution = reconciler.resolve(
             evidence: evidence,
             statusKey: "codex",
-            hasLiveRuntime: true,
+            runtimeLiveness: .confirmed,
             now: now
         )
         #expect(resolution == AgentStatusResolution(lifecycle: .needsInput, confidence: .confident))
@@ -138,7 +138,7 @@ struct AgentStatusReconcilerTests {
         let resolution = reconciler.resolve(
             evidence: evidence,
             statusKey: "codex",
-            hasLiveRuntime: false,
+            runtimeLiveness: .absent,
             now: now
         )
         #expect(resolution == nil)
@@ -302,7 +302,7 @@ struct AgentStatusReconcilerTests {
         let resolution = reconciler.resolve(
             evidence: evidence,
             statusKey: "codex",
-            hasLiveRuntime: true,
+            runtimeLiveness: .confirmed,
             now: now
         )
 
@@ -318,7 +318,7 @@ struct AgentStatusReconcilerTests {
         let resolution = reconciler.resolve(
             evidence: evidence,
             statusKey: "codex",
-            hasLiveRuntime: true,
+            runtimeLiveness: .confirmed,
             now: now
         )
 

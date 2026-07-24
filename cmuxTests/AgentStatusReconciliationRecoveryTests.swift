@@ -19,7 +19,7 @@ struct AgentStatusReconciliationRecoveryTests {
         let resolution = AgentStatusReconciler().resolve(
             evidence: AgentStatusEvidence(shellActivity: .promptIdle),
             statusKey: "codex",
-            hasLiveRuntime: true,
+            runtimeLiveness: .confirmed,
             now: now
         )
 
@@ -36,7 +36,7 @@ struct AgentStatusReconciliationRecoveryTests {
                 foregroundObservedAt: observedAt
             ),
             statusKey: "codex",
-            hasLiveRuntime: true,
+            runtimeLiveness: .confirmed,
             now: now
         )
 
