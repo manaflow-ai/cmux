@@ -1,6 +1,11 @@
 import AppKit
 import Quartz
 
+enum FilePreviewQuickLookStaleReason: String {
+    case detachedFromWindow = "detached-from-window"
+    case missingFromMountedContainer = "missing-from-mounted-container"
+}
+
 /// Stable host for a `QLPreviewView`.
 ///
 /// SwiftUI keeps the `NSView` returned from `makeNSView` mounted across tab
@@ -15,6 +20,34 @@ import Quartz
 final class FilePreviewQuickLookContainerView: QLPreviewView {
     private var previewView: TrackedQLPreviewView?
 
+    /// Classifies whether an existing inner preview is safe to reuse.
+    static func staleReason(
+        didDetachFromWindow: Bool,
+        containerHasWindow: Bool,
+        previewHasWindow: Bool
+    ) -> FilePreviewQuickLookStaleReason? {
+        if didDetachFromWindow {
+            return .detachedFromWindow
+        }
+        if containerHasWindow, !previewHasWindow {
+            return .missingFromMountedContainer
+        }
+        return nil
+    }
+
+    /// Returns whether the inner preview must be replaced before assignment.
+    static func shouldRetire(
+        didDetachFromWindow: Bool,
+        containerHasWindow: Bool,
+        previewHasWindow: Bool
+    ) -> Bool {
+        staleReason(
+            didDetachFromWindow: didDetachFromWindow,
+            containerHasWindow: containerHasWindow,
+            previewHasWindow: previewHasWindow
+        ) != nil
+    }
+
     private init?(previewFrame: NSRect) {
         super.init(frame: previewFrame, style: .normal)
     }
@@ -24,6 +57,7 @@ final class FilePreviewQuickLookContainerView: QLPreviewView {
         nil
     }
 
+    /// Creates an empty stable host for a replaceable inner preview.
     static func make() -> FilePreviewQuickLookContainerView? {
         FilePreviewQuickLookContainerView(previewFrame: .zero)
     }
@@ -37,26 +71,44 @@ final class FilePreviewQuickLookContainerView: QLPreviewView {
                 previewView?.previewItem = nil
                 return
             }
-            livePreviewView()?.previewItem = newValue
+            setLivePreviewItem(newValue)
         }
     }
 
-    /// Returns a preview view that is safe to receive a non-nil preview item,
-    /// recreating it when the previous instance has been deactivated by a
-    /// window detachment. Returns `nil` only if `QLPreviewView` itself fails to
-    /// initialize.
-    func livePreviewView() -> QLPreviewView? {
-        if let previewView, !previewView.didDetachFromWindow {
-            return previewView
-        }
+    /// Assigns an item only after validating or replacing the inner preview.
+    @discardableResult
+    func setLivePreviewItem(_ item: QLPreviewItem) -> QLPreviewView? {
+        guard let previewView = livePreviewView() else { return nil }
+        previewView.previewItem = item
+        return previewView
+    }
 
-        // Retire a deactivated instance before mounting a fresh one. Assigning
-        // `nil` is always safe (the assertion's `item == nil` branch holds).
-        if let stale = previewView {
-            stale.previewItem = nil
-            stale.removeFromSuperview()
+    /// Returns a preview view that is safe to receive a non-nil preview item,
+    /// recreating it when the previous instance has been deactivated or no
+    /// longer shares its mounted container's window. Returns `nil` only if
+    /// `QLPreviewView` itself fails to initialize.
+    func livePreviewView() -> QLPreviewView? {
+        if let previewView {
+            let staleReason = Self.staleReason(
+                didDetachFromWindow: previewView.didDetachFromWindow,
+                containerHasWindow: window != nil,
+                previewHasWindow: previewView.window != nil
+            )
+            if let staleReason {
+                sentryBreadcrumb(
+                    "quickLook.preview.retire",
+                    category: "filePreview",
+                    data: ["reason": staleReason.rawValue]
+                )
+                // Assigning nil is always safe because QuickLook permits
+                // clearing an item after deactivation.
+                previewView.previewItem = nil
+                previewView.removeFromSuperview()
+                self.previewView = nil
+            } else {
+                return previewView
+            }
         }
-        previewView = nil
 
         guard let fresh = TrackedQLPreviewView(frame: bounds, style: .normal) else {
             return nil

@@ -87,4 +87,79 @@ final class PanelOwnedNativeViewSessionTests: XCTestCase {
         session.dismantle(remountedView)
         panel.close()
     }
+
+    func testQuickLookUpdateRetiresInnerPreviewAfterContainerLeavesWindow() throws {
+        let firstURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cmux-7311-quicklook-a-\(UUID().uuidString).txt")
+        let secondURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cmux-7311-quicklook-b-\(UUID().uuidString).txt")
+        defer {
+            try? FileManager.default.removeItem(at: firstURL)
+            try? FileManager.default.removeItem(at: secondURL)
+        }
+        try "first".write(to: firstURL, atomically: true, encoding: .utf8)
+        try "second".write(to: secondURL, atomically: true, encoding: .utf8)
+
+        let firstPanel = FilePreviewPanel(workspaceId: UUID(), filePath: firstURL.path)
+        let secondPanel = FilePreviewPanel(workspaceId: UUID(), filePath: secondURL.path)
+        defer {
+            firstPanel.close()
+            secondPanel.close()
+        }
+        let session = FilePreviewQuickLookSession()
+        let container = try XCTUnwrap(session.view(
+            panel: firstPanel,
+            isVisibleInUI: true,
+            backgroundColor: .clear,
+            drawsBackground: false
+        ) as? FilePreviewQuickLookContainerView)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer {
+            session.dismantle(container)
+            window.close()
+        }
+
+        window.contentView = container
+        let stalePreviewView = try XCTUnwrap(container.livePreviewView())
+        XCTAssertNotNil(stalePreviewView.previewItem)
+
+        window.contentView = nil
+        session.update(
+            container,
+            panel: secondPanel,
+            isVisibleInUI: true,
+            backgroundColor: .clear,
+            drawsBackground: false
+        )
+
+        let freshPreviewView = try XCTUnwrap(container.livePreviewView())
+        let freshPreviewItem = try XCTUnwrap(freshPreviewView.previewItem)
+        XCTAssertFalse(freshPreviewView === stalePreviewView)
+        XCTAssertEqual(freshPreviewItem.previewItemURL, secondURL)
+        XCTAssertNil(stalePreviewView.previewItem)
+    }
+
+    func testQuickLookReusePolicyRetiresInnerPreviewMissingFromMountedContainer() {
+        XCTAssertTrue(FilePreviewQuickLookContainerView.shouldRetire(
+            didDetachFromWindow: false,
+            containerHasWindow: true,
+            previewHasWindow: false
+        ))
+        XCTAssertFalse(FilePreviewQuickLookContainerView.shouldRetire(
+            didDetachFromWindow: false,
+            containerHasWindow: false,
+            previewHasWindow: false
+        ))
+        XCTAssertFalse(FilePreviewQuickLookContainerView.shouldRetire(
+            didDetachFromWindow: false,
+            containerHasWindow: true,
+            previewHasWindow: true
+        ))
+    }
 }
