@@ -317,6 +317,11 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                     "time.sleep(0.01)\n"
                     "assert finished\n"
                 ),
+                "tuple-shadow.py": (
+                    "time, other = fake_clock, object()\n"
+                    "time.sleep(0.01)\n"
+                    "assert finished\n"
+                ),
                 "deleted-module.py": (
                     "import asyncio\n"
                     "del asyncio\n"
@@ -395,6 +400,21 @@ class DeterminismCheckerCLITests(unittest.TestCase):
                 "    await pause(0.01)\n"
                 "    assert finished\n"
             ),
+            "attribute-assignment.py": (
+                "fixture.time = fake_clock\n"
+                "time.sleep(0.01)\n"
+                "assert finished\n"
+            ),
+            "nested-attribute-assignment.py": (
+                "module.time.sleep = stub\n"
+                "time.sleep(0.01)\n"
+                "assert finished\n"
+            ),
+            "keyword-argument.py": (
+                "configure(time=fake_clock)\n"
+                "time.sleep(0.01)\n"
+                "assert finished\n"
+            ),
         }
 
         result = self.run_checker(fixtures)
@@ -405,6 +425,9 @@ class DeterminismCheckerCLITests(unittest.TestCase):
             "lambda-shadow.py": 2,
             "local-import-shadow.py": 5,
             "local-trusted-import.py": 3,
+            "attribute-assignment.py": 2,
+            "nested-attribute-assignment.py": 2,
+            "keyword-argument.py": 2,
         }
         findings = [
             line
