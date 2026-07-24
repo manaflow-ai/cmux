@@ -53,7 +53,9 @@ struct AppDelegateTerminalTypingShortcutFastPathTests {
                 location: .zero,
                 modifierFlags: [],
                 timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber,
+                // Local CGEvent monitors synthesize key events without an
+                // attached NSWindow, even when a cmux terminal is key.
+                windowNumber: 0,
                 context: nil,
                 characters: "a",
                 charactersIgnoringModifiers: "a",
@@ -62,6 +64,10 @@ struct AppDelegateTerminalTypingShortcutFastPathTests {
             )
         )
 
+        #expect(
+            event.window == nil,
+            "The regression must match the nil-window event shape from the local monitor"
+        )
         #expect(!appDelegate.debugHandleCustomShortcut(event: event))
         #expect(
             resolvedActions.isEmpty,

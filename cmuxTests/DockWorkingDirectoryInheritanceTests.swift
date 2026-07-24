@@ -214,6 +214,7 @@ struct DockWorkingDirectoryInheritanceTests {
     ) -> Workspace.DetachedSurfaceTransfer {
         Workspace.DetachedSurfaceTransfer(
             sourceWorkspaceId: sourceWorkspaceId,
+            sessionRestoreSourceWorkspaceId: sourceWorkspaceId,
             panelId: panel.id,
             panel: panel,
             title: panel.displayTitle,
