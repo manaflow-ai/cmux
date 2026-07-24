@@ -1022,16 +1022,20 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     override func menu(for event: NSEvent) -> NSMenu? {
         guard let actions else { return nil }
+        // The menu owns its tracking lifetime; row retirement clears the
+        // cell's live callbacks before AppKit sends menuDidClose.
+        let didOpen = contextMenuDidOpen
+        let didClose = contextMenuDidClose
         return actions.commands.makeContextMenu(
             onOpen: { [weak self] in
                 self?.contextMenuVisible = true
                 self?.updateCloseVisibility()
-                self?.contextMenuDidOpen?()
+                didOpen?()
             },
             onClose: { [weak self] in
                 self?.contextMenuVisible = false
                 self?.updateCloseVisibility()
-                self?.contextMenuDidClose?()
+                didClose?()
             }
         )
     }
