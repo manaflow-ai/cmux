@@ -2653,6 +2653,7 @@ fn mark_client_attached(
             resize_completion,
         });
     }
+    mux.reconcile_client_sizing_attachment_change();
     Ok(MarkedClientAttach {
         size_rollback: None,
         client_changed: None,

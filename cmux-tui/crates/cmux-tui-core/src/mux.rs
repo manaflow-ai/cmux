@@ -1361,6 +1361,12 @@ impl Mux {
         }
     }
 
+    pub(crate) fn reconcile_client_sizing_attachment_change(&self) {
+        let sizing = self.client_sizing.lock().unwrap();
+        let attached_clients = self.control_clients.attached_client_ids_by_surface();
+        self.reconcile_latest_client_size(&sizing, &attached_clients);
+    }
+
     fn record_latest_client_size_for_report(
         &self,
         sizing: &ClientSizingState,

@@ -107,6 +107,27 @@ pub struct IdentifyDetails {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct ClientSurfaceSize {
+    pub surface: u64,
+    pub cols: Option<u16>,
+    pub rows: Option<u16>,
+    pub size_participating: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ClientInfo {
+    pub client: u64,
+    pub transport: String,
+    pub name: Option<String>,
+    pub kind: Option<String>,
+    pub connected_seconds: u64,
+    pub attached: Vec<u64>,
+    pub sizes: Vec<ClientSurfaceSize>,
+    #[serde(rename = "self")]
+    pub is_self: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct SurfaceResult {
     pub surface: u64,
 }
@@ -447,6 +468,34 @@ impl CmuxClient {
 
     pub fn list_workspaces(&mut self) -> Result<Tree> {
         self.request("list-workspaces", Map::new())
+    }
+
+    pub fn list_clients(&mut self) -> Result<Vec<ClientInfo>> {
+        self.request("list-clients", Map::new())
+    }
+
+    pub fn set_client_sizing(&mut self, surface: u64, client: u64, enabled: bool) -> Result<()> {
+        self.require_protocol(10, "set-client-sizing")?;
+        let mut params = surface_params(surface);
+        params.insert("client".to_string(), Value::from(client));
+        params.insert("enabled".to_string(), Value::from(enabled));
+        self.request::<Empty>("set-client-sizing", params).map(|_| ())
+    }
+
+    pub fn use_only_client_size(&mut self, surface: u64, client: u64) -> Result<()> {
+        self.require_protocol(10, "set-client-sizing")?;
+        let mut params = surface_params(surface);
+        params.insert("client".to_string(), Value::from(client));
+        params.insert("enabled".to_string(), Value::from(true));
+        params.insert("exclusive".to_string(), Value::from(true));
+        self.request::<Empty>("set-client-sizing", params).map(|_| ())
+    }
+
+    pub fn use_all_client_sizes(&mut self, surface: u64) -> Result<()> {
+        self.require_protocol(10, "set-client-sizing")?;
+        let mut params = surface_params(surface);
+        params.insert("enabled".to_string(), Value::from(true));
+        self.request::<Empty>("set-client-sizing", params).map(|_| ())
     }
 
     pub fn send(&mut self, surface: u64, text: Option<&str>, bytes: Option<&str>) -> Result<()> {

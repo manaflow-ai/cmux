@@ -51,6 +51,12 @@ def main() -> int:
         try:
             first = next(attach)
             assert first.event == "vt-state", first
+            sizing_client, size = find_client_surface_size(client, created.surface)
+            assert size.size_participating is True, size
+            client.set_client_sizing(created.surface, sizing_client, False)
+            _, size = find_client_surface_size(client, created.surface)
+            assert size.size_participating is False, size
+            client.set_client_sizing(created.surface, sizing_client, True)
             client.send(created.surface, text=f"printf '{later}\\n'\r")
             next_attach_output(attach, 3.0)
         finally:
@@ -133,6 +139,14 @@ def find_workspace_for_surface(tree, surface: int) -> int | None:
                 if any(tab.surface == surface for tab in pane.tabs):
                     return workspace.id
     return None
+
+
+def find_client_surface_size(client: CmuxClient, surface: int):
+    for info in client.list_clients():
+        for size in info.sizes:
+            if size.surface == surface:
+                return info.client, size
+    raise AssertionError(f"client size for surface {surface} not found")
 
 
 if __name__ == "__main__":

@@ -21,6 +21,24 @@ type IdentifyDetails struct {
 	PID           uint32   `json:"pid"`
 }
 
+type ClientSurfaceSize struct {
+	Surface           uint64  `json:"surface"`
+	Cols              *uint16 `json:"cols"`
+	Rows              *uint16 `json:"rows"`
+	SizeParticipating *bool   `json:"size_participating"`
+}
+
+type ClientInfo struct {
+	Client           uint64              `json:"client"`
+	Transport        string              `json:"transport"`
+	Name             *string             `json:"name"`
+	Kind             *string             `json:"kind"`
+	ConnectedSeconds uint64              `json:"connected_seconds"`
+	Attached         []uint64            `json:"attached"`
+	Sizes            []ClientSurfaceSize `json:"sizes"`
+	Self             bool                `json:"self"`
+}
+
 type SurfaceResult struct {
 	Surface uint64 `json:"surface"`
 }
