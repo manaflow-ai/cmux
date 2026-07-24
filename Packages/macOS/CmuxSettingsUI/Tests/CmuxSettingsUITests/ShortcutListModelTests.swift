@@ -454,6 +454,64 @@ import CmuxSettings
         #expect(model.conflictRejections[targetAction.rawValue] == conflictAction)
     }
 
+    @Test func recordedPrivateUseArrowChordConflictsWithGlyphChord() async throws {
+        // NSEvent.charactersIgnoringModifiers reports arrow keys as AppKit
+        // private-use scalars, while cmux.json and defaults use arrow glyphs.
+        // The recorder must not persist a physically identical chord that the
+        // runtime will route to the already-bound action.
+        let (store, catalog, errorLog) = makeStore()
+        let conflictAction = ShortcutAction.resizeSplitRight
+        let targetAction = ShortcutAction.resizeSplitLeft
+        let configuredChord = StoredShortcut(
+            first: ShortcutStroke(key: "b", control: true),
+            second: ShortcutStroke(key: "→", option: true)
+        )
+        let recordedChord = StoredShortcut(
+            first: ShortcutStroke(key: "b", control: true, keyCode: 11),
+            second: ShortcutStroke(key: "\u{F703}", option: true, keyCode: 124)
+        )
+        try await store.set(
+            [conflictAction.rawValue: configuredChord],
+            for: catalog.shortcuts.bindings
+        )
+
+        let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
+        model.startObserving()
+        await spin(until: { model.bindings[conflictAction.rawValue] == configuredChord })
+
+        await model.assignChord(recordedChord, to: targetAction)
+
+        let storeBindings = await store.value(for: catalog.shortcuts.bindings)
+        #expect(storeBindings[targetAction.rawValue] == nil)
+        #expect(model.conflictRejections[targetAction.rawValue] == conflictAction)
+    }
+
+    @Test(arguments: [
+        ("\u{F702}", "←", UInt16(123)),
+        ("\u{F703}", "→", UInt16(124)),
+        ("\u{F700}", "↑", UInt16(126)),
+        ("\u{F701}", "↓", UInt16(125)),
+    ])
+    func privateUseArrowKeysConflictWithCanonicalGlyphs(
+        privateUseKey: String,
+        canonicalKey: String,
+        keyCode: UInt16
+    ) {
+        let recorded = ShortcutStroke(
+            key: privateUseKey,
+            option: true,
+            keyCode: keyCode
+        )
+        let configured = ShortcutStroke(key: canonicalKey, option: true)
+
+        #expect(numberedAwareStrokesConflict(
+            recorded,
+            numbered: false,
+            configured,
+            numbered: false
+        ))
+    }
+
     @Test func assignChordWritesValidTwoStrokeChord() async throws {
         // WHY: assignChord is the recorder's onChord path for chord-capable
         // actions (wired from ShortcutListRowView). Only its rejection branches
