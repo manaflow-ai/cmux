@@ -511,6 +511,8 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
         tabManager: TabManager
     ) -> JSONValue {
         let controller = dock.store.bonsplitController
+        let presentationWindow = AppDelegate.shared?.workspaceFloatingDockWindow(for: dock)
+        let presentationFrame = presentationWindow?.frame
         let closeFailure = workspace.floatingDockCloseFailures[dock.id]
         let closeStatus: JSONValue = if workspace.pendingFloatingDockCloseIds.contains(dock.id)
             || workspace.isPendingCloseAllFloatingDocks {
@@ -542,7 +544,10 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
             "id": .string(dock.id.uuidString),
             "ref": .string("float:\(index + 1)"),
             "title": .string(dock.title),
-            "visible": .bool(tabManager.selectedTabId == workspace.id && !dock.isStashed),
+            "visible": .bool(
+                tabManager.selectedTabId == workspace.id
+                    && presentationWindow?.isVisible == true
+            ),
             "presentation": .string(dock.presentationState.rawValue),
             "stashed_at": dock.stashedAt.map(JSONValue.double) ?? .null,
             "focused": .bool(dock.ownsInputFocus),
@@ -555,6 +560,14 @@ extension TerminalController: ControlWorkspaceFloatingDockContext {
                 "width": .double(dock.frame.width),
                 "height": .double(dock.frame.height),
             ]),
+            "presentation_frame": presentationFrame.map {
+                .object([
+                    "x": .double($0.origin.x),
+                    "y": .double($0.origin.y),
+                    "width": .double($0.width),
+                    "height": .double($0.height),
+                ])
+            } ?? .null,
             "panes": .array(panes),
         ])
     }

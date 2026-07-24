@@ -168,6 +168,10 @@ final class WorkspaceFloatingDockPresenter {
         return tabManager.tabs.lazy.flatMap(\.floatingDocks).first { $0.store === store }
     }
 
+    func window(for dock: WorkspaceFloatingDock) -> NSWindow? {
+        controllers[dock.id]?.window
+    }
+
     func focus(_ dock: WorkspaceFloatingDock) {
         controllers[dock.id]?.show(focus: true)
     }

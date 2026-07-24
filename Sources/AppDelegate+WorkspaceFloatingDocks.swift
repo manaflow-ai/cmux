@@ -85,6 +85,12 @@ extension AppDelegate {
         return context.workspaceFloatingDockPresenter?.dock(owning: window)
     }
 
+    func workspaceFloatingDockWindow(for dock: WorkspaceFloatingDock) -> NSWindow? {
+        mainWindowContexts.values.lazy.compactMap {
+            $0.workspaceFloatingDockPresenter?.window(for: dock)
+        }.first
+    }
+
     func commandPaletteFloatingDockFocusSource(
         for window: NSWindow?
     ) -> CommandPaletteFloatingDockFocusSource? {

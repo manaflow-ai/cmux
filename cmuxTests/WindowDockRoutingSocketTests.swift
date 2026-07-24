@@ -81,7 +81,8 @@ struct WindowDockRoutingSocketTests {
                 "float": dock.id.uuidString,
             ])
             #expect(stashed["presentation"] as? String == "stashed")
-            #expect(stashed["visible"] as? Bool == false)
+            #expect(stashed["visible"] as? Bool == true)
+            #expect(stashed["presentation_frame"] as? [String: Any] != nil)
             #expect(stashed["stashed_at"] is NSNumber)
             #expect(dock.isStashed)
 
