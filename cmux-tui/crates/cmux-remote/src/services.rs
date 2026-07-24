@@ -1088,7 +1088,7 @@ impl From<crate::mux_input::MuxInputError> for ServicesError {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
     #[cfg(unix)]
     use std::sync::{Condvar, Mutex as StdMutex};
 
@@ -1102,7 +1102,7 @@ mod tests {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     #[cfg(unix)]
     use tokio::sync::oneshot;
-    use tokio::sync::{mpsc, watch};
+    use tokio::sync::{Notify, mpsc, watch};
 
     use super::*;
     use crate::client::WorkspaceClient;
@@ -1114,6 +1114,15 @@ mod tests {
         incoming: Mutex<mpsc::Receiver<ReceivedFrame>>,
         sequence: AtomicU64,
         generation: watch::Sender<u64>,
+    }
+
+    #[cfg(unix)]
+    struct BackpressuredMuxEndpoint {
+        generation: watch::Sender<u64>,
+        bulk_active: AtomicBool,
+        bulk_released: AtomicBool,
+        control_frames: AtomicUsize,
+        activity_changed: Notify,
     }
 
     #[async_trait]
@@ -1166,6 +1175,135 @@ mod tests {
                 generation: right_generation,
             }),
         )
+    }
+
+    #[cfg(unix)]
+    impl BackpressuredMuxEndpoint {
+        fn new() -> Arc<Self> {
+            let (generation, _) = watch::channel(0);
+            Arc::new(Self {
+                generation,
+                bulk_active: AtomicBool::new(false),
+                bulk_released: AtomicBool::new(false),
+                control_frames: AtomicUsize::new(0),
+                activity_changed: Notify::new(),
+            })
+        }
+
+        async fn wait_for_bulk(&self) {
+            tokio::time::timeout(std::time::Duration::from_secs(1), async {
+                loop {
+                    let notified = self.activity_changed.notified();
+                    if self.bulk_active.load(Ordering::Acquire) {
+                        break;
+                    }
+                    notified.await;
+                }
+            })
+            .await
+            .expect("render event never reached the backpressured Bulk lane");
+        }
+
+        async fn wait_for_control(&self) {
+            loop {
+                let notified = self.activity_changed.notified();
+                if self.control_frames.load(Ordering::Acquire) != 0 {
+                    break;
+                }
+                notified.await;
+            }
+        }
+
+        fn release_bulk(&self) {
+            self.bulk_released.store(true, Ordering::Release);
+            self.activity_changed.notify_waiters();
+        }
+    }
+
+    #[cfg(unix)]
+    #[async_trait]
+    impl SessionEndpoint for BackpressuredMuxEndpoint {
+        async fn send_frame(
+            &self,
+            _expected_generation: Option<u64>,
+            lane: Lane,
+            _stream: u64,
+            _payload: Bytes,
+            flags: FrameFlags,
+        ) -> Result<u64, ServiceError> {
+            if flags.contains(FrameFlags::OPEN) {
+                return Ok(1);
+            }
+            match lane {
+                Lane::Bulk => {
+                    self.bulk_active.store(true, Ordering::Release);
+                    self.activity_changed.notify_waiters();
+                    loop {
+                        let notified = self.activity_changed.notified();
+                        if self.bulk_released.load(Ordering::Acquire) {
+                            break;
+                        }
+                        notified.await;
+                    }
+                }
+                Lane::Control => {
+                    self.control_frames.fetch_add(1, Ordering::AcqRel);
+                    self.activity_changed.notify_waiters();
+                }
+                Lane::Interactive | Lane::Tunnel => {}
+            }
+            Ok(1)
+        }
+
+        async fn receive_frame(&self) -> Result<Option<ReceivedFrame>, ServiceError> {
+            std::future::pending().await
+        }
+
+        fn subscribe_generation(&self) -> watch::Receiver<u64> {
+            self.generation.subscribe()
+        }
+
+        async fn close_session(&self) -> Result<(), ServiceError> {
+            Ok(())
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn mux_server_drains_control_while_bulk_lane_is_backpressured() {
+        let endpoint = BackpressuredMuxEndpoint::new();
+        let multiplexer =
+            ServiceMultiplexer::new(endpoint.clone(), EndpointRole::Daemon);
+        let stream =
+            Arc::new(multiplexer.open(Service::MuxControl, BTreeMap::new()).await.unwrap());
+        let (bridge, mut fake_core) = tokio::io::duplex(64 * 1024);
+        let (reader, writer) = tokio::io::split(bridge);
+        let pump = tokio::spawn(pump_mux_server(stream, reader, writer));
+
+        fake_core
+            .write_all(
+                concat!(
+                    "{\"event\":\"render-delta\",\"surface\":1}\n",
+                    "{\"id\":91,\"ok\":true}\n",
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+        endpoint.wait_for_bulk().await;
+        let control = tokio::time::timeout(
+            std::time::Duration::from_millis(100),
+            endpoint.wait_for_control(),
+        )
+        .await;
+        endpoint.release_bulk();
+        pump.abort();
+        let _ = pump.await;
+
+        control.expect(
+            "mux socket reader stopped behind Bulk backpressure before dispatching Control",
+        );
+        multiplexer.shutdown().await;
     }
 
     #[cfg(unix)]

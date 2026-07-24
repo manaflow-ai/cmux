@@ -1514,6 +1514,14 @@ mod tests {
         sent: Mutex<Vec<FrameFlags>>,
     }
 
+    struct LaneBlockingEndpoint {
+        generation: watch::Sender<u64>,
+        bulk_active: AtomicBool,
+        bulk_released: AtomicBool,
+        interactive_frames: AtomicUsize,
+        activity_changed: Notify,
+    }
+
     struct FlakyEndpoint {
         generation: watch::Sender<u64>,
         fin_attempts: AtomicUsize,
@@ -1690,6 +1698,95 @@ mod tests {
         }
     }
 
+    impl LaneBlockingEndpoint {
+        fn new() -> Arc<Self> {
+            let (generation, _) = watch::channel(0);
+            Arc::new(Self {
+                generation,
+                bulk_active: AtomicBool::new(false),
+                bulk_released: AtomicBool::new(false),
+                interactive_frames: AtomicUsize::new(0),
+                activity_changed: Notify::new(),
+            })
+        }
+
+        async fn wait_for_bulk(&self) {
+            tokio::time::timeout(Duration::from_secs(1), async {
+                loop {
+                    let notified = self.activity_changed.notified();
+                    if self.bulk_active.load(Ordering::Acquire) {
+                        break;
+                    }
+                    notified.await;
+                }
+            })
+            .await
+            .expect("Bulk send never reached the backpressured endpoint");
+        }
+
+        async fn wait_for_interactive(&self) {
+            loop {
+                let notified = self.activity_changed.notified();
+                if self.interactive_frames.load(Ordering::Acquire) != 0 {
+                    break;
+                }
+                notified.await;
+            }
+        }
+
+        fn release_bulk(&self) {
+            self.bulk_released.store(true, Ordering::Release);
+            self.activity_changed.notify_waiters();
+        }
+    }
+
+    #[async_trait]
+    impl SessionEndpoint for LaneBlockingEndpoint {
+        async fn send_frame(
+            &self,
+            _expected_generation: Option<u64>,
+            lane: Lane,
+            _stream: u64,
+            _payload: Bytes,
+            flags: FrameFlags,
+        ) -> Result<u64, ServiceError> {
+            if flags.contains(FrameFlags::OPEN) {
+                return Ok(1);
+            }
+            match lane {
+                Lane::Bulk => {
+                    self.bulk_active.store(true, Ordering::Release);
+                    self.activity_changed.notify_waiters();
+                    loop {
+                        let notified = self.activity_changed.notified();
+                        if self.bulk_released.load(Ordering::Acquire) {
+                            break;
+                        }
+                        notified.await;
+                    }
+                }
+                Lane::Interactive => {
+                    self.interactive_frames.fetch_add(1, Ordering::AcqRel);
+                    self.activity_changed.notify_waiters();
+                }
+                Lane::Control | Lane::Tunnel => {}
+            }
+            Ok(1)
+        }
+
+        async fn receive_frame(&self) -> Result<Option<ReceivedFrame>, ServiceError> {
+            pending().await
+        }
+
+        fn subscribe_generation(&self) -> watch::Receiver<u64> {
+            self.generation.subscribe()
+        }
+
+        async fn close_session(&self) -> Result<(), ServiceError> {
+            Ok(())
+        }
+    }
+
     #[async_trait]
     impl SessionEndpoint for BlockingEndpoint {
         async fn send_frame(
@@ -1770,6 +1867,34 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(fatal.borrow().as_deref(), Some("remote session closed"));
+    }
+
+    #[tokio::test]
+    async fn mux_service_lanes_send_independently_under_bulk_backpressure() {
+        let endpoint = LaneBlockingEndpoint::new();
+        let multiplexer =
+            ServiceMultiplexer::new(endpoint.clone(), EndpointRole::Daemon);
+        let stream =
+            Arc::new(multiplexer.open(Service::MuxControl, BTreeMap::new()).await.unwrap());
+
+        let bulk = tokio::spawn({
+            let stream = stream.clone();
+            async move { stream.send_on(Lane::Bulk, Bytes::from_static(b"bulk")).await }
+        });
+        endpoint.wait_for_bulk().await;
+        let interactive = tokio::time::timeout(
+            Duration::from_millis(100),
+            stream.send_on(Lane::Interactive, Bytes::from_static(b"interactive")),
+        )
+        .await;
+        endpoint.release_bulk();
+        bulk.await.unwrap().unwrap();
+
+        interactive
+            .expect("Interactive send was serialized behind a backpressured Bulk lane")
+            .unwrap();
+        endpoint.wait_for_interactive().await;
+        multiplexer.shutdown().await;
     }
 
     #[tokio::test]
