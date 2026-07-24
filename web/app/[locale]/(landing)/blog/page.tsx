@@ -45,7 +45,7 @@ export default function BlogPage() {
               href={`/blog/${post.slug}`}
               className="group block"
             >
-              <h2 className="text-lg font-medium group-hover:underline">
+              <h2 className="pb-1 text-lg font-medium group-hover:underline">
                 {t(`posts.${post.key}.title`)}
               </h2>
               <p className="mt-1 text-muted">
