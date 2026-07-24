@@ -135,6 +135,37 @@ final class ShareSessionController {
     init(testingAPI: any ShareSessionAPIProviding) {
         self.apiProvider = { testingAPI }
     }
+
+    func installActiveSocketForTesting(
+        _ socket: ShareSocket,
+        connection: UInt64
+    ) {
+        self.socket = socket
+        activeSocketConnection = connection
+        acknowledgementGate.connectionOpened()
+        shouldTeardownAfterAcknowledgement = false
+        pendingResyncHello = nil
+        status = .active
+        socketEventTask = Task {
+            try? await Task.sleep(for: .seconds(60))
+        }
+    }
+
+    func handleServerTextForTesting(
+        _ text: String,
+        connection: UInt64,
+        sequence: UInt64
+    ) async {
+        await handleServerText(
+            text,
+            connection: connection,
+            sequence: sequence
+        )
+    }
+
+    var hasSocketEventTaskForTesting: Bool {
+        socketEventTask != nil
+    }
 #endif
 
     // MARK: - Lifecycle

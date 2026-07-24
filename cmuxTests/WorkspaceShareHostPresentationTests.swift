@@ -241,6 +241,59 @@ struct WorkspaceShareHostPresentationTests {
         ShareChatView.submitDraft(&draft) { _ in true }
         #expect(draft.isEmpty)
     }
+
+    @Test("A stale session-ended marker cannot tear down its replacement")
+    func staleSessionEndPreservesReplacementController() async throws {
+        let controller = ShareSessionController { nil }
+        let socket = ShareSocket(
+            endpoint: ShareSocket.Endpoint(
+                wsUrl: "ws://127.0.0.1:1/connect",
+                token: "valid-token"
+            ),
+            refresh: {
+                ShareSocket.Endpoint(
+                    wsUrl: "ws://127.0.0.1:1/connect",
+                    token: "valid-token"
+                )
+            }
+        )
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let original = session.webSocketTask(
+            with: try #require(URL(string: "ws://127.0.0.1:1/original"))
+        )
+        let replacement = session.webSocketTask(
+            with: try #require(URL(string: "ws://127.0.0.1:1/replacement"))
+        )
+
+        await socket.installWebSocketTaskForTesting(
+            original,
+            connection: 1
+        )
+        controller.installActiveSocketForTesting(
+            socket,
+            connection: 1
+        )
+        await controller.handleServerTextForTesting(
+            #"{"t":"session-ended","reason":"expired"}"#,
+            connection: 1,
+            sequence: 0
+        )
+        await socket.installWebSocketTaskForTesting(
+            replacement,
+            connection: 2
+        )
+        await controller.handleServerTextForTesting(
+            #"{"t":"ack-request","nonce":"stale-session-end"}"#,
+            connection: 1,
+            sequence: 1
+        )
+
+        #expect(controller.status == .active)
+        #expect(controller.socket === socket)
+        #expect(controller.hasSocketEventTaskForTesting)
+        controller.stopSharing()
+    }
 }
 
 @Suite("Workspace share socket request")

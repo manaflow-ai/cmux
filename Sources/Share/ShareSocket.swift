@@ -441,6 +441,7 @@ actor ShareSocket {
         _ task: URLSessionWebSocketTask,
         connection: UInt64
     ) {
+        resumeDiscarded(outboundMailbox.discardAll())
         webSocketTask = task
         activeConnectionGeneration = connection
         setConnectionAdmission(true, connection: connection)
