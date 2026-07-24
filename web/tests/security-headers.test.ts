@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { poweredByHeader, securityHeaderRules } from "../security-headers";
 
 function responseHeadersFor(paths: string[]): Record<string, Record<string, string>> {
@@ -21,16 +23,14 @@ function responseHeadersFor(paths: string[]): Record<string, Record<string, stri
     }
     console.log(JSON.stringify(result));
   `;
-  const child = Bun.spawnSync({
-    cmd: [process.execPath, "-e", script],
-    cwd: import.meta.dir,
-    stdout: "pipe",
-    stderr: "pipe",
+  const child = spawnSync(process.execPath, ["-e", script], {
+    cwd: fileURLToPath(new URL(".", import.meta.url)),
+    encoding: "utf8",
   });
-  if (child.exitCode !== 0) {
-    throw new Error(new TextDecoder().decode(child.stderr));
+  if (child.status !== 0) {
+    throw new Error(child.stderr);
   }
-  return JSON.parse(new TextDecoder().decode(child.stdout)) as Record<
+  return JSON.parse(child.stdout) as Record<
     string,
     Record<string, string>
   >;
